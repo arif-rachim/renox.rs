@@ -1,36 +1,201 @@
-# 25 — Execution: copy-paste prompts for agent sessions
+# 25 — Execution: the step list
 
-Three prompts. You only ever change the issue or PR number. Open each session with Claude Code in the repository root; the session creates its own worktree, so several sessions can run at the same time from the same checkout.
+One step = one Claude Code session = one issue. Open Claude Code in the repository root and paste the step's prompt. "After N" means: start this step only after the PR of step N is merged. Steps with the same "after" list can run at the same time in separate sessions. Merge every PR with `gh pr merge <PR> --squash --delete-branch`, then `git worktree remove ../renox-<key>`.
 
-## Prompt 1 — which issues can I start now?
+Issue #87 (UAE entity and bank account) is yours, not a session; do it any time during F1.
 
-Paste in any session:
+The sessions read the "Rules for the agent" section at the end of this file; you never need to.
+
+
+## F0
+### 1. Start here — #1 Repository scaffolding, toolchain pins, and CI
+```
+Work on issue #1 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 2. After 1 — #2 Benchmark harness skeleton: bench/run.sh, result template, hardware capture
+```
+Work on issue #2 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 3. After 1 — #4 Example app `examples/hello`: one function returning JSON
+```
+Work on issue #4 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 4. After 1 — #5 Example app `examples/npm-compat`: import and exercise each package from the B17 list
+```
+Work on issue #5 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 5. After 1 — #9 Prototype: attribute-template → minijinja transpiler (string in, string out)
+```
+Work on issue #9 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 6. After 1 — #12 Contract sketch: runtime op signatures and the `ctx` type surface (docs/contracts/ops.md)
+```
+Work on issue #12 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 7. After 1, 3 — #3 Spike: run Supabase Edge Runtime locally and serve the hello function
+```
+Work on issue #3 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 8. After 2 — #13 Baselines: Bun + Hono and Node + Hono hello app on the same hardware
+```
+Work on issue #13 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 9. After 2, 4, 7 — #6 Benchmark B1: memory per warm isolate under Supabase Edge Runtime
+```
+Work on issue #6 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 10. After 2, 3, 7 — #7 Benchmark B4: cold start from snapshot to first response
+```
+Work on issue #7 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 11. After 2, 4, 7 — #8 Benchmark B17: npm compatibility inside the isolate
+```
+Work on issue #8 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 12. After 2, 5, 7 — #10 Benchmark B9: V8 → minijinja::Value marshaling cost
+```
+Work on issue #10 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 13. After 2, 5, 12 — #11 Benchmark B6 (first cut): render the shop medium page with the minijinja prototype
+```
+Work on issue #11 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 14. After 8, 9, 10, 11, 12, 13 — #14 F0 gate review: record results, apply kill criteria, decide go / no-go for F1
+```
+Work on issue #14 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+
+## F1
+### 15. After 14 — #15 Contract: artifact format v0 and route table (docs/contracts/artifact.md)
+```
+Work on issue #15 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 16. After 14 — #16 Contract: meter record schema v0 (docs/contracts/meter.md)
+```
+Work on issue #16 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 17. After 6, 14 — #17 Contract: ops v0 finalised from the F0 sketch, including limits and error codes
+```
+Work on issue #17 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 18. After 14, 17 — #18 renox-data: open a tenant file with the required pragmas, writer + reader pool, query/execute/transaction API
+```
+Work on issue #18 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 19. After 14, 15 — #22 renox-gateway: HTTP listener, hostname → tenant → deployment routing, static files, per-IP rate limit
+```
+Work on issue #22 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 20. After 14, 16 — #24 renox-meter: per-invocation record, batching, file and stdout sinks
+```
+Work on issue #24 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 21. After 14, 15, 17 — #25 renox-runtime: embed Supabase Edge Runtime / deno_runtime, create an isolate from the snapshot, load an artifact, dispatch a Request to a handler
+```
+Work on issue #25 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 22. After 14, 17 — #31 SDK v0: the `renox` package with `ctx` types (db, fetch, secrets, log, deadline), handler types, error class
+```
+Work on issue #31 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 23. After 17 — #91 docs/contracts/errors.md: tenant-facing error catalogue (code, HTTP status, cause, what the tenant does, what is logged)
+```
+Work on issue #91 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 24. After 18 — #19 renox-data: SQLite authorizer per module prefix
+```
+Work on issue #19 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 25. After 18 — #20 renox-data: statement time limit, deadline propagation, and WAL checkpoint scheduling
+```
+Work on issue #20 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 26. After 19 — #23 renox-gateway: TLS with rustls from provided certificates, SNI per hostname, hot reload
+```
+Work on issue #23 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 27. After 21 — #26 renox-runtime: CPU watchdog, wall-clock deadline, heap limit, concurrency semaphore, isolate recycling
+```
+Work on issue #26 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 28. After 21 — #27 renox-runtime: `fetch` op with host allowlist, SSRF blocking after DNS resolution, egress byte limit
+```
+Work on issue #27 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 29. After 22 — #33 Example app `examples/evil`: infinite loop, unbounded allocation, SSRF attempts, slow handler
+```
+Work on issue #33 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 30. After 21 — #36 CI: sccache, cached target, release build of renox-worker only on crates/ changes, GitHub Release artifact, B20 measurement
+```
+Work on issue #36 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 31. After 19 — #88 renox-gateway: input limits — header size and count, body size per route kind, header read timeout, idle timeout, max connections per IP
+```
+Work on issue #88 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 32. After 24 — #21 renox-data: forward-only migration runner for the app's own migrations with checksums
+```
+Work on issue #21 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 33. After 18, 21, 24, 25 — #28 renox-runtime: `db`, `secrets`, `log`, `deadline` ops bridging to renox-data with error wrapping and secret redaction
+```
+Work on issue #28 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 34. After 28 — #108 renox-runtime: `fetch` DNS pinning (connect to the checked address), redirect re-validation, TLS verification without opt-out
+```
+Work on issue #108 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 35. After 30 — #109 Supply chain and CI security: cargo deny, bun audit, Dependabot, SHA-pinned actions, rusty_v8 checksum, signed releases verified by the CLI
+```
+Work on issue #109 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 36. After 19, 20, 25, 27, 28, 32, 33 — #29 renox-cell: wire gateway, runtime, data, meter into the `renox-worker` binary; cell lifecycle with idle eviction
+```
+Work on issue #29 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 37. After 27, 33 — #89 renox-runtime: roll back open DB transactions and release the writer when a request is terminated (CPU limit, OOM, deadline)
+```
+Work on issue #89 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 38. After 15, 36 — #30 renox-cell: artifact loader v0 from a local directory with sha256 verification and on-disk cache layout
+```
+Work on issue #30 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 39. After 15, 22, 36, 38 — #32 CLI v0: `renox new`, `renox dev` (embedded prebuilt worker, isolate restart on change), `renox check` (route conflicts, SQL interpolation lint), artifact builder
+```
+Work on issue #32 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 40. After 22, 32, 39 — #34 Example app `examples/shop` skeleton: functions only, SQLite products table, migrations, seed
+```
+Work on issue #34 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 41. After 29, 36, 39, 40 — #35 Benchmarks B5, B11, B2, B3 (first run) and B12 noisy neighbour on the real worker
+```
+Work on issue #35 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 42. After 23, 31, 37, 41 — #92 Negative path checklist F1 (blocks the F1 gate review)
+```
+Work on issue #92 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 43. After 19, 21, 24, 27, 28, 33, 34, 35, 38, 41 — #110 Security checklist F1 (blocks the F1 gate review)
+```
+Work on issue #110 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+### 44. After 30, 36, 38, 39, 41, 42, 43 — #37 F1 gate review: two tenants on one node, B12 noisy neighbour passes, meters recorded; split F2/F3 epics
+```
+Work on issue #37 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from Start to Finish. Do not ask me questions; if you are blocked, do what the rules say and stop.
+```
+
+## After F1
+
+The F1 gate review (step 44) splits the F2 epics into tasks. Regenerate this list then: the step order is the topological order of the "Blocked by" lists, one issue per step.
+
+## Optional: review a PR before you merge
 
 ```
-Read docs/25-execution.md section "Rules for the agent". Then list the issues of arif-rachim/renox.rs that I can start right now: open, label parallel-safe, no label in-progress, and every issue in their "Blocked by" list is CLOSED. Group them so that issues owning the same crate or package are in one group (read the Files section of each). Print one line per group: the issue numbers, the track, and a one-line summary. Tell me how many sessions that is. Do not start any of them.
+Review PR #<N> of arif-rachim/renox.rs against the issue it closes. Check: every acceptance criterion has a test or result file in the PR; only paths in the issue's Files section (plus tests) changed; the Security section of the PR template is filled in; "Differences from the issue" is present; CI is green. Run the tests of the changed package yourself. Report MERGE or DO NOT MERGE with reasons as a list. Do not merge, do not push.
 ```
-
-## Prompt 2 — work on one issue
-
-Paste in a new session, change only the number:
-
-```
-Work on issue #18 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from "Start" to "Finish". Do not ask me questions; if you are blocked, do what the rules say and stop.
-```
-
-For a group with two issues in the same crate (for example `{#26 → #27}`), paste the same prompt with the first number; when its PR is merged, paste it again with the second.
-
-## Prompt 3 — review a PR before merging
-
-Paste in any session, change only the number:
-
-```
-Review PR #<N> of arif-rachim/renox.rs against the issue it closes. Check: every acceptance criterion of the issue has a test or result file in the PR; only paths in the issue's Files section (plus their tests) changed; the PR template's Security section is filled in; "Differences from the issue" is present; CI is green. Then run the tests of the changed package yourself. Report MERGE or DO NOT MERGE with the reasons as a list. Do not merge, do not push.
-```
-
-You merge with squash (`gh pr merge <N> --squash --delete-branch`). `Closes #<N>` in the PR body closes the issue. After the last PR of a group is merged, run Prompt 1 again.
-
-Keep at most as many sessions open as PRs you can review the same day. If you cannot review that day, start fewer sessions.
 
 ## Rules for the agent
 

@@ -42,7 +42,7 @@ Within a track, two issues that touch the same crate or package must not run at 
 
 ## 4. Running several agent sessions at once
 
-The copy-paste prompts for sessions and the rules each session follows are in `25-execution.md`.
+The numbered step list with the prompt to paste for each issue is `25-execution.md`.
 
 ### Branch and worktree convention
 
