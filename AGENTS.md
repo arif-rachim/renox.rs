@@ -48,6 +48,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 20. `docs/19-platform-wireframes.md` — the hosting product's screens: tenant dashboard, CLI output, operator console.
 21. `docs/20-ai-agents-mcp.md` — how agents work with Renox: platform MCP for developers, app MCP per tenant, `ctx.ai`, agent security.
 22. `docs/21-uae-gcc-strategy.md` — target market (UAE SMEs): distribution, GCC modules and starters, unit economics, compliance, items to verify.
+23. `docs/22-development-plan.md` — how work is tracked on GitHub (milestones, issue keys, labels), directory ownership per track, branch and session protocol for running several agents in parallel, phase gates.
 
 ## Repository layout (planned)
 
@@ -101,6 +102,7 @@ A folder that does not exist yet is not due yet. Do not create crates or package
 - Language: all documentation, comments, identifiers, commit messages, and APIs in English.
 
 ### Workflow
+- Work is tracked as GitHub issues keyed `[Fx-nn]`, one issue = one branch = one PR = one agent session; see `docs/22-development-plan.md` for the session protocol and directory ownership.
 - One change = one small PR whose description references the relevant ADR or docs section.
 - Architectural changes update `docs/` in the same PR.
 - Benchmark results are recorded under `bench/results/` in the format from `docs/14-benchmarks.md`; update target numbers in the docs if they change.
