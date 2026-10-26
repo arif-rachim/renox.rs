@@ -60,10 +60,10 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
 | Reading another tenant's data | File per tenant; tenant id from routing, never from input | Authorizer; process isolation per tier | cross-tenant test | F1 |
-| Host/SNI confusion: TLS for tenant A, `Host` for tenant B | Routing uses the `Host` header after TLS; SNI and `Host` must name the same tenant or the request is refused | Certificates per hostname only | `TODO` → #107 | F1 |
-| HTTP request smuggling, `Transfer-Encoding` tricks, h2c upgrade | hyper strict parsing; `TE` with `Content-Length` refused; no cleartext upgrade; HTTP/1.1 pipelining limits | Gateway is the only process on the listener | #107 | F1 |
-| HTTP/2 rapid reset and stream floods | Max concurrent streams, reset rate limit, per-connection budget | Per-IP connection limit | #107 | F1 |
-| Cache poisoning of static assets | Cache key = tenant + hostname + path; unkeyed headers never influence the response | Immutable hashed asset paths | #107 | F1 |
+| Host/SNI confusion: TLS for tenant A, `Host` for tenant B | Routing uses the `Host` header after TLS; SNI and `Host` must name the same tenant or the request is refused | Certificates per hostname only | `TODO` → #107 | F2 |
+| HTTP request smuggling, `Transfer-Encoding` tricks, h2c upgrade | hyper strict parsing; `TE` with `Content-Length` refused; no cleartext upgrade; HTTP/1.1 pipelining limits | Gateway is the only process on the listener | #107 | F2 |
+| HTTP/2 rapid reset and stream floods | Max concurrent streams, reset rate limit, per-connection budget | Per-IP connection limit | #107 | F2 |
+| Cache poisoning of static assets | Cache key = tenant + hostname + path; unkeyed headers never influence the response | Immutable hashed asset paths | #107 | F2 |
 | Path traversal or dotfiles under `public/` | Static files served only from the artifact's `public/manifest.json`, never from a filesystem path built from the request | CLI excludes dotfiles and symlinks at build | #22; #115 | F1/F3 |
 | Custom domain takeover (dangling CNAME, re-claimed hostname) | Ownership record persists after removal; another tenant cannot claim a hostname while it is owned; periodic re-verification | Deleted `*.renox.app` slugs quarantined before reuse | `TODO` → #114 | F3 |
 | Shared-domain reputation (one phishing tenant gets `*.renox.app` blocked) | `renox.app` registered on the Public Suffix List; cookies and Safe Browsing scoped per subdomain | Abuse takedown SLA | #114; #123 | F3/F7 |
@@ -98,7 +98,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | Vulnerable or malicious crate / npm package | `cargo deny` (advisories, sources, licences) and `bun audit` in CI; Dependabot or Renovate with grouped weekly PRs | Lockfiles committed; `--locked` / `--frozen-lockfile` in CI | `TODO` → #109 | F1 |
 | Tampered prebuilt `rusty_v8` binary | Pinned version; sha256 of the archive verified against a checksum committed to the repo (`RUSTY_V8_ARCHIVE` from a mirror we control) | Build fails on mismatch | #109 | F1 |
 | Compromised GitHub Action | Every action pinned to a commit SHA; minimal `permissions:` per job; no secrets in PR builds from forks | Branch protection, required reviews, signed commits encouraged | #109 | F1 |
-| Tampered release of `renox-worker` or the `renox` CLI (runs on every tenant laptop via `renox dev`) | Releases signed with sigstore/cosign with SLSA provenance; the CLI verifies the worker's signature and hash before executing it | Checksums published; reproducible build goal | #109 | F1 |
+| Tampered release of `renox-worker` or the `renox` CLI (runs on every tenant laptop via `renox dev`) | Releases signed with sigstore/cosign with SLSA provenance; the CLI verifies the worker's signature and hash before executing it | Checksums published; reproducible build goal | #129 | F3 |
 | Secret leaked through CI logs | Secrets masked; no `set -x` with secrets; tokens short-lived (OIDC to cloud) | — | #109 | F1 |
 | Tenant dependencies frozen at deploy but vulnerable | SBOM per artifact; advisory scan at deploy with a dashboard warning | Future: block on critical | #123 (warning only) | F7 |
 
@@ -134,7 +134,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 
 1. **Security checklist per phase.** Each phase has a `security checklist` issue listing the rows above due in that phase; the gate review is blocked by it: F1 #110, F2 #112, F3 #116, F4 #117, F5 #119, F6 #122, F7 #124.
 2. **Security section in every PR.** `.github/PULL_REQUEST_TEMPLATE.md` asks: new input from the network or from tenant code? new place a secret flows through? new table, op, header, or route? If yes, name the row in this document and the test.
-3. **Early adversarial review.** The SSRF filter (#27, #108), the authorizer (#19), and the gateway parser (#107) get a recorded adversarial review session when they merge in F1, not at the F6 penetration test. The session's findings are issues.
+3. **Early adversarial review.** The SSRF filter (#27, #108), the authorizer (#19), and the gateway parser (#107, F2) get a recorded adversarial review session when they merge, not at the F6 penetration test. The session's findings are issues.
 4. **Penetration test** before F6 closes (#79), scope defined in #121; findings closed or accepted with a written reason.
 5. **Disclosure and incidents.** `/.well-known/security.txt`, a disclosure policy, and an incident runbook (contain, rotate, notify within the PDPL window, post-mortem) exist before external customers (#121).
 6. **Dependency cadence.** Dependabot/Renovate PRs reviewed weekly; a critical advisory in a runtime dependency is a same-week release (#109).

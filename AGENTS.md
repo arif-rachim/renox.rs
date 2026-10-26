@@ -51,6 +51,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 23. `docs/22-development-plan.md` — how work is tracked on GitHub (milestones, issue keys, labels), directory ownership per track, branch and session protocol for running several agents in parallel, phase gates.
 24. `docs/23-failure-modes.md` — catalogue of failure modes and negative paths per component: what fails, who detects it, what the tenant sees, the proving test. Source of the per-phase negative path checklist.
 25. `docs/24-threat-model.md` — threats per trust boundary (end user, tenant, module publisher, control plane, supply chain, operator, agents) with the control, the proving test, and the phase. Source of the per-phase security checklist and of the PR security section.
+26. `docs/25-execution.md` — how to run parallel agent sessions: preconditions for a wave, the session prompt, the waves for F0 and F1, the merge routine, what never runs in parallel.
 
 ## Repository layout (planned)
 

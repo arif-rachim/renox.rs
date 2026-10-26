@@ -54,8 +54,8 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 
 | Failure | Detected by | Tenant sees | Platform does | Proof | Phase |
 | --- | --- | --- | --- | --- | --- |
-| Syntax error, missing `renox.toml`, bad route file name | `renox build` / `renox check` | CLI error with file and line, non-zero exit | Nothing uploaded | `TODO` → #90 | F1 |
-| Watcher thrash (many saves per second) | `renox dev` debounce | One rebuild per burst | Isolate recreated once | same issue | F1 |
+| Syntax error, missing `renox.toml`, bad route file name | `renox build` / `renox check` | CLI error with file and line, non-zero exit | Nothing uploaded | `TODO` → #90 | F2 |
+| Watcher thrash (many saves per second) | `renox dev` debounce | One rebuild per burst | Isolate recreated once | same issue | F2 |
 | Artifact hash mismatch, symlink, `..` path | Worker artifact loader | Deploy rejected | Artifact refused, never loaded | artifact tests | F1 |
 | Bundle over 20 MB, route conflict, unknown permission key | CLI check and control-plane validation (same code) | Structured validation error | Deployment state `rejected` | validation tests | F3 |
 | Tarball decompression bomb / too many files | Validation with size and entry caps before extraction | Rejected | Extraction aborted at cap | `TODO` → #95 | F3 |

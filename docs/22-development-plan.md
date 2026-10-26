@@ -42,6 +42,8 @@ Within a track, two issues that touch the same crate or package must not run at 
 
 ## 4. Running several agent sessions at once
 
+The operational version of this section, with the prompt to give each session, the preconditions for starting a wave, and the computed waves for F0 and F1, is `25-execution.md`.
+
 ### Branch and worktree convention
 
 ```
@@ -214,7 +216,7 @@ Issue numbers on GitHub for each key (milestones: F0 = 1 … F7 = 8). Search by 
 | NE-01 | #87 |
 | F1-24 | #88 |
 | F1-25 | #89 |
-| F1-26 | #90 |
+| F2-21 | #90 |
 | F1-27 | #91 |
 | F1-28 | #92 |
 | F2-13 | #93 |
@@ -231,7 +233,7 @@ Issue numbers on GitHub for each key (milestones: F0 = 1 … F7 = 8). Search by 
 | F6-07 | #104 |
 | F6-08 | #105 |
 | F7-08 | #106 |
-| F1-29 | #107 |
+| F2-20 | #107 |
 | F1-30 | #108 |
 | F1-31 | #109 |
 | F1-32 | #110 |
@@ -253,3 +255,4 @@ Issue numbers on GitHub for each key (milestones: F0 = 1 … F7 = 8). Search by 
 | F2-18 | #126 |
 | F2-19 | #127 |
 | F3-23 | #128 |
+| F3-24 | #129 |
