@@ -25,7 +25,7 @@ These come from `18-build-plan.md` and `12-developer-experience.md`; they are re
 1. **Contracts first.** A track may consume another track's output only through a document under `docs/contracts/` that has been merged first: op signatures (runtime ↔ SDK), artifact format and route table (cell / CLI ↔ control plane), meter record schema (meter ↔ billing), manifest schema (broker ↔ CLI ↔ modules). A contract change is its own small PR, reviewed by both consumers.
 2. **Leaf crates never depend on each other.** `renox-data`, `renox-gateway`, `renox-meter`, `renox-template`, `renox-authz`, `renox-realtime` depend only on external crates. Integration happens only in `renox-cell` (and `renox-runtime` for ops). Two agents can therefore build two leaf crates at the same time with zero merge conflicts.
 3. **Shared files are owned by one issue at a time.** Workspace `Cargo.toml`, root `package.json`, `.github/workflows/*`, `AGENTS.md`, `CLAUDE.md`. If your issue needs a change there (for example adding a workspace member), make it the first, tiny commit of your PR and keep it append-only, so rebases are trivial.
-4. **One issue, one branch, one PR, one session.** Never work on two issues in one branch. Never let two sessions work on the same issue.
+4. **One batch, one branch, one PR, one session.** A batch is a list of issues that own one crate or directory, worked in dependency order with one commit per issue (`25-execution.md`). Never let two sessions work on the same issue or the same crate at the same time.
 5. **Tests prove the contract.** A PR that closes an issue includes the tests listed in the acceptance criteria. Hand-offs between tracks happen through merged, tested code, never through a chat message.
 
 ## 3. Directory ownership (who may touch what)
@@ -42,7 +42,7 @@ Within a track, two issues that touch the same crate or package must not run at 
 
 ## 4. Running several agent sessions at once
 
-The numbered step list with the prompt to paste for each issue is `25-execution.md`.
+The batches, their order, and the prompt to paste for each are in `25-execution.md`.
 
 ### Branch and worktree convention
 

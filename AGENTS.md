@@ -51,7 +51,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 23. `docs/22-development-plan.md` — how work is tracked on GitHub (milestones, issue keys, labels), directory ownership per track, branch and session protocol for running several agents in parallel, phase gates.
 24. `docs/23-failure-modes.md` — catalogue of failure modes and negative paths per component: what fails, who detects it, what the tenant sees, the proving test. Source of the per-phase negative path checklist.
 25. `docs/24-threat-model.md` — threats per trust boundary (end user, tenant, module publisher, control plane, supply chain, operator, agents) with the control, the proving test, and the phase. Source of the per-phase security checklist and of the PR security section.
-26. `docs/25-execution.md` — the numbered step list: one step per issue with the prompt to paste and the steps it waits for, plus the rules every session follows.
+26. `docs/25-execution.md` — the batches: which issues one session takes, in what order, after which batch; the prompt to paste; the rules every session follows.
 
 ## Repository layout (planned)
 
@@ -105,7 +105,7 @@ A folder that does not exist yet is not due yet. Do not create crates or package
 - Language: all documentation, comments, identifiers, commit messages, and APIs in English.
 
 ### Workflow
-- Work is tracked as GitHub issues keyed `[Fx-nn]`, one issue = one branch = one PR = one agent session; see `docs/22-development-plan.md` for the session protocol and directory ownership.
+- Work is tracked as GitHub issues keyed `[Fx-nn]`, a session takes a batch of issues (same crate or directory, dependency order) on one branch ending in one PR that closes them; batches and prompts are in `docs/25-execution.md`, directory ownership in `docs/22-development-plan.md`.
 - One change = one small PR whose description references the relevant ADR or docs section.
 - Architectural changes update `docs/` in the same PR.
 - Benchmark results are recorded under `bench/results/` in the format from `docs/14-benchmarks.md`; update target numbers in the docs if they change.
