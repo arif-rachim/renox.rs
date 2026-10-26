@@ -1,5 +1,7 @@
 # 04 — Isolation and security
 
+The full threat model per trust boundary, with the proving test for each control and the per-phase security checklist, is `24-threat-model.md`; this document describes the isolation design.
+
 Security is the product. A tenant must not be able to read another tenant's data, exhaust another tenant's resources, reach our internal infrastructure, or persist code we did not validate. Every layer below assumes the layer above it will eventually fail.
 
 ## Isolation hierarchy

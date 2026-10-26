@@ -50,6 +50,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 22. `docs/21-uae-gcc-strategy.md` — target market (UAE SMEs): distribution, GCC modules and starters, unit economics, compliance, items to verify.
 23. `docs/22-development-plan.md` — how work is tracked on GitHub (milestones, issue keys, labels), directory ownership per track, branch and session protocol for running several agents in parallel, phase gates.
 24. `docs/23-failure-modes.md` — catalogue of failure modes and negative paths per component: what fails, who detects it, what the tenant sees, the proving test. Source of the per-phase negative path checklist.
+25. `docs/24-threat-model.md` — threats per trust boundary (end user, tenant, module publisher, control plane, supply chain, operator, agents) with the control, the proving test, and the phase. Source of the per-phase security checklist and of the PR security section.
 
 ## Repository layout (planned)
 

@@ -96,3 +96,4 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 - Every phase has a `negative path checklist` issue listing the rows of this document due in that phase; the gate review is blocked by it: F1 #92, F2 #94, F3 #99, F4 #101, F5 #102, F6 #105, F7 #106.
 - From F6 a fault-injection harness (`bench/chaos/`, #104) runs the node, storage, and control-plane failures above on a schedule against the examples, and B18 is one of its scenarios.
 - Error codes shown to tenants are catalogued in `docs/contracts/errors.md` (#91) with: HTTP status, when it happens, what the tenant should do, what is logged.
+- Security threats (attacks rather than failures) are catalogued separately in `docs/24-threat-model.md`, with their own per-phase `security checklist` issue blocking the same gate reviews.

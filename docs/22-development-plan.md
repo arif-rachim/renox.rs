@@ -13,6 +13,7 @@ Read it before picking up an issue. The rules in `AGENTS.md` still apply; this d
 | Label `phase:Fx` | The phase | Every issue has exactly one |
 | Label `track:R / T / M / O` | Rust data plane / TypeScript / modules and examples / ops and bench | Every issue has exactly one. Issues on different tracks touch disjoint directories and can run at the same time |
 | Label `type:*` | `contract`, `task`, `bench`, `epic`, `review` | `contract` issues must be merged before the tasks that consume them; `epic` issues are split into tasks when their phase starts; `review` issues are the phase gate |
+| Label `security` | The issue is a security control, test, or review from `docs/24-threat-model.md` | Reviewed with the PR security section filled in |
 | Label `parallel-safe` | The issue has no unmerged dependency once its "Blocked by" list is closed | Any agent may start it as soon as the blockers are closed |
 
 Issue bodies always have the same sections: **Context**, **Goal**, **Scope** (in / out), **Steps**, **Acceptance criteria** (checkboxes), **Dependencies** (blocked by / blocks), **Files** (owned / must not touch), **Branch**. A small model should be able to complete the issue from the body plus the documents it links.
@@ -106,6 +107,7 @@ Each milestone ends with a `type:review` issue. The review issue:
 
 - Lists the done criteria from `15-roadmap.md` and the benchmark IDs from `14-benchmarks.md` that must have a `PASS` result file under `bench/results/`.
 - Is blocked by the phase's `negative path checklist` issue, which ticks every row of `docs/23-failure-modes.md` due in that phase with a link to its test.
+- Is blocked by the phase's `security checklist` issue, which ticks every row of `docs/24-threat-model.md` due in that phase with a link to its test.
 - Checks the kill criteria. If a kill criterion is hit, the review issue is where the decision (continue, change direction, stop) is recorded, together with a new ADR in `13-decisions.md` if the direction changes.
 - Splits the next phase's `type:epic` issues into tasks, using what the finished phase taught us. Detailed task issues are written only one phase ahead on purpose; writing F4 tasks before F1 exists produces fiction.
 
@@ -229,3 +231,21 @@ Issue numbers on GitHub for each key (milestones: F0 = 1 … F7 = 8). Search by 
 | F6-07 | #104 |
 | F6-08 | #105 |
 | F7-08 | #106 |
+| F1-29 | #107 |
+| F1-30 | #108 |
+| F1-31 | #109 |
+| F1-32 | #110 |
+| F2-15 | #111 |
+| F2-16 | #112 |
+| F3-19 | #113 |
+| F3-20 | #114 |
+| F3-21 | #115 |
+| F3-22 | #116 |
+| F4-09 | #117 |
+| F5-08 | #118 |
+| F5-09 | #119 |
+| F6-09 | #120 |
+| F6-10 | #121 |
+| F6-11 | #122 |
+| F7-09 | #123 |
+| F7-10 | #124 |
