@@ -45,6 +45,9 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | CSRF token missing or wrong | Action dispatcher | 403 `RENOX_CSRF` | Action not run | pages test | F2 |
 | Cross-origin request without CORS allow | Gateway CORS | 403 / no CORS headers | — | security tests | F2 |
 | Unverified custom domain | Domain state | 404 | Never served before TXT verification | domains test | F3 |
+| Browser error (script, island, Alpine) or htmx failure (error response, no target, swap error, timeout) | `renox-client.js` events with request id | Dev: overlay "Browser" tab; prod: dashboard group with original file and line | Event rate-limited and logged with `source=client`; nothing touches the isolate | #127 Playwright suite; #128 grouping tests | F2/F3 |
+| Script blocked by CSP | CSP `report-to` → `/__renox/events` | Dev overlay / dashboard `csp.violation` with directive and source | Same as above | #126 normalisation test | F2 |
+| Client-event flood (bug or abuse) | Per-IP and per-tenant buckets at the gateway | Nothing (204 always) | Dropped and counted; daily quota warning in the dashboard | #126 limit tests; #128 quota test | F2/F3 |
 | WebSocket message flood / oversized frame | Per-connection limits, backpressure | Connection closed with code | Fan-out never touches the isolate | realtime tests, B14 | F5 |
 
 ## 3. Deploy and artifact failures (CLI, control plane, worker)

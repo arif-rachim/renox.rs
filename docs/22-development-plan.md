@@ -249,3 +249,7 @@ Issue numbers on GitHub for each key (milestones: F0 = 1 … F7 = 8). Search by 
 | F6-11 | #122 |
 | F7-09 | #123 |
 | F7-10 | #124 |
+| F2-17 | #125 |
+| F2-18 | #126 |
+| F2-19 | #127 |
+| F3-23 | #128 |
