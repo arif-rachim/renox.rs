@@ -42,7 +42,7 @@ Within a track, two issues that touch the same crate or package must not run at 
 
 ## 4. Running several agent sessions at once
 
-The operational version of this section, with the prompt to give each session, the preconditions for starting a wave, and the computed waves for F0 and F1, is `25-execution.md`.
+The copy-paste prompts for sessions and the rules each session follows are in `25-execution.md`.
 
 ### Branch and worktree convention
 

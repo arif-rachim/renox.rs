@@ -1,188 +1,70 @@
-# 25 — Execution: running parallel agent sessions
+# 25 — Execution: copy-paste prompts for agent sessions
 
-`22-development-plan.md` defines the objects (issues, labels, tracks, branches). This document is the operating manual: when a wave of sessions may start, what to put in each session's prompt, the computed waves for F0 and F1, the merge routine, and what never runs in parallel.
+Three prompts. You only ever change the issue or PR number. Open each session with Claude Code in the repository root; the session creates its own worktree, so several sessions can run at the same time from the same checkout.
 
-The unit of work is one issue = one branch = one worktree = one agent session = one PR. The unit of scheduling is a **wave**: the set of issues whose blockers are all closed and that do not touch the same files.
+## Prompt 1 — which issues can I start now?
 
-## 1. Preconditions for starting a wave
-
-Start sessions only when every line below is true. If one is false, fix it first; a wave started on a red `main` or on stale issue bodies produces PRs that cannot be merged.
-
-| # | Condition | How to check |
-| --- | --- | --- |
-| 1 | `main` is green and your local `main` is up to date | `gh run list --branch main --limit 1`, `git pull` |
-| 2 | Every issue in the wave has all numbers in its "Blocked by" list **closed** (merged PR and closed issue, not just an open PR) | `gh issue view <n>` for each blocker, or the wave script in section 3 |
-| 3 | No two issues in the wave own the same crate or package. Same crate is allowed only when both issue bodies say they are independent and name different files | Compare the `Files` sections |
-| 4 | No issue in the wave is `type:contract` or `type:review`, unless it is the only issue in the wave | Labels |
-| 5 | Each session has its own git worktree and branch; no two sessions share a checkout | `git worktree list` |
-| 6 | Issue bodies are current: paths, APIs, and error codes changed by the previous wave have been written into the issues that depend on them | Previous wave's PR descriptions list "differences from the issue"; apply them before starting |
-| 7 | No issue in the wave carries the `in-progress` label from an earlier session | `gh issue list --label in-progress` |
-| 8 | You can review and merge every PR the wave will produce within the same day or the next. Parallelism is capped by your merge throughput, not by the graph | Table in section 5 |
-
-Shortcut for conditions 2 and 7:
-
-```sh
-# Issues of a milestone that are parallel-safe, not in progress, and whose blockers are all closed
-gh issue list --repo arif-rachim/renox.rs --milestone "F1 Minimal data plane" --label parallel-safe --state open \
-  --json number,title,body,labels --jq '
-  .[] | select((.labels|map(.name)|index("in-progress"))==null)
-      | {n:.number, t:.title, b:((.body|capture("Blocked by:(?<x>[^\n]*)").x // "")|[scan("#[0-9]+")])}' \
-| while read -r line; do
-    n=$(jq -r .n <<<"$line"); ok=1
-    for d in $(jq -r '.b[]' <<<"$line"); do
-      [ "$(gh issue view "${d#\#}" --repo arif-rachim/renox.rs --json state -q .state)" = CLOSED ] || ok=0
-    done
-    [ $ok = 1 ] && echo "ready: #$n $(jq -r .t <<<"$line")"
-  done
-```
-
-## 2. The session prompt
-
-Give every session the same prompt with four values filled in: the issue number, the key, the branch, and the worktree path. Do not paste the issue body; the session reads it with `gh`. Do not add your own summary of the task; the issue is the task.
+Paste in any session:
 
 ```
-You are working on GitHub issue #<N> (key <KEY>) of arif-rachim/renox.rs.
-Worktree: <PATH>   Branch: <track>/<key>-<slug>   Base: main
-
-First, read AGENTS.md and the documents the issue cites, in the reading order AGENTS.md gives.
-Then read the issue with `gh issue view <N>` and its comments. The issue's Scope, Acceptance
-criteria, and Files sections are the contract for this session. Add the label `in-progress`
-to the issue when you start (`gh issue edit <N> --add-label in-progress`).
-
-Rules
-1. Change only the paths in the issue's Files section, plus tests for them. If you need a
-   change outside them, stop: comment on the issue with what you need and why, and end.
-2. Never edit docs/13-decisions.md. Never edit docs/contracts/** unless the issue is
-   type:contract. Never edit another issue's files "while you are there".
-3. Everything in English. Never build V8 from source. No secrets in code, tests, fixtures,
-   or logs. Security rules in CLAUDE.md apply to every line you write.
-4. The Files section is a proposed layout. If the code on main differs from what the issue
-   assumes (a path, an API from an earlier issue, an error code), follow the code and record
-   the difference in the PR description under "Differences from the issue". Do not change
-   the other crate or package to match the issue.
-5. Commit in small steps on this branch only. Never commit to main. Never force-push.
-   Never merge.
-6. Every acceptance criterion needs a test or a result file that proves it. Name the row of
-   docs/23-failure-modes.md or docs/24-threat-model.md each negative or security test proves.
-7. If the same problem blocks you after two different attempts (tool failure, missing
-   dependency, unclear spec, failing test you cannot explain), write it as a comment on the
-   issue and stop. Do not work around it and do not widen the scope.
-
-Done means, in this order:
-  a. Every acceptance criterion has a passing test (`cargo test -p <crate>` or `bun test`
-     in the owned package) or a result file under bench/results/; the commands and their
-     output are in the PR description.
-  b. `cargo fmt --check`, `cargo clippy -D warnings` (Rust) or `bun run lint` (TypeScript)
-     pass for the owned package.
-  c. Open a PR with `gh pr create --base main` using the repository template. Title
-     `[<KEY>] <short title>`. Body starts with `Closes #<N>`, fills in the Security section,
-     and lists "Differences from the issue" (or "None").
-  d. Comment on the issue: what changed, what was verified, what is left open.
-  e. Stop. Do not merge, do not start another issue.
+Read docs/25-execution.md section "Rules for the agent". Then list the issues of arif-rachim/renox.rs that I can start right now: open, label parallel-safe, no label in-progress, and every issue in their "Blocked by" list is CLOSED. Group them so that issues owning the same crate or package are in one group (read the Files section of each). Print one line per group: the issue numbers, the track, and a one-line summary. Tell me how many sessions that is. Do not start any of them.
 ```
 
-Variants for the four kinds of issue (add one paragraph to the prompt above):
+## Prompt 2 — work on one issue
 
-| Issue kind | Add to the prompt |
-| --- | --- |
-| F0 spike or `type:bench` | "This is F0: no code under `crates/`. Put everything under `bench/` or `examples/` as the issue says. Record the measured numbers in `bench/results/<id>.md` even when they miss the target; a missed target is a result, not a failure. Do not tune past what the issue asks." |
-| `type:contract` | "Produce the document, the schema file, and at least one valid and one invalid example per message. No implementation code. The PR is reviewed by a human before anything consumes it; list open questions at the end of the document under 'Open'." |
-| Negative path or security checklist | "Tick a box only with a link to the test name and the PR that added it. Never tick without a link. A row that cannot be done now is moved to the next phase's checklist with a one-line reason, by editing both issues." |
-| `type:review` (gate) | Runs alone, with you in the loop. "Collect the result files, check each done criterion and kill criterion from `docs/15-roadmap.md`, write the report as a comment, propose the split of the next phase's epics as draft issue bodies in a comment. Do not create issues; I will." |
+Paste in a new session, change only the number:
 
-Two sessions that are useful between waves and are not issues:
-
-- **Docs sync** after a wave merges: "Run the `docs-gap-report` skill against the merged code and post the result; do not change files." Then apply what matters by hand or as a small PR.
-- **Conflict fix** when a PR falls behind `main`: the `fix-conflicts` skill, one PR per session.
-
-## 3. Waves for F0 and F1
-
-Computed from the "Blocked by" lists on 2026-10-27; recompute with the snippet in section 1 when issues change. A wave starts when the previous one is **merged**, not when its PRs are open. Issues in braces `{a → b}` share a crate and run in one session, one after the other.
-
-### F0 (milestone 1)
-
-| Wave | Sessions | Issues |
-| --- | --- | --- |
-| 1 | 1 | #1 scaffolding, toolchain pins, CI |
-| 2 | 5 | #2 bench harness (O) · #4 `examples/hello` (M) · #5 `examples/npm-compat` (M) · #9 template transpiler prototype (R) · #12 ops contract sketch (T) |
-| 3 | 2 | #3 Edge Runtime spike (R) · #13 Bun/Node baselines (O) |
-| 4 | 4 | #6 B1 memory · #7 B4 cold start · #8 B17 npm compat · #10 B9 marshaling |
-| 5 | 1 | #11 B6 first cut |
-| 6 | you + 1 | #14 gate review: results, kill criteria, split F1 if anything changed |
-
-F0 is small on purpose. Waves 2 and 4 are where parallelism pays; the rest is serial.
-
-### F1 (milestone 2)
-
-| Wave | Sessions | Issues |
-| --- | --- | --- |
-| 1 | 3 (+ you on #87) | #15 artifact contract · #16 meter contract · #17 ops contract. Three different files under `docs/contracts/`; review and merge all three before wave 2 |
-| 2 | 6 | #18 renox-data open/pool (R) · #22 gateway listener/routing (R) · #24 renox-meter (R) · #25 runtime embed (R) · #31 SDK v0 (T) · #91 errors catalogue contract (T) |
-| 3 | 5 | {#19 authorizer → #20 statement limits} (renox-data) · {#23 TLS → #88 input limits} (renox-gateway) · {#26 limits → #27 fetch} (renox-runtime) · #33 `examples/evil` (M) · #36 CI caching (O) |
-| 4 | 3 | #21 migrations (renox-data) · {#28 db/secrets/log ops → #108 fetch DNS pinning} (renox-runtime) · #109 supply chain and CI (O) |
-| 5 | 2 | #29 renox-cell wiring · #89 transaction rollback on termination (runtime) |
-| 6 | 1 | #30 artifact loader |
-| 7 | 1 | #32 CLI v0 |
-| 8 | 1 | #34 `examples/shop` skeleton |
-| 9 | 1 | #35 benchmarks B5/B11/B2/B3/B12 |
-| 10 | 2 | #92 negative path checklist · #110 security checklist |
-| 11 | you + 1 | #37 gate review |
-
-Waves 5 to 9 are the critical path and are serial by nature (cell → loader → CLI → example → benchmark). Do not try to parallelise them by starting #32 before #30 is merged; the CLI embeds the worker and will be written against a binary that does not exist yet. Use that time for the docs sync, for reviewing, and for the non-engineering issue #87.
-
-Four crates are created in wave 2 at the same time. To avoid four conflicting edits to the root `Cargo.toml`, #1 must set `members = ["crates/*", "bench/spike/*"]` in the workspace and the Bun workspace to `["sdk", "cli", "control/*", "modules/*", "packages/*"]`, so adding a crate or package never touches a shared file. `Cargo.lock` conflicts are resolved by taking `main`'s lockfile and rebuilding, never by hand-merging.
-
-## 4. Starting, watching, and merging a wave
-
-Start, per issue:
-
-```sh
-KEY=f1-04; N=18; BR=r/$KEY-data-open-pool
-git -C ~/workspace/renox.rs worktree add ~/workspace/renox-$KEY -b $BR main
-# open a session in ~/workspace/renox-$KEY with the prompt from section 2
+```
+Work on issue #18 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent" exactly, from "Start" to "Finish". Do not ask me questions; if you are blocked, do what the rules say and stop.
 ```
 
-Watch, a few times a day:
+For a group with two issues in the same crate (for example `{#26 → #27}`), paste the same prompt with the first number; when its PR is merged, paste it again with the second.
 
-```sh
-gh pr list --repo arif-rachim/renox.rs --json number,title,statusCheckRollup,isDraft
-gh issue list --repo arif-rachim/renox.rs --label in-progress --json number,title,comments --jq '.[] | "\(.number) \(.title) comments=\(.comments|length)"'
+## Prompt 3 — review a PR before merging
+
+Paste in any session, change only the number:
+
+```
+Review PR #<N> of arif-rachim/renox.rs against the issue it closes. Check: every acceptance criterion of the issue has a test or result file in the PR; only paths in the issue's Files section (plus their tests) changed; the PR template's Security section is filled in; "Differences from the issue" is present; CI is green. Then run the tests of the changed package yourself. Report MERGE or DO NOT MERGE with the reasons as a list. Do not merge, do not push.
 ```
 
-A session that stopped with a blocker comment is not restarted with "try harder". Read the blocker, fix the cause (usually a stale issue body or a missing contract detail), update the issue, and start a fresh session.
+You merge with squash (`gh pr merge <N> --squash --delete-branch`). `Closes #<N>` in the PR body closes the issue. After the last PR of a group is merged, run Prompt 1 again.
 
-Merge, in the order the wave table lists the issues (lower layer first):
+Keep at most as many sessions open as PRs you can review the same day. If you cannot review that day, start fewer sessions.
 
-1. Read the PR's "Differences from the issue" and its Security section before the diff.
-2. CI green, acceptance criteria each linked to a test. If a criterion has no test, request it; do not merge "to unblock".
-3. Squash merge. `Closes #N` closes the issue; remove `in-progress` if it is still there.
-4. Delete the branch and the worktree: `git worktree remove ~/workspace/renox-$KEY`.
-5. If other PRs of the wave now conflict, run the conflict-fix session on each.
-6. When the last PR of the wave is merged: pull `main`, run the docs sync session, write any path or API differences into the next wave's issue bodies, then start the next wave.
+## Rules for the agent
 
-## 5. How many sessions at once
+This section is read by the session, not by the human. Follow it in order.
 
-The graph allows up to six sessions in F1 wave 2. The limiting factor is review. Rules of thumb for one reviewer:
+### Start
 
-| Your available review time per day | Sessions at once |
-| --- | --- |
-| Under 1 hour | 2 |
-| 1 to 3 hours | 3 or 4 |
-| A full day | 5 or 6 |
+1. Read `AGENTS.md` and `CLAUDE.md`. Read the issue with `gh issue view <N> --comments`. Read the documents the issue cites, in the order `AGENTS.md` gives.
+2. The issue's Scope, Acceptance criteria, and Files sections are the contract for this session. Nothing else is in scope.
+3. Check that every issue in the "Blocked by" list is CLOSED (`gh issue view <n> --json state`). If one is open, comment "Blocked by #<n>, still open" on the issue and stop.
+4. Check the issue does not carry the `in-progress` label. If it does, stop and say so. Otherwise add it: `gh issue edit <N> --add-label in-progress`.
+5. Take the key from the title (`[Fx-nn]`) and the branch name from the issue's Branch section. Create a worktree next to the repository and work only there:
+   `git worktree add ../renox-<key> -b <branch> main` (if the branch already exists, `git worktree add ../renox-<key> <branch>`). Every command from now on runs inside that worktree.
 
-A PR that waits more than two days for review falls behind `main` and costs a conflict session; it is cheaper to start fewer sessions.
+### While working
 
-## 6. What never runs in parallel
+6. Change only the paths in the issue's Files section, plus tests for them. If a change outside them is needed, stop: comment on the issue with what is needed and why, remove the `in-progress` label, and end.
+7. Never edit `docs/13-decisions.md`. Never edit `docs/contracts/**` unless the issue has the label `type:contract`.
+8. Everything in English. Never build V8 from source. No secrets in code, tests, fixtures, or logs. The security rules in `CLAUDE.md` apply to every line.
+9. The Files section is a proposed layout. If the code on `main` differs from what the issue assumes (a path, an API from an earlier issue, an error code), follow the code and record every difference for the PR description under "Differences from the issue". Do not change another crate or package to match the issue.
+10. Commit in small steps on this branch only. Never commit to `main`. Never force-push. Never merge.
+11. Every acceptance criterion needs a test or a result file that proves it. For a negative or security test, name the row of `docs/23-failure-modes.md` or `docs/24-threat-model.md` it proves in the test's doc comment.
+12. In F0 (milestone "F0 Spike") no code goes under `crates/`; everything lives under `bench/` or `examples/`. Record measured numbers in `bench/results/<benchmark-id>.md` even when they miss the target.
+13. If the same problem blocks you after two different attempts (tool failure, missing dependency, unclear spec, a failing test you cannot explain), comment it on the issue, remove the `in-progress` label, and stop. Do not work around it and do not widen the scope.
 
-- Two sessions in one crate or package, unless both issue bodies say they are independent and name different files.
-- A `type:contract` issue with anything that consumes that contract.
-- A gate review with anything else in its phase.
-- Two sessions that both edit a shared root file (`Cargo.toml` workspace, root `package.json`, `.github/workflows/*`, `AGENTS.md`). Assign such edits to one issue per wave.
-- Anything on a red `main`.
+### Finish
 
-## 7. When to stop a wave
+14. All tests of the owned package pass: `cargo test -p <crate>` or `bun test` in the package. Then `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` for Rust, or the package's lint script for TypeScript.
+15. Push the branch and open the PR: `gh pr create --base main --title "[<key>] <short title>"`. The body uses `.github/PULL_REQUEST_TEMPLATE.md`: starts with `Closes #<N>`, lists the commands run and their output under Verification, fills in every line of the Security section, and has a "Differences from the issue" list (or "None").
+16. Comment on the issue: what changed, what was verified, what is left open, and the PR link.
+17. Stop. Do not merge, do not start another issue, do not delete the worktree (the human does that after merging: `git worktree remove ../renox-<key>`).
 
-- A kill criterion from `15-roadmap.md` is hit at a gate: stop, decide, record an ADR.
-- Two sessions interpret a contract differently: stop both, fix the contract in a `type:contract` PR, restart.
-- `main` turns red: no new sessions until it is green.
-- A session widened its scope (files outside its issue): close the PR, split what is useful into the right issues, restart.
+### Special cases
+
+- `type:contract` issue: produce the document, the schema file, and at least one valid and one invalid example per message. No implementation code. List open questions at the end of the document under "Open".
+- Checklist issue (title contains "checklist"): tick a box only with a link to the test name and the PR that added it. A row that cannot be done now is moved to the next phase's checklist with a one-line reason, by editing both issues.
+- `type:review` issue (gate): collect the result files, check each done and kill criterion from `docs/15-roadmap.md`, write the report as a comment, and propose the split of the next phase's epics as draft issue bodies in a comment. Do not create issues.
