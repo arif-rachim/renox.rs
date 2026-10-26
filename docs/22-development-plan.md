@@ -105,6 +105,7 @@ Merge contracts first, then leaf crates, then integration (`renox-cell`, CLI `de
 Each milestone ends with a `type:review` issue. The review issue:
 
 - Lists the done criteria from `15-roadmap.md` and the benchmark IDs from `14-benchmarks.md` that must have a `PASS` result file under `bench/results/`.
+- Is blocked by the phase's `negative path checklist` issue, which ticks every row of `docs/23-failure-modes.md` due in that phase with a link to its test.
 - Checks the kill criteria. If a kill criterion is hit, the review issue is where the decision (continue, change direction, stop) is recorded, together with a new ADR in `13-decisions.md` if the direction changes.
 - Splits the next phase's `type:epic` issues into tasks, using what the finished phase taught us. Detailed task issues are written only one phase ahead on purpose; writing F4 tasks before F1 exists produces fiction.
 
@@ -209,3 +210,22 @@ Issue numbers on GitHub for each key (milestones: F0 = 1 … F7 = 8). Search by 
 | F7-06 | #85 |
 | F7-07 | #86 |
 | NE-01 | #87 |
+| F1-24 | #88 |
+| F1-25 | #89 |
+| F1-26 | #90 |
+| F1-27 | #91 |
+| F1-28 | #92 |
+| F2-13 | #93 |
+| F2-14 | #94 |
+| F3-14 | #95 |
+| F3-15 | #96 |
+| F3-16 | #97 |
+| F3-17 | #98 |
+| F3-18 | #99 |
+| F4-07 | #100 |
+| F4-08 | #101 |
+| F5-07 | #102 |
+| F6-06 | #103 |
+| F6-07 | #104 |
+| F6-08 | #105 |
+| F7-08 | #106 |
