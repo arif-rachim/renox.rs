@@ -5,8 +5,8 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 /// One request the server saw.
 #[derive(Debug, Clone)]
@@ -74,7 +74,10 @@ fn decode(s: &str) -> String {
     String::from_utf8(out).unwrap()
 }
 
-async fn serve(mut stream: TcpStream, seen: Arc<Mutex<Vec<Seen>>>) -> std::io::Result<()> {
+async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    seen: Arc<Mutex<Vec<Seen>>>,
+) -> std::io::Result<()> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     let head_end = loop {
@@ -129,6 +132,7 @@ async fn serve(mut stream: TcpStream, seen: Arc<Mutex<Vec<Seen>>>) -> std::io::R
     };
     match path {
         "/hello" => respond(&mut stream, "200 OK", &[], b"hello").await,
+        "/nocontent" => respond(&mut stream, "204 No Content", &[], b"").await,
         "/echo" => {
             let body = serde_json::json!({ "method": method, "host": host, "path": path, "authorization": authorization, "body_len": body_len });
             respond(
@@ -173,8 +177,8 @@ async fn serve(mut stream: TcpStream, seen: Arc<Mutex<Vec<Seen>>>) -> std::io::R
     }
 }
 
-async fn respond(
-    stream: &mut TcpStream,
+async fn respond<S: AsyncWrite + Unpin>(
+    stream: &mut S,
     status: &str,
     headers: &[(&str, &str)],
     body: &[u8],
@@ -190,4 +194,58 @@ async fn respond(
     stream.write_all(head.as_bytes()).await?;
     stream.write_all(body).await?;
     stream.shutdown().await
+}
+
+/// The same routes over TLS with a self-signed certificate for `names`.
+/// Returns the server and its certificate (to trust it explicitly).
+pub async fn start_tls(names: &[&str]) -> (TestServer, rustls::pki_types::CertificateDer<'static>) {
+    let ck =
+        rcgen::generate_simple_self_signed(names.iter().map(|n| n.to_string()).collect::<Vec<_>>())
+            .unwrap();
+    let cert = rustls::pki_types::CertificateDer::from(ck.cert.der().to_vec());
+    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+        ck.key_pair.serialize_der(),
+    ));
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(vec![cert.clone()], key)
+    .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            let s = s.clone();
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                if let Ok(tls) = acceptor.accept(stream).await {
+                    let _ = serve(tls, s).await;
+                }
+            });
+        }
+    });
+    (TestServer { addr, seen }, cert)
+}
+
+/// A listener that only counts accepted connections (the "private" side of
+/// the rebinding test: it must never be reached).
+pub async fn counting_listener(bind: SocketAddr) -> Arc<std::sync::atomic::AtomicUsize> {
+    let listener = TcpListener::bind(bind).await.unwrap();
+    let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let h = hits.clone();
+    tokio::spawn(async move {
+        while let Ok((_s, _)) = listener.accept().await {
+            h.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+    hits
 }

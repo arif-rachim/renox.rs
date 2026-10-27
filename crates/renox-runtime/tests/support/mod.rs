@@ -113,6 +113,7 @@ pub fn percentile(sorted: &[Duration], p: f64) -> Duration {
     sorted[idx]
 }
 
+pub mod dns_stub;
 pub mod http_server;
 
 /// A resolver with fixed answers (`renox_runtime::ops::fetch::Resolve`).

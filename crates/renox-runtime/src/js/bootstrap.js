@@ -132,7 +132,7 @@ async function renoxFetch(input, init = undefined) {
         }
       },
       cancel() {
-        op_fetch_body_close(rid);
+        op_fetch_body_close(currentToken(), rid);
       },
     });
   }

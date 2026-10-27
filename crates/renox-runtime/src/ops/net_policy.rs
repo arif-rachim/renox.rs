@@ -16,7 +16,9 @@
 //! resolved address against the ranges, then connect to one of the checked
 //! addresses (`fetch_connector.rs`, #108).
 
+use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::pin::Pin;
 
 use url::{Host, Url};
 
@@ -140,7 +142,18 @@ impl AllowEntry {
         // port parsing, exactly as it will for the request URL.
         let url =
             Url::parse(&format!("http://{host_port}/")).map_err(|_| bad("not a valid host"))?;
-        let port = url.port();
+        // The URL parser drops a scheme-default port (`:80` here), so take
+        // an explicit port from the text itself: `example.com:80` means
+        // https on port 80, not https on 443.
+        let explicit = match host_port.rsplit_once(']') {
+            Some((_, rest)) => rest.strip_prefix(':'),
+            None if host_port.matches(':').count() == 1 => host_port.rsplit_once(':').map(|p| p.1),
+            None => None,
+        };
+        let port = match explicit {
+            Some(p) => Some(p.parse::<u16>().map_err(|_| bad("invalid port"))?),
+            None => url.port(),
+        };
         if port == Some(0) {
             return Err(bad("port 0"));
         }
@@ -483,6 +496,44 @@ pub fn socket_addrs(addrs: &[IpAddr], port: u16) -> Vec<SocketAddr> {
     addrs.iter().map(|ip| SocketAddr::new(*ip, port)).collect()
 }
 
+/// Resolves a host name to addresses. The runtime uses hickory with the
+/// system configuration; tests inject a fake or point hickory at a stub.
+pub trait Resolve: Send + Sync {
+    fn lookup<'a>(
+        &'a self,
+        host: &'a str,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<Vec<IpAddr>>> + Send + 'a>>;
+}
+
+/// Why [`resolve_and_check`] refused a target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolveError {
+    /// The name did not resolve (or resolved to nothing).
+    Dns,
+    /// An address is in a blocked range.
+    Blocked(BlockReason),
+}
+
+/// Step 2 of a hop: resolve the target **once** and check every address.
+/// The returned socket addresses are the only ones the connector may use
+/// (`fetch_connector::connect`), so the check is bound to the socket that
+/// is opened (#108, DNS rebinding). IP literals skip DNS but not the ranges.
+pub async fn resolve_and_check(
+    resolver: &dyn Resolve,
+    extra: &ExtraBlocked,
+    target: &Target,
+) -> Result<Vec<SocketAddr>, ResolveError> {
+    let ips = match &target.host {
+        TargetHost::Ip(ip) => vec![*ip],
+        TargetHost::Domain(d) => resolver.lookup(d).await.map_err(|_| ResolveError::Dns)?,
+    };
+    if ips.is_empty() {
+        return Err(ResolveError::Dns);
+    }
+    check_addresses(&ips, extra).map_err(ResolveError::Blocked)?;
+    Ok(socket_addrs(&ips, target.port))
+}
+
 /// Is this method refused outright? (`ops.md` section 2, `FetchRequest.method`).
 pub fn method_blocked(method: &str) -> bool {
     method.eq_ignore_ascii_case("CONNECT") || method.eq_ignore_ascii_case("TRACE")
@@ -623,6 +674,16 @@ mod tests {
         assert_eq!(reason(&l, "https://legacy.example.com/"), None);
         assert_eq!(reason(&l, "ftp://api.example.com/"), Some("scheme"));
         assert_eq!(reason(&l, "file:///etc/passwd"), Some("scheme"));
+    }
+
+    /// Review finding: an explicit default port in an entry is kept.
+    #[test]
+    fn explicit_default_port_is_kept() {
+        let l = list(&["plain80.example.com:80", "http://tls443.example.com:443"]);
+        assert_eq!(reason(&l, "https://plain80.example.com:80/"), None);
+        assert_eq!(reason(&l, "https://plain80.example.com/"), Some("port"));
+        assert_eq!(reason(&l, "http://tls443.example.com:443/"), None);
+        assert_eq!(reason(&l, "http://tls443.example.com/"), Some("port"));
     }
 
     #[test]

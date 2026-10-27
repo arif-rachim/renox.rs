@@ -18,7 +18,7 @@ use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
 use deno_core::{CancelHandle, OpState, ResourceId, op2};
 
-use crate::ops::fetch::EgressCounter;
+use crate::ops::fetch_connector::EgressCounter;
 
 /// Build an op error the bootstrap turns into a `RenoxError`
 /// (`js/bootstrap.js`, `toRenoxError`): `CODE|details-json|message`.
@@ -46,6 +46,9 @@ pub(crate) struct RequestState {
     /// Fetches refused with `RENOX_FETCH_BLOCKED`, caught or not.
     pub fetch_blocked: u64,
     pub fetches_in_flight: u32,
+    /// Response bodies currently open (each holds a connection); shared
+    /// with the body resources, which decrement it when they close.
+    pub open_bodies: Rc<std::cell::Cell<u32>>,
     /// Response bodies still open; closed when the request ends.
     pub fetch_bodies: Vec<ResourceId>,
 }
@@ -59,6 +62,7 @@ impl RequestState {
             egress: Arc::new(EgressCounter::new(egress_limit_bytes)),
             fetch_blocked: 0,
             fetches_in_flight: 0,
+            open_bodies: Rc::new(std::cell::Cell::new(0)),
             fetch_bodies: Vec::new(),
         }
     }

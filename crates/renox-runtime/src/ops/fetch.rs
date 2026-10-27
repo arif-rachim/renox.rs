@@ -12,11 +12,8 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::net::{IpAddr, SocketAddr};
-use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::task::{Context, Poll};
 use std::time::Instant;
 
 use bytes::Bytes;
@@ -29,153 +26,29 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
 use url::Url;
 
+pub use crate::ops::fetch_connector::{FetchConfig, HickoryResolver};
+pub use crate::ops::net_policy::Resolve;
+
+use crate::ops::fetch_connector::{EgressCounter, FetchFailure, connect, resolve_checked};
 use crate::ops::net_policy::{
-    Allowlist, BlockReason, Blocked, CREDENTIAL_HEADERS, ExtraBlocked, RedirectError, Scheme,
-    Target, TargetHost, check_addresses, is_redirect, method_blocked, redirect_target,
+    Allowlist, BlockReason, Blocked, CREDENTIAL_HEADERS, RedirectError, Target, TargetHost,
+    is_redirect, method_blocked, redirect_target,
 };
 use crate::ops::request::{RequestState, live_request, op_error};
 use crate::runtime::{LogLine, LogSink};
 
 /// Concurrent fetches per request (`ops.md` section 2, "Limits").
 pub const MAX_CONCURRENT_FETCHES: u32 = 16;
+/// Fetches in flight plus response bodies still open, per request: an
+/// unread body keeps its connection open, so it counts as a fetch.
+pub const MAX_OPEN_FETCHES: u32 = 32;
+
 /// Request headers per fetch.
 pub const MAX_HEADERS: usize = 64;
 /// Total request header bytes per fetch.
 pub const MAX_HEADER_BYTES: usize = 16 * 1024;
-
-// ---------------------------------------------------------------------------
-// DNS
-
-/// Resolves a host name to addresses. The runtime uses hickory with the
-/// system configuration; tests inject a fake or point hickory at a stub.
-pub trait Resolve: Send + Sync {
-    fn lookup<'a>(
-        &'a self,
-        host: &'a str,
-    ) -> Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<IpAddr>>> + Send + 'a>>;
-}
-
-/// hickory-resolver, without the hosts file (it maps names the operator
-/// chose, not the tenant) and with A and AAAA queried, so every address is
-/// checked.
-pub struct HickoryResolver(hickory_resolver::TokioResolver);
-
-impl HickoryResolver {
-    /// System nameservers (`/etc/resolv.conf`).
-    pub fn system() -> std::io::Result<HickoryResolver> {
-        let (config, opts) = hickory_resolver::system_conf::read_system_conf()
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-        Ok(Self::with(config, opts))
-    }
-
-    /// One nameserver over UDP (and TCP for truncated answers).
-    pub fn nameserver(addr: SocketAddr) -> HickoryResolver {
-        use hickory_resolver::config::{NameServerConfigGroup, ResolverConfig};
-        let group = NameServerConfigGroup::from_ips_clear(&[addr.ip()], addr.port(), true);
-        Self::with(
-            ResolverConfig::from_parts(None, vec![], group),
-            Default::default(),
-        )
-    }
-
-    fn with(
-        config: hickory_resolver::config::ResolverConfig,
-        mut opts: hickory_resolver::config::ResolverOpts,
-    ) -> HickoryResolver {
-        use hickory_resolver::config::{LookupIpStrategy, ResolveHosts};
-        opts.use_hosts_file = ResolveHosts::Never;
-        opts.ip_strategy = LookupIpStrategy::Ipv4AndIpv6;
-        // Each hop resolves exactly once and connects to what it checked; a
-        // cache would only add a second source of truth.
-        opts.cache_size = 0;
-        HickoryResolver(hickory_resolver::TokioResolver::tokio(config, opts))
-    }
-}
-
-impl Resolve for HickoryResolver {
-    fn lookup<'a>(
-        &'a self,
-        host: &'a str,
-    ) -> Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<IpAddr>>> + Send + 'a>> {
-        Box::pin(async move {
-            // A trailing dot makes the name absolute: no search domains.
-            let fqdn = format!("{host}.");
-            let lookup = self
-                .0
-                .lookup_ip(fqdn.as_str())
-                .await
-                .map_err(|e| std::io::Error::other(e.to_string()))?;
-            Ok(lookup.iter().collect())
-        })
-    }
-}
-
-/// Process-wide fetch configuration (operator side; tenants have no say).
-#[derive(Clone)]
-pub struct FetchConfig {
-    pub resolver: Arc<dyn Resolve>,
-    /// The node's own public addresses and the control plane's.
-    pub extra_blocked: ExtraBlocked,
-    /// Trust anchors added to the webpki roots (an operator's egress CA).
-    /// There is no way to disable verification.
-    pub extra_root_certs: Vec<rustls::pki_types::CertificateDer<'static>>,
-    /// Test-only: connect to the right-hand address when the vetted address
-    /// is the left-hand one. Compiled only with the `test-hooks` feature.
-    #[cfg(feature = "test-hooks")]
-    pub connect_override: std::collections::HashMap<SocketAddr, SocketAddr>,
-}
-
-impl FetchConfig {
-    pub fn with_resolver(resolver: Arc<dyn Resolve>) -> FetchConfig {
-        FetchConfig {
-            resolver,
-            extra_blocked: ExtraBlocked::default(),
-            extra_root_certs: Vec::new(),
-            #[cfg(feature = "test-hooks")]
-            connect_override: Default::default(),
-        }
-    }
-
-    fn tls(&self) -> Arc<rustls::ClientConfig> {
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        for c in &self.extra_root_certs {
-            let _ = roots.add(c.clone());
-        }
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let cfg = rustls::ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .expect("ring supports the default protocol versions")
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        Arc::new(cfg)
-    }
-}
-
-impl Default for FetchConfig {
-    fn default() -> Self {
-        match HickoryResolver::system() {
-            Ok(r) => FetchConfig::with_resolver(Arc::new(r)),
-            // No resolv.conf: every lookup fails (fail closed).
-            Err(_) => FetchConfig::with_resolver(Arc::new(NoResolver)),
-        }
-    }
-}
-
-struct NoResolver;
-
-impl Resolve for NoResolver {
-    fn lookup<'a>(
-        &'a self,
-        _host: &'a str,
-    ) -> Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<IpAddr>>> + Send + 'a>> {
-        Box::pin(async { Err(std::io::Error::other("no resolver configured")) })
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Per-isolate and per-request state
@@ -210,248 +83,38 @@ impl FetchEnv {
     }
 }
 
-/// Bytes on the wire of all fetches of one request, against its limit.
-#[derive(Debug)]
-pub(crate) struct EgressCounter {
-    pub sent: AtomicU64,
-    pub received: AtomicU64,
-    pub limit: u64,
-    /// Set when a read or write was refused because the limit was reached.
-    tripped: std::sync::atomic::AtomicBool,
-}
-
-impl EgressCounter {
-    pub fn new(limit: u64) -> EgressCounter {
-        EgressCounter {
-            sent: AtomicU64::new(0),
-            received: AtomicU64::new(0),
-            limit,
-            tripped: std::sync::atomic::AtomicBool::new(false),
-        }
-    }
-
-    pub fn total(&self) -> u64 {
-        self.sent.load(Ordering::Relaxed) + self.received.load(Ordering::Relaxed)
-    }
-
-    /// Bytes still allowed.
-    fn remaining(&self) -> u64 {
-        self.limit.saturating_sub(self.total())
-    }
-
-    pub fn exceeded(&self) -> bool {
-        self.tripped.load(Ordering::Relaxed) || self.total() > self.limit
-    }
-
-    fn trip(&self) -> std::io::Error {
-        self.tripped.store(true, Ordering::Relaxed);
-        std::io::Error::other("egress limit")
-    }
-}
-
-/// An I/O stream that counts bytes against an [`EgressCounter`]. Each read
-/// and write is capped at the bytes still allowed, so a large body stops
-/// exactly at the limit instead of one socket buffer later.
-struct CountingIo<T> {
-    inner: T,
-    counter: Arc<EgressCounter>,
-}
-
-impl<T: AsyncRead + Unpin> AsyncRead for CountingIo<T> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let remaining = self.counter.remaining();
-        if remaining == 0 {
-            return Poll::Ready(Err(self.counter.trip()));
-        }
-        let cap = (buf.remaining() as u64).min(remaining).min(64 * 1024) as usize;
-        let mut tmp = [0u8; 64 * 1024];
-        let mut limited = ReadBuf::new(&mut tmp[..cap]);
-        let r = Pin::new(&mut self.inner).poll_read(cx, &mut limited);
-        if let Poll::Ready(Ok(())) = &r {
-            let n = limited.filled().len();
-            buf.put_slice(limited.filled());
-            self.counter.received.fetch_add(n as u64, Ordering::Relaxed);
-        }
-        r
-    }
-}
-
-impl<T: AsyncWrite + Unpin> AsyncWrite for CountingIo<T> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        data: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let remaining = self.counter.remaining();
-        if remaining == 0 {
-            return Poll::Ready(Err(self.counter.trip()));
-        }
-        let cap = (data.len() as u64).min(remaining) as usize;
-        let r = Pin::new(&mut self.inner).poll_write(cx, &data[..cap]);
-        if let Poll::Ready(Ok(n)) = &r {
-            self.counter.sent.fetch_add(*n as u64, Ordering::Relaxed);
-        }
-        r
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
-
-trait Io: AsyncRead + AsyncWrite + Send + Unpin {}
-impl<T: AsyncRead + AsyncWrite + Send + Unpin> Io for T {}
-
 // ---------------------------------------------------------------------------
 // Errors
 
-/// Why a fetch failed; mapped to the contract's codes and reasons.
-#[derive(Debug)]
-pub(crate) enum FetchFailure {
-    Blocked {
-        host: String,
-        reason: BlockReason,
-        hop: usize,
-    },
-    Failed {
-        host: String,
-        reason: &'static str,
-    },
-    EgressLimit {
-        host: String,
-        limit: u64,
-    },
-    Deadline,
-}
-
-impl FetchFailure {
-    fn into_error(self) -> AnyError {
-        match self {
-            FetchFailure::Blocked { host, reason, hop } => op_error(
-                "RENOX_FETCH_BLOCKED",
-                serde_json::json!({ "host": host, "reason": reason.as_str(), "hop": hop }),
-                "The request was blocked by the outbound network policy.",
-            ),
-            FetchFailure::Failed { host, reason } => op_error(
-                "RENOX_FETCH_FAILED",
-                serde_json::json!({ "host": host, "reason": reason }),
-                "The outbound request failed.",
-            ),
-            FetchFailure::EgressLimit { host, limit } => op_error(
-                "RENOX_FETCH_EGRESS_LIMIT",
-                serde_json::json!({ "host": host, "limitBytes": limit }),
-                "The request's outbound byte limit was reached.",
-            ),
-            FetchFailure::Deadline => op_error(
-                "RENOX_DEADLINE",
-                serde_json::Value::Null,
-                "The request's deadline passed.",
-            ),
-        }
+/// The op error for a failure: the contract's code, `details`, and a fixed
+/// message (no address, no internal detail).
+fn failure_error(f: FetchFailure) -> AnyError {
+    match f {
+        FetchFailure::Blocked { host, reason, hop } => op_error(
+            "RENOX_FETCH_BLOCKED",
+            serde_json::json!({ "host": host, "reason": reason.as_str(), "hop": hop }),
+            "The request was blocked by the outbound network policy.",
+        ),
+        FetchFailure::Failed { host, reason } => op_error(
+            "RENOX_FETCH_FAILED",
+            serde_json::json!({ "host": host, "reason": reason }),
+            "The outbound request failed.",
+        ),
+        FetchFailure::EgressLimit { host, limit } => op_error(
+            "RENOX_FETCH_EGRESS_LIMIT",
+            serde_json::json!({ "host": host, "limitBytes": limit }),
+            "The request's outbound byte limit was reached.",
+        ),
+        FetchFailure::Deadline => op_error(
+            "RENOX_DEADLINE",
+            serde_json::Value::Null,
+            "The request's deadline passed.",
+        ),
     }
 }
 
 // ---------------------------------------------------------------------------
 // One hop
-
-/// Step 2: resolve in Rust and check every address. IP literals skip DNS
-/// but not the ranges.
-async fn resolve_and_check(
-    env_resolver: &Arc<dyn Resolve>,
-    extra: &ExtraBlocked,
-    target: &Target,
-    hop: usize,
-) -> Result<Vec<SocketAddr>, FetchFailure> {
-    let host = target.host.display();
-    let ips = match &target.host {
-        TargetHost::Ip(ip) => vec![*ip],
-        TargetHost::Domain(d) => {
-            env_resolver
-                .lookup(d)
-                .await
-                .map_err(|_| FetchFailure::Failed {
-                    host: host.clone(),
-                    reason: "dns",
-                })?
-        }
-    };
-    if ips.is_empty() {
-        return Err(FetchFailure::Failed {
-            host,
-            reason: "dns",
-        });
-    }
-    check_addresses(&ips, extra).map_err(|reason| FetchFailure::Blocked {
-        host: host.clone(),
-        reason,
-        hop,
-    })?;
-    Ok(ips
-        .into_iter()
-        .map(|ip| SocketAddr::new(ip, target.port))
-        .collect())
-}
-
-/// Step 3: connect to one of the checked addresses, in resolver order, and
-/// never to anything else. TLS with SNI = the URL host.
-async fn connect(
-    env: &FetchEnv,
-    addrs: &[SocketAddr],
-    target: &Target,
-    counter: Arc<EgressCounter>,
-) -> Result<Box<dyn Io>, FetchFailure> {
-    let host = target.host.display();
-    let mut tcp = None;
-    for addr in addrs {
-        #[cfg(feature = "test-hooks")]
-        let addr = env.config.connect_override.get(addr).unwrap_or(addr);
-        if let Ok(s) = TcpStream::connect(addr).await {
-            tcp = Some(s);
-            break;
-        }
-    }
-    let tcp = tcp.ok_or_else(|| FetchFailure::Failed {
-        host: host.clone(),
-        reason: "connect",
-    })?;
-    let _ = tcp.set_nodelay(true);
-    let io: Box<dyn Io> = match target.scheme {
-        Scheme::Http => Box::new(tcp),
-        Scheme::Https => {
-            let name = match &target.host {
-                TargetHost::Domain(d) => rustls::pki_types::ServerName::try_from(d.clone()),
-                TargetHost::Ip(ip) => Ok(rustls::pki_types::ServerName::IpAddress((*ip).into())),
-            }
-            .map_err(|_| FetchFailure::Failed {
-                host: host.clone(),
-                reason: "tls",
-            })?;
-            let connector = tokio_rustls::TlsConnector::from(env.tls.clone());
-            // Count the TLS handshake bytes too: wrap below TLS.
-            let counted = CountingIo {
-                inner: tcp,
-                counter: counter.clone(),
-            };
-            let tls = connector
-                .connect(name, counted)
-                .await
-                .map_err(|_| FetchFailure::Failed {
-                    host: host.clone(),
-                    reason: "tls",
-                })?;
-            return Ok(Box::new(tls));
-        }
-    };
-    Ok(Box::new(CountingIo { inner: io, counter }))
-}
 
 /// A response whose body is still on the wire.
 pub(crate) struct HopResponse {
@@ -492,7 +155,7 @@ async fn send_hop(
         host: host.clone(),
         reason,
     };
-    let io = connect(env, addrs, target, counter.clone()).await?;
+    let io = connect(&env.config, &env.tls, addrs, target, counter.clone()).await?;
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(io))
         .await
         .map_err(|_| failed("connect"))?;
@@ -604,13 +267,7 @@ async fn fetch_with_policy(
             .check_url(&url)
             .map_err(|Blocked { host, reason }| FetchFailure::Blocked { host, reason, hop })?;
         // Step 2.
-        let addrs = resolve_and_check(
-            &env.config.resolver,
-            &env.config.extra_blocked,
-            &target,
-            hop,
-        )
-        .await?;
+        let addrs = resolve_checked(&env.config, &target, hop).await?;
         // Step 3.
         let response = send_hop(
             env,
@@ -707,6 +364,14 @@ pub(crate) struct FetchBody {
     conn: tokio::task::JoinHandle<()>,
     host: String,
     token: u32,
+    open: Rc<std::cell::Cell<u32>>,
+}
+
+impl Drop for FetchBody {
+    fn drop(&mut self) {
+        self.conn.abort();
+        self.open.set(self.open.get().saturating_sub(1));
+    }
 }
 
 impl Resource for FetchBody {
@@ -763,6 +428,7 @@ pub(crate) async fn op_renox_fetch(
     token: u32,
     #[serde] req: FetchRequest,
 ) -> Result<FetchResponseHead, AnyError> {
+    let head_request = req.method.eq_ignore_ascii_case("HEAD");
     let (request, env) = {
         let s = state.borrow();
         let request = live_request(&s, token)?;
@@ -771,16 +437,17 @@ pub(crate) async fn op_renox_fetch(
     };
     let (deadline, cancel, counter, request_id) = {
         let mut r = request.borrow_mut();
-        if r.fetches_in_flight >= MAX_CONCURRENT_FETCHES {
+        if r.fetches_in_flight >= MAX_CONCURRENT_FETCHES
+            || r.fetches_in_flight + r.open_bodies.get() >= MAX_OPEN_FETCHES
+        {
             let host = Url::parse(&req.url)
                 .ok()
                 .and_then(|u| u.host_str().map(str::to_string))
                 .unwrap_or_default();
-            return Err(FetchFailure::Failed {
+            return Err(failure_error(FetchFailure::Failed {
                 host,
                 reason: "concurrency",
-            }
-            .into_error());
+            }));
         }
         r.fetches_in_flight += 1;
         (
@@ -811,20 +478,31 @@ pub(crate) async fn op_renox_fetch(
             response,
         }) => {
             let host = final_url.host_str().unwrap_or("").to_string();
-            let rid = state.borrow_mut().resource_table.add(FetchBody {
-                body: RefCell::new(Some(response.body)),
-                conn: response.conn,
-                host,
-                token,
-            });
-            request.borrow_mut().fetch_bodies.push(rid);
+            // Null-body statuses and HEAD: no body resource (a Response
+            // with status 204/205/304 must have a null body).
+            let rid = if head_request || matches!(response.status, 101 | 204 | 205 | 304) {
+                response.conn.abort();
+                None
+            } else {
+                let open = request.borrow().open_bodies.clone();
+                open.set(open.get() + 1);
+                let rid = state.borrow_mut().resource_table.add(FetchBody {
+                    body: RefCell::new(Some(response.body)),
+                    conn: response.conn,
+                    host,
+                    token,
+                    open,
+                });
+                request.borrow_mut().fetch_bodies.push(rid);
+                Some(rid)
+            };
             Ok(FetchResponseHead {
                 status: response.status,
                 status_text: response.status_text,
                 headers: response.headers,
                 url: final_url.to_string(),
                 redirected,
-                body: Some(rid),
+                body: rid,
             })
         }
         Err(failure) => {
@@ -832,7 +510,7 @@ pub(crate) async fn op_renox_fetch(
                 request.borrow_mut().fetch_blocked += 1;
                 log_blocked(&env, Some(request_id), host, reason.as_str());
             }
-            Err(failure.into_error())
+            Err(failure_error(failure))
         }
     }
 }
@@ -902,15 +580,23 @@ pub(crate) async fn op_fetch_body_read(
         }
         Err(f) => {
             close_rid(&mut state.borrow_mut(), rid);
-            Err(f.into_error())
+            Err(failure_error(f))
         }
     }
 }
 
-/// Close a response body the tenant no longer reads.
+/// Close a response body the tenant no longer reads. Only the request that
+/// owns the body may close it.
 #[op2(fast)]
-pub(crate) fn op_fetch_body_close(state: &mut OpState, #[smi] rid: ResourceId) {
-    close_rid(state, rid);
+pub(crate) fn op_fetch_body_close(state: &mut OpState, token: u32, #[smi] rid: ResourceId) {
+    let owned = state
+        .resource_table
+        .get::<FetchBody>(rid)
+        .map(|b| b.token == token)
+        .unwrap_or(false);
+    if owned {
+        close_rid(state, rid);
+    }
 }
 
 /// Called when a request ends: close every body it still holds.
