@@ -2,8 +2,8 @@ name: CI
 
 # Each job runs only when its paths change (docs/12-developer-experience.md,
 # "Build and compile strategy", rule 6): docs changes never trigger a Rust or
-# TypeScript build. On a push the filter compares against the previous push;
-# on a pull request against the base branch.
+# TypeScript build. On a push the filter compares with the commit before the
+# push; on a pull request with the base branch.
 on:
   push:
   pull_request:
@@ -30,6 +30,9 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # On push: compare with the commit before this push, not with the
+          # default branch. Ignored on pull_request (compares with the base).
+          base: ${{ github.ref }}
           filters: |
             rust:
               - 'crates/**'
