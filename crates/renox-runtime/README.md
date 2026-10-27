@@ -63,6 +63,22 @@ The bootstrap's `dispatch` runs the handler with a frozen `ctx` (`req`, `url`, `
 
 **Request scope.** `ops.md` section 0 asks #25 to prove that the request token survives `await`, timers, and promise continuations (`tests/dispatch.rs`, `request_scope_follows_async_context`). It does: the token lives in a `deno_core` `AsyncVariable` (continuation-preserved embedder data), so concurrent requests on one isolate each see their own token, and the one-request-per-isolate fallback is not needed. A timer that fires after its request ended gets `RENOX_NO_REQUEST`. The bootstrap reads the token and passes it to each op as the first argument; the ops are captured in the bootstrap's closures and are unreachable from tenant code, so tenant code cannot supply a token of its own, and Rust refuses a token that is not live.
 
+## Limits
+
+`src/limits/` (issue #26), behaviour per `ops.md` section 10. The cell passes the tier's numbers in `IsolateSpec.limits` (`Limits::FREE`, `Limits::PAID`); the manifest's `limits` can only lower them.
+
+| Limit | Mechanism | On the limit |
+| --- | --- | --- |
+| CPU per request (50 / 500 ms) | `limits/cpu.rs`: the isolate thread's `CLOCK_THREAD_CPUTIME_ID` (read through `pthread_getcpuclockid` + `clock_gettime`, the only `unsafe` in the crate, with a `SAFETY` note per call) and a watchdog thread per isolate that samples the running slice every 1 ms and calls `v8::IsolateHandle::terminate_execution()` | 503 `RENOX_CPU_LIMIT`, meter `cpu_limit`; the isolate is poisoned, every other request in flight on it gets the same answer, the thread disposes it, and the next request creates a fresh isolate from the snapshot (`RuntimeMetrics::recycles`) |
+| Wall clock per request (30 / 60 s, or the cell's earlier deadline) | `tokio::time::timeout_at` on the handle side; the isolate then ends the request: its token stops working and its `CancelHandle` cancels pending ops | 504 `RENOX_DEADLINE` at the deadline, meter `timeout`; the isolate is kept. Later ops of that request get `RENOX_NO_REQUEST` |
+| V8 heap per isolate (128 / 512 MB) | `CreateParams::heap_limits` plus `limits/heap.rs`: a near-heap-limit callback that doubles the limit for a moment (so V8 does not abort the process) and terminates execution | 503 `RENOX_OOM`, meter `oom`; recycled as for CPU |
+| Concurrent requests per deployment (50 / 500) | `limits/concurrency.rs`: a `tokio::sync::Semaphore` per `IsolateHandle`; a request queues for a slot up to its deadline | 503 `RENOX_BUSY` with `Retry-After: 1`, meter `busy`, no tenant code runs |
+| Module evaluation (500 ms / 5 s CPU, 10 s wall) | The same watchdog with the module budget, and a timeout around module loading | Isolate creation fails with `CreateError::Limit`; requests get 503 `RENOX_CPU_LIMIT` / 504 `RENOX_DEADLINE` / 503 `RENOX_OOM`, and the failure is cached for 5 s per deployment |
+
+**CPU accounting.** JavaScript runs only inside the isolate loop's poll, one "slice" per poll. A slice starts with the smallest remaining budget among the requests in flight; a request that arrives mid-slice is charged only from the moment it joins, and its synchronous part already runs under its own budget. At the end of the slice every request still in flight is charged the slice's CPU. With one request in flight this is exact, and the test shows termination at 50.7–50.8 ms for a 50 ms limit (B12 tolerance ± 5 ms). With several requests in flight on one isolate, each is charged every slice it was in flight for, which over-counts a request's `cpu_ms` and never under-counts it: limits fire early, never late. Exact per-request attribution would need a hook on every async-context switch; it is left for when B12 shows the over-count matters. JavaScript running with no request in flight (a timer that outlived its request) gets the per-request budget too, so orphaned work cannot spin forever.
+
+**Cost.** Two threads per live isolate (the isolate and its watchdog). The watchdog parks while no slice runs, so an idle isolate costs no wake-ups; a running slice costs one wake-up per millisecond.
+
 ## Hidden globals
 
 Applied by the bootstrap's `harden()` after `deno_runtime` has bootstrapped the global scope and before any tenant module is evaluated (`ops.md` section 11, step 2). Upstream exposes much more than a request handler needs; every item was decided:

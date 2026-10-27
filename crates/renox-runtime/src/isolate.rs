@@ -1,20 +1,21 @@
 //! One deployment's isolate: creation from the platform snapshot, tenant
-//! module evaluation, handler lookup, and request dispatch
-//! (`docs/contracts/ops.md` section 11).
+//! module evaluation, handler lookup, request dispatch
+//! (`docs/contracts/ops.md` section 11), and the per-request limits of
+//! section 10 (#26).
 //!
 //! Thread model: every isolate lives on its own OS thread with a
 //! single-threaded Tokio runtime, and the rest of the process talks to it
 //! through a channel ([`IsolateHandle`]). A V8 isolate is bound to the
 //! thread that created it, `deno_core`'s `JsRuntime` is `!Send`, and a
-//! dedicated thread lets the CPU watchdog (#26) measure exactly that
-//! thread's CPU clock. See README, "Thread model".
+//! dedicated thread lets the CPU watchdog measure exactly that thread's CPU
+//! clock. See README, "Thread model".
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -36,6 +37,10 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::error::{ErrorCode, PlatformResponse};
 use crate::limits::Limits;
+use crate::limits::concurrency::ConcurrencyLimit;
+use crate::limits::cpu::Watchdog;
+use crate::limits::heap::{self, HeapFlag};
+use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
 use crate::manifest::{Artifact, CodeFormat, LoadError, load_artifact};
 use crate::ops::request::{RequestState, RequestTable};
@@ -61,7 +66,8 @@ pub struct IsolateSpec {
 pub struct RequestCtx {
     /// Gateway-assigned request id (`x-renox-request-id`).
     pub request_id: String,
-    /// Wall-clock deadline of the request (`ops.md` section 5).
+    /// Wall-clock deadline of the request (`ops.md` section 5). The runtime
+    /// further caps it at `now + limits.wall_ms`.
     pub deadline: Instant,
 }
 
@@ -98,7 +104,9 @@ pub struct InvocationMeter {
     /// `<METHOD> <pattern>`; `None` when no route matched (404/405, no record).
     pub route: Option<String>,
     pub status: MeterStatus,
+    /// Thread CPU time charged to the request (`meter.md`, `cpu_ms`).
     pub cpu_ms: f64,
+    /// Peak `used_heap_size` of the isolate while the request was in flight.
     pub peak_heap_bytes: u64,
     pub fetch_sent_bytes: u64,
     pub fetch_received_bytes: u64,
@@ -128,7 +136,7 @@ pub struct Dispatched {
 
 /// Why an isolate could not be created. Every variant is a
 /// module-evaluation failure in the contract's sense (`ops.md` section 10).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CreateError {
     /// The artifact failed a load-time rule (`artifact.md` section 6).
     Artifact(LoadError),
@@ -137,8 +145,21 @@ pub enum CreateError {
     /// A tenant module failed to load or threw during evaluation, or a
     /// route's export is missing or not a function.
     ModuleLoad(String),
+    /// Module evaluation hit the CPU, wall-clock, or heap limit
+    /// (`RENOX_CPU_LIMIT`, `RENOX_DEADLINE`, `RENOX_OOM`).
+    Limit(ErrorCode),
     /// The platform itself failed (snapshot, bootstrap, thread).
     Internal(String),
+}
+
+impl CreateError {
+    /// The response code requests waiting on this isolate get.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            CreateError::Limit(code) => *code,
+            _ => ErrorCode::Internal,
+        }
+    }
 }
 
 impl std::fmt::Display for CreateError {
@@ -147,12 +168,17 @@ impl std::fmt::Display for CreateError {
             CreateError::Artifact(e) => write!(f, "artifact refused: {e}"),
             CreateError::Manifest(e) => write!(f, "manifest refused: {e}"),
             CreateError::ModuleLoad(e) => write!(f, "module evaluation failed: {e}"),
+            CreateError::Limit(code) => write!(f, "module evaluation hit {}", code.as_str()),
             CreateError::Internal(e) => write!(f, "isolate creation failed: {e}"),
         }
     }
 }
 
 impl std::error::Error for CreateError {}
+
+/// How long a failed isolate creation is remembered per deployment, so a
+/// broken deployment is not rebuilt on every request (`ops.md` section 10).
+pub const CREATE_FAILURE_CACHE: Duration = Duration::from_secs(5);
 
 /// Numbers measured when the isolate was created (README; B1, B4).
 #[derive(Debug, Clone, Copy)]
@@ -170,6 +196,7 @@ pub struct CreateStats {
 // Channel protocol between handles and the isolate thread.
 
 struct DispatchJob {
+    seq: u64,
     route: usize,
     params: BTreeMap<String, ParamValue>,
     method: String,
@@ -183,6 +210,12 @@ struct DispatchJob {
 
 enum Command {
     Dispatch(Box<DispatchJob>),
+    /// The request's deadline passed on the handle side: end it now and
+    /// report what it used.
+    Cancel {
+        seq: u64,
+        meter: oneshot::Sender<InvocationMeter>,
+    },
     Terminate,
 }
 
@@ -230,7 +263,12 @@ pub struct IsolateHandle {
     artifact: Arc<Artifact>,
     router: Arc<Router>,
     limits: Limits,
+    concurrency: ConcurrencyLimit,
+    seq: AtomicU64,
     current: Mutex<Option<Arc<IsolateThread>>>,
+    /// Serialises re-creation so concurrent requests build one isolate.
+    respawn: tokio::sync::Mutex<()>,
+    last_failure: Mutex<Option<(Instant, CreateError)>>,
 }
 
 impl IsolateHandle {
@@ -256,7 +294,11 @@ impl IsolateHandle {
             artifact: Arc::new(artifact),
             router: Arc::new(router),
             limits,
+            concurrency: ConcurrencyLimit::new(limits.concurrency),
+            seq: AtomicU64::new(0),
             current: Mutex::new(None),
+            respawn: tokio::sync::Mutex::new(()),
+            last_failure: Mutex::new(None),
         };
         let thread = handle.spawn_thread().await?;
         *handle.current.lock().expect("isolate lock") = Some(Arc::new(thread));
@@ -266,6 +308,11 @@ impl IsolateHandle {
     /// The effective limits (tier limits lowered by the manifest).
     pub fn limits(&self) -> Limits {
         self.limits
+    }
+
+    /// Free concurrency slots of the deployment.
+    pub fn available_slots(&self) -> usize {
+        self.concurrency.available()
     }
 
     /// Creation numbers of the current isolate.
@@ -323,21 +370,52 @@ impl IsolateHandle {
         })
     }
 
-    /// The live isolate, or a fresh one if the current one was poisoned or
-    /// terminated.
-    async fn live_thread(&self) -> Result<Arc<IsolateThread>, CreateError> {
-        if let Some(t) = self.current.lock().expect("isolate lock").as_ref()
-            && !t.shared.poisoned.load(Ordering::SeqCst)
-        {
-            return Ok(t.clone());
-        }
-        let fresh = Arc::new(self.spawn_thread().await?);
-        let mut cur = self.current.lock().expect("isolate lock");
+    fn healthy(&self) -> Option<Arc<IsolateThread>> {
+        let cur = self.current.lock().expect("isolate lock");
         match cur.as_ref() {
-            Some(t) if !t.shared.poisoned.load(Ordering::SeqCst) => Ok(t.clone()),
-            _ => {
-                *cur = Some(fresh.clone());
-                Ok(fresh)
+            Some(t) if !t.shared.poisoned.load(Ordering::SeqCst) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
+    /// The live isolate, or a fresh one if the current one was poisoned
+    /// (CPU, heap, uncaught error) or terminated: the recycle step of
+    /// `ops.md` section 10. A creation failure is cached for
+    /// [`CREATE_FAILURE_CACHE`].
+    async fn live_thread(&self) -> Result<Arc<IsolateThread>, CreateError> {
+        if let Some(t) = self.healthy() {
+            return Ok(t);
+        }
+        let _guard = self.respawn.lock().await;
+        if let Some(t) = self.healthy() {
+            return Ok(t);
+        }
+        if let Some((at, err)) = self.last_failure.lock().expect("failure lock").as_ref()
+            && at.elapsed() < CREATE_FAILURE_CACHE
+        {
+            return Err(err.clone());
+        }
+        match self.spawn_thread().await {
+            Ok(t) => {
+                let t = Arc::new(t);
+                let old = self
+                    .current
+                    .lock()
+                    .expect("isolate lock")
+                    .replace(t.clone());
+                if old.is_some() {
+                    self.runtime
+                        .inner
+                        .metrics
+                        .recycles
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(t)
+            }
+            Err(e) => {
+                *self.last_failure.lock().expect("failure lock") =
+                    Some((Instant::now(), e.clone()));
+                Err(e)
             }
         }
     }
@@ -363,8 +441,12 @@ impl IsolateHandle {
     ///
     /// `req`'s URI must be absolute (`https://<host><path>?<query>`), or its
     /// `Host` header is used with `https`. 404 and 405 are answered here
-    /// without entering the isolate.
+    /// without entering the isolate. The request then waits for one of the
+    /// deployment's concurrency slots (503 `RENOX_BUSY` at the deadline),
+    /// runs under the CPU and heap limits, and is answered with 504
+    /// `RENOX_DEADLINE` at its deadline whatever the handler does after.
     pub async fn dispatch(&self, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
+        let admitted = Instant::now();
         let (parts, body) = req.into_parts();
         let path = parts.uri.path().to_string();
         let method = parts.method.as_str().to_string();
@@ -385,6 +467,47 @@ impl IsolateHandle {
         };
         let route_def = &self.artifact.manifest.routes[route];
         let route_name = format!("{} {}", route_def.method.as_str(), route_def.path);
+        let deadline = effective_deadline(ctx.deadline, self.limits.wall_ms, admitted);
+        let ctx = RequestCtx {
+            request_id: ctx.request_id,
+            deadline,
+        };
+        let fail = |code: ErrorCode, status: MeterStatus| Dispatched {
+            response: PlatformResponse::error(code, &ctx.request_id),
+            meter: InvocationMeter::new(Some(route_name.clone()), status),
+        };
+
+        // Concurrency: queue up to the deadline (ops.md section 10).
+        let Ok(_permit) = self.concurrency.acquire(deadline).await else {
+            let mut f = serde_json::Map::new();
+            f.insert("code".into(), "RENOX_BUSY".into());
+            f.insert("route".into(), route_name.clone().into());
+            f.insert("concurrency_limit".into(), self.limits.concurrency.into());
+            f.insert(
+                "queued_ms".into(),
+                (admitted.elapsed().as_millis() as u64).into(),
+            );
+            self.log("warn", Some(&ctx.request_id), "concurrency limit", f);
+            return fail(ErrorCode::Busy, MeterStatus::Busy);
+        };
+
+        let thread = match self.live_thread().await {
+            Ok(t) => t,
+            Err(e) => {
+                let mut f = serde_json::Map::new();
+                f.insert("code".into(), e.code().as_str().into());
+                f.insert("phase".into(), "module_load".into());
+                f.insert("cause_message".into(), e.to_string().into());
+                self.log("error", Some(&ctx.request_id), "isolate creation failed", f);
+                let status = match e.code() {
+                    ErrorCode::CpuLimit => MeterStatus::CpuLimit,
+                    ErrorCode::Oom => MeterStatus::Oom,
+                    ErrorCode::Deadline => MeterStatus::Timeout,
+                    _ => MeterStatus::Error,
+                };
+                return fail(e.code(), status);
+            }
+        };
         let url = absolute_url(&parts);
         let headers = parts
             .headers
@@ -396,23 +519,10 @@ impl IsolateHandle {
                 )
             })
             .collect();
-        let fail = |code: ErrorCode, status: MeterStatus| Dispatched {
-            response: PlatformResponse::error(code, &ctx.request_id),
-            meter: InvocationMeter::new(Some(route_name.clone()), status),
-        };
-        let thread = match self.live_thread().await {
-            Ok(t) => t,
-            Err(e) => {
-                let mut f = serde_json::Map::new();
-                f.insert("code".into(), "RENOX_INTERNAL".into());
-                f.insert("phase".into(), "module_load".into());
-                f.insert("cause_message".into(), e.to_string().into());
-                self.log("error", Some(&ctx.request_id), "isolate creation failed", f);
-                return fail(ErrorCode::Internal, MeterStatus::Error);
-            }
-        };
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let (reply_tx, reply_rx) = oneshot::channel();
         let job = DispatchJob {
+            seq,
             route,
             params,
             want_body: method != "HEAD",
@@ -426,12 +536,40 @@ impl IsolateHandle {
         if thread.tx.send(Command::Dispatch(Box::new(job))).is_err() {
             return fail(ErrorCode::Internal, MeterStatus::Error);
         }
-        let reply = match reply_rx.await {
-            Ok(r) => r,
-            Err(_) => ThreadReply::Failed {
+        let reply = match tokio::time::timeout_at(deadline.into(), reply_rx).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(_)) => ThreadReply::Failed {
                 code: ErrorCode::Internal,
-                meter: InvocationMeter::new(Some(route_name.clone()), MeterStatus::Error),
+                meter: InvocationMeter::new(None, MeterStatus::Error),
             },
+            Err(_elapsed) => {
+                // Wall clock (ops.md section 10): answer 504 now; the
+                // isolate ends the request and cancels its pending ops.
+                let (meter_tx, meter_rx) = oneshot::channel();
+                let _ = thread.tx.send(Command::Cancel {
+                    seq,
+                    meter: meter_tx,
+                });
+                let mut meter = tokio::time::timeout(Duration::from_millis(100), meter_rx)
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or_else(|| InvocationMeter::new(None, MeterStatus::Timeout));
+                meter.status = MeterStatus::Timeout;
+                let mut f = serde_json::Map::new();
+                f.insert("code".into(), "RENOX_DEADLINE".into());
+                f.insert("route".into(), route_name.clone().into());
+                f.insert(
+                    "wall_ms".into(),
+                    (admitted.elapsed().as_millis() as u64).into(),
+                );
+                f.insert("limit_ms".into(), self.limits.wall_ms.into());
+                self.log("warn", Some(&ctx.request_id), "request deadline passed", f);
+                ThreadReply::Failed {
+                    code: ErrorCode::Deadline,
+                    meter,
+                }
+            }
         };
         match reply {
             ThreadReply::Ok {
@@ -504,6 +642,12 @@ struct Platform {
     handlers: Vec<v8::Global<v8::Function>>,
 }
 
+/// The limit machinery of one isolate thread.
+struct Guards {
+    watchdog: Watchdog,
+    heap: Arc<HeapFlag>,
+}
+
 fn isolate_thread_main(
     ctx: ThreadContext,
     rx: mpsc::UnboundedReceiver<Command>,
@@ -521,7 +665,7 @@ fn isolate_thread_main(
     };
     rt.block_on(async move {
         let start = Instant::now();
-        let (mut worker, platform, module_time) = match create_worker(&ctx).await {
+        let (mut worker, platform, guards, module_time) = match create_worker(&ctx).await {
             Ok(w) => w,
             Err(e) => {
                 let _ = ready.send(Err(e));
@@ -539,8 +683,10 @@ fn isolate_thread_main(
         if ready.send(Ok((v8_handle, stats))).is_err() {
             return;
         }
-        serve(&ctx, &mut worker, &platform, rx).await;
-        // Dropping `worker` here disposes the isolate on this thread.
+        serve(&ctx, &mut worker, &platform, &guards, rx).await;
+        // Dropping `worker` here disposes the isolate on this thread; the
+        // watchdog is stopped first (declaration order of the locals).
+        drop(guards);
     });
 }
 
@@ -551,6 +697,8 @@ fn heap_stats(js: &mut JsRuntime) -> (u64, u64) {
 }
 
 fn worker_options(ctx: &ThreadContext) -> WorkerOptions {
+    // Heap limit (ops.md section 10): V8's own limit, plus the
+    // near-heap-limit callback installed in create_worker.
     let create_params = v8::CreateParams::default().heap_limits(0, ctx.limits.heap_bytes as usize);
     WorkerOptions {
         bootstrap: BootstrapOptions {
@@ -570,7 +718,7 @@ fn worker_options(ctx: &ThreadContext) -> WorkerOptions {
 /// (`ops.md` section 11, steps 1, 2, 4, 5; step 3 is #28).
 async fn create_worker(
     ctx: &ThreadContext,
-) -> Result<(MainWorker, Platform, Duration), CreateError> {
+) -> Result<(MainWorker, Platform, Guards, Duration), CreateError> {
     let manifest = &ctx.artifact.manifest;
     let loader: Rc<ArtifactLoader> = Rc::new(match manifest.code.format {
         CodeFormat::EsmDir => ArtifactLoader::esm_dir(&ctx.artifact.code_dir())
@@ -615,6 +763,19 @@ async fn create_worker(
     };
     let mut worker = MainWorker::bootstrap_from_options(main_module, services, worker_options(ctx));
 
+    // Limits: heap callback and CPU watchdog for this isolate's thread.
+    let heap_flag = Arc::new(HeapFlag::default());
+    heap::install(&mut worker.js_runtime, heap_flag.clone());
+    let v8_handle = worker.js_runtime.v8_isolate().thread_safe_handle();
+    let watchdog = Watchdog::start(Box::new(move || {
+        v8_handle.terminate_execution();
+    }))
+    .map_err(|e| CreateError::Internal(format!("cpu watchdog: {e}")))?;
+    let guards = Guards {
+        watchdog,
+        heap: heap_flag,
+    };
+
     // Step 2: take the bootstrap's functions, remove the handle, harden.
     let (dispatch, harden) = {
         let internal = worker
@@ -649,24 +810,29 @@ async fn create_worker(
         .await
         .map_err(|e| CreateError::Internal(format!("hardening: {e}")))?;
 
-    // Step 4: tenant modules.
+    // Step 4: tenant modules, under the module-evaluation limits
+    // (ops.md section 10, last row).
     let module_start = Instant::now();
-    let mut namespaces: HashMap<String, v8::Global<v8::Object>> = HashMap::new();
-    for (id, specifier) in &entries {
-        let module_id = worker
-            .preload_side_module(specifier)
-            .await
-            .map_err(|e| CreateError::ModuleLoad(format!("{id}: {}", tenant_safe(&e))))?;
-        worker
-            .evaluate_module(module_id)
-            .await
-            .map_err(|e| CreateError::ModuleLoad(format!("{id}: {}", tenant_safe(&e))))?;
-        let ns = worker
-            .js_runtime
-            .get_module_namespace(module_id)
-            .map_err(|e| CreateError::ModuleLoad(format!("{id}: {e}")))?;
-        namespaces.insert(id.clone(), ns);
-    }
+    let slice = guards
+        .watchdog
+        .begin_slice(Duration::from_millis(ctx.limits.module_cpu_ms));
+    let loaded = tokio::time::timeout(
+        Duration::from_millis(ctx.limits.module_wall_ms),
+        load_modules(&mut worker, &entries),
+    )
+    .await;
+    guards.watchdog.end_slice(slice);
+    let namespaces = match loaded {
+        _ if guards.watchdog.watch().fired() => {
+            return Err(CreateError::Limit(ErrorCode::CpuLimit));
+        }
+        _ if guards.heap.hit() => return Err(CreateError::Limit(ErrorCode::Oom)),
+        Err(_elapsed) => {
+            worker.js_runtime.v8_isolate().terminate_execution();
+            return Err(CreateError::Limit(ErrorCode::Deadline));
+        }
+        Ok(r) => r?,
+    };
     let module_time = module_start.elapsed();
 
     // Step 5: every route's export must be a function (fail closed).
@@ -701,7 +867,30 @@ async fn create_worker(
         }
         handlers
     };
-    Ok((worker, Platform { dispatch, handlers }, module_time))
+    Ok((worker, Platform { dispatch, handlers }, guards, module_time))
+}
+
+async fn load_modules(
+    worker: &mut MainWorker,
+    entries: &[(String, ModuleSpecifier)],
+) -> Result<HashMap<String, v8::Global<v8::Object>>, CreateError> {
+    let mut namespaces = HashMap::new();
+    for (id, specifier) in entries {
+        let module_id = worker
+            .preload_side_module(specifier)
+            .await
+            .map_err(|e| CreateError::ModuleLoad(format!("{id}: {}", tenant_safe(&e))))?;
+        worker
+            .evaluate_module(module_id)
+            .await
+            .map_err(|e| CreateError::ModuleLoad(format!("{id}: {}", tenant_safe(&e))))?;
+        let ns = worker
+            .js_runtime
+            .get_module_namespace(module_id)
+            .map_err(|e| CreateError::ModuleLoad(format!("{id}: {e}")))?;
+        namespaces.insert(id.clone(), ns);
+    }
+    Ok(namespaces)
 }
 
 /// A JS error rendered for the tenant log: `deno_core` errors carry the
@@ -727,29 +916,80 @@ const KIND_OK: u8 = 0;
 const KIND_THROW: u8 = 1;
 
 type CallFuture = Pin<Box<dyn Future<Output = Result<v8::Global<v8::Value>, AnyError>>>>;
-/// A dispatch call tagged with its request token.
-type TokenCall = Pin<Box<dyn Future<Output = (u32, Result<v8::Global<v8::Value>, AnyError>)>>>;
+/// A dispatch call tagged with its dispatch sequence number.
+type SeqCall = Pin<Box<dyn Future<Output = (u64, Result<v8::Global<v8::Value>, AnyError>)>>>;
 
 /// A request the isolate is working on.
 struct InFlight {
     token: u32,
     ctx: RequestCtx,
     route: usize,
+    /// Thread CPU charged so far (ns), not counting the current slice.
+    cpu_ns: u64,
+    /// CPU of the current slice that ran before this request joined it (ns).
+    slice_offset_ns: u64,
+    peak_heap: u64,
     reply: Option<oneshot::Sender<ThreadReply>>,
 }
 
+impl InFlight {
+    fn meter(&self, ctx: &ThreadContext, status: MeterStatus) -> InvocationMeter {
+        let r = &ctx.artifact.manifest.routes[self.route];
+        InvocationMeter {
+            route: Some(format!("{} {}", r.method.as_str(), r.path)),
+            status,
+            cpu_ms: (self.cpu_ns as f64 / 1_000.0).round() / 1_000.0,
+            peak_heap_bytes: self.peak_heap,
+            fetch_sent_bytes: 0,
+            fetch_received_bytes: 0,
+            fetch_blocked: 0,
+        }
+    }
+}
+
+/// How much CPU the current slice may use, measured from the slice start:
+/// the smallest remaining budget among the requests in flight (a request
+/// that joined mid-slice is offset by the slice CPU before it joined). With
+/// nothing in flight (a timer that outlived its request) the per-request
+/// limit still applies, so orphaned work cannot spin forever.
+fn slice_budget(limit: Duration, inflight: &HashMap<u64, InFlight>) -> Duration {
+    let limit_ns = limit.as_nanos() as u64;
+    let min_left = inflight
+        .values()
+        .map(|f| limit_ns.saturating_sub(f.cpu_ns) + f.slice_offset_ns)
+        .min()
+        .unwrap_or(limit_ns);
+    Duration::from_nanos(min_left)
+}
+
+impl InFlight {
+    /// Charge the part of the current slice this request was in flight for.
+    fn charge(&mut self, slice_cpu_ns: u64) {
+        self.cpu_ns += slice_cpu_ns.saturating_sub(self.slice_offset_ns);
+        self.slice_offset_ns = 0;
+    }
+}
+
 /// The isolate's main loop: accept dispatches, poll the event loop, and
-/// answer finished requests.
+/// answer finished requests. Each poll is one CPU slice (limits/cpu.rs).
 async fn serve(
     ctx: &ThreadContext,
     worker: &mut MainWorker,
     platform: &Platform,
+    guards: &Guards,
     mut rx: mpsc::UnboundedReceiver<Command>,
 ) {
-    let mut calls: FuturesUnordered<TokenCall> = FuturesUnordered::new();
-    let mut inflight: HashMap<u32, InFlight> = HashMap::new();
-    let mut stop = false;
+    let cpu_limit = Duration::from_millis(ctx.limits.cpu_ms);
+    let mut calls: FuturesUnordered<SeqCall> = FuturesUnordered::new();
+    let mut inflight: HashMap<u64, InFlight> = HashMap::new();
     std::future::poll_fn(|cx| {
+        let slice = guards
+            .watchdog
+            .begin_slice(slice_budget(cpu_limit, &inflight));
+        let watch = guards.watchdog.watch().clone();
+        let slice_cpu = |watch: &crate::limits::cpu::CpuWatch| watch.now_ns().saturating_sub(slice);
+        let mut stop = false;
+
         // 1. New commands.
         while let Poll::Ready(cmd) = rx.poll_recv(cx) {
             match cmd {
@@ -761,10 +1001,20 @@ async fn serve(
                         });
                         continue;
                     }
+                    let seq = job.seq;
+                    // A request that joins mid-slice is charged only from
+                    // now on, and its synchronous part already runs inside
+                    // start_dispatch, under its own budget.
+                    let offset = slice_cpu(&watch);
+                    guards.watchdog.set_budget(
+                        slice_budget(cpu_limit, &inflight)
+                            .min(Duration::from_nanos(offset) + cpu_limit),
+                    );
                     match start_dispatch(worker, platform, *job) {
-                        Ok((token, fut, flight)) => {
-                            inflight.insert(token, flight);
-                            calls.push(Box::pin(async move { (token, fut.await) }));
+                        Ok((fut, mut flight)) => {
+                            flight.slice_offset_ns = offset;
+                            inflight.insert(seq, flight);
+                            calls.push(Box::pin(async move { (seq, fut.await) }));
                         }
                         Err((reply, code)) => {
                             let _ = reply.send(ThreadReply::Failed {
@@ -773,6 +1023,16 @@ async fn serve(
                             });
                         }
                     }
+                    guards
+                        .watchdog
+                        .set_budget(slice_budget(cpu_limit, &inflight));
+                }
+                Some(Command::Cancel { seq, meter }) => {
+                    if let Some(mut f) = inflight.remove(&seq) {
+                        f.charge(slice_cpu(&watch));
+                        end_request(worker, f.token);
+                        let _ = meter.send(f.meter(ctx, MeterStatus::Timeout));
+                    }
                 }
                 Some(Command::Terminate) | None => {
                     stop = true;
@@ -780,48 +1040,113 @@ async fn serve(
                 }
             }
         }
-        if stop {
-            return Poll::Ready(());
-        }
+
         // 2. The event loop: timers, ops, microtasks.
-        if let Poll::Ready(Err(e)) = worker
-            .js_runtime
-            .poll_event_loop(cx, PollEventLoopOptions::default())
+        let mut loop_error = None;
+        if !stop
+            && !watch.fired()
+            && !guards.heap.hit()
+            && let Poll::Ready(Err(e)) = worker
+                .js_runtime
+                .poll_event_loop(cx, PollEventLoopOptions::default())
         {
-            // An uncaught exception or a terminated execution: the isolate
-            // is no longer trustworthy. Fail what is in flight and stop.
-            ctx.shared.poisoned.store(true, Ordering::SeqCst);
-            let mut f = serde_json::Map::new();
-            f.insert("code".into(), "RENOX_INTERNAL".into());
-            f.insert("cause_message".into(), tenant_safe(&e).into());
-            log_line(
-                ctx,
-                "error",
-                None,
-                "uncaught error in the isolate event loop; isolate recycled",
-                f,
-            );
-            for (_, mut flight) in inflight.drain() {
+            loop_error = Some(e);
+        }
+
+        // 3. Finished dispatches.
+        if !watch.fired() && !guards.heap.hit() {
+            while let Poll::Ready(Some((seq, result))) = calls.poll_next_unpin(cx) {
+                let Some(mut flight) = inflight.remove(&seq) else {
+                    continue;
+                };
+                flight.charge(slice_cpu(&watch));
+                flight.peak_heap = flight
+                    .peak_heap
+                    .max(heap::used_heap_bytes(&mut worker.js_runtime));
+                if watch.fired() || guards.heap.hit() {
+                    inflight.insert(seq, flight);
+                    break;
+                }
+                let reply = finish_dispatch(ctx, worker, &flight, result);
                 end_request(worker, flight.token);
-                if let Some(reply) = flight.reply.take() {
-                    let _ = reply.send(ThreadReply::Failed {
-                        code: ErrorCode::Internal,
-                        meter: InvocationMeter::new(None, MeterStatus::Error),
-                    });
+                if let Some(tx) = flight.reply.take() {
+                    let _ = tx.send(reply);
                 }
             }
+        }
+
+        // End of slice: charge every request still in flight.
+        let used = guards.watchdog.end_slice(slice).as_nanos() as u64;
+        let heap_now = heap::used_heap_bytes(&mut worker.js_runtime);
+        for f in inflight.values_mut() {
+            f.charge(used);
+            f.peak_heap = f.peak_heap.max(heap_now);
+        }
+
+        // 4. Limits hit: the isolate is poisoned and every request in flight
+        // ends with the limit's code (ops.md section 10).
+        let killed = if watch.fired() {
+            Some((ErrorCode::CpuLimit, MeterStatus::CpuLimit))
+        } else if guards.heap.hit() {
+            Some((ErrorCode::Oom, MeterStatus::Oom))
+        } else {
+            loop_error
+                .as_ref()
+                .map(|_| (ErrorCode::Internal, MeterStatus::Error))
+        };
+        if let Some((code, status)) = killed {
+            ctx.shared.poisoned.store(true, Ordering::SeqCst);
+            for (_, mut flight) in inflight.drain() {
+                let mut f = serde_json::Map::new();
+                f.insert("code".into(), code.as_str().into());
+                f.insert(
+                    "route".into(),
+                    flight.meter(ctx, status).route.unwrap_or_default().into(),
+                );
+                f.insert("phase".into(), "request".into());
+                match code {
+                    ErrorCode::CpuLimit => {
+                        f.insert("cpu_ms".into(), flight.meter(ctx, status).cpu_ms.into());
+                        f.insert("limit_ms".into(), ctx.limits.cpu_ms.into());
+                    }
+                    ErrorCode::Oom => {
+                        f.insert("peak_heap_bytes".into(), flight.peak_heap.into());
+                        f.insert("limit_bytes".into(), ctx.limits.heap_bytes.into());
+                    }
+                    _ => {
+                        if let Some(e) = &loop_error {
+                            f.insert("cause_message".into(), tenant_safe(e).into());
+                        }
+                    }
+                }
+                let message = match code {
+                    ErrorCode::CpuLimit => "request CPU limit reached; isolate recycled",
+                    ErrorCode::Oom => "isolate heap limit reached; isolate recycled",
+                    _ => "uncaught error in the isolate event loop; isolate recycled",
+                };
+                log_line(ctx, "error", Some(&flight.ctx.request_id), message, f);
+                let meter = flight.meter(ctx, status);
+                if let Some(tx) = flight.reply.take() {
+                    let _ = tx.send(ThreadReply::Failed { code, meter });
+                }
+            }
+            if inflight.is_empty() && code != ErrorCode::Internal {
+                // Orphaned work (a timer after its request) hit the limit.
+                let mut f = serde_json::Map::new();
+                f.insert("code".into(), code.as_str().into());
+                f.insert("phase".into(), "background".into());
+                log_line(
+                    ctx,
+                    "error",
+                    None,
+                    "limit reached outside a request; isolate recycled",
+                    f,
+                );
+            }
             return Poll::Ready(());
         }
-        // 3. Finished dispatches.
-        while let Poll::Ready(Some((token, result))) = calls.poll_next_unpin(cx) {
-            let Some(mut flight) = inflight.remove(&token) else {
-                continue;
-            };
-            let reply = finish_dispatch(ctx, worker, &flight, result);
-            end_request(worker, token);
-            if let Some(tx) = flight.reply.take() {
-                let _ = tx.send(reply);
-            }
+        if stop {
+            return Poll::Ready(());
         }
         Poll::Pending
     })
@@ -850,7 +1175,7 @@ fn log_line(
     });
 }
 
-type StartResult = Result<(u32, CallFuture, InFlight), (oneshot::Sender<ThreadReply>, ErrorCode)>;
+type StartResult = Result<(CallFuture, InFlight), (oneshot::Sender<ThreadReply>, ErrorCode)>;
 
 fn start_dispatch(worker: &mut MainWorker, platform: &Platform, job: DispatchJob) -> StartResult {
     let token = {
@@ -873,12 +1198,14 @@ fn start_dispatch(worker: &mut MainWorker, platform: &Platform, job: DispatchJob
     };
     let fut = worker.js_runtime.call_with_args(&platform.dispatch, &args);
     Ok((
-        token,
         Box::pin(fut),
         InFlight {
             token,
             ctx: job.ctx,
             route: job.route,
+            cpu_ns: 0,
+            slice_offset_ns: 0,
+            peak_heap: 0,
             reply: Some(job.reply),
         },
     ))
@@ -932,7 +1259,6 @@ fn finish_dispatch(
 ) -> ThreadReply {
     let route = &ctx.artifact.manifest.routes[flight.route];
     let route_name = format!("{} {}", route.method.as_str(), route.path);
-    let meter = |status| InvocationMeter::new(Some(route_name.clone()), status);
     let outcome: Result<JsOutcome, String> = match result {
         Ok(v) => {
             let scope = &mut worker.js_runtime.handle_scope();
@@ -949,7 +1275,7 @@ fn finish_dispatch(
                 .body
                 .map(|b| Bytes::copy_from_slice(&b))
                 .unwrap_or_default(),
-            meter: meter(MeterStatus::Ok),
+            meter: flight.meter(ctx, MeterStatus::Ok),
         },
         Ok(o) => {
             // The handler threw or returned something that is not a
@@ -992,7 +1318,7 @@ fn finish_dispatch(
             };
             ThreadReply::Failed {
                 code: ErrorCode::Internal,
-                meter: meter(status),
+                meter: flight.meter(ctx, status),
             }
         }
         Err(e) => {
@@ -1009,7 +1335,7 @@ fn finish_dispatch(
             );
             ThreadReply::Failed {
                 code: ErrorCode::Internal,
-                meter: meter(MeterStatus::Error),
+                meter: flight.meter(ctx, MeterStatus::Error),
             }
         }
     }

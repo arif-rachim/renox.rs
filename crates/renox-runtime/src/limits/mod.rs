@@ -1,6 +1,12 @@
 //! Per-request and per-isolate limits (`docs/contracts/ops.md` section 10,
 //! `docs/04-isolation-security.md`, "Per-tenant limits").
 
+pub mod concurrency;
+pub mod cpu;
+#[cfg(feature = "v8")]
+pub mod heap;
+pub mod wall;
+
 use crate::manifest::LimitOverrides;
 
 /// The limits of one deployment. The cell passes the tier's numbers; the
@@ -18,6 +24,10 @@ pub struct Limits {
     pub concurrency: u32,
     /// Outbound `fetch` bytes per request, sent + received (`ops.md` section 2).
     pub egress_bytes: u64,
+    /// CPU budget for evaluating the tenant modules at isolate start.
+    pub module_cpu_ms: u64,
+    /// Wall-clock budget for evaluating the tenant modules at isolate start.
+    pub module_wall_ms: u64,
 }
 
 impl Limits {
@@ -28,6 +38,8 @@ impl Limits {
         heap_bytes: 128 * 1024 * 1024,
         concurrency: 50,
         egress_bytes: 10 * 1024 * 1024,
+        module_cpu_ms: 500,
+        module_wall_ms: 10_000,
     };
 
     /// Paid tier (`ops.md` section 10).
@@ -37,6 +49,8 @@ impl Limits {
         heap_bytes: 512 * 1024 * 1024,
         concurrency: 500,
         egress_bytes: 100 * 1024 * 1024,
+        module_cpu_ms: 5_000,
+        module_wall_ms: 10_000,
     };
 
     /// Apply the manifest's overrides: `min(override, tier)` per field, so
@@ -52,7 +66,7 @@ impl Limits {
             concurrency: o.concurrency.map_or(self.concurrency, |v| {
                 (v.min(u64::from(self.concurrency))) as u32
             }),
-            egress_bytes: self.egress_bytes,
+            ..self
         }
     }
 }
