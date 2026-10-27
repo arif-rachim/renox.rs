@@ -35,7 +35,7 @@ The first version of this crate pinned the F0 spike's Deno 2.1.4 (`deno_runtime`
 
 - **`renox-gateway`**: `rustls` minimum lowered from 0.23.46 to 0.23.40, the version `deno_tls` pins exactly.
 - **`renox-data`**: `rusqlite` 0.41 → 0.40, because five Deno extensions (`deno_cache`, `deno_kv`, `deno_webstorage`, `deno_node_sqlite`, `denokv_sqlite`) use `rusqlite` 0.40 and only one `libsqlite3-sys` (`links = "sqlite3"`) may be in a workspace. 0.40's WAL hook is a plain `fn`, so the WAL accounting reaches its connection through a thread-local set around every writer call that can commit, and explicit checkpoints use `PRAGMA wal_checkpoint`. Behaviour and tests unchanged.
-- The bench spikes keep their `v8` 130 (`v8` has no `links` key, so two versions coexist in one lockfile).
+- **`bench/spike/marshal-bench`**: `v8` 130.0.7 → 150.4.0 and `serde_v8` 0.233 → 0.322 (scope API port only). Cargo accepts two `v8` versions in one lockfile (no `links` key), but every version downloads its static library to the same `target/<profile>/gn_out/obj/librusty_v8.a`, so the link picks whichever build script ran last. One `v8` per workspace.
 
 Consequences recorded for the risk register (`docs/16-risks.md`, "Dependence on Supabase Edge Runtime"):
 
