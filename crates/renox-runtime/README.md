@@ -140,23 +140,23 @@ Why not upstream's worker pool: a V8 isolate is bound to the thread that runs it
 
 ## Measurements
 
-Machine: 4 vCPU cloud container (x86_64, Linux 6.18), Rust 1.99.1. Release profile unless noted. `tests/dispatch.rs`, `isolate_creation_time_and_memory_are_printed`, 30 isolates per format after one warm-up, each serving one request and kept alive.
+Machine: 4 vCPU cloud container (x86_64, Linux 6.18), Rust 1.99.1, `deno_runtime` 0.268 / `v8` 150. Release profile. `tests/dispatch.rs`, `isolate_creation_time_and_memory_are_printed`, 30 isolates per format after one warm-up, each serving one request and kept alive.
 
 | | `esm-dir` (`examples/hello` worked example) | `eszip` (same handler, two modules) |
 | --- | --- | --- |
-| Isolate creation p50 / p99, measured on the isolate thread (snapshot deserialisation, `deno_runtime` bootstrap, hardening, module evaluation, handler lookup) | 34.0 ms / 59.2 ms | 30.7 ms / 43.0 ms |
-| Of which tenant module load + evaluation | 0.25 ms | 0.18 ms |
-| `create_isolate` p50 / p99 (adds artifact verification: hash, schema) | 34.7 ms / 60.0 ms | 31.2 ms / 43.6 ms |
-| V8 heap after the first request: used / total | 7.59 MB / 9.27 MB | 7.60 MB / 9.27 MB |
-| Process RSS delta per live isolate (30 isolates) | 10.20 MB | 7.87 MB |
+| Isolate creation p50 / p99, measured on the isolate thread (snapshot deserialisation, `deno_runtime` bootstrap, hardening, module evaluation, handler lookup) | 12.6 ms / 26.8 ms | 10.8 ms / 16.8 ms |
+| Of which tenant module load + evaluation | 0.33 ms | 0.18 ms |
+| `create_isolate` p50 / p99 (adds artifact verification: hash, schema) | 13.1 ms / 27.4 ms | 11.3 ms / 17.3 ms |
+| V8 heap after the first request: used / total | 3.62 MB / 4.50 MB | 3.63 MB / 4.50 MB |
+| Process RSS delta per live isolate (30 isolates) | 7.24 MB | 2.46 MB |
 
-Platform snapshot: 7.6 MB, built in 0.73 s once per process (debug build: 10.0 MB, 0.87 s).
+Platform snapshot: 2.1 MB, built in 0.55 s once per process. The RSS delta is noisy: the `esm-dir` series runs first and also pays for process-wide pages touched on first use (lazy extension sources, allocator arenas), so read the `eszip` figure as the closer per-isolate cost.
 
-Reading against the targets (`docs/14-benchmarks.md`): B4 cold start p50 ≤ 20 ms is **missed** (about 31–35 ms, the same as the F0 spike's 32.3 ms for the upstream binary): the snapshot removes the bootstrap-JS evaluation, but most of the remaining time is `deno_runtime`'s per-worker setup (`MainWorker::bootstrap_from_options`: deserialising a 7.6 MB snapshot with every Deno extension, op registration, `bootstrapMainRuntime`). Module evaluation is under 0.3 ms, and an `eszip` loads slightly faster than an ESM directory. The obvious next levers are a smaller extension set in the snapshot (no WebGPU, KV, cron, FFI, NAPI, Node polyfills unless imported) and pre-created isolates (#29); they are left to the B4 benchmark and #29 rather than guessed here. Memory per hello isolate (8–10 MB RSS) is within B1's 10 MB target for `hello`; the F1 gate condition (the `shop` eszip ≤ 20 MB) is #35's measurement.
+Reading against the targets (`docs/14-benchmarks.md`): B4 cold start p50 ≤ 20 ms is **met** (11–13 ms; the F0 spike measured 32.3 ms on Deno 2.1.4, and this crate measured 31–35 ms on `deno_runtime` 0.191 before the upgrade). Most of the gain is Deno's own: 0.268 keeps far less in the snapshot (2.1 MB against 7.6 MB) and loads the rest of the extension JavaScript on first use. The p99 (17–27 ms) is over 20 ms; pre-created isolates (#29) are the lever for the tail. Memory per hello isolate (2.5–7.2 MB RSS, 3.6 MB V8 heap) is within B1's 10 MB target for `hello`; the F1 gate condition (the `shop` eszip ≤ 20 MB) is #35's measurement.
 
-Build times (this crate with all of `deno_runtime`, `cargo build -p renox-runtime`, dev profile, 4 vCPU):
+Build times (4 vCPU, empty `target/`, prebuilt V8 downloaded):
 
 | Build | Time |
 | --- | --- |
-| Cold (empty `target/`, prebuilt V8 downloaded) | 8 min 25 s |
-| Warm incremental (one source file of this crate touched) | 1.5 s for the library; 6.1 s including relinking the `dispatch` test binary |
+| `make rust-check` (whole workspace, `cargo check` + clippy) | 4 min 56 s |
+| `cargo test --release -p renox-runtime --test dispatch` (release build of all of `deno_runtime`, then the test) | 11 min 2 s |
