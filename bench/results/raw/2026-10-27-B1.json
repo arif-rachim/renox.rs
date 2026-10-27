@@ -1,0 +1,262 @@
+{
+  "id": "B1",
+  "scenario": "RSS delta per pinned user worker, apps hello+npm-compat, N = 1/10/50/100, settle 10 s, 10 samples at 1 s, median of 3 runs; judged: hello at N = 100",
+  "notes": "npm-compat N=100 run 1 skipped: MemAvailable 8444 MB < 10494 MB needed; npm-compat N=100 run 2 skipped: MemAvailable 8444 MB < 10494 MB needed; npm-compat N=100 run 3 skipped: MemAvailable 8444 MB < 10494 MB needed; hello: per-worker delta drift across runs at N=100: 9.77 → 9.77 MB (0%)",
+  "samples": {
+    "hello_n1_rss_delta_mb": [
+      13.97,
+      13.97,
+      14.5
+    ],
+    "hello_n1_pss_delta_mb": [
+      13.97,
+      13.95,
+      14.44
+    ],
+    "hello_n1_baseline_rss_mb": [
+      73.95,
+      74.89,
+      74.11
+    ],
+    "hello_n1_total_rss_mb": [
+      87.92,
+      88.86,
+      88.61
+    ],
+    "hello_n1_heap_total_mb": [
+      9.16,
+      9.16,
+      9.16
+    ],
+    "hello_n1_create_p50_ms": [
+      96.28,
+      50.29,
+      83.61
+    ],
+    "hello_n10_rss_delta_mb": [
+      10.78,
+      10.81,
+      10.8
+    ],
+    "hello_n10_pss_delta_mb": [
+      10.76,
+      10.79,
+      10.78
+    ],
+    "hello_n10_baseline_rss_mb": [
+      74.55,
+      74.12,
+      74.08
+    ],
+    "hello_n10_total_rss_mb": [
+      182.32,
+      182.26,
+      182.05
+    ],
+    "hello_n10_heap_total_mb": [
+      9.16,
+      9.16,
+      9.16
+    ],
+    "hello_n10_create_p50_ms": [
+      27.66,
+      27.1,
+      27.21
+    ],
+    "hello_n50_rss_delta_mb": [
+      9.97,
+      9.95,
+      9.97
+    ],
+    "hello_n50_pss_delta_mb": [
+      9.95,
+      9.95,
+      9.97
+    ],
+    "hello_n50_baseline_rss_mb": [
+      74.07,
+      74.42,
+      73.76
+    ],
+    "hello_n50_total_rss_mb": [
+      572.66,
+      571.91,
+      572.14
+    ],
+    "hello_n50_heap_total_mb": [
+      9.16,
+      9.16,
+      9.16
+    ],
+    "hello_n50_create_p50_ms": [
+      27.04,
+      27.08,
+      27.24
+    ],
+    "hello_n100_rss_delta_mb": [
+      9.77,
+      9.78,
+      9.77
+    ],
+    "hello_n100_pss_delta_mb": [
+      9.75,
+      9.76,
+      9.77
+    ],
+    "hello_n100_baseline_rss_mb": [
+      73.91,
+      74.17,
+      73.83
+    ],
+    "hello_n100_total_rss_mb": [
+      1050.56,
+      1051.87,
+      1050.55
+    ],
+    "hello_n100_heap_total_mb": [
+      9.16,
+      9.16,
+      9.16
+    ],
+    "hello_n100_create_p50_ms": [
+      27.8,
+      27.73,
+      27.91
+    ],
+    "npm_compat_n1_rss_delta_mb": [
+      94.31,
+      94.53,
+      94.7
+    ],
+    "npm_compat_n1_pss_delta_mb": [
+      94.28,
+      94.49,
+      94.67
+    ],
+    "npm_compat_n1_baseline_rss_mb": [
+      73.98,
+      74.05,
+      75.06
+    ],
+    "npm_compat_n1_total_rss_mb": [
+      168.29,
+      168.58,
+      169.76
+    ],
+    "npm_compat_n1_heap_total_mb": [
+      23.68,
+      23.68,
+      23.68
+    ],
+    "npm_compat_n1_create_p50_ms": [
+      747.55,
+      605.77,
+      598.35
+    ],
+    "npm_compat_n10_rss_delta_mb": [
+      78.37,
+      78.39,
+      77.99
+    ],
+    "npm_compat_n10_pss_delta_mb": [
+      78.35,
+      78.38,
+      77.97
+    ],
+    "npm_compat_n10_baseline_rss_mb": [
+      74.16,
+      74.05,
+      73.98
+    ],
+    "npm_compat_n10_total_rss_mb": [
+      857.83,
+      857.91,
+      853.88
+    ],
+    "npm_compat_n10_heap_total_mb": [
+      23.78,
+      23.83,
+      23.75
+    ],
+    "npm_compat_n10_create_p50_ms": [
+      502.58,
+      497.04,
+      498.45
+    ],
+    "npm_compat_n50_rss_delta_mb": [
+      74.25,
+      74.28,
+      74.14
+    ],
+    "npm_compat_n50_pss_delta_mb": [
+      74.25,
+      74.26,
+      74.12
+    ],
+    "npm_compat_n50_baseline_rss_mb": [
+      73.8,
+      73.67,
+      74.61
+    ],
+    "npm_compat_n50_total_rss_mb": [
+      3786.07,
+      3787.71,
+      3781.65
+    ],
+    "npm_compat_n50_heap_total_mb": [
+      23.84,
+      23.81,
+      23.77
+    ],
+    "npm_compat_n50_create_p50_ms": [
+      493.77,
+      492.37,
+      494.64
+    ]
+  },
+  "summary": {
+    "hello_n1_rss_delta_mb": 13.97,
+    "hello_n1_pss_delta_mb": 13.97,
+    "hello_n1_baseline_rss_mb": 74.11,
+    "hello_n1_total_rss_mb": 88.61,
+    "hello_n1_heap_total_mb": 9.16,
+    "hello_n1_create_p50_ms": 83.61,
+    "hello_n10_rss_delta_mb": 10.8,
+    "hello_n10_pss_delta_mb": 10.78,
+    "hello_n10_baseline_rss_mb": 74.12,
+    "hello_n10_total_rss_mb": 182.26,
+    "hello_n10_heap_total_mb": 9.16,
+    "hello_n10_create_p50_ms": 27.21,
+    "hello_n50_rss_delta_mb": 9.97,
+    "hello_n50_pss_delta_mb": 9.95,
+    "hello_n50_baseline_rss_mb": 74.07,
+    "hello_n50_total_rss_mb": 572.14,
+    "hello_n50_heap_total_mb": 9.16,
+    "hello_n50_create_p50_ms": 27.08,
+    "hello_n100_rss_delta_mb": 9.77,
+    "hello_n100_pss_delta_mb": 9.76,
+    "hello_n100_baseline_rss_mb": 73.91,
+    "hello_n100_total_rss_mb": 1050.56,
+    "hello_n100_heap_total_mb": 9.16,
+    "hello_n100_create_p50_ms": 27.8,
+    "npm_compat_n1_rss_delta_mb": 94.53,
+    "npm_compat_n1_pss_delta_mb": 94.49,
+    "npm_compat_n1_baseline_rss_mb": 74.05,
+    "npm_compat_n1_total_rss_mb": 168.58,
+    "npm_compat_n1_heap_total_mb": 23.68,
+    "npm_compat_n1_create_p50_ms": 605.77,
+    "npm_compat_n10_rss_delta_mb": 78.37,
+    "npm_compat_n10_pss_delta_mb": 78.35,
+    "npm_compat_n10_baseline_rss_mb": 74.05,
+    "npm_compat_n10_total_rss_mb": 857.83,
+    "npm_compat_n10_heap_total_mb": 23.78,
+    "npm_compat_n10_create_p50_ms": 498.45,
+    "npm_compat_n50_rss_delta_mb": 74.25,
+    "npm_compat_n50_pss_delta_mb": 74.25,
+    "npm_compat_n50_baseline_rss_mb": 73.8,
+    "npm_compat_n50_total_rss_mb": 3786.07,
+    "npm_compat_n50_heap_total_mb": 23.81,
+    "npm_compat_n50_create_p50_ms": 493.77,
+    "rss_delta_mb": 9.77
+  }
+}

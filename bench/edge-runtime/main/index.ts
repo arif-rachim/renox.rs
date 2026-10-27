@@ -22,6 +22,7 @@ interface UserWorker {
 }
 
 declare const EdgeRuntime: {
+  applySupabaseTag(orig: Request, cloned: Request): void;
   userWorkers: {
     create(options: Record<string, unknown>): Promise<UserWorker>;
     memStats(): Promise<unknown>;
@@ -43,15 +44,17 @@ const LIMITS = {
   cpuTimeHardLimitMs: 2000,
 };
 
-const repoDir = Deno.env.get("RENOX_REPO_DIR");
-if (!repoDir) throw new Error("RENOX_REPO_DIR is not set; start through run.sh");
+// Directory holding one staged copy per app (<app>/_spike), with no
+// package.json above it (NOTES.md, "The root package.json trap").
+const appsDir = Deno.env.get("RENOX_APPS_DIR");
+if (!appsDir) throw new Error("RENOX_APPS_DIR is not set; start through run.sh");
 
 const pinned = new Map<string, UserWorker>();
 
 async function workerFor(app: string, key: string | null): Promise<UserWorker> {
   const options = {
     ...LIMITS,
-    servicePath: `${repoDir}/examples/${app}/_spike`,
+    servicePath: `${appsDir}/${app}/_spike`,
     // No secrets or host environment reach the user worker.
     envVars: [],
     noModuleCache: false,
@@ -86,7 +89,11 @@ Deno.serve(async (req: Request) => {
 
   try {
     const worker = await workerFor(app, key);
-    return await worker.fetch(new Request(url, req));
+    // A cloned request must carry the runtime's internal tag, or the user
+    // worker cannot read its body stream (upstream examples/main/index.ts).
+    const forwarded = new Request(url, req);
+    EdgeRuntime.applySupabaseTag(req, forwarded);
+    return await worker.fetch(forwarded);
   } catch (e) {
     // A retired pinned worker is recreated on the next request.
     if (key !== null) pinned.delete(`${app}:${key}`);
