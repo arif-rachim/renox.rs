@@ -1,0 +1,6 @@
+[app]
+name = "npm-compat"
+timezone = "Asia/Dubai"
+
+# B17 checks make no network calls. When the checks run against real
+# providers, the outbound allowlist goes here (docs/04-isolation-security.md).

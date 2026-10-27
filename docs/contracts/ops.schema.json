@@ -1,0 +1,953 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/ops/v0.schema.json",
+  "title": "Renox runtime ops, contract version 0",
+  "description": "One op call as JSON: {op, args, result} or {op, args, error}. bigint and Uint8Array use the $bigint and $bytes encodings. Source of truth for prose: ops.md.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/call_op_db_query"
+    },
+    {
+      "$ref": "#/$defs/call_op_db_query_one"
+    },
+    {
+      "$ref": "#/$defs/call_op_db_execute"
+    },
+    {
+      "$ref": "#/$defs/call_op_db_tx_begin"
+    },
+    {
+      "$ref": "#/$defs/call_op_db_tx_commit"
+    },
+    {
+      "$ref": "#/$defs/call_op_db_tx_rollback"
+    },
+    {
+      "$ref": "#/$defs/call_op_fetch"
+    },
+    {
+      "$ref": "#/$defs/call_op_fetch_body_read"
+    },
+    {
+      "$ref": "#/$defs/call_op_fetch_body_close"
+    },
+    {
+      "$ref": "#/$defs/call_op_secrets_get_all"
+    },
+    {
+      "$ref": "#/$defs/call_op_log"
+    },
+    {
+      "$ref": "#/$defs/call_op_deadline_remaining_ms"
+    }
+  ],
+  "$defs": {
+    "bigint": {
+      "type": "object",
+      "required": [
+        "$bigint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "$bigint": {
+          "type": "string",
+          "pattern": "^-?[0-9]+$"
+        }
+      },
+      "description": "JSON encoding of a JavaScript bigint (decimal digits)."
+    },
+    "bytes": {
+      "type": "object",
+      "required": [
+        "$bytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "$bytes": {
+          "type": "string",
+          "contentEncoding": "base64"
+        }
+      },
+      "description": "JSON encoding of a Uint8Array (base64)."
+    },
+    "param": {
+      "description": "ops.md section 1, Parameters. NaN and Infinity cannot appear in JSON; they are rejected at runtime with RENOX_DB_PARAM.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/bigint"
+        },
+        {
+          "$ref": "#/$defs/bytes"
+        }
+      ]
+    },
+    "value": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/bigint"
+        },
+        {
+          "$ref": "#/$defs/bytes"
+        }
+      ]
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/value"
+      }
+    },
+    "sql": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 102400
+    },
+    "params": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/param"
+      },
+      "maxItems": 1000
+    },
+    "tx": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/txHandle"
+        }
+      ]
+    },
+    "txHandle": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "header": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "headers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/header"
+      }
+    },
+    "jsonValue": {},
+    "fetchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "url",
+        "headers",
+        "body",
+        "redirect"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "pattern": "^[A-Z]+$",
+          "not": {
+            "enum": [
+              "CONNECT",
+              "TRACE"
+            ]
+          }
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "headers": {
+          "$ref": "#/$defs/headers"
+        },
+        "body": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/bytes"
+            }
+          ]
+        },
+        "redirect": {
+          "enum": [
+            "follow",
+            "manual",
+            "error"
+          ]
+        }
+      }
+    },
+    "fetchResponseHead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "statusText",
+        "headers",
+        "url",
+        "redirected",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "statusText": {
+          "type": "string"
+        },
+        "headers": {
+          "$ref": "#/$defs/headers"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "redirected": {
+          "type": "boolean"
+        },
+        "body": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ]
+        }
+      }
+    },
+    "logLevel": {
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "code",
+        "message"
+      ],
+      "description": "ops.md section 0: the RenoxError every op rejects with.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "code": {
+          "enum": [
+            "RENOX_DB_AUTH",
+            "RENOX_DB_BUSY",
+            "RENOX_DB_TIMEOUT",
+            "RENOX_DB_QUOTA",
+            "RENOX_DB_CONSTRAINT",
+            "RENOX_DB_SQL",
+            "RENOX_DB_PARAM",
+            "RENOX_DB_COLUMN_NAME",
+            "RENOX_DB_MULTI_STATEMENT",
+            "RENOX_DB_RESULT_LIMIT",
+            "RENOX_DB_TX_STATE",
+            "RENOX_FETCH_BLOCKED",
+            "RENOX_FETCH_FAILED",
+            "RENOX_FETCH_EGRESS_LIMIT",
+            "RENOX_DEADLINE",
+            "RENOX_NO_REQUEST",
+            "RENOX_SECRETS_CONSUMED"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RENOX_FETCH_BLOCKED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "details"
+            ],
+            "properties": {
+              "details": {
+                "type": "object",
+                "required": [
+                  "host",
+                  "reason"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "enum": [
+                      "not_allowlisted",
+                      "scheme",
+                      "port",
+                      "blocked_address",
+                      "redirect_limit",
+                      "method"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RENOX_FETCH_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "details"
+            ],
+            "properties": {
+              "details": {
+                "type": "object",
+                "required": [
+                  "host",
+                  "reason"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "enum": [
+                      "dns",
+                      "connect",
+                      "tls",
+                      "reset",
+                      "redirect",
+                      "concurrency",
+                      "headers"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "const": "RENOX_DB_AUTH"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "details"
+            ],
+            "properties": {
+              "details": {
+                "type": "object",
+                "required": [
+                  "table",
+                  "action"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "call_op_db_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 1",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_db_query"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/sql"
+            },
+            {
+              "$ref": "#/$defs/params"
+            },
+            {
+              "$ref": "#/$defs/tx"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/row"
+          },
+          "maxItems": 10000
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_db_query_one": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 1",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_db_query_one"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/sql"
+            },
+            {
+              "$ref": "#/$defs/params"
+            },
+            {
+              "$ref": "#/$defs/tx"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/row"
+            }
+          ]
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_db_execute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 1",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_db_execute"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/sql"
+            },
+            {
+              "$ref": "#/$defs/params"
+            },
+            {
+              "$ref": "#/$defs/tx"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "changes",
+            "lastInsertRowid"
+          ],
+          "properties": {
+            "changes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "lastInsertRowid": {
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "$ref": "#/$defs/bigint"
+                }
+              ]
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_db_tx_begin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 1",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_db_tx_begin"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "enum": [
+                "deferred",
+                "immediate"
+              ]
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "$ref": "#/$defs/txHandle"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_db_tx_commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 1; void is encoded as null",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_db_tx_commit"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/txHandle"
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_db_tx_rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 1; void is encoded as null",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_db_tx_rollback"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/txHandle"
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_fetch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 2",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_fetch"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/fetchRequest"
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "$ref": "#/$defs/fetchResponseHead"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_fetch_body_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 2",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_fetch_body_read"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/bytes"
+            }
+          ]
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_fetch_body_close": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 2",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_fetch_body_close"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_secrets_get_all": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 3",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_secrets_get_all"
+        },
+        "args": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 4; never has an error",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_log"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/logLevel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/jsonValue"
+                  }
+                }
+              ]
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_deadline_remaining_ms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 5",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_deadline_remaining_ms"
+        },
+        "args": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "result": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    }
+  }
+}

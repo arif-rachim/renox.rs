@@ -56,6 +56,7 @@ Record CPU model, kernel, and Rust/Bun/Deno versions in every result file. Pass/
 - Density: register N tenants, warm each once, let them go idle, measure RSS; then keep M warm with a 1 req/s trickle each.
 - Noisy neighbor: run B6 for tenant B alone (baseline), then with tenant A's `evil` functions hammered at 50 req/s.
 - All scenarios are scripted under `bench/` and runnable with one command (`bench/run.sh <id>`), so results are reproducible by agents.
+- How to add a scenario and the `run.sh` contract: [`bench/scenarios/README.md`](../bench/scenarios/README.md).
 
 ### Baselines to compare against
 

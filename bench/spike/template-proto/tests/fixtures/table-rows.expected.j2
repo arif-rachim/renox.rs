@@ -1,0 +1,5 @@
+<table>
+  <tbody>
+    {% for o in orders %}<tr><td>{{ o.id }}</td><td>{{ o.total | money }}</td></tr>{% else %}<tr><td colspan="2">No orders</td></tr>{% endfor %}
+  </tbody>
+</table>

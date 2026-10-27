@@ -160,6 +160,24 @@ renox.rs/
 
 A folder that does not exist yet is not due yet.
 
+## Development setup
+
+| Tool | Version | Install |
+| --- | --- | --- |
+| Rust | pinned in `rust-toolchain.toml` (rustup installs it on first `cargo` call) | <https://rustup.rs> |
+| Bun | 1.4.4 | <https://bun.sh> |
+| Linker | `mold` if installed, else `lld` (bundled with Rust on x86_64 Linux) | see [`bench/README.md`](bench/README.md) |
+
+```
+bun install          # TypeScript workspaces (sdk, cli, control/*, modules/*, examples/*, bench)
+make check           # cargo fmt --check + clippy -D warnings, bun run check
+make test            # cargo test --workspace, bun test
+make fmt             # cargo fmt
+make bench ID=B0     # run one benchmark scenario (bench/run.sh)
+```
+
+CI (`.github/workflows/ci.yml`) runs the same targets; Rust jobs run only when Rust files change, TypeScript jobs only when TypeScript files change, and docs changes only run the link check.
+
 ## Contributing
 
 This repository is built with AI coding agents alongside a human maintainer. The rules in [`AGENTS.md`](AGENTS.md) apply to both:

@@ -1,0 +1,13 @@
+{
+  "$comment": "invalid: a call has a result or an error, not both",
+  "op": "op_db_tx_rollback",
+  "args": [
+    7
+  ],
+  "result": null,
+  "error": {
+    "name": "RenoxError",
+    "code": "RENOX_DEADLINE",
+    "message": "deadline"
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "$comment": "Machine-readable copy of the targets table in docs/14-benchmarks.md. `better` says which direction passes: `lower` passes when value <= target and crosses the fail threshold when value > fail; `higher` passes when value >= target and fails when value < fail. `null` means the docs give no number (a dash or prose). Units are those of the docs.",
+  "B0": {
+    "metric": "Harness self-test",
+    "scenario": "bench/scenarios/B0: sleep loop with fake samples (not in docs; CI smoke test)",
+    "target_text": "p50 ≤ 50 ms",
+    "fail_text": "p99 > 500 ms",
+    "metrics": {
+      "p50_ms": { "unit": "ms", "better": "lower", "target": 50, "fail": null },
+      "p99_ms": { "unit": "ms", "better": "lower", "target": null, "fail": 500 }
+    }
+  },
+  "B1": {
+    "metric": "Memory per warm isolate",
+    "scenario": "Example shop app loaded, idle",
+    "target_text": "≤ 10 MB RSS delta",
+    "fail_text": "> 20 MB",
+    "metrics": {
+      "rss_delta_mb": { "unit": "MB", "better": "lower", "target": 10, "fail": 20 }
+    }
+  },
+  "B2": {
+    "metric": "Memory per idle tenant",
+    "scenario": "Isolate evicted, file closed",
+    "target_text": "≈ 0 MB (bookkeeping only)",
+    "fail_text": "> 1 MB",
+    "metrics": {
+      "idle_mb": { "unit": "MB", "better": "lower", "target": null, "fail": 1 }
+    }
+  },
+  "B3": {
+    "metric": "Density",
+    "scenario": "Idle tenants per node-small with 1 GB headroom",
+    "target_text": "≥ 1,000 registered, ≥ 300 warm",
+    "fail_text": "< 100 warm",
+    "metrics": {
+      "registered_tenants": { "unit": "tenants", "better": "higher", "target": 1000, "fail": null },
+      "warm_tenants": { "unit": "tenants", "better": "higher", "target": 300, "fail": 100 }
+    }
+  },
+  "B4": {
+    "metric": "Cold start",
+    "scenario": "Snapshot + eszip load + first request (hello function)",
+    "target_text": "p50 ≤ 20 ms, p99 ≤ 100 ms",
+    "fail_text": "p99 > 100 ms",
+    "metrics": {
+      "p50_ms": { "unit": "ms", "better": "lower", "target": 20, "fail": null },
+      "p99_ms": { "unit": "ms", "better": "lower", "target": 100, "fail": 100 }
+    }
+  },
+  "B5": {
+    "metric": "Hello function latency",
+    "scenario": "Warm, in-node, Response.json({ok:true})",
+    "target_text": "p50 ≤ 0.3 ms, p99 ≤ 2 ms",
+    "fail_text": "p99 > 5 ms",
+    "metrics": {
+      "p50_ms": { "unit": "ms", "better": "lower", "target": 0.3, "fail": null },
+      "p99_ms": { "unit": "ms", "better": "lower", "target": 2, "fail": 5 }
+    }
+  },
+  "B6": {
+    "metric": "SSR medium page",
+    "scenario": "25 KB, 100 items, 5 queries, warm",
+    "target_text": "p50 ≤ 3 ms, p99 ≤ 15 ms",
+    "fail_text": "p99 > 30 ms",
+    "metrics": {
+      "p50_ms": { "unit": "ms", "better": "lower", "target": 3, "fail": null },
+      "p99_ms": { "unit": "ms", "better": "lower", "target": 15, "fail": 30 }
+    }
+  },
+  "B7": {
+    "metric": "Fragment render",
+    "scenario": "One block, 1 query, 20 items",
+    "target_text": "p50 ≤ 1 ms, p99 ≤ 5 ms",
+    "fail_text": "p99 > 10 ms",
+    "metrics": {
+      "p50_ms": { "unit": "ms", "better": "lower", "target": 1, "fail": null },
+      "p99_ms": { "unit": "ms", "better": "lower", "target": 5, "fail": 10 }
+    }
+  },
+  "B8": {
+    "metric": "Render path A vs B",
+    "scenario": "Same page: Rust render + marshaling vs template compiled to JS in the isolate",
+    "target_text": "Decides D7; report both",
+    "fail_text": "—",
+    "metrics": {
+      "path_a_p50_ms": { "unit": "ms", "better": "lower", "target": null, "fail": null },
+      "path_b_p50_ms": { "unit": "ms", "better": "lower", "target": null, "fail": null }
+    }
+  },
+  "B9": {
+    "metric": "Marshaling cost",
+    "scenario": "100 items × 10 fields V8 → minijinja::Value",
+    "target_text": "≤ 300 µs",
+    "fail_text": "> 1 ms",
+    "metrics": {
+      "marshal_us": { "unit": "µs", "better": "lower", "target": 300, "fail": 1000 }
+    }
+  },
+  "B10": {
+    "metric": "SQLite query",
+    "scenario": "Point lookup by primary key, warm",
+    "target_text": "≤ 20 µs; 100-row scan ≤ 200 µs",
+    "fail_text": "—",
+    "metrics": {
+      "point_lookup_us": { "unit": "µs", "better": "lower", "target": 20, "fail": null },
+      "scan_100_us": { "unit": "µs", "better": "lower", "target": 200, "fail": null }
+    }
+  },
+  "B11": {
+    "metric": "Throughput",
+    "scenario": "Hello function, 4 vCPU, keep-alive",
+    "target_text": "≥ 40k req/s",
+    "fail_text": "< 15k req/s",
+    "metrics": {
+      "req_per_s": { "unit": "req/s", "better": "higher", "target": 40000, "fail": 15000 }
+    }
+  },
+  "B12": {
+    "metric": "Noisy neighbor",
+    "scenario": "Tenant A infinite loop + unbounded allocation while tenant B serves B6",
+    "target_text": "B's p99 changes ≤ 10%; A terminated at its CPU limit ± 5 ms",
+    "fail_text": "B's p99 changes > 25%",
+    "metrics": {
+      "b_p99_change_pct": { "unit": "%", "better": "lower", "target": 10, "fail": 25 },
+      "a_termination_error_ms": { "unit": "ms", "better": "lower", "target": 5, "fail": null }
+    }
+  },
+  "B13": {
+    "metric": "Template DoS",
+    "scenario": "Nested loops 10k × 10k",
+    "target_text": "Stops at fuel within 50 ms; node unaffected",
+    "fail_text": "Render exceeds 500 ms",
+    "metrics": {
+      "render_ms": { "unit": "ms", "better": "lower", "target": 50, "fail": 500 }
+    }
+  },
+  "B14": {
+    "metric": "Realtime",
+    "scenario": "10,000 idle WebSocket connections on one tenant",
+    "target_text": "≤ 50 MB total; isolate heap unchanged",
+    "fail_text": "> 150 MB",
+    "metrics": {
+      "total_mb": { "unit": "MB", "better": "lower", "target": 50, "fail": 150 },
+      "heap_delta_mb": { "unit": "MB", "better": "lower", "target": 0, "fail": null }
+    }
+  },
+  "B15": {
+    "metric": "Deploy",
+    "scenario": "renox deploy of the example app to a local control plane",
+    "target_text": "≤ 30 s end-to-end; rollback ≤ 5 s",
+    "fail_text": "> 60 s",
+    "metrics": {
+      "deploy_s": { "unit": "s", "better": "lower", "target": 30, "fail": 60 },
+      "rollback_s": { "unit": "s", "better": "lower", "target": 5, "fail": null }
+    }
+  },
+  "B16": {
+    "metric": "Dev loop",
+    "scenario": "Edit one template, browser updated",
+    "target_text": "≤ 300 ms",
+    "fail_text": "> 1 s",
+    "metrics": {
+      "update_ms": { "unit": "ms", "better": "lower", "target": 300, "fail": 1000 }
+    }
+  },
+  "B17": {
+    "metric": "npm compatibility",
+    "scenario": "Payment SDKs (Stripe, Checkout.com, Telr, PayTabs, Tabby), OAuth (arctic/oslo), WhatsApp Cloud API client, email (resend/nodemailer), zod, date-fns, Arabic-aware date/number formatting (Intl)",
+    "target_text": "All run in the isolate with declared network allowlist",
+    "fail_text": "Any core package fails",
+    "metrics": {
+      "failed_packages": { "unit": "packages", "better": "lower", "target": 0, "fail": 0 }
+    }
+  },
+  "B18": {
+    "metric": "Node failover",
+    "scenario": "Kill a node; tenant on base tier recovers from Litestream",
+    "target_text": "RTO ≤ 60 s, RPO ≤ 10 s",
+    "fail_text": "RPO > 60 s",
+    "metrics": {
+      "rto_s": { "unit": "s", "better": "lower", "target": 60, "fail": null },
+      "rpo_s": { "unit": "s", "better": "lower", "target": 10, "fail": 60 }
+    }
+  },
+  "B19": {
+    "metric": "Litestream overhead",
+    "scenario": "Write-heavy tenant with replication on",
+    "target_text": "≤ 10% throughput loss",
+    "fail_text": "> 25%",
+    "metrics": {
+      "throughput_loss_pct": { "unit": "%", "better": "lower", "target": 10, "fail": 25 }
+    }
+  },
+  "B20": {
+    "metric": "Build/binary",
+    "scenario": "renox-worker release build size and CI time",
+    "target_text": "≤ 100 MB; CI ≤ 15 min with cache",
+    "fail_text": "—",
+    "metrics": {
+      "binary_mb": { "unit": "MB", "better": "lower", "target": 100, "fail": null },
+      "ci_min": { "unit": "min", "better": "lower", "target": 15, "fail": null }
+    }
+  }
+}

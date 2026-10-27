@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: a transaction handle is an integer",
+  "op": "op_db_tx_commit",
+  "args": [
+    "7"
+  ],
+  "result": null
+}

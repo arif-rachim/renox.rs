@@ -1,0 +1,7 @@
+{
+  "op": "op_db_tx_begin",
+  "args": [
+    "immediate"
+  ],
+  "result": 7
+}

@@ -1,0 +1,7 @@
+<section>
+  <h2>Products</h2>
+  {% block product_list %}<ul id="product-list">
+    {% for p in products %}<li>{{ p.name }}</li>{% endfor %}
+  </ul>{% endblock %}
+  {% block cart_summary %}{% if cart %}<p>{{ cart.total }}</p>{% endif %}{% endblock %}
+</section>

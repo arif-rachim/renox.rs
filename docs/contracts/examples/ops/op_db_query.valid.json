@@ -1,0 +1,26 @@
+{
+  "op": "op_db_query",
+  "args": [
+    "select id, name, price from shop__products where org_id = ? and active = ? limit ?",
+    [
+      "org_1",
+      true,
+      50
+    ],
+    null
+  ],
+  "result": [
+    {
+      "id": "p1",
+      "name": "Dates 1 kg",
+      "price": 45.5
+    },
+    {
+      "id": "p2",
+      "name": "Saffron 5 g",
+      "price": {
+        "$bigint": "9007199254740993"
+      }
+    }
+  ]
+}

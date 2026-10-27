@@ -1,0 +1,4 @@
+<form>
+  <input type="checkbox" name="agree" :checked="user.agreed" :required="!user.agreed">
+  <button type="submit" :disabled="cart.items | length == 0">Pay</button>
+</form>

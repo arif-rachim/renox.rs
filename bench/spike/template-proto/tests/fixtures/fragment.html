@@ -1,0 +1,7 @@
+<section>
+  <h2>Products</h2>
+  <ul id="product-list" r-fragment="product_list">
+    <li r-for="p in products">{{ p.name }}</li>
+  </ul>
+  <p r-if="cart" r-fragment="cart_summary">{{ cart.total }}</p>
+</section>

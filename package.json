@@ -1,0 +1,20 @@
+{
+  "name": "renox",
+  "private": true,
+  "workspaces": [
+    "sdk*",
+    "cli*",
+    "control/*",
+    "modules/*",
+    "examples/*",
+    "bench*"
+  ],
+  "scripts": {
+    "check": "bun run --filter '*' check",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "devDependencies": {
+    "bun-types": "1.4.4",
+    "typescript": "7.0.2"
+  }
+}

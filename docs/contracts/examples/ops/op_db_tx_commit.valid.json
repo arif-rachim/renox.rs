@@ -1,0 +1,11 @@
+{
+  "op": "op_db_tx_commit",
+  "args": [
+    7
+  ],
+  "error": {
+    "name": "DbUsageError",
+    "code": "RENOX_DB_TX_STATE",
+    "message": "transaction 7 is not open"
+  }
+}

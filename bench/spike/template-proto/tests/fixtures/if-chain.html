@@ -1,0 +1,6 @@
+<div>
+  <span r-if="order.status == 'paid'">Paid</span>
+  <span r-else-if="order.status == 'pending' && !order.expired">Pending</span>
+  <span r-else>Cancelled</span>
+  <em r-if="order.gift">Gift</em>
+</div>

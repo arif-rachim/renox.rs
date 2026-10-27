@@ -1,0 +1,3 @@
+# B0 is the harness self-test; its output is never a result.
+results/raw/*-B0.json
+results/raw/*-B0.hw.json

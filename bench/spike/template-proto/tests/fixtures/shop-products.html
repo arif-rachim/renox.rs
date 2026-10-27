@@ -1,0 +1,22 @@
+<r-layout use="main">
+  <section class="catalog">
+    <h1>{{ title }}</h1>
+    <form class="search" action="/products" hx-get="/products" hx-target="#product-list" hx-select="#product-list" hx-trigger="input changed delay:300ms from:input[name=q], submit" hx-push-url="true">
+      <input type="search" name="q" :value="query" placeholder="Search products" autocomplete="off">
+      <select name="category">
+        <option value="">All categories</option>
+        <option r-for="c in categories" :value="c.slug" :selected="c.slug == category">{{ c.name }}</option>
+      </select>
+      <button type="submit">Search</button>
+    </form>
+    <p class="result-count" r-if="products | length > 0">{{ products | length }} products</p>
+    <ul id="product-list" class="grid" r-fragment="product_list">
+      <li r-for="p in products" class="card" :class="{ 'card--empty': p.stock == 0, 'card--featured': p.featured }" :data-id="p.id">
+        <a href="/products/{{ p.slug }}">{{ p.name }}</a>
+        <span class="badge" r-if="p.stock == 0">Out of stock</span><span class="price" r-else>{{ p.price | money }}</span>
+        <button :disabled="p.stock == 0" hx-post="/cart/add" hx-vals='{"productId": "{{ p.id }}"}'>Add</button>
+      </li>
+      <li class="empty" r-empty="products">No products found</li>
+    </ul>
+  </section>
+</r-layout>

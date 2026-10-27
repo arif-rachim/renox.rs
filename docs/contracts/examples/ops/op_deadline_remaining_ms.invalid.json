@@ -1,0 +1,6 @@
+{
+  "$comment": "invalid: the remaining time is never negative",
+  "op": "op_deadline_remaining_ms",
+  "args": [],
+  "result": -5
+}

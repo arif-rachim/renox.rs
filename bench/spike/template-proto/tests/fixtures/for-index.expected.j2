@@ -1,0 +1,3 @@
+<ol>
+  {% for p in products %}{% set i = loop.index0 %}<li data-index="{{ i }}">{{ i + 1 }}. {{ p.name }}</li>{% endfor %}
+</ol>

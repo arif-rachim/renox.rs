@@ -1,0 +1,9 @@
+{
+  "$comment": "invalid: tx argument missing (exactly three arguments)",
+  "op": "op_db_query_one",
+  "args": [
+    "select 1",
+    []
+  ],
+  "result": null
+}
