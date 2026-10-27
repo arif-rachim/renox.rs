@@ -38,11 +38,17 @@ jobs:
               - 'rust-toolchain.toml'
               - '.cargo/**'
             ts:
-              - '**/*.ts'
-              - '**/package.json'
-              - 'bun.lock*'
-              - '**/tsconfig*.json'
+              - '*.ts'
+              - 'sdk*/**'
+              - 'cli*/**'
+              - 'control/**'
+              - 'modules/**'
+              - 'examples/**'
               - 'bench/**'
+              - '.github/scripts/**'
+              - 'package.json'
+              - 'bun.lock*'
+              - 'tsconfig*.json'
             docs:
               - 'docs/**'
               - '**/*.md'
@@ -83,5 +89,5 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
-      # Relative links only; never touches the network.
-      - run: bun .github/scripts/check-links.ts
+      # Link check (relative links only, no network) and docs/contracts type-check.
+      - run: make docs-check

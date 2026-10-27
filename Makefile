@@ -5,9 +5,9 @@
 RUST_MEMBERS := $(wildcard bench/spike/*/Cargo.toml crates/*/Cargo.toml)
 TS_PACKAGES := $(wildcard sdk/package.json cli/package.json control/*/package.json modules/*/package.json examples/*/package.json bench/package.json)
 
-.PHONY: check test fmt bench rust-check rust-test ts-check ts-test
+.PHONY: check test fmt bench rust-check rust-test ts-check ts-test docs-check
 
-check: rust-check ts-check
+check: rust-check ts-check docs-check
 
 test: rust-test ts-test
 
@@ -40,6 +40,11 @@ ifneq ($(TS_PACKAGES),)
 else
 	@echo "ts: no workspace packages yet, skipping check"
 endif
+
+docs-check:
+	bun install --frozen-lockfile
+	bun .github/scripts/check-links.ts
+	bun x tsc --noEmit -p docs/contracts
 
 ts-test:
 	bun run test

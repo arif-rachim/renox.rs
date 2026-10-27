@@ -1,0 +1,13 @@
+{
+  "$comment": "invalid: changes cannot be negative",
+  "op": "op_db_execute",
+  "args": [
+    "update shop__products set stock = 0",
+    [],
+    null
+  ],
+  "result": {
+    "changes": -1,
+    "lastInsertRowid": 0
+  }
+}

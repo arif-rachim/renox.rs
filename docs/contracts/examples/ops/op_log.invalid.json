@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: fatal is not a log level",
+  "op": "op_log",
+  "args": [
+    "fatal",
+    "boom",
+    null
+  ],
+  "result": null
+}

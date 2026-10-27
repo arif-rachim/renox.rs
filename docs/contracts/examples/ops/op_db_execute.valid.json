@@ -1,0 +1,15 @@
+{
+  "op": "op_db_execute",
+  "args": [
+    "insert into shop__orders (id, total) values (?, ?)",
+    [
+      "o1",
+      99.5
+    ],
+    7
+  ],
+  "result": {
+    "changes": 1,
+    "lastInsertRowid": 42
+  }
+}

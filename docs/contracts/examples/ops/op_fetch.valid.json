@@ -1,0 +1,21 @@
+{
+  "op": "op_fetch",
+  "args": [
+    {
+      "method": "GET",
+      "url": "http://169.254.169.254/latest/meta-data/",
+      "headers": [],
+      "body": null,
+      "redirect": "follow"
+    }
+  ],
+  "error": {
+    "name": "FetchBlockedError",
+    "code": "RENOX_FETCH_BLOCKED",
+    "message": "fetch to 169.254.169.254 blocked: not_allowlisted",
+    "details": {
+      "host": "169.254.169.254",
+      "reason": "not_allowlisted"
+    }
+  }
+}

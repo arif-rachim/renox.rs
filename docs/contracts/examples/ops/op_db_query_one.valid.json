@@ -1,0 +1,15 @@
+{
+  "op": "op_db_query_one",
+  "args": [
+    "select avatar from auth__users where id = ?",
+    [
+      "u1"
+    ],
+    3
+  ],
+  "result": {
+    "avatar": {
+      "$bytes": "iVBORw0KGgo="
+    }
+  }
+}

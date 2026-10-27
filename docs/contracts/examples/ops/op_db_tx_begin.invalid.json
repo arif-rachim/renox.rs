@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: only deferred and immediate exist",
+  "op": "op_db_tx_begin",
+  "args": [
+    "exclusive"
+  ],
+  "result": 7
+}

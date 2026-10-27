@@ -1,0 +1,9 @@
+{
+  "op": "op_fetch_body_read",
+  "args": [
+    12
+  ],
+  "result": {
+    "$bytes": "eyJvayI6dHJ1ZX0="
+  }
+}

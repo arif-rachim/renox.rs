@@ -1,0 +1,23 @@
+{
+  "$comment": "invalid: the resolved IP must not appear in the error details",
+  "op": "op_fetch",
+  "args": [
+    {
+      "method": "GET",
+      "url": "http://10.0.0.5/",
+      "headers": [],
+      "body": null,
+      "redirect": "follow"
+    }
+  ],
+  "error": {
+    "name": "FetchBlockedError",
+    "code": "RENOX_FETCH_BLOCKED",
+    "message": "blocked",
+    "details": {
+      "host": "10.0.0.5",
+      "reason": "blocked_address",
+      "ip": "10.0.0.5"
+    }
+  }
+}

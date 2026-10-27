@@ -59,6 +59,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 renox.rs/
 ├── AGENTS.md, CLAUDE.md
 ├── docs/                      this documentation
+│   └── contracts/             written interfaces between tracks (ops, artifact, meter, errors): docs/contracts/README.md
 ├── crates/                    data plane (Rust workspace)
 │   ├── renox-gateway/         TLS, hostname→tenant→cell routing, rate limiting
 │   ├── renox-runtime/         V8 isolates (Supabase Edge Runtime), ops, snapshots, watchdog

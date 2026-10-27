@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: body chunks are bytes, not strings",
+  "op": "op_fetch_body_read",
+  "args": [
+    12
+  ],
+  "result": "{\"ok\":true}"
+}

@@ -1,0 +1,13 @@
+{
+  "$comment": "invalid: an object is not a SQL parameter",
+  "op": "op_db_query",
+  "args": [
+    "select * from shop__products where id = ?",
+    [
+      {
+        "when": "2026-10-27"
+      }
+    ],
+    null
+  ]
+}

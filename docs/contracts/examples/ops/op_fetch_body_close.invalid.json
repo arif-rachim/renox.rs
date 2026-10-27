@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: resource ids are non-negative",
+  "op": "op_fetch_body_close",
+  "args": [
+    -1
+  ],
+  "result": null
+}
