@@ -12,8 +12,17 @@
     "bench": {
       "name": "@renox/bench",
     },
+    "examples/evil": {
+      "name": "@renox-examples/evil",
+      "dependencies": {
+        "renox": "workspace:*",
+      },
+    },
     "examples/hello": {
       "name": "@renox-examples/hello",
+      "dependencies": {
+        "renox": "workspace:*",
+      },
     },
     "examples/npm-compat": {
       "name": "@renox-examples/npm-compat",
@@ -32,6 +41,10 @@
         "@types/nodemailer": "8.0.2",
       },
     },
+    "sdk": {
+      "name": "renox",
+      "version": "0.1.0",
+    },
   },
   "packages": {
     "@oslojs/asn1": ["@oslojs/asn1@1.0.0", "", { "dependencies": { "@oslojs/binary": "1.0.0" } }, "sha512-zw/wn0sj0j0QKbIXfIlnEcTviaCzYOY3V5rAyjR6YtOByFtJiT574+8p9Wlach0lZH9fddD4yb9laEAIl4vXQA=="],
@@ -43,6 +56,8 @@
     "@oslojs/encoding": ["@oslojs/encoding@1.1.0", "", {}, "sha512-70wQhgYmndg4GCPxPPxPGevRKqTIJ2Nh4OkiMWmDAVYsTQ+Ta7Sq+rPevXyXGdzr30/qZBnyOalCszoMxlyldQ=="],
 
     "@oslojs/jwt": ["@oslojs/jwt@0.2.0", "", { "dependencies": { "@oslojs/encoding": "0.4.1" } }, "sha512-bLE7BtHrURedCn4Mco3ma9L4Y1GR2SMBuIvjWr7rmQ4/W/4Jy70TIAgZ+0nIlk0xHz1vNP8x8DCns45Sb2XRbg=="],
+
+    "@renox-examples/evil": ["@renox-examples/evil@workspace:examples/evil"],
 
     "@renox-examples/hello": ["@renox-examples/hello@workspace:examples/hello"],
 
@@ -163,6 +178,8 @@
     "postal-mime": ["postal-mime@2.7.6", "", {}, "sha512-UUlyE2KlxmvwMGq060onF/VWU3zD6dVW31FwokQ5v26jWd35fbs2MoTFzh+jXnPwAyV2MULMKXcBInGOl5TO6Q=="],
 
     "proxy-from-env": ["proxy-from-env@2.1.0", "", {}, "sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA=="],
+
+    "renox": ["renox@workspace:sdk"],
 
     "resend": ["resend@6.34.1", "", { "dependencies": { "postal-mime": "2.7.6", "standardwebhooks": "1.1.1" }, "peerDependencies": { "@react-email/render": "*" }, "optionalPeers": ["@react-email/render"] }, "sha512-3jo/j1WAW7CBkE6pzK4qLjZCfHRLIhY3ph3x/wzU+MN51cSw3EtReGce8S1cA1R0ipNDOdFYU5Lmt5r563lvYw=="],
 

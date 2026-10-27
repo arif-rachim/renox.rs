@@ -1,7 +1,9 @@
 // GET /api/hello -> {"ok":true}
 // The smallest Renox function: used by benchmarks B4, B5, and B11.
 
-// TODO(F1-17): import { Handler } from "renox"
-type Handler = (ctx: { req: Request }) => Response | Promise<Response>;
+import type { Ctx, Handler } from "renox";
 
-export const GET: Handler = () => Response.json({ ok: true });
+// `satisfies` checks it against the contract's Handler while keeping the
+// narrower parameter, so tests and the F0 spike adapter can call it with only
+// `{ req }`.
+export const GET = ((_ctx: Pick<Ctx, "req">) => Response.json({ ok: true })) satisfies Handler;

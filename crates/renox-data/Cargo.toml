@@ -1,0 +1,17 @@
+[package]
+name = "renox-data"
+version = "0.0.0"
+description = "Tenant SQLite files: connections, pragmas, authorizer, limits, migrations (docs/06-data.md)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# bundled: the SQLite version is pinned by the crate, not by the host.
+# hooks: authorizer and progress handler (#19, #20).
+rusqlite = { version = "0.41.0", features = ["bundled", "hooks"] }
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+tempfile = "3.27.0"

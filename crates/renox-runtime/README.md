@@ -3,9 +3,10 @@
 The data plane's JavaScript runtime (P1): V8 isolates on `deno_runtime`, one isolate per deployment, created from a platform snapshot; artifact loading (`docs/contracts/artifact.md`); request dispatch to the function handlers of the manifest; the `renox` op extension (`docs/contracts/ops.md`).
 
 ```
-cargo test -p renox-runtime                          # everything, links V8
-cargo test -p renox-runtime --no-default-features    # pure modules only, no V8
-cargo test -p renox-runtime --test dispatch -- --nocapture   # prints creation time and memory
+R="--manifest-path crates/renox-runtime/Cargo.toml --target-dir target"   # own workspace, see below
+cargo test $R                          # everything, links V8
+cargo test $R --no-default-features    # pure modules only, no V8
+cargo test $R --test dispatch -- --nocapture   # prints creation time and memory
 ```
 
 Public surface (issue #25):
@@ -34,8 +35,8 @@ Versions are pinned to what the F0 spike ran (`bench/edge-runtime/NOTES.md`, Edg
 Consequences recorded for the risk register (`docs/16-risks.md`, "Dependence on Supabase Edge Runtime"):
 
 - **V8 130 is old** (Deno 2.1.4, December 2024). Supabase still ships it with their own patches; we use the crates.io build without those patches. Moving to a current `deno_runtime` is an upgrade of this crate only (the ops, the loader, and the bootstrap are ours) and is the first follow-up once F1 passes its gate.
-- **Lockfile pins.** Current crates.io releases of some transitive dependencies no longer build against `deno_runtime` 0.191 (`serde` ≥ 1.0.220 removed `serde::__private`, which `swc_common` 0.37 uses; newer `deno_media_type`, `deno_graph`, `pem`). `Cargo.lock` was seeded from the `Cargo.lock` that `deno_runtime` 0.191.0 ships with, and `deno_media_type = 0.2.3`, `deno_graph = 0.86.3`, `pem = 3.0.4` were pinned. Do not run a bare `cargo update` on the workspace.
-- **`v8` 130 and current rustc.** `v8` 130.0.7 builds a `&*ptr::null()` for an absent accessor setter; the debug-mode UB checks of rustc 1.99 abort on it during snapshot creation. The root `Cargo.toml` turns debug assertions off for the `v8` package only (`[profile.dev.package.v8]`). Release builds are unaffected.
+- **Own workspace and lockfile.** `deno_runtime` pins exact versions of crates the rest of the workspace also uses (`hyper-util = 0.1.7`, and in its newest release still `rustls = 0.23.40`), and current crates.io releases of some transitive dependencies no longer build against 0.191 (`serde` ≥ 1.0.220 removed `serde::__private`, which `swc_common` 0.37 uses). One lockfile cannot hold both this crate and the other crates (`renox-gateway` needs `hyper-util` 0.1.21, `rustls` 0.23.46, `serde` 1.0.229). So `crates/renox-runtime` is **excluded from the root workspace** and is a workspace of its own with its own `Cargo.lock`, seeded from the lockfile `deno_runtime` 0.191.0 ships, with `deno_media_type = 0.2.3`, `deno_graph = 0.86.3`, `pem = 3.0.4` pinned. Do not run a bare `cargo update` on it. Commands take `--manifest-path crates/renox-runtime/Cargo.toml --target-dir target` (the Makefile's `rust-check`, `rust-test`, `fmt` do this; the shared target dir keeps the CI cache). **Consequence for `renox-cell` (#28):** a crate that links both this runtime and the other crates hits the same conflict; it is resolved either by relaxing the other crates' minimum versions to what `deno_runtime` pins, or by upgrading this crate to a current `deno_runtime` together with those pins. That is a decision for batch H.
+- **`v8` 130 and current rustc.** `v8` 130.0.7 builds a `&*ptr::null()` for an absent accessor setter; the debug-mode UB checks of rustc 1.99 abort on it during snapshot creation. This crate's `Cargo.toml` turns debug assertions off for the `v8` package only (`[profile.dev.package.v8]`). Release builds are unaffected.
 - **Patches:** none.
 
 ## Platform snapshot

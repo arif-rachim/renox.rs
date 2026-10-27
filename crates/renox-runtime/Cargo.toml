@@ -2,9 +2,9 @@
 name = "renox-runtime"
 version = "0.1.0"
 description = "Renox data plane runtime: V8 isolates on deno_runtime, artifact loading, dispatch, limits, ops"
-edition.workspace = true
-rust-version.workspace = true
-publish.workspace = true
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
 
 [features]
 # `v8` links V8 through deno_runtime. Without it, only the pure modules
@@ -49,3 +49,21 @@ renox-runtime = { path = ".", default-features = false, features = ["test-hooks"
 eszip = "=0.80.0"
 rcgen = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Own workspace (excluded from the root one): deno_runtime's exact version
+# pins cannot share a lockfile with the other crates. Run commands with
+# `--manifest-path crates/renox-runtime/Cargo.toml --target-dir target`
+# (the Makefile does).
+[workspace]
+
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 1
+
+# v8 130.0.7 (pinned with the Edge Runtime) builds `&*ptr::null()` for an
+# absent accessor setter, which the debug-mode UB checks of current rustc
+# abort on. Release builds are unaffected.
+[profile.dev.package.v8]
+debug-assertions = false
