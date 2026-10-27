@@ -48,6 +48,34 @@ pub struct WorkerConfig {
     /// Meter batches are written at least this often (contract: 5 s).
     #[serde(default = "default_meter_flush_ms")]
     pub meter_flush_ms: u64,
+    /// Gateway limits per client IP.
+    #[serde(default)]
+    pub gateway: GatewaySection,
+}
+
+/// `[gateway]`: the per-client limits of `renox-gateway` (README of that
+/// crate, "Configuration" and "Input limits"). Benchmarks that send all
+/// their load from one address raise them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct GatewaySection {
+    /// Sustained requests per second per client IP.
+    pub rate_limit_per_ip: f64,
+    /// Token bucket size per client IP.
+    pub rate_limit_burst: u32,
+    /// Open connections per client IP.
+    pub max_connections_per_ip: usize,
+}
+
+impl Default for GatewaySection {
+    fn default() -> Self {
+        let rate = renox_gateway::RateLimitConfig::default();
+        GatewaySection {
+            rate_limit_per_ip: rate.requests_per_second,
+            rate_limit_burst: rate.burst,
+            max_connections_per_ip: renox_gateway::GatewayLimits::default().max_connections_per_ip,
+        }
+    }
 }
 
 fn default_meter_flush_ms() -> u64 {
@@ -103,6 +131,11 @@ impl WorkerConfig {
                 *p = base.join(&*p);
             }
         }
+        if !(c.gateway.rate_limit_per_ip.is_finite() && c.gateway.rate_limit_per_ip > 0.0) {
+            return Err(ConfigError::Invalid(
+                "gateway.rate_limit_per_ip must be positive".into(),
+            ));
+        }
         if !(c.idle_timeout_secs.is_finite() && c.idle_timeout_secs > 0.0) {
             return Err(ConfigError::Invalid(
                 "idle_timeout_secs must be positive".into(),
@@ -146,6 +179,8 @@ mod tests {
         assert_eq!(c.tier_of("t_paid_example"), TierName::Paid);
         assert_eq!(c.tier_of("anyone"), TierName::Free);
         assert_eq!(c.tier_table().free.cpu_ms, 50);
+        assert_eq!(c.gateway.rate_limit_per_ip, 100.0);
+        assert_eq!(c.gateway.max_connections_per_ip, 100);
     }
 
     #[test]

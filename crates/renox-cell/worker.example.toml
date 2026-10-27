@@ -20,6 +20,12 @@ fetch_blocked_addresses = []
 
 default_tier = "free"
 
+# Per-client limits of the gateway (defaults shown).
+[gateway]
+rate_limit_per_ip = 100.0
+rate_limit_burst = 200
+max_connections_per_ip = 100
+
 [tenant_tiers]
 t_paid_example = "paid"
 

@@ -24,6 +24,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `meter_flush_ms` | 5000 | Meter batches are written at least this often |
 | `fetch_blocked_addresses` | `[]` | The node's own public addresses and the control plane's; tenant `fetch` is refused to them on top of the private ranges. Empty logs a warning at start; set it in production |
 | `default_tier` | `free` | Tier of tenants not listed in `tenant_tiers` |
+| `[gateway]` | 100 / 200 / 100 | `rate_limit_per_ip` (req/s), `rate_limit_burst`, `max_connections_per_ip`: the gateway's per-client limits (`renox-gateway` README). Benchmarks that send all load from one address raise them |
 | `[tenant_tiers]` | — | `tenant_id = "free" \| "paid"` (F1 stand-in for the control plane) |
 | `[tiers.free]`, `[tiers.paid]` | see "Tiers" | Overrides of single tier fields |
 

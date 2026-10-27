@@ -110,6 +110,9 @@ impl Worker {
         );
         let mut gw_config = GatewayConfig::new(&config.artifacts_dir);
         gw_config.wall_clock_limit = Duration::from_millis(tiers.max_wall_ms());
+        gw_config.rate_limit.requests_per_second = config.gateway.rate_limit_per_ip;
+        gw_config.rate_limit.burst = config.gateway.rate_limit_burst;
+        gw_config.limits.max_connections_per_ip = config.gateway.max_connections_per_ip;
         let gateway = Gateway::new(gw_config, routes.clone());
         let listener = TcpListener::bind(config.listen)
             .await
