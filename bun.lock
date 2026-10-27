@@ -12,6 +12,12 @@
     "bench": {
       "name": "@renox/bench",
     },
+    "examples/evil": {
+      "name": "@renox-examples/evil",
+      "dependencies": {
+        "renox": "workspace:*",
+      },
+    },
     "examples/hello": {
       "name": "@renox-examples/hello",
       "dependencies": {
@@ -50,6 +56,8 @@
     "@oslojs/encoding": ["@oslojs/encoding@1.1.0", "", {}, "sha512-70wQhgYmndg4GCPxPPxPGevRKqTIJ2Nh4OkiMWmDAVYsTQ+Ta7Sq+rPevXyXGdzr30/qZBnyOalCszoMxlyldQ=="],
 
     "@oslojs/jwt": ["@oslojs/jwt@0.2.0", "", { "dependencies": { "@oslojs/encoding": "0.4.1" } }, "sha512-bLE7BtHrURedCn4Mco3ma9L4Y1GR2SMBuIvjWr7rmQ4/W/4Jy70TIAgZ+0nIlk0xHz1vNP8x8DCns45Sb2XRbg=="],
+
+    "@renox-examples/evil": ["@renox-examples/evil@workspace:examples/evil"],
 
     "@renox-examples/hello": ["@renox-examples/hello@workspace:examples/hello"],
 

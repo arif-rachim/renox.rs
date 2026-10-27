@@ -1,0 +1,13 @@
+# examples/evil: every function is an attack the platform must stop.
+# See README.md for the limit each one hits.
+
+[app]
+name = "evil"
+timezone = "Asia/Dubai"
+
+[permissions]
+# example.com is allowed so "notlisted" (example.org) is rejected by the
+# allowlist itself; *.redirect.test lets "redirect" reach this app's own
+# /api/redirect, whose Location is http://127.0.0.1/.
+network = ["example.com", "*.redirect.test"]
+secrets = ["FAKE_SECRET"]
