@@ -20,8 +20,8 @@ Two main parts:
 
 ## Project status
 
-**Phase: F0 (spike).** There is no platform code yet. This repository contains architecture documentation, the benchmark plan, and the roadmap.
-The first code allowed in this repo is whatever `docs/14-benchmarks.md` needs to prove the F0 assumptions.
+**Phase: F1 (minimal data plane).** F0 is done (`docs/14-benchmarks.md`, "F0 results": GO). Platform crates under `crates/` are now allowed, following the F1 issues; `bench/` holds the harness, the spikes, and the results.
+F1 gate condition carried over from F0: B1 on the `shop` skeleton with its real dependencies, bundled as eszip, must be ≤ 20 MB, otherwise ADR D21 is written (#37).
 See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 
 ## Reading order

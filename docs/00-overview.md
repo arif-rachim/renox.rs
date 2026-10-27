@@ -9,8 +9,8 @@ Renox is a multi-tenant hosting platform: tenants deploy web applications and fu
 | Expectation | Measure | Target (see `14-benchmarks.md`) |
 | --- | --- | --- |
 | Density | Idle tenants per 8 GB node | ≥ 1,000 (isolate evicted, file closed) |
-| Memory per active tenant | RSS of a warm isolate, example app | ≤ 10 MB |
-| Cold start | Snapshot → first request completed | p50 ≤ 20 ms, p99 ≤ 100 ms |
+| Memory per active tenant | RSS of a warm isolate, example app | ≤ 10 MB (F0 measured 9.8 MB for a dependency-free app without snapshot; 74 MB with nine npm packages, to be fixed by bundling in F1) |
+| Cold start | Snapshot → first request completed | p50 ≤ 20 ms, p99 ≤ 100 ms (F0 measured p50 32 ms, p99 39 ms without snapshot or eszip) |
 | SSR latency | Medium page (25 KB, 100 items, 5 queries), warm | p50 ≤ 3 ms, p99 ≤ 15 ms inside the node |
 | Fragment latency | One block, 1 query | p50 ≤ 1 ms |
 | Isolation | A tenant with an infinite loop or unbounded allocation | Other tenants unaffected; the offending request is terminated at its limit |
