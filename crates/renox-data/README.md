@@ -40,6 +40,7 @@ Statements are prepared with `prepare_cached` (64 statements per connection). Th
 | `max_page_count` | 25600 (100 MB free tier ÷ 4096) | File size quota in 4096-byte pages; `DbOptions::with_quota_bytes(PAID_QUOTA_BYTES)` gives the 10 GB paid quota |
 | `readers` | 2 | Reader connections (at least 1) |
 | `statement_timeout_ms` | 1000 | Per-statement time limit |
+| `wal_checkpoint_pages` | 1000 | WAL size that makes `maybe_checkpoint` run a passive checkpoint |
 | `module_prefix` | `None` | Module whose authorizer the handle gets on open; `None` is a platform handle |
 
 ## Pragmas applied on open
@@ -131,3 +132,31 @@ Module names match `^[a-z][a-z0-9_]{0,31}$` (artifact contract), may not contain
 ### Performance
 
 The authorizer runs at prepare time only. With the statement cache, it runs once per distinct SQL text per connection; executing a cached statement does not call it. Changing a handle's policy flushes the statement cache, so a statement prepared under one policy is never reused under another.
+
+## Limits, deadline, checkpoints, stats
+
+`docs/04-isolation-security.md` (per-tenant database limits), `docs/contracts/ops.md` section 1 ("Limits").
+
+| Limit | How | Error |
+| --- | --- | --- |
+| Statement time | A `progress_handler` on every connection checks the clock every 1,000 VM instructions and interrupts at `min(statement_timeout_ms, request deadline)`. The statement limit counts from the first VM instructions, so the wait for the write lock (which SQLite takes first) is not part of it | `Timeout` |
+| Request deadline | `QueryCtx { deadline }` passed to `query_with`, `query_one_with`, `execute_with` (and the same on `Tx`). The methods without `_with` use no deadline. A call whose deadline has passed fails before it runs | `Timeout` |
+| Busy wait | `busy_timeout_ms`, lowered for one call to the time left before the request deadline | `Busy` |
+| File size | `max_page_count` | `QuotaExceeded` |
+
+A timeout inside `transaction` rolls the whole transaction back. Later statements on that `Tx` fail with `TxState`, and `transaction` returns `Timeout` even if the closure caught the error, so nothing is committed.
+
+### WAL checkpoints
+
+The writer replaces SQLite's automatic checkpoint-on-commit with a WAL hook that records the WAL size (`wal_pages()`). The cell schedules checkpoints:
+
+| Call | Effect |
+| --- | --- |
+| `maybe_checkpoint()` | `PASSIVE` checkpoint when the WAL holds `wal_checkpoint_pages` (default 1,000) or more; the cell calls it on a schedule and when the tenant is idle |
+| `checkpoint(CheckpointMode::Passive \| Truncate)` | Explicit checkpoint; `Truncate` waits for readers and truncates the WAL file to zero bytes |
+| `close()` | `TRUNCATE` checkpoint, then closes every connection |
+| Safety net | At 4 × `wal_checkpoint_pages` the writer runs a `PASSIVE` checkpoint on commit by itself, so the WAL stays bounded if the scheduler stalls |
+
+### Stats for the meter
+
+`stats()` returns `DbStats { statements, rows_read, rows_written, busy_waits, timeouts, total_ms }`, counted since the handle was opened. The cell takes a snapshot before and after a request and records `after.since(&before)`: `db_ms()` is `total_ms` (wall time in statements, including waits for the write lock), and `db_rows()` is rows returned plus rows changed (`docs/contracts/meter.md`). `busy_waits` counts statements that gave up with `Busy`.

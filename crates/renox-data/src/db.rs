@@ -6,14 +6,17 @@
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rusqlite::config::DbConfig;
 use rusqlite::{CachedStatement, Connection, OpenFlags};
 
 use crate::authorizer::{AuthorizerPolicy, Denial, decide};
 use crate::error::{DbError, Result};
+use crate::limits::{CheckpointMode, CheckpointResult, PROGRESS_STEPS, QueryCtx, StatementClock};
+use crate::stats::{DbStats, Outcome};
 use crate::value::{ExecResult, Row, Value};
 
 /// SQLite page size of every tenant file.
@@ -48,6 +51,10 @@ pub struct DbOptions {
     pub readers: usize,
     /// Per-statement time limit.
     pub statement_timeout_ms: u64,
+    /// WAL size in pages above which `maybe_checkpoint` runs a passive
+    /// checkpoint. At four times this size the writer checkpoints on commit
+    /// by itself, so the WAL stays bounded if the scheduler stalls.
+    pub wal_checkpoint_pages: u64,
     /// Module whose authorizer every connection gets on open; `None` opens a
     /// platform handle with no authorizer.
     pub module_prefix: Option<String>,
@@ -61,6 +68,7 @@ impl Default for DbOptions {
             max_page_count: FREE_QUOTA_BYTES / PAGE_SIZE,
             readers: 2,
             statement_timeout_ms: 1_000,
+            wal_checkpoint_pages: 1_000,
             module_prefix: None,
         }
     }
@@ -83,6 +91,10 @@ struct Hooks {
     policy: Mutex<Option<Arc<AuthorizerPolicy>>>,
     /// First action the authorizer refused since the last prepare.
     denial: Mutex<Option<Denial>>,
+    /// Limit of the running statement, checked by the progress handler.
+    clock: StatementClock,
+    /// Pages in the WAL after the last commit (writer only).
+    wal_pages: AtomicU64,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -94,6 +106,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) struct Conn {
     pub(crate) inner: Connection,
     hooks: Arc<Hooks>,
+    busy_timeout: Duration,
 }
 
 impl Conn {
@@ -163,7 +176,51 @@ impl Conn {
                 answer
             }))
             .map_err(open_error)?;
-        Ok(Conn { inner, hooks })
+        let h = Arc::clone(&hooks);
+        inner
+            .progress_handler(PROGRESS_STEPS, Some(move || h.clock.expired()))
+            .map_err(open_error)?;
+        if !read_only {
+            // Replaces SQLite's automatic checkpoint on commit: the platform
+            // schedules checkpoints (`maybe_checkpoint`), with a safety net.
+            let h = Arc::clone(&hooks);
+            let safety_net = options.wal_checkpoint_pages.saturating_mul(4);
+            inner
+                .wal_hook(Some(move |wal: &mut rusqlite::hooks::Wal, pages: i32| {
+                    let mut pages = u64::try_from(pages).unwrap_or(0);
+                    if pages >= safety_net
+                        && let Ok((log, done)) =
+                            wal.checkpoint_v2(rusqlite::wal::CheckpointMode::PASSIVE)
+                        && log == done
+                    {
+                        pages = 0;
+                    }
+                    h.wal_pages.store(pages, Ordering::Relaxed);
+                    Ok(())
+                }))
+                .map_err(open_error)?;
+        }
+        Ok(Conn {
+            inner,
+            hooks,
+            busy_timeout: Duration::from_millis(options.busy_timeout_ms),
+        })
+    }
+
+    /// Start the clock of one call. The statement limit counts from the
+    /// first VM instructions; the busy wait is capped by the deadline.
+    fn scope(&self, limit: Duration, ctx: &QueryCtx) -> Scope<'_> {
+        self.hooks.clock.start(limit, ctx.deadline);
+        let capped = ctx
+            .remaining(Instant::now())
+            .filter(|r| *r < self.busy_timeout);
+        if let Some(r) = capped {
+            let _ = self.inner.busy_timeout(r);
+        }
+        Scope {
+            conn: self,
+            restore_busy: capped.is_some(),
+        }
     }
 
     /// Replace the authorizer policy; returns the previous one.
@@ -232,19 +289,6 @@ impl Conn {
         Ok(out)
     }
 
-    fn execute(&self, sql: &str, params: &[Value]) -> Result<ExecResult> {
-        let mut stmt = self.prepare(sql)?;
-        // Step to the end so `insert ... returning` works here too.
-        let mut rows = stmt
-            .query(rusqlite::params_from_iter(params))
-            .map_err(|e| self.error(e))?;
-        while rows.next().map_err(|e| self.error(e))?.is_some() {}
-        Ok(ExecResult {
-            changes: self.inner.changes(),
-            last_insert_rowid: self.inner.last_insert_rowid(),
-        })
-    }
-
     /// Map a SQLite error raised on this connection.
     pub(crate) fn error(&self, e: rusqlite::Error) -> DbError {
         match DbError::from(e) {
@@ -256,6 +300,21 @@ impl Conn {
                 }
             }
             other => other,
+        }
+    }
+}
+
+/// Stops the statement clock and restores the busy timeout.
+struct Scope<'a> {
+    conn: &'a Conn,
+    restore_busy: bool,
+}
+
+impl Drop for Scope<'_> {
+    fn drop(&mut self) {
+        self.conn.hooks.clock.stop();
+        if self.restore_busy {
+            let _ = self.conn.inner.busy_timeout(self.conn.busy_timeout);
         }
     }
 }
@@ -281,6 +340,7 @@ pub struct TenantDb {
     next_reader: Cell<usize>,
     in_tx: Cell<bool>,
     policy: Option<Arc<AuthorizerPolicy>>,
+    stats: Cell<DbStats>,
 }
 
 impl std::fmt::Debug for TenantDb {
@@ -314,6 +374,7 @@ impl TenantDb {
             next_reader: Cell::new(0),
             in_tx: Cell::new(false),
             policy: None,
+            stats: Cell::new(DbStats::default()),
         })
         .and_then(|db| match db.options.module_prefix.clone() {
             Some(module) => db.with_authorizer(AuthorizerPolicy::module(module)),
@@ -377,18 +438,78 @@ impl TenantDb {
         std::iter::once(&self.writer).chain(self.readers.iter())
     }
 
+    fn limit(&self) -> Duration {
+        Duration::from_millis(self.options.statement_timeout_ms)
+    }
+
+    /// Run one call: refuse it if the deadline has passed, time it, and
+    /// record it in the stats. `f` returns its value and (rows read, rows
+    /// written).
+    fn measured<T>(&self, ctx: &QueryCtx, f: impl FnOnce() -> Result<(T, u64, u64)>) -> Result<T> {
+        let start = Instant::now();
+        let result = if ctx.expired(start) {
+            Err(DbError::Timeout)
+        } else {
+            f()
+        };
+        let outcome = match &result {
+            Ok((_, read, written)) => Outcome::Rows {
+                read: *read,
+                written: *written,
+            },
+            Err(DbError::Busy) => Outcome::Busy,
+            Err(DbError::Timeout) => Outcome::Timeout,
+            Err(_) => Outcome::Failed,
+        };
+        let mut stats = self.stats.get();
+        stats.record(start.elapsed(), outcome);
+        self.stats.set(stats);
+        result.map(|(v, _, _)| v)
+    }
+
+    /// Run a statement on the writer, collecting rows.
+    fn on_writer(
+        &self,
+        ctx: &QueryCtx,
+        sql: &str,
+        params: &[Value],
+        limit_one: bool,
+    ) -> Result<(Vec<Row>, u64, u64)> {
+        let mut stmt = self.writer.prepare(sql)?;
+        let writes = !stmt.readonly();
+        let _scope = self.writer.scope(self.limit(), ctx);
+        let rows = self.writer.rows(&mut stmt, params, limit_one)?;
+        let written = if writes {
+            self.writer.inner.changes()
+        } else {
+            0
+        };
+        let read = rows.len() as u64;
+        Ok((rows, read, written))
+    }
+
     /// Run a read on a reader connection. A statement that writes
     /// (`insert ... returning`) goes to the writer instead.
-    fn run_query(&self, sql: &str, params: &[Value], limit_one: bool) -> Result<Vec<Row>> {
-        let reader = self.reader();
-        let mut stmt = reader.prepare(sql)?;
-        if stmt.readonly() {
-            return reader.rows(&mut stmt, params, limit_one);
-        }
-        drop(stmt);
-        self.check_no_tx()?;
-        let mut stmt = self.writer.prepare(sql)?;
-        self.writer.rows(&mut stmt, params, limit_one)
+    fn run_query(
+        &self,
+        ctx: &QueryCtx,
+        sql: &str,
+        params: &[Value],
+        limit_one: bool,
+    ) -> Result<Vec<Row>> {
+        self.measured(ctx, || {
+            let reader = self.reader();
+            let mut stmt = reader.prepare(sql)?;
+            if stmt.readonly() {
+                let _scope = reader.scope(self.limit(), ctx);
+                let rows = reader.rows(&mut stmt, params, limit_one)?;
+                let read = rows.len() as u64;
+                return Ok((rows, read, 0));
+            }
+            drop(stmt);
+            self.check_no_tx()?;
+            self.on_writer(ctx, sql, params, limit_one)
+        })
     }
 
     fn check_no_tx(&self) -> Result<()> {
@@ -402,18 +523,95 @@ impl TenantDb {
 
     /// All rows of a query.
     pub fn query(&self, sql: &str, params: &[Value]) -> Result<Vec<Row>> {
-        self.run_query(sql, params, false)
+        self.query_with(&QueryCtx::default(), sql, params)
+    }
+
+    /// `query` bounded by the request deadline in `ctx`.
+    pub fn query_with(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<Vec<Row>> {
+        self.run_query(ctx, sql, params, false)
     }
 
     /// The first row of a query; the statement stops after it.
     pub fn query_one(&self, sql: &str, params: &[Value]) -> Result<Option<Row>> {
-        Ok(self.run_query(sql, params, true)?.into_iter().next())
+        self.query_one_with(&QueryCtx::default(), sql, params)
+    }
+
+    /// `query_one` bounded by the request deadline in `ctx`.
+    pub fn query_one_with(
+        &self,
+        ctx: &QueryCtx,
+        sql: &str,
+        params: &[Value],
+    ) -> Result<Option<Row>> {
+        Ok(self.run_query(ctx, sql, params, true)?.into_iter().next())
     }
 
     /// Run a statement on the writer.
     pub fn execute(&self, sql: &str, params: &[Value]) -> Result<ExecResult> {
+        self.execute_with(&QueryCtx::default(), sql, params)
+    }
+
+    /// `execute` bounded by the request deadline in `ctx`.
+    pub fn execute_with(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
         self.check_no_tx()?;
-        self.writer.execute(sql, params)
+        self.run_execute(ctx, sql, params)
+    }
+
+    fn run_execute(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
+        self.measured(ctx, || {
+            let (rows, read, written) = self.on_writer(ctx, sql, params, false)?;
+            let _ = rows;
+            Ok((
+                ExecResult {
+                    changes: self.writer.inner.changes(),
+                    last_insert_rowid: self.writer.inner.last_insert_rowid(),
+                },
+                read,
+                written,
+            ))
+        })
+    }
+
+    /// Counters since the handle was opened (`db_ms`, `db_rows` for the meter).
+    pub fn stats(&self) -> DbStats {
+        self.stats.get()
+    }
+
+    /// Checkpoint the WAL into the database file.
+    pub fn checkpoint(&self, mode: CheckpointMode) -> Result<CheckpointResult> {
+        let mode = match mode {
+            CheckpointMode::Passive => rusqlite::wal::CheckpointMode::PASSIVE,
+            CheckpointMode::Truncate => rusqlite::wal::CheckpointMode::TRUNCATE,
+        };
+        let (log, done) = self
+            .writer
+            .inner
+            .wal_checkpoint_v2(Some("main"), mode)
+            .map_err(|e| self.writer.error(e))?;
+        let log = u64::try_from(log).unwrap_or(0);
+        let done = u64::try_from(done).unwrap_or(0);
+        self.writer
+            .hooks
+            .wal_pages
+            .store(log - done.min(log), Ordering::Relaxed);
+        Ok(CheckpointResult {
+            wal_frames: log,
+            checkpointed_frames: done,
+        })
+    }
+
+    /// Pages in the WAL after the last commit on this handle.
+    pub fn wal_pages(&self) -> u64 {
+        self.writer.hooks.wal_pages.load(Ordering::Relaxed)
+    }
+
+    /// Run a passive checkpoint if the WAL holds `wal_checkpoint_pages` or
+    /// more. The cell calls it on a schedule and when the tenant is idle.
+    pub fn maybe_checkpoint(&self) -> Result<Option<CheckpointResult>> {
+        if self.in_tx.get() || self.wal_pages() < self.options.wal_checkpoint_pages {
+            return Ok(None);
+        }
+        self.checkpoint(CheckpointMode::Passive).map(Some)
     }
 
     /// Run `f` in an immediate transaction on the writer: commit if it
@@ -431,8 +629,16 @@ impl TenantDb {
             .map_err(|e| self.writer.error(e))?;
         self.in_tx.set(true);
         let guard = TxGuard { db: self };
-        let tx = Tx { db: self };
+        let tx = Tx {
+            db: self,
+            rolled_back: Cell::new(false),
+        };
         let out = f(&tx)?;
+        if tx.rolled_back.get() {
+            // A statement timed out and the transaction was rolled back; the
+            // caller swallowed the error, but nothing may be committed.
+            return Err(DbError::Timeout.into());
+        }
         self.writer
             .inner
             .execute_batch("commit")
@@ -458,7 +664,8 @@ impl TenantDb {
             .collect()
     }
 
-    /// Close every connection. The cell calls this on idle eviction.
+    /// Truncate the WAL and close every connection. The cell calls this on
+    /// idle eviction.
     pub fn close(self) -> Result<()> {
         let TenantDb {
             writer, readers, ..
@@ -466,8 +673,14 @@ impl TenantDb {
         for r in readers {
             r.inner.close().map_err(|(_, e)| DbError::from(e))?;
         }
+        // With the readers gone nothing holds the WAL; a failure here still
+        // closes the writer, which checkpoints on close as well.
+        let truncated = writer
+            .inner
+            .wal_checkpoint_v2(Some("main"), rusqlite::wal::CheckpointMode::TRUNCATE)
+            .map_err(DbError::from);
         writer.inner.close().map_err(|(_, e)| DbError::from(e))?;
-        Ok(())
+        truncated.map(|_| ())
     }
 }
 
@@ -490,25 +703,62 @@ impl Drop for TxGuard<'_> {
 /// The open transaction: the same API as `TenantDb`, always on the writer.
 pub struct Tx<'a> {
     db: &'a TenantDb,
+    rolled_back: Cell<bool>,
 }
 
 impl Tx<'_> {
     pub fn query(&self, sql: &str, params: &[Value]) -> Result<Vec<Row>> {
-        let mut stmt = self.db.writer.prepare(sql)?;
-        self.db.writer.rows(&mut stmt, params, false)
+        self.query_with(&QueryCtx::default(), sql, params)
+    }
+
+    pub fn query_with(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<Vec<Row>> {
+        self.run(|| {
+            self.db
+                .measured(ctx, || self.db.on_writer(ctx, sql, params, false))
+        })
     }
 
     pub fn query_one(&self, sql: &str, params: &[Value]) -> Result<Option<Row>> {
-        let mut stmt = self.db.writer.prepare(sql)?;
-        Ok(self
-            .db
-            .writer
-            .rows(&mut stmt, params, true)?
-            .into_iter()
-            .next())
+        self.query_one_with(&QueryCtx::default(), sql, params)
+    }
+
+    pub fn query_one_with(
+        &self,
+        ctx: &QueryCtx,
+        sql: &str,
+        params: &[Value],
+    ) -> Result<Option<Row>> {
+        let rows = self.run(|| {
+            self.db
+                .measured(ctx, || self.db.on_writer(ctx, sql, params, true))
+        })?;
+        Ok(rows.into_iter().next())
     }
 
     pub fn execute(&self, sql: &str, params: &[Value]) -> Result<ExecResult> {
-        self.db.writer.execute(sql, params)
+        self.execute_with(&QueryCtx::default(), sql, params)
+    }
+
+    pub fn execute_with(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
+        self.run(|| self.db.run_execute(ctx, sql, params))
+    }
+
+    /// A timeout rolls the whole transaction back (`docs/contracts/ops.md`
+    /// section 1, "Limits"); later statements on this `Tx` are refused
+    /// instead of silently running in autocommit mode.
+    fn run<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        if self.rolled_back.get() {
+            return Err(DbError::TxState(
+                "the transaction was rolled back after a timeout".into(),
+            ));
+        }
+        let result = f();
+        if matches!(result, Err(DbError::Timeout)) {
+            if !self.db.writer.inner.is_autocommit() {
+                let _ = self.db.writer.inner.execute_batch("rollback");
+            }
+            self.rolled_back.set(true);
+        }
+        result
     }
 }

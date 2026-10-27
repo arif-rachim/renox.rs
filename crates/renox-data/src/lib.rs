@@ -8,9 +8,13 @@
 mod authorizer;
 mod db;
 mod error;
+mod limits;
+mod stats;
 mod value;
 
 pub use authorizer::{APP_MODULE, AuthorizerPolicy, PLATFORM_MODULE};
 pub use db::{DbOptions, FREE_QUOTA_BYTES, PAGE_SIZE, PAID_QUOTA_BYTES, TenantDb, Tx};
 pub use error::{ConstraintKind, DbError, Result};
+pub use limits::{CheckpointMode, CheckpointResult, QueryCtx};
+pub use stats::DbStats;
 pub use value::{ExecResult, Row, Value};
