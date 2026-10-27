@@ -1,0 +1,51 @@
+[package]
+name = "renox-runtime"
+version = "0.1.0"
+description = "Renox data plane runtime: V8 isolates on deno_runtime, artifact loading, dispatch, limits, ops"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# `v8` links V8 through deno_runtime. Without it, only the pure modules
+# (manifest, router, error, ops::net_policy, ops::fetch_connector) compile,
+# so their tests run without V8: `cargo test -p renox-runtime --no-default-features`
+# (docs/12-developer-experience.md, "Tests without V8 wherever possible").
+default = ["v8"]
+v8 = ["dep:deno_runtime", "dep:deno_core", "dep:deno_fs", "dep:v8", "dep:eszip", "dep:futures"]
+# Test-only connect override for the fetch connector (tests/fetch*.rs).
+# Never enabled by renox-cell; see ops/fetch_connector.rs.
+test-hooks = []
+
+[dependencies]
+# Same versions as the pinned Supabase Edge Runtime v1.77.8 (bench/edge-runtime/NOTES.md):
+# Deno 2.1.4 = deno_runtime 0.191, deno_core 0.324, v8 130.0.7 (prebuilt; never built from source).
+deno_runtime = { version = "=0.191.0", optional = true }
+deno_core = { version = "=0.324.0", optional = true }
+deno_fs = { version = "=0.92.0", optional = true }
+v8 = { version = "=130.0.7", optional = true }
+eszip = { version = "=0.80.0", optional = true }
+futures = { version = "0.3", optional = true }
+
+bytes = "1"
+http = "1"
+hickory-proto = { version = "=0.25.0-alpha.4", default-features = false, features = ["tokio-runtime"] }
+hickory-resolver = { version = "=0.25.0-alpha.4", default-features = false, features = ["tokio-runtime", "system-config"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+libc = "0.2"
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+url = "2"
+webpki-roots = "0.26"
+
+[dev-dependencies]
+renox-runtime = { path = ".", default-features = false, features = ["test-hooks"] }
+eszip = "=0.80.0"
+rcgen = "0.13"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["bench/spike/*"]
+members = ["bench/spike/*", "crates/renox-runtime"]
 
 [workspace.package]
 edition = "2024"
@@ -12,3 +12,9 @@ debug = 1
 
 [profile.dev.package."*"]
 opt-level = 1
+
+# v8 130.0.7 (pinned with the Edge Runtime, crates/renox-runtime/README.md)
+# builds `&*ptr::null()` for an absent accessor setter, which the debug-mode
+# UB checks of current rustc abort on. Release builds are unaffected.
+[profile.dev.package.v8]
+debug-assertions = false
