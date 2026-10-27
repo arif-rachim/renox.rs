@@ -1,0 +1,17 @@
+{
+  "id": "B20",
+  "scenario": "renox-worker release asset size; CI wall time of runs with the rust job, median of the last runs",
+  "notes": "CI runs: 40527963397; binary: no worker-v* release yet, binary_mb not measured",
+  "samples": {
+    "ci_min": [
+      9.7
+    ],
+    "rust_job_min": [
+      9.6
+    ]
+  },
+  "summary": {
+    "ci_min": 9.7,
+    "rust_job_min": 9.6
+  }
+}

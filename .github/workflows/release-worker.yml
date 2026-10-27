@@ -1,0 +1,141 @@
+name: Release worker
+
+# Builds the renox-worker release binary and publishes it as a GitHub Release
+# asset that the CLI downloads (docs/12-developer-experience.md rule 5, #32).
+# Runs only on a `worker-v*` tag or by hand, never on docs or TypeScript
+# changes (rule 6). A manual run without a version builds and size-checks
+# the binary and keeps it as a workflow artifact, without a release.
+#
+# Asset name: renox-worker-<version>-<target>, plus <asset>.sha256.
+on:
+  push:
+    tags:
+      - "worker-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the worker-v prefix (for example 0.1.0). Empty: build and size check only."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-worker-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # B20 target (docs/14-benchmarks.md): the binary must stay at or under this.
+  MAX_BINARY_MB: "100"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # aarch64: no arm64 runner is configured for this repository yet;
+          # add `{ target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }`
+          # when one is (issue #36, Out).
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+      TARGET: ${{ matrix.target }}
+      # Inputs reach the shell through the environment only, never through
+      # ${{ }} inside a script.
+      INPUT_VERSION: ${{ inputs.version }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version=${GITHUB_REF_NAME#worker-v}
+          else
+            version=$INPUT_VERSION
+          fi
+          if [[ -n "$version" && ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version '$version' is not semver (expected for example 0.1.0)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: rustup show active-toolchain || rustup toolchain install
+      # Verified prebuilt V8 (ops/v8-checksums.txt, issue #109).
+      - name: Fetch and verify the rusty_v8 archive
+        run: |
+          archive=$(ops/v8-archive.sh fetch "$TARGET" "$RUNNER_TEMP/rusty_v8")
+          echo "RUSTY_V8_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      - name: Check the workspace has a renox-worker binary
+        run: |
+          if ! cargo metadata --format-version 1 --no-deps --locked \
+            | jq -e '[.packages[].targets[] | select(.name == "renox-worker" and (.kind | index("bin")))] | length > 0' >/dev/null; then
+            echo "::error::no renox-worker binary target in the workspace (crates/renox-cell, docs/18-build-plan.md P5)"
+            exit 1
+          fi
+      - name: Build
+        run: cargo build --release --locked --bin renox-worker
+      - name: Size check
+        run: |
+          bin=target/release/renox-worker
+          bytes=$(stat -c %s "$bin")
+          mb=$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1048576 }')
+          echo "renox-worker ($TARGET): $mb MB (limit $MAX_BINARY_MB MB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if (( bytes > MAX_BINARY_MB * 1048576 )); then
+            echo "::error::renox-worker is $mb MB, over the $MAX_BINARY_MB MB B20 limit"
+            exit 1
+          fi
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          name="renox-worker-${VERSION:-dev}-$TARGET"
+          mkdir dist
+          cp target/release/renox-worker "dist/$name"
+          (cd dist && sha256sum "$name" > "$name.sha256")
+          ls -l dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: renox-worker-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+      - run: sccache --show-stats
+
+  release:
+    needs: build
+    if: needs.build.outputs.version != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      # Creating a release and uploading assets; nothing else.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          tag="worker-v$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "renox-worker $VERSION" \
+              --notes "renox-worker $VERSION built from $GITHUB_SHA. Verify with: sha256sum -c <asset>.sha256"
+          fi

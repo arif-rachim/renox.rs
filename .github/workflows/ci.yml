@@ -3,7 +3,12 @@ name: CI
 # Each job runs only when its paths change (docs/12-developer-experience.md,
 # "Build and compile strategy", rule 6): docs changes never trigger a Rust or
 # TypeScript build. On a push the filter compares with the commit before the
-# push; on a pull request with the base branch.
+# push; on a pull request with the base branch. The supply-chain jobs
+# (actions-pinned, cargo-deny, bun-audit) run on every push and PR, so they can
+# be required checks (docs/22-development-plan.md, "Branch protection").
+#
+# Only `pull_request` is used, never `pull_request_target`: PRs from forks run
+# without secrets and with the read-only token below (issue #109).
 on:
   push:
   pull_request:
@@ -26,8 +31,8 @@ jobs:
       ts: ${{ steps.filter.outputs.ts }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         id: filter
         with:
           # On push: compare with the commit before this push, not with the
@@ -40,6 +45,7 @@ jobs:
               - 'Cargo.*'
               - 'rust-toolchain.toml'
               - '.cargo/**'
+              - 'ops/**'
             ts:
               - '*.ts'
               - 'sdk*/**'
@@ -49,6 +55,7 @@ jobs:
               - 'examples/**'
               - 'bench/**'
               - '.github/scripts/**'
+              - 'ops/**'
               - 'package.json'
               - 'bun.lock*'
               - 'tsconfig*.json'
@@ -65,6 +72,12 @@ jobs:
       # renox-runtime links deno_runtime and V8: with debug info, target/
       # outgrows the runner's free disk. CI needs no debugger symbols.
       CARGO_PROFILE_DEV_DEBUG: "0"
+      # sccache stores rustc outputs in the GitHub Actions cache (B20,
+      # docs/12-developer-experience.md rule 6). It cannot cache incremental
+      # builds, so incremental compilation is off.
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
       # The runner image ships ~14 GB free; the SDKs below are unused here
       # and free about 30 GB for the Deno/V8 build.
@@ -72,20 +85,31 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # rustup on the runner reads rust-toolchain.toml and installs the pinned version.
       - run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      # The prebuilt V8 archive, checked against ops/v8-checksums.txt before
+      # cargo runs; the v8 build script then copies it instead of downloading.
+      - name: Fetch and verify the rusty_v8 archive
+        run: |
+          archive=$(ops/v8-archive.sh fetch x86_64-unknown-linux-gnu "$RUNNER_TEMP/rusty_v8")
+          echo "RUSTY_V8_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      # Caches ~/.cargo and target/. The key is the job, the rustc version
+      # (rust-toolchain.toml), Cargo.lock and the Cargo.toml files.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: make rust-check
       - run: make rust-test
+      # Hit rate for B20 (bench/scenarios/B20/run.sh reads job timings only).
+      - run: sccache --show-stats
 
   ts:
     needs: changes
     if: needs.changes.outputs.ts == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - run: make ts-check
@@ -98,9 +122,55 @@ jobs:
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       # Link check (relative links only, no network) and docs/contracts type-check.
       - run: make docs-check
+
+  # Every third-party action is pinned to a full commit SHA (issue #109).
+  actions-pinned:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: No action referenced by tag or branch
+        run: |
+          unpinned=$(grep -rnE '^[[:space:]-]*uses:' .github/workflows \
+            | grep -vE 'uses:[[:space:]]*\./' \
+            | grep -vE 'uses:[[:space:]]*[^@[:space:]]+@[0-9a-f]{40}([[:space:]]|$)' || true)
+          if [[ -n "$unpinned" ]]; then
+            echo "::error::actions must be pinned to a 40-character commit SHA (version in a comment):"
+            echo "$unpinned"
+            exit 1
+          fi
+          echo "all actions pinned"
+
+  # RustSec advisories, licences, sources (deny.toml).
+  cargo-deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      # Prebuilt cargo-deny, checksum-verified by install-action.
+      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny --locked check
+
+  # Known-vulnerable npm packages in bun.lock (sdk, cli, control, modules, bench).
+  bun-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun audit

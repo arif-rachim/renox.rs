@@ -1,0 +1,6 @@
+# Changes to CI, the supply-chain policy and the verified V8 checksums need
+# an owner's review (issue #109; docs/24-threat-model.md F). Branch protection
+# on main requires code owner review: docs/22-development-plan.md section 4.
+/.github/            @arif-rachim
+/deny.toml           @arif-rachim
+/ops/                @arif-rachim
