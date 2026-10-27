@@ -177,6 +177,20 @@ make bench ID=B0     # run one benchmark scenario (bench/run.sh)
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same targets; Rust jobs run only when Rust files change, TypeScript jobs only when TypeScript files change, and docs changes only run the link check.
+The Rust job caches `target/` (`Swatinem/rust-cache`) and compiler outputs (`sccache` on the GitHub Actions cache); B20 tracks its time (`make bench ID=B20`, needs `gh` logged in).
+
+### Prebuilt `renox-worker`
+
+`renox dev` and `renox test` run a prebuilt worker, so tenant developers never build Rust (`docs/12-developer-experience.md`, rule 5). `.github/workflows/release-worker.yml` builds it on a `worker-v*` tag (or by hand from the Actions tab) and attaches `renox-worker-<version>-x86_64-unknown-linux-gnu` and its `.sha256` to the GitHub Release `worker-v<version>`. Linux x86_64 only for now; aarch64 and macOS builds are follow-ups.
+
+```
+gh release download worker-v0.1.0 --pattern 'renox-worker-0.1.0-x86_64-unknown-linux-gnu*'
+sha256sum -c renox-worker-0.1.0-x86_64-unknown-linux-gnu.sha256
+chmod +x renox-worker-0.1.0-x86_64-unknown-linux-gnu
+export RENOX_WORKER_PATH=$PWD/renox-worker-0.1.0-x86_64-unknown-linux-gnu
+```
+
+`RENOX_WORKER_PATH` tells the CLI which worker binary to run instead of downloading one. Platform developers point it at their own build: `cargo build --release --bin renox-worker`, then `export RENOX_WORKER_PATH=$PWD/target/release/renox-worker`.
 
 ## Contributing
 
