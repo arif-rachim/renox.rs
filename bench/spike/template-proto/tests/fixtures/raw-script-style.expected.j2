@@ -1,0 +1,4 @@
+<div>{{ title }}</div>
+<script>{% raw %}window.state = {{ "not interpolated" }}; if (a < b && c) { go(); }{% endraw %}</script>
+<style>{% raw %}.a::before { content: "{{ literal }}"; }{% endraw %}</style>
+<script>console.log("no delimiters here", 1 < 2);</script>

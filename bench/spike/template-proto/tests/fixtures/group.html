@@ -1,0 +1,7 @@
+<dl>
+  <r-group r-for="item in specs">
+    <dt>{{ item.key }}</dt>
+    <dd>{{ item.value }}</dd>
+  </r-group>
+  <r-group r-if="warranty"><dt>Warranty</dt><dd>{{ warranty }}</dd></r-group>
+</dl>
