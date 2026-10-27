@@ -1,0 +1,84 @@
+name: CI
+
+# Each job runs only when its paths change (docs/12-developer-experience.md,
+# "Build and compile strategy", rule 6): docs changes never trigger a Rust or
+# TypeScript build. On a push the filter compares against the previous push;
+# on a pull request against the base branch.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      ts: ${{ steps.filter.outputs.ts }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'bench/spike/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+            ts:
+              - '**/*.ts'
+              - '**/package.json'
+              - 'bun.lock*'
+              - '**/tsconfig*.json'
+            docs:
+              - 'docs/**'
+              - '**/*.md'
+              - '.github/scripts/check-links.ts'
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # rustup on the runner reads rust-toolchain.toml and installs the pinned version.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: make rust-check
+      - run: make rust-test
+
+  ts:
+    needs: changes
+    if: needs.changes.outputs.ts == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: make ts-check
+      - run: make ts-test
+
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      # Relative links only; never touches the network.
+      - run: bun .github/scripts/check-links.ts

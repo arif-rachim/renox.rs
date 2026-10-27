@@ -1,0 +1,26 @@
+# Rust
+target/
+
+# Bun / Node
+node_modules/
+
+# Local Renox state
+.renox/
+
+# Benchmark raw output: the JSON summaries are kept, large binaries are not
+bench/results/raw/*
+!bench/results/raw/.gitkeep
+!bench/results/raw/*.json
+*.cpuprofile
+*.heapsnapshot
+perf.data*
+
+# SQLite
+*.db
+*.db-wal
+*.db-shm
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

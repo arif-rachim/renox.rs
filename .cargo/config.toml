@@ -1,0 +1,4 @@
+# Fast linking (docs/12-developer-experience.md, "Build and compile strategy", rule 3).
+# The wrapper picks mold when it is installed and falls back to lld otherwise.
+[target.x86_64-unknown-linux-gnu]
+linker = ".cargo/linker.sh"
