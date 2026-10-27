@@ -87,3 +87,47 @@ create table if not exists renox__migrations (
   primary key (module, name)
 ) strict;
 ```
+
+## Authorizer
+
+ADR D13 and `docs/06-data.md`: every statement from a module passes through a SQLite authorizer limited to that module's prefix. SQLite calls it while compiling a statement, so a refused statement never runs; no SQL is parsed in Rust.
+
+```rust
+use renox_data::AuthorizerPolicy;
+
+let db = TenantDb::open(path, DbOptions::default())?
+    .with_authorizer(AuthorizerPolicy::module("billing").with_read_deps(["auth"]))?;
+```
+
+`with_authorizer` installs the policy on every connection of the handle (writer and readers). `DbOptions { module_prefix: Some("billing".into()), .. }` does the same on open.
+
+| Action | Allowed for module `m` |
+| --- | --- |
+| `READ`, `INSERT`, `UPDATE`, `DELETE` | Tables and views named `m__*` in the main database |
+| `READ` | Views `d__public_*` for each `d` in `read_deps`, and the columns those views read (SQLite reports them with the view as accessor) |
+| `SELECT`, `RECURSIVE` (CTEs), built-in functions | Always, except `load_extension` and `fts3_tokenizer` |
+| `TRANSACTION`, `SAVEPOINT` | When `allow_ddl` is false (the migration runner owns the transaction when it is true) |
+| `CREATE TABLE/INDEX/VIEW`, `ALTER TABLE`, `DROP TABLE/INDEX/VIEW/TRIGGER`, `REINDEX` | Only with `allow_ddl` (migrations), only for `m__*` names; DDL also needs the schema-table writes SQLite reports for it |
+| Everything else | Refused: `PRAGMA` (reads and writes), `ATTACH`, `DETACH`, `CREATE TRIGGER`, temp objects, virtual tables, `ANALYZE`, reads of `sqlite_master` |
+
+A refused statement fails with `DbError::Auth { table, action }` (`RENOX_DB_AUTH`): `table` names the object of the first refused action, `action` the SQLite action (`READ`, `INSERT`, `CREATE_TABLE`, `PRAGMA`, `ATTACH`, ...).
+
+Rules that follow from SQLite's behaviour:
+
+- A view with the module's own prefix that reads another module's table does not grant access: only `<dep>__public_*` views pass reads through.
+- Trigger bodies are checked against the policy of the statement that fires them, so a platform trigger on a module table does not give the module access to the trigger's targets.
+- A foreign key from `m__*` to another module's table makes SQLite report a `READ` of the parent table, which is refused. Cross-module references are an F4 question (module broker); in F1 only the `app` module runs.
+- `ALTER TABLE ... RENAME TO` reports only the old name. The migration runner therefore also checks the schema after each file (see "Migrations").
+
+### Reserved module names
+
+| Name | Meaning |
+| --- | --- |
+| `app` | The tenant application's own code and migrations; tables `app__*` (`docs/07-app-model.md`) |
+| `renox` | The platform (`renox__*` tables). A `renox` policy installs no restrictions; the cell uses it for platform tables |
+
+Module names match `^[a-z][a-z0-9_]{0,31}$` (artifact contract), may not contain `__` and may not end with `_`, so one module's prefix is never a prefix of another's. `renox` cannot be a dependency.
+
+### Performance
+
+The authorizer runs at prepare time only. With the statement cache, it runs once per distinct SQL text per connection; executing a cached statement does not call it. Changing a handle's policy flushes the statement cache, so a statement prepared under one policy is never reused under another.

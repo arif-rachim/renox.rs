@@ -6,11 +6,13 @@
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use rusqlite::config::DbConfig;
 use rusqlite::{CachedStatement, Connection, OpenFlags};
 
+use crate::authorizer::{AuthorizerPolicy, Denial, decide};
 use crate::error::{DbError, Result};
 use crate::value::{ExecResult, Row, Value};
 
@@ -74,9 +76,24 @@ impl DbOptions {
     }
 }
 
+/// State shared between a connection and its SQLite callbacks.
+#[derive(Default)]
+struct Hooks {
+    /// `None`: platform connection, everything allowed.
+    policy: Mutex<Option<Arc<AuthorizerPolicy>>>,
+    /// First action the authorizer refused since the last prepare.
+    denial: Mutex<Option<Denial>>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    // The callbacks never panic while holding a lock; recover anyway.
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// One connection of the pool.
 pub(crate) struct Conn {
     pub(crate) inner: Connection,
+    hooks: Arc<Hooks>,
 }
 
 impl Conn {
@@ -90,7 +107,7 @@ impl Conn {
                 | OpenFlags::SQLITE_OPEN_CREATE
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX
         };
-        let inner = Connection::open_with_flags(path, flags).map_err(open_error)?;
+        let mut inner = Connection::open_with_flags(path, flags).map_err(open_error)?;
         inner.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         // Defensive mode: no writable_schema, no direct shadow table writes.
         inner
@@ -128,10 +145,47 @@ impl Conn {
                 i64::try_from(options.max_page_count).unwrap_or(i64::MAX),
             )
             .map_err(open_error)?;
-        Ok(Conn { inner })
+        // The authorizer is installed once and reads the current policy from
+        // `hooks`, so the policy can change without `&mut` (see `set_policy`).
+        let hooks = Arc::new(Hooks::default());
+        let h = Arc::clone(&hooks);
+        inner
+            .authorizer(Some(move |ctx: rusqlite::hooks::AuthContext<'_>| {
+                let (answer, denial) = decide(lock(&h.policy).as_deref(), &ctx);
+                if let Some(d) = denial {
+                    let mut slot = lock(&h.denial);
+                    // Keep the first denial, but prefer the object a DDL
+                    // statement names over the schema table it writes first.
+                    if slot.as_ref().is_none_or(Denial::is_schema_table) {
+                        *slot = Some(d);
+                    }
+                }
+                answer
+            }))
+            .map_err(open_error)?;
+        Ok(Conn { inner, hooks })
+    }
+
+    /// Replace the authorizer policy; returns the previous one.
+    pub(crate) fn set_policy(
+        &self,
+        policy: Option<Arc<AuthorizerPolicy>>,
+    ) -> Option<Arc<AuthorizerPolicy>> {
+        let policy = policy.filter(|p| !p.is_platform());
+        let old = std::mem::replace(&mut *lock(&self.hooks.policy), policy);
+        // The authorizer runs at prepare time: statements cached under the
+        // old policy must not be reused under the new one.
+        self.inner.flush_prepared_statement_cache();
+        old
+    }
+
+    /// Start a new statement: forget a denial left from an earlier one.
+    pub(crate) fn clear_denial(&self) {
+        lock(&self.hooks.denial).take();
     }
 
     fn prepare(&self, sql: &str) -> Result<CachedStatement<'_>> {
+        self.clear_denial();
         let stmt = self.inner.prepare_cached(sql).map_err(|e| self.error(e))?;
         for i in 1..=stmt.parameter_count() {
             if let Some(name) = stmt.parameter_name(i)
@@ -193,7 +247,16 @@ impl Conn {
 
     /// Map a SQLite error raised on this connection.
     pub(crate) fn error(&self, e: rusqlite::Error) -> DbError {
-        DbError::from(e)
+        match DbError::from(e) {
+            DbError::Auth { .. } => {
+                let d = lock(&self.hooks.denial).take();
+                DbError::Auth {
+                    table: d.as_ref().map(|d| d.table.clone()).unwrap_or_default(),
+                    action: d.map(|d| d.action.to_owned()).unwrap_or_default(),
+                }
+            }
+            other => other,
+        }
     }
 }
 
@@ -217,6 +280,7 @@ pub struct TenantDb {
     readers: Vec<Conn>,
     next_reader: Cell<usize>,
     in_tx: Cell<bool>,
+    policy: Option<Arc<AuthorizerPolicy>>,
 }
 
 impl std::fmt::Debug for TenantDb {
@@ -249,7 +313,49 @@ impl TenantDb {
             readers,
             next_reader: Cell::new(0),
             in_tx: Cell::new(false),
+            policy: None,
         })
+        .and_then(|db| match db.options.module_prefix.clone() {
+            Some(module) => db.with_authorizer(AuthorizerPolicy::module(module)),
+            None => Ok(db),
+        })
+    }
+
+    /// Install `policy` on every connection of this handle: a statement that
+    /// touches anything outside it fails at prepare time with
+    /// `DbError::Auth`. The `renox` policy removes all restrictions.
+    pub fn with_authorizer(mut self, policy: AuthorizerPolicy) -> Result<TenantDb> {
+        policy.validate()?;
+        let policy = Arc::new(policy);
+        for c in self.connections() {
+            c.set_policy(Some(Arc::clone(&policy)));
+        }
+        self.policy = Some(policy);
+        Ok(self)
+    }
+
+    /// The policy installed by `with_authorizer`, if any.
+    pub fn authorizer(&self) -> Option<&AuthorizerPolicy> {
+        self.policy.as_deref()
+    }
+
+    /// Run `f` with `policy` on the writer instead of the handle's policy;
+    /// the handle's policy is back when `f` returns or panics. The readers
+    /// keep the handle's policy. Used by the migration runner (`allow_ddl`).
+    #[allow(dead_code)]
+    pub(crate) fn with_writer_policy<T>(
+        &self,
+        policy: Option<Arc<AuthorizerPolicy>>,
+        f: impl FnOnce() -> T,
+    ) -> T {
+        struct Restore<'a>(&'a Conn, Option<Arc<AuthorizerPolicy>>);
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                self.0.set_policy(self.1.take());
+            }
+        }
+        let _restore = Restore(&self.writer, self.writer.set_policy(policy));
+        f()
     }
 
     pub fn options(&self) -> &DbOptions {
@@ -336,13 +442,15 @@ impl TenantDb {
     }
 
     /// Read a pragma from every connection, writer first. For the platform
-    /// (health checks, tests); `name` must be a plain identifier.
+    /// (health checks, tests); `name` must be a plain identifier. A handle
+    /// with a module authorizer refuses it like any other `PRAGMA`.
     pub fn read_pragma(&self, name: &str) -> Result<Vec<Value>> {
         if name.is_empty() || !name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
             return Err(DbError::Param(format!("invalid pragma name {name:?}")));
         }
         self.connections()
             .map(|c| {
+                c.clear_denial();
                 c.inner
                     .query_row(&format!("pragma {name}"), [], |r| r.get::<_, Value>(0))
                     .map_err(|e| c.error(e))
