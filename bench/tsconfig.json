@@ -4,5 +4,5 @@
     "resolveJsonModule": true
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "spike", "baselines/**/node_modules"]
+  "exclude": ["node_modules", "spike", "baselines"]
 }
