@@ -9,11 +9,20 @@
 // with the worker, so its numbers are a lower bound on what the worker can
 // serve.
 
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const benchDir = join(import.meta.dir, "../..");
+
+// Worker directories (data, artifacts, meters: one record per request, GBs
+// under load) are removed when the scenario process exits, after it has
+// read what it needs. BENCH_KEEP=1 keeps them for inspection.
+const created: string[] = [];
+process.on("exit", () => {
+  if (process.env.BENCH_KEEP === "1") return;
+  for (const d of created) rmSync(d, { recursive: true, force: true });
+});
 const workerSh = join(benchDir, "lib/worker.sh");
 
 export const round = (x: number, digits = 3): number => Math.round(x * 10 ** digits) / 10 ** digits;
@@ -48,6 +57,7 @@ export class Worker {
   /** Build (once), set up, and start a worker serving `tenants`. */
   static async start(tenants: Tenant[], opts: { idleS?: number } = {}): Promise<Worker> {
     const dir = mkdtempSync(join(tmpdir(), "renox-bench-"));
+    created.push(dir);
     const port = freePort();
     const file = join(dir, "tenants.txt");
     writeFileSync(file, tenants.map((t) => `${t.host} ${t.tenant} ${t.app}`).join("\n") + "\n");
