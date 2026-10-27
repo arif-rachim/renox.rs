@@ -31,12 +31,14 @@ use tower::ServiceExt;
 pub mod rate_limit;
 pub mod route_table;
 pub mod static_files;
+pub mod tls;
 
 pub use rate_limit::{RateDecision, RateLimitConfig, RateLimiter};
 pub use route_table::{
     HostError, RouteEntry, RouteStatus, RouteTable, RouteTableError, parse_host,
 };
 pub use static_files::StaticFiles;
+pub use tls::{CertStore, LoadReport, TlsConfig, TlsConnection, TlsError};
 
 /// Request id header set by the gateway on the request to the cell and on
 /// every response (`docs/contracts/ops.md` section 6, `errors.md` section 1).
@@ -235,29 +237,75 @@ impl Gateway {
         listener: TcpListener,
         dispatcher: Arc<D>,
     ) -> std::io::Result<()> {
-        let router = self.router(dispatcher);
-        loop {
-            let (stream, peer) = match listener.accept().await {
-                Ok(conn) => conn,
-                Err(e) if is_transient_accept_error(&e) => {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
-            let router = router.clone();
-            tokio::spawn(async move {
-                let service = hyper::service::service_fn(move |req: Request<_>| {
-                    let mut req = req.map(Body::new);
-                    req.extensions_mut().insert(ConnectInfo(peer));
-                    router.clone().oneshot(req)
-                });
-                let _ = auto::Builder::new(TokioExecutor::new())
-                    .serve_connection(TokioIo::new(stream), service)
-                    .await;
-            });
-        }
+        accept_loop(listener, self.router(dispatcher), None).await
     }
+
+    /// Accepts TLS connections on `listener`, choosing the certificate by
+    /// SNI from `certs` (see [`tls`]). `certs.reload()` takes effect for new
+    /// handshakes without dropping established connections. Responses on
+    /// these connections carry `Strict-Transport-Security`.
+    pub async fn serve_tls<D: CellDispatcher>(
+        &self,
+        listener: TcpListener,
+        certs: Arc<CertStore>,
+        dispatcher: Arc<D>,
+    ) -> std::io::Result<()> {
+        let acceptor = tokio_rustls::TlsAcceptor::from(certs.server_config());
+        accept_loop(listener, self.router(dispatcher), Some(acceptor)).await
+    }
+}
+
+/// Upper bound on a TLS handshake, so a client that opens a socket and
+/// never finishes the handshake does not hold it.
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn accept_loop(
+    listener: TcpListener,
+    router: Router,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+) -> std::io::Result<()> {
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) if is_transient_accept_error(&e) => {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        let router = router.clone();
+        let tls = tls.clone();
+        tokio::spawn(async move {
+            match tls {
+                None => serve_connection(TokioIo::new(stream), peer, router, false).await,
+                Some(acceptor) => {
+                    let Ok(Ok(stream)) =
+                        tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await
+                    else {
+                        return;
+                    };
+                    serve_connection(TokioIo::new(stream), peer, router, true).await
+                }
+            }
+        });
+    }
+}
+
+async fn serve_connection<I>(io: I, peer: SocketAddr, router: Router, tls: bool)
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
+{
+    let service = hyper::service::service_fn(move |req: Request<_>| {
+        let mut req = req.map(Body::new);
+        req.extensions_mut().insert(ConnectInfo(peer));
+        if tls {
+            req.extensions_mut().insert(TlsConnection);
+        }
+        router.clone().oneshot(req)
+    });
+    let _ = auto::Builder::new(TokioExecutor::new())
+        .serve_connection(io, service)
+        .await;
 }
 
 fn is_transient_accept_error(e: &std::io::Error) -> bool {
@@ -279,8 +327,9 @@ async fn handle<D: CellDispatcher>(
     req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
     let request_id = ulid::Ulid::generate().to_string();
+    let tls = req.extensions().get::<TlsConnection>().is_some();
     let mut response = route(&state, req, &request_id).await;
-    finish_response(response.headers_mut(), &request_id);
+    finish_response(response.headers_mut(), &request_id, tls);
     Ok(response)
 }
 
@@ -402,9 +451,19 @@ fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip:
     );
 }
 
-fn finish_response(headers: &mut HeaderMap, request_id: &str) {
+fn finish_response(headers: &mut HeaderMap, request_id: &str, tls: bool) {
     for (name, value) in SECURITY_HEADERS {
         headers.insert(name, HeaderValue::from_static(value));
+    }
+    // HSTS only on TLS responses: on plain HTTP browsers ignore it, and it
+    // must never be sent by a `renox dev` plain-HTTP listener.
+    if tls {
+        headers.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static(tls::HSTS),
+        );
+    } else {
+        headers.remove(header::STRICT_TRANSPORT_SECURITY);
     }
     headers.insert(
         REQUEST_ID_HEADER,

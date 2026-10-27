@@ -62,6 +62,16 @@ Set on every response, overwriting any value from tenant code (configuration mov
 
 CSP and CSRF are F2 (#47).
 
+## TLS
+
+`CertStore::load(&TlsConfig { cert_dir })` reads `cert_dir/<hostname>/fullchain.pem` + `privkey.pem`; a directory `_wildcard.<domain>` serves `*.<domain>` (one label: `x.wild.test`, not `wild.test` or `a.b.wild.test`). `Gateway::serve_tls(listener, certs, dispatcher)` terminates TLS with `rustls` (ring provider): TLS 1.3 preferred, 1.2 minimum, ALPN `h2` then `http/1.1`, handshake timeout 10 s.
+
+- The certificate is chosen by SNI: exact name first, then the wildcard of the parent domain. No SNI, or an SNI with no certificate, fails the handshake; there is no default certificate, so a client never sees another tenant's certificate.
+- `certs.reload()` re-reads the directory and swaps the map (`ArcSwap`): new handshakes see the new set, established connections are untouched. An entry that fails to load is reported in `LoadReport::failed` (directory name and reason, never key material) and the name keeps its previous certificate.
+- Responses on TLS connections get `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Plain-HTTP responses never carry it (the header is removed if tenant code set it).
+
+Certificates are issued and pushed by the control plane from F3 (ACME, #59); keys never enter a tenant cell.
+
 ## Configuration
 
 `GatewayConfig`:
