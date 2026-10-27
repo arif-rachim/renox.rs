@@ -3,10 +3,9 @@
 The data plane's JavaScript runtime (P1): V8 isolates on `deno_runtime`, one isolate per deployment, created from a platform snapshot; artifact loading (`docs/contracts/artifact.md`); request dispatch to the function handlers of the manifest; the `renox` op extension (`docs/contracts/ops.md`).
 
 ```
-R="--manifest-path crates/renox-runtime/Cargo.toml --target-dir target"   # own workspace, see below
-cargo test $R                          # everything, links V8
-cargo test $R --no-default-features    # pure modules only, no V8
-cargo test $R --test dispatch -- --nocapture   # prints creation time and memory
+cargo test -p renox-runtime                          # everything, links V8
+cargo test -p renox-runtime --no-default-features    # pure modules only, no V8
+cargo test -p renox-runtime --test dispatch -- --nocapture   # prints creation time and memory
 ```
 
 Public surface (issue #25):
@@ -26,24 +25,33 @@ iso.terminate();
 | --- | --- | --- |
 | Library API | Built as a server binary; the public entry points start an HTTP server and a main/user worker supervisor, not "create an isolate, dispatch a request" | `MainWorker` with `WorkerOptions` / `WorkerServiceOptions`: extensions, snapshot, `CreateParams` (heap limit), module loader, permissions are all arguments |
 | Our `renox` extension on user workers | Needs a patch (the user-worker extension list is fixed in `base`) | One entry in `WorkerOptions.extensions` |
-| Patches to the V8 / `deno_core` forks | Their workspace `[patch.crates-io]` (Supabase's `deno_core` 0.324 branch and `rusty_v8` fork) does not apply to dependants; we would have to copy it into our root `Cargo.toml` and track it | None: crates.io `deno_core` 0.324 and `v8` 130.0.7 (the versions Supabase's forks are based on) |
+| Patches to the V8 / `deno_core` forks | Their workspace `[patch.crates-io]` (Supabase's `deno_core` and `rusty_v8` forks) does not apply to dependants; we would have to copy it into our root `Cargo.toml` and track it | None: crates.io `deno_core` and `v8` |
 | Build | Also pulls `ai` (onnxruntime, BLAS), S3 FS, their main-worker JS | `deno_runtime` and its extensions only |
 | What we lose | Supabase's supervisor (per-worker CPU/memory accounting, pool policy) | Nothing we use: `ops.md` section 10 already rules out the per-worker cumulative limits; #26 implements per-request limits in Rust |
 
-Versions are pinned to what the F0 spike ran (`bench/edge-runtime/NOTES.md`, Edge Runtime v1.77.8 = Deno 2.1.4): `deno_runtime = 0.191.0`, `deno_core = 0.324.0`, `v8 = 130.0.7`, `eszip = 0.80.0`. The `v8` crate downloads its prebuilt static library; nothing builds V8 from source (`docs/12-developer-experience.md`, rule 1).
+**Versions: the current Deno release, not the spike's.** `deno_runtime = 0.268.0` (released 2026-10-21), `deno_core = 0.413.0`, `v8 = 150.4.0`, `eszip = 0.138`. The `v8` crate downloads its prebuilt static library; nothing builds V8 from source (`docs/12-developer-experience.md`, rule 1).
+
+The first version of this crate pinned the F0 spike's Deno 2.1.4 (`deno_runtime` 0.191, `v8` 130, the versions inside the pinned Edge Runtime v1.77.8). That could not share a lockfile with the rest of the workspace: it pins `hyper-util = 0.1.7` and needs `serde` ≤ 1.0.219, while `renox-gateway` needs `hyper-util` 0.1.21 and `serde` 1.0.229. Moving to the current release fixed that and replaced a V8 that was nearly two years old. What the move required outside this crate (PR #138, "Differences"):
+
+- **`renox-gateway`**: `rustls` minimum lowered from 0.23.46 to 0.23.40, the version `deno_tls` pins exactly.
+- **`renox-data`**: `rusqlite` 0.41 → 0.40, because five Deno extensions (`deno_cache`, `deno_kv`, `deno_webstorage`, `deno_node_sqlite`, `denokv_sqlite`) use `rusqlite` 0.40 and only one `libsqlite3-sys` (`links = "sqlite3"`) may be in a workspace. 0.40's WAL hook is a plain `fn`, so the WAL accounting reaches its connection through a thread-local set around every writer call that can commit, and explicit checkpoints use `PRAGMA wal_checkpoint`. Behaviour and tests unchanged.
+- The bench spikes keep their `v8` 130 (`v8` has no `links` key, so two versions coexist in one lockfile).
 
 Consequences recorded for the risk register (`docs/16-risks.md`, "Dependence on Supabase Edge Runtime"):
 
-- **V8 130 is old** (Deno 2.1.4, December 2024). Supabase still ships it with their own patches; we use the crates.io build without those patches. Moving to a current `deno_runtime` is an upgrade of this crate only (the ops, the loader, and the bootstrap are ours) and is the first follow-up once F1 passes its gate.
-- **Own workspace and lockfile.** `deno_runtime` pins exact versions of crates the rest of the workspace also uses (`hyper-util = 0.1.7`, and in its newest release still `rustls = 0.23.40`), and current crates.io releases of some transitive dependencies no longer build against 0.191 (`serde` ≥ 1.0.220 removed `serde::__private`, which `swc_common` 0.37 uses). One lockfile cannot hold both this crate and the other crates (`renox-gateway` needs `hyper-util` 0.1.21, `rustls` 0.23.46, `serde` 1.0.229). So `crates/renox-runtime` is **excluded from the root workspace** and is a workspace of its own with its own `Cargo.lock`, seeded from the lockfile `deno_runtime` 0.191.0 ships, with `deno_media_type = 0.2.3`, `deno_graph = 0.86.3`, `pem = 3.0.4` pinned. Do not run a bare `cargo update` on it. Commands take `--manifest-path crates/renox-runtime/Cargo.toml --target-dir target` (the Makefile's `rust-check`, `rust-test`, `fmt` do this; the shared target dir keeps the CI cache). **Consequence for `renox-cell` (#28):** a crate that links both this runtime and the other crates hits the same conflict; it is resolved either by relaxing the other crates' minimum versions to what `deno_runtime` pins, or by upgrading this crate to a current `deno_runtime` together with those pins. That is a decision for batch H.
-- **`v8` 130 and current rustc.** `v8` 130.0.7 builds a `&*ptr::null()` for an absent accessor setter; the debug-mode UB checks of rustc 1.99 abort on it during snapshot creation. This crate's `Cargo.toml` turns debug assertions off for the `v8` package only (`[profile.dev.package.v8]`). Release builds are unaffected.
+- **We run a newer Deno than the Edge Runtime spike measured.** F0's numbers (B1, B4, B17) were taken on Deno 2.1.4; the measurements below are on this version, and #34/#35 re-measure the gate numbers on it.
+- **Deno pins exact versions** of shared crates (`rustls`, `rusqlite` through its extensions). Every future Deno upgrade, or any crate in the workspace that wants a newer `rustls` or `rusqlite`, must move together. Keep the minimum versions in the other crates' `Cargo.toml` at or below Deno's pins.
 - **Patches:** none.
 
 ## Platform snapshot
 
 `Runtime::new` builds the V8 startup snapshot **once per process**: every `deno_runtime` extension plus the `renox` extension's ESM (`src/js/bootstrap.js`) are evaluated into it with `deno_runtime::snapshot::create_runtime_snapshot`, and every isolate starts from that blob, so isolate creation never re-evaluates the bootstrap JavaScript.
 
-It is built at process start rather than in `build.rs` because a build-time snapshot needs `deno_runtime` as a build dependency as well, which compiles the whole Deno tree a second time for the host and roughly doubles a cold build (B20). The cost moves to process start (measured below, under one second) and is paid once per worker process, not per isolate. V8 is initialised in non-snapshotting mode before the snapshot is built, so the process does not run with `--predictable`.
+It is built at process start rather than in `build.rs` because a build-time snapshot needs `deno_runtime` as a build dependency as well, which compiles the whole Deno tree a second time for the host and roughly doubles a cold build (B20). The cost moves to process start (measured below) and is paid once per worker process, not per isolate. Snapshot creation runs on its own thread (it drives its own Tokio runtime), and V8 is initialised in non-snapshotting mode first, so the process does not run with `--predictable`.
+
+Deno 0.268 keeps many extension scripts out of the snapshot and loads them on first use (`core.loadExtScript`). The snapshot builder reports which ones it did not consume; `Runtime::new` reads them once, transpiles the TypeScript ones (Node polyfills, timers), and hands the same `'static` sources to every worker (`WorkerOptions::residual_lazy_*_sources`). The bootstrap takes `Request`, `Response`, `ReadableStream`, and `URL` the same lazy way.
+
+**Packaging follow-up:** both the snapshot and the lazy sources are read from the Deno crates' source files at process start, so `renox-worker` must run where the cargo registry sources exist (true for `renox dev`, tests, and CI). A deployable worker binary needs them embedded: a `build.rs` snapshot plus `include_str!` of the residual sources, which is what Deno's own build does. That belongs to the worker binary (#28/#34), where the doubled build cost is paid once in the release pipeline.
 
 ## Module loader
 
@@ -105,8 +113,8 @@ Applied by the bootstrap's `harden()` after `deno_runtime` has bootstrapped the 
 | `Deno` (and with it `Deno.core`, the op table, `Deno.exit`, file, net, env, subprocess APIs) | Deleted | Platform internals; permissions deny the I/O anyway |
 | `__bootstrap`, `bootstrap` | Deleted by `deno_runtime`; `__renoxInternal` deleted by us before tenant code runs | Hold the platform's functions |
 | `SharedArrayBuffer` | Absent: V8 flag `--enable-sharedarraybuffer-per-context`, never enabled, and the global deleted | Spectre-class timers |
-| `new WebAssembly.Memory({ shared: true })` | Throws `TypeError` | Would return a `SharedArrayBuffer`. **Gap:** a wasm module that declares its own shared memory can still produce one; with no `Worker` there is no second thread to build a timer from it. V8 130 has no embedder hook for this; revisit with the V8 upgrade |
-| `performance.now()`, `performance.timeOrigin` | Whole milliseconds: `op_now` and `op_time_origin` are replaced by op middleware | `deno_web` keeps full resolution (`allow_hrtime` is always true in Deno 2.1) |
+| `new WebAssembly.Memory({ shared: true })` | Throws `TypeError` | Would return a `SharedArrayBuffer`. **Gap:** a wasm module that declares its own shared memory can still produce one; with no `Worker` there is no second thread to build a timer from it. `v8` 150 still has no Rust binding for the embedder hook; revisit when it does |
+| `performance.now()`, `performance.timeOrigin` | Whole milliseconds: `op_now` and `op_time_origin` are replaced by op middleware | `deno_web` keeps full resolution |
 | `Worker`, `BroadcastChannel` | Deleted | `deno_runtime` panics when a web worker is created without a factory; one isolate per deployment |
 | `close`, `closed`, `alert`, `confirm`, `prompt` | Deleted | `close()` ends the whole process; the others read stdin |
 | `op_exit` | Replaced by a no-op through op middleware | Any path to it (`process.exit`, `Deno.exit`) would end the worker process with every tenant on it |
@@ -114,6 +122,7 @@ Applied by the bootstrap's `harden()` after `deno_runtime` has bootstrapped the 
 | `WebSocket`, `WebSocketStream`, `EventSource` | Deleted | Outbound connections that bypass `op_fetch` |
 | `caches`, `localStorage`, `sessionStorage`, `indexedDB`, `Cache`, `CacheStorage`, `Storage` | Deleted | No persistence except `ctx.db` |
 | `GPU*`, `navigator.gpu` | Deleted | Native GPU code paths |
+| `navigator.platform`, `navigator.userAgentData` | Deleted | Host OS and architecture details |
 | `navigator.hardwareConcurrency` | Always 1 | Do not reveal the host's CPU count |
 | `Temporal`, `onload`, `onunload`, `onbeforeunload` | Deleted | Unstable or meaningless here |
 | `node:` modules | Only `loader::NODE_ALLOWED` (compute-only) can be imported; `node:fs`, `net`, `http`, `https`, `dns`, `child_process`, `worker_threads`, `process`, `os`, `vm`, `v8`, `perf_hooks`, `inspector`, `tls`, `dgram`, `cluster`, `module`, ... are refused at resolution | Stricter than `ops.md` section 11 ("importable, every I/O call fails"): refusing at import fails closed even where a polyfill has an ungated op, and keeps `vm` (new contexts) and `perf_hooks` (timers) out |

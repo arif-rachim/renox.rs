@@ -94,6 +94,7 @@ impl RuntimeMetrics {
 
 pub(crate) struct RuntimeInner {
     pub snapshot: &'static [u8],
+    pub lazy: &'static LazySources,
     pub config: RuntimeConfig,
     pub metrics: RuntimeMetrics,
 }
@@ -105,7 +106,15 @@ pub struct Runtime {
 }
 
 /// How long building the platform snapshot took (once per process).
-static SNAPSHOT: OnceLock<(&'static [u8], Duration)> = OnceLock::new();
+static SNAPSHOT: OnceLock<(&'static [u8], &'static LazySources, Duration)> = OnceLock::new();
+
+/// Extension scripts `deno_runtime` loads lazily (`core.loadExtScript`) that
+/// are not compiled into the snapshot: `(specifier, source)` pairs handed to
+/// every worker (`WorkerOptions::residual_lazy_*_sources`).
+pub(crate) struct LazySources {
+    pub js: &'static [(&'static str, &'static str)],
+    pub esm: &'static [(&'static str, &'static str)],
+}
 
 /// V8 flags set once, before the platform is initialised.
 ///
@@ -128,27 +137,63 @@ fn init_platform_once() {
         // Initialise V8 in non-snapshotting mode first, so the snapshot
         // built below does not switch the whole process into
         // `--predictable` (README, "Platform snapshot").
-        deno_core::JsRuntime::init_platform(None, false);
+        deno_core::JsRuntime::init_platform(None);
     });
 }
 
 /// Build the platform snapshot: every `deno_runtime` extension plus the
 /// `renox` extension's ESM bootstrap, evaluated once.
-fn build_snapshot() -> (&'static [u8], Duration) {
+fn build_snapshot() -> (&'static [u8], &'static LazySources, Duration) {
     let start = Instant::now();
     let path = std::env::temp_dir().join(format!(
         "renox-snapshot-{}-{}.bin",
         std::process::id(),
         start.elapsed().as_nanos()
     ));
-    deno_runtime::snapshot::create_runtime_snapshot(
-        path.clone(),
-        deno_runtime::ops::bootstrap::SnapshotOptions::default(),
-        vec![crate::globals::for_snapshot()],
-    );
+    // Snapshot creation drives its own Tokio runtime, so it runs on a thread
+    // of its own (Runtime::new may be called from async code).
+    let target = path.clone();
+    let output = std::thread::Builder::new()
+        .name("renox-snapshot".into())
+        .spawn(move || {
+            deno_runtime::snapshot::create_runtime_snapshot(
+                target,
+                deno_runtime::ops::bootstrap::SnapshotOptions::default(),
+                vec![crate::globals::for_snapshot()],
+            )
+        })
+        .expect("spawn the snapshot thread")
+        .join()
+        .expect("build the platform snapshot");
+    // Lazy files not consumed by the snapshot are read now, once, from the
+    // Deno crates' sources (README, "Platform snapshot").
+    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+    let (mut js, mut esm) = (Vec::new(), Vec::new());
+    for f in &output.lazy_extension_files {
+        if output.consumed_lazy_specifiers.contains(&f.specifier) {
+            continue;
+        }
+        let source = std::fs::read_to_string(&f.path).expect("read a lazy extension source");
+        // TypeScript sources (Node polyfills, timers) are transpiled here,
+        // as Deno's own build script does before embedding them.
+        let (code, _) = deno_runtime::transpile::maybe_transpile_source(
+            deno_core::ModuleName::from(f.specifier.clone()),
+            deno_core::ModuleCodeString::from(source),
+        )
+        .expect("transpile a lazy extension source");
+        let pair = (leak(f.specifier.clone()), leak(code.as_str().to_string()));
+        match f.kind {
+            deno_runtime::snapshot::LazyExtensionFileKind::Js => js.push(pair),
+            deno_runtime::snapshot::LazyExtensionFileKind::Esm => esm.push(pair),
+        }
+    }
+    let lazy: &'static LazySources = Box::leak(Box::new(LazySources {
+        js: Box::leak(js.into_boxed_slice()),
+        esm: Box::leak(esm.into_boxed_slice()),
+    }));
     let bytes = std::fs::read(&path).expect("read the platform snapshot just written");
     let _ = std::fs::remove_file(&path);
-    (Box::leak(bytes.into_boxed_slice()), start.elapsed())
+    (Box::leak(bytes.into_boxed_slice()), lazy, start.elapsed())
 }
 
 impl Runtime {
@@ -156,10 +201,11 @@ impl Runtime {
     /// per process), and return a runtime handle.
     pub fn new(config: RuntimeConfig) -> Runtime {
         init_platform_once();
-        let (snapshot, _) = *SNAPSHOT.get_or_init(build_snapshot);
+        let (snapshot, lazy, _) = *SNAPSHOT.get_or_init(build_snapshot);
         Runtime {
             inner: Arc::new(RuntimeInner {
                 snapshot,
+                lazy,
                 config,
                 metrics: RuntimeMetrics::default(),
             }),
@@ -168,7 +214,7 @@ impl Runtime {
 
     /// Time spent building the platform snapshot in this process.
     pub fn snapshot_build_time() -> Option<Duration> {
-        SNAPSHOT.get().map(|s| s.1)
+        SNAPSHOT.get().map(|s| s.2)
     }
 
     pub fn snapshot_bytes(&self) -> usize {

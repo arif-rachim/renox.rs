@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use deno_core::{JsRuntime, v8};
+use deno_core::JsRuntime;
 
 /// Set when the isolate reached its heap limit.
 #[derive(Default)]
@@ -33,7 +33,5 @@ pub fn install(js: &mut JsRuntime, flag: Arc<HeapFlag>) {
 
 /// `used_heap_size` of the isolate now.
 pub fn used_heap_bytes(js: &mut JsRuntime) -> u64 {
-    let mut s = v8::HeapStatistics::default();
-    js.v8_isolate().get_heap_statistics(&mut s);
-    s.used_heap_size() as u64
+    js.v8_isolate().get_heap_statistics().used_heap_size() as u64
 }

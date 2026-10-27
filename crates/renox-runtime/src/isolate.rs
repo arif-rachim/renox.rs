@@ -21,18 +21,19 @@ use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use deno_core::error::AnyError;
 use deno_core::serde_v8;
 use deno_core::v8;
 use deno_core::{
     ByteString, JsBuffer, JsRuntime, ModuleSpecifier, PollEventLoopOptions, ToJsBuffer,
 };
+use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::BootstrapOptions;
 use deno_runtime::deno_permissions::{Permissions, PermissionsContainer};
 use deno_runtime::permissions::RuntimePermissionDescriptorParser;
 use deno_runtime::worker::{MainWorker, WorkerOptions, WorkerServiceOptions};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::Deserialize;
+use sys_traits::impls::RealSys;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::{ErrorCode, PlatformResponse};
@@ -700,8 +701,7 @@ fn isolate_thread_main(
 }
 
 fn heap_stats(js: &mut JsRuntime) -> (u64, u64) {
-    let mut s = v8::HeapStatistics::default();
-    js.v8_isolate().get_heap_statistics(&mut s);
+    let s = js.v8_isolate().get_heap_statistics();
     (s.used_heap_size() as u64, s.total_heap_size() as u64)
 }
 
@@ -718,6 +718,8 @@ fn worker_options(ctx: &ThreadContext) -> WorkerOptions {
         },
         extensions: vec![crate::globals::for_isolate()],
         startup_snapshot: Some(ctx.runtime.inner.snapshot),
+        residual_lazy_js_sources: ctx.runtime.inner.lazy.js,
+        residual_lazy_esm_sources: ctx.runtime.inner.lazy.esm,
         create_params: Some(create_params),
         ..Default::default()
     }
@@ -738,10 +740,10 @@ async fn create_worker(
                 .map_err(|e| CreateError::ModuleLoad(e.to_string()))?,
         ),
     });
-    let fs = Arc::new(deno_fs::RealFs);
+    let fs: Arc<dyn deno_fs::FileSystem> = Arc::new(deno_fs::RealFs);
     // Step 1: every Deno permission denied, without prompting.
     let permissions = PermissionsContainer::new(
-        Arc::new(RuntimePermissionDescriptorParser::new(fs.clone())),
+        Arc::new(RuntimePermissionDescriptorParser::new(RealSys)),
         Permissions::none_without_prompt(),
     );
     let entries: Vec<(String, ModuleSpecifier)> = manifest
@@ -758,7 +760,7 @@ async fn create_worker(
     let services = WorkerServiceOptions {
         module_loader: loader,
         permissions,
-        blob_store: Default::default(),
+        blob_store: deno_runtime::deno_web::BlobStore::default_arc(),
         broadcast_channel: Default::default(),
         feature_checker: Default::default(),
         node_services: Default::default(),
@@ -768,9 +770,17 @@ async fn create_worker(
         shared_array_buffer_store: Default::default(),
         compiled_wasm_module_store: Default::default(),
         v8_code_cache: Default::default(),
+        bundle_provider: None,
+        deno_rt_native_addon_loader: None,
         fs,
     };
-    let mut worker = MainWorker::bootstrap_from_options(main_module, services, worker_options(ctx));
+    // No Node services: npm resolution never happens at runtime (README,
+    // "Module loader"); the type parameters are the ones Deno itself uses.
+    let mut worker = MainWorker::bootstrap_from_options::<
+        DenoInNpmPackageChecker,
+        NpmResolver<RealSys>,
+        RealSys,
+    >(&main_module, services, worker_options(ctx));
 
     // Limits: heap callback and CPU watchdog for this isolate's thread.
     let heap_flag = Arc::new(HeapFlag::default());
@@ -806,11 +816,11 @@ async fn create_worker(
                 "const i = globalThis.__renoxInternal; delete globalThis.__renoxInternal; i",
             )
             .map_err(|e| CreateError::Internal(format!("bootstrap capture: {e}")))?;
-        let scope = &mut worker.js_runtime.handle_scope();
+        deno_core::scope!(scope, &mut worker.js_runtime);
         let obj = v8::Local::new(scope, internal)
             .to_object(scope)
             .ok_or_else(|| CreateError::Internal("bootstrap object missing".into()))?;
-        let get = |scope: &mut v8::HandleScope,
+        let get = |scope: &mut v8::PinScope,
                    name: &str|
          -> Result<v8::Global<v8::Function>, CreateError> {
             let key = v8::String::new(scope, name).expect("short ASCII string");
@@ -858,7 +868,7 @@ async fn create_worker(
 
     // Step 5: every route's export must be a function (fail closed).
     let handlers = {
-        let scope = &mut worker.js_runtime.handle_scope();
+        deno_core::scope!(scope, &mut worker.js_runtime);
         let mut handlers = Vec::with_capacity(manifest.routes.len());
         for r in &manifest.routes {
             let ns = namespaces.get(&r.module).ok_or_else(|| {
@@ -916,7 +926,7 @@ async fn load_modules(
 
 /// A JS error rendered for the tenant log: `deno_core` errors carry the
 /// virtual `file:///` specifiers only, never a path of the machine.
-fn tenant_safe(e: &AnyError) -> String {
+fn tenant_safe(e: &dyn std::fmt::Display) -> String {
     e.to_string()
 }
 
@@ -936,9 +946,10 @@ struct JsOutcome {
 const KIND_OK: u8 = 0;
 const KIND_THROW: u8 = 1;
 
-type CallFuture = Pin<Box<dyn Future<Output = Result<v8::Global<v8::Value>, AnyError>>>>;
+type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
+type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
 /// A dispatch call tagged with its dispatch sequence number.
-type SeqCall = Pin<Box<dyn Future<Output = (u64, Result<v8::Global<v8::Value>, AnyError>)>>>;
+type SeqCall = Pin<Box<dyn Future<Output = (u64, JsResult<v8::Global<v8::Value>>)>>>;
 
 /// A request the isolate is working on.
 struct InFlight {
@@ -1230,7 +1241,7 @@ fn start_dispatch(
         ))
     };
     let args = {
-        let scope = &mut worker.js_runtime.handle_scope();
+        deno_core::scope!(scope, &mut worker.js_runtime);
         build_args(scope, platform, token, &job)
     };
     let args = match args {
@@ -1257,11 +1268,11 @@ fn start_dispatch(
 }
 
 fn build_args(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     platform: &Platform,
     token: u32,
     job: &DispatchJob,
-) -> Result<Vec<v8::Global<v8::Value>>, AnyError> {
+) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
     let handler: v8::Local<v8::Value> = v8::Local::new(scope, &platform.handlers[job.route]).into();
     let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
     let method: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.method)?;
@@ -1300,13 +1311,13 @@ fn finish_dispatch(
     ctx: &ThreadContext,
     worker: &mut MainWorker,
     flight: &InFlight,
-    result: Result<v8::Global<v8::Value>, AnyError>,
+    result: JsResult<v8::Global<v8::Value>>,
 ) -> ThreadReply {
     let route = &ctx.artifact.manifest.routes[flight.route];
     let route_name = format!("{} {}", route.method.as_str(), route.path);
     let outcome: Result<JsOutcome, String> = match result {
         Ok(v) => {
-            let scope = &mut worker.js_runtime.handle_scope();
+            deno_core::scope!(scope, &mut worker.js_runtime);
             let local = v8::Local::new(scope, v);
             serde_v8::from_v8(scope, local).map_err(|e| e.to_string())
         }

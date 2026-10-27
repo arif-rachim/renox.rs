@@ -17,11 +17,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use bytes::Bytes;
-use deno_core::error::AnyError;
 use deno_core::{
     ByteString, CancelFuture, CancelHandle, JsBuffer, OpState, Resource, ResourceId, ToJsBuffer,
     op2,
 };
+use deno_error::JsErrorBox;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper_util::rt::TokioIo;
@@ -88,7 +88,7 @@ impl FetchEnv {
 
 /// The op error for a failure: the contract's code, `details`, and a fixed
 /// message (no address, no internal detail).
-fn failure_error(f: FetchFailure) -> AnyError {
+fn failure_error(f: FetchFailure) -> JsErrorBox {
     match f {
         FetchFailure::Blocked { host, reason, hop } => op_error(
             "RENOX_FETCH_BLOCKED",
@@ -421,13 +421,13 @@ fn close_rid(state: &mut OpState, rid: ResourceId) {
     }
 }
 
-#[op2(async)]
+#[op2]
 #[serde]
 pub(crate) async fn op_renox_fetch(
     state: Rc<RefCell<OpState>>,
     token: u32,
     #[serde] req: FetchRequest,
-) -> Result<FetchResponseHead, AnyError> {
+) -> Result<FetchResponseHead, JsErrorBox> {
     let head_request = req.method.eq_ignore_ascii_case("HEAD");
     let (request, env) = {
         let s = state.borrow();
@@ -516,17 +516,20 @@ pub(crate) async fn op_renox_fetch(
 }
 
 /// Next chunk of a response body; `null` at the end.
-#[op2(async)]
+#[op2]
 #[serde]
 pub(crate) async fn op_fetch_body_read(
     state: Rc<RefCell<OpState>>,
     token: u32,
     #[smi] rid: ResourceId,
-) -> Result<Option<ToJsBuffer>, AnyError> {
+) -> Result<Option<ToJsBuffer>, JsErrorBox> {
     let (request, resource) = {
         let s = state.borrow();
         let request = live_request(&s, token)?;
-        let resource = s.resource_table.get::<FetchBody>(rid)?;
+        let resource = s
+            .resource_table
+            .get::<FetchBody>(rid)
+            .map_err(JsErrorBox::from_err)?;
         (request, resource)
     };
     if resource.token != token {

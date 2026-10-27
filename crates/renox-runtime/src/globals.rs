@@ -82,10 +82,10 @@ deno_core::extension!(
 
 /// The extension for the snapshot (ops and ESM).
 pub(crate) fn for_snapshot() -> deno_core::Extension {
-    renox::init_ops_and_esm()
+    renox::init()
 }
 
 /// The extension for an isolate created from the snapshot (ops and state only).
 pub(crate) fn for_isolate() -> deno_core::Extension {
-    renox::init_ops()
+    renox::init()
 }

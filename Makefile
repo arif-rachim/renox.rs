@@ -3,9 +3,6 @@
 # skipped until the first crate exists under bench/spike/ (or crates/ later).
 
 RUST_MEMBERS := $(wildcard bench/spike/*/Cargo.toml crates/*/Cargo.toml)
-# crates/renox-runtime is a separate workspace (own Cargo.lock; deno_runtime
-# pins exact versions of shared crates). Same target dir, so CI caches it.
-RUNTIME := --manifest-path crates/renox-runtime/Cargo.toml --target-dir target
 TS_PACKAGES := $(wildcard sdk/package.json cli/package.json control/*/package.json modules/*/package.json examples/*/package.json bench/package.json)
 
 .PHONY: check test fmt bench rust-check rust-test ts-check ts-test docs-check
@@ -17,7 +14,6 @@ test: rust-test ts-test
 fmt:
 ifneq ($(RUST_MEMBERS),)
 	cargo fmt --all
-	cargo fmt --manifest-path crates/renox-runtime/Cargo.toml
 else
 	@echo "rust: no workspace members yet, nothing to format"
 endif
@@ -26,9 +22,6 @@ rust-check:
 ifneq ($(RUST_MEMBERS),)
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
-	cargo fmt --manifest-path crates/renox-runtime/Cargo.toml --check
-	cargo clippy $(RUNTIME) --all-targets -- -D warnings
-	cargo clippy $(RUNTIME) --no-default-features --all-targets -- -D warnings
 else
 	@echo "rust: no workspace members yet, skipping fmt/clippy"
 endif
@@ -36,8 +29,6 @@ endif
 rust-test:
 ifneq ($(RUST_MEMBERS),)
 	cargo test --workspace
-	cargo test $(RUNTIME)
-	cargo test $(RUNTIME) --no-default-features
 else
 	@echo "rust: no workspace members yet, skipping tests"
 endif

@@ -1,11 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["bench/spike/*", "crates/*"]
-# renox-runtime is its own workspace with its own Cargo.lock: deno_runtime
-# pins exact versions of shared crates (hyper-util, rustls, serde via swc)
-# that cannot share one lockfile with the other crates. See
-# crates/renox-runtime/README.md, "Upstream consumption mode".
-exclude = ["crates/renox-runtime"]
 
 [workspace.package]
 edition = "2024"

@@ -197,6 +197,9 @@ async fn hidden_globals_are_not_reachable() {
                 cpus: navigator.hardwareConcurrency,
                 process: typeof process,
                 gpu: typeof GPU,
+                navGpu: typeof navigator.gpu,
+                navPlatform: typeof navigator.platform,
+                navUaData: typeof navigator.userAgentData,
                 node,
             });
         }
@@ -229,6 +232,9 @@ async fn hidden_globals_are_not_reachable() {
     assert_eq!(v["cpus"], 1);
     assert_eq!(v["process"], "undefined");
     assert_eq!(v["gpu"], "undefined");
+    for k in ["navGpu", "navPlatform", "navUaData"] {
+        assert_eq!(v[k], "undefined", "{k}");
+    }
     assert_eq!(
         v["node"],
         serde_json::json!({ "node:path": "ok", "node:buffer": "ok", "node:fs": "refused", "node:process": "refused", "node:child_process": "refused", "node:net": "refused", "node:vm": "refused" })

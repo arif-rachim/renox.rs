@@ -14,19 +14,18 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use deno_core::anyhow::anyhow;
-use deno_core::error::AnyError;
 use deno_core::{CancelHandle, OpState, ResourceId, op2};
+use deno_error::JsErrorBox;
 
 use crate::ops::fetch_connector::EgressCounter;
 
 /// Build an op error the bootstrap turns into a `RenoxError`
 /// (`js/bootstrap.js`, `toRenoxError`): `CODE|details-json|message`.
-pub(crate) fn op_error(code: &str, details: serde_json::Value, message: &str) -> AnyError {
-    anyhow!("{code}|{details}|{message}")
+pub(crate) fn op_error(code: &str, details: serde_json::Value, message: &str) -> JsErrorBox {
+    JsErrorBox::generic(format!("{code}|{details}|{message}"))
 }
 
-pub(crate) fn no_request() -> AnyError {
+pub(crate) fn no_request() -> JsErrorBox {
     op_error(
         "RENOX_NO_REQUEST",
         serde_json::Value::Null,
@@ -104,7 +103,7 @@ impl RequestTable {
 pub(crate) fn live_request(
     state: &OpState,
     token: u32,
-) -> Result<Rc<RefCell<RequestState>>, AnyError> {
+) -> Result<Rc<RefCell<RequestState>>, JsErrorBox> {
     state
         .borrow::<RequestTable>()
         .get(token)
@@ -114,7 +113,7 @@ pub(crate) fn live_request(
 /// `op_deadline_remaining_ms` (ops.md section 5): whole milliseconds left
 /// before the request's wall-clock deadline, >= 0.
 #[op2(fast)]
-pub(crate) fn op_deadline_remaining_ms(state: &mut OpState, token: u32) -> Result<f64, AnyError> {
+pub(crate) fn op_deadline_remaining_ms(state: &mut OpState, token: u32) -> Result<f64, JsErrorBox> {
     let req = live_request(state, token)?;
     let left = req
         .borrow()

@@ -62,7 +62,14 @@ impl HickoryResolver {
         // Each hop resolves exactly once and connects to what it checked; a
         // cache would only add a second source of truth.
         opts.cache_size = 0;
-        HickoryResolver(hickory_resolver::TokioResolver::tokio(config, opts))
+        HickoryResolver(
+            hickory_resolver::TokioResolver::builder_with_config(
+                config,
+                hickory_resolver::name_server::TokioConnectionProvider::default(),
+            )
+            .with_options(opts)
+            .build(),
+        )
     }
 }
 

@@ -32,12 +32,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use deno_core::anyhow::{anyhow, bail};
-use deno_core::error::AnyError;
 use deno_core::{
-    ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-    RequestedModuleType, ResolutionKind,
+    ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+    ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
 };
+use deno_error::JsErrorBox;
 
 use crate::manifest::check_relative_path;
 
@@ -45,23 +44,26 @@ use crate::manifest::check_relative_path;
 pub const VIRTUAL_ROOT: &str = "file:///";
 
 /// Turn an artifact-relative module path into its specifier.
-pub fn specifier_for(path: &str) -> Result<ModuleSpecifier, AnyError> {
-    check_relative_path(path).map_err(|r| anyhow!("invalid module path: {r}"))?;
-    Ok(ModuleSpecifier::parse(&format!("{VIRTUAL_ROOT}{path}"))?)
+pub fn specifier_for(path: &str) -> Result<ModuleSpecifier, JsErrorBox> {
+    check_relative_path(path)
+        .map_err(|r| JsErrorBox::generic(format!("invalid module path: {r}")))?;
+    ModuleSpecifier::parse(&format!("{VIRTUAL_ROOT}{path}")).map_err(JsErrorBox::from_err)
 }
 
 /// The artifact-relative path of a tenant specifier, after the path rules.
-fn relative_path(specifier: &ModuleSpecifier) -> Result<String, AnyError> {
+fn relative_path(specifier: &ModuleSpecifier) -> Result<String, JsErrorBox> {
     if specifier.scheme() != "file"
         || specifier.host().is_some()
         || specifier.query().is_some()
         || specifier.fragment().is_some()
     {
-        bail!("module specifier not allowed");
+        return Err(JsErrorBox::generic("module specifier not allowed"));
     }
     let path = specifier.path().strip_prefix('/').unwrap_or("");
-    let decoded = percent_decode(path).ok_or_else(|| anyhow!("module specifier not allowed"))?;
-    check_relative_path(&decoded).map_err(|_| anyhow!("module specifier not allowed"))?;
+    let decoded =
+        percent_decode(path).ok_or_else(|| JsErrorBox::generic("module specifier not allowed"))?;
+    check_relative_path(&decoded)
+        .map_err(|_| JsErrorBox::generic("module specifier not allowed"))?;
     Ok(decoded)
 }
 
@@ -82,13 +84,13 @@ fn percent_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-fn module_type_for(path: &str) -> Result<ModuleType, AnyError> {
+fn module_type_for(path: &str) -> Result<ModuleType, JsErrorBox> {
     if path.ends_with(".js") || path.ends_with(".mjs") {
         Ok(ModuleType::JavaScript)
     } else if path.ends_with(".json") {
         Ok(ModuleType::Json)
     } else {
-        bail!("module type not allowed")
+        Err(JsErrorBox::generic("module type not allowed"))
     }
 }
 
@@ -118,7 +120,7 @@ pub const NODE_ALLOWED: &[&str] = &[
     "zlib",
 ];
 
-fn resolve_common(specifier: &str, referrer: &str) -> Result<ModuleSpecifier, AnyError> {
+fn resolve_common(specifier: &str, referrer: &str) -> Result<ModuleSpecifier, JsErrorBox> {
     let bare_node = NODE_ALLOWED.contains(&specifier)
         && !referrer.starts_with("node:")
         && !referrer.starts_with("ext:");
@@ -129,12 +131,12 @@ fn resolve_common(specifier: &str, referrer: &str) -> Result<ModuleSpecifier, An
     if let Some(name) = node_name {
         if referrer.starts_with("node:") || referrer.starts_with("ext:") {
             // Deno's own polyfills importing each other.
-            return Ok(ModuleSpecifier::parse(&format!("node:{name}"))?);
+            return ModuleSpecifier::parse(&format!("node:{name}")).map_err(JsErrorBox::from_err);
         }
         if !NODE_ALLOWED.contains(&name) {
-            bail!("node:{name} is not available on Renox");
+            return Err(JsErrorBox::generic("node:{name} is not available on Renox"));
         }
-        return Ok(ModuleSpecifier::parse(&format!("node:{name}"))?);
+        return ModuleSpecifier::parse(&format!("node:{name}")).map_err(JsErrorBox::from_err);
     }
     let base = if referrer.starts_with(VIRTUAL_ROOT) {
         referrer
@@ -142,7 +144,7 @@ fn resolve_common(specifier: &str, referrer: &str) -> Result<ModuleSpecifier, An
         VIRTUAL_ROOT
     };
     let resolved = deno_core::resolve_import(specifier, base)
-        .map_err(|_| anyhow!("module specifier not allowed: {specifier}"))?;
+        .map_err(|_| JsErrorBox::generic(format!("module specifier not allowed: {specifier}")))?;
     relative_path(&resolved)?;
     Ok(resolved)
 }
@@ -162,10 +164,10 @@ pub struct ArtifactLoader {
 }
 
 impl ArtifactLoader {
-    pub fn esm_dir(code_dir: &Path) -> Result<ArtifactLoader, AnyError> {
+    pub fn esm_dir(code_dir: &Path) -> Result<ArtifactLoader, JsErrorBox> {
         let canonical = code_dir
             .canonicalize()
-            .map_err(|_| anyhow!("artifact code directory missing"))?;
+            .map_err(|_| JsErrorBox::generic("artifact code directory missing"))?;
         Ok(ArtifactLoader {
             source: Source::Dir(canonical),
         })
@@ -177,9 +179,9 @@ impl ArtifactLoader {
         }
     }
 
-    fn read(&self, specifier: &ModuleSpecifier) -> Result<ModuleSource, AnyError> {
+    fn read(&self, specifier: &ModuleSpecifier) -> Result<ModuleSource, JsErrorBox> {
         if specifier.scheme() == "node" {
-            bail!("unknown node: built-in");
+            return Err(JsErrorBox::generic("unknown node: built-in"));
         }
         let rel = relative_path(specifier)?;
         let module_type = module_type_for(&rel)?;
@@ -188,19 +190,20 @@ impl ArtifactLoader {
                 let path = root.join(&rel);
                 let canonical = path
                     .canonicalize()
-                    .map_err(|_| anyhow!("module not found: {specifier}"))?;
+                    .map_err(|_| JsErrorBox::generic(format!("module not found: {specifier}")))?;
                 if !canonical.starts_with(root) || !canonical.is_file() {
-                    bail!("module not found: {specifier}");
+                    return Err(JsErrorBox::generic("module not found: {specifier}"));
                 }
-                std::fs::read(&canonical).map_err(|_| anyhow!("module not found: {specifier}"))?
+                std::fs::read(&canonical)
+                    .map_err(|_| JsErrorBox::generic(format!("module not found: {specifier}")))?
             }
             Source::Memory(map) => map
                 .get(specifier.as_str())
                 .map(|b| b.to_vec())
-                .ok_or_else(|| anyhow!("module not found: {specifier}"))?,
+                .ok_or_else(|| JsErrorBox::generic(format!("module not found: {specifier}")))?,
         };
-        let code =
-            String::from_utf8(bytes).map_err(|_| anyhow!("module is not UTF-8: {specifier}"))?;
+        let code = String::from_utf8(bytes)
+            .map_err(|_| JsErrorBox::generic(format!("module is not UTF-8: {specifier}")))?;
         Ok(ModuleSource::new(
             module_type,
             ModuleSourceCode::String(code.into()),
@@ -216,22 +219,24 @@ impl ModuleLoader for ArtifactLoader {
         specifier: &str,
         referrer: &str,
         _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, AnyError> {
+    ) -> Result<ModuleSpecifier, JsErrorBox> {
         resolve_common(specifier, referrer)
     }
 
     fn load(
         &self,
         module_specifier: &ModuleSpecifier,
-        _maybe_referrer: Option<&ModuleSpecifier>,
-        _is_dyn_import: bool,
-        requested_module_type: RequestedModuleType,
+        _maybe_referrer: Option<&ModuleLoadReferrer>,
+        options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
+        let requested_module_type = options.requested_module_type;
         let result = self.read(module_specifier).and_then(|src| {
             match (&requested_module_type, &src.module_type) {
                 (RequestedModuleType::None, ModuleType::JavaScript)
                 | (RequestedModuleType::Json, ModuleType::Json) => Ok(src),
-                _ => Err(anyhow!("module type mismatch: {module_specifier}")),
+                _ => Err(JsErrorBox::generic(format!(
+                    "module type mismatch: {module_specifier}"
+                ))),
             }
         });
         ModuleLoadResponse::Sync(result)
@@ -244,15 +249,19 @@ impl ModuleLoader for ArtifactLoader {
 /// never waits on I/O.
 pub async fn eszip_modules(
     artifact: &crate::manifest::Artifact,
-) -> Result<Arc<HashMap<String, Arc<[u8]>>>, AnyError> {
+) -> Result<Arc<HashMap<String, Arc<[u8]>>>, JsErrorBox> {
     let bytes = std::fs::read(artifact.code_dir().join("bundle.eszip"))
-        .map_err(|_| anyhow!("bundle.eszip unreadable"))?;
+        .map_err(|_| JsErrorBox::generic("bundle.eszip unreadable"))?;
     let (archive, complete) = eszip::Eszip::parse(futures::io::Cursor::new(bytes))
         .await
-        .map_err(|e| anyhow!("bundle.eszip: {e}"))?;
-    complete.await.map_err(|e| anyhow!("bundle.eszip: {e}"))?;
+        .map_err(|e| JsErrorBox::generic(format!("bundle.eszip: {e}")))?;
+    complete
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("bundle.eszip: {e}")))?;
     let eszip::Eszip::V2(v2) = archive else {
-        bail!("bundle.eszip: only eszip v2 is supported");
+        return Err(JsErrorBox::generic(
+            "bundle.eszip: only eszip v2 is supported",
+        ));
     };
     let mut modules = HashMap::new();
     for specifier in v2.specifiers() {

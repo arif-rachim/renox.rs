@@ -14,10 +14,6 @@ import {
   op_fetch_body_close,
   op_fetch_body_read,
 } from "ext:core/ops";
-import { Request } from "ext:deno_fetch/23_request.js";
-import { Response, ResponsePrototype } from "ext:deno_fetch/23_response.js";
-import { ReadableStream } from "ext:deno_web/06_streams.js";
-import { URL } from "ext:deno_url/00_url.js";
 
 const {
   ArrayPrototypePush,
@@ -27,6 +23,7 @@ const {
   ObjectFreeze,
   ObjectGetOwnPropertyDescriptor,
   ObjectGetOwnPropertyNames,
+  ObjectGetPrototypeOf,
   ObjectPrototypeIsPrototypeOf,
   PromisePrototypeThen,
   PromiseReject,
@@ -40,6 +37,18 @@ const {
   TypeError,
   Uint8Array,
 } = primordials;
+
+// Deno loads these extension modules lazily (they are not evaluated into
+// the snapshot), so take them on first use, the way Deno's own global
+// scope does.
+function lazy(specifier) {
+  let mod;
+  return () => (mod ??= core.loadExtScript(specifier));
+}
+const requestMod = lazy("ext:deno_fetch/23_request.js");
+const responseMod = lazy("ext:deno_fetch/23_response.js");
+const streamsMod = lazy("ext:deno_web/06_streams.js");
+const urlMod = lazy("ext:deno_web/00_url.js");
 
 // The request token rides on V8's continuation-preserved embedder data
 // (ops.md section 0, "Request scope"). AsyncVariable entries survive
@@ -88,7 +97,7 @@ async function renoxFetch(input, init = undefined) {
   const token = currentToken();
   // Normalise everything through the standard Request so headers, methods,
   // and bodies follow the Fetch spec; then hand plain values to Rust.
-  const req = new Request(input, init);
+  const req = new (requestMod().Request)(input, init);
   const method = StringPrototypeToUpperCase(req.method);
   const headers = [];
   for (const pair of new SafeArrayIterator([...req.headers])) {
@@ -113,7 +122,7 @@ async function renoxFetch(input, init = undefined) {
   const rid = head.body;
   let stream = null;
   if (rid !== null) {
-    stream = new ReadableStream({
+    stream = new (streamsMod().ReadableStream)({
       type: "bytes",
       async pull(controller) {
         let chunk;
@@ -136,7 +145,7 @@ async function renoxFetch(input, init = undefined) {
       },
     });
   }
-  const res = new Response(stream, {
+  const res = new (responseMod().Response)(stream, {
     status: head.status,
     statusText: head.statusText,
     headers: head.headers,
@@ -184,7 +193,7 @@ function describeThrow(err) {
 }
 
 async function serializeResponse(res, wantBody) {
-  if (!ObjectPrototypeIsPrototypeOf(ResponsePrototype, res)) {
+  if (!ObjectPrototypeIsPrototypeOf(responseMod().ResponsePrototype, res)) {
     return { kind: KIND_NOT_RESPONSE, name: typeof res };
   }
   const headers = [];
@@ -211,7 +220,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody) 
     try {
       const init = { method, headers };
       if (body !== null && method !== "GET" && method !== "HEAD") init.body = body;
-      const req = new Request(url, init);
+      const req = new (requestMod().Request)(url, init);
       const deadline = ObjectFreeze({
         remainingMs() {
           try {
@@ -223,7 +232,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody) 
       });
       const ctx = ObjectFreeze({
         req,
-        url: new URL(url),
+        url: new (urlMod().URL)(url),
         params: ObjectFreeze(params),
         headers: req.headers,
         deadline,
@@ -290,6 +299,14 @@ function harden() {
     ReflectDeleteProperty(globalThis, name);
     if (ObjectGetOwnPropertyDescriptor(globalThis, name) !== undefined) {
       throw new TypeError(`renox: global ${name} could not be removed`);
+    }
+  }
+  // navigator: no GPU access, and no host platform details.
+  const nav = globalThis.navigator;
+  if (nav) {
+    const navProto = ObjectGetPrototypeOf(nav);
+    for (const name of new SafeArrayIterator(["gpu", "userAgentData", "platform"])) {
+      ReflectDeleteProperty(navProto, name);
     }
   }
   // WebGPU: needs a GPU and native code paths we do not want.
