@@ -14,6 +14,9 @@
     },
     "examples/hello": {
       "name": "@renox-examples/hello",
+      "dependencies": {
+        "renox": "workspace:*",
+      },
     },
     "examples/npm-compat": {
       "name": "@renox-examples/npm-compat",
@@ -31,6 +34,10 @@
       "devDependencies": {
         "@types/nodemailer": "8.0.2",
       },
+    },
+    "sdk": {
+      "name": "renox",
+      "version": "0.1.0",
     },
   },
   "packages": {
@@ -163,6 +170,8 @@
     "postal-mime": ["postal-mime@2.7.6", "", {}, "sha512-UUlyE2KlxmvwMGq060onF/VWU3zD6dVW31FwokQ5v26jWd35fbs2MoTFzh+jXnPwAyV2MULMKXcBInGOl5TO6Q=="],
 
     "proxy-from-env": ["proxy-from-env@2.1.0", "", {}, "sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA=="],
+
+    "renox": ["renox@workspace:sdk"],
 
     "resend": ["resend@6.34.1", "", { "dependencies": { "postal-mime": "2.7.6", "standardwebhooks": "1.1.1" }, "peerDependencies": { "@react-email/render": "*" }, "optionalPeers": ["@react-email/render"] }, "sha512-3jo/j1WAW7CBkE6pzK4qLjZCfHRLIhY3ph3x/wzU+MN51cSw3EtReGce8S1cA1R0ipNDOdFYU5Lmt5r563lvYw=="],
 

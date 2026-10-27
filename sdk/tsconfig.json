@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // Runtime-neutral: the package must not depend on Bun or Node globals.
+    "types": []
+  },
+  "include": ["src/**/*.ts", "tests/**/*.test-d.ts"]
+}
