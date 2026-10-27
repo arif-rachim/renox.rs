@@ -403,7 +403,6 @@ impl TenantDb {
     /// Run `f` with `policy` on the writer instead of the handle's policy;
     /// the handle's policy is back when `f` returns or panics. The readers
     /// keep the handle's policy. Used by the migration runner (`allow_ddl`).
-    #[allow(dead_code)]
     pub(crate) fn with_writer_policy<T>(
         &self,
         policy: Option<Arc<AuthorizerPolicy>>,
@@ -741,6 +740,16 @@ impl Tx<'_> {
 
     pub fn execute_with(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
         self.run(|| self.db.run_execute(ctx, sql, params))
+    }
+
+    /// Run several statements (a migration file) with one time limit.
+    pub(crate) fn execute_batch(&self, sql: &str, limit: Duration) -> Result<()> {
+        self.run(|| {
+            let writer = &self.db.writer;
+            writer.clear_denial();
+            let _scope = writer.scope(limit, &QueryCtx::default());
+            writer.inner.execute_batch(sql).map_err(|e| writer.error(e))
+        })
     }
 
     /// A timeout rolls the whole transaction back (`docs/contracts/ops.md`

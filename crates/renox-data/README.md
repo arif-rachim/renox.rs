@@ -108,7 +108,7 @@ let db = TenantDb::open(path, DbOptions::default())?
 | `READ` | Views `d__public_*` for each `d` in `read_deps`, and the columns those views read (SQLite reports them with the view as accessor) |
 | `SELECT`, `RECURSIVE` (CTEs), built-in functions | Always, except `load_extension` and `fts3_tokenizer` |
 | `TRANSACTION`, `SAVEPOINT` | When `allow_ddl` is false (the migration runner owns the transaction when it is true) |
-| `CREATE TABLE/INDEX/VIEW`, `ALTER TABLE`, `DROP TABLE/INDEX/VIEW/TRIGGER`, `REINDEX` | Only with `allow_ddl` (migrations), only for `m__*` names; DDL also needs the schema-table writes SQLite reports for it |
+| `CREATE TABLE/INDEX/VIEW`, `ALTER TABLE`, `DROP TABLE/INDEX/VIEW/TRIGGER`, `REINDEX` | Only with `allow_ddl` (migrations), only for `m__*` names. With `allow_ddl` the schema-table reads and writes SQLite reports for DDL are allowed too (`sqlite_master`, and `sqlite_sequence`, which SQLite creates for `autoincrement`) |
 | Everything else | Refused: `PRAGMA` (reads and writes), `ATTACH`, `DETACH`, `CREATE TRIGGER`, temp objects, virtual tables, `ANALYZE`, reads of `sqlite_master` |
 
 A refused statement fails with `DbError::Auth { table, action }` (`RENOX_DB_AUTH`): `table` names the object of the first refused action, `action` the SQLite action (`READ`, `INSERT`, `CREATE_TABLE`, `PRAGMA`, `ATTACH`, ...).
@@ -160,3 +160,34 @@ The writer replaces SQLite's automatic checkpoint-on-commit with a WAL hook that
 ### Stats for the meter
 
 `stats()` returns `DbStats { statements, rows_read, rows_written, busy_waits, timeouts, total_ms }`, counted since the handle was opened. The cell takes a snapshot before and after a request and records `after.since(&before)`: `db_ms()` is `total_ms` (wall time in statements, including waits for the write lock), and `db_rows()` is rows returned plus rows changed (`docs/contracts/meter.md`). `busy_waits` counts statements that gave up with `Busy`.
+
+## Migrations
+
+ADR D17 (forward-only, checksums), `docs/06-data.md`, `docs/contracts/artifact.md` section 4. In F1 only the app's own migrations (module `app`) run; ordering across modules arrives in F4.
+
+```rust
+use renox_data::{migrate_with_checksums, MigrationFile};
+
+let files = vec![MigrationFile { name: "001_init.sql".into(), sql: std::fs::read_to_string(p)? }];
+// `checksums` is the `files` map of the artifact's migrations/checksums.json.
+let report = migrate_with_checksums(&db, "app", &files, &checksums)?;
+// report.applied: files run now; report.skipped: files applied before.
+```
+
+| Rule | Behaviour |
+| --- | --- |
+| Names | `^\d{3,}_[a-z0-9_]+\.sql$`, sorted by name; gaps allowed, duplicates refused (`InvalidName`, `DuplicateName`) |
+| Checksum | Lower-case SHA-256 hex of the file bytes (`checksum()`). With `migrate_with_checksums`, every file must match its `<module>/<name>` entry of `checksums.json` before anything runs |
+| Applied file changed | `ChecksumMismatch { name }`; nothing runs |
+| One transaction per file | The file runs on the writer, then `(module, name, checksum, applied_at)` is inserted into `renox__migrations`, then commit. A failing statement rolls the file back (`Failed { name, source }`); files before it stay applied |
+| Authorizer | The file runs under `AuthorizerPolicy { module, allow_ddl: true }`: it can create, alter, and drop only `<module>__*` objects, cannot read or write other modules' tables or `renox__*`, and cannot run `PRAGMA`, `ATTACH`, `BEGIN`, or `COMMIT` |
+| Schema check | `alter table ... rename to` reports only the old name to the authorizer, so after each file the runner compares `sqlite_master` with its state before the file: a new or renamed object outside the prefix fails the file (`OutsidePrefix`) and rolls it back |
+| Time | Each file has 30 s (`MIGRATION_FILE_TIMEOUT`) |
+
+Bookkeeping runs on the writer as the platform, so `migrate` works on a module handle too; the handle's own policy is back afterwards.
+
+Known limit: `sqlite_sequence` (autoincrement counters) is shared by every module in the file, and SQLite writes it on rename and drop. A migration can therefore change another module's autoincrement counter. In F1 only `app` migrates; the F4 module resolver has to decide this.
+
+### No `down` migrations
+
+There are none, by design (ADR D17, `docs/06-data.md`: "What will not exist: ... `down` migrations"). A rollback deploys an older artifact against the newer schema, so schema changes follow expand/contract: add a column or table in one release, stop using the old one in the next, remove it later. A `down` file would be code that runs only in an emergency and is never tested. Fixing a mistake means writing a new forward migration, and the checksums keep applied files from being edited in place.

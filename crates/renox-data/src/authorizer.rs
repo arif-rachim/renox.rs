@@ -103,11 +103,19 @@ impl AuthorizerPolicy {
                     || (main_db && ctx.accessor.is_some_and(|a| self.is_dep_public(a)))
                     || (ddl && is_schema_table(table_name))
             }
+            // With DDL, SQLite's own schema writes are allowed too; that
+            // includes `sqlite_sequence`, which SQLite updates on rename and
+            // drop of an autoincrement table.
             AuthAction::Insert { table_name }
             | AuthAction::Update { table_name, .. }
             | AuthAction::Delete { table_name } => {
                 (main_db && self.owns(table_name)) || (ddl && is_schema_table(table_name))
             }
+            // SQLite creates `sqlite_sequence` itself for the first
+            // `autoincrement` table.
+            AuthAction::CreateTable {
+                table_name: "sqlite_sequence",
+            } => ddl && main_db,
             AuthAction::CreateTable { table_name } | AuthAction::DropTable { table_name } => {
                 ddl && main_db && self.owns(table_name)
             }
@@ -148,7 +156,11 @@ fn has_prefix(name: &str, module: &str, sep: &str) -> bool {
 fn is_schema_table(name: &str) -> bool {
     matches!(
         name,
-        "sqlite_master" | "sqlite_schema" | "sqlite_temp_master" | "sqlite_temp_schema"
+        "sqlite_master"
+            | "sqlite_schema"
+            | "sqlite_temp_master"
+            | "sqlite_temp_schema"
+            | "sqlite_sequence"
     )
 }
 
