@@ -624,13 +624,15 @@ impl TenantDb {
         self.stats.get()
     }
 
-    /// Checkpoint the WAL into the database file.
+    /// Checkpoint the WAL into the database file. The checkpoint is platform
+    /// work: it runs with the platform policy on the writer, so a handle with
+    /// a module authorizer can checkpoint too (#147).
     pub fn checkpoint(&self, mode: CheckpointMode) -> Result<CheckpointResult> {
         let mode = match mode {
             CheckpointMode::Passive => "PASSIVE",
             CheckpointMode::Truncate => "TRUNCATE",
         };
-        let (log, done) = self.writer.wal_checkpoint(mode)?;
+        let (log, done) = self.with_writer_policy(None, || self.writer.wal_checkpoint(mode))?;
         let log = u64::try_from(log).unwrap_or(0);
         let done = u64::try_from(done).unwrap_or(0);
         self.writer
@@ -716,7 +718,9 @@ impl TenantDb {
             r.inner.close().map_err(|(_, e)| DbError::from(e))?;
         }
         // With the readers gone nothing holds the WAL; a failure here still
-        // closes the writer, which checkpoints on close as well.
+        // closes the writer, which checkpoints on close as well. Platform
+        // work: the module authorizer would refuse the pragma (#147).
+        writer.set_policy(None);
         let truncated = writer.wal_checkpoint("TRUNCATE");
         writer.inner.close().map_err(|(_, e)| DbError::from(e))?;
         truncated.map(|_| ())
