@@ -1,0 +1,29 @@
+[package]
+name = "renox-cell"
+version = "0.0.0"
+description = "Renox cell: wires gateway, runtime, data, and meter into the renox-worker binary (P5)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The only crate that depends on the others; nothing depends on it
+# (docs/03-architecture.md, workspace dependencies).
+[dependencies]
+renox-data = { path = "../renox-data" }
+renox-gateway = { path = "../renox-gateway" }
+renox-meter = { path = "../renox-meter" }
+renox-runtime = { path = "../renox-runtime" }
+
+axum = { version = "0.8.9", default-features = false }
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "fs"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
