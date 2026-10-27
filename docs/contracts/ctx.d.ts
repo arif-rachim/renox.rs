@@ -1,9 +1,11 @@
-// TypeScript view of docs/contracts/ops.md, contract version 0.
+// TypeScript view of docs/contracts/ops.md, contract version 1.0.0-f1.
 // Plain declarations, no implementation: the SDK package (#31) implements and
 // re-exports these types. Section numbers refer to ops.md.
 
 // ---------------------------------------------------------------------------
-// Errors (ops.md section 0 and the "Errors" table of each section)
+// Errors (ops.md section 13, "Error codes"; HTTP status and tenant guidance in
+// docs/contracts/errors.md). validate.ts checks that the codes below are
+// exactly the codes of ops.md section 13 and that each is in errors.md.
 // ---------------------------------------------------------------------------
 
 export type DbErrorCode =
@@ -21,12 +23,35 @@ export type DbErrorCode =
 
 export type FetchErrorCode = "RENOX_FETCH_BLOCKED" | "RENOX_FETCH_FAILED" | "RENOX_FETCH_EGRESS_LIMIT";
 
+/** Codes an op rejects with inside tenant code ("thrown" in ops.md section 13). */
 export type RenoxErrorCode =
   | DbErrorCode
   | FetchErrorCode
   | "RENOX_DEADLINE"
   | "RENOX_NO_REQUEST"
   | "RENOX_SECRETS_CONSUMED";
+
+/**
+ * Codes the platform answers with when a request ends ("response" in ops.md
+ * section 13). They never reach tenant code as exceptions; clients see them in
+ * the error body of errors.md: `{ error: { code, request_id, message } }`.
+ */
+export type ResponseErrorCode =
+  | "RENOX_DEADLINE"
+  | "RENOX_CPU_LIMIT"
+  | "RENOX_OOM"
+  | "RENOX_BUSY"
+  | "RENOX_INTERNAL"
+  | "RENOX_BODY_TOO_LARGE";
+
+/** Body of a platform error response on an API route (errors.md, "Response body"). */
+export interface ErrorResponseBody {
+  error: {
+    code: ResponseErrorCode;
+    request_id: string;
+    message: string;
+  };
+}
 
 export declare class RenoxError extends Error {
   readonly code: RenoxErrorCode;
@@ -135,7 +160,7 @@ export type Fetch = (input: string | URL | Request, init?: RequestInit) => Promi
 // Secrets (section 3)
 // ---------------------------------------------------------------------------
 
-/** Frozen; contains only declared and set secrets. */
+/** Frozen; contains only declared and set secrets. Not available at module top level. */
 export type Secrets = Readonly<Record<string, string>>;
 
 // ---------------------------------------------------------------------------
@@ -146,7 +171,11 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Record<string, JsonValue>;
 
-/** Never throws; lines over the tenant's rate limit are dropped and counted. */
+/**
+ * Never throws; lines over the tenant's rate limit are dropped and counted.
+ * Field values outside JsonValue (bigint, Uint8Array, Error, cycles) are
+ * converted by the bootstrap as in ops.md section 12.
+ */
 export interface Log {
   debug(message: string, fields?: LogFields): void;
   info(message: string, fields?: LogFields): void;
@@ -164,7 +193,8 @@ export interface Deadline {
 }
 
 // ---------------------------------------------------------------------------
-// Request envelope and handlers (section 6)
+// Request envelope and handlers (section 6). The ctx object is frozen and new
+// for every request (section 11).
 // ---------------------------------------------------------------------------
 
 export type Params = Record<string, string | string[]>;
