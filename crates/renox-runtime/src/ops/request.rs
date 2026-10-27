@@ -14,10 +14,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use deno_core::{CancelHandle, OpState, ResourceId};
+use deno_core::{CancelHandle, OpState};
 use deno_error::JsErrorBox;
 
 use crate::ops::fetch_connector::EgressCounter;
+use crate::request_resources::RequestResources;
 
 /// Build an op error the bootstrap turns into a `RenoxError`
 /// (`js/bootstrap.js`, `toRenoxError`): `CODE|details-json|message`.
@@ -48,13 +49,9 @@ pub(crate) struct RequestState {
     /// Response bodies currently open (each holds a connection); shared
     /// with the body resources, which decrement it when they close.
     pub open_bodies: Rc<std::cell::Cell<u32>>,
-    /// Response bodies still open; closed when the request ends.
-    pub fetch_bodies: Vec<ResourceId>,
-    /// The request's open database transaction (`ops/db.rs`); rolled back
-    /// when the request ends for any reason.
-    pub db_tx: Option<u32>,
-    /// A `begin` is waiting for the writer.
-    pub db_tx_pending: bool,
+    /// Open transaction and fetch bodies, released when the request ends
+    /// for any reason (`request_resources.rs`).
+    pub resources: RequestResources,
     /// `db_ms` and `db_rows` of the meter record.
     pub db_ms: f64,
     pub db_rows: u64,
@@ -74,9 +71,7 @@ impl RequestState {
             fetch_blocked: 0,
             fetches_in_flight: 0,
             open_bodies: Rc::new(std::cell::Cell::new(0)),
-            fetch_bodies: Vec::new(),
-            db_tx: None,
-            db_tx_pending: false,
+            resources: RequestResources::default(),
             db_ms: 0.0,
             db_rows: 0,
             logs_dropped: 0,

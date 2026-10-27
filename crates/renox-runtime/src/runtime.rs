@@ -90,6 +90,10 @@ pub struct RuntimeMetrics {
     /// without commit or rollback (handler returned, threw, or was
     /// terminated).
     pub rolled_back_transactions: AtomicU64,
+    /// Of those, the ones whose request was terminated: CPU or heap limit,
+    /// wall-clock deadline, a throw, an event-loop error, or disposal of
+    /// the isolate (#89).
+    pub rolled_back_on_termination: AtomicU64,
 }
 
 impl RuntimeMetrics {
@@ -99,6 +103,10 @@ impl RuntimeMetrics {
 
     pub fn rolled_back_transactions(&self) -> u64 {
         self.rolled_back_transactions.load(Ordering::Relaxed)
+    }
+
+    pub fn rolled_back_on_termination(&self) -> u64 {
+        self.rolled_back_on_termination.load(Ordering::Relaxed)
     }
 }
 

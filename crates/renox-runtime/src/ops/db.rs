@@ -803,7 +803,7 @@ mod v8_ops {
         let params = convert_params(&sql, decode(params, bytes)).map_err(usage)?;
         let tx = if tx == 0 {
             None
-        } else if request.borrow().db_tx == Some(tx) {
+        } else if request.borrow().resources.db_tx == Some(tx) {
             Some(tx)
         } else {
             return Err(db_error(
@@ -910,18 +910,18 @@ mod v8_ops {
         }
         let (deadline, cancel) = {
             let mut r = request.borrow_mut();
-            if r.db_tx.is_some() || r.db_tx_pending {
+            if r.resources.db_tx.is_some() || r.resources.db_tx_pending {
                 return Err(db_error(
                     &env.redactor,
                     &DbError::TxState("a transaction is already open for this request".into()),
                 ));
             }
-            r.db_tx_pending = true;
+            r.resources.db_tx_pending = true;
             (r.deadline, r.cancel.clone())
         };
         let result = db.begin(deadline).or_cancel(cancel).await;
         let mut r = request.borrow_mut();
-        r.db_tx_pending = false;
+        r.resources.db_tx_pending = false;
         match result {
             Ok(Ok(id)) => {
                 if r.ended {
@@ -929,7 +929,7 @@ mod v8_ops {
                     db.rollback_detached(id);
                     return Err(crate::ops::request::no_request());
                 }
-                r.db_tx = Some(id);
+                r.resources.db_tx = Some(id);
                 Ok(id)
             }
             Ok(Err(e)) => Err(db_error(&env.redactor, &e)),
@@ -956,13 +956,13 @@ mod v8_ops {
         };
         {
             let mut r = request.borrow_mut();
-            if r.db_tx != Some(tx) {
+            if r.resources.db_tx != Some(tx) {
                 return Err(db_error(
                     &env.redactor,
                     &DbError::TxState("the transaction is not open".into()),
                 ));
             }
-            r.db_tx = None;
+            r.resources.db_tx = None;
         }
         db.end(tx, commit)
             .await

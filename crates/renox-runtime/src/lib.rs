@@ -23,6 +23,8 @@ pub mod isolate;
 #[cfg(feature = "v8")]
 pub mod loader;
 #[cfg(feature = "v8")]
+mod request_resources;
+#[cfg(feature = "v8")]
 pub mod runtime;
 
 #[cfg(feature = "v8")]

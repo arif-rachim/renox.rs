@@ -45,11 +45,12 @@ use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
 use crate::manifest::{Artifact, CodeFormat, LoadError, load_artifact};
 use crate::ops::db::{DbEnv, DbHandle};
-use crate::ops::fetch::{FetchEnv, close_request_bodies};
+use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
 use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
 use crate::ops::secrets::{self, Redactor, SecretsState};
+use crate::request_resources;
 use crate::router::{ParamValue, RouteMatch, Router};
 use crate::runtime::{LogLine, LogSink, Runtime};
 
@@ -1132,7 +1133,7 @@ async fn serve(
                 Some(Command::Cancel { seq, meter }) => {
                     if let Some(mut f) = inflight.remove(&seq) {
                         f.charge(slice_cpu(&watch));
-                        f.used = end_request(ctx, worker, f.token);
+                        f.used = end_request(ctx, worker, f.token, Ended::Terminated);
                         let _ = meter.send(f.meter(ctx, MeterStatus::Timeout));
                     }
                 }
@@ -1169,8 +1170,13 @@ async fn serve(
                     inflight.insert(seq, flight);
                     break;
                 }
-                flight.used = end_request(ctx, worker, flight.token);
+                flight.used = end_request(ctx, worker, flight.token, Ended::Finished);
+                let reply = finish_dispatch(ctx, worker, &flight, result);
                 if flight.used.rolled_back_tx {
+                    let threw = matches!(reply, ThreadReply::Failed { .. });
+                    if threw {
+                        count_termination_rollback(ctx);
+                    }
                     let mut f = serde_json::Map::new();
                     f.insert(
                         "route".into(),
@@ -1180,15 +1186,13 @@ async fn serve(
                             .unwrap_or_default()
                             .into(),
                     );
-                    log_line(
-                        ctx,
-                        "warn",
-                        Some(&flight.ctx.request_id),
-                        "transaction left open when the handler returned; rolled back",
-                        f,
-                    );
+                    let message = if threw {
+                        "request failed with a transaction open; rolled back"
+                    } else {
+                        "transaction left open when the handler returned; rolled back"
+                    };
+                    log_line(ctx, "warn", Some(&flight.ctx.request_id), message, f);
                 }
-                let reply = finish_dispatch(ctx, worker, &flight, result);
                 if let Some(tx) = flight.reply.take() {
                     let _ = tx.send(reply);
                 }
@@ -1217,7 +1221,7 @@ async fn serve(
         if let Some((code, status)) = killed {
             ctx.shared.poisoned.store(true, Ordering::SeqCst);
             for (_, mut flight) in inflight.drain() {
-                flight.used = end_request(ctx, worker, flight.token);
+                flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
                 let mut f = serde_json::Map::new();
                 f.insert("code".into(), code.as_str().into());
                 f.insert(
@@ -1270,7 +1274,7 @@ async fn serve(
             // Disposal: requests still in flight get no answer, but their
             // resources are released before the isolate goes.
             for (_, mut flight) in inflight.drain() {
-                flight.used = end_request(ctx, worker, flight.token);
+                flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
             }
             return Poll::Ready(());
         }
@@ -1292,29 +1296,52 @@ struct RequestEnd {
     rolled_back_tx: bool,
 }
 
-/// End a request: its token stops working, its pending ops are cancelled,
-/// its fetch bodies are closed, and its open transaction is rolled back
-/// (the DB thread handles the rollback before anything sent later, so the
-/// next request finds the writer free).
-fn end_request(ctx: &ThreadContext, worker: &mut MainWorker, token: u32) -> RequestEnd {
+/// How a request ended, for the rollback counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    /// The dispatch finished: a `Response`, a throw, or not a `Response`
+    /// (the caller counts a throw as a termination).
+    Finished,
+    /// Deadline, CPU or heap limit, event-loop error, or disposal.
+    Terminated,
+}
+
+fn count_termination_rollback(ctx: &ThreadContext) {
+    ctx.runtime
+        .inner
+        .metrics
+        .rolled_back_on_termination
+        .fetch_add(1, Ordering::Relaxed);
+}
+
+/// End a request: its token stops working, its pending ops (fetches
+/// waiting for headers, timers' ops) are cancelled, and its registered
+/// resources are released (`request_resources::drain`): fetch bodies
+/// closed, open transaction rolled back. The DB thread handles the rollback
+/// before anything sent later, so the next request finds the writer free.
+fn end_request(
+    ctx: &ThreadContext,
+    worker: &mut MainWorker,
+    token: u32,
+    ended: Ended,
+) -> RequestEnd {
     let state = worker.js_runtime.op_state();
     let mut state = state.borrow_mut();
     let Some(request) = state.borrow_mut::<RequestTable>().end(token) else {
         return RequestEnd::default();
     };
     let mut request = request.borrow_mut();
-    close_request_bodies(&mut state, &request);
-    let mut rolled_back_tx = false;
-    if let Some(tx) = request.db_tx.take() {
-        if let Some(db) = &state.borrow::<Rc<DbEnv>>().db {
-            db.rollback_detached(tx);
-        }
-        rolled_back_tx = true;
+    let rolled_back_tx =
+        request_resources::drain(&mut state, &mut request.resources).rolled_back_tx;
+    if rolled_back_tx {
         ctx.runtime
             .inner
             .metrics
             .rolled_back_transactions
             .fetch_add(1, Ordering::Relaxed);
+        if ended == Ended::Terminated {
+            count_termination_rollback(ctx);
+        }
     }
     RequestEnd {
         fetch_sent_bytes: request.egress.sent.load(Ordering::Relaxed),
@@ -1369,7 +1396,7 @@ fn start_dispatch(
     let args = match args {
         Ok(a) => a,
         Err(_) => {
-            end_request(ctx, worker, token);
+            end_request(ctx, worker, token, Ended::Terminated);
             return Err((job.reply, ErrorCode::Internal));
         }
     };
