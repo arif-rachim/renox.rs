@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["bench/spike/*"]
+members = ["bench/spike/*", "crates/renox-meter"]
 
 [workspace.package]
 edition = "2024"
