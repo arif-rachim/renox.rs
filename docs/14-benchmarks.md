@@ -78,6 +78,23 @@ Raw: bench/results/raw/2026-11-15-B6.json
 
 After a run that changes a target or decides an ADR, update the numbers in `00-overview.md`, `02-comparison.md`, and `13-decisions.md` in the same PR.
 
+## F0 results (2026-10-27)
+
+Measured on the `dev-laptop` profile (i7-6700, 8 vCPU, 15 GB) against the unmodified Supabase Edge Runtime `v1.77.8` image, apps staged outside the monorepo, without snapshot or eszip. Every verdict is therefore provisional; the `node-small` run comes with the real worker in F1 (#35).
+
+| ID | Target | Fail threshold | Measured | Verdict | Result file |
+| --- | --- | --- | --- | --- | --- |
+| B1 `hello`, N = 100 | ≤ 10 MB | > 20 MB | 9.77 MB RSS delta per worker (PSS 9.76, V8 heap 9.16) | PROVISIONAL PASS | [B1](../bench/results/2026-10-27-B1-edge-runtime-hello-and-npm-compat.md) |
+| B1 `npm-compat`, N = 50 | ≤ 10 MB | > 20 MB | 74.3 MB per worker (V8 heap 23.8; the rest is module code and npm resolution state for 41 packages) | PROVISIONAL FAIL | same file |
+| B4 | p50 ≤ 20 ms, p99 ≤ 100 ms | p99 > 100 ms | p50 32.3 ms, p99 38.7 ms (worker evicted after every request, `oneshot`) | PROVISIONAL FAIL on p50, p99 inside the limit | [B4](../bench/results/2026-10-27-B4-cold-start-edge-runtime.md) |
+| B9 | ≤ 300 µs | > 1 ms | 517 µs on the generic path (`JSON.stringify` → `serde_json::Value` → `minijinja::Value`); 248 µs only with a static Rust type, which loader data does not have | PROVISIONAL FAIL on target, inside the limit | [B9](../bench/results/2026-10-27-B9-marshal-v8-minijinja.md) |
+| B17 | all packages run | any core package fails | 13 / 13 inside the isolate; cold first request 644 ms, warm 13 ms | PROVISIONAL PASS | [B17](../bench/results/2026-10-27-B17-npm-compat-in-isolate.md) |
+| B6 first cut (render stage) | render + marshal ≤ 1 ms (derived) | — | page render 176 µs, fragment 169 µs, render + marshal 424 µs | PROVISIONAL PASS | [B6](../bench/results/2026-10-27-B6-first-cut-render-stage.md) |
+| B5 (informational) | in-node p50 ≤ 0.3 ms | — | p50 0.66 ms, p99 1.23 ms over HTTP through Docker | informational | [B5](../bench/results/2026-10-27-B5-hello-warm-latency.md) |
+| BASE-HELLO (informational) | — | — | Bun + Hono: 23 MB per process, start p50 18 ms, 53.8k req/s; Node + Hono: 79 MB, 134 ms, 23.5k req/s | informational | [BASE-HELLO](../bench/results/2026-10-27-BASE-HELLO-bun-node-hono.md) |
+
+Decision of the F0 gate (#14): **GO to F1**, with B1 judged on `hello`. No kill criterion is hit on the numbers the criteria name (memory per isolate for the example app, cold start p99, B17). The open risk is the per-worker cost of npm dependencies (74 MB with the full B17 set); it is carried into F1 as a gate condition: B1 measured on the `shop` skeleton with its real dependencies, bundled as eszip, must be ≤ 20 MB at the F1 gate (#37), otherwise ADR D21 (Bun process per tenant for paid tiers) is written then. Two more findings change F1 and F2 work: B4 must be re-measured with the platform snapshot and eszip (the gap to the target is 12 ms), and the render op (#40) must marshal through a JSON string, not through `serde_v8` per property, because crossing the V8 API per property is what costs the time in B9.
+
 ## What F0 must prove
 
 F0 is only about B1, B4, B9, B17, and a first cut of B6 using Supabase Edge Runtime unmodified plus a minijinja prototype. If any fail threshold is crossed, see the kill criteria in `01-business.md` and `15-roadmap.md` before writing platform code.

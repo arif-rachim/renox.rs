@@ -5,7 +5,7 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 
 > *"Assemble a SaaS from auth, billing, and admin modules, then deploy to hosting that charges only for what you use."*
 
-> **Status: Phase F0 (spike).** There is no platform code in this repository yet. It contains the architecture documentation, the architecture decision records, the benchmark plan, and the roadmap. The first code allowed here is the benchmarks that prove or kill the F0 assumptions (see [Roadmap](#roadmap)).
+> **Status: Phase F1 (minimal data plane).** F0 is done: the spike benchmarks ran against the unmodified Supabase Edge Runtime and the gate decided GO (`docs/14-benchmarks.md`, "F0 results"). The repository holds the documentation, the benchmark harness and spikes under `bench/`, and the example apps; the first platform crates land in F1 (see [Roadmap](#roadmap)).
 
 ## Why
 
@@ -118,8 +118,8 @@ Full list, scenarios, and methodology in [`docs/14-benchmarks.md`](docs/14-bench
 
 | Phase | Name | Done when |
 | --- | --- | --- |
-| **F0** | Spike (current) | Memory per isolate, cold start, npm compatibility, and marshaling numbers meet the targets. If not, re-evaluate before writing platform code |
-| F1 | Minimal data plane | Two tenants on one node; an infinite loop in one does not affect the other; meters recorded |
+| F0 | Spike (done) | Memory per isolate, cold start, npm compatibility, and marshaling numbers meet the targets. If not, re-evaluate before writing platform code |
+| **F1** | Minimal data plane (current) | Two tenants on one node; an infinite loop in one does not affect the other; meters recorded |
 | F2 | SSR and templates | The `shop` example runs |
 | F3 | Minimal control plane | `renox deploy` goes live in under 30 s; rollback works |
 | F4 | Modules | The first product uses `auth` and `org` with no auth code of its own |
