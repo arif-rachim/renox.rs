@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: a bare '*' network entry would allow every host (ops.md section 2, Allowlist) [expect: pattern]",
+  "artifact": { "version": 0 },
+  "app": { "name": "hello", "timezone": "Asia/Dubai" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/hello": "functions/api/hello.js" } },
+  "routes": [{ "kind": "function", "method": "GET", "path": "/api/hello", "module": "functions/api/hello", "export": "GET" }],
+  "permissions": { "network": ["*"], "secrets": [] }
+}

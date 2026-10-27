@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: Mars/Olympus is not an IANA time zone (artifact.md V4) [expect: V4]",
+  "artifact": { "version": 0 },
+  "app": { "name": "hello", "timezone": "Mars/Olympus" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/hello": "functions/api/hello.js" } },
+  "routes": [{ "kind": "function", "method": "GET", "path": "/api/hello", "module": "functions/api/hello", "export": "GET" }],
+  "permissions": { "network": [], "secrets": [] }
+}

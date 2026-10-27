@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: unknown permission key 'filesystem' must be rejected, not ignored (artifact.md V9) [expect: additionalProperties]",
+  "artifact": { "version": 0 },
+  "app": { "name": "hello", "timezone": "Asia/Dubai" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/hello": "functions/api/hello.js" } },
+  "routes": [{ "kind": "function", "method": "GET", "path": "/api/hello", "module": "functions/api/hello", "export": "GET" }],
+  "permissions": { "network": [], "secrets": [], "filesystem": ["/etc"] }
+}

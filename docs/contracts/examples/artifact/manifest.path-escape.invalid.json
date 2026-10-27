@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: code.entry escapes code/ with '..' (artifact.md section 1 Paths, V1; docs/23-failure-modes.md 'Artifact hash mismatch, symlink, .. path') [expect: pattern]",
+  "artifact": { "version": 0 },
+  "app": { "name": "hello", "timezone": "Asia/Dubai" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/hello": "../../etc/passwd.js" } },
+  "routes": [{ "kind": "function", "method": "GET", "path": "/api/hello", "module": "functions/api/hello", "export": "GET" }],
+  "permissions": { "network": [], "secrets": [] }
+}

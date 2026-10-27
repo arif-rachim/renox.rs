@@ -1,0 +1,5 @@
+{
+  "$comment": "invalid: migration files are NNN_name.sql with three digits (artifact.md section 1) [expect: pattern]",
+  "version": 0,
+  "files": { "app/1_init.sql": "0000000000000000000000000000000000000000000000000000000000000000" }
+}
