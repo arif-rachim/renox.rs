@@ -4,14 +4,15 @@
 # Prints startup time (process start to ready) in ms.
 set -euo pipefail
 
+# usage: smoke.sh [--mode source|docker]   (also EDGE_RUNTIME_MODE)
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 port=${PORT:-9000}
 
-"$here/run.sh" --build-only >/dev/null
+"$here/run.sh" "$@" --build-only >/dev/null
 trap '"$here/run.sh" --stop' EXIT
 
 t0=$(date +%s%N)
-"$here/run.sh" --background --port "$port" >/dev/null
+"$here/run.sh" "$@" --background --port "$port" >/dev/null
 t1=$(date +%s%N)
 echo "startup_ms=$(((t1 - t0) / 1000000))"
 
