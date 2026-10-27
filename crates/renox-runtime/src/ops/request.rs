@@ -11,11 +11,14 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
-use deno_core::{CancelHandle, OpState, op2};
+use deno_core::{CancelHandle, OpState, ResourceId, op2};
+
+use crate::ops::fetch::EgressCounter;
 
 /// Build an op error the bootstrap turns into a `RenoxError`
 /// (`js/bootstrap.js`, `toRenoxError`): `CODE|details-json|message`.
@@ -34,16 +37,29 @@ pub(crate) fn no_request() -> AnyError {
 /// Per-request state the ops need. Lives from dispatch until the request
 /// ends for any reason.
 pub(crate) struct RequestState {
+    pub request_id: String,
     pub deadline: Instant,
     /// Cancels every pending op of the request (deadline, CPU, OOM).
     pub cancel: Rc<CancelHandle>,
+    /// `ops.md` section 2: bytes sent + received over all fetches.
+    pub egress: Arc<EgressCounter>,
+    /// Fetches refused with `RENOX_FETCH_BLOCKED`, caught or not.
+    pub fetch_blocked: u64,
+    pub fetches_in_flight: u32,
+    /// Response bodies still open; closed when the request ends.
+    pub fetch_bodies: Vec<ResourceId>,
 }
 
 impl RequestState {
-    pub fn new(deadline: Instant) -> RequestState {
+    pub fn new(request_id: String, deadline: Instant, egress_limit_bytes: u64) -> RequestState {
         RequestState {
+            request_id,
             deadline,
             cancel: CancelHandle::new_rc(),
+            egress: Arc::new(EgressCounter::new(egress_limit_bytes)),
+            fetch_blocked: 0,
+            fetches_in_flight: 0,
+            fetch_bodies: Vec::new(),
         }
     }
 }

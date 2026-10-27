@@ -79,6 +79,18 @@ The bootstrap's `dispatch` runs the handler with a frozen `ctx` (`req`, `url`, `
 
 **Cost.** Two threads per live isolate (the isolate and its watchdog). The watchdog parks while no slice runs, so an idle isolate costs no wake-ups; a running slice costs one wake-up per millisecond.
 
+## Outbound fetch
+
+`src/ops/net_policy.rs` (pure, unit-tested without V8) and `src/ops/fetch.rs` (issue #27), contract `ops.md` section 2.
+
+- **Order of checks, every hop:** (1) the URL's scheme, host, and port must match a `permissions.network[]` entry (`not_allowlisted`, `scheme`, `port`); `localhost`, `*.localhost`, and `metadata.google.internal` are refused whatever the list says (`blocked_address`). (2) DNS is resolved in Rust (hickory, without the hosts file, A and AAAA, no cache) and **every** address is checked against the blocked ranges; one blocked address refuses the set (`blocked_address`). (3) The connection goes to one of those checked addresses with the original `Host` and SNI, so DNS rebinding between check and connect is impossible. (4) Redirects are followed by the op, never by the client: at most 5 hops (`redirect_limit`), each hop runs (1)-(3) again, `307`/`308` keep the body, `Authorization`, `Cookie`, and `Proxy-Authorization` are dropped when the origin changes, and `https` → `http` is allowed only to a host declared `http://`.
+- **Blocked ranges:** one table per address family in `net_policy.rs`, with a comment per range. IPv4-mapped, IPv4-compatible, NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`), and 6to4 addresses are checked as the IPv4 address they embed. The cell can add the node's own and the control plane's addresses (`FetchConfig::extra_blocked`).
+- **Deadline:** the whole fetch (DNS, connect, TLS, every hop, every body read) is bounded by the request deadline and cancelled when the request ends; the tenant sees `RENOX_DEADLINE`.
+- **Egress limit:** every byte on the wire (below TLS, so handshakes count) is counted per request against `Limits::egress_bytes` (10 MB free / 100 MB paid). Reads and writes are capped at the bytes still allowed, so a large body stops exactly at the limit with `RENOX_FETCH_EGRESS_LIMIT`. The totals are the meter's `fetch_sent_bytes` and `fetch_received_bytes`.
+- **Errors** reject with a `RenoxError` whose `code` and `details` (`{ host, reason, hop }`) follow the contract; the resolved address is never included. Every blocked attempt increments `fetch_blocked` and is logged with host and reason, caught or not.
+- **Limits:** 16 concurrent fetches per request, 64 request headers / 16 KB.
+- **Op name:** `deno_fetch` already registers an op called `op_fetch`, so ours is `op_renox_fetch`; `op_fetch_body_read` and `op_fetch_body_close` keep the contract's names. Ops are reached only through the bootstrap, so the name is internal.
+
 ## Hidden globals
 
 Applied by the bootstrap's `harden()` after `deno_runtime` has bootstrapped the global scope and before any tenant module is evaluated (`ops.md` section 11, step 2). Upstream exposes much more than a request handler needs; every item was decided:
@@ -103,7 +115,7 @@ Applied by the bootstrap's `harden()` after `deno_runtime` has bootstrapped the 
 | Deno permissions | `none_without_prompt()`: every permission denied | Defence in depth under the deletions above |
 | Unhandled promise rejections | `preventDefault()` in an `unhandledrejection` listener | A stray promise in tenant code must not end the isolate's event loop |
 | `eval`, `new Function`, `WebAssembly.compile` | Kept | npm packages need them; the code still runs under the isolate's limits |
-| `fetch` | Deno's `fetch` (all network permissions denied) until #27 replaces it with `op_fetch` | — |
+| `fetch` | Replaced by the `op_renox_fetch`-backed implementation (same function as `ctx.fetch`); see "Outbound fetch" | Allowlist and blocked ranges |
 | `console` | Deno's console (stdout/stderr) until #28 replaces it with `op_log` | — |
 
 ## Thread model

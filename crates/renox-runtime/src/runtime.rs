@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::isolate::{CreateError, IsolateHandle, IsolateSpec};
+use crate::ops::fetch::FetchConfig;
 
 /// One line for the tenant's log sink (`docs/contracts/ops.md` section 4,
 /// `docs/contracts/errors.md` section 2).
@@ -64,12 +65,15 @@ impl LogSink for MemoryLogSink {
 #[derive(Clone)]
 pub struct RuntimeConfig {
     pub log_sink: Arc<dyn LogSink>,
+    /// Outbound `fetch`: resolver, node-blocked addresses, trust anchors.
+    pub fetch: FetchConfig,
 }
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
         RuntimeConfig {
             log_sink: Arc::new(StderrLogSink),
+            fetch: FetchConfig::default(),
         }
     }
 }

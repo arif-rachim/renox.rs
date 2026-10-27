@@ -28,6 +28,7 @@ fn runtime_with_sink() -> (Runtime, Arc<MemoryLogSink>) {
     let sink = Arc::new(MemoryLogSink::default());
     let rt = Runtime::new(RuntimeConfig {
         log_sink: sink.clone(),
+        ..Default::default()
     });
     (rt, sink)
 }

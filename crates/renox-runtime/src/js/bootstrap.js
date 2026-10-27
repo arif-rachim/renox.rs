@@ -8,9 +8,15 @@
 // op functions imported below, or `Deno.core`.
 
 import { core, primordials } from "ext:core/mod.js";
-import { op_deadline_remaining_ms } from "ext:core/ops";
+import {
+  op_deadline_remaining_ms,
+  op_renox_fetch,
+  op_fetch_body_close,
+  op_fetch_body_read,
+} from "ext:core/ops";
 import { Request } from "ext:deno_fetch/23_request.js";
-import { ResponsePrototype } from "ext:deno_fetch/23_response.js";
+import { Response, ResponsePrototype } from "ext:deno_fetch/23_response.js";
+import { ReadableStream } from "ext:deno_web/06_streams.js";
 import { URL } from "ext:deno_url/00_url.js";
 
 const {
@@ -73,6 +79,72 @@ function toRenoxError(e) {
     details = undefined;
   }
   return new RenoxError(code, msg.slice(second + 1), details ?? undefined);
+}
+
+// ---------------------------------------------------------------------------
+// fetch (ops.md section 2). Replaces the global `fetch`; also `ctx.fetch`.
+
+async function renoxFetch(input, init = undefined) {
+  const token = currentToken();
+  // Normalise everything through the standard Request so headers, methods,
+  // and bodies follow the Fetch spec; then hand plain values to Rust.
+  const req = new Request(input, init);
+  const method = StringPrototypeToUpperCase(req.method);
+  const headers = [];
+  for (const pair of new SafeArrayIterator([...req.headers])) {
+    ArrayPrototypePush(headers, [pair[0], pair[1]]);
+  }
+  let body = null;
+  if (req.body !== null) {
+    body = new Uint8Array(await req.arrayBuffer());
+  }
+  let head;
+  try {
+    head = await op_renox_fetch(token, {
+      method,
+      url: req.url,
+      headers,
+      body,
+      redirect: req.redirect,
+    });
+  } catch (e) {
+    throw toRenoxError(e);
+  }
+  const rid = head.body;
+  let stream = null;
+  if (rid !== null) {
+    stream = new ReadableStream({
+      type: "bytes",
+      async pull(controller) {
+        let chunk;
+        try {
+          chunk = await op_fetch_body_read(currentToken(), rid);
+        } catch (e) {
+          controller.error(toRenoxError(e));
+          return;
+        }
+        if (chunk === null) {
+          controller.close();
+          // A closed bytes stream may still have a pending BYOB request.
+          controller.byobRequest?.respond(0);
+        } else {
+          controller.enqueue(chunk);
+        }
+      },
+      cancel() {
+        op_fetch_body_close(rid);
+      },
+    });
+  }
+  const res = new Response(stream, {
+    status: head.status,
+    statusText: head.statusText,
+    headers: head.headers,
+  });
+  // `url` and `redirected` are read-only getters on Response.
+  ObjectDefineProperty(res, "url", { value: head.url, enumerable: true });
+  ObjectDefineProperty(res, "redirected", { value: head.redirected, enumerable: true });
+  return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +227,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody) 
         params: ObjectFreeze(params),
         headers: req.headers,
         deadline,
+        fetch: renoxFetch,
       });
       p = PromiseResolve(handler(ctx));
     } catch (e) {
@@ -176,7 +249,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody) 
 const REMOVED_GLOBALS = [
   // File system, environment, sockets, subprocesses, Deno.core.
   "Deno",
-  // Outbound connections that would bypass op_fetch.
+  // Outbound connections that would bypass op_renox_fetch.
   "WebSocket",
   "WebSocketStream",
   "EventSource",
@@ -223,6 +296,13 @@ function harden() {
   for (const name of new SafeArrayIterator(ObjectGetOwnPropertyNames(globalThis))) {
     if (StringPrototypeStartsWith(name, "GPU")) ReflectDeleteProperty(globalThis, name);
   }
+  // fetch: the op_renox_fetch-backed implementation (ops.md section 2).
+  ObjectDefineProperty(globalThis, "fetch", {
+    value: renoxFetch,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
   // Shared WebAssembly.Memory would hand out a SharedArrayBuffer; the V8
   // flag hides only the constructor. The descriptor is copied first so a
   // getter cannot answer differently on the second read. A wasm module that

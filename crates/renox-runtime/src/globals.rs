@@ -7,6 +7,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use deno_core::{OpDecl, OpState, op2};
 
+use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
 use crate::ops::request::{RequestTable, op_deadline_remaining_ms};
 
 /// Our own time origin for the coarsened clock ops.
@@ -61,7 +62,15 @@ fn middleware(op: OpDecl) -> OpDecl {
 
 deno_core::extension!(
     renox,
-    ops = [op_deadline_remaining_ms, op_renox_now, op_renox_time_origin, op_renox_no_exit],
+    ops = [
+        op_deadline_remaining_ms,
+        op_renox_fetch,
+        op_fetch_body_read,
+        op_fetch_body_close,
+        op_renox_now,
+        op_renox_time_origin,
+        op_renox_no_exit,
+    ],
     esm_entry_point = "ext:renox/bootstrap.js",
     esm = [dir "src/js", "bootstrap.js"],
     middleware = middleware,

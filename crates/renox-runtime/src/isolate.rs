@@ -43,6 +43,8 @@ use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
 use crate::manifest::{Artifact, CodeFormat, LoadError, load_artifact};
+use crate::ops::fetch::{FetchEnv, close_request_bodies};
+use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
 use crate::router::{ParamValue, RouteMatch, Router};
 use crate::runtime::{LogLine, Runtime};
@@ -262,6 +264,7 @@ pub struct IsolateHandle {
     spec: Arc<IsolateSpec>,
     artifact: Arc<Artifact>,
     router: Arc<Router>,
+    allowlist: Arc<Allowlist>,
     limits: Limits,
     concurrency: ConcurrencyLimit,
     seq: AtomicU64,
@@ -285,6 +288,9 @@ impl IsolateHandle {
         }
         let router = Router::new(&artifact.manifest.routes)
             .map_err(|e| CreateError::Manifest(e.to_string()))?;
+        // V9: an invalid network entry fails the deployment (fail closed).
+        let allowlist = Allowlist::parse(&artifact.manifest.permissions.network)
+            .map_err(|e| CreateError::Manifest(e.to_string()))?;
         let limits = spec
             .limits
             .with_overrides(artifact.manifest.limits.as_ref());
@@ -293,6 +299,7 @@ impl IsolateHandle {
             spec: Arc::new(spec),
             artifact: Arc::new(artifact),
             router: Arc::new(router),
+            allowlist: Arc::new(allowlist),
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
             seq: AtomicU64::new(0),
@@ -344,6 +351,7 @@ impl IsolateHandle {
             spec: self.spec.clone(),
             artifact: self.artifact.clone(),
             limits: self.limits,
+            allowlist: self.allowlist.clone(),
             shared: shared.clone(),
         };
         let name = format!(
@@ -630,6 +638,7 @@ struct ThreadContext {
     spec: Arc<IsolateSpec>,
     artifact: Arc<Artifact>,
     limits: Limits,
+    allowlist: Arc<Allowlist>,
     shared: Arc<ThreadShared>,
 }
 
@@ -771,6 +780,18 @@ async fn create_worker(
         v8_handle.terminate_execution();
     }))
     .map_err(|e| CreateError::Internal(format!("cpu watchdog: {e}")))?;
+    // op_fetch's environment (ops.md section 2), before any tenant code.
+    worker
+        .js_runtime
+        .op_state()
+        .borrow_mut()
+        .put(Rc::new(FetchEnv::new(
+            (*ctx.allowlist).clone(),
+            ctx.runtime.inner.config.fetch.clone(),
+            ctx.spec.tenant_id.clone(),
+            ctx.spec.deployment_hash.clone(),
+            ctx.runtime.inner.config.log_sink.clone(),
+        )));
     let guards = Guards {
         watchdog,
         heap: heap_flag,
@@ -929,6 +950,9 @@ struct InFlight {
     /// CPU of the current slice that ran before this request joined it (ns).
     slice_offset_ns: u64,
     peak_heap: u64,
+    /// `fetch_sent_bytes`, `fetch_received_bytes`, `fetch_blocked`, taken
+    /// when the request ends.
+    fetch: (u64, u64, u64),
     reply: Option<oneshot::Sender<ThreadReply>>,
 }
 
@@ -940,9 +964,9 @@ impl InFlight {
             status,
             cpu_ms: (self.cpu_ns as f64 / 1_000.0).round() / 1_000.0,
             peak_heap_bytes: self.peak_heap,
-            fetch_sent_bytes: 0,
-            fetch_received_bytes: 0,
-            fetch_blocked: 0,
+            fetch_sent_bytes: self.fetch.0,
+            fetch_received_bytes: self.fetch.1,
+            fetch_blocked: self.fetch.2,
         }
     }
 }
@@ -1010,7 +1034,7 @@ async fn serve(
                         slice_budget(cpu_limit, &inflight)
                             .min(Duration::from_nanos(offset) + cpu_limit),
                     );
-                    match start_dispatch(worker, platform, *job) {
+                    match start_dispatch(worker, platform, ctx.limits.egress_bytes, *job) {
                         Ok((fut, mut flight)) => {
                             flight.slice_offset_ns = offset;
                             inflight.insert(seq, flight);
@@ -1030,7 +1054,7 @@ async fn serve(
                 Some(Command::Cancel { seq, meter }) => {
                     if let Some(mut f) = inflight.remove(&seq) {
                         f.charge(slice_cpu(&watch));
-                        end_request(worker, f.token);
+                        f.fetch = end_request(worker, f.token);
                         let _ = meter.send(f.meter(ctx, MeterStatus::Timeout));
                     }
                 }
@@ -1067,8 +1091,8 @@ async fn serve(
                     inflight.insert(seq, flight);
                     break;
                 }
+                flight.fetch = end_request(worker, flight.token);
                 let reply = finish_dispatch(ctx, worker, &flight, result);
-                end_request(worker, flight.token);
                 if let Some(tx) = flight.reply.take() {
                     let _ = tx.send(reply);
                 }
@@ -1097,6 +1121,7 @@ async fn serve(
         if let Some((code, status)) = killed {
             ctx.shared.poisoned.store(true, Ordering::SeqCst);
             for (_, mut flight) in inflight.drain() {
+                flight.fetch = end_request(worker, flight.token);
                 let mut f = serde_json::Map::new();
                 f.insert("code".into(), code.as_str().into());
                 f.insert(
@@ -1153,9 +1178,21 @@ async fn serve(
     .await;
 }
 
-fn end_request(worker: &mut MainWorker, token: u32) {
+/// End a request: its token stops working, its pending ops are cancelled,
+/// its fetch bodies are closed. Returns its fetch meter fields.
+fn end_request(worker: &mut MainWorker, token: u32) -> (u64, u64, u64) {
     let state = worker.js_runtime.op_state();
-    state.borrow_mut().borrow_mut::<RequestTable>().end(token);
+    let mut state = state.borrow_mut();
+    let Some(request) = state.borrow_mut::<RequestTable>().end(token) else {
+        return (0, 0, 0);
+    };
+    let request = request.borrow();
+    close_request_bodies(&mut state, &request);
+    (
+        request.egress.sent.load(Ordering::Relaxed),
+        request.egress.received.load(Ordering::Relaxed),
+        request.fetch_blocked,
+    )
 }
 
 fn log_line(
@@ -1177,13 +1214,20 @@ fn log_line(
 
 type StartResult = Result<(CallFuture, InFlight), (oneshot::Sender<ThreadReply>, ErrorCode)>;
 
-fn start_dispatch(worker: &mut MainWorker, platform: &Platform, job: DispatchJob) -> StartResult {
+fn start_dispatch(
+    worker: &mut MainWorker,
+    platform: &Platform,
+    egress_limit_bytes: u64,
+    job: DispatchJob,
+) -> StartResult {
     let token = {
         let state = worker.js_runtime.op_state();
         let mut state = state.borrow_mut();
-        state
-            .borrow_mut::<RequestTable>()
-            .begin(RequestState::new(job.ctx.deadline))
+        state.borrow_mut::<RequestTable>().begin(RequestState::new(
+            job.ctx.request_id.clone(),
+            job.ctx.deadline,
+            egress_limit_bytes,
+        ))
     };
     let args = {
         let scope = &mut worker.js_runtime.handle_scope();
@@ -1206,6 +1250,7 @@ fn start_dispatch(worker: &mut MainWorker, platform: &Platform, job: DispatchJob
             cpu_ns: 0,
             slice_offset_ns: 0,
             peak_heap: 0,
+            fetch: (0, 0, 0),
             reply: Some(job.reply),
         },
     ))

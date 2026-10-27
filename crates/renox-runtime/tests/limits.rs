@@ -23,6 +23,7 @@ fn runtime() -> (Runtime, Arc<MemoryLogSink>) {
     (
         Runtime::new(RuntimeConfig {
             log_sink: sink.clone(),
+            ..Default::default()
         }),
         sink,
     )

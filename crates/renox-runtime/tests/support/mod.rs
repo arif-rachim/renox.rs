@@ -112,3 +112,20 @@ pub fn percentile(sorted: &[Duration], p: f64) -> Duration {
     let idx = ((sorted.len() as f64 - 1.0) * p).round() as usize;
     sorted[idx]
 }
+
+pub mod http_server;
+
+/// A resolver with fixed answers (`renox_runtime::ops::fetch::Resolve`).
+pub struct StaticResolver(pub std::collections::HashMap<String, Vec<std::net::IpAddr>>);
+
+impl renox_runtime::ops::fetch::Resolve for StaticResolver {
+    fn lookup<'a>(
+        &'a self,
+        host: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = std::io::Result<Vec<std::net::IpAddr>>> + Send + 'a>,
+    > {
+        let answer = self.0.get(host).cloned();
+        Box::pin(async move { answer.ok_or_else(|| std::io::Error::other("NXDOMAIN")) })
+    }
+}
