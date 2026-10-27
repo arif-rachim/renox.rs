@@ -1,0 +1,10 @@
+[app]
+name = "full"
+timezone = "Asia/Dubai"
+
+[permissions]
+network = ["api.example.com"]
+secrets = ["API_KEY"]
+
+[limits]
+cpu_ms = 40
