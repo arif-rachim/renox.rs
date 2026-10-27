@@ -9,18 +9,31 @@
 
 import { core, primordials } from "ext:core/mod.js";
 import {
+  op_db_execute,
+  op_db_query,
+  op_db_query_one,
+  op_db_tx_begin,
+  op_db_tx_commit,
+  op_db_tx_rollback,
   op_deadline_remaining_ms,
   op_renox_fetch,
   op_fetch_body_close,
   op_fetch_body_read,
+  op_log,
+  op_secrets_get_all,
 } from "ext:core/ops";
 
 const {
+  ArrayIsArray,
+  ArrayPrototypeJoin,
+  ArrayPrototypeMap,
   ArrayPrototypePush,
+  BigInt,
   Error,
   ErrorPrototype,
   ObjectDefineProperty,
   ObjectFreeze,
+  ObjectKeys,
   ObjectGetOwnPropertyDescriptor,
   ObjectGetOwnPropertyNames,
   ObjectGetPrototypeOf,
@@ -32,9 +45,12 @@ const {
   ReflectDeleteProperty,
   SafeArrayIterator,
   String,
+  StringPrototypeIsWellFormed,
   StringPrototypeStartsWith,
   StringPrototypeToUpperCase,
+  SafeWeakSet,
   TypeError,
+  TypedArrayPrototypeGetSymbolToStringTag,
   Uint8Array,
 } = primordials;
 
@@ -157,6 +173,251 @@ async function renoxFetch(input, init = undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// Database (ops.md section 1): ctx.db and the statements of a transaction.
+// Contract version 1.0.0-f1; the published types are sdk/ (ctx.d.ts).
+//
+// Parameters cross as [tag, number, string] with the bytes of Uint8Array
+// parameters in a second list; Rust (ops/db.rs, convert_params) decides
+// what binds and what is refused, so the rules live in one place.
+
+const PARAM_NULL = 0;
+const PARAM_BOOL = 1;
+const PARAM_NUMBER = 2;
+const PARAM_BIGINT = 3;
+const PARAM_STRING = 4;
+const PARAM_BYTES = 5;
+const PARAM_UNSUPPORTED = 6;
+const PARAM_ILL_FORMED = 7;
+
+function isUint8Array(v) {
+  return TypedArrayPrototypeGetSymbolToStringTag(v) === "Uint8Array";
+}
+
+function encodeParams(params) {
+  if (params === undefined || params === null) params = [];
+  if (!ArrayIsArray(params)) {
+    throw new RenoxError("RENOX_DB_PARAM", "params must be an array");
+  }
+  const wire = [];
+  const bytes = [];
+  for (let i = 0; i < params.length; i++) {
+    const v = params[i];
+    switch (typeof v) {
+      case "boolean":
+        ArrayPrototypePush(wire, [PARAM_BOOL, v ? 1 : 0, null]);
+        break;
+      case "number":
+        ArrayPrototypePush(wire, [PARAM_NUMBER, v, null]);
+        break;
+      case "bigint":
+        ArrayPrototypePush(wire, [PARAM_BIGINT, null, String(v)]);
+        break;
+      case "string":
+        ArrayPrototypePush(
+          wire,
+          StringPrototypeIsWellFormed(v) ? [PARAM_STRING, null, v] : [PARAM_ILL_FORMED, null, null],
+        );
+        break;
+      default:
+        if (v === null) {
+          ArrayPrototypePush(wire, [PARAM_NULL, null, null]);
+        } else if (isUint8Array(v)) {
+          ArrayPrototypePush(wire, [PARAM_BYTES, null, null]);
+          ArrayPrototypePush(bytes, v);
+        } else {
+          const name = v === undefined ? "undefined" : (TypedArrayPrototypeGetSymbolToStringTag(v) ?? typeof v);
+          ArrayPrototypePush(wire, [PARAM_UNSUPPORTED, null, name]);
+        }
+    }
+  }
+  return [wire, bytes];
+}
+
+/** A result cell: [decimal] is a bigint (an INTEGER beyond 2^53 - 1). */
+function decodeCell(v) {
+  return ArrayIsArray(v) ? BigInt(v[0]) : v;
+}
+
+function toRows(out) {
+  const { columns, rows } = out;
+  return ArrayPrototypeMap(rows, (cells) => {
+    const row = {};
+    for (let i = 0; i < columns.length; i++) {
+      ObjectDefineProperty(row, columns[i], {
+        value: decodeCell(cells[i]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return row;
+  });
+}
+
+async function dbCall(op, sql, params, tx) {
+  const token = currentToken();
+  if (typeof sql !== "string") throw new RenoxError("RENOX_DB_PARAM", "sql must be a string");
+  const [wire, bytes] = encodeParams(params);
+  try {
+    return await op(token, sql, wire, bytes, tx);
+  } catch (e) {
+    throw toRenoxError(e);
+  }
+}
+
+function statements(tx) {
+  return ObjectFreeze({
+    async query(sql, params) {
+      return toRows(await dbCall(op_db_query, sql, params, tx));
+    },
+    async queryOne(sql, params) {
+      const rows = toRows(await dbCall(op_db_query_one, sql, params, tx));
+      return rows.length === 0 ? null : rows[0];
+    },
+    async execute(sql, params) {
+      const r = await dbCall(op_db_execute, sql, params, tx);
+      return { changes: r.changes, lastInsertRowid: decodeCell(r.lastInsertRowid) };
+    },
+  });
+}
+
+const db = ObjectFreeze({
+  ...statements(0),
+  /** IMMEDIATE transaction: commit when fn resolves, rollback when it throws. */
+  async transaction(fn) {
+    const token = currentToken();
+    let tx;
+    try {
+      tx = await op_db_tx_begin(token, "immediate");
+    } catch (e) {
+      throw toRenoxError(e);
+    }
+    let result;
+    try {
+      result = await fn(statements(tx));
+    } catch (e) {
+      try {
+        await op_db_tx_rollback(token, tx);
+      } catch {
+        // The request may have ended; Rust rolls back in that case.
+      }
+      throw e;
+    }
+    try {
+      await op_db_tx_commit(token, tx);
+    } catch (e) {
+      throw toRenoxError(e);
+    }
+    return result;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Logging (ops.md section 4): ctx.log and console. Rust adds tenant,
+// deployment, request, level, and time, redacts secret values, applies the
+// size and rate limits.
+
+/** Field values to JSON (ops.md section 12). */
+function toJson(v, seen) {
+  switch (typeof v) {
+    case "string":
+    case "boolean":
+      return v;
+    case "number":
+      return v === v && v !== Infinity && v !== -Infinity ? v : String(v);
+    case "bigint":
+      return String(v);
+    case "undefined":
+    case "function":
+    case "symbol":
+      return undefined;
+  }
+  if (v === null) return null;
+  if (seen.has(v)) return "[circular]";
+  if (isUint8Array(v)) return `[${v.length} bytes]`;
+  if (ObjectPrototypeIsPrototypeOf(ErrorPrototype, v)) {
+    return { name: safeString(v.name), message: safeString(v.message), stack: safeString(v.stack) };
+  }
+  seen.add(v);
+  try {
+    if (ArrayIsArray(v)) {
+      return ArrayPrototypeMap(v, (x) => toJson(x, seen) ?? null);
+    }
+    const out = {};
+    for (const k of new SafeArrayIterator(ObjectKeys(v))) {
+      const x = toJson(v[k], seen);
+      if (x !== undefined) out[k] = x;
+    }
+    return out;
+  } catch {
+    return "[unprintable]";
+  } finally {
+    seen.delete(v);
+  }
+}
+
+function writeLog(level, message, fields) {
+  try {
+    let f = null;
+    if (fields !== undefined && fields !== null && typeof fields === "object") {
+      f = toJson(fields, new SafeWeakSet());
+      if (typeof f !== "object" || f === null || ArrayIsArray(f)) f = { value: f };
+    }
+    op_log(currentToken(), level, safeString(message), f);
+  } catch {
+    // Logging never throws into tenant code.
+  }
+}
+
+const log = ObjectFreeze({
+  debug: (message, fields) => writeLog("debug", message, fields),
+  info: (message, fields) => writeLog("info", message, fields),
+  warn: (message, fields) => writeLog("warn", message, fields),
+  error: (message, fields) => writeLog("error", message, fields),
+});
+
+/** console arguments to one message: strings as is, the rest as JSON. */
+function formatArgs(args) {
+  return ArrayPrototypeJoin(
+    ArrayPrototypeMap(args, (a) => {
+      if (typeof a === "string") return a;
+      if (ObjectPrototypeIsPrototypeOf(ErrorPrototype, a)) return safeString(a.stack ?? a);
+      try {
+        const j = JSON.stringify(toJson(a, new SafeWeakSet()));
+        return j === undefined ? safeString(a) : j;
+      } catch {
+        return safeString(a);
+      }
+    }),
+    " ",
+  );
+}
+
+const CONSOLE_LEVELS = { debug: "debug", trace: "debug", warn: "warn", error: "error", assert: "error" };
+
+/** A console whose every method goes through op_log (no stdout, no stderr). */
+function makeConsole(original) {
+  const c = {};
+  const names = original ? ObjectKeys(original) : [];
+  for (const name of new SafeArrayIterator(["log", "info", "debug", "warn", "error", "trace", "assert", ...names])) {
+    const level = CONSOLE_LEVELS[name] ?? "info";
+    if (name === "assert") {
+      c.assert = (cond, ...args) => {
+        if (!cond) writeLog(level, formatArgs(["Assertion failed", ...args]));
+      };
+    } else {
+      c[name] = (...args) => writeLog(level, formatArgs(args));
+    }
+  }
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+// Secrets (ops.md section 3): taken once by harden(), before tenant code.
+
+let secrets = ObjectFreeze({});
+
+// ---------------------------------------------------------------------------
 // Request dispatch (ops.md section 11, step 6).
 
 const KIND_OK = 0;
@@ -235,8 +496,11 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody) 
         url: new (urlMod().URL)(url),
         params: ObjectFreeze(params),
         headers: req.headers,
-        deadline,
+        db,
         fetch: renoxFetch,
+        secrets,
+        log,
+        deadline,
       });
       p = PromiseResolve(handler(ctx));
     } catch (e) {
@@ -295,6 +559,11 @@ const REMOVED_GLOBALS = [
 ];
 
 function harden() {
+  // Step 3: the secrets, once (a second call is RENOX_SECRETS_CONSUMED).
+  const s = op_secrets_get_all();
+  const own = {};
+  for (const k of new SafeArrayIterator(ObjectKeys(s))) own[k] = s[k];
+  secrets = ObjectFreeze(own);
   for (const name of new SafeArrayIterator(REMOVED_GLOBALS)) {
     ReflectDeleteProperty(globalThis, name);
     if (ObjectGetOwnPropertyDescriptor(globalThis, name) !== undefined) {
@@ -313,6 +582,13 @@ function harden() {
   for (const name of new SafeArrayIterator(ObjectGetOwnPropertyNames(globalThis))) {
     if (StringPrototypeStartsWith(name, "GPU")) ReflectDeleteProperty(globalThis, name);
   }
+  // console: through op_log, with redaction and the rate limit (section 4).
+  ObjectDefineProperty(globalThis, "console", {
+    value: makeConsole(globalThis.console),
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
   // fetch: the op_renox_fetch-backed implementation (ops.md section 2).
   ObjectDefineProperty(globalThis, "fetch", {
     value: renoxFetch,

@@ -1,0 +1,74 @@
+{
+  "$comment": "Cross-language test vectors for the artifact content hash (docs/contracts/artifact.md section 2). Each vector lists files (artifact-relative path, bytes as base64), the canonical listing, and the hash. Used by crates/renox-cell/tests/artifact.rs (Rust) and the CLI's TypeScript implementation (#32).",
+  "version": 0,
+  "vectors": [
+    {
+      "name": "hello-artifact",
+      "description": "The worked example of artifact.md section 7 (examples/hello); its hash is the directory name.",
+      "files": [
+        {
+          "path": "code/functions/api/hello.js",
+          "content_base64": "Ly8gZXhhbXBsZXMvaGVsbG8vZnVuY3Rpb25zL2FwaS9oZWxsby50cywgdHJhbnNwaWxlZDogR0VUIC9hcGkvaGVsbG8gLT4geyJvayI6dHJ1ZX0KZXhwb3J0IGNvbnN0IEdFVCA9ICgpID0+IFJlc3BvbnNlLmpzb24oeyBvazogdHJ1ZSB9KTsK"
+        },
+        {
+          "path": "manifest.json",
+          "content_base64": "ewogICJhcnRpZmFjdCI6IHsgInZlcnNpb24iOiAwIH0sCiAgImFwcCI6IHsgIm5hbWUiOiAiaGVsbG8iLCAidGltZXpvbmUiOiAiQXNpYS9EdWJhaSIgfSwKICAiY29kZSI6IHsKICAgICJmb3JtYXQiOiAiZXNtLWRpciIsCiAgICAiZW50cnkiOiB7ICJmdW5jdGlvbnMvYXBpL2hlbGxvIjogImZ1bmN0aW9ucy9hcGkvaGVsbG8uanMiIH0KICB9LAogICJyb3V0ZXMiOiBbCiAgICB7ICJraW5kIjogImZ1bmN0aW9uIiwgIm1ldGhvZCI6ICJHRVQiLCAicGF0aCI6ICIvYXBpL2hlbGxvIiwgIm1vZHVsZSI6ICJmdW5jdGlvbnMvYXBpL2hlbGxvIiwgImV4cG9ydCI6ICJHRVQiIH0KICBdLAogICJwZXJtaXNzaW9ucyI6IHsgIm5ldHdvcmsiOiBbXSwgInNlY3JldHMiOiBbXSB9Cn0K"
+        }
+      ],
+      "listing": "d0a85e69becd0fdca4617e7a716558b4a352fe80c8ce803416d15620a54dffef  code/functions/api/hello.js\n30175235319983dd6e043a22c015b54a611444eb16382c55d5a309c078bba4c3  manifest.json\n",
+      "hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a"
+    },
+    {
+      "name": "byte-order",
+      "description": "Paths sorted by UTF-8 bytes: uppercase before lowercase, and '-' (0x2D) < '.' (0x2E) < '/' (0x2F), so 'a-b' < 'a.b' < 'a/b'.",
+      "files": [
+        {
+          "path": "code/Z.js",
+          "content_base64": "Ly8gdXBwZXIK"
+        },
+        {
+          "path": "code/a-b.js",
+          "content_base64": "Ly8gZGFzaAo="
+        },
+        {
+          "path": "code/a.b.js",
+          "content_base64": "Ly8gZG90Cg=="
+        },
+        {
+          "path": "code/a/b.js",
+          "content_base64": "ZXhwb3J0IGNvbnN0IHggPSAxOwo="
+        },
+        {
+          "path": "manifest.json",
+          "content_base64": "e30K"
+        }
+      ],
+      "listing": "53fa934f091e410d8d8492c2a2b78162563817adeb3c7a105111c5b6d2f49846  code/Z.js\n7a3c0e7ab42e8ef9a28aec50ab854ec1fe73b97d97f3982359c0d00f0dd5782a  code/a-b.js\n61833bf0bc457a5993007bc1287763513752bd48fe86fcbe65210c8a93f095ba  code/a.b.js\nb40dedde60828bf61d1fadbfc3bb7ea2e0421e9511d22f1b5fb44ae5ba07dbb3  code/a/b.js\nca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356  manifest.json\n",
+      "hash": "e40d4e2a282d727a27ee2e188fdb7e6874e0826510742c437fd03450d5d93595"
+    },
+    {
+      "name": "unicode-and-binary",
+      "description": "An NFC non-ASCII path (bytes order after ASCII), an empty file, and binary content with NUL, CR, and 0xFF bytes.",
+      "files": [
+        {
+          "path": "manifest.json",
+          "content_base64": "eyJrIjoxfQ=="
+        },
+        {
+          "path": "public/blob.bin",
+          "content_base64": "AAECDQr//gA="
+        },
+        {
+          "path": "public/café.txt",
+          "content_base64": "cWFod2Eg4piVCg=="
+        },
+        {
+          "path": "public/empty.txt",
+          "content_base64": ""
+        }
+      ],
+      "listing": "a0da1fce57d0e4f9f0ae4e4cbe040d34dcc046255c6c8d18e97f55aaed0655f0  manifest.json\n6154c05e72c3bd19a24268dd6517812e9c0dc46080dbd31b3c2c24eaf9382282  public/blob.bin\n3f2e7e41c34fff6bc68ba5463c6fe3b759e532d14a00b06ba89395e6821a7777  public/café.txt\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  public/empty.txt\n",
+      "hash": "1a24adb463fcd76aa3dde13816f03ea357c1d52c76410be0e2fa7e66f0cf50d8"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "B11",
+  "scenario": "examples/hello GET /api/hello on renox-worker (release), 64 keep-alive connections, 30 s warm-up + 60 s per run, median of 3 runs (bun load generator on the same machine)",
+  "notes": "run 1: 19433 req/s, p50 3.07 ms, p99 7.737 ms, 0 errors (bun); run 2: 18871 req/s, p50 3.078 ms, p99 8.917 ms, 0 errors (bun); run 3: 18897 req/s, p50 3.115 ms, p99 8.381 ms, 0 errors (bun)",
+  "samples": {
+    "req_per_s": [
+      19433,
+      18871,
+      18897
+    ]
+  },
+  "summary": {
+    "req_per_s": 18897,
+    "p50_ms": 3.115,
+    "p99_ms": 8.381,
+    "worker_rss_mb": 118.7,
+    "run1_req_per_s": 19433,
+    "run1_p99_ms": 7.737,
+    "run2_req_per_s": 18871,
+    "run2_p99_ms": 8.917,
+    "run3_req_per_s": 18897,
+    "run3_p99_ms": 8.381
+  }
+}

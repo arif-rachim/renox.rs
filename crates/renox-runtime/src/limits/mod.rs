@@ -28,6 +28,9 @@ pub struct Limits {
     pub module_cpu_ms: u64,
     /// Wall-clock budget for evaluating the tenant modules at isolate start.
     pub module_wall_ms: u64,
+    /// Log lines per tenant per minute; over it lines are dropped (`ops.md`
+    /// section 4).
+    pub log_lines_per_min: u64,
 }
 
 impl Limits {
@@ -40,6 +43,7 @@ impl Limits {
         egress_bytes: 10 * 1024 * 1024,
         module_cpu_ms: 500,
         module_wall_ms: 10_000,
+        log_lines_per_min: 1_000,
     };
 
     /// Paid tier (`ops.md` section 10).
@@ -51,6 +55,7 @@ impl Limits {
         egress_bytes: 100 * 1024 * 1024,
         module_cpu_ms: 5_000,
         module_wall_ms: 10_000,
+        log_lines_per_min: 10_000,
     };
 
     /// Apply the manifest's overrides: `min(override, tier)` per field, so

@@ -12,7 +12,8 @@ Public surface (issue #25):
 
 ```rust
 let rt = Runtime::new(RuntimeConfig { log_sink });                       // once per process
-let iso = rt.create_isolate(IsolateSpec { tenant_id, deployment_hash, artifact_dir, limits, secrets }).await?;
+let db = DbHandle::spawn(TenantDb::open(path, options)?.with_authorizer(AuthorizerPolicy::module("app"))?)?;
+let iso = rt.create_isolate(IsolateSpec { tenant_id, deployment_hash, artifact_dir, limits, secrets, db: Some(db) }).await?;
 let Dispatched { response, meter } = iso.dispatch(RequestCtx { request_id, deadline }, http_request).await;
 iso.terminate();
 ```
@@ -68,7 +69,7 @@ Deno 0.268 keeps many extension scripts out of the snapshot and loads them on fi
 
 `src/router.rs` matches `manifest.routes[]` by method and path (static beats `:param` beats `*catch-all`, percent-decoded segments, no trailing-slash normalisation). No match → 404 and a method mismatch → 405 with `Allow`, both answered in Rust without entering the isolate (no meter record, `meter.md` section 1). `HEAD` uses the `GET` route and drops the body.
 
-The bootstrap's `dispatch` runs the handler with a frozen `ctx` (`req`, `url`, `params`, `headers`, `deadline`; `db`, `secrets`, `log` come with #28) inside a fresh async context carrying the request token. A handler that throws, or returns something that is not a `Response`, produces 500 `RENOX_INTERNAL` with the fixed message of `errors.md` and the request id; the error name, message, and stack go to the tenant log sink only.
+The bootstrap's `dispatch` runs the handler with a frozen `ctx` (`req`, `url`, `params`, `headers`, `db`, `fetch`, `secrets`, `log`, `deadline`, as `docs/contracts/ctx.d.ts` of contract 1.0.0-f1 declares them) inside a fresh async context carrying the request token. A handler that throws, or returns something that is not a `Response`, produces 500 `RENOX_INTERNAL` with the fixed message of `errors.md` and the request id; the error name, message, and stack go to the tenant log sink only.
 
 **Request scope.** `ops.md` section 0 asks #25 to prove that the request token survives `await`, timers, and promise continuations (`tests/dispatch.rs`, `request_scope_follows_async_context`). It does: the token lives in a `deno_core` `AsyncVariable` (continuation-preserved embedder data), so concurrent requests on one isolate each see their own token, and the one-request-per-isolate fallback is not needed. A timer that fires after its request ended gets `RENOX_NO_REQUEST`. The bootstrap reads the token and passes it to each op as the first argument; the ops are captured in the bootstrap's closures and are unreachable from tenant code, so tenant code cannot supply a token of its own, and Rust refuses a token that is not live.
 
@@ -130,7 +131,32 @@ Applied by the bootstrap's `harden()` after `deno_runtime` has bootstrapped the 
 | Unhandled promise rejections | `preventDefault()` in an `unhandledrejection` listener | A stray promise in tenant code must not end the isolate's event loop |
 | `eval`, `new Function`, `WebAssembly.compile` | Kept | npm packages need them; the code still runs under the isolate's limits |
 | `fetch` | Replaced by the `op_renox_fetch`-backed implementation (same function as `ctx.fetch`); see "Outbound fetch" | Allowlist and blocked ranges |
-| `console` | Deno's console (stdout/stderr) until #28 replaces it with `op_log` | — |
+| `console` | Replaced by an object whose every method (`log`, `info`, `debug`, `warn`, `error`, `trace`, `assert`, `table`, ...) formats its arguments and calls `op_log` | Nothing reaches stdout or stderr; redaction and the rate limit apply (see "Database, secrets, logs") |
+
+## Database, secrets, logs
+
+Issue #28; contract `ops.md` sections 1, 3, 4, 5. Code: `src/ops/db.rs`, `src/ops/secrets.rs`, `src/ops/log.rs`, `src/ops/deadline.rs`, and the `ctx.db` / `ctx.log` / `console` glue in `src/js/bootstrap.js`.
+
+**DB thread.** `TenantDb` (`renox-data`) is `Send` but not `Sync` and its `transaction` takes a closure, while `db.transaction(async (tx) => ...)` runs JavaScript between statements. So the cell moves each tenant file onto its own thread with `DbHandle::spawn(db)` and puts the handle in `IsolateSpec.db` (one thread per tenant file, shared by every isolate of the tenant and surviving isolate recycles). Ops send a job and await the reply, so a statement never blocks the isolate thread. A transaction is the DB thread sitting inside `TenantDb::transaction`, serving that transaction's statements until its commit or rollback arrives. Meanwhile reads without a transaction run on a reader connection; writes without a transaction, another `begin`, and `DbHandle::call` jobs wait in a queue for at most `min(busy_timeout, deadline)` and then fail with `RENOX_DB_BUSY`. The thread rolls a transaction back by itself at its request's deadline, and when its `begin` reply finds the requester gone. `DbHandle::call(|db| ...)` runs migrations, checkpoints, and stats on the thread; `DbHandle::close()` rolls back, truncates the WAL, and closes the file.
+
+| Rule | Where |
+| --- | --- |
+| Parameters: `null`, `boolean` (1/0), `number` (INTEGER when integral within ±(2^53 − 1), else REAL; `NaN`/`Infinity` refused), `bigint` (i64, else refused), `string` (lone surrogates refused), `Uint8Array` (copied); anything else `RENOX_DB_PARAM` with `details.index` | `db::convert_params`; the bootstrap only tags values |
+| Results: INTEGER beyond ±(2^53 − 1) → `bigint`, BLOB → fresh `Uint8Array`, rows as plain objects in column order | `db::rows_out`, `toRows` in the bootstrap |
+| SQL ≤ 100 KB, ≤ 1,000 parameters (`RENOX_DB_PARAM`); ≤ 10,000 rows and ≤ 8 MB per call (`RENOX_DB_RESULT_LIMIT`) | `db.rs` constants. The row and byte limits are checked after `renox-data` returns the rows, so a large result is materialised once in Rust before it is refused |
+| Statement deadline: the request deadline goes into `QueryCtx` | every statement |
+| Errors: `DbError::code()` as `code`; `details` `{ table, action }` for `RENOX_DB_AUTH`, `{ kind }` for `RENOX_DB_CONSTRAINT`; message redacted; `DbError::Open` becomes the fixed text "The database is not available." | `db::error_details`, `db::error_message`. `renox-data` messages never contain the file path (`tests/ops.rs`, `no_database_error_shows_a_path`) |
+| One transaction per request (`RENOX_DB_TX_STATE` on nesting); every transaction is `immediate` (`mode: "deferred"` is accepted and treated as immediate) | `op_db_tx_begin` |
+| A transaction still open when the request ends for any reason is rolled back, logged when the dispatch finished, and counted in `RuntimeMetrics::rolled_back_transactions`; the ones whose request was terminated (CPU, heap, deadline, throw, disposal) also in `rolled_back_on_termination` | `src/request_resources.rs` (#89), called by `end_request` on every end path |
+| `db_ms`, `db_rows` per request: the `DbStats` difference around each statement on the DB thread | `InvocationMeter` |
+
+**Secrets.** `IsolateSpec.secrets` holds what the tenant has set; only the names in `manifest.permissions.secrets` reach the isolate. A declared value under 8 bytes fails creation with `RENOX_INTERNAL` and a log line naming the secret. `harden()` calls `op_secrets_get_all` once (a second call is `RENOX_SECRETS_CONSUMED`) and keeps `Object.freeze` of the result for every `ctx`.
+
+**Logs.** Every line for the tenant goes through `RedactingSink`, which replaces each secret value (any length ≥ 8, declared or not) in the message, the field keys and values, and the request id with `[redacted]`: `op_log` lines, the dispatch wrapper's lines for a throw (message and stack), and the fetch op's lines. `op_log` adds the tenant, deployment, and request (`null` at module top level), moves tenant fields named `ts`, `tenant_id`, `deployment_hash`, `request_id`, `module`, `level` to `user_<name>`, truncates messages at 8 KB and fields at 16 KB, and applies the per-tenant rate limit (`Limits::log_lines_per_min`, 1,000 free / 10,000 paid, per process): over it lines are dropped and counted in `logs_dropped`, and the first line of the next window is preceded by a `{"dropped": N}` summary. `NdjsonLogSink` writes one JSON object per line (`ts` in RFC 3339 UTC, `level`, `tenant_id`, `deployment_hash`, `request_id`, `module`, `message`, `fields`) to stdout or any writer; the control-plane sink is F3. Field values the bootstrap converts first: `bigint` → string, `Uint8Array` → `"[N bytes]"`, `Error` → `{ name, message, stack }`, cycles → `"[circular]"`, functions and symbols dropped.
+
+### Release on termination (#89)
+
+`src/request_resources.rs`: each request's `RequestResources` registers its open transaction and its open fetch bodies. `drain` runs on every path that ends a request (handler returned or threw, deadline, CPU limit, heap limit, event-loop error, isolate disposal), on the isolate thread, before the reply is sent and before a poisoned isolate is dropped: the rollback reaches the DB thread ahead of anything the next request sends. Fetches still waiting for headers are futures cancelled by the request's `CancelHandle` and dropped with the isolate, which closes their connections. The DB thread adds a second net: it rolls a transaction back by itself at its request's deadline. Tests: `tests/termination.rs`.
 
 ## Thread model
 

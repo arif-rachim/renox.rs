@@ -36,7 +36,7 @@ use crate::ops::net_policy::{
     Allowlist, BlockReason, Blocked, CREDENTIAL_HEADERS, RedirectError, Target, TargetHost,
     is_redirect, method_blocked, redirect_target,
 };
-use crate::ops::request::{RequestState, live_request, op_error};
+use crate::ops::request::{live_request, op_error};
 use crate::runtime::{LogLine, LogSink};
 
 /// Concurrent fetches per request (`ops.md` section 2, "Limits").
@@ -493,7 +493,7 @@ pub(crate) async fn op_renox_fetch(
                     token,
                     open,
                 });
-                request.borrow_mut().fetch_bodies.push(rid);
+                request.borrow_mut().resources.fetch_bodies.push(rid);
                 Some(rid)
             };
             Ok(FetchResponseHead {
@@ -599,12 +599,5 @@ pub(crate) fn op_fetch_body_close(state: &mut OpState, token: u32, #[smi] rid: R
         .unwrap_or(false);
     if owned {
         close_rid(state, rid);
-    }
-}
-
-/// Called when a request ends: close every body it still holds.
-pub(crate) fn close_request_bodies(state: &mut OpState, request: &RequestState) {
-    for rid in &request.fetch_bodies {
-        close_rid(state, *rid);
     }
 }

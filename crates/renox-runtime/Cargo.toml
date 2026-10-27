@@ -30,6 +30,8 @@ v8 = { version = "=150.4.0", optional = true }
 eszip = { version = "*", optional = true }
 futures = { version = "0.3", optional = true }
 
+renox-data = { path = "../renox-data" }
+
 bytes = "1"
 http = "1"
 hickory-proto = { version = "0.25", default-features = false, features = ["tokio", "std"] }

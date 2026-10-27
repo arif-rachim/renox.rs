@@ -1,0 +1,559 @@
+//! `CellManager`: implements the gateway's `CellDispatcher`. Looks up or
+//! creates the cell of `(tenant_id, deployment_hash)`, dispatches the request
+//! to its isolate, completes the meter record, and evicts idle and draining
+//! cells (`docs/05-tenant-lifecycle.md`, "Cold start", "Deployment switch",
+//! scale to zero).
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use axum::body::Body;
+use bytes::Bytes;
+use http::{Request, Response};
+use http_body_util::BodyExt;
+use renox_data::{
+    DbError, DbOptions, MigrationError, MigrationFile, TenantDb, migrate_with_checksums,
+};
+use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus};
+use renox_meter::{Meter, MeterRecord, MeterStatus};
+use renox_runtime::error::{ErrorCode, PlatformResponse};
+use renox_runtime::isolate::{CreateError, MeterStatus as RuntimeStatus};
+use renox_runtime::limits::Limits;
+use renox_runtime::ops::db::DbHandle;
+use renox_runtime::{IsolateSpec, Runtime};
+use tokio::sync::OnceCell;
+
+use crate::artifact::{ArtifactError, ArtifactStore};
+use crate::cell::{Cell, CellKey, InFlightGuard, SecretsError, load_secrets, valid_tenant_id};
+use crate::tiers::{TierName, Tiers};
+
+/// What the manager needs from the worker config.
+#[derive(Clone)]
+pub struct ManagerConfig {
+    pub data_dir: PathBuf,
+    /// Verified artifacts by hash (#30).
+    pub artifacts: Arc<dyn ArtifactStore>,
+    pub idle_timeout: Duration,
+    pub tiers: Tiers,
+    pub default_tier: TierName,
+    pub tenant_tiers: BTreeMap<String, TierName>,
+}
+
+impl ManagerConfig {
+    fn tier_of(&self, tenant_id: &str) -> TierName {
+        self.tenant_tiers
+            .get(tenant_id)
+            .copied()
+            .unwrap_or(self.default_tier)
+    }
+}
+
+/// Why a cell could not be created. Messages never contain secret values;
+/// they may name files of the node and go to the operator log only.
+#[derive(Debug)]
+pub enum CellError {
+    InvalidTenant,
+    Artifact(ArtifactError),
+    Db(DbError),
+    Migration(MigrationError),
+    Secrets(SecretsError),
+    Isolate(CreateError),
+}
+
+impl CellError {
+    /// The platform response code for requests waiting on the cell.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            CellError::Isolate(e) => e.code(),
+            _ => ErrorCode::Internal,
+        }
+    }
+}
+
+impl std::fmt::Display for CellError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CellError::InvalidTenant => f.write_str("invalid tenant id"),
+            CellError::Artifact(e) => write!(f, "artifact: {e}"),
+            CellError::Db(e) => write!(f, "database: {e}"),
+            CellError::Migration(e) => write!(f, "migrations: {e:?}"),
+            CellError::Secrets(e) => write!(f, "secrets: {e}"),
+            CellError::Isolate(e) => write!(f, "isolate: {e}"),
+        }
+    }
+}
+
+type Slot = Arc<OnceCell<Arc<Cell>>>;
+
+/// The tenant's database, shared by its cells (one file, one writer).
+#[derive(Default)]
+struct DbSlot {
+    handle: Option<DbHandle>,
+    cells: usize,
+}
+
+struct Inner {
+    runtime: Runtime,
+    meter: Meter,
+    config: ManagerConfig,
+    cells: Mutex<HashMap<CellKey, Slot>>,
+    dbs: Mutex<HashMap<String, Arc<tokio::sync::Mutex<DbSlot>>>>,
+    /// Cells created and evicted since start (operator metrics, tests).
+    created: std::sync::atomic::AtomicU64,
+    evicted: std::sync::atomic::AtomicU64,
+}
+
+/// The cells of this node. Cheap to clone.
+#[derive(Clone)]
+pub struct CellManager {
+    inner: Arc<Inner>,
+}
+
+impl CellManager {
+    pub fn new(runtime: Runtime, meter: Meter, config: ManagerConfig) -> CellManager {
+        CellManager {
+            inner: Arc::new(Inner {
+                runtime,
+                meter,
+                config,
+                cells: Mutex::new(HashMap::new()),
+                dbs: Mutex::new(HashMap::new()),
+                created: Default::default(),
+                evicted: Default::default(),
+            }),
+        }
+    }
+
+    pub fn runtime(&self) -> &Runtime {
+        &self.inner.runtime
+    }
+
+    pub fn meter(&self) -> &Meter {
+        &self.inner.meter
+    }
+
+    /// Live cells (each holds one isolate).
+    pub fn cell_count(&self) -> usize {
+        self.inner
+            .cells
+            .lock()
+            .expect("cells lock")
+            .values()
+            .filter(|s| s.initialized())
+            .count()
+    }
+
+    /// Keys of the live cells.
+    pub fn cells(&self) -> Vec<CellKey> {
+        let mut keys: Vec<CellKey> = self
+            .inner
+            .cells
+            .lock()
+            .expect("cells lock")
+            .iter()
+            .filter(|(_, s)| s.initialized())
+            .map(|(k, _)| k.clone())
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    /// Tenants whose database is open (a slot being opened or closed
+    /// counts as open).
+    pub fn open_databases(&self) -> usize {
+        self.inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .values()
+            .filter(|s| s.try_lock().map_or(true, |g| g.handle.is_some()))
+            .count()
+    }
+
+    pub fn cells_created(&self) -> u64 {
+        self.inner
+            .created
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn cells_evicted(&self) -> u64 {
+        self.inner
+            .evicted
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Mark every cell whose `(tenant, hash)` has no active route entry as
+    /// draining: it is evicted as soon as its in-flight requests finish
+    /// (`docs/05-tenant-lifecycle.md`, "Deployment switch"). Called after
+    /// each route table reload.
+    pub fn sync_routes(&self, entries: &[RouteEntry]) {
+        let active: HashSet<(String, String)> = entries
+            .iter()
+            .filter(|e| e.status == RouteStatus::Active)
+            .map(|e| (e.tenant_id.clone(), e.deployment_hash.clone()))
+            .collect();
+        let cells = self.inner.cells.lock().expect("cells lock");
+        for (key, slot) in cells.iter() {
+            if !active.contains(&(key.tenant_id.clone(), key.deployment_hash.clone()))
+                && let Some(cell) = slot.get()
+            {
+                tracing::info!(tenant_id = %key.tenant_id, deployment_hash = %key.deployment_hash, "cell draining");
+                cell.start_draining();
+            }
+        }
+    }
+
+    /// Admit a request to the cell of `key`, creating the cell if needed. A
+    /// request arriving while the cell is being evicted waits for a fresh one.
+    async fn admit(&self, key: &CellKey) -> Result<Arc<Cell>, CellError> {
+        loop {
+            let slot = {
+                let mut cells = self.inner.cells.lock().expect("cells lock");
+                cells.entry(key.clone()).or_default().clone()
+            };
+            let cell = slot
+                .get_or_try_init(|| self.create(key.clone()))
+                .await?
+                .clone();
+            let cells = self.inner.cells.lock().expect("cells lock");
+            let current = cells.get(key).is_some_and(|s| Arc::ptr_eq(s, &slot));
+            if current && cell.try_admit() {
+                return Ok(cell);
+            }
+        }
+    }
+
+    async fn create(&self, key: CellKey) -> Result<Arc<Cell>, CellError> {
+        if !valid_tenant_id(&key.tenant_id) {
+            return Err(CellError::InvalidTenant);
+        }
+        let started = Instant::now();
+        let tier_name = self.inner.config.tier_of(&key.tenant_id);
+        let tier = *self.inner.config.tiers.get(tier_name);
+        let store = self.inner.config.artifacts.clone();
+        let hash = key.deployment_hash.clone();
+        let artifact_dir = tokio::task::spawn_blocking(move || store.get(&hash))
+            .await
+            .map_err(|e| {
+                CellError::Artifact(ArtifactError::Invalid {
+                    rule: "V2",
+                    reason: format!("verification task failed: {e}"),
+                })
+            })?
+            .map_err(CellError::Artifact)?
+            .path;
+        let db = self.acquire_db(&key.tenant_id, tier.db_quota_bytes).await?;
+        let result = async {
+            run_migrations(&db, &artifact_dir).await?;
+            let secrets_path = self.tenant_dir(&key.tenant_id).join("secrets.json");
+            let secrets = load_secrets(&secrets_path).map_err(CellError::Secrets)?;
+            let base = match tier_name {
+                TierName::Free => Limits::FREE,
+                TierName::Paid => Limits::PAID,
+            };
+            let spec = IsolateSpec {
+                tenant_id: key.tenant_id.clone(),
+                deployment_hash: key.deployment_hash.clone(),
+                artifact_dir: artifact_dir.clone(),
+                limits: tier.runtime_limits(base),
+                secrets,
+                db: Some(db.clone()),
+            };
+            self.inner
+                .runtime
+                .create_isolate(spec)
+                .await
+                .map_err(CellError::Isolate)
+        }
+        .await;
+        let isolate = match result {
+            Ok(i) => i,
+            Err(e) => {
+                self.release_db(&key.tenant_id).await;
+                return Err(e);
+            }
+        };
+        let cell = Arc::new(Cell::new(key.clone(), isolate));
+        self.inner
+            .created
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!(
+            tenant_id = %key.tenant_id,
+            deployment_hash = %key.deployment_hash,
+            tier = ?tier_name,
+            create_ms = started.elapsed().as_millis() as u64,
+            "cell ready"
+        );
+        self.spawn_eviction(cell.clone());
+        Ok(cell)
+    }
+
+    fn tenant_dir(&self, tenant_id: &str) -> PathBuf {
+        self.inner.config.data_dir.join(tenant_id)
+    }
+
+    /// Open the tenant's file (first cell) or share the open handle.
+    async fn acquire_db(&self, tenant_id: &str, quota: u64) -> Result<DbHandle, CellError> {
+        let slot = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .entry(tenant_id.to_string())
+            .or_default()
+            .clone();
+        let mut slot = slot.lock().await;
+        if let Some(h) = slot.handle.clone() {
+            slot.cells += 1;
+            return Ok(h);
+        }
+        let dir = self.tenant_dir(tenant_id);
+        let handle = tokio::task::spawn_blocking(move || -> Result<DbHandle, DbError> {
+            std::fs::create_dir_all(&dir).map_err(|e| DbError::Open(e.kind().to_string()))?;
+            let options = DbOptions {
+                module_prefix: Some("app".into()),
+                ..DbOptions::with_quota_bytes(quota)
+            };
+            let db = TenantDb::open(dir.join("app.db"), options)?;
+            DbHandle::spawn(db).map_err(|e| DbError::Open(e.kind().to_string()))
+        })
+        .await
+        .map_err(|e| CellError::Db(DbError::Open(e.to_string())))?
+        .map_err(CellError::Db)?;
+        slot.handle = Some(handle.clone());
+        slot.cells = 1;
+        Ok(handle)
+    }
+
+    /// The last cell of the tenant closes its file (WAL truncated).
+    async fn release_db(&self, tenant_id: &str) {
+        let Some(slot) = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .cloned()
+        else {
+            return;
+        };
+        let mut guard = slot.lock().await;
+        guard.cells = guard.cells.saturating_sub(1);
+        if guard.cells > 0 {
+            return;
+        }
+        if let Some(h) = guard.handle.take() {
+            match h.close().await {
+                Ok(()) => {}
+                // `TenantDb::close` runs its TRUNCATE checkpoint under the
+                // handle's module authorizer, which refuses the PRAGMA
+                // (renox-data follow-up). The connections are still closed,
+                // and SQLite checkpoints and removes the WAL when the last
+                // one closes (`tests/two_tenants.rs` checks the WAL size).
+                Err(DbError::Auth { .. }) => {
+                    tracing::debug!(
+                        tenant_id,
+                        "tenant database closed; explicit checkpoint refused by the authorizer"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(tenant_id, error = %e, "closing the tenant database failed")
+                }
+            }
+        }
+    }
+
+    /// One task per cell: evict after `idle_timeout` without a request, or
+    /// as soon as a draining cell has nothing in flight.
+    fn spawn_eviction(&self, cell: Arc<Cell>) {
+        let this = self.clone();
+        let idle = self.inner.config.idle_timeout;
+        tokio::spawn(async move {
+            loop {
+                let due = cell.last_used() + idle;
+                if !cell.is_draining() {
+                    tokio::select! {
+                        _ = tokio::time::sleep_until(due.into()) => {}
+                        _ = cell.wake.notified() => {}
+                    }
+                } else if cell.inflight() > 0 {
+                    cell.wake.notified().await;
+                }
+                let evicted = {
+                    let mut cells = this.inner.cells.lock().expect("cells lock");
+                    let mine = cells
+                        .get(&cell.key)
+                        .and_then(|s| s.get())
+                        .is_some_and(|c| Arc::ptr_eq(c, &cell));
+                    if mine && cell.try_mark_evicted(idle) {
+                        cells.remove(&cell.key);
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if evicted {
+                    this.finish_eviction(cell).await;
+                    return;
+                }
+            }
+        });
+    }
+
+    async fn finish_eviction(&self, cell: Arc<Cell>) {
+        tracing::info!(
+            tenant_id = %cell.key.tenant_id,
+            deployment_hash = %cell.key.deployment_hash,
+            draining = cell.is_draining(),
+            "cell evicted"
+        );
+        cell.isolate.terminate();
+        let tenant = cell.key.tenant_id.clone();
+        drop(cell);
+        self.release_db(&tenant).await;
+        self.inner
+            .evicted
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    async fn handle(&self, ctx: RequestCtx, req: Request<Body>) -> Response<Body> {
+        let started_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let t0 = Instant::now();
+        let key = CellKey {
+            tenant_id: ctx.tenant_id.clone(),
+            deployment_hash: ctx.deployment_hash.clone(),
+        };
+        let cell = match self.admit(&key).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    tenant_id = %key.tenant_id,
+                    deployment_hash = %key.deployment_hash,
+                    request_id = %ctx.request_id,
+                    error = %e,
+                    "cell creation failed"
+                );
+                return to_body(PlatformResponse::error(e.code(), &ctx.request_id));
+            }
+        };
+        let _guard = InFlightGuard(&cell);
+        let (parts, body) = req.into_parts();
+        let body = match body.collect().await {
+            Ok(b) => b.to_bytes(),
+            Err(_) => Bytes::new(),
+        };
+        let ingress = body.len() as u64;
+        let rt_ctx = renox_runtime::RequestCtx {
+            request_id: ctx.request_id.clone(),
+            deadline: ctx.deadline,
+        };
+        let out = cell
+            .isolate
+            .dispatch(rt_ctx, Request::from_parts(parts, body))
+            .await;
+        // 404 and 405 answered by route matching produce no record
+        // (`meter.md` section 1).
+        if let Some(route) = out.meter.route.clone() {
+            let m = &out.meter;
+            self.inner.meter.record(MeterRecord {
+                request_id: ctx.request_id.clone(),
+                tenant_id: ctx.tenant_id.clone(),
+                deployment_hash: ctx.deployment_hash.clone(),
+                route,
+                started_at,
+                cpu_ms: m.cpu_ms,
+                wall_ms: t0.elapsed().as_secs_f64() * 1000.0,
+                peak_heap_bytes: m.peak_heap_bytes,
+                ingress_bytes: ingress,
+                egress_bytes: out.response.body().len() as u64,
+                fetch_sent_bytes: m.fetch_sent_bytes,
+                fetch_received_bytes: m.fetch_received_bytes,
+                fetch_blocked: m.fetch_blocked,
+                db_ms: m.db_ms,
+                db_rows: m.db_rows,
+                render_fuel: 0,
+                logs_dropped: m.logs_dropped,
+                http_status: out.response.status().as_u16(),
+                status: meter_status(m.status),
+            });
+        }
+        to_body(out.response)
+    }
+}
+
+fn to_body(r: Response<Bytes>) -> Response<Body> {
+    r.map(Body::from)
+}
+
+fn meter_status(s: RuntimeStatus) -> MeterStatus {
+    match s {
+        RuntimeStatus::Ok => MeterStatus::Ok,
+        RuntimeStatus::Error => MeterStatus::Error,
+        RuntimeStatus::Timeout => MeterStatus::Timeout,
+        RuntimeStatus::CpuLimit => MeterStatus::CpuLimit,
+        RuntimeStatus::Oom => MeterStatus::Oom,
+        RuntimeStatus::BlockedFetch => MeterStatus::BlockedFetch,
+        RuntimeStatus::Busy => MeterStatus::Busy,
+    }
+}
+
+/// Apply the artifact's app migrations (`migrations/app/*.sql`, checked
+/// against `migrations/checksums.json`) on the DB thread.
+async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellError> {
+    let dir = artifact_dir.join("migrations");
+    let app = dir.join("app");
+    if !app.is_dir() {
+        return Ok(());
+    }
+    let sums_text = std::fs::read(dir.join("checksums.json"))
+        .map_err(|_| artifact_err("migrations/checksums.json missing"))?;
+    let sums: ChecksumsFile = serde_json::from_slice(&sums_text)
+        .map_err(|_| artifact_err("migrations/checksums.json invalid"))?;
+    let mut files = Vec::new();
+    let entries = std::fs::read_dir(&app).map_err(|e| artifact_err(format!("migrations: {e}")))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| artifact_err(format!("migrations: {e}")))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(".sql") {
+            continue;
+        }
+        let sql = std::fs::read_to_string(entry.path())
+            .map_err(|e| artifact_err(format!("migration {name}: {e}")))?;
+        files.push(MigrationFile { name, sql });
+    }
+    let checksums = sums.files;
+    let report = db
+        .call(move |db| migrate_with_checksums(db, "app", &files, &checksums))
+        .await
+        .map_err(CellError::Db)?
+        .map_err(CellError::Migration)?;
+    if !report.applied.is_empty() {
+        tracing::info!(applied = ?report.applied, "migrations applied");
+    }
+    Ok(())
+}
+
+fn artifact_err(reason: impl Into<String>) -> CellError {
+    CellError::Artifact(ArtifactError::Invalid {
+        rule: "V11",
+        reason: reason.into(),
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct ChecksumsFile {
+    #[allow(dead_code)]
+    version: u32,
+    files: BTreeMap<String, String>,
+}
+
+impl CellDispatcher for CellManager {
+    async fn dispatch(&self, ctx: RequestCtx, req: Request<Body>) -> Response<Body> {
+        self.handle(ctx, req).await
+    }
+}

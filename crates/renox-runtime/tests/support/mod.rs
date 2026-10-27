@@ -66,6 +66,30 @@ pub fn function_artifact(
     ])
 }
 
+/// Like [`function_artifact`], with declared secrets.
+pub fn function_artifact_with_secrets(
+    source: &str,
+    routes: &[(&str, &str)],
+    secrets: &[&str],
+) -> (PathBuf, String) {
+    let routes_json: Vec<serde_json::Value> = routes
+        .iter()
+        .map(|(m, p)| serde_json::json!({ "kind": "function", "method": m, "path": p, "module": "functions/f", "export": m }))
+        .collect();
+    let manifest = serde_json::json!({
+        "artifact": { "version": 0 },
+        "app": { "name": "test", "timezone": "Asia/Dubai" },
+        "code": { "format": "esm-dir", "entry": { "functions/f": "functions/f.js" } },
+        "routes": routes_json,
+        "permissions": { "network": [], "secrets": secrets }
+    });
+    let manifest = serde_json::to_vec_pretty(&manifest).unwrap();
+    write_artifact(&[
+        ("manifest.json", &manifest),
+        ("code/functions/f.js", source.as_bytes()),
+    ])
+}
+
 pub fn spec(dir: &Path, hash: &str, limits: Limits) -> IsolateSpec {
     IsolateSpec {
         tenant_id: "t_test".into(),
@@ -73,6 +97,7 @@ pub fn spec(dir: &Path, hash: &str, limits: Limits) -> IsolateSpec {
         artifact_dir: dir.to_path_buf(),
         limits,
         secrets: Default::default(),
+        db: None,
     }
 }
 

@@ -1,0 +1,15 @@
+{
+  "name": "@renox/cli",
+  "version": "0.1.0",
+  "description": "The renox CLI: new, build, dev, check (F1)",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "renox": "./src/main.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p .",
+    "test": "bun test",
+    "compile": "bun build --compile src/main.ts --outfile dist/renox"
+  }
+}

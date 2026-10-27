@@ -9,6 +9,11 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required (https://bun.sh)" >&2; exit 1; }
 
+if [[ "${B1_RUNTIME:-worker}" == "worker" ]]; then
+  # F1 (#35): on renox-worker; B1_RUNTIME=edge reruns the F0 measurement.
+  "$here/../../lib/worker.sh" build >/dev/null
+  exec bun "$here/worker.ts" "$BENCH_OUT"
+fi
 "$here/../../edge-runtime/run.sh" --build-only >/dev/null
 trap '"$here/../../edge-runtime/run.sh" --stop' EXIT
 exec bun "$here/measure.ts" "$BENCH_OUT"

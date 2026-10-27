@@ -1,0 +1,44 @@
+# renox-worker configuration (crates/renox-cell/README.md, "Configuration").
+# Relative paths are resolved against this file's directory.
+#
+#   renox-worker --config worker.toml
+#
+# SIGHUP re-reads routes_file.
+
+listen = "127.0.0.1:8080"
+data_dir = "data"            # <data_dir>/<tenant_id>/app.db, secrets.json (mode 0600)
+artifacts_dir = "artifacts"  # <artifacts_dir>/<sha256>/manifest.json, code/, migrations/, public/
+routes_file = "routes.json"  # docs/contracts/schemas/route-table.schema.json
+meters_dir = "meters"        # <meters_dir>/<YYYY-MM-DD>.ndjson
+logs_dir = "logs"            # <logs_dir>/tenant.ndjson
+node_id = "node-local"
+idle_timeout_secs = 600      # scale to zero after 10 minutes without a request
+meter_flush_ms = 5000        # meter batches written at least this often
+# The node's own public addresses and the control plane's: tenant fetch is
+# refused to them on top of the private ranges. Set this in production.
+fetch_blocked_addresses = []
+
+default_tier = "free"
+
+# Per-client limits of the gateway (defaults shown).
+[gateway]
+rate_limit_per_ip = 100.0
+rate_limit_burst = 200
+max_connections_per_ip = 100
+
+[tenant_tiers]
+t_paid_example = "paid"
+
+# Any field of a tier can be overridden; the rest keep the defaults of
+# docs/04-isolation-security.md.
+[tiers.free]
+# cpu_ms = 50
+# wall_ms = 30000
+# heap_mb = 128
+# concurrency = 50
+# db_quota_bytes = 104857600
+# egress_bytes = 10485760
+# log_lines_per_min = 1000
+
+[tiers.paid]
+# cpu_ms = 500

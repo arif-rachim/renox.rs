@@ -1,0 +1,9 @@
+[app]
+name = "shop"
+timezone = "Asia/Dubai"
+
+# No outbound network and no secrets: the Stripe call in checkout.ts only
+# builds the request object (docs/14-benchmarks.md, B1 dependency set).
+[permissions]
+network = []
+secrets = []
