@@ -17,6 +17,7 @@ use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+use crate::artifact::LocalArtifactStore;
 use crate::config::WorkerConfig;
 use crate::manager::{CellManager, ManagerConfig};
 
@@ -100,7 +101,7 @@ impl Worker {
             meter,
             ManagerConfig {
                 data_dir: config.data_dir.clone(),
-                artifacts_dir: config.artifacts_dir.clone(),
+                artifacts: Arc::new(LocalArtifactStore::new(&config.artifacts_dir)),
                 idle_timeout: config.idle_timeout(),
                 tiers: tiers.clone(),
                 default_tier: config.default_tier,

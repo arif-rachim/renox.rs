@@ -62,6 +62,20 @@ One DB thread per tenant file, shared by all cells of the tenant (old and new de
 
 **Secrets.** `<data_dir>/<tenant_id>/secrets.json` is an object of string values. A missing file means no secrets; a file readable by group or others (mode not 0600) is refused and the cell is not created. Only the names the manifest declares reach the isolate (`renox-runtime`).
 
+## Artifacts
+
+`src/artifact.rs` (#30). `ArtifactStore::get(hash) -> ArtifactDir` is the only way the manager finds code; `LocalArtifactStore(dir)` serves `<dir>/<hash>/` and is the F1 stand-in for object storage (F3 puts the S3 fetch and disk cache behind the same trait, #55). On the first `get` of a hash it checks:
+
+| Rule (`docs/contracts/artifact.md` section 6) | Check |
+| --- | --- |
+| V1 | Tree walk without following links: symbolic links and special files refused, every path follows the path rules (no `..`, no `\`, no `:`) |
+| V2 | The canonical hash (section 2) equals the directory name; a mismatch is `ArtifactError::HashMismatch` |
+| V3, V9 | `manifest.json` validates against `docs/contracts/schemas/manifest.schema.json` (`jsonschema`, compiled in), so unknown keys are refused |
+| V8 | Route conflicts: same method, same shape (static segments literally, parameter names ignored); repeated parameter names |
+| V11 | `migrations/`: `<module>/NNN_<name>.sql` only, numbered from 001 without gaps, `checksums.json` lists exactly those files with matching hashes |
+
+A verified hash is cached (artifacts are never overwritten); a failure is not, so a repaired copy is picked up. `renox-runtime` verifies V1-V7 again each time it creates an isolate from the directory. `canonical_listing` and `hash_files` compute the hash of in-memory files; `docs/contracts/examples/hash-vectors.json` holds vectors shared with the CLI's TypeScript implementation (`tests/artifact.rs` checks both the in-memory and the on-disk path against them).
+
 ## Not here yet
 
 Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the process sandbox (F6), realtime (F5), TLS certificates from the control plane (F3). Requests and responses are buffered; streaming is F2.

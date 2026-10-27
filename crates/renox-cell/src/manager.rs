@@ -25,14 +25,16 @@ use renox_runtime::ops::db::DbHandle;
 use renox_runtime::{IsolateSpec, Runtime};
 use tokio::sync::OnceCell;
 
+use crate::artifact::{ArtifactError, ArtifactStore};
 use crate::cell::{Cell, CellKey, InFlightGuard, SecretsError, load_secrets, valid_tenant_id};
 use crate::tiers::{TierName, Tiers};
 
 /// What the manager needs from the worker config.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ManagerConfig {
     pub data_dir: PathBuf,
-    pub artifacts_dir: PathBuf,
+    /// Verified artifacts by hash (#30).
+    pub artifacts: Arc<dyn ArtifactStore>,
     pub idle_timeout: Duration,
     pub tiers: Tiers,
     pub default_tier: TierName,
@@ -53,7 +55,7 @@ impl ManagerConfig {
 #[derive(Debug)]
 pub enum CellError {
     InvalidTenant,
-    Artifact(String),
+    Artifact(ArtifactError),
     Db(DbError),
     Migration(MigrationError),
     Secrets(SecretsError),
@@ -230,7 +232,18 @@ impl CellManager {
         let started = Instant::now();
         let tier_name = self.inner.config.tier_of(&key.tenant_id);
         let tier = *self.inner.config.tiers.get(tier_name);
-        let artifact_dir = self.artifact_dir(&key.deployment_hash)?;
+        let store = self.inner.config.artifacts.clone();
+        let hash = key.deployment_hash.clone();
+        let artifact_dir = tokio::task::spawn_blocking(move || store.get(&hash))
+            .await
+            .map_err(|e| {
+                CellError::Artifact(ArtifactError::Invalid {
+                    rule: "V2",
+                    reason: format!("verification task failed: {e}"),
+                })
+            })?
+            .map_err(CellError::Artifact)?
+            .path;
         let db = self.acquire_db(&key.tenant_id, tier.db_quota_bytes).await?;
         let result = async {
             run_migrations(&db, &artifact_dir).await?;
@@ -275,18 +288,6 @@ impl CellManager {
         );
         self.spawn_eviction(cell.clone());
         Ok(cell)
-    }
-
-    /// The artifact directory of a deployment.
-    fn artifact_dir(&self, hash: &str) -> Result<PathBuf, CellError> {
-        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(CellError::Artifact("invalid deployment hash".into()));
-        }
-        let dir = self.inner.config.artifacts_dir.join(hash);
-        if !dir.is_dir() {
-            return Err(CellError::Artifact(format!("artifact {hash} not found")));
-        }
-        Ok(dir)
     }
 
     fn tenant_dir(&self, tenant_id: &str) -> PathBuf {
@@ -496,20 +497,19 @@ async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellEr
         return Ok(());
     }
     let sums_text = std::fs::read(dir.join("checksums.json"))
-        .map_err(|_| CellError::Artifact("migrations/checksums.json missing".into()))?;
+        .map_err(|_| artifact_err("migrations/checksums.json missing"))?;
     let sums: ChecksumsFile = serde_json::from_slice(&sums_text)
-        .map_err(|_| CellError::Artifact("migrations/checksums.json invalid".into()))?;
+        .map_err(|_| artifact_err("migrations/checksums.json invalid"))?;
     let mut files = Vec::new();
-    let entries =
-        std::fs::read_dir(&app).map_err(|e| CellError::Artifact(format!("migrations: {e}")))?;
+    let entries = std::fs::read_dir(&app).map_err(|e| artifact_err(format!("migrations: {e}")))?;
     for entry in entries {
-        let entry = entry.map_err(|e| CellError::Artifact(format!("migrations: {e}")))?;
+        let entry = entry.map_err(|e| artifact_err(format!("migrations: {e}")))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if !name.ends_with(".sql") {
             continue;
         }
         let sql = std::fs::read_to_string(entry.path())
-            .map_err(|e| CellError::Artifact(format!("migration {name}: {e}")))?;
+            .map_err(|e| artifact_err(format!("migration {name}: {e}")))?;
         files.push(MigrationFile { name, sql });
     }
     let checksums = sums.files;
@@ -522,6 +522,13 @@ async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellEr
         tracing::info!(applied = ?report.applied, "migrations applied");
     }
     Ok(())
+}
+
+fn artifact_err(reason: impl Into<String>) -> CellError {
+    CellError::Artifact(ArtifactError::Invalid {
+        rule: "V11",
+        reason: reason.into(),
+    })
 }
 
 #[derive(serde::Deserialize)]
