@@ -208,3 +208,36 @@ async fn hsts_on_tls_responses_and_alpn() {
     let stream = connect(addr, &h2, "a.test").await.unwrap();
     assert_eq!(stream.get_ref().1.alpn_protocol(), Some(&b"h2"[..]));
 }
+
+/// A full HTTP/2 request over TLS reaches the cell and gets HSTS.
+#[tokio::test]
+async fn http2_request_over_tls() {
+    use http_body_util::BodyExt;
+    let certs = tempfile::tempdir().unwrap();
+    let artifacts = tempfile::tempdir().unwrap();
+    let a = write_cert(certs.path(), "a.test", &["a.test"]);
+    let (addr, _) = start(certs.path(), artifacts.path()).await;
+    let stream = connect(addr, &client(&[&a], &[b"h2"]), "a.test")
+        .await
+        .unwrap();
+    let (mut sender, conn) = hyper::client::conn::http2::handshake(
+        hyper_util::rt::TokioExecutor::new(),
+        hyper_util::rt::TokioIo::new(stream),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(conn);
+    let req = axum::http::Request::builder()
+        .uri("https://a.test/api/hello")
+        .body(http_body_util::Empty::<bytes::Bytes>::new())
+        .unwrap();
+    let resp = sender.send_request(req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.version(), axum::http::Version::HTTP_2);
+    assert_eq!(
+        resp.headers()["strict-transport-security"],
+        "max-age=31536000; includeSubDomains"
+    );
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&body[..], b"tenant=t_a");
+}

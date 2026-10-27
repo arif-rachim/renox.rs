@@ -104,7 +104,7 @@ impl RateLimiter {
 }
 
 /// IPv4 addresses (and IPv4-mapped IPv6) as is; other IPv6 by /64.
-fn bucket_key(ip: IpAddr) -> IpAddr {
+pub(crate) fn bucket_key(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V4(_) => ip,
         IpAddr::V6(v6) => match v6.to_ipv4_mapped() {

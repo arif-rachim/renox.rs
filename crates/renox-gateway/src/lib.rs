@@ -23,16 +23,18 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, Response, StatusCode, header};
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use hyper_util::server::conn::auto;
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+use limits::{BodyCheck, CONNECTION_LIMIT_RESPONSE, ConnectionLimiter, IdleTimeout};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
+pub mod limits;
 pub mod rate_limit;
 pub mod route_table;
 pub mod static_files;
 pub mod tls;
 
+pub use limits::{GatewayLimits, RouteKind};
 pub use rate_limit::{RateDecision, RateLimitConfig, RateLimiter};
 pub use route_table::{
     HostError, RouteEntry, RouteStatus, RouteTable, RouteTableError, parse_host,
@@ -117,6 +119,8 @@ pub struct GatewayConfig {
     pub wall_clock_limit: Duration,
     /// Per-IP token bucket.
     pub rate_limit: RateLimitConfig,
+    /// Header, body, timeout, and connection limits (`limits.rs`).
+    pub limits: GatewayLimits,
 }
 
 impl GatewayConfig {
@@ -125,6 +129,7 @@ impl GatewayConfig {
             artifact_root: artifact_root.into(),
             wall_clock_limit: Duration::from_secs(30),
             rate_limit: RateLimitConfig::default(),
+            limits: GatewayLimits::default(),
         }
     }
 }
@@ -138,6 +143,7 @@ pub struct GatewayStats {
     pub unknown_host: u64,
     pub bad_host: u64,
     pub rate_limited: u64,
+    pub body_too_large: u64,
 }
 
 #[derive(Debug, Default)]
@@ -147,6 +153,7 @@ struct Counters {
     unknown_host: AtomicU64,
     bad_host: AtomicU64,
     rate_limited: AtomicU64,
+    body_too_large: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -155,6 +162,7 @@ struct Inner {
     routes: Arc<RouteTable>,
     statics: StaticFiles,
     limiter: RateLimiter,
+    connections: Arc<ConnectionLimiter>,
     counters: Counters,
 }
 
@@ -182,12 +190,14 @@ impl Gateway {
     pub fn new(config: GatewayConfig, routes: Arc<RouteTable>) -> Self {
         let statics = StaticFiles::new(config.artifact_root.clone());
         let limiter = RateLimiter::new(config.rate_limit);
+        let connections = ConnectionLimiter::new(config.limits.max_connections_per_ip);
         Self {
             inner: Arc::new(Inner {
                 config,
                 routes,
                 statics,
                 limiter,
+                connections,
                 counters: Counters::default(),
             }),
         }
@@ -216,6 +226,7 @@ impl Gateway {
             unknown_host: c.unknown_host.load(Ordering::Relaxed),
             bad_host: c.bad_host.load(Ordering::Relaxed),
             rate_limited: c.rate_limited.load(Ordering::Relaxed),
+            body_too_large: c.body_too_large.load(Ordering::Relaxed),
         }
     }
 
@@ -237,7 +248,9 @@ impl Gateway {
         listener: TcpListener,
         dispatcher: Arc<D>,
     ) -> std::io::Result<()> {
-        accept_loop(listener, self.router(dispatcher), None).await
+        let limits = self.inner.config.limits;
+        let connections = self.inner.connections.clone();
+        accept_loop(listener, self.router(dispatcher), limits, connections, None).await
     }
 
     /// Accepts TLS connections on `listener`, choosing the certificate by
@@ -251,17 +264,24 @@ impl Gateway {
         dispatcher: Arc<D>,
     ) -> std::io::Result<()> {
         let acceptor = tokio_rustls::TlsAcceptor::from(certs.server_config());
-        accept_loop(listener, self.router(dispatcher), Some(acceptor)).await
+        let limits = self.inner.config.limits;
+        let connections = self.inner.connections.clone();
+        accept_loop(
+            listener,
+            self.router(dispatcher),
+            limits,
+            connections,
+            Some(acceptor),
+        )
+        .await
     }
 }
-
-/// Upper bound on a TLS handshake, so a client that opens a socket and
-/// never finishes the handshake does not hold it.
-const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn accept_loop(
     listener: TcpListener,
     router: Router,
+    limits: GatewayLimits,
+    connections: Arc<ConnectionLimiter>,
     tls: Option<tokio_rustls::TlsAcceptor>,
 ) -> std::io::Result<()> {
     loop {
@@ -275,37 +295,88 @@ async fn accept_loop(
         };
         let router = router.clone();
         let tls = tls.clone();
+        let guard = connections.try_acquire(peer.ip());
         tokio::spawn(async move {
+            let Some(_guard) = guard else {
+                if tls.is_none() {
+                    reject_connection(stream).await;
+                }
+                return;
+            };
+            let _ = stream.set_nodelay(true);
+            let stream = IdleTimeout::new(stream, limits.idle_timeout);
             match tls {
-                None => serve_connection(TokioIo::new(stream), peer, router, false).await,
+                None => serve_connection(stream, peer, router, &limits, None).await,
                 Some(acceptor) => {
+                    // The handshake gets the same budget as a request head,
+                    // so a client cannot hold a socket by stalling it.
                     let Ok(Ok(stream)) =
-                        tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await
+                        tokio::time::timeout(limits.header_read_timeout, acceptor.accept(stream))
+                            .await
                     else {
                         return;
                     };
-                    serve_connection(TokioIo::new(stream), peer, router, true).await
+                    let alpn = stream.get_ref().1.alpn_protocol().map(<[u8]>::to_vec);
+                    serve_connection(stream, peer, router, &limits, Some(alpn)).await
                 }
             }
         });
     }
 }
 
-async fn serve_connection<I>(io: I, peer: SocketAddr, router: Router, tls: bool)
-where
-    I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
+/// Over the per-IP connection cap: a fixed 503 and close, written with a
+/// short timeout so a refused client cannot hold the task either.
+async fn reject_connection(mut stream: tokio::net::TcpStream) {
+    use tokio::io::AsyncWriteExt;
+    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+        stream.write_all(CONNECTION_LIMIT_RESPONSE).await?;
+        stream.shutdown().await
+    })
+    .await;
+}
+
+/// Serves one connection. `tls` is `None` for plain HTTP (HTTP/1.1 only:
+/// no h2c, no cleartext upgrade), or the ALPN protocol negotiated on TLS
+/// (`h2` → HTTP/2, anything else → HTTP/1.1). Choosing the protocol up
+/// front, instead of sniffing the first bytes, means the header read
+/// timeout runs from the first byte.
+async fn serve_connection<I>(
+    io: I,
+    peer: SocketAddr,
+    router: Router,
+    limits: &GatewayLimits,
+    tls: Option<Option<Vec<u8>>>,
+) where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    let is_tls = tls.is_some();
     let service = hyper::service::service_fn(move |req: Request<_>| {
         let mut req = req.map(Body::new);
         req.extensions_mut().insert(ConnectInfo(peer));
-        if tls {
+        if is_tls {
             req.extensions_mut().insert(TlsConnection);
         }
         router.clone().oneshot(req)
     });
-    let _ = auto::Builder::new(TokioExecutor::new())
-        .serve_connection(io, service)
-        .await;
+    let io = TokioIo::new(io);
+    let header_bytes = limits.max_header_bytes.max(8 * 1024);
+    if tls.flatten().as_deref() == Some(b"h2") {
+        let mut builder = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
+        builder
+            .timer(TokioTimer::new())
+            .max_header_list_size(u32::try_from(header_bytes).unwrap_or(u32::MAX))
+            .keep_alive_interval(Some(limits.idle_timeout / 2))
+            .keep_alive_timeout(Duration::from_secs(20));
+        let _ = builder.serve_connection(io, service).await;
+    } else {
+        let mut builder = hyper::server::conn::http1::Builder::new();
+        builder
+            .timer(TokioTimer::new())
+            .header_read_timeout(limits.header_read_timeout)
+            .max_buf_size(header_bytes)
+            .max_headers(limits.max_headers);
+        let _ = builder.serve_connection(io, service).await;
+    }
 }
 
 fn is_transient_accept_error(e: &std::io::Error) -> bool {
@@ -335,7 +406,7 @@ async fn handle<D: CellDispatcher>(
 
 async fn route<D: CellDispatcher>(
     state: &AppState<D>,
-    mut req: Request<Body>,
+    req: Request<Body>,
     request_id: &str,
 ) -> Response<Body> {
     let inner = &state.gateway.inner;
@@ -377,6 +448,18 @@ async fn route<D: CellDispatcher>(
         counters.static_hits.fetch_add(1, Ordering::Relaxed);
         return resp;
     }
+
+    // F1 has only function routes; the webhook limit applies once a route
+    // kind for it exists in the manifest.
+    let limit = inner.config.limits.body_limit(RouteKind::Function, None);
+    let mut req = match limits::check_body(req, limit).await {
+        BodyCheck::Ok(req) => req,
+        BodyCheck::TooLarge { headers, .. } => {
+            counters.body_too_large.fetch_add(1, Ordering::Relaxed);
+            return limits::body_too_large(request_id, &headers);
+        }
+        BodyCheck::Unreadable => return plain(StatusCode::BAD_REQUEST, "Bad request"),
+    };
 
     let ctx = RequestCtx {
         tenant_id: entry.tenant_id,

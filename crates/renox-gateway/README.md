@@ -9,7 +9,7 @@ The data plane's front door (P3, `docs/03-architecture.md` Gateway row): hostnam
 3. **Host**: the URI authority (HTTP/2 `:authority`) or the single `Host` header, with the port and a trailing dot removed and lower-cased. Missing, repeated, or not a DNS hostname (IP literals included) → `400`.
 4. **Route table** lookup (`docs/contracts/artifact.md` section 5). No entry, or only `draining` entries → `404 Not found`; no cell is touched.
 5. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's `public/manifest.json` is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
-6. Everything else goes to the `CellDispatcher`.
+6. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`.
 7. Every response, whatever produced it, gets the default security headers (below) and `x-renox-request-id`.
 
 ## `CellDispatcher` and `RequestCtx`
@@ -72,6 +72,22 @@ CSP and CSRF are F2 (#47).
 
 Certificates are issued and pushed by the control plane from F3 (ACME, #59); keys never enter a tenant cell.
 
+## Input limits
+
+`GatewayLimits` (`src/limits.rs`) stops hostile input before dispatch, so it never reaches a tenant isolate (`docs/23-failure-modes.md` section 2). Defaults, configured from the worker config:
+
+| Field | Default | Mechanism | Over the limit |
+| --- | --- | --- | --- |
+| `max_header_bytes` | 16 KiB | HTTP/1.1: hyper read buffer for the request head (hyper's floor is 8 KiB). HTTP/2: `SETTINGS_MAX_HEADER_LIST_SIZE` | 431, connection closed |
+| `max_headers` | 100 | hyper parser (HTTP/1.1; on HTTP/2 the header list size bounds the count) | 431, connection closed |
+| `max_body_bytes_default` | 1 MiB | Checked after routing, before dispatch: a declared `Content-Length` over the limit is refused before any body byte is read; a body of unknown length (chunked) is read at most up to the limit | 413 `RENOX_BODY_TOO_LARGE` (`errors.md` body: JSON, or the default HTML page when `Accept` prefers HTML) |
+| `max_body_bytes_webhook` | 5 MiB | Same, for webhook routes. F1 manifests have only function routes, so it is not used yet | 413 |
+| `header_read_timeout` | 10 s | hyper's HTTP/1.1 head timer (also between keep-alive requests); the TLS handshake gets the same budget | connection closed |
+| `idle_timeout` | 60 s | `IdleTimeout` around the socket: no byte read or written for this long while waiting on the socket | connection closed |
+| `max_connections_per_ip` | 100 | `ConnectionLimiter` at accept (IPv6 by /64) | plain HTTP: fixed `503` + `Retry-After: 1`, closed; TLS: closed before the handshake |
+
+The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.1 only (no h2c, no cleartext upgrade), TLS uses HTTP/2 when ALPN negotiated `h2`. A sniffing step would read the first bytes before the head timer starts. Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
+
 ## Configuration
 
 `GatewayConfig`:
@@ -83,7 +99,8 @@ Certificates are issued and pushed by the control plane from F3 (ACME, #59); key
 | `rate_limit.requests_per_second` | 100 | Sustained rate per client IP |
 | `rate_limit.burst` | 200 | Bucket size |
 | `rate_limit.max_tracked_clients` | 100,000 | When reached, fully refilled buckets are dropped |
+| `limits` | see "Input limits" | Header, body, timeout, and connection limits |
 
 ## Tests
 
-`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls.
+`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client.
