@@ -4,7 +4,10 @@
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
 //     hash, manifest, migrations, public files: rules V1-V13);
-//   - meter batches follow docs/contracts/meter.md (schema plus rule M1).
+//   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
+//   - the error catalogue docs/contracts/errors.md has exactly one row for
+//     every code used in ops.md and docs/23-failure-modes.md, and ctx.d.ts
+//     uses exactly the codes of ops.md section 13.
 //
 // Run from the repository root: bun run docs/contracts/validate.ts
 //
@@ -626,6 +629,64 @@ if (isObject(helloTable) && Array.isArray(helloTable.entries)) {
   }
 }
 report(tableErrors.length === 0, "examples/hello-artifact/route-table.json validates and routes to the artifact", tableErrors);
+
+// 6. errors.md: one row per code; covers ops.md and docs/23-failure-modes.md;
+//    ctx.d.ts matches ops.md section 13.
+const CODE = /RENOX_[A-Z0-9]+(?:_[A-Z0-9]+)*/gu;
+const codesIn = (text: string): Set<string> => new Set(text.match(CODE) ?? []);
+const docText = (path: string): string => fs.readFileSync(path, "utf8");
+
+const catalogue = new Map<string, string>(); // code -> phase
+const duplicates: string[] = [];
+for (const m of docText(`${root}/errors.md`).matchAll(/^\| `(RENOX_[A-Z0-9_]+)` \| (F[0-9]) \|/gmu)) {
+  const [, code, phase] = m as unknown as [string, string, string];
+  if (catalogue.has(code)) duplicates.push(`${code} has more than one row`);
+  catalogue.set(code, phase);
+}
+report(catalogue.size > 0 && duplicates.length === 0, `errors.md has one row per code (${catalogue.size} codes)`, duplicates);
+
+const opsText = docText(`${root}/ops.md`);
+const sources: [string, Set<string>][] = [
+  ["ops.md", codesIn(opsText)],
+  ["docs/23-failure-modes.md", codesIn(docText(`${root}/../23-failure-modes.md`))],
+];
+for (const [name, codes] of sources) {
+  const missing = [...codes].filter((c) => !catalogue.has(c)).map((c) => `${c} is used in ${name} but has no row`);
+  report(missing.length === 0, `every code in ${name} is in errors.md (${codes.size} codes)`, missing);
+}
+const used = new Set(sources.flatMap(([, codes]) => [...codes]));
+const unused = [...catalogue]
+  .filter(([code, phase]) => !used.has(code) && phase <= "F1")
+  .map(([code]) => `${code} is in errors.md but used by neither source; only codes of a later phase may be reserved`);
+report(unused.length === 0, "errors.md has no F1 code that ops.md and docs/23-failure-modes.md do not use", unused);
+
+// ops.md section 13 table: | `CODE` | thrown|response|both | ...
+const kinds = new Map<string, string>();
+for (const m of opsText.matchAll(/^\| `(RENOX_[A-Z0-9_]+)` \| (thrown|response|both) \|/gmu)) {
+  const [, code, kind] = m as unknown as [string, string, string];
+  kinds.set(code, kind);
+}
+const ctxText = docText(`${root}/ctx.d.ts`);
+/** String literals of `export type <name> = ...;`, following references to other code types in ctx.d.ts. */
+const typeCodes = (name: string): Set<string> => {
+  const body = new RegExp(`export type ${name} =([^;]*);`, "u").exec(ctxText)?.[1] ?? "";
+  const out = codesIn(body);
+  for (const ref of body.match(/\b[A-Z][A-Za-z]*ErrorCode\b/gu) ?? []) for (const c of typeCodes(ref)) out.add(c);
+  return out;
+};
+const sameSet = (label: string, actual: Set<string>, expected: Set<string>): void => {
+  const diff = [
+    ...[...expected].filter((c) => !actual.has(c)).map((c) => `${c} is missing`),
+    ...[...actual].filter((c) => !expected.has(c)).map((c) => `${c} is extra`),
+  ];
+  report(diff.length === 0, label, diff);
+};
+const ofKind = (...wanted: string[]): Set<string> =>
+  new Set([...kinds].filter(([, kind]) => wanted.includes(kind)).map(([code]) => code));
+report(kinds.size > 0, `ops.md section 13 lists ${kinds.size} codes`);
+sameSet("ctx.d.ts RenoxErrorCode = ops.md section 13 thrown codes", typeCodes("RenoxErrorCode"), ofKind("thrown", "both"));
+sameSet("ctx.d.ts ResponseErrorCode = ops.md section 13 response codes", typeCodes("ResponseErrorCode"), ofKind("response", "both"));
+sameSet("ops.md section 13 lists every code used in ops.md", new Set(kinds.keys()), codesIn(opsText));
 
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exitCode = failures === 0 ? 0 : 1;
