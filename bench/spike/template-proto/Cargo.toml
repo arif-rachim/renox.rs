@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-html5ever = "0.39.0"
+html5ever = "0.40.1"
 markup5ever_rcdom = "0.39.0"
 minijinja = "3.0.4"
 thiserror = "2.0.21"
