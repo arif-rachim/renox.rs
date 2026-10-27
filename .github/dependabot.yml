@@ -1,0 +1,32 @@
+# Weekly dependency updates, one grouped PR per ecosystem (issue #109;
+# docs/24-threat-model.md F). Security updates are raised as they appear.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
+    ignore:
+      # The Deno stack and V8 move together and by hand: deno_runtime pins
+      # exact versions, and a v8 bump needs a new ops/v8-checksums.txt entry
+      # (ops/README.md).
+      - dependency-name: "deno_*"
+      - dependency-name: "v8"
+      - dependency-name: "eszip"
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      bun:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]

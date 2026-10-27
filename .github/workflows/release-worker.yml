@@ -56,7 +56,9 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Version
         id: version
         run: |
@@ -71,7 +73,12 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: rustup show active-toolchain || rustup toolchain install
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      # Verified prebuilt V8 (ops/v8-checksums.txt, issue #109).
+      - name: Fetch and verify the rusty_v8 archive
+        run: |
+          archive=$(ops/v8-archive.sh fetch "$TARGET" "$RUNNER_TEMP/rusty_v8")
+          echo "RUSTY_V8_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: Check the workspace has a renox-worker binary
         run: |
           if ! cargo metadata --format-version 1 --no-deps --locked \
@@ -100,7 +107,7 @@ jobs:
           cp target/release/renox-worker "dist/$name"
           (cd dist && sha256sum "$name" > "$name.sha256")
           ls -l dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: renox-worker-${{ matrix.target }}
           path: dist/
@@ -115,7 +122,7 @@ jobs:
       # Creating a release and uploading assets; nothing else.
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true

@@ -1,0 +1,90 @@
+# cargo deny check (issue #109; docs/24-threat-model.md F, "Vulnerable or
+# malicious crate / npm package"). Runs on every PR in CI (job `cargo-deny`).
+# An exception needs a reason next to it.
+
+[graph]
+all-features = true
+
+[advisories]
+# Every RustSec advisory, unmaintained and unsound crates included, fails the
+# check unless it is listed in `ignore` with a reason.
+unmaintained = "all"
+yanked = "deny"
+# Each exception names who pins the crate and why the fix cannot land here.
+# Review on every deno_runtime bump; delete an entry as soon as the lockfile
+# moves past it (cargo deny then warns "advisory-not-detected").
+ignore = [
+  # rustls =0.23.40 is an exact pin of deno_tls 0.247 (deno_runtime 0.268);
+  # fixed in 0.23.45/0.23.46. Follow-up: next deno_runtime release.
+  { id = "RUSTSEC-2026-0285", reason = "rustls pinned =0.23.40 by deno_tls (deno_runtime 0.268)" },
+  { id = "RUSTSEC-2026-0346", reason = "rustls pinned =0.23.40 by deno_tls; we never Debug-print client session values" },
+  { id = "RUSTSEC-2026-0348", reason = "rustls pinned =0.23.40 by deno_tls (deno_runtime 0.268)" },
+  { id = "RUSTSEC-2026-0349", reason = "rustls pinned =0.23.40 by deno_tls (deno_runtime 0.268)" },
+  # hickory-proto 0.25: renox-runtime (fetch resolver, #108) and deno_net.
+  # Fixed only in 0.26 (semver-incompatible; renox-runtime's Cargo.toml).
+  { id = "RUSTSEC-2026-0118", reason = "DNSSEC validation only; the dnssec feature is not enabled by renox-runtime or deno_net" },
+  { id = "RUSTSEC-2026-0119", reason = "hickory-proto 0.25 used by deno_net and renox-runtime; fix is 0.26, a renox-runtime dependency change (follow-up)" },
+  # zstd =0.13.2 is an exact pin of deno_node 0.198 (node:zlib); fixed in
+  # zstd 0.14.3 / zstd-safe 8.2. NOT judged harmless: tenant code may import
+  # node:zlib (renox-runtime loader::NODE_ALLOWED), so whether its zstd
+  # streams are reachable from an isolate is open. Follow-up raised on #109:
+  # confirm or drop zlib from NODE_ALLOWED until deno_runtime moves to zstd 0.14.
+  { id = "RUSTSEC-2026-0391", reason = "zstd pinned =0.13.2 by deno_node; tenant reachability via node:zlib open (follow-up on #109)" },
+  { id = "RUSTSEC-2026-0398", reason = "zstd-safe 7 via zstd =0.13.2 pinned by deno_node; tenant reachability via node:zlib open (follow-up on #109)" },
+  { id = "RUSTSEC-2026-0403", reason = "zstd-safe 7 via zstd =0.13.2 pinned by deno_node; tenant reachability via node:zlib open (follow-up on #109)" },
+  # WebCrypto in deno_crypto / deno_node_crypto: timing side channels on the
+  # tenant's own keys. rsa has no fixed release; crypto-bigint 0.5 comes with
+  # elliptic-curve 0.13 (deno_crypto).
+  { id = "RUSTSEC-2023-0071", reason = "rsa 0.9 via deno_crypto; no fixed release exists" },
+  { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 via elliptic-curve 0.13 (deno_crypto); fix is 0.7, an upstream change" },
+  # Unmaintained, no known vulnerability, transitive through the Deno stack.
+  { id = "RUSTSEC-2024-0436", reason = "paste (unmaintained) via the v8 crate" },
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile (unmaintained) via deno_tls" },
+  { id = "RUSTSEC-2026-0249", reason = "smartstring (unmaintained) via swc_ecma_lexer (deno_ast)" },
+]
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  # Permissive, no attribution beyond the notice; found by the first run:
+  # BSL-1.0 (clipboard-win, error-code), CC0-1.0 (hexf-parse, notify,
+  # tiny-keccak), bzip2-1.0.6 (libbz2-rs-sys), CDLA-Permissive-2.0 (the
+  # webpki root certificate lists).
+  "BSL-1.0",
+  "CC0-1.0",
+  "bzip2-1.0.6",
+  "CDLA-Permissive-2.0",
+  # MPL-2.0 is file-level copyleft: allowed for unmodified dependencies; a
+  # patched MPL file must be published with its changes.
+  "MPL-2.0",
+]
+
+# Our own crates are never published (publish = false); no licence needed.
+[licenses.private]
+ignore = true
+
+# libuv-sys-lite has `license-file` instead of `license`; the file is MIT.
+[[licenses.clarify]]
+crate = "libuv-sys-lite"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0xc2efc575 }]
+
+[bans]
+multiple-versions = "allow"
+# crates/renox-runtime declares `eszip = "*"`; the version is still fixed by
+# Cargo.lock. Tighten to "deny" once that crate pins it.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
