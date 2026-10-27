@@ -48,6 +48,14 @@
         "@types/nodemailer": "8.0.2",
       },
     },
+    "examples/shop": {
+      "name": "@renox-examples/shop",
+      "dependencies": {
+        "renox": "workspace:*",
+        "stripe": "23.0.1",
+        "zod": "4.6.7",
+      },
+    },
     "sdk": {
       "name": "renox",
       "version": "0.1.0",
@@ -69,6 +77,8 @@
     "@renox-examples/hello": ["@renox-examples/hello@workspace:examples/hello"],
 
     "@renox-examples/npm-compat": ["@renox-examples/npm-compat@workspace:examples/npm-compat"],
+
+    "@renox-examples/shop": ["@renox-examples/shop@workspace:examples/shop"],
 
     "@renox/bench": ["@renox/bench@workspace:bench"],
 
