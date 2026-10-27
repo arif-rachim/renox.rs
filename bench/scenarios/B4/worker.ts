@@ -25,6 +25,7 @@ const pct = (xs: number[], p: number): number => {
 const samples: Record<string, number[]> = {};
 const perRun: { p50: number; p99: number; server_p50: number; server_p99: number; warm_p50: number }[] = [];
 const notes: string[] = [];
+const failures: Record<string, number> = {};
 for (let run = 1; run <= runs; run++) {
   const tenants = Array.from({ length: n }, (_, i) => ({ host: `c${i}.bench.test`, tenant: `t_cold_${i}`, app: "hello" }));
   const w = await Worker.start(tenants);
@@ -36,7 +37,12 @@ for (let run = 1; run <= runs; run++) {
     await w.request("c0.bench.test", "/api/hello");
     for (const t of tenants.slice(1)) {
       const r = await w.request(t.host, "/api/hello");
-      if (r.status !== 200) throw new Error(`cold request answered ${r.status}`);
+      if (r.status !== 200) {
+        // Recorded, not fatal: a cold start that fails is a result.
+        const code = /"code":"([A-Z_]+)"/u.exec(r.body)?.[1] ?? String(r.status);
+        failures[code] = (failures[code] ?? 0) + 1;
+        continue;
+      }
       cold.push(r.ms);
       warm.push((await w.request(t.host, "/api/hello")).ms);
     }
@@ -59,7 +65,7 @@ const med = medianBy(perRun, (r) => r.p50);
 await writeResult(out, {
   id: "B4",
   scenario: `renox-worker (release): first request of ${n - 1} fresh tenants on examples/hello (esm-dir), sequential, client-side time to the full response; median of ${runs} runs`,
-  notes: notes.join("; "),
+  notes: [...notes, `failed cold starts (all runs): ${JSON.stringify(failures)}`].join("; "),
   samples,
   summary: {
     p50_ms: round(med.p50),
@@ -67,5 +73,6 @@ await writeResult(out, {
     worker_wall_p50_ms: round(med.server_p50),
     worker_wall_p99_ms: round(med.server_p99),
     warm_p50_ms: round(med.warm_p50),
+    failed_cold_starts: Object.values(failures).reduce((a, b) => a + b, 0),
   },
 });
