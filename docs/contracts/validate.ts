@@ -3,7 +3,8 @@
 //   - every *.valid.json example validates and every *.invalid.json fails, for
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
-//     hash, manifest, migrations, public files: rules V1-V13).
+//     hash, manifest, migrations, public files: rules V1-V13);
+//   - meter batches follow docs/contracts/meter.md (schema plus rule M1).
 //
 // Run from the repository root: bun run docs/contracts/validate.ts
 //
@@ -377,6 +378,18 @@ function routeTableRules(table: JsonObject): string[] {
   return errors;
 }
 
+/** meter.md: M1, one invocation is one record, so request_id is unique within a batch. */
+function meterBatchRules(batch: JsonObject): string[] {
+  const seen = new Set<string>();
+  const errors: string[] = [];
+  for (const r of batch.records as JsonObject[]) {
+    const id = r.request_id as string;
+    if (seen.has(id)) errors.push(`M1: request_id ${id} appears twice in one batch`);
+    seen.add(id);
+  }
+  return errors;
+}
+
 const schemaFile = (name: string): string => `${root}/schemas/${name}.schema.json`;
 
 /** A "message" is one JSON document kind with its schema and the semantic rules applied after it. */
@@ -389,6 +402,7 @@ const messages: Record<string, Message> = {
   "route-table": { schema: schemaFile("route-table"), rules: routeTableRules },
   "migrations-checksums": { schema: schemaFile("migrations-checksums") },
   "public-manifest": { schema: schemaFile("public-manifest") },
+  "meter-batch": { schema: schemaFile("meter-record"), rules: meterBatchRules },
 };
 
 function checkMessage(kind: string, doc: Json): string[] {
@@ -572,15 +586,19 @@ for (const file of listDir(`${root}/examples/ops`).filter((f) => f.endsWith(".js
   checkExample(`${root}/examples/ops/${file}`, (doc) => validate(opsSchema, doc));
 }
 
-// 3. artifact.md single-file examples (examples/artifact/<message>.<case>.(valid|invalid).json).
-for (const file of listDir(`${root}/examples/artifact`).filter((f) => f.endsWith(".json"))) {
-  const kind = Object.keys(messages).find((k) => file.startsWith(`${k}.`));
-  if (kind === undefined) {
-    report(false, `examples/artifact/${file}: name does not start with a known message kind`);
-    continue;
+// 3. Single-file examples (examples/<contract>/<message>.<case>.(valid|invalid).json).
+for (const contract of ["artifact", "meter"]) {
+  for (const file of listDir(`${root}/examples/${contract}`).filter((f) => f.endsWith(".json"))) {
+    const kind = Object.keys(messages).find((k) => file.startsWith(`${k}.`));
+    if (kind === undefined) {
+      report(false, `examples/${contract}/${file}: name does not start with a known message kind`);
+      continue;
+    }
+    checkExample(`${root}/examples/${contract}/${file}`, (doc) => checkMessage(kind, doc));
   }
-  checkExample(`${root}/examples/artifact/${file}`, (doc) => checkMessage(kind, doc));
 }
+const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
+report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);
 
 // 4. artifact.md directories: valid artifacts pass V1-V12; broken ones fail for the named rule.
 const artifacts: { dir: string; expect?: string }[] = [

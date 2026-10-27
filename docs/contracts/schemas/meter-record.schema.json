@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/meter/v0/meter-record.schema.json",
+  "title": "Renox meter batch and record, meter contract version 0",
+  "description": "Root: one batch envelope (one line of the F1 ndjson sink, one HTTP body in F3). $defs/record: one invocation record. Prose: docs/contracts/meter.md. request_id uniqueness within a batch is rule M1 in validate.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "cell_id", "node_id", "records"],
+  "properties": {
+    "$comment": { "type": "string" },
+    "schema_version": { "const": 0 },
+    "cell_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.@-]{0,127}$" },
+    "node_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/record" }
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "millis": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Non-negative milliseconds, rounded to 3 decimal places."
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "tenant_id",
+        "deployment_hash",
+        "route",
+        "started_at",
+        "cpu_ms",
+        "wall_ms",
+        "peak_heap_bytes",
+        "ingress_bytes",
+        "egress_bytes",
+        "fetch_sent_bytes",
+        "fetch_received_bytes",
+        "fetch_blocked",
+        "db_ms",
+        "db_rows",
+        "render_fuel",
+        "logs_dropped",
+        "http_status",
+        "status"
+      ],
+      "properties": {
+        "request_id": { "type": "string", "pattern": "^[0-9A-Za-z_-]{8,64}$" },
+        "tenant_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$" },
+        "deployment_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "route": {
+          "type": "string",
+          "description": "<METHOD> <route pattern from manifest.routes[]>; never a concrete URL.",
+          "maxLength": 1032,
+          "pattern": "^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD) (/|(/([A-Za-z0-9._~-]+|:[a-z_][a-z0-9_]{0,31}|\\*[a-z_][a-z0-9_]{0,31}))+)$"
+        },
+        "started_at": { "$ref": "#/$defs/count", "description": "Unix time in milliseconds." },
+        "cpu_ms": { "$ref": "#/$defs/millis" },
+        "wall_ms": { "$ref": "#/$defs/millis" },
+        "peak_heap_bytes": { "$ref": "#/$defs/count" },
+        "ingress_bytes": { "$ref": "#/$defs/count" },
+        "egress_bytes": { "$ref": "#/$defs/count" },
+        "fetch_sent_bytes": { "$ref": "#/$defs/count" },
+        "fetch_received_bytes": { "$ref": "#/$defs/count" },
+        "fetch_blocked": { "$ref": "#/$defs/count" },
+        "db_ms": { "$ref": "#/$defs/millis" },
+        "db_rows": { "$ref": "#/$defs/count" },
+        "render_fuel": { "const": 0, "description": "Always 0 in F1; filled from F2." },
+        "logs_dropped": { "$ref": "#/$defs/count" },
+        "http_status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "status": { "enum": ["ok", "error", "timeout", "cpu_limit", "oom", "blocked_fetch", "busy"] }
+      }
+    }
+  }
+}

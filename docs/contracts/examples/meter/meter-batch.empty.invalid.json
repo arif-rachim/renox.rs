@@ -1,0 +1,7 @@
+{
+  "$comment": "invalid: an empty batch is never written (meter.md section 3) [expect: minItems]",
+  "schema_version": 0,
+  "cell_id": "t_notes@node-dxb-01",
+  "node_id": "node-dxb-01",
+  "records": []
+}
