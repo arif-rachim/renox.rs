@@ -103,7 +103,18 @@ struct Inner {
     /// Cells created and evicted since start (operator metrics, tests).
     created: std::sync::atomic::AtomicU64,
     evicted: std::sync::atomic::AtomicU64,
+    /// A trim is scheduled after the current burst of evictions (#144).
+    trim_scheduled: std::sync::atomic::AtomicBool,
+    /// Allocator trims run since start (operator metrics, tests).
+    trims: std::sync::atomic::AtomicU64,
 }
+
+/// Quiet time after the last eviction before freed memory is trimmed: one
+/// trim per burst of evictions, after the isolates are disposed.
+const TRIM_AFTER: Duration = Duration::from_secs(2);
+
+/// Further trims after the first one (delays from the previous trim).
+const TRIM_FOLLOW_UPS: [Duration; 2] = [Duration::from_secs(10), Duration::from_secs(20)];
 
 /// The cells of this node. Cheap to clone.
 #[derive(Clone)]
@@ -122,6 +133,8 @@ impl CellManager {
                 dbs: Mutex::new(HashMap::new()),
                 created: Default::default(),
                 evicted: Default::default(),
+                trim_scheduled: Default::default(),
+                trims: Default::default(),
             }),
         }
     }
@@ -416,6 +429,63 @@ impl CellManager {
         self.inner
             .evicted
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.schedule_trim();
+    }
+
+    /// Allocator trims run since start.
+    pub fn allocator_trims(&self) -> u64 {
+        self.inner.trims.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Trim the allocator once no cell was evicted for [`TRIM_AFTER`], and
+    /// again after each of [`TRIM_FOLLOW_UPS`]: an evicted cell's memory is
+    /// freed in stages (isolate disposal, exiting threads and their caches,
+    /// idle blocking-pool threads after 10 s), and only memory already free
+    /// can be trimmed. A new eviction starts the sequence over.
+    fn schedule_trim(&self) {
+        use std::sync::atomic::Ordering;
+        if self.inner.trim_scheduled.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let this = self.clone();
+        tokio::spawn(async move {
+            'burst: loop {
+                let mut seen = this.inner.evicted.load(Ordering::Acquire);
+                loop {
+                    tokio::time::sleep(TRIM_AFTER).await;
+                    let now = this.inner.evicted.load(Ordering::Acquire);
+                    if now == seen {
+                        break;
+                    }
+                    seen = now;
+                }
+                for (i, wait) in std::iter::once(Duration::ZERO)
+                    .chain(TRIM_FOLLOW_UPS)
+                    .enumerate()
+                {
+                    tokio::time::sleep(wait).await;
+                    if this.inner.evicted.load(Ordering::Acquire) != seen {
+                        continue 'burst;
+                    }
+                    if i == TRIM_FOLLOW_UPS.len() {
+                        // The last trim: a later eviction schedules anew.
+                        this.inner.trim_scheduled.store(false, Ordering::Release);
+                    }
+                    let started = Instant::now();
+                    if tokio::task::spawn_blocking(crate::alloc::trim)
+                        .await
+                        .is_ok()
+                    {
+                        this.inner.trims.fetch_add(1, Ordering::Relaxed);
+                        tracing::debug!(
+                            ms = started.elapsed().as_millis() as u64,
+                            "allocator trimmed"
+                        );
+                    }
+                }
+                return;
+            }
+        });
     }
 
     async fn handle(&self, ctx: RequestCtx, req: Request<Body>) -> Response<Body> {

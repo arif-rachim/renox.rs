@@ -3,7 +3,9 @@
 //      directories are created on first use), sample the worker's RSS.
 //   2. Warm each with one request (8 at a time).
 //   3. Wait past idle_timeout until every cell is evicted (threads back to
-//      the baseline), sample RSS: B2 idle_mb = (idle RSS - baseline) / N.
+//      the baseline), then DENSITY_SETTLE_S more for the worker's allocator
+//      trims after evictions (#144: 2 s, 12 s, and 32 s after the last
+//      eviction), sample RSS: B2 idle_mb = (idle RSS - baseline) / N.
 //   4. B3 only: keep M tenants warm with a 1 req/s trickle each, sample RSS,
 //      threads, and open files every second; steady state = mean of the
 //      last half. warm_tenants = how many warm tenants fit a node-small
@@ -12,7 +14,7 @@
 //
 // usage: bun density.ts B2|B3 <out.json>
 // env: BENCH_RUNS (1), DENSITY_TENANTS (1000), DENSITY_WARM (300),
-//      DENSITY_IDLE_S (30), DENSITY_TRICKLE_S (60)
+//      DENSITY_IDLE_S (30), DENSITY_TRICKLE_S (60), DENSITY_SETTLE_S (35)
 
 import { rateLoad, round, sleep, Worker, writeResult } from "../B11/harness.ts";
 
@@ -25,6 +27,7 @@ const n = Number(process.env.DENSITY_TENANTS ?? 1000);
 const m = Number(process.env.DENSITY_WARM ?? 300);
 const idleS = Number(process.env.DENSITY_IDLE_S ?? 30);
 const trickleS = Number(process.env.DENSITY_TRICKLE_S ?? 60);
+const settleS = Number(process.env.DENSITY_SETTLE_S ?? 35);
 const NODE_SMALL_MB = 8 * 1024;
 const HEADROOM_MB = 1024;
 
@@ -52,6 +55,8 @@ try {
 
   // Warm every tenant once.
   let failed = 0;
+  // Failed first requests by error code (#146), as B4 records them.
+  const failures: Record<string, number> = {};
   let peak = rss0;
   const warmMs: number[] = [];
   let next = 0;
@@ -62,7 +67,11 @@ try {
         const t = tenants[next++] as (typeof tenants)[number];
         const r = await w.request(t.host, "/api/hello");
         warmMs.push(r.ms);
-        if (r.status !== 200) failed++;
+        if (r.status !== 200) {
+          failed++;
+          const code = /"code":"([A-Z_]+)"/u.exec(r.body)?.[1] ?? String(r.status);
+          failures[code] = (failures[code] ?? 0) + 1;
+        }
         if (warmMs.length % 50 === 0) peak = Math.max(peak, w.memory().rss_mb);
       }
     }),
@@ -70,19 +79,21 @@ try {
   const warmS = (performance.now() - t0) / 1000;
   peak = Math.max(peak, w.memory().rss_mb);
   const peakThreads = w.threads();
-  notes.push(`warmed ${n} tenants in ${round(warmS, 1)} s (${failed} failed), peak RSS ${round(peak, 1)} MB, ${peakThreads} threads`);
+  notes.push(`warmed ${n} tenants in ${round(warmS, 1)} s (${failed} failed: ${JSON.stringify(failures)}), peak RSS ${round(peak, 1)} MB, ${peakThreads} threads`);
 
   // Idle: every cell evicted.
   const deadline = performance.now() + (idleS * 3 + 60) * 1000;
   while (w.threads() > baseThreads + 2 && performance.now() < deadline) await sleep(1000);
-  await sleep(3000);
+  const rssEvicted = w.memory().rss_mb;
+  await sleep(settleS * 1000);
   const rssIdle = await sampleRss(10);
   const idleThreads = w.threads();
   const idleFiles = w.openFiles();
   notes.push(
-    `baseline RSS ${round(rss0, 1)} MB (${baseThreads} threads, ${baseFiles} files); after eviction ${round(rssIdle, 1)} MB (${idleThreads} threads, ${idleFiles} files)`,
+    `baseline RSS ${round(rss0, 1)} MB (${baseThreads} threads, ${baseFiles} files); right after the last eviction ${round(rssEvicted, 1)} MB; ${settleS} s later ${round(rssIdle, 1)} MB (${idleThreads} threads, ${idleFiles} files)`,
   );
   summary.registered_tenants = n - failed;
+  summary.failed_cold_first_requests = failed;
   summary.idle_mb = round((rssIdle - rss0) / n, 4);
   summary.baseline_rss_mb = round(rss0, 1);
   summary.idle_rss_mb = round(rssIdle, 1);

@@ -190,6 +190,11 @@ async fn two_tenants_serve_meter_and_scale_to_zero() {
         assert!(db.exists());
         assert_eq!(wal_size(&db), 0, "{t}: WAL not truncated");
     }
+    // #144: one allocator trim after the burst of evictions settles.
+    wait_until("allocator trim", Duration::from_secs(5), || {
+        manager.allocator_trims() >= 1
+    })
+    .await;
     // A request after eviction gets a fresh cell.
     let (status, _) = http(worker.addr, "a.test", "/api/hello").await;
     assert_eq!(status, 200);
