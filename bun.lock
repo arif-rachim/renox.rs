@@ -12,8 +12,13 @@
     "bench": {
       "name": "@renox/bench",
     },
+    "examples/hello": {
+      "name": "@renox-examples/hello",
+    },
   },
   "packages": {
+    "@renox-examples/hello": ["@renox-examples/hello@workspace:examples/hello"],
+
     "@renox/bench": ["@renox/bench@workspace:bench"],
 
     "@types/node": ["@types/node@26.6.5", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg=="],
