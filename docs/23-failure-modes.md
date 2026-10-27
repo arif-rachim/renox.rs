@@ -36,9 +36,9 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | Failure | Detected by | Tenant sees | Platform does | Proof | Phase |
 | --- | --- | --- | --- | --- | --- |
 | Unknown `Host` | Route table miss | — (end user gets 404) | No cell touched | gateway test | F1 |
-| Malformed `Host`, header too large, too many headers | hyper limits (configured) | 400 / 431 | Connection closed, no cell touched | `TODO` → #88 | F1 |
-| Request body over limit | Body limit per route kind (default 1 MB, uploads via storage module) | 413 `RENOX_BODY_TOO_LARGE` | Stream aborted before reaching the isolate | same issue | F1 |
-| Slowloris / idle connections | Header read timeout, idle timeout, max connections per IP | — | Connection dropped | same issue | F1 |
+| Malformed `Host`, header too large, too many headers | hyper limits (configured) | 400 / 431 | Connection closed, no cell touched | `renox-gateway` `tests/limits.rs`: `header_over_16kb_is_431`, `two_hundred_headers_is_431`; `tests/gateway.rs`: `malformed_or_missing_host_is_400` | F1 |
+| Request body over limit | Body limit per route kind (default 1 MB, uploads via storage module) | 413 `RENOX_BODY_TOO_LARGE` | Stream aborted before reaching the isolate | `renox-gateway` `tests/limits.rs`: `two_mb_body_is_413_and_never_dispatched`, `chunked_body_is_cut_at_the_limit` | F1 |
+| Slowloris / idle connections | Header read timeout, idle timeout, max connections per IP | — | Connection dropped | `renox-gateway` `tests/limits.rs`: `one_byte_per_second_is_closed_at_the_header_timeout`, `idle_connection_is_closed_at_the_idle_timeout`, `connection_101_from_one_ip_is_rejected` | F1 |
 | Request flood from one IP | Token bucket | 429 + `Retry-After` | Not metered to tenant | gateway test | F1 |
 | Flood from many IPs on one tenant | Per-tenant concurrency and tier CPU quota | 503 `RENOX_BUSY` | Other tenants unaffected (B12) | B12 | F1 |
 | Flood on login/register/reset | Stricter route buckets | 429 | — | security tests | F2 |
