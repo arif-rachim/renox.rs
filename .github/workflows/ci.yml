@@ -61,7 +61,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
+    env:
+      # renox-runtime links deno_runtime and V8: with debug info, target/
+      # outgrows the runner's free disk. CI needs no debugger symbols.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
+      # The runner image ships ~14 GB free; the SDKs below are unused here
+      # and free about 30 GB for the Deno/V8 build.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v4
       # rustup on the runner reads rust-toolchain.toml and installs the pinned version.
       - run: rustup show active-toolchain || rustup toolchain install
