@@ -1,0 +1,9 @@
+{
+  "$comment": "invalid: cpu_ms 5000 is above every tier's CPU limit; overrides may only lower a limit (artifact.md section 3, Limits overrides) [expect: maximum]",
+  "artifact": { "version": 0 },
+  "app": { "name": "hello", "timezone": "Asia/Dubai" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/hello": "functions/api/hello.js" } },
+  "routes": [{ "kind": "function", "method": "GET", "path": "/api/hello", "module": "functions/api/hello", "export": "GET" }],
+  "permissions": { "network": [], "secrets": [] },
+  "limits": { "cpu_ms": 5000 }
+}

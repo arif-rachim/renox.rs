@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/artifact/v0/migrations-checksums.schema.json",
+  "title": "Renox migrations/checksums.json, artifact contract version 0",
+  "description": "Map from migration file (relative to migrations/) to the SHA-256 of its bytes. Prose: docs/contracts/artifact.md section 4. That the keys equal the .sql files and the hashes match is V11.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "files"],
+  "properties": {
+    "$comment": { "type": "string" },
+    "version": { "const": 0 },
+    "files": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}/[0-9]{3}_[a-z0-9_]{1,64}\\.sql$" },
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    }
+  }
+}

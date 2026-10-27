@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: a catch-all segment must be the last segment (artifact.md V8) [expect: V8]",
+  "artifact": { "version": 0 },
+  "app": { "name": "docs", "timezone": "UTC" },
+  "code": { "format": "esm-dir", "entry": { "functions/docs/[...slug]/edit": "functions/docs/[...slug]/edit.js" } },
+  "routes": [{ "kind": "function", "method": "GET", "path": "/docs/*slug/edit", "module": "functions/docs/[...slug]/edit", "export": "GET" }],
+  "permissions": { "network": [], "secrets": [] }
+}

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/artifact/v0/route-table.schema.json",
+  "title": "Renox route table, artifact contract version 0",
+  "description": "The gateway's hostname -> tenant -> deployment table (F1: a local JSON file). Prose: docs/contracts/artifact.md section 5. At most one active entry per hostname and unique (hostname, deployment_hash) are checked by V13.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "entries"],
+  "properties": {
+    "$comment": { "type": "string" },
+    "version": { "const": 0 },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "tenant_id", "deployment_hash", "status", "updated_at"],
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "description": "Lower-case ASCII (IDNA A-labels), no port, no trailing dot.",
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+        },
+        "tenant_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$" },
+        "deployment_hash": { "$ref": "#/$defs/sha256" },
+        "status": { "enum": ["active", "draining"] },
+        "updated_at": { "type": "integer", "minimum": 0, "description": "Unix time in milliseconds." }
+      }
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

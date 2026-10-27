@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: a function route's export must equal its method (artifact.md V7) [expect: V7]",
+  "artifact": { "version": 0 },
+  "app": { "name": "hello", "timezone": "Asia/Dubai" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/hello": "functions/api/hello.js" } },
+  "routes": [{ "kind": "function", "method": "POST", "path": "/api/hello", "module": "functions/api/hello", "export": "GET" }],
+  "permissions": { "network": [], "secrets": [] }
+}

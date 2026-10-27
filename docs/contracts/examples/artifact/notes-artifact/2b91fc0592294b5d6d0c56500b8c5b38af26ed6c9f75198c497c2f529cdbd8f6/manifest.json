@@ -1,0 +1,20 @@
+{
+  "artifact": { "version": 0 },
+  "app": { "name": "notes", "timezone": "UTC" },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "functions/api/notes/index": "functions/api/notes/index.js",
+      "functions/api/notes/[id]": "functions/api/notes/[id].js"
+    }
+  },
+  "routes": [
+    { "kind": "function", "method": "GET", "path": "/api/notes", "module": "functions/api/notes/index", "export": "GET" },
+    { "kind": "function", "method": "POST", "path": "/api/notes", "module": "functions/api/notes/index", "export": "POST" },
+    { "kind": "function", "method": "GET", "path": "/api/notes/:id", "module": "functions/api/notes/[id]", "export": "GET" },
+    { "kind": "function", "method": "DELETE", "path": "/api/notes/:id", "module": "functions/api/notes/[id]", "export": "DELETE" }
+  ],
+  "permissions": { "network": ["api.example.com", "*.cdn.example.net"], "secrets": ["NOTES_WEBHOOK_TOKEN"] },
+  "limits": { "cpu_ms": 30, "concurrency": 20 },
+  "modules": {}
+}

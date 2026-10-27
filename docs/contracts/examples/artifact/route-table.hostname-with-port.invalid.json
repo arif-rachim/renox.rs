@@ -1,0 +1,7 @@
+{
+  "$comment": "invalid: hostnames are stored without a port and in lower case (artifact.md section 5) [expect: pattern]",
+  "version": 0,
+  "entries": [
+    { "hostname": "Hello.renox.app:443", "tenant_id": "t_hello", "deployment_hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", "status": "active", "updated_at": 1793318400000 }
+  ]
+}

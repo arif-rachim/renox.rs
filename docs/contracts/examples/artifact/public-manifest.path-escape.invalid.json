@@ -1,0 +1,5 @@
+{
+  "$comment": "invalid: a public path may not contain '..' segments (artifact.md section 1 Paths) [expect: pattern]",
+  "version": 0,
+  "files": { "/../secrets.txt": { "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "size": 1, "content_type": "text/plain" } }
+}

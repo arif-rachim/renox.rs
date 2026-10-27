@@ -1,0 +1,11 @@
+{
+  "$comment": "invalid: GET /api/notes/:id and GET /api/notes/:slug have the same shape (artifact.md V8) [expect: V8]",
+  "artifact": { "version": 0 },
+  "app": { "name": "notes", "timezone": "UTC" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/notes/[id]": "functions/api/notes/[id].js", "functions/api/notes/[slug]": "functions/api/notes/[slug].js" } },
+  "routes": [
+    { "kind": "function", "method": "GET", "path": "/api/notes/:id", "module": "functions/api/notes/[id]", "export": "GET" },
+    { "kind": "function", "method": "GET", "path": "/api/notes/:slug", "module": "functions/api/notes/[slug]", "export": "GET" }
+  ],
+  "permissions": { "network": [], "secrets": [] }
+}
