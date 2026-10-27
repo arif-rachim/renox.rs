@@ -6,9 +6,9 @@
 // records (peak_heap_bytes). Judged: rss_delta_mb = shop at N = 100 (the
 // F1 gate condition, #37: <= 20 MB).
 //
-// The CLI has no eszip step yet, so the shop artifact is esm-dir: every
-// function module is bundled with its dependencies (zod, stripe) and an
-// inline source map.
+// The shop artifact is esm-dir as `renox build` writes it (#143): the
+// function modules share one copy of each dependency (code/chunks/), and
+// the source maps are outside the artifact.
 //
 // usage: bun worker.ts <out.json>
 // env: BENCH_RUNS (3), B1_APPS (shop,hello), B1_SIZES (1,10,50,100), B1_SETTLE_S (5)

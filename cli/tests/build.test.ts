@@ -28,7 +28,11 @@ describe("renox build", () => {
     const code = readFileSync(join(r.dir, "code/functions/api/hello.js"), "utf8");
     expect(code).toContain("Response.json");
     expect(code).not.toContain(": Pick<"); // types stripped
-    expect(code).toContain("sourceMappingURL=data:application/json");
+    // Source maps stay out of the artifact (#143): next to it, project-relative.
+    expect(code).not.toContain("sourceMappingURL");
+    expect(r.mapsDir).toBe(join(out, "..", "sourcemaps", r.hash));
+    const map = readJson(join(r.mapsDir, "functions/api/hello.js.map")) as { sources: string[] };
+    expect(map.sources).toEqual(["functions/api/hello.ts"]);
     expect(code).not.toContain(repo); // no machine path
     // Reproducible: the same project builds to the same hash.
     expect((await buildArtifact(join(repo, "examples/hello"), tmp("hello2"))).hash).toBe(r.hash);
@@ -64,6 +68,28 @@ describe("renox build", () => {
     const code = readFileSync(join(r.dir, "code/functions/api/items.js"), "utf8");
     expect(code).toContain("salaam");
     expect(code).not.toMatch(/^import /mu);
+  });
+
+  test("examples/shop: dependencies shared by modules are bundled once, in code/chunks/ (#143)", async () => {
+    const out = tmp("shop");
+    const r = await buildArtifact(join(repo, "examples/shop"), out);
+    expect(hashDir(r.dir)).toBe(r.hash);
+    expect(validate(schemas.manifest, readJson(join(r.dir, "manifest.json")))).toEqual([]);
+    const code = join(r.dir, "code");
+    const files = readdirSync(code, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => join(d.parentPath, d.name));
+    // zod is imported by cart.ts and checkout.ts: one copy, in a shared chunk.
+    const withZod = files.filter((f) => readFileSync(f, "utf8").includes("function strictObject("));
+    expect(withZod).toHaveLength(1);
+    expect(withZod[0]).toContain(join(code, "chunks/"));
+    expect(readFileSync(join(code, "functions/api/cart.js"), "utf8")).toMatch(/from "\.\.\/\.\.\/chunks\/chunk-[a-z0-9]+\.js"/u);
+    // Every entry exists; no source map in code/.
+    for (const p of Object.values(r.manifest.code.entry)) expect(existsSync(join(code, p))).toBe(true);
+    expect(files.some((f) => f.endsWith(".map") || readFileSync(f, "utf8").includes("sourceMappingURL"))).toBe(false);
+    expect(existsSync(join(r.mapsDir, "functions/api/checkout.js.map"))).toBe(true);
+    // Reproducible with chunks too.
+    expect((await buildArtifact(join(repo, "examples/shop"), tmp("shop2"))).hash).toBe(r.hash);
   });
 
   test("a route conflict fails the build", async () => {

@@ -212,8 +212,8 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   let pending: ReturnType<typeof setTimeout> | undefined;
   let building = Promise.resolve();
   const rebuild = (file: string): void => {
-    // A module under functions/ is rebuilt alone; another source file may be
-    // imported by any module, so every module is rebuilt.
+    // The bundle is reused until a function source changes; another source
+    // file may be imported by any module, so the cache is dropped.
     if (!file.startsWith("functions/")) cache.invalidateAll = true;
     building = building.then(async () => {
       const t0 = performance.now();
