@@ -14,3 +14,13 @@ Install mold for faster links:
 - From source or other systems: <https://github.com/rui314/mold#how-to-build>
 
 On macOS the default Apple linker is used; nothing to configure.
+
+## Running a benchmark
+
+```
+bench/run.sh <ID> [--profile node-small|dev-laptop] [--runs 3]
+```
+
+It captures hardware and tool versions (`lib/hwinfo.sh`), runs `scenarios/<ID>/run.sh`, writes raw JSON under `results/raw/`, and prints the result template with PASS/FAIL computed from `targets.json`. Add a scenario: [`scenarios/README.md`](scenarios/README.md).
+
+`bench/run.sh B0` is a self-test that needs only Bun.
