@@ -1,0 +1,19 @@
+[package]
+name = "render-bench"
+version = "0.0.0"
+description = "F0 benchmark B6 first cut: render stage of the shop medium page (issue #11)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+template-proto = { path = "../template-proto" }
+# fuel: measure the overhead of the F2 render DoS limit (docs/08-template-engine.md).
+minijinja = { version = "3.0.4", features = ["fuel"] }
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "render"
+harness = false
