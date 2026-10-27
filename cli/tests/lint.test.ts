@@ -29,6 +29,7 @@ test("parameterised SQL, plain templates, comments, and strings are not flagged"
     'const s = "db.query(`select ${x}`)";',
     "await other.query(`select ${x}`);",
     "await db.query(SQL, [x]);",
+    'await db.query("select a " + "from t " + `where b = ?`, [b]);',
   ].join("\n");
   expect(lintSql(src, "f.ts")).toEqual([]);
 });

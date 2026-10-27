@@ -157,8 +157,12 @@ export function lintSql(src: string, file: string): Finding[] {
       continue;
     const arg = firstArgument(tokens, k + 3);
     const interpolated = arg.some((t) => t.type === "template" && t.text.includes("${"));
+    // `+` joining only string literals is a constant; any other operand
+    // (a variable, a call, an interpolated template) builds SQL from data.
+    const literal = (t: Token): boolean =>
+      t.type === "string" || (t.type === "template" && !t.text.includes("${")) || (t.type === "punct" && "+()".includes(t.text));
     const concatenated =
-      arg.some((t) => t.type === "punct" && t.text === "+") ||
+      (arg.some((t) => t.type === "punct" && t.text === "+") && !arg.every(literal)) ||
       arg.some((t, i) => t.type === "ident" && t.text === "concat" && arg[i - 1]?.text === ".");
     if (interpolated || concatenated) {
       const { line, column } = position(src, name.start);
