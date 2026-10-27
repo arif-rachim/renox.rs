@@ -1,0 +1,46 @@
+{
+  "id": "B6-first-cut",
+  "scenario": "B6 first cut (render stage only): shop-products.html via template-proto + minijinja, products already minijinja::Value; criterion median, median of runs",
+  "notes": "derived check render + marshal p50 = 176.02 + 248.32 = 424.34 µs vs ≤ 1000 µs → PASS; marshal_us from bench/results/raw/2026-10-27-B9.json; fuel overhead 2.01%",
+  "samples": {
+    "fragment_100_us": [
+      172.91,
+      163.32,
+      169.04
+    ],
+    "fragment_captured_100_us": [
+      353.59,
+      326.93,
+      343.92
+    ],
+    "page_1000_us": [
+      1869.64,
+      1722.28,
+      1765.15
+    ],
+    "page_100_us": [
+      176.02,
+      166.34,
+      177.79
+    ],
+    "page_fuel_100_us": [
+      184.77,
+      179.56,
+      176.88
+    ]
+  },
+  "summary": {
+    "page_100_us": 176.02,
+    "fragment_100_us": 169.04,
+    "fragment_captured_100_us": 343.92,
+    "page_1000_us": 1765.15,
+    "page_fuel_100_us": 179.56,
+    "fuel_overhead_pct": 2.01,
+    "page_100_kb": 24.72,
+    "fragment_100_kb": 23.48,
+    "page_1000_kb": 238.28,
+    "page_100_fuel": 4780,
+    "marshal_us": 248.32,
+    "render_plus_marshal_us": 424.34
+  }
+}

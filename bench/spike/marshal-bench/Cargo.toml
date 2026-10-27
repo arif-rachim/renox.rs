@@ -1,0 +1,26 @@
+[package]
+name = "marshal-bench"
+version = "0.0.0"
+description = "F0 benchmark B9: V8 value -> minijinja::Value marshaling cost (issue #10)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Same V8 as the pinned Edge Runtime (bench/edge-runtime/NOTES.md): v8 130.0.7
+# and the serde_v8 of deno_core 0.324. crates.io releases, not Supabase's
+# patched forks; the patches do not touch value conversion. Prebuilt V8 only.
+v8 = "=130.0.7"
+serde_v8 = "=0.233.0"
+minijinja = { version = "3.0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: without it, from_str misparses some doubles (3.85 -> 3.8499999999999996)
+# and path 4 would not equal the others; tests/equality.rs catches it.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "marshal"
+harness = false
