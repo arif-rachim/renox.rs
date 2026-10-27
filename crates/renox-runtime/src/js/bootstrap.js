@@ -54,12 +54,15 @@ const {
   Uint8Array,
 } = primordials;
 
-// Deno loads these extension modules lazily (they are not evaluated into
-// the snapshot), so take them on first use, the way Deno's own global
-// scope does.
+// Deno loads these extension modules lazily. Renox loads them here, at the
+// top level of the bootstrap, which runs while the platform snapshot is
+// built: they are evaluated into the snapshot, so neither isolate creation
+// nor a fresh isolate's first request pays for them, and a first request's
+// CPU budget covers tenant code only (#145, #146). Deno's own global getters
+// (`Request`, `Response`, ...) get the same, already evaluated modules.
 function lazy(specifier) {
-  let mod;
-  return () => (mod ??= core.loadExtScript(specifier));
+  const mod = core.loadExtScript(specifier);
+  return () => mod;
 }
 const requestMod = lazy("ext:deno_fetch/23_request.js");
 const responseMod = lazy("ext:deno_fetch/23_response.js");

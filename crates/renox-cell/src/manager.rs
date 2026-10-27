@@ -257,9 +257,14 @@ impl CellManager {
             })?
             .map_err(CellError::Artifact)?
             .path;
+        let artifact_ms = started.elapsed().as_millis() as u64;
         let db = self.acquire_db(&key.tenant_id, tier.db_quota_bytes).await?;
+        let db_ms = started.elapsed().as_millis() as u64 - artifact_ms;
+        let mut migrate_ms = 0;
         let result = async {
+            let t = Instant::now();
             run_migrations(&db, &artifact_dir).await?;
+            migrate_ms = t.elapsed().as_millis() as u64;
             let secrets_path = self.tenant_dir(&key.tenant_id).join("secrets.json");
             let secrets = load_secrets(&secrets_path).map_err(CellError::Secrets)?;
             let base = match tier_name {
@@ -288,6 +293,7 @@ impl CellManager {
                 return Err(e);
             }
         };
+        let stats = isolate.stats();
         let cell = Arc::new(Cell::new(key.clone(), isolate));
         self.inner
             .created
@@ -297,6 +303,11 @@ impl CellManager {
             deployment_hash = %key.deployment_hash,
             tier = ?tier_name,
             create_ms = started.elapsed().as_millis() as u64,
+            artifact_ms,
+            db_ms,
+            migrate_ms,
+            isolate_ms = stats.map(|s| s.create_time.as_millis() as u64),
+            module_ms = stats.map(|s| s.module_time.as_millis() as u64),
             "cell ready"
         );
         self.spawn_eviction(cell.clone());

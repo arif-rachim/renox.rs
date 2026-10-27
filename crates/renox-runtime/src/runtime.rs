@@ -1,11 +1,14 @@
 //! Process-wide runtime: V8 platform, the platform snapshot, configuration
 //! shared by every isolate, and the tenant log sink.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::isolate::{CreateError, IsolateHandle, IsolateSpec};
+use crate::manifest::Artifact;
 use crate::ops::fetch::FetchConfig;
 use crate::ops::log::LogLimiter;
 
@@ -117,6 +120,10 @@ pub(crate) struct RuntimeInner {
     pub metrics: RuntimeMetrics,
     /// Per-tenant log rate limit, shared by every isolate (`ops.md` section 4).
     pub log_limiter: Arc<LogLimiter>,
+    /// Artifacts verified by `load_artifact` in this process, by directory.
+    /// Artifacts are content-addressed and never overwritten, so a
+    /// deployment is hashed once per process, not once per cell (#145).
+    pub artifacts: Mutex<HashMap<PathBuf, Arc<Artifact>>>,
 }
 
 /// The process-wide runtime. Cheap to clone.
@@ -229,6 +236,7 @@ impl Runtime {
                 config,
                 metrics: RuntimeMetrics::default(),
                 log_limiter: Arc::new(LogLimiter::default()),
+                artifacts: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -251,5 +259,40 @@ impl Runtime {
     /// tenant modules, and look up every route's handler.
     pub async fn create_isolate(&self, spec: IsolateSpec) -> Result<IsolateHandle, CreateError> {
         IsolateHandle::create(self.clone(), spec).await
+    }
+
+    /// `manifest::load_artifact` once per artifact directory and process:
+    /// a later isolate of the same deployment reuses the verified result. A
+    /// refused artifact is not cached, so a repaired copy is picked up.
+    pub(crate) fn load_artifact(&self, dir: &Path) -> Result<Arc<Artifact>, CreateError> {
+        if let Some(a) = self.artifacts().get(dir) {
+            return Ok(a.clone());
+        }
+        let a = Arc::new(crate::manifest::load_artifact(dir).map_err(CreateError::Artifact)?);
+        self.artifacts().insert(dir.to_path_buf(), a.clone());
+        Ok(a)
+    }
+
+    fn artifacts(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, Arc<Artifact>>> {
+        self.inner
+            .artifacts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Specifiers of the extension modules a fresh isolate still loads on
+    /// first use (not evaluated into the platform snapshot).
+    pub fn residual_lazy_specifiers(&self) -> Vec<&'static str> {
+        let lazy = self.inner.lazy;
+        lazy.js
+            .iter()
+            .chain(lazy.esm.iter())
+            .map(|(s, _)| *s)
+            .collect()
+    }
+
+    /// Artifact directories verified so far in this process.
+    pub fn verified_artifacts(&self) -> usize {
+        self.artifacts().len()
     }
 }

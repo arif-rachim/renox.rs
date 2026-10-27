@@ -14,3 +14,4 @@ Verdict: **PROVISIONAL FAIL** (18.9k req/s against 40k; inside the 15k fail thre
 - **The load generator is in-process Bun on the same 4 vCPU**, because `oha` is not installed in this environment (a binary download was not permitted). It used about one core itself, so the worker had at most three. The number is a lower bound; re-run with `oha` from a separate machine per the methodology.
 - p50 3.1 ms / p99 8.4 ms at 64 connections is queueing on the one isolate thread, not handler time (B5's sequential p50 is 0.28 ms).
 - Levers: more than one isolate per hot deployment (the contract's concurrency model allows it; the runtime would need a pool of isolate threads per `IsolateHandle`), and measuring on `node-small` with an external generator. Follow-up #145.
+- Re-run after #145: [2026-10-27-B11-hello-throughput-h2-renox-worker.md](2026-10-27-B11-hello-throughput-h2-renox-worker.md) (21.1k req/s, same load generator).

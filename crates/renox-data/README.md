@@ -20,7 +20,7 @@ db.close()?;
 
 | Item | Meaning |
 | --- | --- |
-| `TenantDb::open(path, DbOptions)` | Opens the writer and the reader pool, applies the pragmas, verifies `journal_mode` is `wal`, creates the platform tables |
+| `TenantDb::open(path, DbOptions)` | Opens the writer (readers are opened by the first read that needs them, with the same pragmas and policy, #145), applies the pragmas, verifies `journal_mode` is `wal`, creates the platform tables |
 | `query(sql, params) -> Vec<Row>` | All rows. Runs on a reader; a statement that writes (`insert ... returning`) runs on the writer |
 | `query_one(sql, params) -> Option<Row>` | First row; the statement stops after it |
 | `execute(sql, params) -> ExecResult { changes, last_insert_rowid }` | Runs on the writer |
@@ -153,7 +153,7 @@ The writer replaces SQLite's automatic checkpoint-on-commit with a WAL hook that
 | Call | Effect |
 | --- | --- |
 | `maybe_checkpoint()` | `PASSIVE` checkpoint when the WAL holds `wal_checkpoint_pages` (default 1,000) or more; the cell calls it on a schedule and when the tenant is idle |
-| `checkpoint(CheckpointMode::Passive \| Truncate)` | Explicit checkpoint; `Truncate` waits for readers and truncates the WAL file to zero bytes |
+| `checkpoint(CheckpointMode::Passive \| Truncate)` | Explicit checkpoint; `Truncate` waits for readers and truncates the WAL file to zero bytes. Runs with the platform policy, also on a module handle (#147) |
 | `close()` | `TRUNCATE` checkpoint, then closes every connection |
 | Safety net | At 4 × `wal_checkpoint_pages` the writer runs a `PASSIVE` checkpoint on commit by itself, so the WAL stays bounded if the scheduler stalls |
 
