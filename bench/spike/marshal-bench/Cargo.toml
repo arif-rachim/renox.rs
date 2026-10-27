@@ -7,11 +7,13 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-# Same V8 as the pinned Edge Runtime (bench/edge-runtime/NOTES.md): v8 130.0.7
-# and the serde_v8 of deno_core 0.324. crates.io releases, not Supabase's
-# patched forks; the patches do not touch value conversion. Prebuilt V8 only.
-v8 = "=130.0.7"
-serde_v8 = "=0.233.0"
+# Same V8 as crates/renox-runtime (v8 150.4.0, the serde_v8 of deno_core 0.413).
+# One V8 per workspace: every `v8` version downloads its static library to the
+# same target/<profile>/gn_out/obj/librusty_v8.a, so two versions race at link
+# time. B9 was measured on v8 130.0.7 (Edge Runtime v1.77.8); see
+# docs/14-benchmarks.md for those results. Prebuilt V8 only.
+v8 = "=150.4.0"
+serde_v8 = "=0.322.0"
 minijinja = { version = "3.0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: without it, from_str misparses some doubles (3.85 -> 3.8499999999999996)

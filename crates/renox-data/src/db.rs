@@ -95,6 +95,36 @@ struct Hooks {
     clock: StatementClock,
     /// Pages in the WAL after the last commit (writer only).
     wal_pages: AtomicU64,
+    /// WAL size (pages) at which a commit checkpoints by itself (writer only).
+    wal_safety_net: AtomicU64,
+}
+
+thread_local! {
+    /// The writer whose commit is running on this thread. rusqlite 0.40's
+    /// WAL hook is a plain `fn` (it cannot capture), and SQLite calls it
+    /// synchronously on the committing thread, so the writer sets this
+    /// around every call that can commit ([`Conn::committing`]).
+    static WAL_TARGET: std::cell::RefCell<Option<Arc<Hooks>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// SQLite's WAL hook, run after each commit on a writer: record the WAL
+/// size and, past the safety net, run a passive checkpoint. Replaces
+/// SQLite's automatic checkpoint, so the platform schedules checkpoints
+/// (`maybe_checkpoint`).
+fn wal_hook(wal: &rusqlite::hooks::Wal, pages: std::os::raw::c_int) -> rusqlite::Result<()> {
+    WAL_TARGET.with(|t| {
+        if let Some(h) = t.borrow().as_ref() {
+            let mut pages = u64::try_from(pages).unwrap_or(0);
+            if pages >= h.wal_safety_net.load(Ordering::Relaxed)
+                && let Ok((log, done)) = wal.checkpoint_v2(rusqlite::hooks::CheckpointMode::PASSIVE)
+                && log == done
+            {
+                pages = 0;
+            }
+            h.wal_pages.store(pages, Ordering::Relaxed);
+        }
+    });
+    Ok(())
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -120,7 +150,7 @@ impl Conn {
                 | OpenFlags::SQLITE_OPEN_CREATE
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX
         };
-        let mut inner = Connection::open_with_flags(path, flags).map_err(open_error)?;
+        let inner = Connection::open_with_flags(path, flags).map_err(open_error)?;
         inner.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         // Defensive mode: no writable_schema, no direct shadow table writes.
         inner
@@ -183,22 +213,11 @@ impl Conn {
         if !read_only {
             // Replaces SQLite's automatic checkpoint on commit: the platform
             // schedules checkpoints (`maybe_checkpoint`), with a safety net.
-            let h = Arc::clone(&hooks);
-            let safety_net = options.wal_checkpoint_pages.saturating_mul(4);
-            inner
-                .wal_hook(Some(move |wal: &mut rusqlite::hooks::Wal, pages: i32| {
-                    let mut pages = u64::try_from(pages).unwrap_or(0);
-                    if pages >= safety_net
-                        && let Ok((log, done)) =
-                            wal.checkpoint_v2(rusqlite::wal::CheckpointMode::PASSIVE)
-                        && log == done
-                    {
-                        pages = 0;
-                    }
-                    h.wal_pages.store(pages, Ordering::Relaxed);
-                    Ok(())
-                }))
-                .map_err(open_error)?;
+            hooks.wal_safety_net.store(
+                options.wal_checkpoint_pages.saturating_mul(4),
+                Ordering::Relaxed,
+            );
+            inner.wal_hook(Some(wal_hook));
         }
         Ok(Conn {
             inner,
@@ -263,7 +282,7 @@ impl Conn {
         params: &[Value],
         limit_one: bool,
     ) -> Result<Vec<Row>> {
-        let names: Vec<String> = stmt.column_names().map(str::to_owned).collect();
+        let names: Vec<String> = stmt.column_names().into_iter().map(str::to_owned).collect();
         for (i, name) in names.iter().enumerate() {
             if names[..i].contains(name) {
                 return Err(DbError::ColumnName(name.clone()));
@@ -287,6 +306,34 @@ impl Conn {
             }
         }
         Ok(out)
+    }
+
+    /// Run `f`, which may commit on this connection, with this connection
+    /// as the WAL hook's target ([`WAL_TARGET`]).
+    fn committing<T>(&self, f: impl FnOnce() -> T) -> T {
+        let previous = WAL_TARGET.with(|t| t.replace(Some(Arc::clone(&self.hooks))));
+        let out = f();
+        WAL_TARGET.with(|t| *t.borrow_mut() = previous);
+        out
+    }
+
+    /// `PRAGMA main.wal_checkpoint(MODE)`: (frames in the WAL, frames
+    /// checkpointed). `busy` (the checkpoint could not finish) is `Busy`.
+    fn wal_checkpoint(&self, mode: &str) -> Result<(i64, i64)> {
+        let (busy, log, done) = self
+            .inner
+            .query_row(&format!("PRAGMA main.wal_checkpoint({mode})"), [], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|e| self.error(e))?;
+        if busy != 0 {
+            return Err(DbError::Busy);
+        }
+        Ok((log, done))
     }
 
     /// Map a SQLite error raised on this connection.
@@ -360,8 +407,7 @@ impl TenantDb {
         let path = path.as_ref().to_path_buf();
         let writer = Conn::open(&path, false, &options)?;
         writer
-            .inner
-            .execute_batch(PLATFORM_SCHEMA)
+            .committing(|| writer.inner.execute_batch(PLATFORM_SCHEMA))
             .map_err(|e| writer.error(e))?;
         let readers = (0..options.readers.max(1))
             .map(|_| Conn::open(&path, true, &options))
@@ -477,7 +523,9 @@ impl TenantDb {
         let mut stmt = self.writer.prepare(sql)?;
         let writes = !stmt.readonly();
         let _scope = self.writer.scope(self.limit(), ctx);
-        let rows = self.writer.rows(&mut stmt, params, limit_one)?;
+        let rows = self
+            .writer
+            .committing(|| self.writer.rows(&mut stmt, params, limit_one))?;
         let written = if writes {
             self.writer.inner.changes()
         } else {
@@ -579,14 +627,10 @@ impl TenantDb {
     /// Checkpoint the WAL into the database file.
     pub fn checkpoint(&self, mode: CheckpointMode) -> Result<CheckpointResult> {
         let mode = match mode {
-            CheckpointMode::Passive => rusqlite::wal::CheckpointMode::PASSIVE,
-            CheckpointMode::Truncate => rusqlite::wal::CheckpointMode::TRUNCATE,
+            CheckpointMode::Passive => "PASSIVE",
+            CheckpointMode::Truncate => "TRUNCATE",
         };
-        let (log, done) = self
-            .writer
-            .inner
-            .wal_checkpoint_v2(Some("main"), mode)
-            .map_err(|e| self.writer.error(e))?;
+        let (log, done) = self.writer.wal_checkpoint(mode)?;
         let log = u64::try_from(log).unwrap_or(0);
         let done = u64::try_from(done).unwrap_or(0);
         self.writer
@@ -639,8 +683,7 @@ impl TenantDb {
             return Err(DbError::Timeout.into());
         }
         self.writer
-            .inner
-            .execute_batch("commit")
+            .committing(|| self.writer.inner.execute_batch("commit"))
             .map_err(|e| self.writer.error(e))?;
         drop(guard);
         Ok(out)
@@ -674,10 +717,7 @@ impl TenantDb {
         }
         // With the readers gone nothing holds the WAL; a failure here still
         // closes the writer, which checkpoints on close as well.
-        let truncated = writer
-            .inner
-            .wal_checkpoint_v2(Some("main"), rusqlite::wal::CheckpointMode::TRUNCATE)
-            .map_err(DbError::from);
+        let truncated = writer.wal_checkpoint("TRUNCATE");
         writer.inner.close().map_err(|(_, e)| DbError::from(e))?;
         truncated.map(|_| ())
     }
@@ -748,7 +788,9 @@ impl Tx<'_> {
             let writer = &self.db.writer;
             writer.clear_denial();
             let _scope = writer.scope(limit, &QueryCtx::default());
-            writer.inner.execute_batch(sql).map_err(|e| writer.error(e))
+            writer
+                .committing(|| writer.inner.execute_batch(sql))
+                .map_err(|e| writer.error(e))
         })
     }
 

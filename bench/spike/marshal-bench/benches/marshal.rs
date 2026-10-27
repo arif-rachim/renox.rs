@@ -10,7 +10,7 @@ use marshal_bench::{
     Sandbox, via_json_string, via_json_string_struct, via_serde_json, via_struct, via_walker,
 };
 
-type Path = fn(&mut v8::HandleScope, v8::Local<v8::Value>) -> minijinja::Value;
+type Path = for<'s, 'i> fn(&mut v8::PinScope<'s, 'i>, v8::Local<'s, v8::Value>) -> minijinja::Value;
 
 const PATHS: [(&str, Path); 5] = [
     ("serde_json", via_serde_json),
@@ -29,7 +29,7 @@ fn marshal(c: &mut Criterion) {
             for (name, path) in PATHS {
                 group.bench_with_input(BenchmarkId::new(name, n), &n, |b, _| {
                     b.iter(|| {
-                        let scope = &mut v8::HandleScope::new(scope);
+                        v8::scope!(let scope, scope);
                         black_box(path(scope, black_box(products)))
                     })
                 });

@@ -12,6 +12,6 @@ cargo bench -p marshal-bench                       # ad hoc
 bench/run.sh B9 --profile dev-laptop --runs 3      # recorded result
 ```
 
-V8 comes from the prebuilt `rusty_v8` static library (`v8` 130.0.7, the version of the pinned Edge Runtime). Do not set `V8_FROM_SOURCE`.
+V8 comes from the prebuilt `rusty_v8` static library. The B9 results were measured on `v8` 130.0.7, the version of the pinned Edge Runtime; the crate now builds on `v8` 150.4.0, the one `crates/renox-runtime` uses, because a workspace can link only one `v8` version (see that crate's README). Do not set `V8_FROM_SOURCE`.
 
 The latest numbers and the recommended F2 path are in `bench/results/*-B9-*.md`.

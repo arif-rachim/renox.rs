@@ -90,7 +90,7 @@ impl Sandbox {
         init_v8();
         let mut isolate = v8::Isolate::new(v8::CreateParams::default());
         let context = {
-            let scope = &mut v8::HandleScope::new(&mut isolate);
+            v8::scope!(let scope, &mut isolate);
             let context = v8::Context::new(scope, Default::default());
             let scope = &mut v8::ContextScope::new(scope, context);
             let code = v8::String::new(scope, PRODUCTS_JS).expect("source string");
@@ -106,9 +106,9 @@ impl Sandbox {
     pub fn with_products<R>(
         &mut self,
         n: usize,
-        f: impl FnOnce(&mut v8::HandleScope, v8::Local<v8::Value>) -> R,
+        f: impl for<'s, 'i> FnOnce(&mut v8::PinScope<'s, 'i>, v8::Local<'s, v8::Value>) -> R,
     ) -> R {
-        let scope = &mut v8::HandleScope::new(&mut self.isolate);
+        v8::scope!(let scope, &mut self.isolate);
         let context = v8::Local::new(scope, &self.context);
         let scope = &mut v8::ContextScope::new(scope, context);
         let code = v8::String::new(scope, &format!("makeProducts({n})")).expect("source");
@@ -125,20 +125,26 @@ impl Default for Sandbox {
 }
 
 /// Path 1: `serde_v8` → `serde_json::Value` → `minijinja::Value` (`Value::from(Serde(..))`).
-pub fn via_serde_json(scope: &mut v8::HandleScope, value: v8::Local<v8::Value>) -> Value {
+pub fn via_serde_json<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    value: v8::Local<'s, v8::Value>,
+) -> Value {
     let json: serde_json::Value = serde_v8::from_v8(scope, value).expect("serde_v8");
     Value::from(Serde(&json))
 }
 
 /// Path 2: `serde_v8` → `Vec<Product>` → `minijinja::Value` (`Value::from(Serde(..))`).
-pub fn via_struct(scope: &mut v8::HandleScope, value: v8::Local<v8::Value>) -> Value {
+pub fn via_struct<'s>(scope: &mut v8::PinScope<'s, '_>, value: v8::Local<'s, v8::Value>) -> Value {
     let products: Vec<Product> = serde_v8::from_v8(scope, value).expect("serde_v8");
     Value::from(Serde(&products))
 }
 
 /// Path 4 (naive baseline): `JSON.stringify` in V8 → `serde_json::from_str`
 /// → `minijinja::Value` (`Value::from(Serde(..))`).
-pub fn via_json_string(scope: &mut v8::HandleScope, value: v8::Local<v8::Value>) -> Value {
+pub fn via_json_string<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    value: v8::Local<'s, v8::Value>,
+) -> Value {
     let text = v8::json::stringify(scope, value)
         .expect("JSON.stringify")
         .to_rust_string_lossy(scope);
@@ -148,7 +154,10 @@ pub fn via_json_string(scope: &mut v8::HandleScope, value: v8::Local<v8::Value>)
 
 /// Extra path: `JSON.stringify` in V8 → `serde_json::from_str::<Vec<Product>>`
 /// → `minijinja::Value`. One V8 call; the rest is plain Rust.
-pub fn via_json_string_struct(scope: &mut v8::HandleScope, value: v8::Local<v8::Value>) -> Value {
+pub fn via_json_string_struct<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    value: v8::Local<'s, v8::Value>,
+) -> Value {
     let text = v8::json::stringify(scope, value)
         .expect("JSON.stringify")
         .to_rust_string_lossy(scope);
@@ -160,7 +169,7 @@ pub fn via_json_string_struct(scope: &mut v8::HandleScope, value: v8::Local<v8::
 /// serde. Numbers follow `serde_v8`: uint32 and int32 become integers,
 /// everything else a float. Functions, symbols and BigInts become `none`
 /// (loader data is plain JSON-like data).
-pub fn via_walker(scope: &mut v8::HandleScope, value: v8::Local<v8::Value>) -> Value {
+pub fn via_walker<'s>(scope: &mut v8::PinScope<'s, '_>, value: v8::Local<'s, v8::Value>) -> Value {
     if value.is_string() {
         return Value::from(value.to_rust_string_lossy(scope));
     }
