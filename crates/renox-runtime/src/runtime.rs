@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::isolate::{CreateError, IsolateHandle, IsolateSpec};
 use crate::ops::fetch::FetchConfig;
+use crate::ops::log::LogLimiter;
 
 /// One line for the tenant's log sink (`docs/contracts/ops.md` section 4,
 /// `docs/contracts/errors.md` section 2).
@@ -20,8 +21,9 @@ pub struct LogLine {
     pub fields: serde_json::Map<String, serde_json::Value>,
 }
 
-/// Where tenant log lines go. `renox-cell` supplies the real sink (#28);
-/// tests capture lines.
+/// Where tenant log lines go. `renox-cell` supplies the real sink
+/// ([`crate::ops::log::NdjsonLogSink`] in F1); tests capture lines. Every
+/// line reaches it through the isolate's redacting wrapper.
 pub trait LogSink: Send + Sync {
     fn log(&self, line: LogLine);
 }
@@ -84,11 +86,19 @@ pub struct RuntimeMetrics {
     /// Isolates replaced after a CPU or heap limit (#26).
     pub recycles: AtomicU64,
     pub isolates_created: AtomicU64,
+    /// Database transactions rolled back because their request ended
+    /// without commit or rollback (handler returned, threw, or was
+    /// terminated).
+    pub rolled_back_transactions: AtomicU64,
 }
 
 impl RuntimeMetrics {
     pub fn recycles(&self) -> u64 {
         self.recycles.load(Ordering::Relaxed)
+    }
+
+    pub fn rolled_back_transactions(&self) -> u64 {
+        self.rolled_back_transactions.load(Ordering::Relaxed)
     }
 }
 
@@ -97,6 +107,8 @@ pub(crate) struct RuntimeInner {
     pub lazy: &'static LazySources,
     pub config: RuntimeConfig,
     pub metrics: RuntimeMetrics,
+    /// Per-tenant log rate limit, shared by every isolate (`ops.md` section 4).
+    pub log_limiter: Arc<LogLimiter>,
 }
 
 /// The process-wide runtime. Cheap to clone.
@@ -208,6 +220,7 @@ impl Runtime {
                 lazy,
                 config,
                 metrics: RuntimeMetrics::default(),
+                log_limiter: Arc::new(LogLimiter::default()),
             }),
         }
     }

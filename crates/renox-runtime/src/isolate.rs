@@ -44,11 +44,14 @@ use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
 use crate::manifest::{Artifact, CodeFormat, LoadError, load_artifact};
+use crate::ops::db::{DbEnv, DbHandle};
 use crate::ops::fetch::{FetchEnv, close_request_bodies};
+use crate::ops::log::{LogEnv, RedactingSink};
 use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
+use crate::ops::secrets::{self, Redactor, SecretsState};
 use crate::router::{ParamValue, RouteMatch, Router};
-use crate::runtime::{LogLine, Runtime};
+use crate::runtime::{LogLine, LogSink, Runtime};
 
 /// What the cell asks for when it creates a deployment's isolate.
 #[derive(Debug, Clone)]
@@ -59,9 +62,14 @@ pub struct IsolateSpec {
     pub artifact_dir: PathBuf,
     /// Tier limits; the manifest may lower them.
     pub limits: Limits,
-    /// Decrypted secrets of the deployment. Consumed by `op_secrets_get_all`
-    /// (#28); not exposed to tenant code by this crate yet.
+    /// Decrypted secrets of the tenant. Only the names the manifest declares
+    /// (`permissions.secrets`) reach the isolate, frozen as `ctx.secrets`
+    /// (`ops.md` section 3); a value shorter than 8 bytes fails creation.
     pub secrets: BTreeMap<String, String>,
+    /// The tenant's database: the DB thread of its SQLite file, opened by
+    /// the cell (`ops/db.rs`). `None` gives a deployment whose `ctx.db`
+    /// calls fail.
+    pub db: Option<DbHandle>,
 }
 
 /// Per-request context from the cell.
@@ -114,6 +122,12 @@ pub struct InvocationMeter {
     pub fetch_sent_bytes: u64,
     pub fetch_received_bytes: u64,
     pub fetch_blocked: u64,
+    /// Wall time in database statements (`meter.md`, `db_ms`).
+    pub db_ms: f64,
+    /// Rows returned plus rows changed (`meter.md`, `db_rows`).
+    pub db_rows: u64,
+    /// Log lines dropped by the rate limit (`meter.md`, `logs_dropped`).
+    pub logs_dropped: u64,
 }
 
 impl InvocationMeter {
@@ -126,6 +140,9 @@ impl InvocationMeter {
             fetch_sent_bytes: 0,
             fetch_received_bytes: 0,
             fetch_blocked: 0,
+            db_ms: 0.0,
+            db_rows: 0,
+            logs_dropped: 0,
         }
     }
 }
@@ -266,6 +283,10 @@ pub struct IsolateHandle {
     artifact: Arc<Artifact>,
     router: Arc<Router>,
     allowlist: Arc<Allowlist>,
+    /// The declared secrets (`IsolateSpec::secrets` filtered).
+    secrets: Arc<BTreeMap<String, String>>,
+    /// The tenant log sink behind the isolate's redaction.
+    sink: Arc<dyn LogSink>,
     limits: Limits,
     concurrency: ConcurrencyLimit,
     seq: AtomicU64,
@@ -295,12 +316,39 @@ impl IsolateHandle {
         let limits = spec
             .limits
             .with_overrides(artifact.manifest.limits.as_ref());
+        // ops.md section 3: only declared secrets; short values refused by name.
+        let declared = secrets::select(&artifact.manifest.permissions.secrets, &spec.secrets);
+        let redactor = Arc::new(Redactor::new(spec.secrets.values()));
+        let sink: Arc<dyn LogSink> = Arc::new(RedactingSink {
+            inner: runtime.inner.config.log_sink.clone(),
+            redactor,
+        });
+        if let Err(name) = secrets::check_lengths(&declared) {
+            let mut f = serde_json::Map::new();
+            f.insert("code".into(), "RENOX_INTERNAL".into());
+            f.insert("phase".into(), "module_load".into());
+            f.insert("secret".into(), name.clone().into());
+            sink.log(LogLine {
+                level: "error",
+                tenant_id: spec.tenant_id.clone(),
+                deployment_hash: spec.deployment_hash.clone(),
+                request_id: None,
+                message: "secret value shorter than 8 bytes".into(),
+                fields: f,
+            });
+            return Err(CreateError::Internal(format!(
+                "secret {name} is shorter than {} bytes",
+                secrets::MIN_SECRET_BYTES
+            )));
+        }
         let handle = IsolateHandle {
             runtime,
             spec: Arc::new(spec),
             artifact: Arc::new(artifact),
             router: Arc::new(router),
             allowlist: Arc::new(allowlist),
+            secrets: Arc::new(declared),
+            sink,
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
             seq: AtomicU64::new(0),
@@ -353,6 +401,8 @@ impl IsolateHandle {
             artifact: self.artifact.clone(),
             limits: self.limits,
             allowlist: self.allowlist.clone(),
+            secrets: self.secrets.clone(),
+            sink: self.sink.clone(),
             shared: shared.clone(),
         };
         let name = format!(
@@ -436,7 +486,7 @@ impl IsolateHandle {
         message: &str,
         fields: serde_json::Map<String, serde_json::Value>,
     ) {
-        self.runtime.inner.config.log_sink.log(LogLine {
+        self.sink.log(LogLine {
             level,
             tenant_id: self.spec.tenant_id.clone(),
             deployment_hash: self.spec.deployment_hash.clone(),
@@ -640,6 +690,8 @@ struct ThreadContext {
     artifact: Arc<Artifact>,
     limits: Limits,
     allowlist: Arc<Allowlist>,
+    secrets: Arc<BTreeMap<String, String>>,
+    sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
 }
 
@@ -726,7 +778,7 @@ fn worker_options(ctx: &ThreadContext) -> WorkerOptions {
 }
 
 /// Bootstrap → capture and harden → tenant modules → handler lookup
-/// (`ops.md` section 11, steps 1, 2, 4, 5; step 3 is #28).
+/// (`ops.md` section 11, steps 1-5; `harden` takes the secrets, step 3).
 async fn create_worker(
     ctx: &ThreadContext,
 ) -> Result<(MainWorker, Platform, Guards, Duration), CreateError> {
@@ -790,18 +842,31 @@ async fn create_worker(
         v8_handle.terminate_execution();
     }))
     .map_err(|e| CreateError::Internal(format!("cpu watchdog: {e}")))?;
-    // op_fetch's environment (ops.md section 2), before any tenant code.
-    worker
-        .js_runtime
-        .op_state()
-        .borrow_mut()
-        .put(Rc::new(FetchEnv::new(
+    // The ops' environments (ops.md sections 1-4), before any tenant code.
+    {
+        let state = worker.js_runtime.op_state();
+        let mut state = state.borrow_mut();
+        state.put(Rc::new(FetchEnv::new(
             (*ctx.allowlist).clone(),
             ctx.runtime.inner.config.fetch.clone(),
             ctx.spec.tenant_id.clone(),
             ctx.spec.deployment_hash.clone(),
-            ctx.runtime.inner.config.log_sink.clone(),
+            ctx.sink.clone(),
         )));
+        state.put(Rc::new(DbEnv {
+            db: ctx.spec.db.clone(),
+            redactor: Arc::new(Redactor::new(ctx.spec.secrets.values())),
+        }));
+        state.put(LogEnv {
+            sink: ctx.sink.clone(),
+            limiter: ctx.runtime.inner.log_limiter.clone(),
+            tenant_id: ctx.spec.tenant_id.clone(),
+            deployment_hash: ctx.spec.deployment_hash.clone(),
+            lines_per_min: ctx.limits.log_lines_per_min,
+        });
+        // Step 3: consumed once by `harden` (op_secrets_get_all).
+        state.put(SecretsState(Some((*ctx.secrets).clone())));
+    }
     let guards = Guards {
         watchdog,
         heap: heap_flag,
@@ -961,9 +1026,8 @@ struct InFlight {
     /// CPU of the current slice that ran before this request joined it (ns).
     slice_offset_ns: u64,
     peak_heap: u64,
-    /// `fetch_sent_bytes`, `fetch_received_bytes`, `fetch_blocked`, taken
-    /// when the request ends.
-    fetch: (u64, u64, u64),
+    /// What the ops used, taken when the request ends.
+    used: RequestEnd,
     reply: Option<oneshot::Sender<ThreadReply>>,
 }
 
@@ -975,9 +1039,12 @@ impl InFlight {
             status,
             cpu_ms: (self.cpu_ns as f64 / 1_000.0).round() / 1_000.0,
             peak_heap_bytes: self.peak_heap,
-            fetch_sent_bytes: self.fetch.0,
-            fetch_received_bytes: self.fetch.1,
-            fetch_blocked: self.fetch.2,
+            fetch_sent_bytes: self.used.fetch_sent_bytes,
+            fetch_received_bytes: self.used.fetch_received_bytes,
+            fetch_blocked: self.used.fetch_blocked,
+            db_ms: (self.used.db_ms * 1_000.0).round() / 1_000.0,
+            db_rows: self.used.db_rows,
+            logs_dropped: self.used.logs_dropped,
         }
     }
 }
@@ -1045,7 +1112,7 @@ async fn serve(
                         slice_budget(cpu_limit, &inflight)
                             .min(Duration::from_nanos(offset) + cpu_limit),
                     );
-                    match start_dispatch(worker, platform, ctx.limits.egress_bytes, *job) {
+                    match start_dispatch(ctx, worker, platform, *job) {
                         Ok((fut, mut flight)) => {
                             flight.slice_offset_ns = offset;
                             inflight.insert(seq, flight);
@@ -1065,7 +1132,7 @@ async fn serve(
                 Some(Command::Cancel { seq, meter }) => {
                     if let Some(mut f) = inflight.remove(&seq) {
                         f.charge(slice_cpu(&watch));
-                        f.fetch = end_request(worker, f.token);
+                        f.used = end_request(ctx, worker, f.token);
                         let _ = meter.send(f.meter(ctx, MeterStatus::Timeout));
                     }
                 }
@@ -1102,7 +1169,25 @@ async fn serve(
                     inflight.insert(seq, flight);
                     break;
                 }
-                flight.fetch = end_request(worker, flight.token);
+                flight.used = end_request(ctx, worker, flight.token);
+                if flight.used.rolled_back_tx {
+                    let mut f = serde_json::Map::new();
+                    f.insert(
+                        "route".into(),
+                        flight
+                            .meter(ctx, MeterStatus::Ok)
+                            .route
+                            .unwrap_or_default()
+                            .into(),
+                    );
+                    log_line(
+                        ctx,
+                        "warn",
+                        Some(&flight.ctx.request_id),
+                        "transaction left open when the handler returned; rolled back",
+                        f,
+                    );
+                }
                 let reply = finish_dispatch(ctx, worker, &flight, result);
                 if let Some(tx) = flight.reply.take() {
                     let _ = tx.send(reply);
@@ -1132,7 +1217,7 @@ async fn serve(
         if let Some((code, status)) = killed {
             ctx.shared.poisoned.store(true, Ordering::SeqCst);
             for (_, mut flight) in inflight.drain() {
-                flight.fetch = end_request(worker, flight.token);
+                flight.used = end_request(ctx, worker, flight.token);
                 let mut f = serde_json::Map::new();
                 f.insert("code".into(), code.as_str().into());
                 f.insert(
@@ -1182,6 +1267,11 @@ async fn serve(
             return Poll::Ready(());
         }
         if stop {
+            // Disposal: requests still in flight get no answer, but their
+            // resources are released before the isolate goes.
+            for (_, mut flight) in inflight.drain() {
+                flight.used = end_request(ctx, worker, flight.token);
+            }
             return Poll::Ready(());
         }
         Poll::Pending
@@ -1189,21 +1279,52 @@ async fn serve(
     .await;
 }
 
+/// What a request's ops used, and what had to be cleaned up when it ended.
+#[derive(Debug, Clone, Copy, Default)]
+struct RequestEnd {
+    fetch_sent_bytes: u64,
+    fetch_received_bytes: u64,
+    fetch_blocked: u64,
+    db_ms: f64,
+    db_rows: u64,
+    logs_dropped: u64,
+    /// An open transaction was rolled back.
+    rolled_back_tx: bool,
+}
+
 /// End a request: its token stops working, its pending ops are cancelled,
-/// its fetch bodies are closed. Returns its fetch meter fields.
-fn end_request(worker: &mut MainWorker, token: u32) -> (u64, u64, u64) {
+/// its fetch bodies are closed, and its open transaction is rolled back
+/// (the DB thread handles the rollback before anything sent later, so the
+/// next request finds the writer free).
+fn end_request(ctx: &ThreadContext, worker: &mut MainWorker, token: u32) -> RequestEnd {
     let state = worker.js_runtime.op_state();
     let mut state = state.borrow_mut();
     let Some(request) = state.borrow_mut::<RequestTable>().end(token) else {
-        return (0, 0, 0);
+        return RequestEnd::default();
     };
-    let request = request.borrow();
+    let mut request = request.borrow_mut();
     close_request_bodies(&mut state, &request);
-    (
-        request.egress.sent.load(Ordering::Relaxed),
-        request.egress.received.load(Ordering::Relaxed),
-        request.fetch_blocked,
-    )
+    let mut rolled_back_tx = false;
+    if let Some(tx) = request.db_tx.take() {
+        if let Some(db) = &state.borrow::<Rc<DbEnv>>().db {
+            db.rollback_detached(tx);
+        }
+        rolled_back_tx = true;
+        ctx.runtime
+            .inner
+            .metrics
+            .rolled_back_transactions
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    RequestEnd {
+        fetch_sent_bytes: request.egress.sent.load(Ordering::Relaxed),
+        fetch_received_bytes: request.egress.received.load(Ordering::Relaxed),
+        fetch_blocked: request.fetch_blocked,
+        db_ms: request.db_ms,
+        db_rows: request.db_rows,
+        logs_dropped: request.logs_dropped,
+        rolled_back_tx,
+    }
 }
 
 fn log_line(
@@ -1213,7 +1334,7 @@ fn log_line(
     message: &str,
     fields: serde_json::Map<String, serde_json::Value>,
 ) {
-    ctx.runtime.inner.config.log_sink.log(LogLine {
+    ctx.sink.log(LogLine {
         level,
         tenant_id: ctx.spec.tenant_id.clone(),
         deployment_hash: ctx.spec.deployment_hash.clone(),
@@ -1226,11 +1347,12 @@ fn log_line(
 type StartResult = Result<(CallFuture, InFlight), (oneshot::Sender<ThreadReply>, ErrorCode)>;
 
 fn start_dispatch(
+    ctx: &ThreadContext,
     worker: &mut MainWorker,
     platform: &Platform,
-    egress_limit_bytes: u64,
     job: DispatchJob,
 ) -> StartResult {
+    let egress_limit_bytes = ctx.limits.egress_bytes;
     let token = {
         let state = worker.js_runtime.op_state();
         let mut state = state.borrow_mut();
@@ -1247,7 +1369,7 @@ fn start_dispatch(
     let args = match args {
         Ok(a) => a,
         Err(_) => {
-            end_request(worker, token);
+            end_request(ctx, worker, token);
             return Err((job.reply, ErrorCode::Internal));
         }
     };
@@ -1261,7 +1383,7 @@ fn start_dispatch(
             cpu_ns: 0,
             slice_offset_ns: 0,
             peak_heap: 0,
-            fetch: (0, 0, 0),
+            used: RequestEnd::default(),
             reply: Some(job.reply),
         },
     ))

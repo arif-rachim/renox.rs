@@ -1,6 +1,6 @@
 //! Request scope for ops (`docs/contracts/ops.md` section 0, "Request
 //! scope"): the table of live request tokens of one isolate, kept in its
-//! `OpState`, and the deadline op (section 5).
+//! `OpState`.
 //!
 //! The token is carried by the dispatch wrapper's async context
 //! (`js/bootstrap.js`, `requestVar`) and handed to each op by the bootstrap's
@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use deno_core::{CancelHandle, OpState, ResourceId, op2};
+use deno_core::{CancelHandle, OpState, ResourceId};
 use deno_error::JsErrorBox;
 
 use crate::ops::fetch_connector::EgressCounter;
@@ -50,6 +50,18 @@ pub(crate) struct RequestState {
     pub open_bodies: Rc<std::cell::Cell<u32>>,
     /// Response bodies still open; closed when the request ends.
     pub fetch_bodies: Vec<ResourceId>,
+    /// The request's open database transaction (`ops/db.rs`); rolled back
+    /// when the request ends for any reason.
+    pub db_tx: Option<u32>,
+    /// A `begin` is waiting for the writer.
+    pub db_tx_pending: bool,
+    /// `db_ms` and `db_rows` of the meter record.
+    pub db_ms: f64,
+    pub db_rows: u64,
+    /// `logs_dropped` of the meter record.
+    pub logs_dropped: u64,
+    /// Set when the request ends; an op still holding the state sees it.
+    pub ended: bool,
 }
 
 impl RequestState {
@@ -63,6 +75,12 @@ impl RequestState {
             fetches_in_flight: 0,
             open_bodies: Rc::new(std::cell::Cell::new(0)),
             fetch_bodies: Vec::new(),
+            db_tx: None,
+            db_tx_pending: false,
+            db_ms: 0.0,
+            db_rows: 0,
+            logs_dropped: 0,
+            ended: false,
         }
     }
 }
@@ -90,6 +108,7 @@ impl RequestTable {
     /// End a request: the token stops working and its pending ops are cancelled.
     pub fn end(&mut self, token: u32) -> Option<Rc<RefCell<RequestState>>> {
         let state = self.live.remove(&token)?;
+        state.borrow_mut().ended = true;
         state.borrow().cancel.cancel();
         Some(state)
     }
@@ -108,16 +127,4 @@ pub(crate) fn live_request(
         .borrow::<RequestTable>()
         .get(token)
         .ok_or_else(no_request)
-}
-
-/// `op_deadline_remaining_ms` (ops.md section 5): whole milliseconds left
-/// before the request's wall-clock deadline, >= 0.
-#[op2(fast)]
-pub(crate) fn op_deadline_remaining_ms(state: &mut OpState, token: u32) -> Result<f64, JsErrorBox> {
-    let req = live_request(state, token)?;
-    let left = req
-        .borrow()
-        .deadline
-        .saturating_duration_since(Instant::now());
-    Ok(left.as_millis() as f64)
 }

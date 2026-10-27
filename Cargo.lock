@@ -7009,6 +7009,7 @@ dependencies = [
  "hyper-util",
  "libc",
  "rcgen 0.13.2",
+ "renox-data",
  "renox-runtime",
  "rustls",
  "serde",

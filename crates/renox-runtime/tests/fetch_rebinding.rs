@@ -225,6 +225,7 @@ mod tenant {
             artifact_dir: dir,
             limits: Limits::FREE,
             secrets: Default::default(),
+            db: None,
         })
         .await
         .unwrap()
@@ -449,6 +450,7 @@ mod tenant {
                 artifact_dir: dir,
                 limits: Limits::FREE,
                 secrets: Default::default(),
+                db: None,
             })
             .await
             .unwrap();
