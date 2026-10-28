@@ -98,7 +98,7 @@ Run the gate review issue #37 of arif-rachim/renox.rs. Follow docs/25-execution.
 
 Ran on 2026-10-28: GO to F2 and F3 with conditions (report on #37). The conditions are applied: issues #152 to #164 created, blockers of the F2/F3 issues edited, #36, #92, #110 and #146 closed, docs and status updated.
 
-## F2 (12 sessions + gate)
+## F2 (14 sessions + gate)
 
 Start after the F1 gate (#37) is closed. The gate report split the F1 follow-ups into #152 to #161 and moved every F2 contract edit into #152 and #153, so two contract-only batches go first. F3 runs at the same time as F2 (see below).
 
@@ -166,35 +166,43 @@ Work on batch M of arif-rachim/renox.rs: issues #41, #43, #45, #47 in that order
 Work on batch N of arif-rachim/renox.rs: issues #126, #93, #127, #111 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-### Batch O — after M and Y — benchmark environment, render path B, B8, the F2 benchmarks (3 issues)
+### Batch O — after M — benchmark environment, render path B, B8 (2 issues)
 
 ```
-Work on batch O of arif-rachim/renox.rs: issues #158, #42, #46 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+Work on batch O of arif-rachim/renox.rs: issues #158, #42 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-N and O run at the same time. #158 first: the `node-small` host with a separate load generator is what every later number is measured on. #42 writes one ADR in `docs/13-decisions.md` (the D7 default): that is the one allowed edit of that file in F2, and only by batch O.
+#158 first: the `node-small` host with a separate load generator is what every later number is measured on, and provisioning takes real time, so O starts as soon as M is in. #42 writes one ADR in `docs/13-decisions.md` (the D7 default): that is the one allowed edit of that file in F2, and only by batch O. #46 (the F2 benchmarks) moved to Y2: it needs #155 and #156.
 
-### Batch Z — after N and Y — streaming responses (1 issue)
+### Batch Y2 — after Y and O — cold-start levers, macOS builds, streaming, the F2 benchmarks (4 issues)
 
 ```
-Work on batch Z of arif-rachim/renox.rs: issues #161 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+Work on batch Y2 of arif-rachim/renox.rs: issues #157, #139, #161, #46 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Not an F2 gate blocker; F5 SSE (#70) needs it. Run it whenever `isolate.rs` and `manager.rs` are quiet.
+Everything Y could not take: #157 and #139 were blocked by #154 when Y started (H4 closed it, PR #190); #161 touches `isolate.rs` and `manager.rs` like Y; #46 measures B6, B7, B9, B13 on the worker that Y and #157 produce, on the host #158 provisions. #161 is not an F2 gate blocker; skip it if the batch runs long.
 
-### Batch P — after N, O, and H3 — the two checklists (2 issues)
+### Batch O2 — after H4 — CI hygiene (2 issues)
+
+```
+Work on batch O2 of arif-rachim/renox.rs: issues #186, #189 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Both edit `.github/workflows/ci.yml`; nothing else does now that H4 is in. #186 makes the CLI template and shop build tests run with a worker binary in CI (today they skip); #189 folds the small jobs and takes `release-worker.yml` off pull requests.
+
+### Batch P — after N, Y2, and O2 — the two checklists (2 issues)
 
 ```
 Work on batch P of arif-rachim/renox.rs: issues #94, #112 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions.
 ```
 
-### Gate F2 — after P and Y
+### Gate F2 — after P
 
 ```
 Run the gate review issue #49 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
-## F3 (8 sessions + gate), in parallel with F2
+## F3 (9 sessions + gate), in parallel with F2
 
 F3 depends on F1's contracts (artifact format, route table, meter), not on F2, so batch Q starts at the same time as J0. Most of F3 lives under `control/**`, `packages/**`, and `crates/renox-cell/src/control/**`. The overlaps with F2, and the merge order for each:
 
@@ -239,13 +247,21 @@ R, S, T run at the same time once S has merged #95 (#55 uses its extraction caps
 Work on batch R2 of arif-rachim/renox.rs: issues #59, #114 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-### Batch U — after R2, S, T, H3, and batch L of F2 — deploy CLI, B15, CLI release, signed releases, remote MCP (5 issues)
+### Batch U0 — after H4, alongside T — deploy API 0.1 contract and the CLI release (2 issues)
 
 ```
-Work on batch U of arif-rachim/renox.rs: issues #58, #60, #163, #129, #62 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+Work on batch U0 of arif-rachim/renox.rs: issues #184, #163 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-#62 needs the local MCP from #48 (batch L), #163 needs the worker release from #154 (H3), hence the two conditions.
+#184 carries the contract edits that batches S and R could not make (usage endpoint, bundle rule ids, the roles and scopes matrix). #163 needs the `worker-v0.1.0` release, which the owner tags after H4 (`git tag worker-v0.1.0 origin/main && git push origin worker-v0.1.0`); no file overlap with T.
+
+### Batch U — after R2, S, T, U0, and batch L of F2 — deploy CLI, B15, signed releases, remote MCP (4 issues)
+
+```
+Work on batch U of arif-rachim/renox.rs: issues #58, #60, #129, #62 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+#62 needs the local MCP from #48 (batch L); #60 and #129 need the CLI release from #163 (U0).
 
 ### Batch V — after U and gate F2 — internal control-API access and the dashboard as a Renox app (3 issues)
 
