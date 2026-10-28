@@ -14,10 +14,10 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191 | Y, O, O2 | Y2 after Y and O; P after N, Y2, O2; gate #49 |
-| F3 | Q #169, R #183, S #181 | T | U0 now; R2 after R and T; U after R2, S, T, U0; V after U and gate F2; W; gate #61 |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195 | Y (PR #198, conflicts to resolve) | Y2 after Y; O3 after Y and the owner's two bench hosts (#158); P after N, Y2, O3; gate #49 |
+| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194 | — | R2 now; T2 after Y; U after R2, T2; V after U and gate F2; W; gate #61 |
 
-Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), all placed in the batches below.
+Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), all placed in the batches below. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
 ## F0 (done: 2 sessions + gate)
 
@@ -44,7 +44,7 @@ Issues created outside the batches since the F1 gate: #182 (timing-dependent tes
 | Gate F1 | #37 | #165: GO to F2 and F3 with conditions; issues #152 to #164 created, #36, #92, #110, #146 closed |
 
 
-## F2 (14 sessions + gate)
+## F2 (15 sessions + gate)
 
 The F1 gate split its follow-ups into #152 to #161 and moved every F2 contract edit into #152 and #153. F3 runs at the same time as F2 (see below).
 
@@ -104,7 +104,7 @@ J, K, L ran at the same time (PRs #178, #176, #177, merged 2026-10-28). K landed
 Work on batch Y of arif-rachim/renox.rs: issues #155, #156, #157, #159 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Running (started 2026-10-28 while #154 was open, so it skips #157; Y2 takes it). All four touch `crates/renox-runtime/src/isolate.rs`, `src/limits/**` and `crates/renox-cell/src/manager.rs`; M (merged first) changed the same files for page dispatch, so expect conflicts in `manager.rs`, `cell.rs` and `isolate.rs` when the PR opens and rebase Y on `main`. #159 moved here from K: it compresses in `manager.rs` before the meter record.
+PR #198 open, #157 skipped (Y2 takes it). The PR conflicts with T (#162) and M in `Cargo.lock`, `crates/renox-gateway/{README.md,src/lib.rs}` and `crates/renox-runtime/src/isolate.rs`: rebase it on `main` and keep both sides. All four touch `crates/renox-runtime/src/isolate.rs`, `src/limits/**` and `crates/renox-cell/src/manager.rs`; M (merged first) changed the same files for page dispatch, so expect conflicts in `manager.rs`, `cell.rs` and `isolate.rs` when the PR opens and rebase Y on `main`. #159 moved here from K: it compresses in `manager.rs` before the meter record.
 
 ### Batch M — after J, K, L — pages: routing, loaders, actions, CLI transpile, shop pages, web-layer protections (4 issues)
 
@@ -128,15 +128,23 @@ Done: PR #191 without #111, which waits for #159 (batch Y) and is picked up by Y
 Work on batch O of arif-rachim/renox.rs: issues #158, #42 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Running. #158 first: the `node-small` host with a separate load generator is what every later number is measured on, and provisioning takes real time. #42 writes one ADR in `docs/13-decisions.md` (the D7 default): that is the one allowed edit of that file in F2, and only by batch O. #46 (the F2 benchmarks) moved to Y2: it needs #155 and #156.
+Done: PR #197, #42 only. #158 was skipped by rule 13: a session cannot provision the `node-small` host and the load-generator host. The owner provides both (SSH addresses in the issue), then O3 runs #158 and #46.
 
-### Batch Y2 — after Y and O — cold-start levers, macOS builds, CSRF hardening, streaming, the F2 benchmarks (5 issues)
+### Batch Y2 — after Y — cold-start levers, macOS builds, CSRF hardening, streaming (4 issues)
 
 ```
-Work on batch Y2 of arif-rachim/renox.rs: issues #157, #139, #111, #161, #46 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+Work on batch Y2 of arif-rachim/renox.rs: issues #157, #139, #111, #161 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Everything Y and N could not take: #157 and #139 were blocked by #154 when Y started (H4 closed it, PR #190); #111 was blocked by #159 when N ran; #161 touches `isolate.rs` and `manager.rs` like Y; #46 measures B6, B7, B9, B13 on the worker that Y and #157 produce, on the host #158 provisions. #161 is not an F2 gate blocker; skip it if the batch runs long.
+Everything Y and N could not take: #157 and #139 were blocked by #154 when Y started (H4 closed it, PR #190); #111 was blocked by #159 when N ran; #161 touches `isolate.rs` and `manager.rs` like Y. #161 is not an F2 gate blocker; skip it if the batch runs long.
+
+### Batch O3 — after Y and the owner's bench hosts — benchmark environment and the F2 benchmarks (2 issues)
+
+```
+Work on batch O3 of arif-rachim/renox.rs: issues #158, #46 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Needs `BENCH_NODE_SSH` and `BENCH_LOADGEN_SSH` in the session's environment (#158). #158 re-runs B1, B4, B11, B12 on the worker that Y produced; #46 measures B6, B7, B9, B13 on the same hosts.
 
 ### Batch O2 — after H4 — CI hygiene (2 issues)
 
@@ -144,9 +152,9 @@ Everything Y and N could not take: #157 and #139 were blocked by #154 when Y sta
 Work on batch O2 of arif-rachim/renox.rs: issues #186, #189 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Running. Both edit `.github/workflows/ci.yml`; nothing else does now that H4 is in. #186 makes the CLI template and shop build tests run with a worker binary in CI (today they skip); #189 folds the small jobs and takes `release-worker.yml` off pull requests.
+Done: PR #195. Both edit `.github/workflows/ci.yml`. #186 makes the CLI template and shop build tests run with a worker binary in CI (today they skip); #189 folds the small jobs and takes `release-worker.yml` off pull requests.
 
-### Batch P — after N, Y2, and O2 — the two checklists (2 issues)
+### Batch P — after N, Y2, and O3 — the two checklists (2 issues)
 
 ```
 Work on batch P of arif-rachim/renox.rs: issues #94, #112 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions.
@@ -158,7 +166,7 @@ Work on batch P of arif-rachim/renox.rs: issues #94, #112 in that order. Follow 
 Run the gate review issue #49 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
-## F3 (9 sessions + gate), in parallel with F2
+## F3 (10 sessions + gate), in parallel with F2
 
 F3 depends on F1's contracts (artifact format, route table, meter), not on F2, so batch Q started at the same time as J0. Most of F3 lives under `control/**`, `packages/**`, and `crates/renox-cell/src/control/**`. The F2 batches that F3 files overlapped with (K, L, M, H3) are all merged, so the remaining F3 batches rebase on `main` as usual; the one live overlap is #159 (batch Y) with #162 in `crates/renox-gateway`, which T resolves by rebasing after Y.
 
@@ -192,7 +200,15 @@ Done: PR #181. Three contract gaps it reported (usage endpoint, rule ids H1/H2, 
 Work on batch T of arif-rachim/renox.rs: issues #162, #55, #98, #96, #97 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Running. #96 and #97 touch `control/api/src/deployments/activate.ts` and `control/api/src/routes/versioning.ts` only. If the router or migration index conflicts at merge time, rebase T.
+Done: PR #196, #162 only. #55 was skipped by rule 6: its `SecretsSource` hook and per-route tier need `crates/renox-cell/src/manager.rs` and `cell.rs`, which batch Y held; #98, #96 and #97 depend on it. T also found three control-plane endpoints the worker calls that nothing implements, now #199. All of it is batch T2.
+
+### Batch T2 — after Y — node endpoints, control-plane client, degraded mode, activation and route-table consistency (5 issues)
+
+```
+Work on batch T2 of arif-rachim/renox.rs: issues #199, #55, #98, #96, #97 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+#199 first (control/api, the endpoints the worker calls), then #55 with its extended Files, then the three that build on it. #96 and #97 touch `control/api/src/deployments/activate.ts` and `control/api/src/routes/versioning.ts` only.
 
 ### Batch R2 — after R and T — custom domains and domain ownership (2 issues)
 
@@ -200,21 +216,23 @@ Running. #96 and #97 touch `control/api/src/deployments/activate.ts` and `contro
 Work on batch R2 of arif-rachim/renox.rs: issues #59, #114 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
+Next: #59 needed #162 (T) and #114 needs #113 (R); both are in.
+
 ### Batch U0 — after H4, alongside T — deploy API 0.1 contract and the CLI release (2 issues)
 
 ```
 Work on batch U0 of arif-rachim/renox.rs: issues #184, #163 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Next. #184 carries the contract edits that batches S and R could not make (usage endpoint, bundle rule ids, the roles and scopes matrix). #163 downloads the `worker-v0.1.0` release (tagged 2026-10-28); no file overlap with T.
+Done: PR #194. #184 carries the contract edits that batches S and R could not make (usage endpoint, bundle rule ids, the roles and scopes matrix). #163 downloads the `worker-v0.1.0` release (tagged 2026-10-28); no file overlap with T.
 
-### Batch U — after R2, S, T, U0, and batch L of F2 — deploy CLI, B15, signed releases, remote MCP (4 issues)
+### Batch U — after R2 and T2 — deploy CLI, B15, signed releases, remote MCP (4 issues)
 
 ```
 Work on batch U of arif-rachim/renox.rs: issues #58, #60, #129, #62 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-#62 needs the local MCP from #48 (batch L); #60 and #129 need the CLI release from #163 (U0).
+#58 needs #55 (T2); #60 and #129 need the CLI release from #163 (U0, done); #62 needs the local MCP from #48 (L, done).
 
 ### Batch V — after U and gate F2 — internal control-API access and the dashboard as a Renox app (3 issues)
 
