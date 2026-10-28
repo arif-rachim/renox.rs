@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { operation } from "../audit.ts";
-import { tenantAuth, tenantId } from "../auth/middleware.ts";
+import { tenantAuth } from "../auth/middleware.ts";
+import { tenantDb } from "../tenancy/scope.ts";
 import { conflict } from "../errors.ts";
 import { jsonBody, pathParam } from "../http.ts";
 import { num } from "../db/db.ts";
@@ -8,10 +9,9 @@ import type { Deps, Env } from "../context.ts";
 import { appViews, requireApp } from "./repo.ts";
 
 export function registerApps(app: Hono<Env>, deps: Deps): void {
-  const { db } = deps;
-
   app.post("/v1/apps", operation(deps, "createApp"), tenantAuth(deps, "apps:write"), async (c) => {
-    const tenant = tenantId(c);
+    const db = tenantDb(deps, c);
+    const tenant = db.tenantId;
     const { name } = await jsonBody<{ name: string }>(c, "CreateAppRequest");
     const now = deps.now();
     const created = await db.transaction(async (tx) => {
@@ -30,9 +30,10 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
   });
 
   app.get("/v1/apps", operation(deps, "listApps"), tenantAuth(deps, "apps:read"), async (c) => {
+    const db = tenantDb(deps, c);
     const rows = await db.query<{ name: string; tenant_id: string; created_at: unknown }>(
       "select name, tenant_id, created_at from apps where tenant_id = $1 order by name",
-      [tenantId(c)],
+      [db.tenantId],
     );
     const apps = await appViews(
       db,
@@ -43,7 +44,8 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
   });
 
   app.get("/v1/apps/:app", operation(deps, "getApp"), tenantAuth(deps, "apps:read"), async (c) => {
-    const row = await requireApp(db, tenantId(c), pathParam(c, "app", "AppName"));
+    const db = tenantDb(deps, c);
+    const row = await requireApp(db, db.tenantId, pathParam(c, "app", "AppName"));
     const [view] = await appViews(db, deps.config.platformDomain, [row]);
     return c.json(view);
   });

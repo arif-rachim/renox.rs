@@ -11,6 +11,9 @@ import type { Db } from "../src/db/db.ts";
 import { memoryLogger } from "../src/log.ts";
 import { MemoryObjectStore } from "../src/storage/object-store.ts";
 import { createTenantToken, newTokenValue, sha256hex } from "../src/auth/tokens.ts";
+import { MemoryMailer } from "../src/auth/mailer.ts";
+import { guardDb } from "../src/tenancy/scope.ts";
+import { CSRF_HEADER, SESSION_COOKIE } from "../src/auth/sessions.ts";
 
 let shared: Promise<Db> | undefined;
 
@@ -41,9 +44,34 @@ export interface Harness {
   store: MemoryObjectStore;
   log: ReturnType<typeof memoryLogger>;
   clock: { now: number };
-  /** Sends a request to the app. */
-  request(method: string, path: string, init?: { token?: string; json?: unknown; body?: BodyInit; headers?: Record<string, string> }): Promise<Response>;
+  mailer: MemoryMailer;
+  /**
+   * Statements a tenant request ran on the raw database instead of through
+   * withTenant (src/tenancy/scope.ts). Every test that sends a request checks
+   * this stays empty (#113, "no query without tenant").
+   */
+  unscoped: string[];
+  /** Sends a request to the app. `session` sends the cookie and, on a mutating method, the CSRF header. */
+  request(method: string, path: string, init?: RequestInit_): Promise<Response>;
 }
+
+export interface Session {
+  cookie: string;
+  csrf: string;
+}
+
+export interface RequestInit_ {
+  token?: string;
+  session?: Session;
+  json?: unknown;
+  body?: BodyInit;
+  headers?: Record<string, string>;
+  /** The client address the server reports. */
+  ip?: string;
+}
+
+/** Harnesses created by the running test; assertScoped checks them after the test. */
+export const harnesses: Harness[] = [];
 
 export async function harness(modules: RouteModule[] = []): Promise<Harness> {
   const db = await testDb();
@@ -57,8 +85,11 @@ export async function harness(modules: RouteModule[] = []): Promise<Harness> {
   const store = new MemoryObjectStore();
   const log = memoryLogger();
   const clock = { now: 1_793_318_400_000 };
+  const mailer = new MemoryMailer();
+  const unscoped: string[] = [];
   const deps: Deps = {
-    db,
+    db: guardDb(db, (sql) => unscoped.push(sql)),
+    mailer,
     store,
     log,
     now: () => clock.now,
@@ -69,20 +100,29 @@ export async function harness(modules: RouteModule[] = []): Promise<Harness> {
       platformDomain: "renox.app",
       s3: null,
       masterKey: TEST_MASTER_KEY,
+      dashboardUrl: "https://dashboard.renox.test",
+      mailOutboxDir: null,
     },
   };
   const app = createApp(deps, modules);
   const request: Harness["request"] = (method, path, init = {}) => {
     const headers: Record<string, string> = { ...init.headers };
     if (init.token !== undefined) headers.authorization = `Bearer ${init.token}`;
+    if (init.session !== undefined) {
+      headers.cookie = [headers.cookie, `${SESSION_COOKIE}=${init.session.cookie}`].filter(Boolean).join("; ");
+      if (method !== "GET" && method !== "HEAD") headers[CSRF_HEADER] ??= init.session.csrf;
+    }
     let body = init.body;
     if (init.json !== undefined) {
       headers["content-type"] = "application/json";
       body = JSON.stringify(init.json);
     }
-    return Promise.resolve(app.request(path, { method, headers, body }));
+    const ip = init.ip ?? "192.0.2.10";
+    return Promise.resolve(app.request(path, { method, headers, body }, { requestIP: () => ({ address: ip }) }));
   };
-  return { app, deps, db, store, log, clock, request };
+  const h = { app, deps, db, store, log, clock, mailer, unscoped, request };
+  harnesses.push(h);
+  return h;
 }
 
 /** Creates a tenant with a `*` token and returns the token value. */
@@ -155,4 +195,61 @@ export function sseReader(res: Response): { next(timeoutMs?: number): Promise<{ 
 
 export async function auditRows(h: Harness): Promise<Record<string, unknown>[]> {
   return h.db.query("select tenant_id, actor, action, target, status from audit order by id");
+}
+
+export const PASSWORD = "correct horse battery";
+
+/** The `name=value` of a Set-Cookie header of `res`, or null. */
+export function setCookie(res: Response, name: string): string | null {
+  for (const line of res.headers.getSetCookie()) {
+    const [pair] = line.split(";");
+    const eq = (pair as string).indexOf("=");
+    if ((pair as string).slice(0, eq) === name) return (pair as string).slice(eq + 1);
+  }
+  return null;
+}
+
+/** The single-use token in the last email of `kind` to `to`. */
+export function mailToken(h: Harness, to: string, kind: Parameters<MemoryMailer["last"]>[1]): string {
+  const mail = h.mailer.last(to, kind);
+  const m = mail === undefined ? null : /#token=([a-z2-7]{32})/u.exec(mail.text);
+  if (m === null) throw new Error(`no ${kind} mail with a token to ${to}`);
+  return m[1] as string;
+}
+
+/** Signs in through the API and returns the session. */
+export async function login(h: Harness, email: string, password = PASSWORD, extra: Record<string, unknown> = {}, ip?: string): Promise<Session> {
+  const res = await h.request("POST", "/v1/account/login", { json: { email, password, ...extra }, ...(ip === undefined ? {} : { ip }) });
+  if (res.status !== 200) throw new Error(`login ${email}: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { csrf: string };
+  return { cookie: setCookie(res, SESSION_COOKIE) as string, csrf: body.csrf };
+}
+
+/** Signs up through the API (a new tenant when `tenantId` is given), verifies the address unless told not to, and signs in. */
+export async function signup(h: Harness, email: string, tenantId?: string, verify = true): Promise<Session> {
+  const res = await h.request("POST", "/v1/account/signup", { json: { email, password: PASSWORD, ...(tenantId === undefined ? {} : { tenant_id: tenantId }) } });
+  if (res.status !== 202) throw new Error(`signup ${email}: ${res.status} ${await res.text()}`);
+  if (verify) {
+    const v = await h.request("POST", "/v1/account/verify", { json: { token: mailToken(h, email, "verify_email") } });
+    if (v.status !== 200) throw new Error(`verify ${email}: ${v.status}`);
+  }
+  return login(h, email);
+}
+
+/** Adds an existing user to a tenant with `role`, directly. */
+export async function addMember(h: Harness, tenantId: string, email: string, role: string): Promise<string> {
+  const [u] = await h.db.query<{ id: string }>("select id from users where email = $1", [email]);
+  await h.db.query("insert into memberships (tenant_id, user_id, role, created_at) values ($1, $2, $3, $4)", [tenantId, (u as { id: string }).id, role, h.clock.now]);
+  return (u as { id: string }).id;
+}
+
+/**
+ * Registered with afterEach by every test file: no tenant request of the test
+ * ran a statement outside withTenant (#113, the repository layer;
+ * docs/24-threat-model.md E, IDOR row).
+ */
+export function assertScoped(): void {
+  const unscoped = harnesses.flatMap((h) => h.unscoped);
+  harnesses.length = 0;
+  if (unscoped.length > 0) throw new Error(`statements outside withTenant during a tenant request:\n${unscoped.join("\n")}`);
 }

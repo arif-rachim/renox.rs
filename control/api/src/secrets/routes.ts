@@ -3,7 +3,8 @@
 
 import type { Context, Hono } from "hono";
 import { operation } from "../audit.ts";
-import { nodeAuth, nodeId, tenantAuth, tenantId } from "../auth/middleware.ts";
+import { nodeAuth, nodeId, tenantAuth } from "../auth/middleware.ts";
+import { tenantDb } from "../tenancy/scope.ts";
 import { requireApp } from "../apps/repo.ts";
 import { check } from "../contract.ts";
 import { ApiError, conflict, invalid, notFound } from "../errors.ts";
@@ -43,39 +44,42 @@ export function registerSecrets(app: Hono<Env>, deps: Deps): void {
   const { db } = deps;
 
   app.get("/v1/apps/:app/secrets", operation(deps, "listSecrets"), tenantAuth(deps, "secrets:read"), async (c) => {
-    const name = (await requireApp(db, tenantId(c), pathParam(c, "app", "AppName"))).name;
-    return c.json(await listSecrets(db, name));
+    const t = tenantDb(deps, c);
+    const name = (await requireApp(t, t.tenantId, pathParam(c, "app", "AppName"))).name;
+    return c.json(await listSecrets(t, t.tenantId, name));
   });
 
   app.put("/v1/apps/:app/secrets/:name", operation(deps, "putSecret"), tenantAuth(deps, "secrets:write"), async (c) => {
-    const tenant = tenantId(c);
-    const appName = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
+    const t = tenantDb(deps, c);
+    const tenant = t.tenantId;
+    const appName = (await requireApp(t, tenant, pathParam(c, "app", "AppName"))).name;
     const name = secretName(c);
     const keys = keysOf(deps);
     const { value } = await jsonBody<{ value: string }>(c, "PutSecretRequest");
-    const version = await db.transaction((tx) => putSecret(tx, keys, tenant, appName, name, value, deps.now()));
+    const version = await t.transaction((tx) => putSecret(tx, keys, tenant, appName, name, value, deps.now()));
     return c.json({ name, version });
   });
 
   app.delete("/v1/apps/:app/secrets/:name", operation(deps, "deleteSecret"), tenantAuth(deps, "secrets:write"), async (c) => {
-    const tenant = tenantId(c);
-    const appName = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
+    const t = tenantDb(deps, c);
+    const appName = (await requireApp(t, t.tenantId, pathParam(c, "app", "AppName"))).name;
     const name = secretName(c);
-    const version = await db.transaction((tx) => deleteSecret(tx, appName, name));
+    const version = await t.transaction((tx) => deleteSecret(tx, t.tenantId, appName, name));
     return c.json({ name, version });
   });
 
   app.post("/v1/apps/:app/secrets/bump", operation(deps, "bumpSecrets"), tenantAuth(deps, "secrets:write"), async (c) => {
-    const tenant = tenantId(c);
-    const appName = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
+    const t = tenantDb(deps, c);
+    const tenant = t.tenantId;
+    const appName = (await requireApp(t, tenant, pathParam(c, "app", "AppName"))).name;
     const now = deps.now();
-    const hash = await db.transaction(async (tx) => {
+    const hash = await t.transaction(async (tx) => {
       await lockRoutes(tx);
       const rows = await tx.query<{ hash: string }>("select hash from deployments where tenant_id = $1 and app = $2 and state = 'active' for update", [tenant, appName]);
       const active = rows[0];
       if (active === undefined) throw conflict("state", "there is no active deployment");
-      const version = await latestVersion(tx, appName);
-      await tx.query("update deployments set secrets_version = $1, updated_at = $2 where app = $3 and hash = $4", [version, now, appName, active.hash]);
+      const version = await latestVersion(tx, tenant, appName);
+      await tx.query("update deployments set secrets_version = $2, updated_at = $3 where tenant_id = $1 and app = $4 and hash = $5", [tenant, version, now, appName, active.hash]);
       for (const e of await entriesWhere(tx, "app = $1 and deployment_hash = $2 and status = 'active'", [appName, active.hash])) {
         if (e.secrets_version === version) continue;
         const { version: _old, ...rest } = e;
@@ -84,7 +88,7 @@ export function registerSecrets(app: Hono<Env>, deps: Deps): void {
       return active.hash;
     });
     await routeService(deps).publisher.publish();
-    return c.json(deploymentView(await requireDeployment(db, tenant, appName, hash)));
+    return c.json(deploymentView(await requireDeployment(t, tenant, appName, hash)));
   });
 
   // The node's bundle: only for the node the tenant is assigned to, only for

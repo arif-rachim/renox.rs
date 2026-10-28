@@ -22,6 +22,10 @@ export interface Config {
   s3: S3Config | null;
   /** Base64 of the 32-byte master key (deploy-api.md section 9); null disables secrets. */
   masterKey: string | null;
+  /** Base URL of the dashboard, for links in account emails (#113). */
+  dashboardUrl: string;
+  /** Directory where account emails are written as files (local development); null: no mail delivery. */
+  mailOutboxDir: string | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -51,5 +55,7 @@ export function loadConfig(env: Env = process.env): Config {
     platformDomain: env.CONTROL_PLATFORM_DOMAIN ?? "renox.app",
     s3,
     masterKey: env.CONTROL_MASTER_KEY ?? null,
+    dashboardUrl: env.CONTROL_DASHBOARD_URL ?? "https://dashboard.renox.app",
+    mailOutboxDir: env.CONTROL_MAIL_OUTBOX_DIR ?? null,
   };
 }

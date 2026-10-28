@@ -3,11 +3,13 @@
 // permission key" and "Upload interrupted, retried"; docs/24-threat-model.md
 // B "Code persisted without validation").
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash, extractTar, writeTar } from "@renox/artifact-validate";
 import { check } from "../src/contract.ts";
 import { helloArtifact, named, upload } from "./artifacts.ts";
-import { auditRows, createApp_, harness, scopedToken, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, scopedToken, tenant, type Harness } from "./helpers.ts";
+
+afterEach(assertScoped);
 
 const enc = new TextEncoder();
 
