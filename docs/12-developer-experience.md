@@ -15,6 +15,10 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 | `renox authz explain` | Explain a policy decision |
 | `renox db shell` / `renox db export` | Open the local SQLite file; export a tenant's file from production |
 
+### Installing the CLI
+
+The CLI is released as standalone binaries (`bun build --compile`, so no Bun is needed) for Linux and macOS on x64 and arm64. A `cli-v<version>` tag runs `.github/workflows/release-cli.yml`, which publishes `renox-<version>-<os>-<arch>` with a `.sha256` for each binary, `install.sh`, and `worker-version.txt`. That file holds the `renox-worker` version the CLI is tested against: `WORKER_VERSION` in `cli/scripts/fetch-worker.ts`, whose release must exist before the CLI release. `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh` (source: `cli/scripts/install.sh`) installs into `~/.renox/bin`. It installs `renox` and the pinned `renox-worker` for the platform, and installs a file only when its SHA-256 matches. Override with `RENOX_VERSION`, `RENOX_INSTALL_DIR` and `RENOX_RELEASE_BASE`, or skip the worker with `RENOX_NO_WORKER=1`. `renox new`, `renox check`, and `renox build` of an app without `templates/` run without the worker; `renox dev` and the template transpile of `renox build` find it through `RENOX_WORKER_PATH`. Release signing and provenance are #129.
+
 ## Dev loop
 
 1. A file watcher detects a change.
