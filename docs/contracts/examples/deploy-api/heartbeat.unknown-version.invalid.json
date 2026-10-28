@@ -1,0 +1,1 @@
+{ "$comment": "invalid: schema_version 1 is not known to contract version 0 [expect: const]", "type": "heartbeat", "schema_version": 1, "node_id": "node-dxb-01", "sent_at": 1793318410000, "route_version": 42, "cells": 17 }

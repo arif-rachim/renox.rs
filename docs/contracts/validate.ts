@@ -6,8 +6,15 @@
 //     hash, manifest, migrations, public files: rules V1-V13);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - the error catalogue docs/contracts/errors.md has exactly one row for
-//     every code used in ops.md and docs/23-failure-modes.md, and ctx.d.ts
-//     uses exactly the codes of ops.md section 13.
+//     every code used in ops.md, deploy-api.md, schemas/deploy-api.yaml and
+//     docs/23-failure-modes.md, and ctx.d.ts uses exactly the codes of ops.md
+//     section 13;
+//   - control-plane <-> worker messages follow docs/contracts/deploy-api.md
+//     (schemas/control-messages.schema.json plus rules R1-R3);
+//   - schemas/deploy-api.yaml (OpenAPI 3.1): every operation has request and
+//     response examples, every example validates against its schema, every
+//     x-renox-invalid-examples entry fails, SSE examples validate per event,
+//     and x-renox-state-machines equals the tables of deploy-api.md.
 //
 // Run from the repository root: bun run docs/contracts/validate.ts
 //
@@ -39,6 +46,7 @@ interface Crypto {
   createHash(algorithm: "sha256"): Hash;
 }
 declare const process: { exitCode: number | undefined };
+declare const Bun: { YAML: { parse(text: string): unknown } };
 
 const nodeModule = (name: string): Promise<unknown> => import(`node:${name}`);
 const fs = (await nodeModule("fs")) as Fs;
@@ -131,6 +139,26 @@ function typeOf(v: Json): string {
   return typeof v;
 }
 
+const schemaDocs = new Map<string, Json>();
+/** Another file under schemas/, for a `$ref` of the form `<file>.schema.json#<pointer>`. */
+function schemaDoc(file: string): Json {
+  if (!/^[a-z-]+\.schema\.json$/u.test(file)) throw new Error(`only $ref to schemas/<name>.schema.json is supported: ${file}`);
+  let doc = schemaDocs.get(file);
+  if (doc === undefined) {
+    doc = readJson(`${root}/schemas/${file}`);
+    schemaDocs.set(file, doc);
+  }
+  return doc;
+}
+
+/** Resolves `ref` to [schema, the root its own local refs resolve against]. */
+function resolveRefIn(rootSchema: Json, ref: string): [Json, Json] {
+  const hash = ref.indexOf("#");
+  const file = hash === -1 ? ref : ref.slice(0, hash);
+  const base = file === "" ? rootSchema : schemaDoc(file);
+  return [resolveRef(base, hash === -1 ? "#" : ref.slice(hash)), base];
+}
+
 function resolveRef(rootSchema: Json, ref: string): Json {
   if (!ref.startsWith("#")) throw new Error(`only local $ref is supported: ${ref}`);
   let node: Json = rootSchema;
@@ -151,7 +179,10 @@ function validate(schema: Json, value: Json, rootSchema: Json = schema, at = "$"
   const fail = (msg: string) => errors.push(`${at}: ${msg}`);
   const sub = (s: Json, v: Json, path: string) => validate(s, v, rootSchema, path);
 
-  if (typeof schema.$ref === "string") errors.push(...sub(resolveRef(rootSchema, schema.$ref), value, at));
+  if (typeof schema.$ref === "string") {
+    const [target, base] = resolveRefIn(rootSchema, schema.$ref);
+    errors.push(...validate(target, value, base, at));
+  }
 
   if (schema.type !== undefined) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
@@ -393,11 +424,56 @@ function meterBatchRules(batch: JsonObject): string[] {
   return errors;
 }
 
+/** deploy-api.md section 8, R1 and R2 on a route snapshot that already passed the schema. */
+function routeSnapshotRules(snapshot: JsonObject): string[] {
+  const errors: string[] = [];
+  const active = new Set<string>();
+  const pairs = new Set<string>();
+  for (const e of snapshot.entries as JsonObject[]) {
+    const pair = `${e.hostname} ${e.deployment_hash}`;
+    if (pairs.has(pair)) errors.push(`R1: duplicate entry for ${e.hostname} -> ${e.deployment_hash}`);
+    pairs.add(pair);
+    if (e.status === "active") {
+      if (active.has(e.hostname as string)) errors.push(`R1: more than one active entry for ${e.hostname}`);
+      active.add(e.hostname as string);
+    }
+    if ((e.version as number) > (snapshot.version as number)) {
+      errors.push(`R2: entry ${e.hostname} -> ${e.deployment_hash} has version ${e.version} above the snapshot's ${snapshot.version}`);
+    }
+  }
+  return errors;
+}
+
+/** deploy-api.md section 8, R1 and R3 on a route delta that already passed the schema. */
+function routeDeltaRules(delta: JsonObject): string[] {
+  const errors: string[] = [];
+  const prev = delta.prev_version as number;
+  const version = delta.version as number;
+  if (version <= prev) errors.push(`R3: version ${version} is not above prev_version ${prev}`);
+  const versions = new Set<number>();
+  const pairs = new Set<string>();
+  const changes = [...(delta.upserts as JsonObject[]), ...(delta.removals as JsonObject[])];
+  for (const c of changes) {
+    const v = c.version as number;
+    if (v <= prev || v > version) errors.push(`R3: change ${c.hostname} -> ${c.deployment_hash} has version ${v} outside (${prev}, ${version}]`);
+    if (versions.has(v)) errors.push(`R3: version ${v} is used by two changes`);
+    versions.add(v);
+    const pair = `${c.hostname} ${c.deployment_hash}`;
+    if (pairs.has(pair)) errors.push(`R1: ${c.hostname} -> ${c.deployment_hash} changes twice in one delta`);
+    pairs.add(pair);
+  }
+  const active = (delta.upserts as JsonObject[]).filter((e) => e.status === "active").map((e) => e.hostname as string);
+  if (new Set(active).size !== active.length) errors.push("R1: two active upserts for one hostname");
+  return errors;
+}
+
 const schemaFile = (name: string): string => `${root}/schemas/${name}.schema.json`;
 
 /** A "message" is one JSON document kind with its schema and the semantic rules applied after it. */
 interface Message {
   schema: string;
+  /** A `$defs` entry of `schema` that the message validates against, instead of the root. */
+  def?: string;
   rules?: (doc: JsonObject) => string[];
 }
 const messages: Record<string, Message> = {
@@ -407,11 +483,32 @@ const messages: Record<string, Message> = {
   "public-manifest": { schema: schemaFile("public-manifest") },
   "meter-batch": { schema: schemaFile("meter-record"), rules: meterBatchRules },
 };
+const controlMessages: Record<string, Omit<Message, "schema">> = {
+  node_register: {},
+  node_registered: {},
+  heartbeat: {},
+  heartbeat_ack: {},
+  route_snapshot: { rules: routeSnapshotRules },
+  route_delta: { rules: routeDeltaRules },
+  resync: {},
+  prepare: {},
+  prepare_result: {},
+  secrets_bundle: {},
+  certificate_update: {},
+  certificate_remove: {},
+  certificate_bundle: {},
+  log_batch: {},
+};
+for (const [def, m] of Object.entries(controlMessages)) {
+  messages[def] = { schema: schemaFile("control-messages"), def, ...m };
+}
 
 function checkMessage(kind: string, doc: Json): string[] {
   const message = messages[kind];
   if (message === undefined) throw new Error(`unknown message kind ${kind}`);
-  const errors = validate(readJson(message.schema), doc).map((e) => `schema ${e}`);
+  const schema = readJson(message.schema);
+  const target: Json = message.def === undefined ? schema : { $ref: `#/$defs/${message.def}` };
+  const errors = validate(target, doc, schema).map((e) => `schema ${e}`);
   if (errors.length === 0 && message.rules !== undefined && isObject(doc)) errors.push(...message.rules(doc));
   return errors;
 }
@@ -590,9 +687,11 @@ for (const file of listDir(`${root}/examples/ops`).filter((f) => f.endsWith(".js
 }
 
 // 3. Single-file examples (examples/<contract>/<message>.<case>.(valid|invalid).json).
-for (const contract of ["artifact", "meter"]) {
+for (const contract of ["artifact", "meter", "deploy-api"]) {
   for (const file of listDir(`${root}/examples/${contract}`).filter((f) => f.endsWith(".json"))) {
-    const kind = Object.keys(messages).find((k) => file.startsWith(`${k}.`));
+    const kind = Object.keys(messages)
+      .filter((k) => file.startsWith(`${k}.`))
+      .sort((a, b) => b.length - a.length)[0];
     if (kind === undefined) {
       report(false, `examples/${contract}/${file}: name does not start with a known message kind`);
       continue;
@@ -602,6 +701,15 @@ for (const contract of ["artifact", "meter"]) {
 }
 const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
 report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);
+
+// Every control message has at least one valid and one invalid example.
+const deployExamples = listDir(`${root}/examples/deploy-api`);
+for (const kind of Object.keys(controlMessages)) {
+  const mine = deployExamples.filter((f) => f.startsWith(`${kind}.`) && !Object.keys(controlMessages).some((k) => k.length > kind.length && k.startsWith(kind) && f.startsWith(`${k}.`)));
+  const valid = mine.filter((f) => f.endsWith(".valid.json")).length;
+  const invalid = mine.filter((f) => f.endsWith(".invalid.json")).length;
+  report(valid > 0 && invalid > 0, `${kind}: ${valid} valid and ${invalid} invalid examples`);
+}
 
 // 4. artifact.md directories: valid artifacts pass V1-V12; broken ones fail for the named rule.
 const artifacts: { dir: string; expect?: string }[] = [
@@ -630,6 +738,128 @@ if (isObject(helloTable) && Array.isArray(helloTable.entries)) {
 }
 report(tableErrors.length === 0, "examples/hello-artifact/route-table.json validates and routes to the artifact", tableErrors);
 
+// 6a. schemas/deploy-api.yaml: OpenAPI 3.1 with examples for every operation.
+const api = Bun.YAML.parse(fs.readFileSync(`${root}/schemas/deploy-api.yaml`, "utf8")) as Json;
+const apiErrors: string[] = [];
+const local = (node: Json): Json => {
+  // Follows a local `$ref` (components.responses, .examples, .parameters) to its target.
+  let n = node;
+  for (let i = 0; i < 8 && isObject(n) && typeof n.$ref === "string" && n.$ref.startsWith("#/"); i++) n = resolveRef(api, n.$ref);
+  return n;
+};
+/** Checks one media type object: examples present, valid ones pass, x-renox-invalid-examples fail. */
+function checkMedia(where: string, type: string, media: Json): void {
+  if (!isObject(media)) return apiErrors.push(`${where} ${type}: not an object`) as unknown as void;
+  const examples = isObject(media.examples) ? Object.entries(media.examples) : [];
+  if (examples.length === 0) apiErrors.push(`${where} ${type}: no examples`);
+  const schema = media.schema as Json;
+  const problems = unsupportedKeywords(schema);
+  if (problems.length > 0) apiErrors.push(...problems.map((p) => `${where} ${type} schema ${p}`));
+  for (const [name, raw] of examples) {
+    const ex = local(raw);
+    if (!isObject(ex) || !("value" in ex)) {
+      apiErrors.push(`${where} ${type} example ${name}: no value`);
+      continue;
+    }
+    const value = ex.value as Json;
+    if (type === "application/json") {
+      for (const e of validate(schema, value, api)) apiErrors.push(`${where} example ${name}: ${e}`);
+    } else if (type === "text/event-stream") {
+      const events = isObject(media["x-renox-events"]) ? media["x-renox-events"] : {};
+      if (typeof value !== "string") apiErrors.push(`${where} example ${name}: an event stream example is a string`);
+      else {
+        let seen = 0;
+        for (const block of value.split("\n\n")) {
+          const lines = block.split("\n").filter((l) => l !== "" && !l.startsWith(":"));
+          if (lines.length === 0) continue;
+          const event = lines.find((l) => l.startsWith("event: "))?.slice(7) ?? "message";
+          const data = lines.filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+          const eventSchema = events[event];
+          if (eventSchema === undefined) apiErrors.push(`${where} example ${name}: event "${event}" has no x-renox-events schema`);
+          else for (const e of validate(eventSchema, JSON.parse(data) as Json, api)) apiErrors.push(`${where} example ${name} event ${event}: ${e}`);
+          seen++;
+        }
+        if (seen === 0) apiErrors.push(`${where} example ${name}: no events`);
+      }
+    } else if (typeof value !== "string") {
+      apiErrors.push(`${where} ${type} example ${name}: a binary example is a placeholder string`);
+    }
+  }
+  const invalid = isObject(media["x-renox-invalid-examples"]) ? Object.entries(media["x-renox-invalid-examples"]) : [];
+  for (const [name, ex] of invalid) {
+    if (!isObject(ex)) continue;
+    const errors = validate(schema, ex.value as Json, api);
+    const expect = typeof ex["x-expect"] === "string" ? ex["x-expect"] : undefined;
+    const ok = errors.length > 0 && (expect === undefined || errors.some((e) => e.includes(expect)));
+    report(ok, `deploy-api.yaml ${where} invalid example ${name} is rejected${expect === undefined ? "" : ` (${expect})`}`, errors.length > 0 ? errors : ["no error"]);
+  }
+}
+if (!isObject(api) || typeof api.openapi !== "string" || !api.openapi.startsWith("3.1.")) apiErrors.push("openapi is not 3.1.x");
+const operationIds = new Set<string>();
+let operations = 0;
+const METHODS = ["get", "put", "post", "delete", "patch"];
+for (const [path, item] of Object.entries(isObject(api) && isObject(api.paths) ? api.paths : {})) {
+  if (!isObject(item)) continue;
+  const pathParams = [...path.matchAll(/\{([a-z_]+)\}/gu)].map((m) => m[1] as string);
+  const shared = Array.isArray(item.parameters) ? item.parameters.map(local) : [];
+  for (const method of METHODS) {
+    const op = item[method];
+    if (!isObject(op)) continue;
+    operations++;
+    const where = `${method.toUpperCase()} ${path}`;
+    const id = op.operationId as string;
+    if (typeof id !== "string" || operationIds.has(id)) apiErrors.push(`${where}: missing or duplicate operationId`);
+    operationIds.add(id);
+    const params = [...shared, ...(Array.isArray(op.parameters) ? op.parameters.map(local) : [])];
+    for (const p of pathParams) {
+      if (!params.some((q) => isObject(q) && q.in === "path" && q.name === p)) apiErrors.push(`${where}: path parameter {${p}} is not declared`);
+    }
+    for (const q of params) if (isObject(q)) for (const pr of unsupportedKeywords(q.schema as Json)) apiErrors.push(`${where} parameter ${q.name} ${pr}`);
+    const body = local(op.requestBody as Json);
+    if (isObject(body) && isObject(body.content)) {
+      for (const [type, media] of Object.entries(body.content)) checkMedia(`${where} request`, type, media);
+    }
+    const responses = isObject(op.responses) ? Object.entries(op.responses) : [];
+    if (!responses.some(([status]) => status.startsWith("2"))) apiErrors.push(`${where}: no 2xx response`);
+    let withExample = 0;
+    for (const [status, raw] of responses) {
+      const response = local(raw);
+      if (!isObject(response) || !isObject(response.content)) continue;
+      withExample++;
+      for (const [type, media] of Object.entries(response.content)) checkMedia(`${where} ${status}`, type, media);
+    }
+    if (withExample === 0) apiErrors.push(`${where}: no response with a body example`);
+  }
+}
+const componentSchemas = isObject(api) && isObject(api.components) && isObject(api.components.schemas) ? api.components.schemas : {};
+for (const [name, schema] of Object.entries(componentSchemas)) {
+  for (const p of unsupportedKeywords(schema)) apiErrors.push(`components.schemas.${name} ${p}`);
+}
+report(apiErrors.length === 0, `deploy-api.yaml: ${operations} operations, all with request and response examples that validate`, apiErrors);
+
+// 6b. x-renox-state-machines equals the transition tables of deploy-api.md.
+const deployText = fs.readFileSync(`${root}/deploy-api.md`, "utf8");
+const machines = isObject(api) && isObject(api["x-renox-state-machines"]) ? api["x-renox-state-machines"] : {};
+for (const [name, machine] of Object.entries(machines)) {
+  const section = new RegExp(`<!-- state-machine: ${name} -->\\n([\\s\\S]*?)\\n\\n`, "u").exec(deployText)?.[1];
+  const fromDoc: Record<string, string[]> = {};
+  for (const m of (section ?? "").matchAll(/^\| `([a-z_]+)` \|[^|]*\| ([^|]*) \|/gmu)) {
+    fromDoc[m[1] as string] = [...(m[2] as string).matchAll(/`([a-z_]+)`/gu)].map((x) => x[1] as string).sort();
+  }
+  const transitions = isObject(machine) && isObject(machine.transitions) ? machine.transitions : {};
+  const fromYaml: Record<string, string[]> = {};
+  for (const [state, to] of Object.entries(transitions)) fromYaml[state] = (Array.isArray(to) ? (to as string[]) : []).slice().sort();
+  const diff: string[] = [];
+  if (section === undefined) diff.push(`deploy-api.md has no "<!-- state-machine: ${name} -->" table`);
+  for (const state of new Set([...Object.keys(fromDoc), ...Object.keys(fromYaml)])) {
+    if (JSON.stringify(fromDoc[state]) !== JSON.stringify(fromYaml[state])) {
+      diff.push(`${state}: deploy-api.md ${JSON.stringify(fromDoc[state] ?? null)} vs yaml ${JSON.stringify(fromYaml[state] ?? null)}`);
+    }
+    for (const to of fromYaml[state] ?? []) if (!(to in fromYaml)) diff.push(`${state} -> ${to}: unknown state`);
+  }
+  report(diff.length === 0, `deploy-api ${name} state machine: deploy-api.md table = deploy-api.yaml (${Object.keys(fromYaml).length} states)`, diff);
+}
+
 // 6. errors.md: one row per code; covers ops.md and docs/23-failure-modes.md;
 //    ctx.d.ts matches ops.md section 13.
 const CODE = /RENOX_[A-Z0-9]+(?:_[A-Z0-9]+)*/gu;
@@ -649,6 +879,8 @@ const opsText = docText(`${root}/ops.md`);
 const sources: [string, Set<string>][] = [
   ["ops.md", codesIn(opsText)],
   ["docs/23-failure-modes.md", codesIn(docText(`${root}/../23-failure-modes.md`))],
+  ["deploy-api.md", codesIn(deployText)],
+  ["schemas/deploy-api.yaml", codesIn(docText(`${root}/schemas/deploy-api.yaml`))],
 ];
 for (const [name, codes] of sources) {
   const missing = [...codes].filter((c) => !catalogue.has(c)).map((c) => `${c} is used in ${name} but has no row`);

@@ -1,0 +1,1 @@
+{ "$comment": "invalid: route versions are non-negative [expect: minimum]", "type": "heartbeat_ack", "schema_version": 0, "route_version": -1 }

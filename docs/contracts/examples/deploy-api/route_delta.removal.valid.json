@@ -1,0 +1,9 @@
+{
+  "$comment": "The drained entry is removed after the drain period.",
+  "type": "route_delta",
+  "schema_version": 0,
+  "prev_version": 44,
+  "version": 45,
+  "upserts": [],
+  "removals": [ { "hostname": "hello.renox.app", "deployment_hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", "version": 45 } ]
+}

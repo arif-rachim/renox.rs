@@ -1,0 +1,1 @@
+{ "type": "node_register", "schema_version": 0, "node_id": "node-dxb-01", "worker_version": "0.1.0", "region": "me-central-1", "max_cells": 2000 }

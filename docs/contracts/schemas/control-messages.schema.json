@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/deploy-api/v0/control-messages.schema.json",
+  "title": "Renox control-plane <-> worker messages, deploy API contract version 0",
+  "description": "Every JSON document a worker node and the control plane exchange: registration, heartbeat, the route table (snapshot and deltas), activation (prepare), secret and certificate bundles, certificate push, and log batches. Meter batches are meter-record.schema.json. Prose: docs/contracts/deploy-api.md sections 7-10. Each message carries `type` and `schema_version`; a receiver rejects a schema_version it does not know.",
+  "oneOf": [
+    { "$ref": "#/$defs/node_register" },
+    { "$ref": "#/$defs/node_registered" },
+    { "$ref": "#/$defs/heartbeat" },
+    { "$ref": "#/$defs/heartbeat_ack" },
+    { "$ref": "#/$defs/route_snapshot" },
+    { "$ref": "#/$defs/route_delta" },
+    { "$ref": "#/$defs/resync" },
+    { "$ref": "#/$defs/prepare" },
+    { "$ref": "#/$defs/prepare_result" },
+    { "$ref": "#/$defs/secrets_bundle" },
+    { "$ref": "#/$defs/certificate_update" },
+    { "$ref": "#/$defs/certificate_remove" },
+    { "$ref": "#/$defs/certificate_bundle" },
+    { "$ref": "#/$defs/log_batch" }
+  ],
+  "$defs": {
+    "schema_version": { "const": 0 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "tenant_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$" },
+    "app": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,49}$" },
+    "node_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+    "hostname": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+    },
+    "unix_ms": { "type": "integer", "minimum": 0, "description": "Unix time in milliseconds." },
+    "route_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Route table version: one sequence for the whole control plane, incremented by every change. 0 = the empty table."
+    },
+    "tier": { "enum": ["free", "paid"] },
+    "secret_name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+    "activation_id": { "type": "string", "pattern": "^act_[0-9A-Za-z]{16,32}$" },
+    "activation_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "reason"],
+      "description": "Why an activation failed (deploy-api.md section 6). Never contains a node path, an internal address, or a secret value.",
+      "properties": {
+        "stage": { "enum": ["no_worker", "fetch", "load", "migrate", "probe", "timeout"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "module": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+        "file": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}/[0-9]{3}_[a-z0-9_]{1,64}\\.sql$" },
+        "sqlite_error": { "type": "string", "maxLength": 1024 },
+        "http_status": { "type": "integer", "minimum": 100, "maximum": 599 }
+      }
+    },
+    "route_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostname",
+        "tenant_id",
+        "app",
+        "deployment_hash",
+        "status",
+        "updated_at",
+        "version",
+        "tier",
+        "node_id",
+        "secrets_version"
+      ],
+      "description": "artifact.md section 5 route-table entry plus the F3 fields: version (#97), app, tier, node_id (tenant assignment), secrets_version.",
+      "properties": {
+        "hostname": { "$ref": "#/$defs/hostname" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "app": { "$ref": "#/$defs/app" },
+        "deployment_hash": { "$ref": "#/$defs/sha256" },
+        "status": { "enum": ["active", "draining"] },
+        "updated_at": { "$ref": "#/$defs/unix_ms" },
+        "version": { "$ref": "#/$defs/route_version" },
+        "tier": { "$ref": "#/$defs/tier" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "secrets_version": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The app's secret-set version pinned by this deployment. 0 = no secrets set."
+        }
+      }
+    },
+    "route_removal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "deployment_hash", "version"],
+      "properties": {
+        "hostname": { "$ref": "#/$defs/hostname" },
+        "deployment_hash": { "$ref": "#/$defs/sha256" },
+        "version": { "$ref": "#/$defs/route_version" }
+      }
+    },
+    "node_register": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "node_id", "worker_version", "region", "max_cells"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "node_register" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "worker_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]{1,64})?$" },
+        "region": { "type": "string", "pattern": "^[a-z0-9-]{1,32}$" },
+        "max_cells": { "type": "integer", "minimum": 1, "maximum": 100000 }
+      }
+    },
+    "node_registered": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "node_id",
+        "heartbeat_interval_ms",
+        "unhealthy_after_ms",
+        "resync_interval_ms",
+        "route_version"
+      ],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "node_registered" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "heartbeat_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 60000 },
+        "unhealthy_after_ms": { "type": "integer", "minimum": 3000, "maximum": 600000 },
+        "resync_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 3600000 },
+        "route_version": { "$ref": "#/$defs/route_version" }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "node_id", "sent_at", "route_version", "cells"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "heartbeat" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "sent_at": { "$ref": "#/$defs/unix_ms" },
+        "route_version": { "$ref": "#/$defs/route_version" },
+        "cells": { "type": "integer", "minimum": 0, "description": "Warm cells on the node." }
+      }
+    },
+    "heartbeat_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "route_version"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "heartbeat_ack" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "route_version": {
+          "$ref": "#/$defs/route_version",
+          "description": "The control plane's current route version; a node that holds less resyncs."
+        }
+      }
+    },
+    "route_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "version", "entries"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "route_snapshot" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "version": { "$ref": "#/$defs/route_version" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/route_entry" } }
+      }
+    },
+    "route_delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "prev_version", "version", "upserts", "removals"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "route_delta" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "prev_version": { "$ref": "#/$defs/route_version" },
+        "version": { "$ref": "#/$defs/route_version" },
+        "upserts": { "type": "array", "items": { "$ref": "#/$defs/route_entry" } },
+        "removals": { "type": "array", "items": { "$ref": "#/$defs/route_removal" } }
+      }
+    },
+    "resync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "version"],
+      "description": "Asks the node to fetch a full snapshot now (sent after a control-plane restart or when deltas were lost).",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "resync" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "version": { "$ref": "#/$defs/route_version" }
+      }
+    },
+    "prepare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "activation_id",
+        "tenant_id",
+        "app",
+        "deployment_hash",
+        "tier",
+        "secrets_version",
+        "probe",
+        "deadline_ms"
+      ],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "prepare" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "activation_id": { "$ref": "#/$defs/activation_id" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "app": { "$ref": "#/$defs/app" },
+        "deployment_hash": { "$ref": "#/$defs/sha256" },
+        "tier": { "$ref": "#/$defs/tier" },
+        "secrets_version": { "type": "integer", "minimum": 0 },
+        "probe": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["path", "timeout_ms"],
+          "description": "null: the app has no GET route without parameters; only cell creation is checked.",
+          "properties": {
+            "path": { "type": "string", "pattern": "^/([A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)*)?$" },
+            "timeout_ms": { "type": "integer", "minimum": 100, "maximum": 30000 }
+          }
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Time the node has to answer with prepare_result."
+        }
+      }
+    },
+    "prepare_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "activation_id", "node_id", "ok"],
+      "if": { "properties": { "ok": { "const": false } } },
+      "then": { "required": ["error"] },
+      "else": { "not": { "required": ["error"] } },
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "prepare_result" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "activation_id": { "$ref": "#/$defs/activation_id" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "ok": { "type": "boolean" },
+        "migrations_applied": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}/[0-9]{3}_[a-z0-9_]{1,64}\\.sql$" }
+        },
+        "error": { "$ref": "#/$defs/activation_error" }
+      }
+    },
+    "secrets_bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "tenant_id", "app", "deployment_hash", "version", "secrets"],
+      "description": "Plaintext secret values for one deployment, filtered to the names its manifest declares. Sent only over TLS to the node the tenant is assigned to, with Cache-Control: no-store; the node keeps it in memory only.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "secrets_bundle" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "app": { "$ref": "#/$defs/app" },
+        "deployment_hash": { "$ref": "#/$defs/sha256" },
+        "version": { "type": "integer", "minimum": 0 },
+        "secrets": {
+          "type": "object",
+          "maxProperties": 100,
+          "propertyNames": { "$ref": "#/$defs/secret_name" },
+          "additionalProperties": { "type": "string", "minLength": 8, "maxLength": 65536 }
+        }
+      }
+    },
+    "certificate_update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "hostname", "version", "not_after"],
+      "description": "A certificate for hostname was issued or renewed; the node fetches it with GET /v1/nodes/{node_id}/certificates/{hostname} and reloads its certificate store. Keys never travel on the stream.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "certificate_update" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "hostname": { "$ref": "#/$defs/hostname" },
+        "version": { "type": "integer", "minimum": 1 },
+        "not_after": { "$ref": "#/$defs/unix_ms" }
+      }
+    },
+    "certificate_remove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "hostname", "version"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "certificate_remove" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "hostname": { "$ref": "#/$defs/hostname" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "certificate_bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "hostname", "version", "not_after", "chain_pem", "key_pem"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "certificate_bundle" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "hostname": { "$ref": "#/$defs/hostname" },
+        "version": { "type": "integer", "minimum": 1 },
+        "not_after": { "$ref": "#/$defs/unix_ms" },
+        "chain_pem": { "type": "string", "pattern": "^-----BEGIN CERTIFICATE-----\\n", "maxLength": 65536 },
+        "key_pem": { "type": "string", "pattern": "^-----BEGIN PRIVATE KEY-----\\n", "maxLength": 16384 }
+      }
+    },
+    "log_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ts", "tenant_id", "deployment_hash", "request_id", "module", "level", "message", "fields", "source"],
+      "description": "One tenant log line as written by op_log (ops.md section 4), already redacted on the node, plus `source`.",
+      "properties": {
+        "ts": { "$ref": "#/$defs/unix_ms" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "deployment_hash": { "$ref": "#/$defs/sha256" },
+        "request_id": { "type": ["string", "null"], "pattern": "^[0-9A-Za-z_-]{8,64}$" },
+        "module": { "type": "string", "maxLength": 256 },
+        "level": { "enum": ["debug", "info", "warn", "error"] },
+        "message": { "type": "string", "maxLength": 8300 },
+        "fields": { "type": ["object", "null"] },
+        "source": { "enum": ["server", "client"] }
+      }
+    },
+    "log_batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "node_id", "lines"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "log_batch" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "lines": { "type": "array", "minItems": 1, "maxItems": 1000, "items": { "$ref": "#/$defs/log_line" } }
+      }
+    }
+  }
+}

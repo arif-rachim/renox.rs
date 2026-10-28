@@ -1,0 +1,1 @@
+{ "type": "node_registered", "schema_version": 0, "node_id": "node-dxb-01", "heartbeat_interval_ms": 10000, "unhealthy_after_ms": 30000, "resync_interval_ms": 60000, "route_version": 42 }

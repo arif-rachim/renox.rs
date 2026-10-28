@@ -1,0 +1,1 @@
+{ "$comment": "invalid: ok = false requires error [expect: required]", "type": "prepare_result", "schema_version": 0, "activation_id": "act_01JBQ40000000000AB", "node_id": "node-dxb-01", "ok": false }

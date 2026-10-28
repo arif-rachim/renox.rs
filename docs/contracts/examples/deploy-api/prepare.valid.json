@@ -1,0 +1,1 @@
+{ "type": "prepare", "schema_version": 0, "activation_id": "act_01JBQ40000000000AB", "tenant_id": "t_hello", "app": "hello", "deployment_hash": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", "tier": "free", "secrets_version": 2, "probe": { "path": "/api/hello", "timeout_ms": 10000 }, "deadline_ms": 60000 }
