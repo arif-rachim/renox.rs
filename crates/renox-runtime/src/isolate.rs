@@ -10,6 +10,7 @@
 //! dedicated thread lets the CPU watchdog measure exactly that thread's CPU
 //! clock. See README, "Thread model".
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::PathBuf;
@@ -39,7 +40,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::{ErrorCode, PlatformResponse};
 use crate::limits::Limits;
 use crate::limits::concurrency::ConcurrencyLimit;
-use crate::limits::cpu::Watchdog;
+use crate::limits::cpu::{CpuLedger, CpuWatch, Watchdog};
 use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
@@ -1111,10 +1112,9 @@ struct InFlight {
     token: u32,
     ctx: RequestCtx,
     route: usize,
-    /// Thread CPU charged so far (ns), not counting the current slice.
+    /// Thread CPU charged to the request (ns); set from the CPU ledger when
+    /// the request ends.
     cpu_ns: u64,
-    /// CPU of the current slice that ran before this request joined it (ns).
-    slice_offset_ns: u64,
     peak_heap: u64,
     /// What the ops used, taken when the request ends.
     used: RequestEnd,
@@ -1139,27 +1139,118 @@ impl InFlight {
     }
 }
 
-/// How much CPU the current slice may use, measured from the slice start:
-/// the smallest remaining budget among the requests in flight (a request
-/// that joined mid-slice is offset by the slice CPU before it joined). With
-/// nothing in flight (a timer that outlived its request) the per-request
-/// limit still applies, so orphaned work cannot spin forever.
-fn slice_budget(limit: Duration, inflight: &HashMap<u64, InFlight>) -> Duration {
-    let limit_ns = limit.as_nanos() as u64;
-    let min_left = inflight
-        .values()
-        .map(|f| limit_ns.saturating_sub(f.cpu_ns) + f.slice_offset_ns)
-        .min()
-        .unwrap_or(limit_ns);
-    Duration::from_nanos(min_left)
+// ---------------------------------------------------------------------------
+// CPU attribution (#155; limits/cpu.rs, "Accounting").
+
+/// The CPU ledger of the isolate on this thread and the watchdog it steers.
+struct Attribution {
+    ledger: CpuLedger,
+    watch: Arc<CpuWatch>,
+    /// A slice is running: switches are charged and re-arm the watchdog.
+    in_slice: bool,
 }
 
-impl InFlight {
-    /// Charge the part of the current slice this request was in flight for.
-    fn charge(&mut self, slice_cpu_ns: u64) {
-        self.cpu_ns += slice_cpu_ns.saturating_sub(self.slice_offset_ns);
-        self.slice_offset_ns = 0;
+thread_local! {
+    /// Installed by `serve` for the isolate of this thread (one per thread).
+    static ATTRIBUTION: RefCell<Option<Attribution>> = const { RefCell::new(None) };
+}
+
+/// Run `f` on this thread's ledger, if `serve` installed one.
+fn with_attribution<R>(f: impl FnOnce(&mut Attribution) -> R) -> Option<R> {
+    ATTRIBUTION.with(|a| {
+        let mut a = a.try_borrow_mut().ok()?;
+        a.as_mut().map(f)
+    })
+}
+
+/// Apply a context switch inside a slice; when the running context changed,
+/// the watchdog measures the new run against its budget.
+fn attribute(change: impl FnOnce(&mut CpuLedger, u64) -> bool) {
+    with_attribution(|a| {
+        if !a.in_slice {
+            return;
+        }
+        let now = a.watch.now_ns();
+        if change(&mut a.ledger, now) {
+            a.watch.rebase(now, a.ledger.budget());
+        }
+    });
+}
+
+/// End a request in the ledger; returns its CPU (ns).
+fn release_cpu(token: u32) -> u64 {
+    with_attribution(|a| {
+        let now = a.watch.now_ns();
+        let cpu = a.ledger.release(token, now);
+        if a.in_slice {
+            a.watch.rebase(now, a.ledger.budget());
+        }
+        cpu
+    })
+    .unwrap_or(0)
+}
+
+/// The key of the request token in the async context object. The
+/// bootstrap's `AsyncVariable` builds its context mapping by spreading the
+/// previous one (`{ ...previous, [id]: entry }`), so the key survives every
+/// `requestVar.enter`; numeric `AsyncVariable` ids never collide with it.
+const CPU_TOKEN_KEY: &str = "renox:cpu";
+
+/// The request token in an async context value, if it carries one.
+fn context_token(scope: &mut v8::PinScope, cped: v8::Local<v8::Value>) -> Option<u32> {
+    let obj = v8::Local::<v8::Object>::try_from(cped).ok()?;
+    let key = v8::String::new(scope, CPU_TOKEN_KEY)?;
+    let v = obj.get(scope, key.into())?;
+    if v.is_uint32() {
+        v.uint32_value(scope)
+    } else {
+        None
     }
+}
+
+/// V8's isolate promise hook. `Before`: a promise reaction (an `await`
+/// continuation, a `then` callback) starts; V8 has restored the
+/// continuation-preserved embedder data captured when the reaction was
+/// created: the async context of the request that created it (see
+/// [`CPU_TOKEN_KEY`]) or none. `After`: back to what it interrupted.
+extern "C" fn promise_hook(
+    kind: v8::PromiseHookType,
+    promise: v8::Local<v8::Promise>,
+    _parent: v8::Local<v8::Value>,
+) {
+    match kind {
+        v8::PromiseHookType::Before => {
+            let token = {
+                // SAFETY: V8 calls the hook on the isolate's thread with a
+                // live promise handle, inside a context.
+                v8::callback_scope!(unsafe scope, promise);
+                let cped = scope.get_continuation_preserved_embedder_data();
+                context_token(scope, cped)
+            };
+            attribute(|l, now| l.enter(token, now));
+        }
+        v8::PromiseHookType::After => attribute(|l, now| l.leave(now)),
+        _ => {}
+    }
+}
+
+/// Set the async context that JavaScript started now runs in: a
+/// null-prototype object holding the request token under
+/// [`CPU_TOKEN_KEY`], or `undefined` for none.
+fn set_async_context(worker: &mut MainWorker, token: Option<u32>) {
+    deno_core::scope!(scope, &mut worker.js_runtime);
+    let v: v8::Local<v8::Value> = match token {
+        Some(t) => {
+            let key: v8::Local<v8::Name> = v8::String::new(scope, CPU_TOKEN_KEY)
+                .expect("short ASCII string")
+                .into();
+            let value: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, t).into();
+            let null = v8::null(scope).into();
+            v8::Object::with_prototype_and_properties(scope, null, &[key], &[value]).into()
+        }
+        None => v8::undefined(scope).into(),
+    };
+    scope.set_continuation_preserved_embedder_data(v);
 }
 
 /// The isolate's main loop: accept dispatches, poll the event loop, and
@@ -1174,12 +1265,25 @@ async fn serve(
     let cpu_limit = Duration::from_millis(ctx.limits.cpu_ms);
     let mut calls: FuturesUnordered<SeqCall> = FuturesUnordered::new();
     let mut inflight: HashMap<u64, InFlight> = HashMap::new();
+    let watch = guards.watchdog.watch().clone();
+    ATTRIBUTION.with(|a| {
+        *a.borrow_mut() = Some(Attribution {
+            ledger: CpuLedger::new(cpu_limit),
+            watch: watch.clone(),
+            in_slice: false,
+        })
+    });
+    worker
+        .js_runtime
+        .v8_isolate()
+        .set_promise_hook(promise_hook);
     std::future::poll_fn(|cx| {
-        let slice = guards
-            .watchdog
-            .begin_slice(slice_budget(cpu_limit, &inflight));
-        let watch = guards.watchdog.watch().clone();
-        let slice_cpu = |watch: &crate::limits::cpu::CpuWatch| watch.now_ns().saturating_sub(slice);
+        let budget = with_attribution(|a| a.ledger.budget()).unwrap_or(cpu_limit);
+        let slice = guards.watchdog.begin_slice(budget);
+        with_attribution(|a| {
+            a.ledger.begin(slice);
+            a.in_slice = true;
+        });
         let mut stop = false;
 
         // 1. New commands.
@@ -1194,17 +1298,10 @@ async fn serve(
                         continue;
                     }
                     let seq = job.seq;
-                    // A request that joins mid-slice is charged only from
-                    // now on, and its synchronous part already runs inside
-                    // start_dispatch, under its own budget.
-                    let offset = slice_cpu(&watch);
-                    guards.watchdog.set_budget(
-                        slice_budget(cpu_limit, &inflight)
-                            .min(Duration::from_nanos(offset) + cpu_limit),
-                    );
+                    // The request is charged from now on; its synchronous
+                    // part runs inside start_dispatch, in its own context.
                     match start_dispatch(ctx, worker, platform, *job) {
-                        Ok((fut, mut flight)) => {
-                            flight.slice_offset_ns = offset;
+                        Ok((fut, flight)) => {
                             inflight.insert(seq, flight);
                             calls.push(Box::pin(async move { (seq, fut.await) }));
                         }
@@ -1215,13 +1312,10 @@ async fn serve(
                             });
                         }
                     }
-                    guards
-                        .watchdog
-                        .set_budget(slice_budget(cpu_limit, &inflight));
                 }
                 Some(Command::Cancel { seq, meter }) => {
                     if let Some(mut f) = inflight.remove(&seq) {
-                        f.charge(slice_cpu(&watch));
+                        f.cpu_ns = release_cpu(f.token);
                         f.used = end_request(ctx, worker, f.token, Ended::Terminated);
                         let _ = meter.send(f.meter(ctx, MeterStatus::Timeout));
                     }
@@ -1251,7 +1345,6 @@ async fn serve(
                 let Some(mut flight) = inflight.remove(&seq) else {
                     continue;
                 };
-                flight.charge(slice_cpu(&watch));
                 flight.peak_heap = flight
                     .peak_heap
                     .max(heap::used_heap_bytes(&mut worker.js_runtime));
@@ -1259,6 +1352,7 @@ async fn serve(
                     inflight.insert(seq, flight);
                     break;
                 }
+                flight.cpu_ns = release_cpu(flight.token);
                 flight.used = end_request(ctx, worker, flight.token, Ended::Finished);
                 let reply = finish_dispatch(ctx, worker, &flight, result);
                 if flight.used.rolled_back_tx {
@@ -1288,11 +1382,14 @@ async fn serve(
             }
         }
 
-        // End of slice: charge every request still in flight.
-        let used = guards.watchdog.end_slice(slice).as_nanos() as u64;
+        // End of slice: charge the last run, record the heap peak.
+        with_attribution(|a| {
+            a.ledger.end(a.watch.now_ns());
+            a.in_slice = false;
+        });
+        guards.watchdog.end_slice(slice);
         let heap_now = heap::used_heap_bytes(&mut worker.js_runtime);
         for f in inflight.values_mut() {
-            f.charge(used);
             f.peak_heap = f.peak_heap.max(heap_now);
         }
 
@@ -1310,6 +1407,7 @@ async fn serve(
         if let Some((code, status)) = killed {
             ctx.shared.poisoned.store(true, Ordering::SeqCst);
             for (_, mut flight) in inflight.drain() {
+                flight.cpu_ns = release_cpu(flight.token);
                 flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
                 let mut f = serde_json::Map::new();
                 f.insert("code".into(), code.as_str().into());
@@ -1363,6 +1461,7 @@ async fn serve(
             // Disposal: requests still in flight get no answer, but their
             // resources are released before the isolate goes.
             for (_, mut flight) in inflight.drain() {
+                release_cpu(flight.token);
                 flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
             }
             return Poll::Ready(());
@@ -1370,6 +1469,7 @@ async fn serve(
         Poll::Pending
     })
     .await;
+    ATTRIBUTION.with(|a| a.borrow_mut().take());
 }
 
 /// What a request's ops used, and what had to be cleaned up when it ended.
@@ -1489,7 +1589,14 @@ fn start_dispatch(
             return Err((job.reply, ErrorCode::Internal));
         }
     };
+    // The handler runs in the request's async context; V8 carries it into
+    // every reaction the handler creates (CPU attribution, #155).
+    with_attribution(|a| a.ledger.admit(token));
+    set_async_context(worker, Some(token));
+    attribute(|l, now| l.switch(Some(token), now));
     let fut = worker.js_runtime.call_with_args(&platform.dispatch, &args);
+    attribute(|l, now| l.switch(None, now));
+    set_async_context(worker, None);
     Ok((
         Box::pin(fut),
         InFlight {
@@ -1497,7 +1604,6 @@ fn start_dispatch(
             ctx: job.ctx,
             route: job.route,
             cpu_ns: 0,
-            slice_offset_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
             reply: Some(job.reply),
