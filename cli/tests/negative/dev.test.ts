@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { DEBOUNCE_MS, startDev, workerPath } from "../../src/commands/dev.ts";
+import { DEBOUNCE_MS, portTaken, startDev, workerPath } from "../../src/commands/dev.ts";
 import { EnvironmentError, EXIT } from "../../src/errors.ts";
 import { app, fakeWorker, freePort, HEALTH, MAIN, VALID_TOML } from "./helpers.ts";
 
@@ -219,7 +219,9 @@ test("no RENOX_WORKER_PATH and no downloaded binary: exit 3 with the download in
 test("a port in use is exit 3", async () => {
   const dir = project();
   const port = freePort();
-  const holder = Bun.serve({ hostname: "localhost", port, fetch: () => new Response("busy") });
+  // Held on 127.0.0.1 only: renox dev listens on `localhost`, which on a
+  // machine with IPv6 can bind ::1 beside it; the probe must still refuse.
+  const holder = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("busy") });
   try {
     const p = Bun.spawn([process.execPath, MAIN, "dev", "--port", String(port)], {
       cwd: dir,
@@ -227,12 +229,25 @@ test("a port in use is exit 3", async () => {
       stdout: "pipe",
       stderr: "pipe",
     });
-    expect(await p.exited).toBe(EXIT.ENVIRONMENT);
+    const code = await Promise.race([p.exited, Bun.sleep(15_000).then(() => -1)]);
+    if (code === -1) p.kill("SIGKILL");
+    expect(code).toBe(EXIT.ENVIRONMENT);
     expect(await new Response(p.stderr).text()).toContain(`renox dev: port ${port} is in use`);
   } finally {
     holder.stop(true);
   }
 }, 30_000);
+
+test("portTaken sees a server on either loopback family", async () => {
+  const port = freePort();
+  expect(await portTaken(port)).toBe(false);
+  const v4 = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("v4") });
+  try {
+    expect(await portTaken(port)).toBe(true);
+  } finally {
+    v4.stop(true);
+  }
+});
 
 test("renox mcp exits 130 on Ctrl-C", async () => {
   const dir = project();

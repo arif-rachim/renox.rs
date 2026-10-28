@@ -90,6 +90,27 @@ function writeRoutes(path: string, hostname: string, hash: string): void {
   renameSync(tmp, path);
 }
 
+/** Whether something accepts connections on `host:port` (false when the address family is missing). */
+const accepts = (host: string, port: number): Promise<boolean> =>
+  new Promise((r) => {
+    const s = connect({ host, port });
+    const done = (ok: boolean): void => {
+      s.destroy();
+      r(ok);
+    };
+    s.setTimeout(500, () => done(false));
+    s.once("connect", () => done(true));
+    s.once("error", () => done(false));
+  });
+
+/**
+ * A port taken on either loopback family. `localhost` resolves to both
+ * 127.0.0.1 and ::1 on most machines; binding one family can succeed while
+ * another server holds the other, and a browser would then reach that server.
+ */
+export const portTaken = async (port: number): Promise<boolean> =>
+  (await Promise.all([accepts("127.0.0.1", port), accepts("::1", port)])).some(Boolean);
+
 /** Resolves when the worker listens; rejects when it exits first or takes longer than `ms`. */
 const waitForPort = async (port: number, ms: number, exited: Promise<number>): Promise<void> => {
   const t0 = Date.now();
@@ -219,6 +240,12 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     worker.kill("SIGKILL");
     throw e;
   }
+  const portInUse = (): EnvironmentError =>
+    new EnvironmentError(`port ${opts.port} is in use`, { hint: "stop the other process, or pass --port <port>" });
+  if (await portTaken(opts.port)) {
+    worker.kill("SIGKILL");
+    throw portInUse();
+  }
   let proxy: ReturnType<typeof Bun.serve>;
   try {
     proxy = Bun.serve({
@@ -240,9 +267,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   } catch (e) {
     worker.kill("SIGKILL");
     const inUse = /EADDRINUSE|in use/iu.test(String((e as Error).message ?? e)) || (e as NodeJS.ErrnoException).code === "EADDRINUSE";
-    throw new EnvironmentError(inUse ? `port ${opts.port} is in use` : `cannot listen on port ${opts.port}: ${(e as Error).message}`, {
-      hint: "stop the other process, or pass --port <port>",
-    });
+    throw inUse ? portInUse() : new EnvironmentError(`cannot listen on port ${opts.port}: ${(e as Error).message}`, { hint: "stop the other process, or pass --port <port>" });
   }
   // .renox/dev.json for the MCP tools dev_status and dev_errors.
   const status: DevState = {
