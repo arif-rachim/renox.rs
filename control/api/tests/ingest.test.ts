@@ -1,9 +1,11 @@
 // POST /v1/ingest/meters and GET /v1/apps/{app}/usage (#56; deploy-api.md
-// section 11, meter.md sections 4-5).
+// section 11, meter.md sections 4-5), and POST /v1/ingest/logs (#199).
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { hourOf, rollup } from "@renox/billing";
+import spec from "../../../docs/contracts/schemas/deploy-api.yaml";
+import { LOG_LINES_PER_MINUTE, logIngest, SAMPLE_EVERY } from "../src/ingest/logs.ts";
 import { helloArtifact, named, upload } from "./artifacts.ts";
 import { assertScoped, auditRows, createApp_, type Harness, harness, nodeToken, scopedToken, tenant } from "./helpers.ts";
 
@@ -138,5 +140,104 @@ describe("GET /v1/apps/{app}/usage", () => {
     for (const q of ["from=abc", "from=10&to=5", `from=0&to=${400 * 86_400_000}`]) {
       expect((await h.request("GET", `/v1/apps/hello/usage?${q}`, { token })).status).toBe(400);
     }
+  });
+});
+
+type Example = { value: unknown; "x-expect"?: string };
+type LogsOp = {
+  requestBody: { content: { "application/json": { examples: Record<string, Example>; "x-renox-invalid-examples": Record<string, Example> } } };
+  responses: Record<string, { content?: { "application/json": { examples: Record<string, Example> } } }>;
+};
+const logsOp = (spec as { paths: Record<string, { post: LogsOp }> }).paths["/v1/ingest/logs"]?.post as LogsOp;
+
+let lineSeq = 0;
+const line = (hash: string, over: Record<string, unknown> = {}) => {
+  lineSeq += 1;
+  return {
+    ts: 1_793_318_400_200 + lineSeq,
+    tenant_id: "t_hello",
+    deployment_hash: hash,
+    request_id: "01JBQ3Z7M8K5V6W9X2Y4A1B3C5",
+    module: "functions/api/hello",
+    level: "info",
+    message: `line ${lineSeq}`,
+    fields: null,
+    source: "server",
+    ...over,
+  };
+};
+const logBatch = (lines: unknown[], node = "node-1") => ({ type: "log_batch", schema_version: 0, node_id: node, lines });
+const ingestLogs = (h: Harness, token: string, body: unknown) => h.request("POST", "/v1/ingest/logs", { token, json: body });
+
+describe("POST /v1/ingest/logs", () => {
+  test("every request example → its 202 response example; the line is stored for the app", async () => {
+    const { h } = await setup();
+    const node = await nodeToken(h, "node-dxb-01");
+    const responses = logsOp.responses["202"]?.content?.["application/json"].examples ?? {};
+    for (const [name, ex] of Object.entries(logsOp.requestBody.content["application/json"].examples)) {
+      const res = await ingestLogs(h, node, ex.value);
+      expect(res.status, name).toBe(202);
+      expect(await res.json()).toEqual(responses[name]?.value as object);
+    }
+    const stored = await logIngest(h.deps).store.read("t_hello", "hello");
+    expect(stored.map((l) => [l.message, l.node_id, l.app])).toEqual([["hello", "node-dxb-01", "hello"]]);
+    expect((await auditRows(h)).filter((r) => r.action === "ingestLogs").map((r) => [r.actor, r.status])).toEqual([["node:node-dxb-01", 202]]);
+  });
+
+  test("every invalid request example → 400 RENOX_VALIDATION", async () => {
+    const { h } = await setup();
+    const node = await nodeToken(h, "node-dxb-01");
+    for (const [name, ex] of Object.entries(logsOp.requestBody.content["application/json"]["x-renox-invalid-examples"])) {
+      const res = await ingestLogs(h, node, ex.value);
+      expect(res.status, name).toBe(400);
+    }
+  });
+
+  test("lines are de-duplicated on (ts, request_id, message) within one batch", async () => {
+    const { h, node, hash } = await setup();
+    const a = line(hash);
+    const res = await ingestLogs(h, node, logBatch([a, { ...a, level: "warn" }, line(hash)]));
+    expect(await res.json()).toEqual({ accepted: 2, duplicates: 1 });
+  });
+
+  test("node_id must be the token's node (403); a tenant token cannot ingest (401); another tenant's deployment → 400", async () => {
+    const { h, token, node, hash } = await setup();
+    expect((await ingestLogs(h, node, logBatch([line(hash)], "node-2"))).status).toBe(403);
+    expect((await ingestLogs(h, token, logBatch([line(hash)]))).status).toBe(401);
+    const other = await tenant(h, "t_other");
+    await createApp_(h, other, "other");
+    const files = named("other");
+    expect((await upload(h, other, "other", files)).status).toBe(201);
+    const res = await ingestLogs(h, node, logBatch([line(hash), line(contentHash(files))]));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { details: { field: string }[] } }).error.details.map((d) => d.field)).toEqual(["lines.1.deployment_hash"]);
+    expect(await logIngest(h.deps).store.read("t_hello", "hello")).toEqual([]);
+  });
+
+  /** docs/23-failure-modes.md section 4, "Outbox or logs grow unbounded" (per-tenant log volume limit): over the cap lines are sampled and counted, never 5xx. */
+  test("over the per-minute cap: one line in SAMPLE_EVERY is kept, the rest counted as dropped, always 202", async () => {
+    const { h, node, hash } = await setup();
+    const cap = LOG_LINES_PER_MINUTE.free;
+    let accepted = 0;
+    for (let i = 0; i < cap / 1000 + 2; i++) {
+      const res = await ingestLogs(h, node, logBatch(Array.from({ length: 1000 }, () => line(hash))));
+      expect(res.status).toBe(202);
+      accepted += ((await res.json()) as { accepted: number }).accepted;
+    }
+    const over = 2000;
+    expect(accepted).toBe(cap + over / SAMPLE_EVERY);
+    expect(logIngest(h.deps).cap.dropped.get("t_hello")).toBe(over - over / SAMPLE_EVERY);
+    // The next minute starts a new window.
+    h.clock.now += 60_000;
+    expect(await (await ingestLogs(h, node, logBatch([line(hash)]))).json()).toEqual({ accepted: 1, duplicates: 0 });
+  });
+
+  test("a paid tenant's cap is 10,000 lines per minute", async () => {
+    const { h, node, hash } = await setup();
+    await h.db.query("update tenants set tier = 'paid' where id = 't_hello'");
+    let accepted = 0;
+    for (let i = 0; i < 3; i++) accepted += ((await (await ingestLogs(h, node, logBatch(Array.from({ length: 1000 }, () => line(hash))))).json()) as { accepted: number }).accepted;
+    expect(accepted).toBe(3000);
+    expect(LOG_LINES_PER_MINUTE.paid).toBe(10_000);
   });
 });
