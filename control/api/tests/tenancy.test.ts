@@ -85,11 +85,12 @@ describe("crossTenant call sites", () => {
       "auth/accounts.ts: a pending device code belongs to no tenant until a user approves it",
       "auth/notify.ts: a user's own email address",
       "deployments/repo.ts: an artifact object is shared by every app that uploaded the same hash",
-      "domains/jobs.ts: the domain job checks and orders for every tenant's domains",
+      "domains/ownership.ts: a certificate belongs to a hostname, whichever tenant held it",
+      "domains/ownership.ts: a certificate belongs to a hostname, whichever tenant held it",
+      "domains/ownership.ts: a hostname is claimed by at most one tenant",
       "domains/repo.ts: a custom hostname mirrors the route entries of whichever tenant holds it verified",
+      "domains/repo.ts: the domain job checks and orders for every tenant's domains",
       "domains/routes.ts: a certificate belongs to a hostname, whichever tenant held it",
-      "domains/routes.ts: a certificate belongs to a hostname, whichever tenant held it",
-      "domains/routes.ts: a hostname is claimed by at most one tenant",
       "ingest/routes.ts: the tenant's quota is read through control/billing, which binds the tenant id as $3",
     ]);
   });

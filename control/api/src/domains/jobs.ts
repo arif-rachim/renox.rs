@@ -6,21 +6,25 @@
 //    moves the domain to verified (served from then on);
 // 2. verified domains whose check is due: whether the hostname still points
 //    at the edge (`dns`: ok or not_pointing, the "stopped pointing" flag);
-// 3. certificates: a verified domain that points at the edge and has no
-//    certificate, or one that expires within 30 days, gets an ACME order.
-//    Renewal is paused while the hostname does not point at the edge, and
-//    a failed order is retried with backoff;
-// 4. the route entries of every custom hostname are re-mirrored.
+// 3. ownership (#114, reverify.ts and ownership.ts): verified domains whose
+//    TXT record is gone are detached, detached ones whose record is back are
+//    verified again, and detached claims older than 30 days are released;
+// 4. the route entries of every custom hostname are re-mirrored;
+// 5. certificates: a verified domain that points at the edge and has no
+//    certificate, or one that expires within 30 days, gets an ACME order
+//    after one more TXT check. Renewal is paused while the hostname does
+//    not point at the edge, and a failed order is retried with backoff.
 //
 // Rows are claimed with a conditional update before any slow step, so two
 // API instances never check or order the same domain at once.
 
 import type { Deps } from "../context.ts";
 import type { Db } from "../db/db.ts";
-import { crossTenant } from "../tenancy/scope.ts";
 import { notAfterOf, storeCertificate } from "./certs.ts";
 import { pointsAtEdge, txtMatches } from "./dns.ts";
-import { DOMAIN_COLUMNS, syncRoutes, toDomain, type DomainRow } from "./repo.ts";
+import { DOMAIN_COLUMNS, jobDb, syncRoutes, toDomain, type DomainRow } from "./repo.ts";
+import { releaseExpired } from "./ownership.ts";
+import { reverify, txtBeforeOrder } from "./reverify.ts";
 import { configureDomains, domainService, domainServiceFromEnv, listenCertificates, sendCertificateMessage } from "./service.ts";
 
 /** How often a pending domain's TXT record is looked up. */
@@ -33,26 +37,6 @@ export const RENEW_BEFORE_MS = 30 * 86_400_000;
 export const ORDER_LEASE_MS = 10 * 60_000;
 /** Retry after a failed order: 1 h, doubled per failure, at most 24 h (Let's Encrypt rate limits). */
 export const retryAfterMs = (failures: number): number => Math.min(3_600_000 * 2 ** Math.max(0, failures - 1), 86_400_000);
-
-/**
- * Steps run before every certificate order; an order goes ahead only when
- * all return true. #114 adds the TXT re-check here.
- */
-export type BeforeOrder = (deps: Deps, domain: DomainRow, now: number) => Promise<boolean>;
-const beforeOrderHooks = new WeakMap<Deps, BeforeOrder[]>();
-export function addBeforeOrder(deps: Deps, hook: BeforeOrder): void {
-  beforeOrderHooks.set(deps, [...(beforeOrderHooks.get(deps) ?? []), hook]);
-}
-
-/** Further per-tick steps (#114: re-verification, release of detached domains). */
-export type TickStep = (deps: Deps, now: number) => Promise<void>;
-const tickSteps = new WeakMap<Deps, TickStep[]>();
-export function addTickStep(deps: Deps, step: TickStep): void {
-  tickSteps.set(deps, [...(tickSteps.get(deps) ?? []), step]);
-}
-
-/** The platform's view of domains: every tenant's rows. */
-export const jobDb = (deps: Deps): Db => crossTenant(deps.db, "the domain job checks and orders for every tenant's domains");
 
 async function due(db: Db, state: "pending" | "verified", now: number): Promise<DomainRow[]> {
   const rows = await db.query(`select ${DOMAIN_COLUMNS} from domains where state = $1 and next_check_at <= $2 order by next_check_at limit 100`, [state, now]);
@@ -121,11 +105,10 @@ async function order(deps: Deps, db: Db, d: DomainRow, now: number): Promise<voi
     [d.id, d.cert_retry_at ?? 0, now + ORDER_LEASE_MS],
   );
   if (claimed.length === 0) return;
-  for (const hook of beforeOrderHooks.get(deps) ?? []) {
-    if (!(await hook(deps, d, now))) {
-      await db.query("update domains set cert_retry_at = null, cert_state = case when cert_state = 'issuing' then 'none' else cert_state end where id = $1", [d.id]);
-      return;
-    }
+  // deploy-api.md section 10: the TXT record is re-checked before every order (#114).
+  if (!(await txtBeforeOrder(deps, d, now))) {
+    await db.query("update domains set cert_retry_at = null, cert_state = case when cert_state = 'issuing' then 'none' else cert_state end where id = $1", [d.id]);
+    return;
   }
   try {
     const issued = await s.issuer.issue(d.hostname, s.responder);
@@ -160,7 +143,8 @@ export async function tick(deps: Deps, now = deps.now()): Promise<TickResult> {
   let verified = 0;
   for (const d of await due(db, "pending", now)) if (await checkPending(deps, db, d, now)) verified++;
   for (const d of await due(db, "verified", now)) await checkPointing(deps, db, d, now);
-  for (const step of tickSteps.get(deps) ?? []) await step(deps, now);
+  await reverify(deps, now);
+  await releaseExpired(deps, now);
   await syncRoutes(deps);
   for (const d of await needingCertificates(db, now)) await order(deps, db, d, now);
   return { verified };

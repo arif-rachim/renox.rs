@@ -7,20 +7,13 @@ import { nodeAuth, tenantAuth } from "../auth/middleware.ts";
 import { crossTenant, tenantDb } from "../tenancy/scope.ts";
 import { requireApp } from "../apps/repo.ts";
 import { assertTransition } from "../contract.ts";
-import { ApiError, conflict, notFound } from "../errors.ts";
+import { ApiError, notFound } from "../errors.ts";
 import { jsonBody, pathParam } from "../http.ts";
 import { actorOf, type Deps, type Env } from "../context.ts";
-import { deleteCertificate, loadCertificate, nextCertificateVersion } from "./certs.ts";
-import { checkCustomHostname, domainViews, listDomains, newDomainId, newVerifyToken, requireDomain, syncRoutes, toDomain, domainView, DOMAIN_COLUMNS } from "./repo.ts";
-import { domainService, sendCertificateMessage } from "./service.ts";
-
-/** Side effects of a domain leaving `verified`: its entries go, and nodes drop its certificate. */
-export async function stopServing(deps: Deps, hostname: string): Promise<void> {
-  await syncRoutes(deps, [hostname]);
-  const db = crossTenant(deps.db, "a certificate belongs to a hostname, whichever tenant held it");
-  const has = await db.query("select 1 from certificates where hostname = $1", [hostname]);
-  if (has.length > 0) await sendCertificateMessage(deps, { type: "certificate_remove", schema_version: 0, hostname, version: await nextCertificateVersion(db) });
-}
+import { deleteCertificate, loadCertificate } from "./certs.ts";
+import { checkCustomHostname, domainView, domainViews, listDomains, requireDomain, toDomain, DOMAIN_COLUMNS } from "./repo.ts";
+import { claimHostname, stopServing } from "./ownership.ts";
+import { domainService } from "./service.ts";
 
 export function registerDomains(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps/:app/domains", operation(deps, "addDomain"), tenantAuth(deps, "domains:write"), async (c) => {
@@ -30,17 +23,7 @@ export function registerDomains(app: Hono<Env>, deps: Deps): void {
     const { hostname } = await jsonBody<{ hostname: string }>(c, "AddDomainRequest");
     checkCustomHostname(hostname, deps.config.platformDomain);
     c.set("auditTarget", { hostname });
-    const now = deps.now();
-    const row = await t.transaction(async (tx) => {
-      // The same answer whoever holds the hostname: no owner is revealed.
-      const taken = await crossTenant(tx, "a hostname is claimed by at most one tenant").query("select 1 from domains where hostname = $1 and state <> 'released' limit 1", [hostname]);
-      if (taken.length > 0) throw conflict("hostname", "not available");
-      const rows = await tx.query(
-        `insert into domains (id, hostname, tenant_id, app, state, verify_token, created_at, next_check_at) values ($1, $2, $3, $4, 'pending', $5, $6, $6) returning ${DOMAIN_COLUMNS}`,
-        [newDomainId(now), hostname, tenant, appName, newVerifyToken(), now],
-      );
-      return toDomain(rows[0] as Record<string, unknown>);
-    });
+    const row = await claimHostname(t, appName, hostname, deps.now());
     const [view] = await domainViews(t, tenant, [row]);
     return c.json(view, 201);
   });
@@ -59,9 +42,8 @@ export function registerDomains(app: Hono<Env>, deps: Deps): void {
     return c.json(view);
   });
 
-  // verified -> detached (still owned; #114 releases it after 30 days),
-  // pending and detached -> released (the owner lets it go). Serving stops
-  // at once.
+  // verified -> detached (still owned for 30 days, ownership.ts), pending
+  // and detached -> released (the owner lets it go). Serving stops at once.
   app.delete("/v1/apps/:app/domains/:hostname", operation(deps, "removeDomain"), tenantAuth(deps, "domains:write"), async (c) => {
     const t = tenantDb(deps, c);
     const tenant = t.tenantId;
@@ -72,12 +54,13 @@ export function registerDomains(app: Hono<Env>, deps: Deps): void {
       const d = await requireDomain(tx, tenant, appName, hostname, true);
       const next = d.state === "verified" ? "detached" : "released";
       assertTransition("domain", d.state, next);
-      const rows = await tx.query(`update domains set state = $3, last_checked_at = coalesce(last_checked_at, $4) where tenant_id = $1 and id = $2 returning ${DOMAIN_COLUMNS}`, [
-        tenant,
-        d.id,
-        next,
-        now,
-      ]);
+      // detached: owned for HOLD_MS more (ownership.ts); released: claimable at once.
+      const rows = await tx.query(
+        `update domains set state = $3, detached_at = case when $3 = 'detached' then $4::bigint else detached_at end, detach_reason = case when $3 = 'detached' then 'removed' else detach_reason end,
+           released_at = case when $3 = 'released' then $4::bigint else released_at end, last_checked_at = coalesce(last_checked_at, $4::bigint)
+         where tenant_id = $1 and id = $2 returning ${DOMAIN_COLUMNS}`,
+        [tenant, d.id, next, now],
+      );
       return { before: d, after: toDomain(rows[0] as Record<string, unknown>) };
     });
     if (before.state === "verified") await stopServing(deps, hostname);

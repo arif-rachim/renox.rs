@@ -38,10 +38,14 @@ export interface DomainRow {
   next_check_at: number;
   cert_retry_at: number | null;
   cert_failures: number;
+  detached_at: number | null;
+  detach_reason: "removed" | "unverified" | null;
+  txt_checked_at: number | null;
+  next_txt_check_at: number | null;
 }
 
 export const DOMAIN_COLUMNS =
-  "id, hostname, tenant_id, app, state, verify_token, dns, cert_state, created_at, verified_at, last_checked_at, next_check_at, cert_retry_at, cert_failures";
+  "id, hostname, tenant_id, app, state, verify_token, dns, cert_state, created_at, verified_at, last_checked_at, next_check_at, cert_retry_at, cert_failures, detached_at, detach_reason, txt_checked_at, next_txt_check_at";
 
 export function toDomain(r: Record<string, unknown>): DomainRow {
   return {
@@ -59,8 +63,15 @@ export function toDomain(r: Record<string, unknown>): DomainRow {
     next_check_at: num(r.next_check_at),
     cert_retry_at: numOrNull(r.cert_retry_at),
     cert_failures: Number(r.cert_failures ?? 0),
+    detached_at: numOrNull(r.detached_at),
+    detach_reason: (r.detach_reason ?? null) as DomainRow["detach_reason"],
+    txt_checked_at: numOrNull(r.txt_checked_at),
+    next_txt_check_at: numOrNull(r.next_txt_check_at),
   };
 }
+
+/** The platform's view of domains, for the domain job: every tenant's rows. */
+export const jobDb = (deps: Deps): Db => crossTenant(deps.db, "the domain job checks and orders for every tenant's domains");
 
 /** `rnx-verify-` and 26 random base32 characters (130 bits). */
 export const newVerifyToken = (): string => `rnx-verify-${base32(randomBytes(17)).slice(0, 26)}`;

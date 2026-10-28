@@ -15,7 +15,9 @@ export type MailKind =
   | "new_device"
   | "token_created"
   | "invitation"
-  | "owner_transfer";
+  | "owner_transfer"
+  // Custom domains (src/domains/reverify.ts, #114).
+  | "domain_detached";
 
 export interface Mail {
   to: string;

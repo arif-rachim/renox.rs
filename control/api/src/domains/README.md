@@ -7,6 +7,8 @@ The contract is `docs/contracts/deploy-api.md` section 10; the product rules are
 | `routes.ts` | `POST/GET /v1/apps/{app}/domains`, `GET/DELETE …/{hostname}`, and the node's `GET /v1/nodes/{node_id}/certificates/{hostname}` |
 | `repo.ts` | Domain rows and views; the route entries of verified domains |
 | `jobs.ts` | The domain job: TXT verification, DNS checks, certificate orders and renewal |
+| `ownership.ts` | One owner per hostname, the 30-day hold of a detached claim, stop and resume serving (#114) |
+| `reverify.ts` | The TXT re-check every 7 days and before every order (#114) |
 | `dns.ts` | The resolver interface, the TXT check, the "points at the edge" check |
 | `acme.ts` | A minimal ACME client (RFC 8555, HTTP-01, ES256 account key) |
 | `csr.ts` | Certificate keys (P-256) and the PKCS#10 request |
@@ -22,6 +24,16 @@ The contract is `docs/contracts/deploy-api.md` section 10; the product rules are
 4. **Point.** Every hour (`DNS_CHECK_MS`) the job checks that the hostname reaches the edge: a CNAME to the edge hostname, or A/AAAA records that are all edge addresses. `dns` is `pending` until the first success, then `ok` or `not_pointing` (the "stopped pointing at Renox" flag). A failed lookup changes nothing.
 5. **Certificate.** A verified domain whose `dns` is `ok` and that has no certificate, or one that expires within 30 days (`RENEW_BEFORE_MS`), gets an ACME order: HTTP-01, the key authorization written to the challenge directory, the worker's `:80` listener (#162) answering it. Renewal is paused while `dns` is not `ok`. A failed order is retried after 1 h, doubled per failure, at most 24 h; a domain that already has a certificate keeps serving it. The certificate is stored encrypted and every node gets `certificate_update` (hostname, version, `not_after`) on its stream; the node fetches the chain and key from `GET /v1/nodes/{node_id}/certificates/{hostname}` (`Cache-Control: no-store`), writes `<cert_dir>/<hostname>/{fullchain,privkey}.pem`, and reloads.
 6. **Detach.** `DELETE` moves `verified` to `detached` (entries removed, `certificate_remove` to every node) and `pending` or `detached` to `released` (the stored certificate is deleted). A released hostname can be claimed again.
+
+## Ownership (#114)
+
+`docs/24-threat-model.md` section C, "Custom domain takeover":
+
+- **One owner.** A hostname has at most one claim in any state but `released` (unique index `domains_one_owner`). Of two tenants racing for one hostname exactly one wins; the other gets 409 `not available`, without the owner's name.
+- **Hold.** A detached claim stays owned for 30 days (`HOLD_MS`), then the job releases it and deletes its certificate. Within the hold, a hostname whose CNAME still points at Renox cannot be claimed by another tenant. Its owner can add it again, which re-verifies it, or `DELETE` it again, which releases it at once.
+- **Re-verification.** The TXT record is checked again every 7 days (`REVERIFY_MS`) and before every certificate order. If it is missing, the domain moves `verified` → `detached`: serving stops, the tenant's owners and admins get a `domain_detached` email, and an audit row (`detachDomain`, actor `domain-job`) is written. While it is detached for that reason, the record is checked every hour. When the record is back, the domain moves → `verified` (`reverifyDomain`), its entries return, and the stored certificate is announced again under a new version. A failed lookup is not a missing record.
+- **Slugs.** App names are the `<app>.renox.app` slugs (`src/apps/slugs.ts`). Reserved words are never app names, and a deleted app's name is quarantined for 90 days for every other tenant. Both are enforced by triggers on `apps`, so `createApp` answers 409 `not available`.
+- **Public Suffix List.** `ops/psl/README.md` has the submission checklist and the interim cookie rules.
 
 Versions of `certificate_update` and `certificate_remove` come from one sequence for all hostnames, so a node can order any two messages about one hostname, also across a release and a new claim.
 
@@ -49,7 +61,7 @@ Read by `startDomainJobs` in `main.ts`:
 
 - **Challenge distribution.** HTTP-01 is answered by whichever node the CA reaches, from that node's `acme_dir`. `DirChallengeResponder` writes into one directory, so the control plane and the workers must share it (one host, or a shared volume). Several hosts need the key authorization on every node: a control message or an endpoint the node falls back to; neither is in the contract yet.
 - **Node side.** Fetching bundles on `certificate_update`, writing `cert_dir` and reloading is the node's control client (#55). A node that was offline learns current certificates by fetching the bundle of every custom hostname of its route snapshot; the contract has no certificate snapshot.
-- **No wildcard domains.** The contract's `Hostname` pattern has no `*.` form, and wildcards need DNS-01 (`docs/05-tenant-lifecycle.md`).
+- **No wildcard domains.** The contract's `Hostname` pattern has no `*.` form, and wildcards need DNS-01 (`docs/05-tenant-lifecycle.md`). So the "most specific claim wins" rule between a wildcard and a subdomain (#114) has nothing to apply to yet.
 
 ## Tests
 
