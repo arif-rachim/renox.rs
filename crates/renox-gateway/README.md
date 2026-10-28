@@ -6,12 +6,12 @@ The data plane's front door (P3, `docs/03-architecture.md` Gateway row): hostnam
 
 Below the HTTP parser, the **protocol guards** (see "Protocol limits") refuse an HTTP/1 request with ambiguous framing before hyper parses it, and close an HTTP/2 connection that is over its stream-reset budget. Then, per request:
 
-1. A ULID request id is assigned.
+1. A ULID request id is assigned (`src/request_id.rs`). It is on every response, including the fixed `503` at the connection cap and the guard's `400` and `431`, which are written below hyper.
 2. **Rate limit**: token bucket per client IP (IPv6 by /64). Over the limit → `429` with `Retry-After` and an empty body (no error code: under a flood the gateway spends no bytes on a body; `docs/contracts/errors.md` "Open" 2). The cell is not called and nothing is metered.
 3. **Host**: the URI authority (HTTP/2 `:authority`) or the single `Host` header, with the port and a trailing dot removed and lower-cased. Missing, repeated, not a DNS hostname (IP literals included), or an authority and a `Host` header naming different hosts → `400`.
 4. **Route table** lookup (`docs/contracts/artifact.md` section 5). No entry, or only `draining` entries → `404 Not found`; no cell is touched.
 5. **SNI / Host** (TLS only, `src/host_check.rs`): the SNI name of the connection and the request's host must resolve to the same tenant, otherwise `421` `RENOX_HOST_MISMATCH` (JSON body, or the default page when `Accept` prefers HTML). Two hostnames of one tenant may share a connection (HTTP/2 coalescing under one certificate); browsers retry a 421 on a new connection.
-6. **Deployment security** (#47, `src/security/`): `<hash>/manifest.json` is read once per hash for `artifact.version` and the `security` object. A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) is answered here: `204` with the `Access-Control-*` headers for a listed origin, method, and headers, else `403` with none; it never reaches the cell.
+6. **Deployment security** (#47, `src/security/`): `<hash>/manifest.json` is read once per hash for `artifact.version`, the `security` object, and `client.events`. **Platform paths** under `/__renox/` are answered next, before preflights and static files, and never reach the cell (see "Client events"). A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) is answered here: `204` with the `Access-Control-*` headers for a listed origin, method, and headers, else `403` with none; it never reaches the cell.
 7. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's public index (`public.json` in artifact version 1, `public/manifest.json` in version 0) is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
 8. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`, with a fresh CSP nonce in `RequestCtx.csp_nonce`. Per-route rate-limit buckets need route matching and are enforced by the cell (`crates/renox-cell/src/ratelimit.rs`).
 9. Every response, whatever produced it, gets the protection headers (below) and `x-renox-request-id`; responses to a listed CORS origin get `Access-Control-Allow-Origin` (and `-Credentials`), and every `Access-Control-*` header tenant code set is removed.
@@ -59,7 +59,8 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 
 | Header | Default | Configured by |
 | --- | --- | --- |
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'nonce-<n>'; style-src 'self' 'nonce-<n>'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp`, plus `upgrade-insecure-requests` on TLS | `csp.script_src`, `style_src` (appended), `img_src`, `connect_src`, `frame_src`, `font_src` (a directive `'self' <sources>` when listed); `csp.report_only` sends `Content-Security-Policy-Report-Only` instead |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'nonce-<n>'; style-src 'self' 'nonce-<n>'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp; report-to renox-csp`, plus `upgrade-insecure-requests` on TLS | `csp.script_src`, `style_src` (appended), `img_src`, `connect_src`, `frame_src`, `font_src` (a directive `'self' <sources>` when listed); `csp.report_only` sends `Content-Security-Policy-Report-Only` instead |
+| `Reporting-Endpoints` | `renox-csp="/__renox/events?kind=csp"` (the `report-to` group, `client-events.md` section 6) | — |
 | `X-Content-Type-Options` | `nosniff` | — |
 | `X-Frame-Options` | `DENY` | — (per-page `frame` export is artifact Open 6) |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | `headers.referrer_policy` |
@@ -89,8 +90,8 @@ Certificates are issued and pushed by the control plane from F3 (ACME, #59); key
 
 | Field | Default | Mechanism | Over the limit |
 | --- | --- | --- | --- |
-| `max_header_bytes` | 16 KiB | HTTP/1.1: hyper read buffer for the request head (hyper's floor is 8 KiB). HTTP/2: `SETTINGS_MAX_HEADER_LIST_SIZE` | 431, connection closed |
-| `max_headers` | 100 | hyper parser (HTTP/1.1; on HTTP/2 the header list size bounds the count) | 431, connection closed |
+| `max_header_bytes` | 16 KiB | HTTP/1.1: the protocol guard counts head bytes (hyper's read buffer has the same size; its floor is 8 KiB). HTTP/2: `SETTINGS_MAX_HEADER_LIST_SIZE` | 431 with `x-renox-request-id`, connection closed |
+| `max_headers` | 100 | The protocol guard counts header lines (HTTP/1.1; hyper's parser has the same limit; on HTTP/2 the header list size bounds the count) | 431 with `x-renox-request-id`, connection closed |
 | `max_body_bytes_default` | 1 MiB | Checked after routing, before dispatch: a declared `Content-Length` over the limit is refused before any body byte is read; a body of unknown length (chunked) is read at most up to the limit | 413 `RENOX_BODY_TOO_LARGE` (`errors.md` body: JSON, or the default HTML page when `Accept` prefers HTML) |
 | `max_body_bytes_webhook` | 5 MiB | Same, for webhook routes. F1 manifests have only function routes, so it is not used yet | 413 |
 | `header_read_timeout` | 10 s | hyper's HTTP/1.1 head timer (also between keep-alive requests); the TLS handshake gets the same budget | connection closed |
@@ -151,6 +152,17 @@ Every knob, its default, and where it is set. `GatewayConfig.protocol` is `Proto
 
 `Gateway::stats()` counts `protocol_refused` (connections closed by either guard) and `host_mismatch` (421 responses).
 
+## Client events (#126)
+
+`docs/contracts/client-events.md`. The gateway serves two platform paths for every app:
+
+- `/__renox/client.js` (`src/client_script.rs`): the platform client script, embedded from `assets/renox-client.js` (built from `sdk/client/` by #127 and committed, so a Rust build needs no Bun). `ETag` is its SHA-256; pages reference it as `/__renox/client.js?v=<first 16 hex>`, so it is served `immutable`.
+- `/__renox/events` (`src/client_events.rs`): browser events and CSP reports. `POST` only (else 405 `Allow: POST`), always `204` with `Cache-Control: no-store`. Checks in order: `client.events = false` → `disabled`; an `Origin` other than the request's own scheme and host → `invalid`; 60 requests per minute per client IP per tenant → `ip_rate`; body over 32 KB (declared or read, never read past) → `body_size`; more than 20 events → `batch_size`; the batch against `client-event.schema.json`, rule CE2, and `js.console.error` (dev only) → `invalid`; per tenant, the daily cap (144,000 kept events, free tier) → `daily_cap`, and over 1,000 events a minute one in ten kept → `sampled`. With `?kind=csp`, an `application/csp-report` or `application/reports+json` body is normalised to `csp.violation` events (URLs reduced, `ua` from `User-Agent`, `original-policy` and other extra members dropped) and validated as events.
+
+Accepted events go to the `ClientEventSink` the worker attaches (`Gateway::set_client_event_sink`; `renox-cell` writes them to the tenant log through the runtime's redacting sink) as one line each with `source: "client"`, `kind`, `client_ts`, `url`, `ua`, `session_fingerprint`, `code`, `extra`, `detail`, the event's `request_id`, and the event's `deployment` when the host routes to it. Drops are counted in `Gateway::stats().client_events` and written to the tenant log as `RENOX_CLIENT_EVENTS_DROPPED` (`reason`, `dropped`), at most once a minute per tenant. The client IP is never logged.
+
+The CSP carries `report-uri /__renox/events?kind=csp; report-to renox-csp`, and every response `Reporting-Endpoints: renox-csp="/__renox/events?kind=csp"`.
+
 ## Configuration
 
 `GatewayConfig`:
@@ -164,7 +176,8 @@ Every knob, its default, and where it is set. `GatewayConfig.protocol` is `Proto
 | `rate_limit.max_tracked_clients` | 100,000 | When reached, fully refilled buckets are dropped |
 | `limits` | see "Input limits" | Header, body, timeout, and connection limits |
 | `protocol` | see "Protocol limits" | HTTP/2 stream and reset limits |
+| `client_events` | see "Client events" | `/__renox/events` limits (`ClientEventLimits`) |
 
 ## Tests
 
-`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/protocol.rs` sends hand-written bytes (smuggling, h2c), drives an `h2` client (rapid reset, `:authority`), and checks SNI vs `Host` over TLS; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client.
+`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/protocol.rs` sends hand-written bytes (smuggling, h2c), drives an `h2` client (rapid reset, `:authority`), and checks SNI vs `Host` over TLS; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client; `tests/client_events.rs` posts the contract's examples to `/__renox/events` and checks the request id on every response kind.

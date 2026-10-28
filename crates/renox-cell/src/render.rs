@@ -21,7 +21,7 @@ use http::{HeaderMap, Response};
 use renox_runtime::manifest::{Manifest, TemplateKind};
 use renox_runtime::pages::PageRender;
 use renox_template::minijinja::Value;
-use renox_template::{RenderContext, RenderError, RenderLimits, RenderTarget, Renderer};
+use renox_template::{RenderContext, RenderError, RenderLimits, RenderTarget, Renderer, Shell};
 
 /// `RENOX_RENDER_LIMIT` (`errors.md` section 3).
 pub const RENDER_LIMIT_CODE: &str = "RENOX_RENDER_LIMIT";
@@ -40,6 +40,10 @@ pub struct PageRenderer {
     not_found_template: Option<String>,
     /// The app's UTC offset for the `date` filter.
     utc_offset_minutes: i32,
+    /// The deployment's artifact hash, for `<meta name="renox-deployment">`.
+    deployment: String,
+    /// The client script's `src`; `None` when client events are off.
+    client_script: Option<String>,
 }
 
 impl std::fmt::Debug for PageRenderer {
@@ -76,7 +80,15 @@ pub struct Rendered {
 impl PageRenderer {
     /// Loads `templates/<id>.jinja` for every `manifest.templates` key (the
     /// runtime has checked V14). `Ok(None)` when there are no templates.
-    pub fn load(artifact_dir: &Path, manifest: &Manifest) -> Result<Option<PageRenderer>, String> {
+    ///
+    /// `deployment` and `client_script` are what the page shell carries
+    /// (`renox_template::shell`, #126).
+    pub fn load(
+        artifact_dir: &Path,
+        manifest: &Manifest,
+        deployment: &str,
+        client_script: Option<String>,
+    ) -> Result<Option<PageRenderer>, String> {
         let mut sources = Vec::new();
         let mut fragments = BTreeMap::new();
         let mut error_template = None;
@@ -112,7 +124,25 @@ impl PageRenderer {
             error_template,
             not_found_template,
             utc_offset_minutes: utc_offset_minutes(&manifest.app.timezone),
+            deployment: deployment.to_string(),
+            client_script,
         }))
+    }
+
+    /// The page shell tags of one response (`client-events.md` section 1).
+    fn shell<'a>(
+        &'a self,
+        request_id: &'a str,
+        csp_nonce: Option<&'a str>,
+        error_code: Option<&'a str>,
+    ) -> Shell<'a> {
+        Shell {
+            request_id,
+            deployment: &self.deployment,
+            nonce: csp_nonce,
+            script_src: self.client_script.as_deref(),
+            error_code,
+        }
     }
 
     fn context(&self, csp_nonce: Option<&str>) -> RenderContext {
@@ -218,11 +248,14 @@ impl PageRenderer {
         };
         match result {
             Ok((html, fuel, ms)) => Rendered {
+                // A whole page gets the shell tags; fragments do not.
                 response: html_response(
                     200,
                     request_id,
                     if head {
                         Bytes::new()
+                    } else if page.fragment.is_none() && page.oob_fragments.is_empty() {
+                        Bytes::from(self.shell(request_id, csp_nonce, None).inject(&html))
                     } else {
                         Bytes::from(html)
                     },
@@ -346,7 +379,11 @@ impl PageRenderer {
             &RenderLimits::ERROR_PAGE,
         ) {
             Ok(out) => Rendered {
-                response: html_response(status, request_id, Bytes::from(out.html)),
+                response: html_response(
+                    status,
+                    request_id,
+                    Bytes::from(self.shell(request_id, csp_nonce, code).inject(&out.html)),
+                ),
                 fuel: out.fuel_used,
                 ms: Some(out.ms),
                 limit: false,

@@ -418,3 +418,117 @@ async fn shop_pages_render_through_the_full_path() {
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&e.root);
 }
+
+/// #126: the shop page carries the request-id and deployment meta tags and
+/// the nonce'd client script tag first in `<head>`; fragments carry none of
+/// them; a browser event posted to `/__renox/events` lands in the tenant
+/// log file with `source: "client"` (no cell, no meter record); the script
+/// is served by the gateway.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shop_page_shell_and_client_events() {
+    let e = env();
+    let hash = write_artifact(&e.config.artifacts_dir);
+    let routes = serde_json::json!({ "version": 0, "entries": [
+        { "hostname": "shop.test", "tenant_id": "t_shop", "deployment_hash": hash, "status": "active", "updated_at": 1 }
+    ]});
+    std::fs::write(&e.config.routes_file, routes.to_string()).unwrap();
+    let worker = Worker::start(e.config.clone()).await.unwrap();
+    let addr = worker.addr;
+
+    let r = http(addr, "GET", "/products", &[HTML]).await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    let id = r
+        .head
+        .lines()
+        .find_map(|l| l.strip_prefix("x-renox-request-id: "))
+        .unwrap()
+        .to_ascii_uppercase();
+    let nonce = r
+        .body
+        .split("nonce=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap();
+    let src = renox_gateway::client_script::script_src();
+    let shell = format!(
+        "<head><meta name=\"renox-request-id\" content=\"{id}\"><meta name=\"renox-deployment\" content=\"{hash}\"><script nonce=\"{nonce}\" src=\"{src}\"></script>"
+    );
+    assert!(
+        r.body.contains(&shell),
+        "{}",
+        &r.body[..600.min(r.body.len())]
+    );
+    assert!(
+        r.head
+            .contains("reporting-endpoints: renox-csp=\"/__renox/events?kind=csp\""),
+        "{}",
+        r.head
+    );
+    assert!(r.head.contains("report-to renox-csp"));
+    // The tenant's error page gets the tags too, with the error code.
+    let b = http(addr, "GET", "/broken", &[]).await;
+    assert!(
+        b.body
+            .contains("<meta name=\"renox-error-code\" content=\"RENOX_INTERNAL\">")
+            || !b.body.contains("<head"),
+        "{}",
+        b.body
+    );
+    // Fragments: no shell.
+    let f = http(
+        addr,
+        "GET",
+        "/products",
+        &[("hx-request", "true"), ("hx-target", "product-list")],
+    )
+    .await;
+    assert!(!f.body.contains("renox-request-id"));
+
+    // The script, from the gateway.
+    let js = http(addr, "GET", &src, &[]).await;
+    assert_eq!(js.status, 200);
+    assert!(
+        js.head
+            .contains("cache-control: public, max-age=31536000, immutable")
+    );
+
+    // A browser event, logged with source=client within the batch.
+    let event = serde_json::json!({ "v": 0, "events": [{
+        "kind": "js.error", "ts": 1793318400123_u64, "url": "/products",
+        "request_id": id, "deployment": hash, "ua": "chrome",
+        "session_fingerprint": "k3J9xQ2mP0aLz7Vb",
+        "detail": { "message": "TypeError: cart is undefined", "source": "/assets/app.js",
+                    "line": 12, "column": 31, "stack": [] }
+    }]})
+    .to_string();
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let req = format!(
+        "POST /__renox/events HTTP/1.1\r\nHost: shop.test\r\nConnection: close\r\nContent-Type: text/plain;charset=UTF-8\r\nContent-Length: {}\r\n\r\n{event}",
+        event.len()
+    );
+    s.write_all(req.as_bytes()).await.unwrap();
+    let mut buf = Vec::new();
+    s.read_to_end(&mut buf).await.unwrap();
+    assert!(String::from_utf8_lossy(&buf).starts_with("HTTP/1.1 204"));
+    let logs = std::fs::read_to_string(e.config.logs_dir.join("tenant.ndjson")).unwrap();
+    let line: serde_json::Value = logs
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|l| l["fields"]["source"] == "client")
+        .unwrap_or_else(|| panic!("no client line in {logs}"));
+    assert_eq!(line["tenant_id"], "t_shop");
+    assert_eq!(line["deployment_hash"], hash.as_str());
+    assert_eq!(line["request_id"], id.as_str());
+    assert_eq!(line["level"], "error");
+    assert_eq!(line["fields"]["kind"], "js.error");
+    assert_eq!(line["message"], "js.error: TypeError: cart is undefined");
+    assert!(
+        records(&e.config.meters_dir)
+            .iter()
+            .all(|r| !r["route"].as_str().unwrap_or("").contains("__renox")),
+        "no meter record for the endpoint"
+    );
+
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&e.root);
+}

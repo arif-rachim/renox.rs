@@ -8,6 +8,10 @@ publish.workspace = true
 
 [dependencies]
 arc-swap = "1.9.3"
+# Client events: the contract schema (#126).
+jsonschema = { version = "0.60", default-features = false }
+# The client script's ETag (#126).
+sha2 = "0.10"
 # CSP nonces (#47).
 base64 = "0.22"
 getrandom = "0.3"

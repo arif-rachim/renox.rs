@@ -6,6 +6,7 @@
 pub mod alloc;
 pub mod artifact;
 pub mod cell;
+pub mod client_events;
 pub mod config;
 pub mod manager;
 pub mod pages;

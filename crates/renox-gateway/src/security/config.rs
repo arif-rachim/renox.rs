@@ -82,11 +82,24 @@ pub struct SecurityConfig {
 }
 
 /// What the gateway reads from a deployment's `manifest.json`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeploymentInfo {
     /// `artifact.version` (0 or 1): where the public index is.
     pub version: u32,
     pub security: SecurityConfig,
+    /// `client.events` (`client-events.md` section 2, Open 1): `false`
+    /// turns the client script and `/__renox/events` off. Default `true`.
+    pub client_events: bool,
+}
+
+impl Default for DeploymentInfo {
+    fn default() -> Self {
+        DeploymentInfo {
+            version: 0,
+            security: SecurityConfig::default(),
+            client_events: true,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -94,6 +107,18 @@ struct ManifestHead {
     artifact: ArtifactHead,
     #[serde(default)]
     security: Option<SecurityConfig>,
+    #[serde(default)]
+    client: Option<ClientHead>,
+}
+
+#[derive(Deserialize)]
+struct ClientHead {
+    #[serde(default = "yes")]
+    events: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -109,6 +134,7 @@ impl DeploymentInfo {
         Ok(DeploymentInfo {
             version: head.artifact.version,
             security: head.security.unwrap_or_default(),
+            client_events: head.client.is_none_or(|c| c.events),
         })
     }
 }

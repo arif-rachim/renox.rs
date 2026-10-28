@@ -17,9 +17,10 @@ const routes: Route[] = [
 
 test("default headers match the gateway's table", () => {
   expect(cspValue({}, "N0nce", false)).toBe(
-    "default-src 'self'; script-src 'self' 'nonce-N0nce'; style-src 'self' 'nonce-N0nce'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp",
+    "default-src 'self'; script-src 'self' 'nonce-N0nce'; style-src 'self' 'nonce-N0nce'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp; report-to renox-csp",
   );
-  expect(headerSet({}, "n", false).slice(2)).toEqual([
+  expect(headerSet({}, "n", false)[1]).toEqual(["Reporting-Endpoints", `renox-csp="/__renox/events?kind=csp"`]);
+  expect(headerSet({}, "n", false).slice(3)).toEqual([
     ["X-Content-Type-Options", "nosniff"],
     ["X-Frame-Options", "DENY"],
     ["Referrer-Policy", "strict-origin-when-cross-origin"],
@@ -29,7 +30,7 @@ test("default headers match the gateway's table", () => {
   const s = { csp: { script_src: ["https://js.stripe.com"], img_src: ["data:"] }, headers: { permissions_allow: ["camera", "payment"] } };
   expect(cspValue(s, "n", true)).toContain("script-src 'self' 'nonce-n' https://js.stripe.com; style-src 'self' 'nonce-n'; img-src 'self' data:;");
   expect(cspValue(s, "n", true)).toContain("frame-ancestors 'none'; upgrade-insecure-requests; report-uri");
-  expect(headerSet(s)[5]).toEqual(["Permissions-Policy", "microphone=(), geolocation=(), camera=(self), payment=(self)"]);
+  expect(headerSet(s)[6]).toEqual(["Permissions-Policy", "microphone=(), geolocation=(), camera=(self), payment=(self)"]);
 });
 
 test("V16 and the schema: unsafe-inline needs allow_unsafe, credentials need origins, buckets name routes", () => {
@@ -56,7 +57,8 @@ test("renox check --security output", () => {
     routes,
   );
   expect(out).toBe(`Response headers (every route; the nonce is fresh per request):
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-<per-request>' https://js.stripe.com; style-src 'self' 'nonce-<per-request>'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests; report-uri /__renox/events?kind=csp
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-<per-request>' https://js.stripe.com; style-src 'self' 'nonce-<per-request>'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests; report-uri /__renox/events?kind=csp; report-to renox-csp
+  Reporting-Endpoints: renox-csp="/__renox/events?kind=csp"
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY

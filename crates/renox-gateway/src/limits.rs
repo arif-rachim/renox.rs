@@ -5,8 +5,8 @@
 //!
 //! | Limit | Where | Over the limit |
 //! | --- | --- | --- |
-//! | `max_header_bytes` | hyper read buffer (HTTP/1.1), `SETTINGS_MAX_HEADER_LIST_SIZE` (HTTP/2) | 431, connection closed |
-//! | `max_headers` | hyper parser (HTTP/1.1) | 431, connection closed |
+//! | `max_header_bytes` | `Http1Guard` and hyper read buffer (HTTP/1.1), `SETTINGS_MAX_HEADER_LIST_SIZE` (HTTP/2) | 431 with a request id, connection closed |
+//! | `max_headers` | `Http1Guard` and hyper parser (HTTP/1.1) | 431 with a request id, connection closed |
 //! | `max_body_bytes_*` | [`check_body`] before dispatch | 413 `RENOX_BODY_TOO_LARGE` |
 //! | `header_read_timeout` | hyper (HTTP/1.1 request head), TLS handshake | connection closed |
 //! | `idle_timeout` | [`IdleTimeout`] around the socket | connection closed |
@@ -250,9 +250,11 @@ impl Drop for ConnectionGuard {
     }
 }
 
-/// The response written on a connection refused at the per-IP cap.
-pub const CONNECTION_LIMIT_RESPONSE: &[u8] =
-    b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nretry-after: 1\r\nconnection: close\r\n\r\n";
+/// The response written on a connection refused at the per-IP cap, with its
+/// own request id.
+pub fn connection_limit_response() -> Vec<u8> {
+    crate::request_id::raw_response("503 Service Unavailable", &[("retry-after", "1")])
+}
 
 /// Closes a connection that moves no bytes in either direction for
 /// `timeout`. The timer is only checked while the connection is waiting on

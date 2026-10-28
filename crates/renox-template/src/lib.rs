@@ -28,6 +28,7 @@ pub mod compiler;
 pub mod filters;
 #[cfg(feature = "render")]
 pub mod render;
+pub mod shell;
 #[cfg(feature = "compiler")]
 pub mod transpile;
 #[cfg(all(feature = "compiler", target_arch = "wasm32"))]
@@ -42,6 +43,7 @@ pub use minijinja;
 pub use render::{
     CanFn, Locale, RenderContext, RenderError, RenderLimits, RenderOutput, RenderTarget, Renderer,
 };
+pub use shell::Shell;
 
 /// The name of the platform value the compiler emits and the renderer
 /// provides (CSP nonce, locale, limits). Tenant expressions cannot name it.

@@ -24,20 +24,26 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, Response, StatusCode, header};
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
-use limits::{BodyCheck, CONNECTION_LIMIT_RESPONSE, ConnectionLimiter, IdleTimeout};
+use limits::{BodyCheck, ConnectionLimiter, IdleTimeout, connection_limit_response};
 use protocol::{H2ResetBudget, Http1Guard};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
+pub mod client_events;
+pub mod client_script;
 pub mod host_check;
 pub mod limits;
 pub mod protocol;
 pub mod rate_limit;
+pub mod request_id;
 pub mod route_table;
 pub mod security;
 pub mod static_files;
 pub mod tls;
 
+pub use client_events::{
+    ClientEventLimits, ClientEventSink, ClientEventStats, ClientLogLine, DropReason,
+};
 pub use host_check::TlsSni;
 pub use limits::{GatewayLimits, RouteKind};
 pub use protocol::ProtocolLimits;
@@ -49,8 +55,9 @@ pub use static_files::StaticFiles;
 pub use tls::{CertStore, LoadReport, TlsConfig, TlsConnection, TlsError};
 
 /// Request id header set by the gateway on the request to the cell and on
-/// every response (`docs/contracts/ops.md` section 6, `errors.md` section 1).
-pub const REQUEST_ID_HEADER: &str = "x-renox-request-id";
+/// every response (`docs/contracts/ops.md` section 6, `errors.md` section 1;
+/// `request_id.rs`).
+pub use request_id::REQUEST_ID_HEADER;
 /// Client IP header set by the gateway on the request to the cell.
 pub const CLIENT_IP_HEADER: &str = "x-renox-client-ip";
 /// The one client `x-renox-*` header that reaches the cell: the CSRF token
@@ -138,6 +145,8 @@ pub struct GatewayConfig {
     pub limits: GatewayLimits,
     /// HTTP/2 stream and reset limits (`protocol.rs`).
     pub protocol: ProtocolLimits,
+    /// `/__renox/events` limits (`client_events.rs`).
+    pub client_events: ClientEventLimits,
 }
 
 impl GatewayConfig {
@@ -148,6 +157,7 @@ impl GatewayConfig {
             rate_limit: RateLimitConfig::default(),
             limits: GatewayLimits::default(),
             protocol: ProtocolLimits::default(),
+            client_events: ClientEventLimits::default(),
         }
     }
 }
@@ -167,6 +177,8 @@ pub struct GatewayStats {
     /// Connections closed by the protocol guards (`protocol.rs`): a
     /// malformed or ambiguous HTTP/1 request, or the HTTP/2 reset budget.
     pub protocol_refused: u64,
+    /// `/__renox/events`: accepted events and drops per reason.
+    pub client_events: ClientEventStats,
 }
 
 #[derive(Debug, Default)]
@@ -191,6 +203,7 @@ struct Inner {
     limiter: RateLimiter,
     connections: Arc<ConnectionLimiter>,
     counters: Counters,
+    client_events: client_events::ClientEvents,
 }
 
 /// The gateway. Cheap to clone; clones share the route table and state.
@@ -219,6 +232,7 @@ impl Gateway {
         let security = security::SecurityStore::new(config.artifact_root.clone());
         let limiter = RateLimiter::new(config.rate_limit);
         let connections = ConnectionLimiter::new(config.limits.max_connections_per_ip);
+        let client_events = client_events::ClientEvents::new(config.client_events);
         Self {
             inner: Arc::new(Inner {
                 config,
@@ -228,6 +242,7 @@ impl Gateway {
                 limiter,
                 connections,
                 counters: Counters::default(),
+                client_events,
             }),
         }
     }
@@ -252,6 +267,13 @@ impl Gateway {
         &self.inner.security
     }
 
+    /// Attaches the tenant log sink for `/__renox/events`; without one,
+    /// events are validated and counted but written nowhere. Only the first
+    /// call has an effect (returns `false` after that).
+    pub fn set_client_event_sink(&self, sink: Arc<dyn ClientEventSink>) -> bool {
+        self.inner.client_events.set_sink(sink)
+    }
+
     pub fn stats(&self) -> GatewayStats {
         let c = &self.inner.counters;
         GatewayStats {
@@ -263,6 +285,7 @@ impl Gateway {
             body_too_large: c.body_too_large.load(Ordering::Relaxed),
             host_mismatch: c.host_mismatch.load(Ordering::Relaxed),
             protocol_refused: c.protocol_refused.load(Ordering::Relaxed),
+            client_events: self.inner.client_events.stats(),
         }
     }
 
@@ -389,7 +412,7 @@ async fn accept_loop(
 async fn reject_connection(mut stream: tokio::net::TcpStream) {
     use tokio::io::AsyncWriteExt;
     let _ = tokio::time::timeout(Duration::from_secs(1), async {
-        stream.write_all(CONNECTION_LIMIT_RESPONSE).await?;
+        stream.write_all(&connection_limit_response()).await?;
         stream.shutdown().await
     })
     .await;
@@ -450,7 +473,9 @@ async fn serve_connection<I>(
             .keep_alive_timeout(protocol.h2_keep_alive_timeout);
         let _ = builder.serve_connection(io, service).await;
     } else {
-        let io = TokioIo::new(Http1Guard::new(io, header_bytes, refused));
+        let io = TokioIo::new(
+            Http1Guard::new(io, header_bytes, refused).with_max_headers(limits.max_headers),
+        );
         let mut builder = hyper::server::conn::http1::Builder::new();
         builder
             .timer(TokioTimer::new())
@@ -483,7 +508,7 @@ async fn handle<D: CellDispatcher>(
     State(state): State<AppState<D>>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
-    let request_id = ulid::Ulid::generate().to_string();
+    let request_id = request_id::new_request_id();
     let tls = req.extensions().get::<TlsConnection>().is_some();
     let nonce = security::new_nonce();
     let mut used: Option<Arc<security::DeploymentInfo>> = None;
@@ -541,6 +566,13 @@ async fn route<D: CellDispatcher>(
     // headers from here on, and preflights are answered here (#47).
     let info = inner.security.get(&entry.deployment_hash).await;
     *used = Some(info.clone());
+
+    // Platform paths: answered here, before preflights and route matching;
+    // a tenant route under `/__renox/` is never reached (`client-events.md`
+    // section 2).
+    if req.uri().path().starts_with(PLATFORM_PREFIX) {
+        return platform_path(state, req, &entry, &host, &info, client_ip).await;
+    }
     match security::cors::preflight(&info.security.cors, req.method(), req.headers()) {
         security::cors::Preflight::No => {}
         security::cors::Preflight::Allowed(headers) => {
@@ -596,6 +628,43 @@ async fn route<D: CellDispatcher>(
     let mut resp = state.dispatcher.dispatch(ctx, req).await;
     security::cors::apply(&info.security.cors, &request_headers, resp.headers_mut());
     resp
+}
+
+/// Paths the gateway answers itself, for every app.
+pub const PLATFORM_PREFIX: &str = "/__renox/";
+
+async fn platform_path<D: CellDispatcher>(
+    state: &AppState<D>,
+    req: Request<Body>,
+    entry: &RouteEntry,
+    host: &str,
+    info: &security::DeploymentInfo,
+    client_ip: IpAddr,
+) -> Response<Body> {
+    let inner = &state.gateway.inner;
+    match req.uri().path() {
+        client_events::EVENTS_PATH => {
+            let known: Vec<String> = inner
+                .routes
+                .entries(host)
+                .into_iter()
+                .map(|e| e.deployment_hash)
+                .collect();
+            let tls = req.extensions().get::<TlsConnection>().is_some();
+            let target = client_events::Target {
+                tenant_id: &entry.tenant_id,
+                deployment_hash: &entry.deployment_hash,
+                known_hashes: &known,
+                enabled: info.client_events,
+                host,
+                tls,
+                client_ip,
+            };
+            inner.client_events.handle(target, req).await
+        }
+        client_script::SCRIPT_PATH => client_script::serve(req.method(), req.headers()),
+        _ => plain(StatusCode::NOT_FOUND, "Not found"),
+    }
 }
 
 fn client_ip(req: &Request<Body>) -> IpAddr {

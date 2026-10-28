@@ -7,8 +7,12 @@ use axum::http::{HeaderMap, HeaderValue};
 
 use super::config::SecurityConfig;
 
-/// Where CSP violation reports go (`docs/contracts/client-events.md`).
+/// Where CSP violation reports go (`docs/contracts/client-events.md`
+/// section 6): `report-uri` for older browsers, and the Reporting API
+/// endpoint [`CSP_REPORT_GROUP`] named by `report-to`.
 pub const CSP_REPORT_PATH: &str = "/__renox/events?kind=csp";
+/// The `report-to` group, declared by `Reporting-Endpoints`.
+pub const CSP_REPORT_GROUP: &str = "renox-csp";
 
 /// Features the platform denies unless `headers.permissions_allow` lists them.
 pub const DENIED_FEATURES: [&str; 3] = ["camera", "microphone", "geolocation"];
@@ -53,6 +57,7 @@ pub fn csp_value(cfg: &SecurityConfig, nonce: &str, tls: bool) -> String {
         d.push("upgrade-insecure-requests".into());
     }
     d.push(format!("report-uri {CSP_REPORT_PATH}"));
+    d.push(format!("report-to {CSP_REPORT_GROUP}"));
     d.join("; ")
 }
 
@@ -79,6 +84,10 @@ pub fn header_set(cfg: &SecurityConfig, nonce: &str, tls: bool) -> Vec<(&'static
     };
     vec![
         (csp_name, csp_value(cfg, nonce, tls)),
+        (
+            "reporting-endpoints",
+            format!("{CSP_REPORT_GROUP}=\"{CSP_REPORT_PATH}\""),
+        ),
         ("x-content-type-options", "nosniff".into()),
         ("x-frame-options", "DENY".into()),
         ("referrer-policy", cfg.headers.referrer_policy.clone()),
@@ -114,7 +123,11 @@ mod tests {
             vec![
                 (
                     "content-security-policy",
-                    "default-src 'self'; script-src 'self' 'nonce-N0nce'; style-src 'self' 'nonce-N0nce'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp".to_string()
+                    "default-src 'self'; script-src 'self' 'nonce-N0nce'; style-src 'self' 'nonce-N0nce'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp; report-to renox-csp".to_string()
+                ),
+                (
+                    "reporting-endpoints",
+                    "renox-csp=\"/__renox/events?kind=csp\"".to_string()
                 ),
                 ("x-content-type-options", "nosniff".into()),
                 ("x-frame-options", "DENY".into()),
@@ -140,9 +153,9 @@ mod tests {
                 .contains("script-src 'self' 'nonce-n' https://js.stripe.com;")
         );
         assert!(set[0].1.contains("img-src 'self' data:;"));
-        assert_eq!(set[3].1, "no-referrer");
+        assert_eq!(set[4].1, "no-referrer");
         assert_eq!(
-            set[4].1,
+            set[5].1,
             "microphone=(), geolocation=(), camera=(self), payment=(self)"
         );
         let a = new_nonce();
