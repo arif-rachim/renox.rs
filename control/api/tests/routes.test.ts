@@ -1,7 +1,7 @@
 // Activation, rollback and route publication (docs/contracts/deploy-api.md
 // sections 6-8; docs/12-developer-experience.md "Deploy without downtime").
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { checkMessage } from "../src/contract.ts";
 import { routeService } from "../src/routes/service.ts";
@@ -9,7 +9,9 @@ import { ownerOf } from "../src/workers/assign.ts";
 import { sweep } from "../src/workers/health.ts";
 import type { RouteDelta, RouteSnapshot } from "../src/routes/table.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { auditRows, createApp_, harness, nodeToken, OPERATOR_TOKEN, registeredNode, sseReader, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, nodeToken, OPERATOR_TOKEN, registeredNode, sseReader, tenant, type Harness } from "./helpers.ts";
+
+afterEach(assertScoped);
 
 const enc = new TextEncoder();
 const variant = (n: number) => helloArtifact((_m, f) => f.set("code/n.json", enc.encode(String(n))));

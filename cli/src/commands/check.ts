@@ -1,12 +1,16 @@
-// renox check: renox.toml schema, route conflicts, template diagnostics,
-// manifest schema (by building in memory), SQL interpolation lint, undeclared fetch hosts,
-// handlers that write to global scope.
+// renox check [--secrets] [--security]: renox.toml schema, route conflicts,
+// template diagnostics, manifest schema (by building in memory), SQL
+// interpolation lint, undeclared fetch hosts, handlers that write to global
+// scope, and the bundle-hygiene rules (#115): secrets in what the build
+// ships, forbidden files in public/. `--secrets` runs only the secret scan;
+// `--security` also prints the effective headers per route (#47).
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CliError, EXIT, location } from "../errors.ts";
 import { buildFiles } from "../lib/build.ts";
+import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
 import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
 import { securityReport } from "../check/security.ts";
@@ -32,13 +36,30 @@ export interface CheckReport {
   findings: Finding[];
 }
 
-export async function check(project: string): Promise<CheckReport> {
+export interface CheckOptions {
+  /** Only the secret scan. */
+  secretsOnly?: boolean;
+}
+
+export async function check(project: string, options: CheckOptions = {}): Promise<CheckReport> {
   const errors: CliError[] = [];
   const findings: Finding[] = [];
   let network: string[] = [];
   try {
     network = readProject(project).permissions.network;
-    await buildFiles(project);
+    const built = await buildFiles(project);
+    const secrets = scanBundle(built.maps, built.files);
+    for (const s of secrets.findings) {
+      findings.push({ file: s.file, line: s.line, column: s.column, rule: "secret", severity: "error", message: `${s.description}: ${s.masked}; ${SECRET_HINT}` });
+    }
+    for (const m of secrets.markersWithoutReason) {
+      findings.push({ file: m.file, line: m.line, column: 1, rule: "secret", severity: "error", message: "renox-allow-secret needs a reason (renox-allow-secret: <why this is not a secret>)" });
+    }
+    if (!options.secretsOnly) {
+      for (const k of built.skipped) {
+        findings.push({ file: k.path, line: 1, column: 1, rule: "forbidden-file", severity: "warning", message: `left out of the artifact: ${k.reason}` });
+      }
+    }
   } catch (e) {
     // A missing renox.toml is not a check finding: the folder is not an app (exit 1).
     // Template errors are one error per diagnostic, each with its file and line.
@@ -46,6 +67,7 @@ export async function check(project: string): Promise<CheckReport> {
     else if (e instanceof CliError && e.exitCode === EXIT.VALIDATION) errors.push(e);
     else throw e;
   }
+  if (options.secretsOnly) return { errors, findings };
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");
@@ -61,12 +83,13 @@ export function securityOutput(project: string): string {
 }
 
 export async function run(args: string[]): Promise<number> {
-  const security = args.includes("--security");
-  if (args.some((a) => a !== "--security")) {
-    console.error("usage: renox check [--security]");
+  const flags = new Set(["--secrets", "--security"]);
+  if (args.some((a) => !flags.has(a)) || new Set(args).size !== args.length) {
+    console.error("usage: renox check [--secrets] [--security]");
     return EXIT.USER;
   }
-  const { errors, findings } = await check(process.cwd());
+  const security = args.includes("--security");
+  const { errors, findings } = await check(process.cwd(), { secretsOnly: args.includes("--secrets") });
   if (security && errors.length === 0) process.stdout.write(securityOutput(process.cwd()));
   for (const e of errors) console.error(`${location(e) ? `${location(e)}  ` : ""}error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
   for (const f of findings) console.error(`${f.file}:${f.line}:${f.column}  ${f.severity}  ${f.rule}  ${f.message}`);

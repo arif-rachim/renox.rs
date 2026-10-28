@@ -18,6 +18,9 @@
       "bin": {
         "renox": "./src/main.ts",
       },
+      "dependencies": {
+        "@renox/artifact-validate": "workspace:*",
+      },
       "devDependencies": {
         "@modelcontextprotocol/sdk": "1.32.1",
       },
@@ -27,9 +30,17 @@
       "version": "0.1.0",
       "dependencies": {
         "@renox/artifact-validate": "workspace:*",
+        "@renox/billing": "workspace:*",
         "ajv": "8.20.0",
         "hono": "4.13.14",
       },
+      "devDependencies": {
+        "@electric-sql/pglite": "0.5.12",
+      },
+    },
+    "control/billing": {
+      "name": "@renox/billing",
+      "version": "0.1.0",
       "devDependencies": {
         "@electric-sql/pglite": "0.5.12",
       },
@@ -112,6 +123,8 @@
     "@renox/artifact-validate": ["@renox/artifact-validate@workspace:packages/artifact-validate"],
 
     "@renox/bench": ["@renox/bench@workspace:bench"],
+
+    "@renox/billing": ["@renox/billing@workspace:control/billing"],
 
     "@renox/cli": ["@renox/cli@workspace:cli"],
 

@@ -8,7 +8,7 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 | `renox dev` | Local server: hot reload, error overlay, type generation, local dashboard |
 | `renox add <module>` | Add a module, update `renox.lock`, show requested permissions |
 | `renox migrate` | Run migrations for all modules in dependency order |
-| `renox check` | Type check TS, validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL |
+| `renox check` | Type check TS, validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL, scan for secrets (`--secrets`: only the secret scan) |
 | `renox test` | Run TS tests in the production runtime, including policy test cases and per-role template snapshots |
 | `renox deploy` | Bundle, upload, validate, activate; `--rollback <hash>` |
 | `renox logs --follow` | Tenant logs |

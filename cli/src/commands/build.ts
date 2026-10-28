@@ -13,7 +13,9 @@ export async function run(args: string[]): Promise<number> {
     return EXIT.USER;
   }
   const out = o >= 0 ? resolve(args[o + 1] as string) : artifactsDir(project);
-  const r = await buildArtifact(project, out);
+  const r = await buildArtifact(project, out, undefined, { secrets: true });
+  for (const k of r.skipped) console.error(`skipped ${k.path}: ${k.reason}`);
+  for (const a of r.allowedSecrets) console.error(`allowed ${a.file}:${a.line}  ${a.pattern}  renox-allow-secret: ${a.allowed}`);
   console.log(`artifact ${r.hash}`);
   console.log(`  ${r.manifest.routes.length} routes, ${Object.keys(r.manifest.code.entry).length} modules, ${Math.round(r.ms)} ms`);
   console.log(`  ${r.dir}`);

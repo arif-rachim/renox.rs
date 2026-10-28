@@ -3,12 +3,14 @@
 // bundle, responses" and rule 5: no secret value leaves the process that
 // needs it).
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { checkMessage } from "../src/contract.ts";
 import { decryptValue, encryptValue, EnvMasterKey, MasterKeyError, valueAad } from "../src/secrets/crypto.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { auditRows, createApp_, harness, registeredNode, scopedToken, sseReader, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, registeredNode, scopedToken, sseReader, tenant, type Harness } from "./helpers.ts";
+
+afterEach(assertScoped);
 
 const STRIPE = "sk_test_51NzQe2SecretValueStripe";
 const ROTATED = "sk_test_51NzQe2RotatedValueStripe";

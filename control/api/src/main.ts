@@ -11,6 +11,7 @@ import { MemoryObjectStore, S3ObjectStore } from "./storage/object-store.ts";
 import type { Db } from "./db/db.ts";
 import { routeService } from "./routes/service.ts";
 import { sweep } from "./workers/health.ts";
+import { NullMailer, OutboxDirMailer } from "./auth/mailer.ts";
 
 const log = createLogger();
 const config = loadConfig();
@@ -25,7 +26,9 @@ const db = await openDb(config.databaseUrl);
 const applied = await migrate(db);
 if (config.s3 === null) log.warn("CONTROL_S3_ENDPOINT is not set: artifacts are kept in memory only");
 const store = config.s3 === null ? new MemoryObjectStore() : new S3ObjectStore(config.s3);
-const deps = { db, store, config, log, now: Date.now };
+if (config.mailOutboxDir === null) log.warn("CONTROL_MAIL_OUTBOX_DIR is not set: account emails are dropped");
+const mailer = config.mailOutboxDir === null ? new NullMailer(log) : new OutboxDirMailer(config.mailOutboxDir);
+const deps = { db, store, config, log, mailer, now: Date.now };
 const app = createApp(deps);
 // Route changes made by other API instances reach this instance's nodes.
 await routeService(deps).publisher.listen();
