@@ -9,6 +9,10 @@ publish.workspace = true
 [dependencies]
 arc-swap = "1.9.3"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "http2", "tokio"] }
+# Response compression (src/compress.rs, #159).
+brotli = "9.1.1"
+bytes = "1.12.1"
+flate2 = "1.1.10"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1.21", features = ["tokio", "server", "http1", "http2", "service"] }

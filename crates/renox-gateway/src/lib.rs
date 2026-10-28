@@ -29,6 +29,7 @@ use protocol::{H2ResetBudget, Http1Guard};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
+pub mod compress;
 pub mod host_check;
 pub mod limits;
 pub mod protocol;

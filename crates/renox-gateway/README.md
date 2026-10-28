@@ -143,6 +143,15 @@ Every knob, its default, and where it is set. `GatewayConfig.protocol` is `Proto
 
 `Gateway::stats()` counts `protocol_refused` (connections closed by either guard) and `host_mismatch` (421 responses).
 
+## Compression
+
+`src/compress.rs` (#159). Dynamic responses only: the cell calls `compress::negotiate(&request_headers)` and `compress::apply(response, encoding)` **before** it writes the meter record, so `egress_bytes` is the body bytes sent on the wire (`docs/contracts/meter.md`). Static files from `public/` are not compressed (#107 forbids a `Vary` from request headers on static assets until a contract adds precompressed variants).
+
+- **What:** `text/*`, `application/json`, and `application/*+json` bodies of at least 1 KB (`MIN_BYTES`), with brotli (quality 4) or gzip, whichever `Accept-Encoding` ranks higher (`br` on a tie; `x-gzip` and `*` count; `q=0` refuses). A body that would not get smaller is sent as is.
+- **`Vary`:** every response of those types gets `Vary: Accept-Encoding`, compressed or not (merged into an existing `Vary`, never next to `Vary: *`). A strong `ETag` becomes weak on a compressed body.
+- **Never compressed:** a response carrying the `compress::NoCompress` extension, the cell's BREACH mark for responses that reflect a secret (a CSRF token, #111) next to request input (`docs/24-threat-model.md`, "End user"). It is a response extension, not a header, so tenant code can neither set nor see it. Also left alone: a response that already has `Content-Encoding`, `Cache-Control: no-transform`, `Content-Range`, 204, 206, and 304.
+- **Tests:** `tests/compress.rs` (negotiation, `Vary`, the uncompressed path, `NoCompress`); `crates/renox-cell/tests/compress.rs` (through the worker, egress = wire bytes).
+
 ## Configuration
 
 `GatewayConfig`:

@@ -16,7 +16,7 @@ use http_body_util::BodyExt;
 use renox_data::{
     DbError, DbOptions, MigrationError, MigrationFile, TenantDb, migrate_with_checksums,
 };
-use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus};
+use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus, compress};
 use renox_meter::{Meter, MeterRecord, MeterStatus};
 use renox_runtime::error::{ErrorCode, PlatformResponse};
 use renox_runtime::isolate::{CreateError, MeterStatus as RuntimeStatus};
@@ -536,6 +536,7 @@ impl CellManager {
         let is_head = parts.method == http::Method::HEAD;
         let get_or_head = is_head || parts.method == http::Method::GET;
         let wants_html = prefers_html(&parts.headers);
+        let encoding = compress::negotiate(&parts.headers);
         let body = match body.collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => Bytes::new(),
@@ -602,6 +603,10 @@ impl CellManager {
             }
             out.response = r.response;
         }
+        // Compress before the meter record, so `egress_bytes` counts the
+        // bytes sent (#159; gateway README, "Compression"). HEAD gets the
+        // headers of the GET it stands for.
+        out.response = compress::apply(out.response, encoding);
         if is_head {
             *out.response.body_mut() = Bytes::new();
         }
