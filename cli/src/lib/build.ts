@@ -17,7 +17,9 @@
 //   (artifacts are content-addressed and never overwritten).
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+
+import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
 import { readProject, type ProjectConfig } from "./project.ts";
@@ -25,13 +27,25 @@ import { discoverFunctions, routeConflicts, routesOf, type FunctionModule, type 
 import { type Json, validate } from "./schema.ts";
 import { schemas } from "./schemas.ts";
 
-export class BuildError extends Error {
+/** The app does not build (exit 2). `problems` lists every one when there are several. */
+export class BuildError extends ValidationError {
   constructor(
     message: string,
     readonly problems: string[] = [],
+    where: Where = {},
   ) {
-    super(problems.length ? `${message}:\n  ${problems.join("\n  ")}` : message);
+    super(problems.length ? `${message}:\n  ${problems.join("\n  ")}` : message, where);
   }
+}
+
+/** A bundler message as `file:line:col: message`, the path relative to the project. */
+function bundlerProblem(project: string, log: BuildMessage | ResolveMessage): { where: Where; message: string } {
+  const pos = log.position;
+  const message = String(log.message ?? log);
+  if (!pos?.file) return { where: {}, message };
+  const abs = resolve(project, pos.file);
+  const file = abs.startsWith(`${resolve(project)}/`) ? relative(project, abs).split("\\").join("/") : pos.file;
+  return { where: { file, line: pos.line, column: pos.column }, message };
 }
 
 export interface Manifest {
@@ -142,9 +156,16 @@ async function bundle(project: string, functions: FunctionModule[]): Promise<Bun
       throw: false,
     });
     if (!r.success) {
+      const errors = r.logs
+        .filter((l) => l.level === "error")
+        .map((l) => bundlerProblem(project, l as BuildMessage))
+        .sort((a, b) => location(a.where).localeCompare(location(b.where), "en", { numeric: true }));
+      const [first] = errors;
+      if (errors.length === 1 && first) throw new BuildError(first.message, [], { ...first.where, hint: "fix the syntax error, then save again" });
       throw new BuildError(
         "functions/ does not build",
-        r.logs.map((l) => String(l.message ?? l)),
+        errors.map((e) => `${location(e.where) ? `${location(e.where)}: ` : ""}${e.message}`),
+        { hint: "fix the errors above, then save again" },
       );
     }
     const out: Bundle = { code: new Map(), maps: new Map() };

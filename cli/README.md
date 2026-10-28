@@ -8,6 +8,18 @@ bun run --cwd cli compile            # single binary: cli/dist/renox
 bun test --cwd cli                   # tests; the dev end-to-end test needs RENOX_WORKER_PATH
 ```
 
+## Exit codes
+
+| Code | Meaning | Examples |
+| --- | --- | --- |
+| `0` | ok | `renox check` with warnings only; `renox`, `renox help` |
+| `1` | user error | unknown command or flag, bad `--port`, an invalid app name or a non-empty folder for `renox new`, no `renox.toml` (not in an app folder) |
+| `2` | validation error | invalid TOML, an unknown key, a bad time zone or value in `renox.toml`; a bad route file name, two files for one route, paths that differ only in case; a TypeScript syntax or bundling error; any `renox check` error |
+| `3` | environment error | no `renox-worker` binary (`RENOX_WORKER_PATH` unset and none downloaded, or pointing to nothing); the worker exits during startup or keeps exiting under `renox dev`; the port is in use |
+| `130` | interrupted | Ctrl-C (SIGINT); `renox dev` stops the worker first |
+
+Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wrong>`, then `hint: <what to do>` when there is something to do (`src/errors.ts`). `renox check` prints each problem as `<file>:<line>  error  <message>`. A TypeScript syntax error carries the transpiler's line and column, relative to the app folder. A `renox.toml` problem carries the line of the key; for a TOML syntax error, the line where parsing first fails. An unknown key comes with the closest valid key ("did you mean"). The messages are snapshotted in `tests/negative/__snapshots__/`.
+
 ## Commands
 
 | Command | What it does |
@@ -15,7 +27,7 @@ bun test --cwd cli                   # tests; the dev end-to-end test needs RENO
 | `renox new <name> [--template blank\|hello]` | Creates `<name>/` with `renox.toml`, `package.json` (depends on `renox`), `tsconfig.json`, `.gitignore`, and the template's files (`cli/templates/<template>/`; `hello` mirrors `examples/hello`, `blank` has `GET /api/health`). Refuses a non-empty folder |
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Prints the hash |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact |
-| `renox check` | Validates `renox.toml`, route conflicts, and the manifest (by building in memory), and lints the sources. Exit code 1 on any error |
+| `renox check` | Validates `renox.toml`, route conflicts, and the manifest (by building in memory), and lints the sources. Exit code 2 on any error |
 | `renox mcp [--project <dir>]` | Local MCP server on stdio for coding agents: the docs, the project's config and routes, and the `check`/`dev` status as tools (below) |
 
 ### `renox build`
@@ -44,7 +56,9 @@ Limitations found so far (B17 will add to this list): the bundle targets a brows
 
 - The worker binary is `RENOX_WORKER_PATH` if set, else `cli/bin/<platform>-<arch>/renox-worker`, which `bun cli/scripts/fetch-worker.ts [<version>]` downloads from the GitHub release `worker-v<version>` (default: the pinned `WORKER_VERSION`; asset `renox-worker-<version>-<target triple>` and its `.sha256`, the names `.github/workflows/release-worker.yml` publishes; the download is refused on a checksum mismatch). Locally: `cargo build -p renox-cell --bin renox-worker` and `RENOX_WORKER_PATH=target/debug/renox-worker`.
 - The route table requires a dotted hostname (`route-table.schema.json`), so the app is routed as `<app>.localhost` and the worker listens on a free loopback port. `renox dev` listens on `localhost:<port>` and forwards every request to the worker with that `Host`.
-- On a change to an app input (sources, `migrations/`, `public/`, `renox.toml`; not `tests/`, `.renox/`, `node_modules/`), debounced by 30 ms: a changed module under `functions/` is rebuilt alone (per-module cache keyed by the source's hash); a change anywhere else rebuilds every module. When the hash changes, `routes.json` is rewritten and the worker gets `SIGHUP`: new requests create a fresh isolate for the new hash (D19), the old cell drains and is evicted. The terminal prints `rebuilt in N ms`. The error overlay is F2.
+- On a change to an app input (sources, `migrations/`, `public/`, `renox.toml`; not `tests/`, `.renox/`, `node_modules/`), debounced by 30 ms (a burst of saves is one rebuild and one route switch; builds run one at a time): a changed module under `functions/` is rebuilt alone (per-module cache keyed by the source's hash); a change anywhere else rebuilds every module. When the hash changes, `routes.json` is rewritten and the worker gets `SIGHUP`: new requests create a fresh isolate for the new hash (D19), the old cell drains and is evicted. The terminal prints `rebuilt in N ms`. The error overlay is F2.
+- A failed build prints `build failed: <file>:<line>:<col>: <message>` and changes nothing: the worker keeps serving the last good artifact. `routes.json` is replaced atomically (write, then rename) and only after a build succeeded, so the worker never reads a half-written table.
+- A worker that exits is restarted with `renox dev: renox-worker exited (…); restarting`; requests in between get 502. More than 5 exits within 30 s end `renox dev` with exit code 3. So does a worker that exits during startup, or a missing binary (with the download instruction).
 
 **Dev loop timing (first B16 data point, informational).** `examples/hello` copied by `renox new devtest --template hello`, 4 vCPU cloud container, debug build of `renox-worker`: rebuild 5 ms; edit of `functions/api/hello.ts` to the first response with the new body 69 ms (watcher latency, 30 ms debounce, build, SIGHUP, route reload, fresh isolate). Target 300 ms is F2's (`docs/14-benchmarks.md`, B16); F1's acceptance is 1 s.
 
@@ -108,4 +122,4 @@ From this repository without the binary: `"command": "bun", "args": ["<repo>/cli
 
 ## Tests
 
-`cli/tests/`: route discovery and conflicts on fixtures, the hash vectors, the lints, `renox new` + `renox build` (schema-valid artifact named by its hash, reproducible, migrations and public files), `renox check`, and `dev.e2e.test.ts` (skipped unless `RENOX_WORKER_PATH` is set: serves the hello app through the worker, edits the file, the new response arrives within 1 s). `mcp.test.ts` drives `renox mcp` through the official MCP SDK client (which validates every response against the MCP schemas): every tool and resource, the refused inputs, secret redaction, and the compiled binary serving the embedded docs; with `RENOX_MCP_INSPECTOR=<path to mcp-inspector>` it also runs the MCP Inspector CLI against every tool and resource.
+`cli/tests/`: route discovery and conflicts on fixtures, the hash vectors, the lints, `renox new` + `renox build` (schema-valid artifact named by its hash, reproducible, migrations and public files), `renox check`, and `dev.e2e.test.ts` (skipped unless `RENOX_WORKER_PATH` is set: serves the hello app through the worker, edits the file, the new response arrives within 1 s). `negative/`: one fixture per CLI failure (messages and exit codes, snapshotted), and `renox dev` against a fake worker (`negative/fake-worker.ts`): 50 saves in 500 ms give one rebuild and one route switch, a failed build keeps the running artifact, a worker crash is restarted, repeated crashes, a missing binary, and a port in use are exit 3, Ctrl-C is exit 130. `mcp.test.ts` drives `renox mcp` through the official MCP SDK client (which validates every response against the MCP schemas): every tool and resource, the refused inputs, secret redaction, and the compiled binary serving the embedded docs; with `RENOX_MCP_INSPECTOR=<path to mcp-inspector>` it also runs the MCP Inspector CLI against every tool and resource.

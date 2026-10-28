@@ -67,9 +67,20 @@ export function problemFromMessage(code: string, message: string): Problem {
   return { code, file: m[1] as string, line: Number(m[2]), ...(m[3] ? { column: Number(m[3]) } : {}), message: m[4] as string };
 }
 
-/** A thrown CLI error as a Problem: `config`, `route`, `build`, or `internal`. */
+/** A thrown error as a Problem: the CliError's location and hint, its class as the code. */
 export function problemOf(e: unknown): Problem {
-  const name = e instanceof Error ? e.constructor.name : "";
-  const code = name === "ConfigError" ? "config" : name === "RouteError" ? "route" : name === "BuildError" ? "build" : "internal";
-  return problemFromMessage(code, e instanceof Error ? e.message : String(e));
+  if (!(e instanceof Error)) return { code: "internal", message: String(e) };
+  const name = e.constructor.name;
+  const code =
+    name === "ConfigError" ? "config" : name === "RouteError" ? "route" : name === "BuildError" ? "build" : name === "EnvironmentError" ? "environment" : name === "UserError" ? "usage" : "internal";
+  const w = e as Error & { file?: string; line?: number; column?: number; hint?: string };
+  if (w.file === undefined) return { ...problemFromMessage(code, e.message), ...(w.hint ? { hint: w.hint } : {}) };
+  return {
+    code,
+    message: e.message,
+    file: w.file,
+    ...(w.line !== undefined ? { line: w.line } : {}),
+    ...(w.column !== undefined ? { column: w.column } : {}),
+    ...(w.hint ? { hint: w.hint } : {}),
+  };
 }

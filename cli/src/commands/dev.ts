@@ -4,6 +4,12 @@
 // the worker so the next request goes to a fresh isolate (D19: hot reload
 // discards the isolate). The old cell drains and is evicted.
 //
+// Saves are debounced (DEBOUNCE_MS) and builds run one at a time, so a burst
+// of saves gives one rebuild and one route switch; the route table is
+// replaced atomically and only after a build succeeded, so the worker never
+// sees a half-updated state. A worker that exits is restarted with a message;
+// one that keeps crashing ends `renox dev` with exit code 3.
+//
 // The route table needs a dotted hostname (route-table.schema.json), so the
 // app is routed as `<app>.localhost`; `renox dev` listens on
 // `localhost:<port>` and forwards every request to the worker with that
@@ -17,14 +23,24 @@
 //   worker.toml             generated worker config
 //   meters/, logs/          meter batches, tenant log lines
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync, openSync, readSync, closeSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, watch, writeFileSync, openSync, readSync, closeSync } from "node:fs";
 import { connect } from "node:net";
 import { join, resolve } from "node:path";
 
+import { CliError, EnvironmentError, EXIT, formatError, location } from "../errors.ts";
 import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
 import { clearDevState, type DevState, problemOf, writeDevState } from "../mcp/devstate.ts";
 
 export const DEV_TENANT = "dev";
+
+/** Quiet time after the last save before a rebuild starts. */
+export const DEBOUNCE_MS = 30;
+/** More worker exits than this within RESTART_WINDOW_MS end `renox dev` (exit 3). */
+export const MAX_RESTARTS = 5;
+export const RESTART_WINDOW_MS = 30_000;
+
+/** Where `bun cli/scripts/fetch-worker.ts` puts the release build. */
+const BIN_DIR = join(import.meta.dir, "..", "..", "bin");
 
 /** The hostname the app is routed under in the local route table. */
 export const devHost = (app: string): string => `${app}.localhost`;
@@ -52,25 +68,40 @@ export function parseDotenv(text: string): Record<string, string> {
   return out;
 }
 
-/** The worker binary: RENOX_WORKER_PATH, else cli/bin/<platform>-<arch>/renox-worker. */
-export function workerPath(): string {
-  const env = process.env.RENOX_WORKER_PATH;
-  if (env) return resolve(env);
-  const p = join(import.meta.dir, "..", "..", "bin", `${process.platform}-${process.arch}`, "renox-worker");
+const DOWNLOAD_HINT = "run `bun cli/scripts/fetch-worker.ts` to download the release build, or set RENOX_WORKER_PATH to a renox-worker binary";
+
+/** The worker binary: RENOX_WORKER_PATH, else <binDir>/<platform>-<arch>/renox-worker. Exit 3 when there is none. */
+export function workerPath(env = process.env.RENOX_WORKER_PATH, binDir = BIN_DIR): string {
+  if (env) {
+    const p = resolve(env);
+    if (!existsSync(p)) throw new EnvironmentError(`RENOX_WORKER_PATH is ${p}, which does not exist`, { hint: DOWNLOAD_HINT });
+    return p;
+  }
+  const p = join(binDir, `${process.platform}-${process.arch}`, "renox-worker");
   if (existsSync(p)) return p;
-  throw new Error(
-    "no renox-worker binary: set RENOX_WORKER_PATH, or run `bun cli/scripts/fetch-worker.ts <version>` to download the release build",
-  );
+  throw new EnvironmentError("no renox-worker binary: RENOX_WORKER_PATH is not set and none was downloaded", { hint: DOWNLOAD_HINT });
 }
 
+/** Replaces the route table atomically (write, then rename): a reader sees the old or the new table. */
 function writeRoutes(path: string, hostname: string, hash: string): void {
   const entries = [{ hostname, tenant_id: DEV_TENANT, deployment_hash: hash, status: "active", updated_at: Date.now() }];
-  writeFileSync(path, `${JSON.stringify({ version: 0, entries }, null, 2)}\n`);
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify({ version: 0, entries }, null, 2)}\n`);
+  renameSync(tmp, path);
 }
 
-const waitForPort = async (port: number, ms: number): Promise<void> => {
+/** Resolves when the worker listens; rejects when it exits first or takes longer than `ms`. */
+const waitForPort = async (port: number, ms: number, exited: Promise<number>): Promise<void> => {
   const t0 = Date.now();
+  let exitCode: number | undefined;
+  void exited.then((c) => {
+    exitCode = c;
+  });
   for (;;) {
+    if (exitCode !== undefined)
+      throw new EnvironmentError(`renox-worker exited during startup (exit code ${exitCode})`, {
+        hint: "run it by hand with --config .renox/worker.toml to see why, or download the release build again",
+      });
     const ok = await new Promise<boolean>((r) => {
       const s = connect(port, "127.0.0.1");
       s.once("connect", () => {
@@ -80,7 +111,7 @@ const waitForPort = async (port: number, ms: number): Promise<void> => {
       s.once("error", () => r(false));
     });
     if (ok) return;
-    if (Date.now() - t0 > ms) throw new Error(`renox-worker did not listen on port ${port} within ${ms} ms`);
+    if (Date.now() - t0 > ms) throw new EnvironmentError(`renox-worker did not listen on port ${port} within ${ms} ms`);
     await Bun.sleep(50);
   }
 };
@@ -97,6 +128,10 @@ export interface DevServer {
   hash: () => string;
   /** Resolves after the next rebuild (and its SIGHUP). */
   nextReload: () => Promise<{ hash: string; ms: number }>;
+  /** Resolves after the next worker restart, with the new worker's pid. */
+  nextRestart: () => Promise<number>;
+  /** Resolves when `renox dev` gives up (the worker keeps crashing), with the error. */
+  failed: Promise<CliError>;
   stop: () => Promise<void>;
 }
 
@@ -105,6 +140,8 @@ export interface DevOptions {
   port: number;
   worker?: string;
   log?: (line: string) => void;
+  /** Overrides DEBOUNCE_MS (tests). */
+  debounceMs?: number;
 }
 
 export async function startDev(opts: DevOptions): Promise<DevServer> {
@@ -146,27 +183,45 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       "",
     ].join("\n"),
   );
-  const worker = Bun.spawn([opts.worker ?? workerPath(), "--config", toml], {
-    stdout: "ignore",
-    stderr: "pipe",
-    env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "warn" },
-  });
-  // Worker warnings and errors to the terminal.
-  void (async () => {
-    const dec = new TextDecoder();
-    let buf = "";
-    for await (const chunk of worker.stderr) {
-      buf += dec.decode(chunk);
-      let i: number;
-      while ((i = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, i);
-        buf = buf.slice(i + 1);
-        if (/"level":"(WARN|ERROR)"/u.test(line)) log(`worker: ${line}`);
-      }
+  const binary = opts.worker ?? workerPath();
+  const spawnWorker = (): Bun.Subprocess<"ignore", "ignore", "pipe"> => {
+    let w: Bun.Subprocess<"ignore", "ignore", "pipe">;
+    try {
+      w = Bun.spawn([binary, "--config", toml], {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "pipe",
+        env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "warn" },
+      });
+    } catch (e) {
+      throw new EnvironmentError(`cannot start renox-worker (${binary}): ${(e as Error).message}`, { hint: DOWNLOAD_HINT });
     }
-  })();
-  await waitForPort(workerPort, 30_000);
-  const proxy = Bun.serve({
+    // Worker warnings and errors to the terminal.
+    void (async () => {
+      const dec = new TextDecoder();
+      let buf = "";
+      for await (const chunk of w.stderr) {
+        buf += dec.decode(chunk);
+        let i: number;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 1);
+          if (/"level":"(WARN|ERROR)"/u.test(line)) log(`worker: ${line}`);
+        }
+      }
+    })();
+    return w;
+  };
+  let worker = spawnWorker();
+  try {
+    await waitForPort(workerPort, 30_000, worker.exited);
+  } catch (e) {
+    worker.kill("SIGKILL");
+    throw e;
+  }
+  let proxy: ReturnType<typeof Bun.serve>;
+  try {
+    proxy = Bun.serve({
     hostname: "localhost",
     port: opts.port,
     async fetch(req) {
@@ -178,10 +233,17 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       try {
         return await fetch(`http://127.0.0.1:${workerPort}${u.pathname}${u.search}`, init);
       } catch {
-        return new Response("renox dev: the worker is not reachable\n", { status: 502 });
+        return new Response("renox dev: the worker is not reachable (restarting?)\n", { status: 502 });
       }
     },
-  });
+    });
+  } catch (e) {
+    worker.kill("SIGKILL");
+    const inUse = /EADDRINUSE|in use/iu.test(String((e as Error).message ?? e)) || (e as NodeJS.ErrnoException).code === "EADDRINUSE";
+    throw new EnvironmentError(inUse ? `port ${opts.port} is in use` : `cannot listen on port ${opts.port}: ${(e as Error).message}`, {
+      hint: "stop the other process, or pass --port <port>",
+    });
+  }
   // .renox/dev.json for the MCP tools dev_status and dev_errors.
   const status: DevState = {
     pid: process.pid,
@@ -221,6 +283,48 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     }
   }, 200);
 
+  // Worker supervision: restart on exit, give up after MAX_RESTARTS in RESTART_WINDOW_MS.
+  let stopping = false;
+  const restarts: number[] = [];
+  const restartWaiters: Array<(pid: number) => void> = [];
+  let giveUp: (e: CliError) => void = () => {};
+  const failed = new Promise<CliError>((r) => {
+    giveUp = r;
+  });
+  const supervise = (w: Bun.Subprocess<"ignore", "ignore", "pipe">): void => {
+    void w.exited.then(async (code) => {
+      if (stopping || w !== worker) return;
+      const now = Date.now();
+      restarts.push(now);
+      while (restarts.length && (restarts[0] as number) < now - RESTART_WINDOW_MS) restarts.shift();
+      if (restarts.length > MAX_RESTARTS) {
+        const e = new EnvironmentError(`renox-worker keeps exiting (${restarts.length} times in ${RESTART_WINDOW_MS / 1000} s); stopping`, {
+          hint: "see the worker lines above; run it by hand with --config .renox/worker.toml to see why",
+        });
+        log(formatError("dev", e));
+        giveUp(e);
+        return;
+      }
+      log(`renox dev: renox-worker exited (${w.signalCode ?? `exit code ${code}`}); restarting`);
+      await Bun.sleep(100 * restarts.length);
+      if (stopping) return;
+      try {
+        worker = spawnWorker();
+        supervise(worker);
+        await waitForPort(workerPort, 30_000, worker.exited);
+      } catch (e) {
+        // Exited again during startup: the exit handler of the new worker counts it.
+        log(`renox dev: ${(e as Error).message}`);
+        return;
+      }
+      status.workerRestarts++;
+      writeDevState(project, status);
+      log(`renox dev: renox-worker restarted (artifact ${current.slice(0, 12)})`);
+      for (const r of restartWaiters.splice(0)) r(worker.pid);
+    });
+  };
+  supervise(worker);
+
   const waiters: Array<(r: { hash: string; ms: number }) => void> = [];
   let pending: ReturnType<typeof setTimeout> | undefined;
   let building = Promise.resolve();
@@ -245,7 +349,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         writeDevState(project, status);
         for (const w of waiters.splice(0)) w({ hash: current, ms });
       } catch (e) {
-        log(`build failed: ${(e as Error).message}`);
+        log(e instanceof CliError ? `build failed: ${location(e) ? `${location(e)}: ` : ""}${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}` : `build failed: ${(e as Error).message}`);
         status.lastBuild = { ok: false, at: new Date().toISOString(), ms: Math.round(performance.now() - t0), problems: [problemOf(e)] };
         writeDevState(project, status);
       }
@@ -256,14 +360,18 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     const f = filename.split("\\").join("/");
     if (!isAppInput(f)) return;
     if (pending) clearTimeout(pending);
-    pending = setTimeout(() => rebuild(f), 30);
+    pending = setTimeout(() => rebuild(f), opts.debounceMs ?? DEBOUNCE_MS);
   });
 
   return {
     port: opts.port,
     hash: () => current,
     nextReload: () => new Promise((r) => waiters.push(r)),
+    nextRestart: () => new Promise((r) => restartWaiters.push(r)),
+    failed,
     stop: async () => {
+      stopping = true;
+      if (pending) clearTimeout(pending);
       watcher.close();
       clearInterval(tail);
       clearDevState(project);
@@ -278,12 +386,20 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
 export async function run(args: string[]): Promise<number> {
   const p = args.indexOf("--port");
   const port = p >= 0 ? Number(args[p + 1]) : 8787;
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535 || args.some((a, i) => a.startsWith("-") && a !== "--port" && args[i - 1] !== "--port")) {
     console.error("usage: renox dev [--port <port>]");
-    return 2;
+    return EXIT.USER;
   }
+  // Ctrl-C during the first build or the worker start: stop at once.
+  const early = (): never => process.exit(EXIT.INTERRUPTED);
+  process.once("SIGINT", early);
   const dev = await startDev({ project: process.cwd(), port });
-  await new Promise<void>((r) => process.once("SIGINT", () => r()));
+  process.off("SIGINT", early);
+  const outcome = await Promise.race([
+    new Promise<"interrupted">((r) => process.once("SIGINT", () => r("interrupted"))),
+    dev.failed,
+  ]);
   await dev.stop();
-  return 0;
+  // A give-up was already printed by the supervisor.
+  return outcome === "interrupted" ? EXIT.INTERRUPTED : outcome.exitCode;
 }

@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { check } from "../commands/check.ts";
 import { parseDotenv } from "../commands/dev.ts";
-import { type Problem, problemFromMessage, problemOf, readDevState } from "./devstate.ts";
+import { type Problem, problemOf, readDevState } from "./devstate.ts";
 import { searchDocs } from "./docs.ts";
 
 type JsonSchema = Record<string, unknown>;
@@ -186,7 +186,7 @@ async function devErrors(project: string): Promise<Record<string, unknown>> {
 async function runCheck(project: string): Promise<Record<string, unknown>> {
   const { errors, findings } = await check(project);
   const problems: Problem[] = [
-    ...errors.map((m) => problemFromMessage("check", m)),
+    ...errors.map(problemOf),
     ...findings.map((f) => ({
       code: f.rule,
       message: f.message,

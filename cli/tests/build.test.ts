@@ -121,7 +121,7 @@ describe("renox check", () => {
   test("examples/hello passes; a conflicting app fails", async () => {
     expect(await check(join(repo, "examples/hello"))).toEqual({ errors: [], findings: [] });
     const r = await check(join(import.meta.dir, "fixtures/conflict"));
-    expect(r.errors.join("\n")).toContain("V8");
+    expect(r.errors.map((e) => e.message).join("\n")).toContain("V8");
   });
 
   test("renox.toml is validated", async () => {
@@ -129,6 +129,6 @@ describe("renox check", () => {
     cpSync(join(import.meta.dir, "fixtures/routes"), dir, { recursive: true });
     await Bun.write(join(dir, "renox.toml"), '[app]\nname = "x"\ntimezone = "UTC"\n[permisions]\nnetwork = []\n');
     const r = await check(dir);
-    expect(r.errors.join("\n")).toContain("unknown key");
+    expect(r.errors.map((e) => e.message).join("\n")).toContain('unknown table "permisions"');
   });
 });
