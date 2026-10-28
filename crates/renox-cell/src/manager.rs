@@ -27,7 +27,9 @@ use tokio::sync::OnceCell;
 
 use crate::artifact::{ArtifactError, ArtifactStore};
 use crate::cell::WebLayer;
-use crate::cell::{Cell, CellKey, InFlightGuard, SecretsError, load_secrets, valid_tenant_id};
+use crate::cell::{
+    Cell, CellKey, InFlightGuard, SecretsError, SecretsRequest, SecretsSource, valid_tenant_id,
+};
 use crate::pages::{CSRF_CODE, CSRF_MESSAGE, Gate, PageGuard, PlatformKey, SessionKeys};
 use crate::ratelimit::RouteBuckets;
 use crate::render::{PageRenderer, Rendered, platform_error, prefers_html};
@@ -42,8 +44,12 @@ pub struct ManagerConfig {
     pub artifacts: Arc<dyn ArtifactStore>,
     pub idle_timeout: Duration,
     pub tiers: Tiers,
-    pub default_tier: TierName,
-    pub tenant_tiers: BTreeMap<String, TierName>,
+    /// Tier, app and secret version of a deployment, consulted at cell
+    /// creation (#55): `worker.toml [tenant_tiers]` in local mode, the
+    /// route entries from the control plane in controlled mode.
+    pub deployments: Arc<dyn DeploymentLookup>,
+    /// Where a new cell's secrets come from (#55).
+    pub secrets: Arc<dyn SecretsSource>,
     /// The node key page sessions and CSRF tokens are derived from (#41).
     pub platform_key: PlatformKey,
 }
@@ -60,12 +66,38 @@ fn max_isolates(tier: TierName) -> usize {
     }
 }
 
-impl ManagerConfig {
-    fn tier_of(&self, tenant_id: &str) -> TierName {
-        self.tenant_tiers
-            .get(tenant_id)
-            .copied()
-            .unwrap_or(self.default_tier)
+/// What the manager needs to know about a deployment before creating its cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeploymentMeta {
+    pub tier: TierName,
+    /// `None` in local mode (the route table file has no app).
+    pub app: Option<String>,
+    pub secrets_version: u64,
+}
+
+/// Looks up [`DeploymentMeta`] of `(tenant_id, deployment_hash)`.
+pub trait DeploymentLookup: Send + Sync + 'static {
+    fn lookup(&self, tenant_id: &str, deployment_hash: &str) -> DeploymentMeta;
+}
+
+/// Local mode: the tier per tenant from `worker.toml`, no app, secret
+/// version 0.
+pub struct StaticTiers {
+    pub default_tier: TierName,
+    pub tenant_tiers: BTreeMap<String, TierName>,
+}
+
+impl DeploymentLookup for StaticTiers {
+    fn lookup(&self, tenant_id: &str, _deployment_hash: &str) -> DeploymentMeta {
+        DeploymentMeta {
+            tier: self
+                .tenant_tiers
+                .get(tenant_id)
+                .copied()
+                .unwrap_or(self.default_tier),
+            app: None,
+            secrets_version: 0,
+        }
     }
 }
 
@@ -262,7 +294,12 @@ impl CellManager {
             return Err(CellError::InvalidTenant);
         }
         let started = Instant::now();
-        let tier_name = self.inner.config.tier_of(&key.tenant_id);
+        let meta = self
+            .inner
+            .config
+            .deployments
+            .lookup(&key.tenant_id, &key.deployment_hash);
+        let tier_name = meta.tier;
         let tier = *self.inner.config.tiers.get(tier_name);
         let store = self.inner.config.artifacts.clone();
         let hash = key.deployment_hash.clone();
@@ -284,8 +321,18 @@ impl CellManager {
             let t = Instant::now();
             run_migrations(&db, &artifact_dir).await?;
             migrate_ms = t.elapsed().as_millis() as u64;
-            let secrets_path = self.tenant_dir(&key.tenant_id).join("secrets.json");
-            let secrets = load_secrets(&secrets_path).map_err(CellError::Secrets)?;
+            let secrets = self
+                .inner
+                .config
+                .secrets
+                .secrets(SecretsRequest {
+                    tenant_id: key.tenant_id.clone(),
+                    app: meta.app.clone(),
+                    deployment_hash: key.deployment_hash.clone(),
+                    secrets_version: meta.secrets_version,
+                })
+                .await
+                .map_err(CellError::Secrets)?;
             let base = match tier_name {
                 TierName::Free => Limits::FREE,
                 TierName::Paid => Limits::PAID,

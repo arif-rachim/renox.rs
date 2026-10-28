@@ -5,9 +5,11 @@
 
 pub mod alloc;
 pub mod artifact;
+pub mod artifact_s3;
 pub mod cell;
 pub mod client_events;
 pub mod config;
+pub mod control;
 pub mod manager;
 pub mod pages;
 pub mod ratelimit;
@@ -19,6 +21,6 @@ pub mod worker;
 pub use artifact::{ArtifactDir, ArtifactError, ArtifactStore, LocalArtifactStore, Manifest};
 pub use cell::{Cell, CellKey};
 pub use config::WorkerConfig;
-pub use manager::{CellError, CellManager, ManagerConfig};
+pub use manager::{CellError, CellManager, DeploymentLookup, DeploymentMeta, ManagerConfig};
 pub use tiers::{Tier, TierName, Tiers};
 pub use worker::{Worker, WorkerError};
