@@ -13,7 +13,8 @@ use crate::tiers::{TierName, TierOverride, Tiers};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkerConfig {
-    /// Address the gateway listens on (plain HTTP in F1).
+    /// Address the gateway listens on: plain HTTP without `[tls]` (local
+    /// development, F1), HTTPS with it (production `0.0.0.0:443`).
     pub listen: SocketAddr,
     /// `<data_dir>/<tenant_id>/app.db` and `secrets.json`.
     pub data_dir: PathBuf,
@@ -57,6 +58,35 @@ pub struct WorkerConfig {
     /// on restart). F3 delivers the node key (#54, #55).
     #[serde(default)]
     pub platform_key_file: Option<PathBuf>,
+    /// HTTPS (#162). Absent: `listen` serves plain HTTP.
+    #[serde(default)]
+    pub tls: Option<TlsSection>,
+}
+
+/// `[tls]`: the gateway serves HTTPS on `listen` with certificates chosen
+/// by SNI from `cert_dir` (`crates/renox-gateway/src/tls.rs`), and the plain
+/// listener on `http_listen` answers only ACME HTTP-01 challenges
+/// (`docs/contracts/deploy-api.md` section 10) and redirects everything
+/// else to HTTPS with 308. SIGHUP (or [`crate::Worker::reload_certificates`])
+/// reloads `cert_dir` without dropping connections.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TlsSection {
+    /// `<cert_dir>/<hostname>/{fullchain,privkey}.pem` and
+    /// `<cert_dir>/_wildcard.<domain>/…`.
+    pub cert_dir: PathBuf,
+    /// The plain-HTTP listener (production `0.0.0.0:80`). Absent: none.
+    #[serde(default)]
+    pub http_listen: Option<SocketAddr>,
+    /// `GET /.well-known/acme-challenge/<token>` on the plain listener is
+    /// answered with the file `<acme_dir>/<token>` (the key authorization
+    /// the ACME client of #59 writes there). Absent: every challenge is 404.
+    #[serde(default)]
+    pub acme_dir: Option<PathBuf>,
+    /// The port in redirect `Location`s. Default: the port `listen` is
+    /// bound to; 443 is left out of the URL.
+    #[serde(default)]
+    pub https_port: Option<u16>,
 }
 
 /// `[gateway]`: the per-client limits of `renox-gateway` (README of that
@@ -142,6 +172,21 @@ impl WorkerConfig {
         {
             *p = base.join(&*p);
         }
+        if let Some(tls) = &mut c.tls {
+            for p in std::iter::once(&mut tls.cert_dir).chain(tls.acme_dir.as_mut()) {
+                if p.is_relative() {
+                    *p = base.join(&*p);
+                }
+            }
+            if tls
+                .http_listen
+                .is_some_and(|h| h == c.listen && h.port() != 0)
+            {
+                return Err(ConfigError::Invalid(
+                    "tls.http_listen must differ from listen".into(),
+                ));
+            }
+        }
         if !(c.gateway.rate_limit_per_ip.is_finite() && c.gateway.rate_limit_per_ip > 0.0) {
             return Err(ConfigError::Invalid(
                 "gateway.rate_limit_per_ip must be positive".into(),
@@ -192,6 +237,28 @@ mod tests {
         assert_eq!(c.tier_table().free.cpu_ms, 50);
         assert_eq!(c.gateway.rate_limit_per_ip, 100.0);
         assert_eq!(c.gateway.max_connections_per_ip, 100);
+    }
+
+    #[test]
+    fn tls_section() {
+        let base = "listen = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+        let c = WorkerConfig::parse(base, Path::new("/srv")).unwrap();
+        assert!(c.tls.is_none());
+        let text = format!(
+            "{base}[tls]\ncert_dir = \"certs\"\nhttp_listen = \"0.0.0.0:80\"\nacme_dir = \"/var/acme\"\n"
+        );
+        let tls = WorkerConfig::parse(&text, Path::new("/srv"))
+            .unwrap()
+            .tls
+            .unwrap();
+        assert_eq!(tls.cert_dir, Path::new("/srv/certs"));
+        assert_eq!(tls.acme_dir.as_deref(), Some(Path::new("/var/acme")));
+        assert_eq!(tls.http_listen, Some("0.0.0.0:80".parse().unwrap()));
+        assert_eq!(tls.https_port, None);
+        let same = format!("{base}[tls]\ncert_dir = \"c\"\nhttp_listen = \"0.0.0.0:443\"\n");
+        assert!(WorkerConfig::parse(&same, Path::new("/")).is_err());
+        let unknown = format!("{base}[tls]\ncert_dir = \"c\"\nkey = \"k\"\n");
+        assert!(WorkerConfig::parse(&unknown, Path::new("/")).is_err());
     }
 
     #[test]
