@@ -6969,6 +6969,7 @@ dependencies = [
  "http",
  "http-body-util",
  "jsonschema",
+ "libc",
  "renox-data",
  "renox-gateway",
  "renox-meter",

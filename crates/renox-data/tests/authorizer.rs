@@ -5,7 +5,7 @@
 //! docs/24-threat-model.md section A: the statement is refused at prepare
 //! time with RENOX_DB_AUTH naming the table, and nothing runs.
 
-use renox_data::{AuthorizerPolicy, DbError, DbOptions, TenantDb, Value};
+use renox_data::{AuthorizerPolicy, CheckpointMode, DbError, DbOptions, TenantDb, Value};
 
 struct Fixture {
     _dir: tempfile::TempDir,
@@ -449,5 +449,49 @@ fn module_prefix_option_installs_the_authorizer_on_open() {
     assert_eq!(
         db.query("select * from auth__users", &[]).unwrap_err(),
         auth("auth__users", "READ")
+    );
+}
+
+/// #147: checkpointing and closing are platform work. A handle opened with
+/// `module_prefix` (the cell's `app` handle) checkpoints and closes without
+/// `RENOX_DB_AUTH`, the module itself still cannot run the pragma, and the
+/// WAL is gone after the last close.
+#[test]
+fn module_handle_checkpoints_and_closes_with_the_platform_policy() {
+    let f = fixture();
+    let db = TenantDb::open(
+        &f.path,
+        DbOptions {
+            module_prefix: Some("billing".into()),
+            ..DbOptions::default()
+        },
+    )
+    .unwrap();
+    db.execute(
+        "insert into billing__invoices (user_id, amount) values ('u2', 7)",
+        &[],
+    )
+    .unwrap();
+    db.checkpoint(CheckpointMode::Passive).unwrap();
+    // The checkpoint left the module's policy in place.
+    assert!(matches!(
+        db.execute("pragma main.wal_checkpoint(TRUNCATE)", &[]),
+        Err(DbError::Auth { .. })
+    ));
+    assert_eq!(
+        db.query("select * from auth__users", &[]).unwrap_err(),
+        auth("auth__users", "READ")
+    );
+    db.execute(
+        "insert into billing__invoices (user_id, amount) values ('u3', 8)",
+        &[],
+    )
+    .unwrap();
+    f.platform.close().unwrap();
+    db.close().unwrap();
+    let wal = f.path.with_extension("db-wal");
+    assert!(
+        !wal.exists() || std::fs::metadata(&wal).unwrap().len() == 0,
+        "WAL left after the last close"
     );
 }

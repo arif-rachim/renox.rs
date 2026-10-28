@@ -130,6 +130,9 @@ pub struct Manifest {
     pub limits: Option<LimitOverrides>,
     #[serde(default)]
     pub modules: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Free-text note the schema allows at the top level; ignored (#147).
+    #[serde(rename = "$comment", default)]
+    pub comment: Option<String>,
 }
 
 /// An artifact refused at load. `rule` is the contract's `V1`-`V13`. The
@@ -410,6 +413,19 @@ mod tests {
             assert!(check_relative_path(bad).is_err(), "{bad:?}");
         }
         assert!(check_relative_path("functions/api/hello.js").is_ok());
+    }
+
+    /// #147: `manifest.schema.json` allows a top-level `$comment`; the
+    /// runtime accepts and ignores it, and still refuses other unknown keys.
+    #[test]
+    fn top_level_comment_is_accepted() {
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&fs::read(hello_dir().join("manifest.json")).unwrap()).unwrap();
+        v["$comment"] = serde_json::json!("built by hand");
+        let m: Manifest = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(m.comment.as_deref(), Some("built by hand"));
+        v["comment"] = serde_json::json!("not in the schema");
+        assert!(serde_json::from_value::<Manifest>(v).is_err());
     }
 
     #[test]

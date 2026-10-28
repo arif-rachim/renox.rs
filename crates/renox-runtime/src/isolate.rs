@@ -43,7 +43,7 @@ use crate::limits::cpu::Watchdog;
 use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
-use crate::manifest::{Artifact, CodeFormat, LoadError, load_artifact};
+use crate::manifest::{Artifact, CodeFormat, LoadError};
 use crate::ops::db::{DbEnv, DbHandle};
 use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
@@ -302,7 +302,7 @@ impl IsolateHandle {
         runtime: Runtime,
         spec: IsolateSpec,
     ) -> Result<IsolateHandle, CreateError> {
-        let artifact = load_artifact(&spec.artifact_dir).map_err(CreateError::Artifact)?;
+        let artifact = runtime.load_artifact(&spec.artifact_dir)?;
         if artifact.hash != spec.deployment_hash {
             return Err(CreateError::Artifact(LoadError {
                 rule: "V2",
@@ -345,7 +345,7 @@ impl IsolateHandle {
         let handle = IsolateHandle {
             runtime,
             spec: Arc::new(spec),
-            artifact: Arc::new(artifact),
+            artifact,
             router: Arc::new(router),
             allowlist: Arc::new(allowlist),
             secrets: Arc::new(declared),

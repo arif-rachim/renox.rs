@@ -3,6 +3,7 @@
 //! One cell = one tenant deployment's isolate on this node plus the tenant's
 //! SQLite file (`docs/17-glossary.md`). See `README.md`.
 
+pub mod alloc;
 pub mod artifact;
 pub mod cell;
 pub mod config;

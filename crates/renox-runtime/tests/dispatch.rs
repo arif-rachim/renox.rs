@@ -523,3 +523,39 @@ async fn isolate_creation_time_and_memory_are_printed() {
         drop(kept);
     }
 }
+
+/// #145, #146: the extension modules behind `Request`, `Response`, streams,
+/// and `URL` are evaluated into the platform snapshot, so a fresh isolate's
+/// first request does not load them inside its CPU budget
+/// (`docs/23-failure-modes.md`, "CPU limit": only tenant code counts).
+#[tokio::test]
+async fn request_and_response_modules_are_in_the_snapshot() {
+    let (rt, _) = runtime_with_sink();
+    let residual = rt.residual_lazy_specifiers();
+    for s in [
+        "ext:deno_fetch/23_request.js",
+        "ext:deno_fetch/23_response.js",
+        "ext:deno_web/06_streams.js",
+        "ext:deno_web/00_url.js",
+    ] {
+        assert!(!residual.contains(&s), "{s} is still loaded lazily");
+    }
+    // Ten fresh isolates, each answering its first request within a 10 ms
+    // CPU budget: lazy loading alone took longer than that before.
+    let limits = Limits {
+        cpu_ms: 10,
+        ..Limits::FREE
+    };
+    for i in 0..10 {
+        let iso = rt
+            .create_isolate(spec(&hello_dir(), HELLO_HASH, limits))
+            .await
+            .unwrap();
+        let out = iso
+            .dispatch(ctx(&format!("req_cold_{i:08}")), get("/api/hello"))
+            .await;
+        assert_eq!(out.response.status(), 200, "fresh isolate {i}");
+    }
+    // #145: the artifact was hashed and verified once for the ten isolates.
+    assert_eq!(rt.verified_artifacts(), 1);
+}

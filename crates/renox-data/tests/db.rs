@@ -332,3 +332,28 @@ fn close_closes_all_connections() {
     let db = open(&dir, DbOptions::default());
     assert!(db.query("select * from app__t", &[]).unwrap().is_empty());
 }
+
+/// #145: `open` opens the writer only; a reader is opened by the first
+/// read that needs it, with the same pragmas.
+#[test]
+fn readers_are_opened_on_first_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tenant.db");
+    let db = TenantDb::open(&path, DbOptions::default()).unwrap();
+    let fds = || {
+        std::fs::read_dir("/proc/self/fd")
+            .unwrap()
+            .filter_map(|e| std::fs::read_link(e.unwrap().path()).ok())
+            .filter(|t| t == &path)
+            .count()
+    };
+    assert_eq!(fds(), 1, "only the writer holds the file after open");
+    db.execute("create table app__t (x integer)", &[]).unwrap();
+    assert_eq!(fds(), 1, "a write does not open a reader");
+    db.query("select * from app__t", &[]).unwrap();
+    assert_eq!(fds(), 2, "the first read opened one reader");
+    for v in db.read_pragma("busy_timeout").unwrap() {
+        assert_eq!(v, Value::Integer(2_000));
+    }
+    db.close().unwrap();
+}

@@ -4,7 +4,7 @@
 //! A `TenantDb` lives on one thread (the cell's worker thread); it is `Send`
 //! but not `Sync`, so its connections are never used by two threads at once.
 
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -378,12 +378,14 @@ fn open_error(e: rusqlite::Error) -> DbError {
     }
 }
 
-/// A tenant's SQLite file with one writer and a pool of readers.
+/// A tenant's SQLite file with one writer and a pool of readers. The
+/// readers are opened on first use, so a cell that only serves requests
+/// without reads pays for one connection (#145).
 pub struct TenantDb {
     path: PathBuf,
     options: DbOptions,
     writer: Conn,
-    readers: Vec<Conn>,
+    readers: Vec<OnceCell<Conn>>,
     next_reader: Cell<usize>,
     in_tx: Cell<bool>,
     policy: Option<Arc<AuthorizerPolicy>>,
@@ -410,8 +412,8 @@ impl TenantDb {
             .committing(|| writer.inner.execute_batch(PLATFORM_SCHEMA))
             .map_err(|e| writer.error(e))?;
         let readers = (0..options.readers.max(1))
-            .map(|_| Conn::open(&path, true, &options))
-            .collect::<Result<Vec<_>>>()?;
+            .map(|_| OnceCell::new())
+            .collect();
         Ok(TenantDb {
             path,
             options,
@@ -473,14 +475,26 @@ impl TenantDb {
         &self.path
     }
 
-    fn reader(&self) -> &Conn {
+    fn reader(&self) -> Result<&Conn> {
         let i = self.next_reader.get();
         self.next_reader.set((i + 1) % self.readers.len());
-        &self.readers[i]
+        self.open_reader(i)
     }
 
+    /// Reader `i`, opened now if it is not yet, with the handle's policy.
+    fn open_reader(&self, i: usize) -> Result<&Conn> {
+        let slot = &self.readers[i];
+        if let Some(c) = slot.get() {
+            return Ok(c);
+        }
+        let c = Conn::open(&self.path, true, &self.options)?;
+        c.set_policy(self.policy.clone());
+        Ok(slot.get_or_init(|| c))
+    }
+
+    /// The writer and the readers opened so far.
     pub(crate) fn connections(&self) -> impl Iterator<Item = &Conn> {
-        std::iter::once(&self.writer).chain(self.readers.iter())
+        std::iter::once(&self.writer).chain(self.readers.iter().filter_map(OnceCell::get))
     }
 
     fn limit(&self) -> Duration {
@@ -545,7 +559,7 @@ impl TenantDb {
         limit_one: bool,
     ) -> Result<Vec<Row>> {
         self.measured(ctx, || {
-            let reader = self.reader();
+            let reader = self.reader()?;
             let mut stmt = reader.prepare(sql)?;
             if stmt.readonly() {
                 let _scope = reader.scope(self.limit(), ctx);
@@ -624,13 +638,15 @@ impl TenantDb {
         self.stats.get()
     }
 
-    /// Checkpoint the WAL into the database file.
+    /// Checkpoint the WAL into the database file. The checkpoint is platform
+    /// work: it runs with the platform policy on the writer, so a handle with
+    /// a module authorizer can checkpoint too (#147).
     pub fn checkpoint(&self, mode: CheckpointMode) -> Result<CheckpointResult> {
         let mode = match mode {
             CheckpointMode::Passive => "PASSIVE",
             CheckpointMode::Truncate => "TRUNCATE",
         };
-        let (log, done) = self.writer.wal_checkpoint(mode)?;
+        let (log, done) = self.with_writer_policy(None, || self.writer.wal_checkpoint(mode))?;
         let log = u64::try_from(log).unwrap_or(0);
         let done = u64::try_from(done).unwrap_or(0);
         self.writer
@@ -696,6 +712,9 @@ impl TenantDb {
         if name.is_empty() || !name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
             return Err(DbError::Param(format!("invalid pragma name {name:?}")));
         }
+        for i in 0..self.readers.len() {
+            self.open_reader(i)?;
+        }
         self.connections()
             .map(|c| {
                 c.clear_denial();
@@ -712,11 +731,13 @@ impl TenantDb {
         let TenantDb {
             writer, readers, ..
         } = self;
-        for r in readers {
+        for r in readers.into_iter().filter_map(OnceCell::into_inner) {
             r.inner.close().map_err(|(_, e)| DbError::from(e))?;
         }
         // With the readers gone nothing holds the WAL; a failure here still
-        // closes the writer, which checkpoints on close as well.
+        // closes the writer, which checkpoints on close as well. Platform
+        // work: the module authorizer would refuse the pragma (#147).
+        writer.set_policy(None);
         let truncated = writer.wal_checkpoint("TRUNCATE");
         writer.inner.close().map_err(|(_, e)| DbError::from(e))?;
         truncated.map(|_| ())

@@ -15,3 +15,4 @@ Verdict: **PROVISIONAL FAIL on p50** (31.5 ms against 20 ms), p99 inside the 100
 - Levers, in order of expected gain: cache the `ArtifactStore` verification across tenants on the same hash (it is, but `load_artifact` re-hashes per isolate); open reader connections lazily; pre-create isolates for hot deployments (#29 follow-up). Follow-up #145.
 - No cold start failed (`failed_cold_starts 0`). An earlier attempt saw one 503 on a cold first request that did not reproduce; the scenario now records such failures instead of aborting.
 - F0 baseline to beat was p50 32.3 ms / p99 38.7 ms on the Edge Runtime (isolate only); the F1 cell is at p50 31.5 ms including the database.
+- Re-run after #145: [2026-10-27-B4-cold-start-h2-renox-worker.md](2026-10-27-B4-cold-start-h2-renox-worker.md) (p50 22.3 ms, p99 45.4 ms).

@@ -1,10 +1,15 @@
 // `renox build`: project → artifact directory (docs/contracts/artifact.md).
 //
-// - Routes from functions/ (routes.ts); each function module is bundled on
-//   its own with Bun.build, so npm and bare imports are vendored into the
-//   module and nothing is resolved at runtime (code.format = "esm-dir").
-//   TypeScript types are stripped; source maps are inline (esm-dir allows
-//   only .js/.mjs/.json files), with project-relative source paths.
+// - Routes from functions/ (routes.ts); all function modules are bundled in
+//   one Bun.build with code splitting, so npm and bare imports are vendored
+//   into the artifact and nothing is resolved at runtime (code.format =
+//   "esm-dir"). Code shared by several modules (zod, a project lib/) lands
+//   once in code/chunks/, so an isolate evaluates each dependency once
+//   (#143). TypeScript types are stripped.
+// - Source maps are not part of the artifact: they would be loaded into
+//   every isolate as module source text. They are written next to the
+//   artifacts folder, in <out>/../sourcemaps/<hash>/, with project-relative
+//   source paths (`renox deploy` uploads them privately, #128).
 // - migrations/NNN_name.sql → migrations/app/ with checksums.json.
 // - public/** → public/ with manifest.json (content hash, size, type).
 // - manifest.json, then the content hash names the directory:
@@ -41,6 +46,8 @@ export interface Manifest {
 export interface BuildResult {
   hash: string;
   dir: string;
+  /** Source maps of `code/`, outside the artifact. */
+  mapsDir: string;
   manifest: Manifest;
   /** Bundled modules (rebuilt / taken from the cache). */
   rebuilt: number;
@@ -48,20 +55,29 @@ export interface BuildResult {
   ms: number;
 }
 
-/** Per-module bundle cache for `renox dev`: a module is rebuilt when its source changed. */
+/** Bundled code: `code/`-relative path → source, and the source maps the same way. */
+interface Bundle {
+  code: Map<string, string>;
+  maps: Map<string, string>;
+}
+
+/**
+ * Bundle cache for `renox dev`: the modules are bundled together (shared
+ * chunks), so the cache holds one bundle, reused while no function source
+ * changed.
+ */
 export class BuildCache {
-  private readonly bundles = new Map<string, { key: string; code: string }>();
+  private entry: { key: string; bundle: Bundle } | undefined;
   /** Set when a non-entry file changed: every module may import it. */
   invalidateAll = false;
 
-  get(id: string, key: string): string | undefined {
+  get(key: string): Bundle | undefined {
     if (this.invalidateAll) return undefined;
-    const e = this.bundles.get(id);
-    return e && e.key === key ? e.code : undefined;
+    return this.entry?.key === key ? this.entry.bundle : undefined;
   }
 
-  set(id: string, key: string, code: string): void {
-    this.bundles.set(id, { key, code });
+  set(key: string, bundle: Bundle): void {
+    this.entry = { key, bundle };
   }
 }
 
@@ -107,30 +123,41 @@ function listFiles(dir: string, rel = ""): string[] {
   return out.sort();
 }
 
-async function bundle(project: string, f: FunctionModule): Promise<string> {
+async function bundle(project: string, functions: FunctionModule[]): Promise<Bundle> {
   // Paths in comments and source maps are relative to the working
   // directory: build from the project so the artifact is reproducible.
   const cwd = process.cwd();
   process.chdir(project);
   try {
     const r = await Bun.build({
-      entrypoints: [f.source],
+      entrypoints: functions.map((f) => f.source),
+      root: ".",
       target: "browser",
       format: "esm",
-      sourcemap: "inline",
+      splitting: true,
+      sourcemap: "external",
+      naming: { entry: "[dir]/[name].[ext]", chunk: "chunks/chunk-[hash].[ext]" },
       // node: built-ins stay imports; the runtime offers the compute-only ones.
       external: ["node:*"],
       throw: false,
     });
     if (!r.success) {
       throw new BuildError(
-        `${f.source} does not build`,
+        "functions/ does not build",
         r.logs.map((l) => String(l.message ?? l)),
       );
     }
-    const out = r.outputs.find((o) => o.kind === "entry-point");
-    if (!out || r.outputs.length !== 1) throw new BuildError(`${f.source}: expected one output file`);
-    return await out.text();
+    const out: Bundle = { code: new Map(), maps: new Map() };
+    for (const o of r.outputs) {
+      const path = o.path.replace(/^\.\//u, "");
+      if (o.kind === "sourcemap") out.maps.set(path, await o.text());
+      else if (o.kind === "entry-point" || o.kind === "chunk") out.code.set(path, await o.text());
+      else throw new BuildError(`unexpected bundler output ${path} (${o.kind})`);
+    }
+    for (const f of functions) {
+      if (!out.code.has(`${f.id}.js`)) throw new BuildError(`${f.source}: no bundled module ${f.id}.js`);
+    }
+    return out;
   } finally {
     process.chdir(cwd);
   }
@@ -140,7 +167,7 @@ async function bundle(project: string, f: FunctionModule): Promise<string> {
 export async function buildFiles(
   project: string,
   cache?: BuildCache,
-): Promise<{ files: Map<string, Uint8Array>; manifest: Manifest; rebuilt: number; cached: number }> {
+): Promise<{ files: Map<string, Uint8Array>; maps: Map<string, string>; manifest: Manifest; rebuilt: number; cached: number }> {
   const config = readProject(project);
   const functions = discoverFunctions(project);
   if (functions.length === 0) throw new BuildError("no routes: functions/ has no module exporting GET, POST, ...");
@@ -150,23 +177,17 @@ export async function buildFiles(
   const enc = new TextEncoder();
   const files = new Map<string, Uint8Array>();
   const entry: Record<string, string> = {};
-  let rebuilt = 0;
-  let cached = 0;
-  for (const f of functions) {
-    const key = sha256Hex(readFileSync(join(project, f.source)));
-    let code = cache?.get(f.id, key);
-    if (code === undefined) {
-      code = await bundle(project, f);
-      cache?.set(f.id, key, code);
-      rebuilt++;
-    } else {
-      cached++;
-    }
-    const out = `${f.id}.js`;
-    entry[f.id] = out;
-    files.set(`code/${out}`, enc.encode(code));
+  const key = sha256Hex(enc.encode(functions.map((f) => `${f.source}\0${sha256Hex(readFileSync(join(project, f.source)))}`).join("\n")));
+  let bundled = cache?.get(key);
+  const rebuilt = bundled ? 0 : functions.length;
+  const cached = functions.length - rebuilt;
+  if (!bundled) {
+    bundled = await bundle(project, functions);
+    cache?.set(key, bundled);
   }
   if (cache) cache.invalidateAll = false;
+  for (const f of functions) entry[f.id] = `${f.id}.js`;
+  for (const [p, code] of bundled.code) files.set(`code/${p}`, enc.encode(code));
   let size = 0;
   for (const [p, b] of files) if (p.startsWith("code/")) size += b.length;
   if (size > MAX_CODE_BYTES) throw new BuildError(`V5: code/ is ${size} bytes, over the ${MAX_CODE_BYTES}-byte bundle limit`);
@@ -221,15 +242,27 @@ export async function buildFiles(
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);
   files.set("manifest.json", enc.encode(`${JSON.stringify(manifest, null, 2)}\n`));
-  return { files, manifest, rebuilt, cached };
+  return { files, maps: bundled.maps, manifest, rebuilt, cached };
 }
 
 /** `renox build`: write `<out>/<hash>/` and return its hash. */
 export async function buildArtifact(project: string, out: string, cache?: BuildCache): Promise<BuildResult> {
   const t0 = performance.now();
-  const { files, manifest, rebuilt, cached } = await buildFiles(project, cache);
+  const { files, maps, manifest, rebuilt, cached } = await buildFiles(project, cache);
   const hash = hashFiles(files);
   const dir = join(out, hash);
+  const mapsDir = join(out, "..", "sourcemaps", hash);
+  if (!existsSync(mapsDir)) {
+    const tmp = `${mapsDir}.tmp-${process.pid}`;
+    rmSync(tmp, { recursive: true, force: true });
+    mkdirSync(tmp, { recursive: true });
+    for (const [p, text] of maps) {
+      const target = join(tmp, p);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, text);
+    }
+    renameSync(tmp, mapsDir);
+  }
   if (!existsSync(dir)) {
     const tmp = join(out, `.tmp-${hash}-${process.pid}`);
     rmSync(tmp, { recursive: true, force: true });
@@ -240,7 +273,7 @@ export async function buildArtifact(project: string, out: string, cache?: BuildC
     }
     renameSync(tmp, dir);
   }
-  return { hash, dir, manifest, rebuilt, cached, ms: performance.now() - t0 };
+  return { hash, dir, mapsDir, manifest, rebuilt, cached, ms: performance.now() - t0 };
 }
 
 /** The default artifact folder of a project. */
