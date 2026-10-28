@@ -28,5 +28,5 @@ export function numOrNull(v: unknown): number | null {
   return v === null || v === undefined ? null : num(v);
 }
 
-/** jsonb parameters are passed as text and cast with `$n::jsonb` in the SQL. */
+/** jsonb parameters are passed as text and cast with `$n::text::jsonb` (a bare `::jsonb` makes Bun's client encode the string a second time). */
 export const jsonb = (v: unknown): string => JSON.stringify(v);

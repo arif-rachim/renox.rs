@@ -9,6 +9,8 @@ import { openPostgres } from "./db/postgres.ts";
 import { openPglite } from "./db/pglite.ts";
 import { MemoryObjectStore, S3ObjectStore } from "./storage/object-store.ts";
 import type { Db } from "./db/db.ts";
+import { routeService } from "./routes/service.ts";
+import { sweep } from "./workers/health.ts";
 
 const log = createLogger();
 const config = loadConfig();
@@ -23,7 +25,12 @@ const db = await openDb(config.databaseUrl);
 const applied = await migrate(db);
 if (config.s3 === null) log.warn("CONTROL_S3_ENDPOINT is not set: artifacts are kept in memory only");
 const store = config.s3 === null ? new MemoryObjectStore() : new S3ObjectStore(config.s3);
-const app = createApp({ db, store, config, log, now: Date.now });
+const deps = { db, store, config, log, now: Date.now };
+const app = createApp(deps);
+// Route changes made by other API instances reach this instance's nodes.
+await routeService(deps).publisher.listen();
+// Node health and drained routes (deploy-api.md sections 7-8).
+setInterval(() => void sweep(deps).catch((e: unknown) => log.error("sweep failed", { error: String(e) })), 5_000);
 
 const server = Bun.serve({ port: config.port, fetch: app.fetch, idleTimeout: 0 });
 log.info("control api listening", { port: server.port, migrations_applied: applied });

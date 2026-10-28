@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { openPostgres } from "../src/db/postgres.ts";
-import { migrate } from "../src/db/migrate.ts";
+import { migrate, readMigrations } from "../src/db/migrate.ts";
 
 const url = process.env.CONTROL_TEST_DATABASE_URL;
 
@@ -12,7 +12,7 @@ describe.skipIf(url === undefined)("postgres adapter", () => {
   test("migrates, queries with parameters, rolls back, and delivers NOTIFY", async () => {
     const db = openPostgres(url as string);
     await db.exec("drop schema public cascade; create schema public;");
-    expect(await migrate(db)).toEqual([1]);
+    expect(await migrate(db)).toEqual(readMigrations().map((m) => m.version));
     expect(await migrate(db)).toEqual([]);
     await db.query("insert into tenants (id, name, tier, created_at) values ($1, $2, $3, $4)", ["t_a", "A", "free", 1793318400000]);
     const rows = await db.query<{ created_at: unknown; scopes: unknown }>(

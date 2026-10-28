@@ -5,6 +5,7 @@ import type { Hono } from "hono";
 import { createApp, type RouteModule } from "../src/app.ts";
 import type { Deps, Env } from "../src/context.ts";
 import { openPglite } from "../src/db/pglite.ts";
+import { openPostgres } from "../src/db/postgres.ts";
 import { migrate } from "../src/db/migrate.ts";
 import type { Db } from "../src/db/db.ts";
 import { memoryLogger } from "../src/log.ts";
@@ -13,11 +14,19 @@ import { createTenantToken, newTokenValue, sha256hex } from "../src/auth/tokens.
 
 let shared: Promise<Db> | undefined;
 
+/**
+ * The shared test database: PGlite, or a real Postgres when
+ * CONTROL_TEST_HARNESS_URL names an empty database (its public schema is
+ * dropped and recreated).
+ */
 export function testDb(): Promise<Db> {
-  shared ??= openPglite().then(async (db) => {
+  const url = process.env.CONTROL_TEST_HARNESS_URL;
+  shared ??= (async () => {
+    const db = url === undefined ? await openPglite() : openPostgres(url);
+    if (url !== undefined) await db.exec("drop schema public cascade; create schema public;");
     await migrate(db);
     return db;
-  });
+  })();
   return shared;
 }
 
@@ -42,6 +51,9 @@ export async function harness(modules: RouteModule[] = []): Promise<Harness> {
     "select tablename from pg_tables where schemaname = 'public' and tablename <> 'schema_migrations'",
   );
   await db.exec(`truncate ${tables.map((t) => `"${t.tablename}"`).join(", ")} restart identity cascade`);
+  for (const { sequencename } of await db.query<{ sequencename: string }>("select sequencename from pg_sequences where schemaname = 'public'")) {
+    await db.exec(`alter sequence "${sequencename}" restart`);
+  }
   const store = new MemoryObjectStore();
   const log = memoryLogger();
   const clock = { now: 1_793_318_400_000 };
@@ -95,6 +107,50 @@ export async function nodeToken(h: Harness, nodeId: string): Promise<string> {
   const value = newTokenValue("node");
   await h.db.query("insert into node_tokens (node_id, token_sha256, created_at) values ($1, $2, $3)", [nodeId, sha256hex(value), h.clock.now]);
   return value;
+}
+
+/** A node token and a registered, healthy node. */
+export async function registeredNode(h: Harness, nodeId: string): Promise<string> {
+  const token = await nodeToken(h, nodeId);
+  const res = await h.request("POST", "/v1/nodes/register", {
+    token,
+    json: { type: "node_register", schema_version: 0, node_id: nodeId, worker_version: "0.1.0", region: "me-central-1", max_cells: 100 },
+  });
+  if (res.status !== 200) throw new Error(`register ${nodeId}: ${res.status} ${await res.text()}`);
+  return token;
+}
+
+/** Reads Server-Sent Events from a streaming response. */
+export function sseReader(res: Response): { next(timeoutMs?: number): Promise<{ event: string; data: unknown }>; close(): Promise<void> } {
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  return {
+    async next(timeoutMs = 2000) {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        let end = buf.indexOf("\n\n");
+        while (end !== -1) {
+          const block = buf.slice(0, end);
+          buf = buf.slice(end + 2);
+          const lines = block.split("\n").filter((l) => l !== "" && !l.startsWith(":"));
+          if (lines.length > 0) {
+            const event = lines.find((l) => l.startsWith("event:"))?.slice(6).trim() ?? "message";
+            const data = lines.filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n");
+            return { event, data: JSON.parse(data) as unknown };
+          }
+          end = buf.indexOf("\n\n");
+        }
+        const left = deadline - Date.now();
+        if (left <= 0) throw new Error("no event before the timeout");
+        const chunk = await Promise.race([reader.read(), Bun.sleep(left).then(() => null)]);
+        if (chunk === null) throw new Error("no event before the timeout");
+        if (chunk.done) throw new Error("stream ended");
+        buf += decoder.decode(chunk.value, { stream: true });
+      }
+    },
+    close: () => reader.cancel(),
+  };
 }
 
 export async function auditRows(h: Harness): Promise<Record<string, unknown>[]> {

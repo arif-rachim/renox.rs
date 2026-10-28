@@ -84,7 +84,7 @@ export async function createTenantToken(
   const id = `tok_${ulid(now)}`;
   const expires = now + days * DAY_MS;
   await db.query(
-    "insert into tokens (id, tenant_id, name, token_sha256, scopes, created_at, expires_at) values ($1, $2, $3, $4, $5::jsonb, $6, $7)",
+    "insert into tokens (id, tenant_id, name, token_sha256, scopes, created_at, expires_at) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7)",
     [id, tenantId, name, sha256hex(value), jsonb(scopes), now, expires],
   );
   return { id, name, token: value, scopes, created_at: now, expires_at: expires };

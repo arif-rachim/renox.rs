@@ -18,7 +18,7 @@ export interface AuditRow {
 
 export async function writeAudit(db: Db, row: AuditRow): Promise<void> {
   await db.query(
-    "insert into audit (at, tenant_id, actor, action, target, status, request_id) values ($1, $2, $3, $4, $5::jsonb, $6, $7)",
+    "insert into audit (at, tenant_id, actor, action, target, status, request_id) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7)",
     [row.at, row.tenantId, row.actor, row.action, jsonb(row.target), row.status, row.requestId],
   );
 }

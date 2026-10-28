@@ -128,7 +128,7 @@ export async function transition(tx: Db, d: { tenant_id: string; app: string; ha
   const params: unknown[] = [d.tenant_id, d.app, d.hash, to, by.now, from];
   for (const [key, value] of Object.entries(changes)) {
     params.push(key === "manifest" || key === "last_error" || key === "violations" ? (value === null ? null : jsonb(value)) : value);
-    sets.push(`${key} = $${params.length}${key === "manifest" || key === "last_error" || key === "violations" ? "::jsonb" : ""}`);
+    sets.push(`${key} = $${params.length}${key === "manifest" || key === "last_error" || key === "violations" ? "::text::jsonb" : ""}`);
   }
   const rows = await tx.query(
     `update deployments set ${sets.join(", ")} where tenant_id = $1 and app = $2 and hash = $3 and state = $6 returning hash`,

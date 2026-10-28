@@ -14,9 +14,17 @@ const BOOTSTRAP_DAYS = 90;
 
 export type TenantState = "active" | "suspended";
 
-/** Called after a tenant's state changed, in the same transaction (deployments and routes hook in here). */
-export type TenantStateHook = (tx: Db, tenantId: string, state: TenantState, now: number) => Promise<void>;
-export const tenantStateHooks: TenantStateHook[] = [];
+/**
+ * Called in the transaction that changed a tenant's state (deployments and
+ * routes hook in here). The returned function, if any, runs after the commit.
+ */
+export type TenantStateHook = (tx: Db, tenantId: string, state: TenantState, now: number) => Promise<(() => Promise<void>) | void>;
+
+const hooks = new WeakMap<Deps, TenantStateHook[]>();
+
+export function addTenantStateHook(deps: Deps, hook: TenantStateHook): void {
+  hooks.set(deps, [...(hooks.get(deps) ?? []), hook]);
+}
 
 async function tenantView(db: Db, id: string): Promise<Record<string, unknown>> {
   const rows = await db.query<Record<string, unknown>>("select id, name, tier, state, created_at from tenants where id = $1", [id]);
@@ -48,15 +56,20 @@ export function registerAdmin(app: Hono<Env>, deps: Deps): void {
     app.post(`/v1/admin/tenants/:tenant_id/${state === "suspended" ? "suspend" : "reinstate"}`, operation(deps, action), operatorAuth(deps), async (c) => {
       const id = pathParam(c, "tenant_id", "TenantId");
       const now = deps.now();
+      const after: (() => Promise<void>)[] = [];
       const view = await db.transaction(async (tx) => {
         const rows = await tx.query<{ state: string }>("select state from tenants where id = $1 for update", [id]);
         if (rows[0] === undefined) throw notFound();
         if (rows[0].state !== state) {
           await tx.query("update tenants set state = $1 where id = $2", [state, id]);
-          for (const hook of tenantStateHooks) await hook(tx, id, state, now);
+          for (const hook of hooks.get(deps) ?? []) {
+            const then = await hook(tx, id, state, now);
+            if (then !== undefined) after.push(then);
+          }
         }
         return tenantView(tx, id);
       });
+      for (const then of after) await then();
       return c.json(view);
     });
   setState("suspended", "suspendTenant");
