@@ -20,8 +20,8 @@ Two main parts:
 
 ## Project status
 
-**Phase: F1 (minimal data plane).** F0 is done (`docs/14-benchmarks.md`, "F0 results": GO). Platform crates under `crates/` are now allowed, following the F1 issues; `bench/` holds the harness, the spikes, and the results.
-F1 gate condition carried over from F0: B1 on the `shop` skeleton with its real dependencies, bundled as eszip, must be ≤ 20 MB, otherwise ADR D21 is written (#37).
+**Phase: F2 (SSR and templates) and F3 (minimal control plane), in parallel.** F0 and F1 are done (`docs/14-benchmarks.md`, "F0 results" and "F1 results": GO; every F1 number is provisional until the `node-small` re-run, #158). The F1 gate's B1 condition was met (11.09 MB per `shop` isolate), so ADR D21 was not written.
+Crates that exist: `renox-gateway`, `renox-runtime`, `renox-data`, `renox-meter`, `renox-cell` (binary `renox-worker`). `renox-template` does not exist yet (#38 creates it); `renox-authz` and `renox-realtime` are F5. `bench/` holds the harness, the spikes, and the results.
 See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 
 ## Reading order
