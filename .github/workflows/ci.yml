@@ -51,6 +51,9 @@ jobs:
               - 'rust-toolchain.toml'
               - '.cargo/**'
               - 'ops/**'
+              # The rust job builds the renox-worker the ts job tests with
+              # (#186), so a change to the jobs runs it too.
+              - '.github/workflows/ci.yml'
             ts:
               - '*.ts'
               - 'sdk*/**'
@@ -114,20 +117,88 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: make rust-check
       - run: make rust-test
+      # The worker the ts job runs the CLI template, shop build and dev e2e
+      # tests with (#186): built from this commit, without the test-hooks
+      # feature that `cargo test` turns on in renox-runtime.
+      - name: Build renox-worker for the ts job
+        run: |
+          cargo build --locked -p renox-cell --bin renox-worker
+          mkdir -p "$RUNNER_TEMP/worker"
+          cp target/debug/renox-worker "$RUNNER_TEMP/worker/"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: renox-worker-ci
+          path: ${{ runner.temp }}/worker/renox-worker
+          if-no-files-found: error
+          # main keeps its worker for the TypeScript-only PRs that follow.
+          retention-days: ${{ github.event_name == 'push' && 30 || 3 }}
       # Hit rate for B20 (bench/scenarios/B20/run.sh reads job timings only).
       - run: sccache --show-stats
 
+  # Runs on a TypeScript change and on a Rust change: the CLI template, shop
+  # build and dev e2e tests run on a renox-worker binary (#186). The worker is
+  # the one the rust job built from this commit; when rust is skipped
+  # (TypeScript-only change), the one built by the latest green push run on
+  # main, else the pinned release (cli/scripts/fetch-worker.ts verifies its
+  # SHA-256). `make ts-test` fails in CI without RENOX_WORKER_PATH.
   ts:
-    needs: changes
-    if: needs.changes.outputs.ts == 'true'
+    needs: [changes, rust]
+    if: >-
+      always() && needs.changes.result == 'success'
+      && (needs.changes.outputs.ts == 'true' || needs.changes.outputs.rust == 'true')
+      && (needs.rust.result == 'success' || needs.rust.result == 'skipped')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Reading the worker artifact of an earlier run on main.
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.rust.result == 'success'
+        with:
+          name: renox-worker-ci
+          path: ${{ runner.temp }}/worker
       - run: make ts-check
-      - run: make ts-test
+      - name: Worker for the tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUST_RAN: ${{ needs.rust.result == 'success' }}
+        run: |
+          dir=$RUNNER_TEMP/worker
+          if [[ "$RUST_RAN" == "true" ]]; then
+            source="built by the rust job of this run from $GITHUB_SHA"
+          else
+            # Only push runs on main: a pull request (a fork's included) can
+            # never supply the binary.
+            source=""
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=30" \
+              --jq '.workflow_runs[] | select(.head_repository.id == .repository.id) | "\(.id) \(.head_sha)"')
+            while read -r id sha; do
+              [[ -n "$id" ]] || continue
+              if gh run download "$id" --repo "$GITHUB_REPOSITORY" -n renox-worker-ci -D "$dir" 2>/dev/null; then
+                source="built by run $id on main from $sha"
+                break
+              fi
+            done <<< "$runs"
+            if [[ -z "$source" ]]; then
+              path=$(bun cli/scripts/fetch-worker.ts | sed 's/.* -> //')
+              mkdir -p "$dir" && cp "$path" "$dir/renox-worker"
+              source="the pinned release (cli/scripts/fetch-worker.ts), no worker artifact on main"
+            fi
+          fi
+          chmod +x "$dir/renox-worker"
+          echo "RENOX_WORKER_PATH=$dir/renox-worker" >> "$GITHUB_ENV"
+          echo "renox-worker for the ts tests: $source" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The pass/skip/fail counts go to the run summary: the worker tests
+      # count as run there, not skipped (#186).
+      - name: make ts-test
+        run: |
+          make ts-test 2>&1 | tee "$RUNNER_TEMP/ts-test.log"
+          { echo '```'; grep -E '^ *[0-9]+ (pass|skip|todo|fail)$|^Ran [0-9]+ tests' "$RUNNER_TEMP/ts-test.log" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Benchmark harness smoke test
         run: bench/run.sh B0 --runs 1
 

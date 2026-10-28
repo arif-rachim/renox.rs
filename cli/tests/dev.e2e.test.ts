@@ -1,5 +1,5 @@
 // `renox dev` end to end against the prebuilt worker. Runs only when
-// RENOX_WORKER_PATH is set (CI after #36; locally: cargo build -p
+// RENOX_WORKER_PATH is set (always in CI, #186; locally: cargo build -p
 // renox-cell --bin renox-worker and point it at target/debug/renox-worker).
 import { expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -8,8 +8,9 @@ import { join } from "node:path";
 
 import { startDev } from "../src/commands/dev.ts";
 import { newApp } from "../src/commands/new.ts";
+import { testWorker } from "./worker-env.ts";
 
-const worker = process.env.RENOX_WORKER_PATH;
+const worker = testWorker();
 
 test.skipIf(!worker)(
   "renox dev serves the hello app and a file edit is live within 1 s",

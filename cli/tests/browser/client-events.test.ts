@@ -15,9 +15,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { type DevServer, startDev } from "../../src/commands/dev.ts";
+import { testWorker } from "../worker-env.ts";
 
 const repo = join(import.meta.dir, "../../..");
-const worker = process.env.RENOX_WORKER_PATH;
+const worker = testWorker();
 
 type Pw = { chromium: { launch: () => Promise<Browser> } };
 type Browser = { newPage: () => Promise<Page>; close: () => Promise<void> };
