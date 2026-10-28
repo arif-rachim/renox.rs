@@ -66,6 +66,15 @@ jobs:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       CARGO_INCREMENTAL: "0"
+      # B20 (#154): the released binary is built for size on top of the
+      # workspace [profile.release] (thin LTO, codegen-units 1, strip).
+      # Without these it is 122.8 MB packaged, with them 94.7 MB
+      # (bench/results/2026-10-28-B20-binary-size-opt-s-renox-worker.md);
+      # B4 is not worse. Both steps below build with them, so the snapshot
+      # and the binary come from the same build. panic stays "unwind": a
+      # panic on one isolate thread must not abort every tenant on the node.
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "s"
+      CARGO_PROFILE_RELEASE_LTO: "fat"
       TARGET: ${{ matrix.target }}
       # Inputs reach the shell through the environment only, never through
       # ${{ }} inside a script.
