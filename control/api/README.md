@@ -51,6 +51,13 @@ The start sequence is: open the database, apply the migrations in `migrations/`,
 CONTROL_TEST_DATABASE_URL=postgres://renox:renox-dev@localhost:5432/renox_test bun test
 ```
 
+To run the whole suite on Postgres instead of PGlite, point `CONTROL_TEST_HARNESS_URL` at another empty database (its `public` schema is dropped and recreated). This catches driver differences that PGlite hides; for example, jsonb parameters are written `$n::text::jsonb` because Bun's client encodes a string bound to `$n::jsonb` a second time.
+
+```sh
+psql -h localhost -U renox -c 'create database renox_harness'
+CONTROL_TEST_HARNESS_URL=postgres://renox:renox-dev@localhost:5432/renox_harness bun test
+```
+
 ## Logs
 
 One JSON object per line on stdout: `ts`, `level`, `msg`, and fields. Each request writes one line: `request_id`, `method`, `route` (the pattern, not the URL), `action` (the operationId), `status`, `actor`, and `ms`. Bodies, headers and secret values are never logged. Any string shaped like a Renox token is masked before a line is written.

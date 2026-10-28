@@ -12,6 +12,7 @@ import { registerAdmin } from "./tenants/routes.ts";
 import { registerDeployments } from "./deployments/routes.ts";
 import { registerRoutes } from "./routes/routes.ts";
 import { registerWorkers } from "./workers/routes.ts";
+import { registerSecrets } from "./secrets/routes.ts";
 
 export type RouteModule = (app: Hono<Env>, deps: Deps) => void;
 
@@ -50,6 +51,6 @@ export function createApp(deps: Deps, modules: RouteModule[] = []): Hono<Env> {
 
   app.notFound((c) => c.json(errorBody("RENOX_NOT_FOUND", c.get("requestId")), 404));
 
-  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, ...modules]) register(app, deps);
+  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, ...modules]) register(app, deps);
   return app;
 }

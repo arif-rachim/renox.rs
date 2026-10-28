@@ -1,0 +1,99 @@
+// Versioned secret sets (docs/contracts/deploy-api.md section 9). Each PUT or
+// DELETE creates the next version of the app's set; a row holds one value
+// from version_from up to (excluding) version_to. Values are encrypted with
+// the tenant's data key and never leave this module except in a node's
+// secret bundle.
+
+import { num, type Db } from "../db/db.ts";
+import { invalid, notFound } from "../errors.ts";
+import { decryptValue, encryptValue, newDek, valueAad, type KeyProvider } from "./crypto.ts";
+
+/** deploy-api.md section 9. */
+export const MAX_SECRETS = 100;
+export const MIN_VALUE_BYTES = 8;
+export const MAX_VALUE_BYTES = 65_536;
+
+const byteLength = (s: string): number => Buffer.byteLength(s, "utf8");
+
+/** Refuses values the runtime would refuse (ops.md section 3) or that are over the cap. */
+export function checkValue(value: string): void {
+  if (byteLength(value) < MIN_VALUE_BYTES || [...value].length < MIN_VALUE_BYTES) throw invalid("value", "secret values are at least 8 bytes");
+  if (byteLength(value) > MAX_VALUE_BYTES) throw invalid("value", "secret values are at most 64 KiB");
+}
+
+/** The tenant's data key, created and wrapped on first use. */
+async function dekOf(tx: Db, keys: KeyProvider, tenantId: string, now: number): Promise<Uint8Array> {
+  const rows = await tx.query<{ wrapped_dek: Uint8Array; nonce: Uint8Array }>("select wrapped_dek, nonce from tenant_keys where tenant_id = $1", [tenantId]);
+  const row = rows[0];
+  if (row !== undefined) return keys.unwrap(new Uint8Array(row.wrapped_dek), new Uint8Array(row.nonce), tenantId);
+  const dek = newDek();
+  const { wrapped, nonce } = await keys.wrap(dek, tenantId);
+  const inserted = await tx.query(
+    "insert into tenant_keys (tenant_id, wrapped_dek, nonce, master_key_id, created_at) values ($1, $2, $3, $4, $5) on conflict (tenant_id) do nothing returning tenant_id",
+    [tenantId, wrapped, nonce, keys.id, now],
+  );
+  // A concurrent first write won: use its key.
+  return inserted.length === 0 ? dekOf(tx, keys, tenantId, now) : dek;
+}
+
+/** Locks the app's set and returns the next version. */
+async function nextVersion(tx: Db, app: string): Promise<number> {
+  const rows = await tx.query<{ version: number }>("update secret_sets set version = version + 1 where app = $1 returning version", [app]);
+  if (rows[0] === undefined) throw notFound();
+  return Number(rows[0].version);
+}
+
+export async function putSecret(tx: Db, keys: KeyProvider, tenantId: string, app: string, name: string, value: string, now: number): Promise<number> {
+  checkValue(value);
+  const open = await tx.query<{ name: string }>("select name from secrets where app = $1 and version_to is null", [app]);
+  if (!open.some((r) => r.name === name) && open.length >= MAX_SECRETS) throw invalid("name", `an app has at most ${MAX_SECRETS} secrets`);
+  const version = await nextVersion(tx, app);
+  await tx.query("update secrets set version_to = $1 where app = $2 and name = $3 and version_to is null", [version, app, name]);
+  const dek = await dekOf(tx, keys, tenantId, now);
+  const { ciphertext, nonce } = encryptValue(dek, value, valueAad(tenantId, app, name, version));
+  await tx.query(
+    "insert into secrets (tenant_id, app, name, version_from, version_to, ciphertext, nonce, created_at) values ($1, $2, $3, $4, null, $5, $6, $7)",
+    [tenantId, app, name, version, ciphertext, nonce, now],
+  );
+  return version;
+}
+
+export async function deleteSecret(tx: Db, app: string, name: string): Promise<number> {
+  const open = await tx.query("select 1 from secrets where app = $1 and name = $2 and version_to is null", [app, name]);
+  if (open.length === 0) throw notFound();
+  const version = await nextVersion(tx, app);
+  await tx.query("update secrets set version_to = $1 where app = $2 and name = $3 and version_to is null", [version, app, name]);
+  return version;
+}
+
+export async function listSecrets(db: Db, app: string): Promise<{ version: number; secrets: { name: string; updated_at: number }[] }> {
+  const set = await db.query<{ version: number }>("select version from secret_sets where app = $1", [app]);
+  const rows = await db.query<{ name: string; created_at: unknown }>(
+    "select name, created_at from secrets where app = $1 and version_to is null order by name",
+    [app],
+  );
+  return { version: Number(set[0]?.version ?? 0), secrets: rows.map((r) => ({ name: r.name, updated_at: num(r.created_at) })) };
+}
+
+export async function latestVersion(db: Db, app: string): Promise<number> {
+  const rows = await db.query<{ version: number }>("select version from secret_sets where app = $1", [app]);
+  return Number(rows[0]?.version ?? 0);
+}
+
+/** Plaintext values of the set at `version`, limited to `names`. Only for a node's bundle. */
+export async function valuesAt(db: Db, keys: KeyProvider, tenantId: string, app: string, version: number, names: readonly string[]): Promise<Record<string, string>> {
+  if (names.length === 0) return {};
+  const rows = await db.query<{ name: string; version_from: number; ciphertext: Uint8Array; nonce: Uint8Array }>(
+    `select name, version_from, ciphertext, nonce from secrets
+     where tenant_id = $1 and app = $2 and version_from <= $3 and (version_to is null or version_to > $3) and name = any($4::text[])
+     order by name`,
+    [tenantId, app, version, [...names]],
+  );
+  if (rows.length === 0) return {};
+  const dek = await dekOf(db, keys, tenantId, 0);
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    out[r.name] = decryptValue(dek, new Uint8Array(r.ciphertext), new Uint8Array(r.nonce), valueAad(tenantId, app, r.name, Number(r.version_from)));
+  }
+  return out;
+}

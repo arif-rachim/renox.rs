@@ -61,14 +61,17 @@ export async function activate(deps: Deps, tenantId: string, app: string, hash: 
     assertTransition("deployment", d.state, "activating");
     const busy = await tx.query("select 1 from deployments where app = $1 and state = 'activating'", [app]);
     if (busy.length > 0) throw conflict("state", "another activation of this app is in progress");
-    await transition(tx, d, d.state, "activating", by, { last_error: null });
-    return "started" as const;
+    // The secret version is pinned here, so prepare and the node's bundle fetch agree.
+    const secretsVersion = await latestSecretsVersion(tx, app);
+    await transition(tx, d, d.state, "activating", by, { last_error: null, secrets_version: secretsVersion });
+    return secretsVersion;
   });
   if (start === "unchanged") return requireDeployment(db, tenantId, app, hash);
+  const secretsVersion = start;
 
   const d = { tenant_id: tenantId, app, hash };
   const fail = async (error: Record<string, unknown>, err: ApiError): Promise<never> => {
-    await db.transaction((tx) => transition(tx, d, "activating", "validated", { ...by, now: deps.now() }, { last_error: error }));
+    await db.transaction((tx) => transition(tx, d, "activating", "validated", { ...by, now: deps.now() }, { last_error: error, secrets_version: null }));
     throw err;
   };
 
@@ -76,7 +79,6 @@ export async function activate(deps: Deps, tenantId: string, app: string, hash: 
   if (node === null) {
     await fail({ stage: "no_worker", reason: "no healthy node can take the tenant" }, new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 5 }));
   }
-  const secretsVersion = await latestSecretsVersion(db, app);
   const result = await service.prepare({ tenantId, app, hash, nodeId: node as string, tier, secretsVersion });
   if (!result.ok) {
     await fail(result.error, new ApiError("RENOX_ACTIVATION_FAILED", [result.error], { deployment: hash }));
