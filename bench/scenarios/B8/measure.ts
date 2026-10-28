@@ -68,22 +68,23 @@ const median = (xs: number[]): number => (xs.length === 0 ? NaN : summarize(xs).
  * keep-alive clients, each sending the next request when the last one ends.
  * Bun, in this process: client and worker share the machine's cores.
  */
-async function closedLoop(v: Variant): Promise<number> {
+async function closedLoop(v: Variant): Promise<{ reqPerS: number; failed: Record<string, number> }> {
   const url = w.url(v.url);
   const headers = { ...v.headers, host: HOST };
   const end = performance.now() + loadS * 1000;
   let done = 0;
+  const failed: Record<string, number> = {};
   const client = async (): Promise<void> => {
     while (performance.now() < end) {
       const r = await fetch(url, { headers });
       await r.arrayBuffer();
-      if (r.status !== 200) throw new Error(`${v.key} under load: ${r.status}`);
-      done++;
+      if (r.status === 200) done++;
+      else failed[r.status] = (failed[r.status] ?? 0) + 1;
     }
   };
   const t0 = performance.now();
   await Promise.all(Array.from({ length: connections }, client));
-  return done / ((performance.now() - t0) / 1000);
+  return { reqPerS: done / ((performance.now() - t0) / 1000), failed };
 }
 const notes: string[] = [];
 interface VariantRun {
@@ -93,6 +94,7 @@ interface VariantRun {
   render_ms: number;
   req_per_s: number;
   bytes: number;
+  failed: number;
 }
 const results: Record<string, VariantRun[]> = Object.fromEntries(variants.map((v) => [v.key, []]));
 const samples: Record<string, number[]> = {};
@@ -102,19 +104,25 @@ try {
     const r = await w.request(HOST, path, { method: "POST" });
     if (r.status !== 200) throw new Error(`${path} answered ${r.status}: ${r.body}`);
   }
-  // Both paths must send the same HTML. Path A's page carries the
-  // per-request CSP nonce on its <script>; path B's function does not.
+  // Both paths must send the same HTML. The cell adds to every page it
+  // renders (path A) the per-request CSP nonce on <script> and, in <head>,
+  // the renox-request-id and renox-deployment meta tags and the client
+  // script (#126); a function's response (path B) gets none of them.
   for (const n of [100, 1000]) {
     for (const kind of ["page", "fragment"]) {
       const a = (await get(variants.find((v) => v.key === `a_${kind}_${n}`) as Variant)).body;
       const b = (await get(variants.find((v) => v.key === `b_${kind}_${n}`) as Variant)).body;
-      const strip = (s: string): string => s.replace(/ nonce="[^"]*"/gu, "");
+      const strip = (s: string): string =>
+        s
+          .replace(/ nonce="[^"]*"/gu, "")
+          .replace(/<meta name="renox-(request-id|deployment)" content="[^"]*">/gu, "")
+          .replace(/<script src="\/__renox\/client\.js[^"]*"[^>]*><\/script>/gu, "");
       if (strip(a) !== strip(b)) {
         await Bun.write(`${out}.a-${kind}-${n}.html`, a);
         await Bun.write(`${out}.b-${kind}-${n}.html`, b);
         throw new Error(`path A and path B differ on the ${kind} at ${n} items (bodies written next to ${out})`);
       }
-      notes.push(`${kind} ${n}: ${a.length} bytes, identical on both paths (nonce aside)`);
+      notes.push(`${kind} ${n}: ${a.length} bytes, identical on both paths (cell additions aside)`);
     }
   }
   await newMeters();
@@ -132,8 +140,13 @@ try {
         bytes = r.body.length;
       }
       const meters = (await newMeters()).filter((m) => m.status === "ok");
-      const reqPerS = await closedLoop(v);
-      await newMeters();
+      const { reqPerS, failed } = await closedLoop(v);
+      const loadMeters = await newMeters();
+      if (Object.keys(failed).length > 0) {
+        const statuses: Record<string, number> = {};
+        for (const m of loadMeters) if (m.status !== "ok") statuses[m.status] = (statuses[m.status] ?? 0) + 1;
+        notes.push(`run ${run} ${v.key} under load: non-200 ${JSON.stringify(failed)}, meter statuses ${JSON.stringify(statuses)}`);
+      }
       const s = summarize(lat);
       const run_: VariantRun = {
         p50_ms: s.p50,
@@ -142,11 +155,12 @@ try {
         render_ms: median(meters.map((m) => (m as MeterRecord & { render_ms?: number }).render_ms ?? 0)),
         req_per_s: reqPerS,
         bytes,
+        failed: Object.values(failed).reduce((a, b) => a + b, 0),
       };
       results[v.key]?.push(run_);
       samples[`run${run}_${v.key}_ms`] = lat.map((x) => round(x, 3));
       console.error(
-        `B8 run ${run} ${v.key}: p50 ${round(s.p50)} p99 ${round(s.p99)} ms, cpu ${round(run_.cpu_ms)} + render ${round(run_.render_ms)} ms, ${Math.round(reqPerS)} req/s`,
+        `B8 run ${run} ${v.key}: p50 ${round(s.p50)} p99 ${round(s.p99)} ms, cpu ${round(run_.cpu_ms)} + render ${round(run_.render_ms)} ms, ${Math.round(reqPerS)} req/s, not 200 under load ${JSON.stringify(failed)}`,
       );
     }
   }
@@ -163,6 +177,7 @@ for (const v of variants) {
   summary[`${v.key}_render_ms`] = round(m.render_ms);
   summary[`${v.key}_req_per_s`] = Math.round(m.req_per_s);
   summary[`${v.key}_bytes`] = m.bytes;
+  summary[`${v.key}_load_not_200`] = m.failed;
 }
 // The judged keys of targets.json: the B6 page, 100 items.
 summary.path_a_p50_ms = summary.a_page_100_p50_ms as number;
