@@ -235,8 +235,11 @@ impl CpuLedger {
         }
     }
 
-    /// A request is in flight from now on, with nothing charged yet.
-    pub fn admit(&mut self, token: u32) {
+    /// A request is in flight from `now_ns` on, with nothing charged yet.
+    /// Called inside a slice: the run so far is charged first, so CPU used
+    /// before the request joined is never split onto it.
+    pub fn admit(&mut self, token: u32, now_ns: u64) {
+        self.flush(now_ns);
         self.charged.insert(token, 0);
     }
 
@@ -370,7 +373,7 @@ mod tests {
     fn ledger_charges_everything_to_a_lone_request() {
         let mut l = CpuLedger::new(Duration::from_millis(50));
         l.begin(0);
-        l.admit(1);
+        l.admit(1, 0);
         assert!(l.switch(Some(1), 2 * MS));
         assert!(l.switch(None, 5 * MS));
         l.end(6 * MS);
@@ -386,7 +389,7 @@ mod tests {
         let mut l = CpuLedger::new(Duration::from_millis(50));
         let mut now = 0;
         for t in 0..16 {
-            l.admit(t);
+            l.admit(t, now);
         }
         for _slice in 0..10 {
             l.begin(now);
@@ -404,14 +407,26 @@ mod tests {
         }
     }
 
+    /// CPU used in a slice before a request joined is not charged to it.
+    #[test]
+    fn ledger_does_not_charge_a_request_for_the_slice_before_it_joined() {
+        let mut l = CpuLedger::new(Duration::from_millis(50));
+        l.begin(0);
+        l.admit(1, 0);
+        l.admit(2, 20 * MS);
+        l.end(21 * MS);
+        assert_eq!(l.release(2, 21 * MS), MS / 2);
+        assert_eq!(l.release(1, 21 * MS), 20 * MS + MS / 2);
+    }
+
     /// The watchdog budget follows the running context.
     #[test]
     fn ledger_budget_is_the_running_requests_remaining_cpu() {
         let mut l = CpuLedger::new(Duration::from_millis(50));
         l.begin(0);
         assert_eq!(l.budget(), Duration::from_millis(50));
-        l.admit(1);
-        l.admit(2);
+        l.admit(1, 0);
+        l.admit(2, 0);
         l.switch(Some(1), 0);
         l.switch(Some(2), 30 * MS);
         assert_eq!(l.budget(), Duration::from_millis(50));
@@ -433,7 +448,7 @@ mod tests {
         let mut l = CpuLedger::new(Duration::from_millis(50));
         l.begin(0);
         for t in 0..3 {
-            l.admit(t);
+            l.admit(t, 0);
         }
         l.end(10);
         let total: u64 = (0..3).map(|t| l.release(t, 10)).sum();

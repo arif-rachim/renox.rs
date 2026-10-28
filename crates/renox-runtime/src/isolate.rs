@@ -1598,7 +1598,10 @@ fn start_dispatch(
     };
     // The handler runs in the request's async context; V8 carries it into
     // every reaction the handler creates (CPU attribution, #155).
-    with_attribution(|a| a.ledger.admit(token));
+    with_attribution(|a| {
+        let now = a.watch.now_ns();
+        a.ledger.admit(token, now)
+    });
     set_async_context(worker, Some(token));
     attribute(|l, now| l.switch(Some(token), now));
     let fut = worker.js_runtime.call_with_args(&platform.dispatch, &args);
