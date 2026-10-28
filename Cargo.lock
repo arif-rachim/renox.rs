@@ -7001,6 +7001,7 @@ dependencies = [
  "axum",
  "bytes",
  "futures-util",
+ "h2",
  "http-body-util",
  "hyper",
  "hyper-util",
