@@ -10,6 +10,7 @@ pub mod cell;
 pub mod client_events;
 pub mod config;
 pub mod control;
+pub mod health_probe;
 pub mod manager;
 pub mod pages;
 pub mod ratelimit;

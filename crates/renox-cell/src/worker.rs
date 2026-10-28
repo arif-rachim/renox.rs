@@ -42,6 +42,7 @@ use crate::control::degraded::{Guard, GuardedDispatcher, SnapshotFile};
 use crate::control::health::Health;
 use crate::control::http::{ControlClient, read_node_token};
 use crate::control::log_sink::HttpLogSink;
+use crate::control::prepare::Preparer;
 use crate::control::routes::RouteState;
 use crate::control::secrets::ControlSecrets;
 use crate::control::{self, Controller, MeterPoster};
@@ -268,6 +269,7 @@ impl Worker {
         let addr = listener
             .local_addr()
             .map_err(io("read the listen address"))?;
+        let s3_for_prepare = s3.clone();
         let dispatcher = Arc::new(GuardedDispatcher {
             manager: manager.clone(),
             guard: s3.map(|store| Guard::new(store, health.clone(), config.artifacts_dir.clone())),
@@ -316,6 +318,18 @@ impl Worker {
                     &section.region,
                     section.max_cells,
                 );
+                // `prepare` (#96) from the stream.
+                if let Some(store) = &s3_for_prepare {
+                    let preparer = Arc::new(Preparer {
+                        client: controller.client.clone(),
+                        manager: manager.clone(),
+                        store: store.clone(),
+                        routes: controller.routes.clone(),
+                        data_dir: config.data_dir.clone(),
+                        tiers: tiers.clone(),
+                    });
+                    controller.on_message(Arc::new(move |m| preparer.handle(m)));
+                }
                 controller.start();
                 Some(controller)
             }

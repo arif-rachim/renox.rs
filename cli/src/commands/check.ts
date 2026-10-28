@@ -4,12 +4,17 @@
 // scope, and the bundle-hygiene rules (#115): secrets in what the build
 // ships, forbidden files in public/. `--secrets` runs only the secret scan;
 // `--security` also prints the effective headers per route (#47).
+// `--target <hash | artifact dir>` (#96) warns about the columns and tables
+// the project's migrations create that the target deployment's code does
+// not know: rolling back to it is a pointer switch, migrations never run
+// backwards (D17, expand/contract), so the older code must tolerate them.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { Database } from "bun:sqlite";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 
-import { CliError, EXIT, location } from "../errors.ts";
-import { buildFiles } from "../lib/build.ts";
+import { CliError, EXIT, location, UserError } from "../errors.ts";
+import { artifactsDir, buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
 import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
@@ -76,6 +81,63 @@ export async function check(project: string, options: CheckOptions = {}): Promis
   return { errors, findings };
 }
 
+/** Tables and their columns after running `sqls` in order on an empty database. */
+export function schemaOf(sqls: string[]): Map<string, Set<string>> {
+  const db = new Database(":memory:");
+  try {
+    for (const sql of sqls) db.exec(sql);
+    const out = new Map<string, Set<string>>();
+    const tables = db.query("select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name").all() as { name: string }[];
+    for (const { name } of tables) {
+      const cols = db.query("select name from pragma_table_info(?)").all(name) as { name: string }[];
+      out.set(name, new Set(cols.map((c) => c.name)));
+    }
+    return out;
+  } finally {
+    db.close();
+  }
+}
+
+const MIGRATION = /^[0-9]{3}_[a-z0-9_]+\.sql$/u;
+const sqlFiles = (dir: string): string[] =>
+  existsSync(dir) ? readdirSync(dir).filter((n) => MIGRATION.test(n)).sort().map((n) => readFileSync(join(dir, n), "utf8")) : [];
+
+/** The artifact directory of `target`: a directory path, or a hash under `.renox/artifact/`. */
+export function targetDir(project: string, target: string): string {
+  const dir = /^[0-9a-f]{64}$/u.test(target) ? join(artifactsDir(project), target) : isAbsolute(target) ? target : resolve(project, target);
+  if (!existsSync(join(dir, "manifest.json")) || !statSync(dir).isDirectory()) {
+    throw new UserError(`no artifact for --target ${target}`, { hint: "build that version with `renox build` (artifacts stay in .renox/artifact/<hash>/) or pass the artifact directory" });
+  }
+  return dir;
+}
+
+/**
+ * `--target` (#96): one warning per table or column the project's
+ * migrations (the live schema once applied) have that the target's
+ * `migrations/app/` do not.
+ */
+export type SchemaFinding = Omit<Finding, "rule"> & { rule: "schema" };
+
+export function targetFindings(project: string, target: string): SchemaFinding[] {
+  const dir = targetDir(project, target);
+  const name = /^[0-9a-f]{64}$/u.test(target) ? target.slice(0, 12) : target;
+  const live = schemaOf(sqlFiles(join(project, "migrations")));
+  const known = schemaOf(sqlFiles(join(dir, "migrations", "app")));
+  const findings: SchemaFinding[] = [];
+  const at = { file: "migrations", line: 1, column: 1, rule: "schema" as const, severity: "warning" as const };
+  for (const [table, cols] of live) {
+    const theirs = known.get(table);
+    if (theirs === undefined) {
+      findings.push({ ...at, message: `table ${table} is in the live schema but unknown to ${name}; its code must tolerate it (D17, expand/contract)` });
+      continue;
+    }
+    for (const c of cols) {
+      if (!theirs.has(c)) findings.push({ ...at, message: `column ${table}.${c} is in the live schema but unknown to ${name}; its code must tolerate it (D17, expand/contract)` });
+    }
+  }
+  return findings;
+}
+
 /** `renox check --security`: the effective headers, CORS, and buckets per route (#47). */
 export function securityOutput(project: string): string {
   const config = readProject(project);
@@ -84,12 +146,25 @@ export function securityOutput(project: string): string {
 
 export async function run(args: string[]): Promise<number> {
   const flags = new Set(["--secrets", "--security"]);
-  if (args.some((a) => !flags.has(a)) || new Set(args).size !== args.length) {
-    console.error("usage: renox check [--secrets] [--security]");
+  const t = args.indexOf("--target");
+  const target = t >= 0 ? args[t + 1] : undefined;
+  const rest = t >= 0 ? [...args.slice(0, t), ...args.slice(t + 2)] : args;
+  if ((t >= 0 && (target === undefined || target.startsWith("-"))) || rest.some((a) => !flags.has(a)) || new Set(rest).size !== rest.length) {
+    console.error("usage: renox check [--secrets] [--security] [--target <hash | artifact dir>]");
     return EXIT.USER;
   }
   const security = args.includes("--security");
-  const { errors, findings } = await check(process.cwd(), { secretsOnly: args.includes("--secrets") });
+  const { errors, findings: lint } = await check(process.cwd(), { secretsOnly: args.includes("--secrets") });
+  const findings: (Finding | SchemaFinding)[] = lint;
+  if (target !== undefined) {
+    try {
+      findings.push(...targetFindings(process.cwd(), target));
+    } catch (e) {
+      if (!(e instanceof CliError)) throw e;
+      console.error(`error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
+      return e.exitCode;
+    }
+  }
   if (security && errors.length === 0) process.stdout.write(securityOutput(process.cwd()));
   for (const e of errors) console.error(`${location(e) ? `${location(e)}  ` : ""}error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
   for (const f of findings) console.error(`${f.file}:${f.line}:${f.column}  ${f.severity}  ${f.rule}  ${f.message}`);

@@ -17,6 +17,7 @@
 //! | `GET /healthz` | [`health`] |
 //! | Degraded mode: route snapshot file, 503 for uncached cold starts | [`degraded`] |
 //! | Meter and log spool | [`crate::spool`] |
+//! | `prepare` before activation (#96) | [`prepare`], [`crate::health_probe`] |
 //! | Meters ([`renox_meter::BatchPoster`]) | [`MeterPoster`] |
 //! | Artifacts | [`crate::artifact_s3`] |
 
@@ -24,6 +25,7 @@ pub mod degraded;
 pub mod health;
 pub mod http;
 pub mod log_sink;
+pub mod prepare;
 pub mod routes;
 pub mod secrets;
 

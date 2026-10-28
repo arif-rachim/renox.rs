@@ -5,7 +5,7 @@
 //! (draining). The same entries answer the manager's
 //! [`DeploymentLookup`]: tier, app and secret version per deployment.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use renox_gateway::{RouteEntry, RouteStatus, RouteTable};
@@ -80,6 +80,8 @@ pub struct RouteState {
     manager: OnceLock<CellManager>,
     /// Where every applied table is saved (#98).
     snapshot_file: OnceLock<SnapshotFile>,
+    /// Deployments being prepared (#96): no route entry names them yet.
+    expected: Mutex<HashMap<Key, DeploymentMeta>>,
 }
 
 impl RouteState {
@@ -90,6 +92,7 @@ impl RouteState {
             gateway,
             manager: OnceLock::new(),
             snapshot_file: OnceLock::new(),
+            expected: Mutex::new(HashMap::new()),
         }
     }
 
@@ -97,6 +100,30 @@ impl RouteState {
     /// once, after the manager is built (it needs this state as its lookup).
     pub fn set_manager(&self, manager: CellManager) {
         let _ = self.manager.set(manager);
+    }
+
+    /// What a deployment being prepared (#96) needs at cell creation, until
+    /// a route entry names it.
+    pub fn expect(&self, tenant_id: &str, deployment_hash: &str, meta: DeploymentMeta) {
+        self.expected
+            .lock()
+            .expect("routes lock")
+            .insert((tenant_id.to_string(), deployment_hash.to_string()), meta);
+    }
+
+    fn is_expected(&self, tenant_id: &str, deployment_hash: &str) -> bool {
+        self.expected
+            .lock()
+            .expect("routes lock")
+            .contains_key(&(tenant_id.to_string(), deployment_hash.to_string()))
+    }
+
+    /// Drains every cell without an active entry of this node (a prepared
+    /// cell whose route delta never came, #96 step 7).
+    pub fn sync_manager(&self) {
+        if let Some(m) = self.manager.get() {
+            m.sync_routes(&self.gateway_entries());
+        }
     }
 
     /// Saves every applied table to `file` from now on (degraded mode, #98).
@@ -208,6 +235,14 @@ impl DeploymentLookup for RouteState {
                 app: Some(e.app.clone()),
                 secrets_version: e.secrets_version,
             },
+            // Being prepared (#96): what the prepare message said.
+            None if self.is_expected(tenant_id, deployment_hash) => self
+                .expected
+                .lock()
+                .expect("routes lock")
+                .get(&(tenant_id.to_string(), deployment_hash.to_string()))
+                .cloned()
+                .expect("checked above"),
             // No entry: the request could not have been routed here; the
             // most restrictive tier is the safe answer.
             None => DeploymentMeta {
