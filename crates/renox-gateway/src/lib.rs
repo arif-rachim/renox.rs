@@ -25,16 +25,21 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, Response, StatusCode, header};
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use limits::{BodyCheck, CONNECTION_LIMIT_RESPONSE, ConnectionLimiter, IdleTimeout};
+use protocol::{H2ResetBudget, Http1Guard};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
+pub mod host_check;
 pub mod limits;
+pub mod protocol;
 pub mod rate_limit;
 pub mod route_table;
 pub mod static_files;
 pub mod tls;
 
+pub use host_check::TlsSni;
 pub use limits::{GatewayLimits, RouteKind};
+pub use protocol::ProtocolLimits;
 pub use rate_limit::{RateDecision, RateLimitConfig, RateLimiter};
 pub use route_table::{
     HostError, RouteEntry, RouteStatus, RouteTable, RouteTableError, parse_host,
@@ -121,6 +126,8 @@ pub struct GatewayConfig {
     pub rate_limit: RateLimitConfig,
     /// Header, body, timeout, and connection limits (`limits.rs`).
     pub limits: GatewayLimits,
+    /// HTTP/2 stream and reset limits (`protocol.rs`).
+    pub protocol: ProtocolLimits,
 }
 
 impl GatewayConfig {
@@ -130,6 +137,7 @@ impl GatewayConfig {
             wall_clock_limit: Duration::from_secs(30),
             rate_limit: RateLimitConfig::default(),
             limits: GatewayLimits::default(),
+            protocol: ProtocolLimits::default(),
         }
     }
 }
@@ -144,6 +152,11 @@ pub struct GatewayStats {
     pub bad_host: u64,
     pub rate_limited: u64,
     pub body_too_large: u64,
+    /// Requests answered 421 `RENOX_HOST_MISMATCH` (SNI vs `Host`).
+    pub host_mismatch: u64,
+    /// Connections closed by the protocol guards (`protocol.rs`): a
+    /// malformed or ambiguous HTTP/1 request, or the HTTP/2 reset budget.
+    pub protocol_refused: u64,
 }
 
 #[derive(Debug, Default)]
@@ -154,6 +167,9 @@ struct Counters {
     bad_host: AtomicU64,
     rate_limited: AtomicU64,
     body_too_large: AtomicU64,
+    host_mismatch: AtomicU64,
+    /// Shared with the connection guards.
+    protocol_refused: Arc<AtomicU64>,
 }
 
 #[derive(Debug)]
@@ -227,6 +243,8 @@ impl Gateway {
             bad_host: c.bad_host.load(Ordering::Relaxed),
             rate_limited: c.rate_limited.load(Ordering::Relaxed),
             body_too_large: c.body_too_large.load(Ordering::Relaxed),
+            host_mismatch: c.host_mismatch.load(Ordering::Relaxed),
+            protocol_refused: c.protocol_refused.load(Ordering::Relaxed),
         }
     }
 
@@ -240,17 +258,21 @@ impl Gateway {
         })
     }
 
-    /// Accepts plain-HTTP connections (HTTP/1.1 and h2c prior knowledge)
-    /// on `listener` until it fails. The `renox-worker` binary (#29) calls
+    /// Accepts plain-HTTP connections (HTTP/1.x only: no h2c) on `listener`
+    /// until it fails. The `renox-worker` binary (#29) calls
     /// this; the crate itself has no binary.
     pub async fn serve<D: CellDispatcher>(
         &self,
         listener: TcpListener,
         dispatcher: Arc<D>,
     ) -> std::io::Result<()> {
-        let limits = self.inner.config.limits;
-        let connections = self.inner.connections.clone();
-        accept_loop(listener, self.router(dispatcher), limits, connections, None).await
+        accept_loop(
+            listener,
+            self.router(dispatcher),
+            self.conn_settings(),
+            None,
+        )
+        .await
     }
 
     /// Accepts TLS connections on `listener`, choosing the certificate by
@@ -264,24 +286,38 @@ impl Gateway {
         dispatcher: Arc<D>,
     ) -> std::io::Result<()> {
         let acceptor = tokio_rustls::TlsAcceptor::from(certs.server_config());
-        let limits = self.inner.config.limits;
-        let connections = self.inner.connections.clone();
         accept_loop(
             listener,
             self.router(dispatcher),
-            limits,
-            connections,
+            self.conn_settings(),
             Some(acceptor),
         )
         .await
     }
+
+    fn conn_settings(&self) -> ConnSettings {
+        ConnSettings {
+            limits: self.inner.config.limits,
+            protocol: self.inner.config.protocol,
+            connections: self.inner.connections.clone(),
+            refused: self.inner.counters.protocol_refused.clone(),
+        }
+    }
+}
+
+/// What every connection task needs from the gateway.
+#[derive(Clone)]
+struct ConnSettings {
+    limits: GatewayLimits,
+    protocol: ProtocolLimits,
+    connections: Arc<ConnectionLimiter>,
+    refused: Arc<AtomicU64>,
 }
 
 async fn accept_loop(
     listener: TcpListener,
     router: Router,
-    limits: GatewayLimits,
-    connections: Arc<ConnectionLimiter>,
+    settings: ConnSettings,
     tls: Option<tokio_rustls::TlsAcceptor>,
 ) -> std::io::Result<()> {
     loop {
@@ -295,7 +331,8 @@ async fn accept_loop(
         };
         let router = router.clone();
         let tls = tls.clone();
-        let guard = connections.try_acquire(peer.ip());
+        let settings = settings.clone();
+        let guard = settings.connections.try_acquire(peer.ip());
         tokio::spawn(async move {
             let Some(_guard) = guard else {
                 if tls.is_none() {
@@ -304,9 +341,10 @@ async fn accept_loop(
                 return;
             };
             let _ = stream.set_nodelay(true);
+            let limits = settings.limits;
             let stream = IdleTimeout::new(stream, limits.idle_timeout);
             match tls {
-                None => serve_connection(stream, peer, router, &limits, None).await,
+                None => serve_connection(stream, peer, router, &settings, None).await,
                 Some(acceptor) => {
                     // The handshake gets the same budget as a request head,
                     // so a client cannot hold a socket by stalling it.
@@ -316,8 +354,12 @@ async fn accept_loop(
                     else {
                         return;
                     };
-                    let alpn = stream.get_ref().1.alpn_protocol().map(<[u8]>::to_vec);
-                    serve_connection(stream, peer, router, &limits, Some(alpn)).await
+                    let session = stream.get_ref().1;
+                    let tls = TlsInfo {
+                        alpn: session.alpn_protocol().map(<[u8]>::to_vec),
+                        sni: session.server_name().map(str::to_owned),
+                    };
+                    serve_connection(stream, peer, router, &settings, Some(tls)).await
                 }
             }
         });
@@ -335,46 +377,72 @@ async fn reject_connection(mut stream: tokio::net::TcpStream) {
     .await;
 }
 
-/// Serves one connection. `tls` is `None` for plain HTTP (HTTP/1.1 only:
-/// no h2c, no cleartext upgrade), or the ALPN protocol negotiated on TLS
-/// (`h2` → HTTP/2, anything else → HTTP/1.1). Choosing the protocol up
-/// front, instead of sniffing the first bytes, means the header read
-/// timeout runs from the first byte.
+/// What the TLS handshake decided for a connection.
+struct TlsInfo {
+    alpn: Option<Vec<u8>>,
+    sni: Option<String>,
+}
+
+/// Serves one connection. `tls` is `None` for plain HTTP (HTTP/1.x only:
+/// no h2c, no cleartext upgrade), or the TLS session's ALPN protocol
+/// (`h2` → HTTP/2, anything else → HTTP/1.1) and SNI name. Choosing the
+/// protocol up front, instead of sniffing the first bytes, means the header
+/// read timeout runs from the first byte. Each protocol's guard from
+/// `protocol.rs` sits between the socket and hyper.
 async fn serve_connection<I>(
     io: I,
     peer: SocketAddr,
     router: Router,
-    limits: &GatewayLimits,
-    tls: Option<Option<Vec<u8>>>,
+    settings: &ConnSettings,
+    tls: Option<TlsInfo>,
 ) where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    let limits = &settings.limits;
+    let protocol = &settings.protocol;
     let is_tls = tls.is_some();
+    let (alpn, sni) = tls.map_or((None, None), |t| (t.alpn, t.sni));
     let service = hyper::service::service_fn(move |req: Request<_>| {
         let mut req = req.map(Body::new);
         req.extensions_mut().insert(ConnectInfo(peer));
         if is_tls {
             req.extensions_mut().insert(TlsConnection);
         }
+        if let Some(sni) = &sni {
+            req.extensions_mut().insert(TlsSni(sni.clone()));
+        }
         router.clone().oneshot(req)
     });
-    let io = TokioIo::new(io);
     let header_bytes = limits.max_header_bytes.max(8 * 1024);
-    if tls.flatten().as_deref() == Some(b"h2") {
+    let refused = Some(settings.refused.clone());
+    if alpn.as_deref() == Some(b"h2") {
+        let io = TokioIo::new(H2ResetBudget::new(
+            io,
+            protocol.h2_max_resets_per_second,
+            refused,
+        ));
         let mut builder = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
         builder
             .timer(TokioTimer::new())
             .max_header_list_size(u32::try_from(header_bytes).unwrap_or(u32::MAX))
-            .keep_alive_interval(Some(limits.idle_timeout / 2))
-            .keep_alive_timeout(Duration::from_secs(20));
+            .max_concurrent_streams(protocol.h2_max_concurrent_streams)
+            .max_pending_accept_reset_streams(protocol.h2_max_pending_accept_reset_streams)
+            .max_local_error_reset_streams(protocol.h2_max_local_error_reset_streams)
+            .keep_alive_interval(Some(protocol.h2_keep_alive_interval))
+            .keep_alive_timeout(protocol.h2_keep_alive_timeout);
         let _ = builder.serve_connection(io, service).await;
     } else {
+        let io = TokioIo::new(Http1Guard::new(io, header_bytes, refused));
         let mut builder = hyper::server::conn::http1::Builder::new();
         builder
             .timer(TokioTimer::new())
             .header_read_timeout(limits.header_read_timeout)
             .max_buf_size(header_bytes)
-            .max_headers(limits.max_headers);
+            .max_headers(limits.max_headers)
+            .half_close(false)
+            .pipeline_flush(false)
+            .allow_multiple_spaces_in_request_line_delimiters(false)
+            .ignore_invalid_headers(false);
         let _ = builder.serve_connection(io, service).await;
     }
 }
@@ -434,6 +502,17 @@ async fn route<D: CellDispatcher>(
         counters.unknown_host.fetch_add(1, Ordering::Relaxed);
         return plain(StatusCode::NOT_FOUND, "Not found");
     };
+    let sni = req.extensions().get::<TlsSni>().map(|s| s.0.as_str());
+    if !host_check::consistent(&inner.routes, sni, &host) {
+        counters.host_mismatch.fetch_add(1, Ordering::Relaxed);
+        return limits::platform_error(
+            StatusCode::MISDIRECTED_REQUEST,
+            host_check::HOST_MISMATCH_CODE,
+            host_check::HOST_MISMATCH_MESSAGE,
+            request_id,
+            req.headers(),
+        );
+    }
 
     if let Some(resp) = inner
         .statics
@@ -486,17 +565,29 @@ fn client_ip(req: &Request<Body>) -> IpAddr {
 }
 
 /// The request's hostname: the URI authority (HTTP/2 `:authority`,
-/// absolute-form HTTP/1.1) if present, else the `Host` header.
+/// absolute-form HTTP/1.1) if present, else the `Host` header. A request
+/// carrying both, naming different hosts, disagrees with itself and is
+/// refused.
 fn request_host(req: &Request<Body>) -> Result<String, HostError> {
-    if let Some(authority) = req.uri().authority() {
-        return parse_host(authority.as_str());
-    }
     let mut hosts = req.headers().get_all(header::HOST).iter();
-    let host = hosts.next().ok_or(HostError::Missing)?;
+    let header_host = match hosts.next() {
+        Some(h) => Some(parse_host(h.to_str().map_err(|_| HostError::Invalid)?)?),
+        None => None,
+    };
     if hosts.next().is_some() {
         return Err(HostError::Invalid);
     }
-    parse_host(host.to_str().map_err(|_| HostError::Invalid)?)
+    match (req.uri().authority(), header_host) {
+        (Some(authority), header_host) => {
+            let host = parse_host(authority.as_str())?;
+            match header_host {
+                Some(h) if h != host => Err(HostError::Invalid),
+                _ => Ok(host),
+            }
+        }
+        (None, Some(h)) => Ok(h),
+        (None, None) => Err(HostError::Missing),
+    }
 }
 
 /// Removes hop-by-hop headers (including those named in `Connection`) and
