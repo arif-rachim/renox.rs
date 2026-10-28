@@ -1,0 +1,14 @@
+{
+  "name": "@renox/artifact-validate",
+  "version": "0.1.0",
+  "description": "Artifact rules V1-V13 and upload rules T1-T8 (docs/contracts/artifact.md, deploy-api.md), shared by renox check and control/api",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p .",
+    "test": "bun test"
+  }
+}

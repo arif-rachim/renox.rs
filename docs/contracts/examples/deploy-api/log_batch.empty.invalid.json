@@ -1,0 +1,1 @@
+{ "$comment": "invalid: an empty batch is never sent [expect: minItems]", "type": "log_batch", "schema_version": 0, "node_id": "node-dxb-01", "lines": [] }

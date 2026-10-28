@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: two active entries for one hostname (deploy-api.md section 8, R1) [expect: R1]",
+  "type": "route_snapshot",
+  "schema_version": 0,
+  "version": 42,
+  "entries": [
+    { "hostname": "hello.renox.app", "tenant_id": "t_hello", "app": "hello", "deployment_hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", "status": "active", "updated_at": 1793318400000, "version": 41, "tier": "free", "node_id": "node-dxb-01", "secrets_version": 0 },
+    { "hostname": "hello.renox.app", "tenant_id": "t_hello", "app": "hello", "deployment_hash": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", "status": "active", "updated_at": 1793318405000, "version": 42, "tier": "free", "node_id": "node-dxb-01", "secrets_version": 0 }
+  ]
+}

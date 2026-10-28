@@ -1,0 +1,1 @@
+{ "$comment": "invalid: unknown keys are rejected [expect: additionalProperties]", "type": "resync", "schema_version": 0, "version": 45, "reason": "restart" }

@@ -1,0 +1,1 @@
+{ "$comment": "invalid: hostnames carry no port [expect: pattern]", "type": "certificate_remove", "schema_version": 0, "hostname": "www.example.com:443", "version": 3 }

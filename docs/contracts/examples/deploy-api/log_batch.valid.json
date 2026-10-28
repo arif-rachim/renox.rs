@@ -1,0 +1,4 @@
+{ "type": "log_batch", "schema_version": 0, "node_id": "node-dxb-01", "lines": [
+  { "ts": 1793318400200, "tenant_id": "t_hello", "deployment_hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", "request_id": "01JBQ3Z7M8K5V6W9X2Y4A1B3C5", "module": "functions/api/hello", "level": "info", "message": "hello key=[redacted]", "fields": null, "source": "server" },
+  { "ts": 1793318400300, "tenant_id": "t_hello", "deployment_hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", "request_id": null, "module": "functions/api/hello", "level": "warn", "message": "module loaded", "fields": { "n": 1 }, "source": "server" }
+] }

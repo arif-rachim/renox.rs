@@ -1,0 +1,1 @@
+{ "$comment": "invalid: a bundle carries the key [expect: key_pem]", "type": "certificate_bundle", "schema_version": 0, "hostname": "www.example.com", "version": 2, "not_after": 1801094400000, "chain_pem": "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n" }

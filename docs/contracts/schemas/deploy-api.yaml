@@ -1,0 +1,1664 @@
+# Renox deploy API, contract version 0 (F3).
+# Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
+#   - every operation has request and response examples, and every JSON
+#     example validates against its schema (the JSON Schema subset of validate.ts);
+#   - x-renox-invalid-examples must fail, for the reason in x-expect;
+#   - SSE examples: each `data:` line validates against x-renox-events[<event>];
+#   - x-renox-state-machines equals the transition tables of deploy-api.md;
+#   - every RENOX_* code used here has a row in errors.md.
+# Schemas use only JSON Schema 2020-12 keywords (OpenAPI 3.1), no OpenAPI-only
+# keywords, so the same subset checker validates them.
+openapi: 3.1.0
+info:
+  title: Renox deploy API
+  version: 0.0.0
+  description: >-
+    The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
+    for worker nodes, and for operators. See docs/contracts/deploy-api.md.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Renox-Proprietary
+servers:
+  - url: https://api.renox.app
+    description: Production (UAE region)
+  - url: http://localhost:8787
+    description: Local compose stack (control/docker-compose.yml)
+tags:
+  - name: health
+    description: "Liveness of the API"
+  - name: apps
+    description: "Apps of the caller's tenant"
+  - name: deployments
+    description: "Upload, validation, activation, rollback (sections 3-6)"
+  - name: secrets
+    description: "Secret names and values (section 9)"
+  - name: logs
+    description: "Tenant log stream"
+  - name: domains
+    description: "Custom domains (section 10)"
+  - name: tokens
+    description: "Tenant tokens (section 2)"
+  - name: nodes
+    description: "Worker registration, route table, activation, bundles (sections 7-10)"
+  - name: ingest
+    description: "Meter and log ingestion from nodes"
+  - name: admin
+    description: "Operator endpoints"
+
+x-renox-state-machines:
+  deployment:
+    initial: [uploaded]
+    transitions:
+      uploaded: [validated, rejected]
+      rejected: [uploaded]
+      validated: [activating, pruned]
+      activating: [active, validated]
+      active: [superseded, suspended]
+      superseded: [active, pruned]
+      suspended: [active]
+      pruned: [uploaded]
+  domain:
+    initial: [pending]
+    transitions:
+      pending: [verified, released]
+      verified: [detached]
+      detached: [verified, released]
+      released: []
+
+security:
+  - tenantToken: []
+
+paths:
+  /v1/healthz:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: Liveness and dependency check
+      security: []
+      responses:
+        "200":
+          description: The API process is up and Postgres and object storage answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              examples:
+                ok: { value: { status: ok, postgres: ok, object_storage: ok } }
+        "503":
+          description: A dependency does not answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              examples:
+                degraded: { value: { status: degraded, postgres: ok, object_storage: unreachable } }
+
+  /v1/apps:
+    post:
+      operationId: createApp
+      tags: [apps]
+      summary: Create an app in the caller's tenant
+      x-renox-scope: apps:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAppRequest" }
+            examples:
+              hello: { value: { name: hello } }
+            x-renox-invalid-examples:
+              uppercase: { value: { name: Hello }, x-expect: pattern }
+              too-long: { value: { name: "a234567890123456789012345678901234567890123456789012" }, x-expect: pattern }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+              examples:
+                created: { $ref: "#/components/examples/AppNew" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    get:
+      operationId: listApps
+      tags: [apps]
+      summary: List the caller's apps
+      x-renox-scope: apps:read
+      responses:
+        "200":
+          description: The tenant's apps, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [apps]
+                properties:
+                  apps: { type: array, items: { $ref: "#/components/schemas/App" } }
+              examples:
+                two:
+                  value:
+                    apps:
+                      - { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.app] }
+                      - { name: notes, tenant_id: t_hello, created_at: 1793318300500, active_deployment: null, hostnames: [notes.renox.app] }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/apps/{app}:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    get:
+      operationId: getApp
+      tags: [apps]
+      summary: One app with its active deployment
+      x-renox-scope: apps:read
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+              examples:
+                live: { $ref: "#/components/examples/AppLive" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/deployments:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: uploadDeployment
+      tags: [deployments]
+      summary: Upload an artifact; validate and store it
+      description: >-
+        The body is the artifact tree (artifact.md section 1) as a POSIX tar,
+        optionally gzip-compressed, entries relative to the artifact root.
+        The control plane recomputes the content hash, applies the upload caps
+        (section 4) and rules V1-V16 with the shared validation package, stores
+        the bytes under artifacts/<hash>.tar (never overwritten) and records the
+        deployment. Uploading a hash that already has a non-rejected deployment
+        in this app is idempotent and returns 200 with the existing record.
+      x-renox-scope: deploy
+      parameters:
+        - name: x-renox-artifact-hash
+          in: header
+          required: true
+          description: The hash the client computed (artifact.md section 2). A mismatch is rule V2.
+          schema: { $ref: "#/components/schemas/Sha256" }
+          example: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a"
+      requestBody:
+        required: true
+        content:
+          application/x-tar:
+            schema: { type: string, format: binary, maxLength: 104857600 }
+            examples:
+              hello: { summary: "The examples/hello artifact as a tar", value: "<tar of docs/contracts/examples/hello-artifact/8029...d7a/>" }
+          application/gzip:
+            schema: { type: string, format: binary }
+            examples:
+              hello: { summary: "The same tar, gzip-compressed", value: "<gzip of the tar above>" }
+      responses:
+        "201":
+          description: New deployment, state validated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+              examples:
+                validated: { $ref: "#/components/examples/DeploymentValidated" }
+        "200":
+          description: The same hash was uploaded before; the existing record is returned unchanged.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+              examples:
+                again: { $ref: "#/components/examples/DeploymentValidated" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/BodyTooLarge" }
+        "422":
+          description: >-
+            Validation failed; the deployment is recorded in state rejected. details lists
+            every violation found (V1-V16, T1-T8), at most 50.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                route-conflict:
+                  value:
+                    error:
+                      code: RENOX_DEPLOY_REJECTED
+                      message: The artifact failed validation.
+                      request_id: 01JBQ3Z7MA0000000000000002
+                      deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                      details:
+                        - { rule: V8, field: "routes[1]", reason: "GET /api/notes/:slug conflicts with routes[0]" }
+                path-escape:
+                  value:
+                    error:
+                      code: RENOX_DEPLOY_REJECTED
+                      message: The artifact failed validation.
+                      request_id: 01JBQ3Z7MA0000000000000003
+                      deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                      details:
+                        - { rule: T4, path: "code/../../etc/passwd", reason: "path escapes the artifact root" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    get:
+      operationId: listDeployments
+      tags: [deployments]
+      summary: Deployments of an app, newest first
+      x-renox-scope: apps:read
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/DeploymentState" }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: A page of deployments.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [deployments]
+                properties:
+                  deployments: { type: array, items: { $ref: "#/components/schemas/Deployment" } }
+              examples:
+                one:
+                  value:
+                    deployments:
+                      - { app: hello, hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", state: active, created_at: 1793318450000, updated_at: 1793318500000, size_bytes: 2048, permissions: { network: ["api.stripe.com"], secrets: [STRIPE_KEY] }, secrets_version: 2, activated_at: 1793318500000, last_error: null, violations: null }
+                      - { app: hello, hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", state: superseded, created_at: 1793318350000, updated_at: 1793318500000, size_bytes: 512, permissions: { network: [], secrets: [] }, secrets_version: 0, activated_at: 1793318360000, last_error: null, violations: null }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/deployments/{hash}:
+    parameters:
+      - $ref: "#/components/parameters/App"
+      - $ref: "#/components/parameters/Hash"
+    get:
+      operationId: getDeployment
+      tags: [deployments]
+      summary: One deployment and its state
+      x-renox-scope: apps:read
+      responses:
+        "200":
+          description: The deployment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+              examples:
+                active: { $ref: "#/components/examples/DeploymentActive" }
+                failed-activation: { $ref: "#/components/examples/DeploymentActivationFailed" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/deployments/{hash}/sourcemaps:
+    parameters:
+      - $ref: "#/components/parameters/App"
+      - $ref: "#/components/parameters/Hash"
+    put:
+      operationId: putSourcemaps
+      tags: [deployments]
+      summary: Upload private sourcemaps for a deployment (#128)
+      description: >-
+        A tar (optionally gzip) of `*.map` files from `.renox/sourcemaps/<hash>/`.
+        Stored under the private prefix sourcemaps/<tenant_id>/<hash>.tar, never part
+        of the artifact and never served from the app's origin. Replaces an earlier upload.
+      x-renox-scope: deploy
+      requestBody:
+        required: true
+        content:
+          application/x-tar:
+            schema: { type: string, format: binary, maxLength: 52428800 }
+            examples:
+              maps: { value: "<tar of functions/api/hello.js.map>" }
+      responses:
+        "204": { description: Stored. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/BodyTooLarge" }
+        "422":
+          description: The tar holds something other than `.map` files, or breaks a T rule.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                not-a-map:
+                  value:
+                    error:
+                      code: RENOX_VALIDATION
+                      message: The request is not valid.
+                      request_id: 01JBQ3Z7MA0000000000000004
+                      details: [{ field: "functions/api/hello.js", reason: "only .map files are accepted" }]
+
+  /v1/apps/{app}/activate:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: activateDeployment
+      tags: [deployments]
+      summary: Activate a validated deployment (deploy-api.md section 6)
+      description: >-
+        Synchronous. validated -> activating; the owning worker is sent `prepare`
+        (fetch, migrations, cell creation, probe); on success the pointer moves,
+        the previous active deployment becomes superseded, the secret version is
+        pinned and a route_delta is published. On failure the deployment returns
+        to validated with last_error and the old deployment keeps serving.
+      x-renox-scope: deploy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActivateRequest" }
+            examples:
+              hash: { value: { hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6" } }
+            x-renox-invalid-examples:
+              short-hash: { value: { hash: "2b91fc05" }, x-expect: pattern }
+      responses:
+        "200":
+          description: Active.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+              examples:
+                active: { $ref: "#/components/examples/DeploymentActive" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422":
+          description: The worker reported a failure; nothing switched.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                migration:
+                  value:
+                    error:
+                      code: RENOX_ACTIVATION_FAILED
+                      message: The deployment could not be activated.
+                      request_id: 01JBQ3Z7MA0000000000000005
+                      deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                      details:
+                        - { stage: migrate, reason: migration failed, module: app, file: app/003_backfill.sql, sqlite_error: "no such column: tag" }
+                probe:
+                  value:
+                    error:
+                      code: RENOX_ACTIVATION_FAILED
+                      message: The deployment could not be activated.
+                      request_id: 01JBQ3Z7MA0000000000000006
+                      deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                      details:
+                        - { stage: probe, reason: "GET /api/hello answered 500", http_status: 500 }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /v1/apps/{app}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: rollbackDeployment
+      tags: [deployments]
+      summary: Move the pointer back to a superseded deployment
+      description: >-
+        A pointer switch: no upload, no validation, no migrations, no probe.
+        Without `hash`, the most recently superseded deployment is used.
+        The secret version is re-pinned to the app's latest.
+      x-renox-scope: deploy
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RollbackRequest" }
+            examples:
+              previous: { value: {} }
+              explicit: { value: { hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a" } }
+            x-renox-invalid-examples:
+              extra: { value: { hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", migrate: true }, x-expect: additionalProperties }
+      responses:
+        "200":
+          description: The target is active again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+              examples:
+                back: { $ref: "#/components/examples/DeploymentRolledBack" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/apps/{app}/logs:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    get:
+      operationId: streamLogs
+      tags: [logs]
+      summary: Tenant log lines as Server-Sent Events
+      description: >-
+        Returns lines newer than `since` (default: the last 100 lines), then, with
+        follow=true, keeps the stream open and sends new lines as they arrive. A
+        comment line `: keep-alive` is sent every 15 s. Lines were redacted on the node.
+      x-renox-scope: logs:read
+      parameters:
+        - name: follow
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+        - name: since
+          in: query
+          required: false
+          description: Unix time in milliseconds.
+          schema: { type: integer, minimum: 0 }
+        - name: source
+          in: query
+          required: false
+          schema: { enum: [all, server, client], default: all }
+        - name: deployment
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/Sha256" }
+      responses:
+        "200":
+          description: An event stream; each `log` event's data is one log line.
+          content:
+            text/event-stream:
+              schema: { type: string }
+              x-renox-events:
+                log: { $ref: "control-messages.schema.json#/$defs/log_line" }
+              examples:
+                two-lines:
+                  value: "event: log\nid: 1793318400200-0\ndata: {\"ts\":1793318400200,\"tenant_id\":\"t_hello\",\"deployment_hash\":\"802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a\",\"request_id\":\"01JBQ3Z7M8K5V6W9X2Y4A1B3C5\",\"module\":\"functions/api/hello\",\"level\":\"info\",\"message\":\"hello key=[redacted]\",\"fields\":null,\"source\":\"server\"}\n\n: keep-alive\n\n"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/secrets:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    get:
+      operationId: listSecrets
+      tags: [secrets]
+      summary: Secret names and the current version; never values
+      x-renox-scope: secrets:read
+      responses:
+        "200":
+          description: Names only.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretList" }
+              examples:
+                two: { value: { version: 3, secrets: [{ name: STRIPE_KEY, updated_at: 1793318200000 }, { name: TABBY_KEY, updated_at: 1793318250000 }] } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/secrets/{name}:
+    parameters:
+      - $ref: "#/components/parameters/App"
+      - $ref: "#/components/parameters/SecretName"
+    put:
+      operationId: putSecret
+      tags: [secrets]
+      summary: Set or rotate a secret; creates a new secret-set version
+      x-renox-scope: secrets:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PutSecretRequest" }
+            examples:
+              stripe: { value: { value: "sk_test_exampleexample" } }
+            x-renox-invalid-examples:
+              short: { value: { value: "1234" }, x-expect: minLength }
+              extra: { value: { value: "sk_test_exampleexample", echo: true }, x-expect: additionalProperties }
+      responses:
+        "200":
+          description: Stored encrypted. The response never contains the value.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretWritten" }
+              examples:
+                v4: { value: { name: STRIPE_KEY, version: 4 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    delete:
+      operationId: deleteSecret
+      tags: [secrets]
+      summary: Remove a secret; creates a new secret-set version
+      x-renox-scope: secrets:write
+      responses:
+        "200":
+          description: Removed from the latest version; earlier versions are kept for pinned deployments.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretWritten" }
+              examples:
+                v5: { value: { name: STRIPE_KEY, version: 5 } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/secrets/bump:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: bumpSecrets
+      tags: [secrets]
+      summary: Re-pin the active deployment to the latest secret version
+      description: Publishes a route_delta with the new secrets_version; workers recycle the cell.
+      x-renox-scope: secrets:write
+      responses:
+        "200":
+          description: The active deployment with its new pin.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+              examples:
+                bumped: { $ref: "#/components/examples/DeploymentActive" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/apps/{app}/domains:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: addDomain
+      tags: [domains]
+      summary: Attach a custom domain (#59, #114); returns the TXT record to create
+      x-renox-scope: domains:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddDomainRequest" }
+            examples:
+              www: { value: { hostname: www.example.com } }
+            x-renox-invalid-examples:
+              port: { value: { hostname: "www.example.com:443" }, x-expect: pattern }
+      responses:
+        "201":
+          description: State pending; not served until verified.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Domain" }
+              examples:
+                pending: { $ref: "#/components/examples/DomainPending" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    get:
+      operationId: listDomains
+      tags: [domains]
+      summary: Domains of an app
+      x-renox-scope: apps:read
+      responses:
+        "200":
+          description: The app's domains.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [domains]
+                properties:
+                  domains: { type: array, items: { $ref: "#/components/schemas/Domain" } }
+              examples:
+                one:
+                  value:
+                    domains:
+                      - { hostname: www.example.com, app: hello, state: verified, verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }, dns: ok, certificate: { state: issued, not_after: 1801094400000 }, created_at: 1793318700000, verified_at: 1793318760000, last_checked_at: 1793318760000 }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/domains/{hostname}:
+    parameters:
+      - $ref: "#/components/parameters/App"
+      - $ref: "#/components/parameters/Hostname"
+    get:
+      operationId: getDomain
+      tags: [domains]
+      summary: Domain state, DNS check and certificate
+      x-renox-scope: apps:read
+      responses:
+        "200":
+          description: The domain.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Domain" }
+              examples:
+                verified: { $ref: "#/components/examples/DomainVerified" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: removeDomain
+      tags: [domains]
+      summary: Detach a domain; ownership is kept for 30 days (#114)
+      x-renox-scope: domains:write
+      responses:
+        "200":
+          description: verified -> detached (pending -> released). Serving stops.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Domain" }
+              examples:
+                detached: { $ref: "#/components/examples/DomainDetached" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/tokens:
+    post:
+      operationId: createToken
+      tags: [tokens]
+      summary: Create a tenant token; the value is returned once
+      x-renox-scope: tokens:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTokenRequest" }
+            examples:
+              ci: { value: { name: github-actions, scopes: ["deploy:hello", "logs:read"], expires_in_days: 90 } }
+            x-renox-invalid-examples:
+              forever: { value: { name: ci, scopes: [deploy], expires_in_days: 3650 }, x-expect: maximum }
+              bad-scope: { value: { name: ci, scopes: ["root"], expires_in_days: 30 }, x-expect: pattern }
+      responses:
+        "201":
+          description: Created. Only the sha256 of the value is stored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenCreated" }
+              examples:
+                ci:
+                  value:
+                    id: tok_01JBQ40000000000CD
+                    name: github-actions
+                    token: renox_pat_abcdefghijklmnopqrstuvwxyz234567
+                    scopes: ["deploy:hello", "logs:read"]
+                    created_at: 1793318000000
+                    expires_at: 1801094000000
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+    get:
+      operationId: listTokens
+      tags: [tokens]
+      summary: Tokens of the tenant; never values
+      x-renox-scope: tokens:write
+      responses:
+        "200":
+          description: Token metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tokens]
+                properties:
+                  tokens: { type: array, items: { $ref: "#/components/schemas/Token" } }
+              examples:
+                one:
+                  value:
+                    tokens:
+                      - { id: tok_01JBQ40000000000CD, name: github-actions, scopes: ["deploy:hello", "logs:read"], created_at: 1793318000000, expires_at: 1801094000000, last_used_at: null, revoked_at: null }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+
+  /v1/tokens/{token_id}:
+    parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/TokenId" }
+    delete:
+      operationId: revokeToken
+      tags: [tokens]
+      summary: Revoke a token; it fails with 401 from the next request
+      x-renox-scope: tokens:write
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants:
+    post:
+      operationId: createTenant
+      tags: [admin]
+      summary: Create a tenant and its first token (operator only, until #113 adds sign-up)
+      security:
+        - operatorToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTenantRequest" }
+            examples:
+              hello: { value: { tenant_id: t_hello, name: Hello LLC, tier: free } }
+            x-renox-invalid-examples:
+              tier: { value: { tenant_id: t_hello, name: Hello LLC, tier: gold }, x-expect: enum }
+      responses:
+        "201":
+          description: Created, with a token holding every scope (`*`), shown once.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TenantCreated" }
+              examples:
+                hello:
+                  value:
+                    tenant: { tenant_id: t_hello, name: Hello LLC, tier: free, state: active, created_at: 1793317900000 }
+                    token: { id: tok_01JBQ40000000000AA, name: bootstrap, token: renox_pat_bootstrapbootstrapbootstrap23456, scopes: ["*"], created_at: 1793317900000, expires_at: 1801093900000 }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/admin/tenants/{tenant_id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: suspendTenant
+      tags: [admin]
+      summary: Suspend a tenant; its active deployments become suspended and their routes are removed
+      security:
+        - operatorToken: []
+      responses:
+        "200":
+          description: Suspended.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+              examples:
+                suspended: { value: { tenant_id: t_hello, name: Hello LLC, tier: free, state: suspended, created_at: 1793317900000 } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/tenants/{tenant_id}/reinstate:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: reinstateTenant
+      tags: [admin]
+      summary: Reinstate a tenant; suspended deployments become active again
+      security:
+        - operatorToken: []
+      responses:
+        "200":
+          description: Active.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+              examples:
+                active: { value: { tenant_id: t_hello, name: Hello LLC, tier: free, state: active, created_at: 1793317900000 } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/admin/nodes:
+    post:
+      operationId: createNodeToken
+      tags: [admin]
+      summary: Issue a node token bound to one node id (operator only)
+      security:
+        - operatorToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateNodeRequest" }
+            examples:
+              dxb: { value: { node_id: node-dxb-01 } }
+            x-renox-invalid-examples:
+              upper: { value: { node_id: NODE-1 }, x-expect: pattern }
+      responses:
+        "201":
+          description: Created; the value is shown once.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeTokenCreated" }
+              examples:
+                dxb: { value: { node_id: node-dxb-01, token: renox_node_abcdefghijklmnopqrstuvwxyz234567, created_at: 1793317800000 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/nodes/register:
+    post:
+      operationId: registerNode
+      tags: [nodes]
+      summary: A worker announces itself at start (deploy-api.md section 7)
+      security:
+        - nodeToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "control-messages.schema.json#/$defs/node_register" }
+            examples:
+              dxb: { value: { type: node_register, schema_version: 0, node_id: node-dxb-01, worker_version: 0.1.0, region: me-central-1, max_cells: 2000 } }
+            x-renox-invalid-examples:
+              no-type: { value: { schema_version: 0, node_id: node-dxb-01, worker_version: 0.1.0, region: me-central-1, max_cells: 2000 }, x-expect: type }
+      responses:
+        "200":
+          description: Registered; the node marks itself healthy and fetches the route snapshot.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/node_registered" }
+              examples:
+                dxb: { value: { type: node_registered, schema_version: 0, node_id: node-dxb-01, heartbeat_interval_ms: 10000, unhealthy_after_ms: 30000, resync_interval_ms: 60000, route_version: 42 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+
+  /v1/nodes/{node_id}/heartbeat:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: heartbeat
+      tags: [nodes]
+      summary: Liveness every heartbeat_interval_ms
+      security:
+        - nodeToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "control-messages.schema.json#/$defs/heartbeat" }
+            examples:
+              beat: { value: { type: heartbeat, schema_version: 0, node_id: node-dxb-01, sent_at: 1793318410000, route_version: 42, cells: 17 } }
+            x-renox-invalid-examples:
+              no-cells: { value: { type: heartbeat, schema_version: 0, node_id: node-dxb-01, sent_at: 1793318410000, route_version: 42 }, x-expect: cells }
+      responses:
+        "200":
+          description: Acknowledged.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/heartbeat_ack" }
+              examples:
+                ack: { value: { type: heartbeat_ack, schema_version: 0, route_version: 43 } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/nodes/{node_id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    get:
+      operationId: nodeStream
+      tags: [nodes]
+      summary: Control messages for one node as Server-Sent Events
+      description: >-
+        One `message` event per control message (route_delta, resync, prepare,
+        certificate_update, certificate_remove). The first event after connect is
+        always `resync` with the current route version. `: keep-alive` every 15 s.
+      security:
+        - nodeToken: []
+      responses:
+        "200":
+          description: The stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+              x-renox-events:
+                message:
+                  oneOf:
+                    - { $ref: "control-messages.schema.json#/$defs/route_delta" }
+                    - { $ref: "control-messages.schema.json#/$defs/resync" }
+                    - { $ref: "control-messages.schema.json#/$defs/prepare" }
+                    - { $ref: "control-messages.schema.json#/$defs/certificate_update" }
+                    - { $ref: "control-messages.schema.json#/$defs/certificate_remove" }
+              examples:
+                connect:
+                  value: "event: message\ndata: {\"type\":\"resync\",\"schema_version\":0,\"version\":42}\n\nevent: message\ndata: {\"type\":\"route_delta\",\"schema_version\":0,\"prev_version\":42,\"version\":43,\"upserts\":[{\"hostname\":\"hello.renox.app\",\"tenant_id\":\"t_hello\",\"app\":\"hello\",\"deployment_hash\":\"2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6\",\"status\":\"active\",\"updated_at\":1793318500000,\"version\":43,\"tier\":\"free\",\"node_id\":\"node-dxb-01\",\"secrets_version\":2}],\"removals\":[]}\n\n"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+
+  /v1/nodes/{node_id}/routes:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    get:
+      operationId: routeSnapshot
+      tags: [nodes]
+      summary: The full route table (#97 resync); ETag is the route version
+      security:
+        - nodeToken: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: { type: string, pattern: '^"[0-9]+"$' }
+          example: '"42"'
+      responses:
+        "200":
+          description: The snapshot, with an ETag header equal to the quoted route version.
+          headers:
+            ETag:
+              schema: { type: string }
+              example: '"42"'
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/route_snapshot" }
+              examples:
+                two:
+                  value:
+                    type: route_snapshot
+                    schema_version: 0
+                    version: 42
+                    entries:
+                      - { hostname: hello.renox.app, tenant_id: t_hello, app: hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", status: active, updated_at: 1793318400000, version: 41, tier: free, node_id: node-dxb-01, secrets_version: 0 }
+        "304": { description: The table did not change since the version in If-None-Match. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+
+  /v1/nodes/{node_id}/prepare-results:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: prepareResult
+      tags: [nodes]
+      summary: The node's answer to a prepare message
+      security:
+        - nodeToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "control-messages.schema.json#/$defs/prepare_result" }
+            examples:
+              ok: { value: { type: prepare_result, schema_version: 0, activation_id: act_01JBQ40000000000AB, node_id: node-dxb-01, ok: true, migrations_applied: [] } }
+            x-renox-invalid-examples:
+              error-on-success: { value: { type: prepare_result, schema_version: 0, activation_id: act_01JBQ40000000000AB, node_id: node-dxb-01, ok: true, error: { stage: probe, reason: x } }, x-expect: not }
+      responses:
+        "204": { description: Recorded. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/nodes/{node_id}/artifacts/{hash}:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/Hash"
+    get:
+      operationId: fetchArtifact
+      tags: [nodes]
+      summary: The artifact tar for a deployment assigned to this node
+      description: >-
+        307 to a presigned object-storage URL valid for 300 s, or 200 with the
+        tar itself when storage has no presigning. The node recomputes the hash
+        (artifact.md section 2) and applies the same T rules before loading.
+      security:
+        - nodeToken: []
+      responses:
+        "200":
+          description: The tar.
+          content:
+            application/x-tar:
+              schema: { type: string, format: binary }
+              examples:
+                hello: { value: "<tar bytes>" }
+        "307":
+          description: Redirect to a presigned GET.
+          headers:
+            Location:
+              schema: { type: string }
+              example: "https://s3.me-central-1.amazonaws.com/renox-artifacts/artifacts/8029...d7a.tar?X-Amz-Expires=300"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/nodes/{node_id}/secrets/{app}/{hash}:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/App"
+      - $ref: "#/components/parameters/Hash"
+    get:
+      operationId: fetchSecrets
+      tags: [nodes]
+      summary: The secret bundle of one deployment (deploy-api.md section 9)
+      description: >-
+        Only for a deployment whose tenant is assigned to this node and whose
+        state is activating, active, or suspended. Values are filtered to the
+        names in the manifest's permissions.secrets. `Cache-Control: no-store`.
+      security:
+        - nodeToken: []
+      parameters:
+        - name: version
+          in: query
+          required: true
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: The bundle.
+          headers:
+            Cache-Control:
+              schema: { const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/secrets_bundle" }
+              examples:
+                shop: { value: { type: secrets_bundle, schema_version: 0, tenant_id: t_shop, app: shop, deployment_hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", version: 3, secrets: { STRIPE_KEY: sk_test_exampleexample } } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/nodes/{node_id}/certificates/{hostname}:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/Hostname"
+    get:
+      operationId: fetchCertificate
+      tags: [nodes]
+      summary: Certificate chain and key for a verified hostname (#59)
+      security:
+        - nodeToken: []
+      responses:
+        "200":
+          description: The bundle, sent with Cache-Control no-store.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/certificate_bundle" }
+              examples:
+                www: { value: { type: certificate_bundle, schema_version: 0, hostname: www.example.com, version: 2, not_after: 1801094400000, chain_pem: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n", key_pem: "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/ingest/meters:
+    post:
+      operationId: ingestMeters
+      tags: [ingest]
+      summary: The meter.md HTTP sink; one batch envelope per request
+      description: >-
+        node_id in the batch must equal the token's node. Records are
+        de-duplicated on request_id (meter.md section 4); 202 means persisted.
+      security:
+        - nodeToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "meter-record.schema.json" }
+            examples:
+              one:
+                value:
+                  schema_version: 0
+                  cell_id: t_hello@node-dxb-01
+                  node_id: node-dxb-01
+                  records:
+                    - { request_id: 01JBQ3Z7M8K5V6W9X2Y4A1B3C5, tenant_id: t_hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", route: "GET /api/hello", started_at: 1793318400123, cpu_ms: 0.834, wall_ms: 1.302, peak_heap_bytes: 4216480, ingress_bytes: 0, egress_bytes: 11, fetch_sent_bytes: 0, fetch_received_bytes: 0, fetch_blocked: 0, db_ms: 0, db_rows: 0, render_fuel: 0, logs_dropped: 0, http_status: 200, status: ok }
+            x-renox-invalid-examples:
+              empty: { value: { schema_version: 0, cell_id: t_hello@node-dxb-01, node_id: node-dxb-01, records: [] }, x-expect: minItems }
+      responses:
+        "202":
+          description: Persisted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestResult" }
+              examples:
+                one: { value: { accepted: 1, duplicates: 0 } }
+                replay: { value: { accepted: 0, duplicates: 1 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "413": { $ref: "#/components/responses/BodyTooLarge" }
+
+  /v1/ingest/logs:
+    post:
+      operationId: ingestLogs
+      tags: [ingest]
+      summary: Tenant log lines from a node (HttpLogSink, #55)
+      security:
+        - nodeToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "control-messages.schema.json#/$defs/log_batch" }
+            examples:
+              one: { value: { type: log_batch, schema_version: 0, node_id: node-dxb-01, lines: [{ ts: 1793318400200, tenant_id: t_hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", request_id: 01JBQ3Z7M8K5V6W9X2Y4A1B3C5, module: functions/api/hello, level: info, message: hello, fields: null, source: server }] } }
+            x-renox-invalid-examples:
+              level: { value: { type: log_batch, schema_version: 0, node_id: node-dxb-01, lines: [{ ts: 1, tenant_id: t_hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", request_id: null, module: m, level: fatal, message: x, fields: null, source: server }] }, x-expect: enum }
+      responses:
+        "202":
+          description: Persisted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestResult" }
+              examples:
+                one: { value: { accepted: 1, duplicates: 0 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "413": { $ref: "#/components/responses/BodyTooLarge" }
+
+components:
+  securitySchemes:
+    tenantToken:
+      type: http
+      scheme: bearer
+      description: "`renox_pat_<32 base32>`; scoped (x-renox-scope on each operation), expiring, sha256 at rest."
+    nodeToken:
+      type: http
+      scheme: bearer
+      description: "`renox_node_<32 base32>`; bound to one node_id; the {node_id} path parameter and every node_id in a body must equal it."
+    operatorToken:
+      type: http
+      scheme: bearer
+      description: "`renox_op_<32 base32>`; its sha256 is configured in the API's environment."
+
+  parameters:
+    App:
+      name: app
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/AppName" }
+    Hash:
+      name: hash
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/Sha256" }
+    SecretName:
+      name: name
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/SecretName" }
+    Hostname:
+      name: hostname
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/Hostname" }
+    NodeId:
+      name: node_id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/NodeId" }
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/TenantId" }
+
+  schemas:
+    Sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+    TenantId: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,62}$" }
+    AppName:
+      type: string
+      pattern: "^[a-z][a-z0-9-]{0,49}$"
+      description: The artifact's app.name, at most 50 characters so that preview hosts fit one DNS label.
+    NodeId: { type: string, pattern: "^[a-z0-9][a-z0-9_.-]{0,62}$" }
+    SecretName: { type: string, pattern: "^[A-Z][A-Z0-9_]{0,63}$" }
+    TokenId: { type: string, pattern: "^tok_[0-9A-Za-z]{16,32}$" }
+    Hostname:
+      type: string
+      maxLength: 253
+      pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+    UnixMs: { type: integer, minimum: 0 }
+    Tier: { enum: [free, paid] }
+    Scope:
+      type: string
+      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?)$"
+      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all."
+
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, postgres, object_storage]
+      properties:
+        status: { enum: [ok, degraded] }
+        postgres: { enum: [ok, unreachable] }
+        object_storage: { enum: [ok, unreachable] }
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code: { type: string, pattern: "^RENOX_[A-Z0-9]+(_[A-Z0-9]+)*$" }
+            message: { type: string, minLength: 1, maxLength: 200 }
+            request_id: { type: string, pattern: "^[0-9A-Za-z_-]{8,64}$" }
+            deployment: { $ref: "#/components/schemas/Sha256" }
+            details:
+              type: array
+              maxItems: 50
+              items:
+                anyOf:
+                  - { $ref: "#/components/schemas/Violation" }
+                  - { $ref: "#/components/schemas/FieldError" }
+                  - { $ref: "control-messages.schema.json#/$defs/activation_error" }
+
+    Violation:
+      type: object
+      additionalProperties: false
+      required: [rule, reason]
+      description: One broken artifact rule (artifact.md section 6) or upload rule (deploy-api.md section 4). Never a filesystem path of the server.
+      properties:
+        rule: { type: string, pattern: "^(V([1-9]|1[0-6])|T[1-8])$" }
+        path: { type: string, maxLength: 1024 }
+        field: { type: string, maxLength: 256 }
+        reason: { type: string, minLength: 1, maxLength: 512 }
+
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [field, reason]
+      properties:
+        field: { type: string, maxLength: 256 }
+        reason: { type: string, minLength: 1, maxLength: 512 }
+
+    CreateAppRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { $ref: "#/components/schemas/AppName" }
+
+    App:
+      type: object
+      additionalProperties: false
+      required: [name, tenant_id, created_at, active_deployment, hostnames]
+      properties:
+        name: { $ref: "#/components/schemas/AppName" }
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        active_deployment:
+          anyOf:
+            - { $ref: "#/components/schemas/Sha256" }
+            - { type: "null" }
+        hostnames: { type: array, items: { $ref: "#/components/schemas/Hostname" } }
+
+    DeploymentState:
+      enum: [uploaded, validated, rejected, activating, active, superseded, suspended, pruned]
+
+    Deployment:
+      type: object
+      additionalProperties: false
+      required: [app, hash, state, created_at, updated_at, size_bytes, permissions, secrets_version, activated_at, last_error, violations]
+      properties:
+        app: { $ref: "#/components/schemas/AppName" }
+        hash: { $ref: "#/components/schemas/Sha256" }
+        state: { $ref: "#/components/schemas/DeploymentState" }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        updated_at: { $ref: "#/components/schemas/UnixMs" }
+        size_bytes: { type: integer, minimum: 0, description: Uncompressed bytes of the artifact's files. }
+        permissions:
+          type: object
+          additionalProperties: false
+          required: [network, secrets]
+          description: The manifest's permissions as approved at upload.
+          properties:
+            network: { type: array, items: { type: string } }
+            secrets: { type: array, items: { $ref: "#/components/schemas/SecretName" } }
+        secrets_version:
+          type: [integer, "null"]
+          minimum: 0
+          description: Secret-set version pinned at the last activation; null before the first.
+        activated_at: { type: [integer, "null"], minimum: 0 }
+        last_error:
+          anyOf:
+            - { $ref: "control-messages.schema.json#/$defs/activation_error" }
+            - { type: "null" }
+        violations:
+          type: [array, "null"]
+          maxItems: 50
+          items: { $ref: "#/components/schemas/Violation" }
+          description: Set when state is rejected.
+
+    ActivateRequest:
+      type: object
+      additionalProperties: false
+      required: [hash]
+      properties:
+        hash: { $ref: "#/components/schemas/Sha256" }
+
+    RollbackRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        hash: { $ref: "#/components/schemas/Sha256" }
+
+    PutSecretRequest:
+      type: object
+      additionalProperties: false
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 8
+          maxLength: 65536
+          description: At least 8 characters and 8 UTF-8 bytes (ops.md section 3); at most 64 KiB.
+
+    SecretWritten:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name: { $ref: "#/components/schemas/SecretName" }
+        version: { type: integer, minimum: 1 }
+
+    SecretList:
+      type: object
+      additionalProperties: false
+      required: [version, secrets]
+      properties:
+        version: { type: integer, minimum: 0 }
+        secrets:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, updated_at]
+            properties:
+              name: { $ref: "#/components/schemas/SecretName" }
+              updated_at: { $ref: "#/components/schemas/UnixMs" }
+
+    AddDomainRequest:
+      type: object
+      additionalProperties: false
+      required: [hostname]
+      properties:
+        hostname: { $ref: "#/components/schemas/Hostname" }
+
+    DomainState: { enum: [pending, verified, detached, released] }
+
+    Domain:
+      type: object
+      additionalProperties: false
+      required: [hostname, app, state, verification, dns, certificate, created_at, verified_at, last_checked_at]
+      properties:
+        hostname: { $ref: "#/components/schemas/Hostname" }
+        app: { $ref: "#/components/schemas/AppName" }
+        state: { $ref: "#/components/schemas/DomainState" }
+        verification:
+          type: object
+          additionalProperties: false
+          required: [record_type, record_name, record_value]
+          properties:
+            record_type: { const: TXT }
+            record_name: { type: string, pattern: "^_renox-verify\\." }
+            record_value: { type: string, pattern: "^rnx-verify-[0-9a-z]{26}$" }
+        dns: { enum: [pending, ok, not_pointing] }
+        certificate:
+          type: object
+          additionalProperties: false
+          required: [state, not_after]
+          properties:
+            state: { enum: [none, issuing, issued, failed] }
+            not_after: { type: [integer, "null"], minimum: 0 }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        verified_at: { type: [integer, "null"], minimum: 0 }
+        last_checked_at: { type: [integer, "null"], minimum: 0 }
+
+    CreateTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [name, scopes, expires_in_days]
+      properties:
+        name: { type: string, pattern: "^[A-Za-z0-9 ._-]{1,64}$" }
+        scopes: { type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: { $ref: "#/components/schemas/Scope" } }
+        expires_in_days: { type: integer, minimum: 1, maximum: 365 }
+
+    Token:
+      type: object
+      additionalProperties: false
+      required: [id, name, scopes, created_at, expires_at, last_used_at, revoked_at]
+      properties:
+        id: { $ref: "#/components/schemas/TokenId" }
+        name: { type: string }
+        scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+        last_used_at: { type: [integer, "null"], minimum: 0 }
+        revoked_at: { type: [integer, "null"], minimum: 0 }
+
+    TokenCreated:
+      type: object
+      additionalProperties: false
+      required: [id, name, token, scopes, created_at, expires_at]
+      properties:
+        id: { $ref: "#/components/schemas/TokenId" }
+        name: { type: string }
+        token: { type: string, pattern: "^renox_pat_[a-z2-7]{32}$" }
+        scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+
+    CreateTenantRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, name, tier]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        tier: { $ref: "#/components/schemas/Tier" }
+
+    Tenant:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, name, tier, state, created_at]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        name: { type: string }
+        tier: { $ref: "#/components/schemas/Tier" }
+        state: { enum: [active, suspended] }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+
+    TenantCreated:
+      type: object
+      additionalProperties: false
+      required: [tenant, token]
+      properties:
+        tenant: { $ref: "#/components/schemas/Tenant" }
+        token: { $ref: "#/components/schemas/TokenCreated" }
+
+    CreateNodeRequest:
+      type: object
+      additionalProperties: false
+      required: [node_id]
+      properties:
+        node_id: { $ref: "#/components/schemas/NodeId" }
+
+    NodeTokenCreated:
+      type: object
+      additionalProperties: false
+      required: [node_id, token, created_at]
+      properties:
+        node_id: { $ref: "#/components/schemas/NodeId" }
+        token: { type: string, pattern: "^renox_node_[a-z2-7]{32}$" }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+
+    IngestResult:
+      type: object
+      additionalProperties: false
+      required: [accepted, duplicates]
+      properties:
+        accepted: { type: integer, minimum: 0 }
+        duplicates: { type: integer, minimum: 0 }
+
+  examples:
+    AppNew:
+      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renox.app] }
+    AppLive:
+      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.app, www.example.com] }
+    DeploymentValidated:
+      value:
+        app: hello
+        hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a"
+        state: validated
+        created_at: 1793318350000
+        updated_at: 1793318350400
+        size_bytes: 512
+        permissions: { network: [], secrets: [] }
+        secrets_version: null
+        activated_at: null
+        last_error: null
+        violations: null
+    DeploymentActive:
+      value:
+        app: hello
+        hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+        state: active
+        created_at: 1793318450000
+        updated_at: 1793318500000
+        size_bytes: 2048
+        permissions: { network: ["api.stripe.com"], secrets: [STRIPE_KEY] }
+        secrets_version: 2
+        activated_at: 1793318500000
+        last_error: null
+        violations: null
+    DeploymentRolledBack:
+      value:
+        app: hello
+        hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a"
+        state: active
+        created_at: 1793318350000
+        updated_at: 1793318600000
+        size_bytes: 512
+        permissions: { network: [], secrets: [] }
+        secrets_version: 2
+        activated_at: 1793318600000
+        last_error: null
+        violations: null
+    DeploymentActivationFailed:
+      value:
+        app: hello
+        hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+        state: validated
+        created_at: 1793318450000
+        updated_at: 1793318460000
+        size_bytes: 2048
+        permissions: { network: [], secrets: [] }
+        secrets_version: null
+        activated_at: null
+        last_error: { stage: migrate, reason: migration failed, module: app, file: app/003_backfill.sql, sqlite_error: "no such column: tag" }
+        violations: null
+    DomainPending:
+      value:
+        hostname: www.example.com
+        app: hello
+        state: pending
+        verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }
+        dns: pending
+        certificate: { state: none, not_after: null }
+        created_at: 1793318700000
+        verified_at: null
+        last_checked_at: null
+    DomainVerified:
+      value:
+        hostname: www.example.com
+        app: hello
+        state: verified
+        verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }
+        dns: ok
+        certificate: { state: issued, not_after: 1801094400000 }
+        created_at: 1793318700000
+        verified_at: 1793318760000
+        last_checked_at: 1793318760000
+    DomainDetached:
+      value:
+        hostname: www.example.com
+        app: hello
+        state: detached
+        verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }
+        dns: ok
+        certificate: { state: issued, not_after: 1801094400000 }
+        created_at: 1793318700000
+        verified_at: 1793318760000
+        last_checked_at: 1793318800000
+
+  responses:
+    Validation:
+      description: The request body, a parameter, or a header is malformed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            secret:
+              value:
+                error:
+                  code: RENOX_VALIDATION
+                  message: The request is not valid.
+                  request_id: 01JBQ3Z7MA0000000000000010
+                  details: [{ field: value, reason: "secret values are at least 8 bytes" }]
+    Unauthenticated:
+      description: No token, an unknown, expired, or revoked token, or a token of the wrong kind.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+          example: 'Bearer realm="renox"'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            missing: { value: { error: { code: RENOX_UNAUTHENTICATED, message: Authentication is required., request_id: 01JBQ3Z7MA0000000000000011 } } }
+    TokenScope:
+      description: The token is valid but lacks the operation's scope, or a node token names another node.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            scope: { value: { error: { code: RENOX_TOKEN_SCOPE, message: The token does not allow this action., request_id: 01JBQ3Z7MA0000000000000012 } } }
+    NotFound:
+      description: No such resource in the caller's tenant. Another tenant's resources are also 404, never 403.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            app: { value: { error: { code: RENOX_NOT_FOUND, message: Not found., request_id: 01JBQ3Z7MA0000000000000013 } } }
+    Conflict:
+      description: The state machine does not allow the transition, the name is taken, or another activation of the app is in progress.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            state: { value: { error: { code: RENOX_CONFLICT, message: The request conflicts with the current state., request_id: 01JBQ3Z7MA0000000000000014, details: [{ field: state, reason: "rejected -> activating is not allowed" }] } } }
+    BodyTooLarge:
+      description: The body is over the operation's limit (deploy-api.md section 4).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            upload: { value: { error: { code: RENOX_BODY_TOO_LARGE, message: The request body is too large., request_id: 01JBQ3Z7MA0000000000000015 } } }
+    RateLimited:
+      description: The token's bucket is empty. `Retry-After` says when to retry.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+          example: 5
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            bucket: { value: { error: { code: RENOX_RATE_LIMITED, message: Too many requests. Try again later., request_id: 01JBQ3Z7MA0000000000000016 } } }
+    Unavailable:
+      description: No healthy worker can take the tenant, or a dependency is down.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+          example: 5
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            no-worker: { value: { error: { code: RENOX_UNAVAILABLE, message: The service is temporarily unavailable., request_id: 01JBQ3Z7MA0000000000000017 } } }

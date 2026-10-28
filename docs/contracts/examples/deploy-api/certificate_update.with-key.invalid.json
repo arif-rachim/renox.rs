@@ -1,0 +1,1 @@
+{ "$comment": "invalid: keys never travel on the stream (deploy-api.md section 10) [expect: additionalProperties]", "type": "certificate_update", "schema_version": 0, "hostname": "www.example.com", "version": 2, "not_after": 1801094400000, "key_pem": "-----BEGIN PRIVATE KEY-----\n" }

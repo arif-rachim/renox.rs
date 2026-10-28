@@ -2,11 +2,11 @@
 
 | | |
 | --- | --- |
-| Version | **0.1** (F2, #152). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
-| Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12) |
+| Version | **0.2** (F3, #50). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
+| Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12, [`deploy-api.md`](deploy-api.md)) and `cli/` (P11) |
 | Consumers | `sdk/` (P10) error classes; `cli/` (P11) and the dashboard (P13), which quote these rows; the public docs; tenants' own API clients |
 | Related | [`ops.md`](ops.md) section 13 (which codes ops throw and which the platform answers with), [`meter.md`](meter.md) (`status`), `docs/23-failure-modes.md` (when each failure happens) |
-| Checker | `bun run docs/contracts/validate.ts`: every code used in `ops.md` and in `docs/23-failure-modes.md` has exactly one row here, and `ctx.d.ts` uses exactly the codes of `ops.md` section 13 |
+| Checker | `bun run docs/contracts/validate.ts`: every code used in `ops.md`, `deploy-api.md`, `schemas/deploy-api.yaml` and `docs/23-failure-modes.md` has exactly one row here, and `ctx.d.ts` uses exactly the codes of `ops.md` section 13 |
 
 Everything a tenant or an end user sees when the platform fails, refuses, or stops something is one of the codes below. It is never a stack trace, a file path, a hostname or IP of ours, an SQL statement, or a secret (`docs/23-failure-modes.md` rule 2; `docs/24-threat-model.md`). This file is the superset: `ops.md` defines the codes that cross the op boundary, and this catalogue adds the gateway, deploy, and availability codes. It is what the dashboard, the CLI, and the public docs quote.
 
@@ -87,7 +87,7 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 | `RENOX_CSRF` | F2 | 403 | A non-GET page action arrived without a valid CSRF token | The request could not be verified. Reload the page and try again. | `route`, `action`, `reason` (`missing` / `mismatch`) | Submit forms through the generated markup or htmx, which send the token; exempt webhook routes are automatic | `docs/04-isolation-security.md` "Web-layer protections"; failure mode "CSRF token missing or wrong" |
 | `RENOX_FORBIDDEN` | F5 | 403 | A Cedar policy denied the action (route `guard`, `authz.require`) | You do not have permission to do this. | `action`, `resource`, `policy_id` (dev only), `principal` (id only) | Check the role assignments and policies for the action | `docs/11-authorization.md`; failure mode "Policy denies" |
 | `RENOX_HOST_MISMATCH` | F2 | 421 | The TLS SNI name and the `Host` (or `:authority`) both resolve in the route table, to **different tenants**. Refused before routing; no cell is touched | The request was sent to the wrong host. | Not logged to any tenant sink, since the two names belong to different tenants. The operator log records both host names | Nothing in the app. Clients must send the same name in SNI and `Host`; browsers retry a 421 on a new connection by themselves | `artifact.md` §5; `docs/24-threat-model.md` "Host/SNI confusion" |
-| `RENOX_UNAVAILABLE` | F3 | 503, `Retry-After: 5` | The worker cannot load the deployment: artifact not cached and object storage or the control plane is unreachable, or the cell is marked unhealthy | The service is temporarily unavailable. | `reason` (`artifact_unavailable` / `cell_unhealthy`) | Nothing in the app; the platform retries and alerts. Check the status page | failure modes "Control plane unreachable from the worker", "Object storage unreachable" |
+| `RENOX_UNAVAILABLE` | F3 | 503, `Retry-After: 5` | The worker cannot load the deployment: artifact not cached and object storage or the control plane is unreachable, or the cell is marked unhealthy. In the deploy API: no healthy node can take an activation, or Postgres or object storage is unreachable | The service is temporarily unavailable. | `reason` (`artifact_unavailable` / `cell_unhealthy`); deploy API: the deployment's `last_error.stage` = `no_worker` | Nothing in the app; the platform retries and alerts. Check the status page; retry the activation | failure modes "Control plane unreachable from the worker", "Object storage unreachable"; `deploy-api.md` §6 |
 
 ### Thrown into tenant code
 
@@ -124,7 +124,22 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 
 | Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `RENOX_DEPLOY_REJECTED` | F3 | 422 (deploy API) | An uploaded artifact failed validation: any of rules V1–V13 (bundle over 20 MB, route conflict, unknown permission key, path escape, hash mismatch, ...) | — (only the deploying developer sees it) | Deployment event with `rule` (`V1`–`V13`), `path` or `field`, `reason`; the deployment state becomes `rejected` | Run `renox check` locally, which applies the same rules, and fix what it reports | `artifact.md` §6; failure mode "Bundle over 20 MB, route conflict, unknown permission key" |
+| `RENOX_DEPLOY_REJECTED` | F3 | 422 (deploy API) | An uploaded artifact failed validation: any of rules V1–V16 (bundle over 20 MB, route conflict, unknown permission key, path escape, hash mismatch, ...) or the upload rules T1–T8 (link or device entry, over 100 MiB or 10,000 entries, compression ratio over 50:1, extraction over 30 s, ...) | The artifact failed validation. | Deployment event with `rule` (`V1`–`V13`, `T1`–`T8`), `path` or `field`, `reason`; the deployment state becomes `rejected` | Run `renox check` locally, which applies the same rules, and fix what it reports | `artifact.md` §6; `deploy-api.md` §4; failure modes "Bundle over 20 MB, route conflict, unknown permission key", "Tarball decompression bomb / too many files" |
+| `RENOX_ACTIVATION_FAILED` | F3 | 422 (deploy API) | Activation stopped on the owning node: the artifact could not be fetched, a migration file failed, module evaluation failed, the probe answered 5xx or hit a limit, or the node did not answer within 60 s. Nothing switched; the previous deployment keeps serving | The deployment could not be activated. | Deployment event with `stage` (`fetch` / `load` / `migrate` / `probe` / `timeout`), `module`, `file`, `sqlite_error`, `http_status`; the deployment returns to `validated` with `last_error` | Fix the failing migration file or handler and deploy again; applied migration files are not re-run | `deploy-api.md` §6; failure modes "Migration fails half-way during activation", "New deployment fails its first request" |
+| `RENOX_CLI_WORKER_UNVERIFIED` | F3 | — (CLI, exit code 3) | The CLI refused to run a `renox-worker` binary whose sha256 differs from the pinned release or whose sigstore signature or provenance does not verify | — | CLI output only: `expected_sha256`, `actual_sha256`, the binary path on the developer's own machine | Re-download the worker (`renox dev` fetches the pinned release) or pass a binary from an official release; never disable the check | `docs/24-threat-model.md` F, "Tampered release"; #129 |
+
+### Control API (deploy API, F3)
+
+Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](deploy-api.md) §1, §2, §12). The body is the JSON of section 1 plus, where `deploy-api.md` §12 says so, a `details` list; it never contains a secret value, a token, a server path, or an internal address. These codes are not thrown into tenant code and are not written to the tenant log sink; mutating requests are audit-logged instead (`deploy-api.md` §2).
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_VALIDATION` | F3 | 400 | A request body, parameter or header is malformed: bad JSON, an unknown field, a value outside its pattern or range, a secret value under 8 bytes, a non-`.map` file in a sourcemap upload (422 there) | The request is not valid. | Audit row with the status; `details` `{ field, reason }` in the response | Fix the field named in `details`; the CLI validates before sending | `deploy-api.md` §1, §9 |
+| `RENOX_UNAUTHENTICATED` | F3 | 401, `WWW-Authenticate` | No token, an unknown, expired or revoked token, or a token of the wrong kind | Authentication is required. | Not logged per request; repeated failures per IP are counted | `renox login` again or create a new token; check the token has not expired | `deploy-api.md` §2; `docs/24-threat-model.md` E, "Leaked CLI or CI token" |
+| `RENOX_TOKEN_SCOPE` | F3 | 403 | The token is valid but lacks the operation's scope, or a node token names another node | The token does not allow this action. | Audit row with the token id and the action | Create a token with the needed scope (`deploy:<app>`, `secrets:write`, ...) | `deploy-api.md` §2 |
+| `RENOX_NOT_FOUND` | F3 | 404 | The app, deployment, secret, domain or token does not exist in the caller's tenant (another tenant's resources are also 404) | Not found. | — | Check the app name and hash (`renox deploy --list`) | `deploy-api.md` §2; `docs/24-threat-model.md` E, IDOR row |
+| `RENOX_CONFLICT` | F3 | 409 | A state transition the state machine does not allow, an app name or hostname already taken, another activation of the app in progress, a suspended tenant, an unknown node heartbeating, or a late `prepare_result` | The request conflicts with the current state. | Audit row; `details` `{ field, reason }` | Read the current state (`GET` the resource) and retry the right action; wait for the running activation | `deploy-api.md` §5, §6, §10 |
+| `RENOX_RATE_LIMITED` | F3 | 429, `Retry-After` | The token's request or upload bucket is empty, or too many unauthenticated requests came from one IP | Too many requests. Try again later. | — | Wait for `Retry-After`; batch work in CI instead of polling | `deploy-api.md` §2; `docs/24-threat-model.md` E, "Deploy API abuse" |
 
 ## 4. Rules for adding a code
 
@@ -136,7 +151,7 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 ## Open
 
 1. **Localisation of messages.** The default page and the JSON `message` are English in F1. Arabic messages keyed by code and `Accept-Language` are expected with the F2 default page; the mechanism (a second fixed table) is not designed yet.
-2. **Rate limit (429).** Gateway rate limiting (`docs/23-failure-modes.md`, "Request flood from one IP") answers 429 with `Retry-After` and no code. A `RENOX_RATE_LIMITED` code would make it consistent with the others. This needs #22 to decide whether rate-limit responses carry a body at all, since a body costs bytes under a flood.
+2. **Rate limit (429).** Gateway rate limiting (`docs/23-failure-modes.md`, "Request flood from one IP") answers 429 with `Retry-After` and no code. The control API answers 429 with `RENOX_RATE_LIMITED` (F3); using the same code at the gateway would make it consistent with the others. This needs #22 to decide whether rate-limit responses carry a body at all, since a body costs bytes under a flood.
 3. **`RENOX_BUSY` log volume.** One summary line per second is a proposal for #28 to confirm.
 
 ## Changelog
@@ -145,3 +160,4 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 | --- | --- | --- |
 | 0 | #91 | First catalogue (F1) |
 | 0.1 | #152 | Page (HTML) routes: the four error-template inputs, the fixed error-page render budget, the 404 page, and the fallback order (section 1). New rows: `RENOX_HOST_MISMATCH` (421, F2), `RENOX_CLIENT_EVENTS_DROPPED` (F2, dev overlay only) |
+| 0.2 | #50 | Deploy API (F3): section "Control API" (`RENOX_VALIDATION`, `RENOX_UNAUTHENTICATED`, `RENOX_TOKEN_SCOPE`, `RENOX_NOT_FOUND`, `RENOX_CONFLICT`, `RENOX_RATE_LIMITED`); `RENOX_ACTIVATION_FAILED`, `RENOX_CLI_WORKER_UNVERIFIED`; `RENOX_DEPLOY_REJECTED` gains T1-T8 and its message; `RENOX_UNAVAILABLE` covers the deploy API |

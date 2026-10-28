@@ -1,0 +1,11 @@
+{
+  "$comment": "invalid: an upsert's version must lie in (prev_version, version] (R3) [expect: R3]",
+  "type": "route_delta",
+  "schema_version": 0,
+  "prev_version": 42,
+  "version": 43,
+  "upserts": [
+    { "hostname": "hello.renox.app", "tenant_id": "t_hello", "app": "hello", "deployment_hash": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", "status": "active", "updated_at": 1793318500000, "version": 40, "tier": "free", "node_id": "node-dxb-01", "secrets_version": 0 }
+  ],
+  "removals": []
+}
