@@ -31,6 +31,7 @@ use tower::ServiceExt;
 
 pub mod client_events;
 pub mod client_script;
+pub mod compress;
 pub mod host_check;
 pub mod limits;
 pub mod protocol;

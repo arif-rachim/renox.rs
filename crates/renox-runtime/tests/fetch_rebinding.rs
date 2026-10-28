@@ -226,6 +226,7 @@ mod tenant {
             limits: Limits::FREE,
             secrets: Default::default(),
             db: None,
+            max_isolates: 1,
         })
         .await
         .unwrap()
@@ -451,6 +452,7 @@ mod tenant {
                 limits: Limits::FREE,
                 secrets: Default::default(),
                 db: None,
+                max_isolates: 1,
             })
             .await
             .unwrap();

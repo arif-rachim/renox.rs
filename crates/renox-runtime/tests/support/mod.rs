@@ -98,7 +98,17 @@ pub fn spec(dir: &Path, hash: &str, limits: Limits) -> IsolateSpec {
         limits,
         secrets: Default::default(),
         db: None,
+        max_isolates: test_pool(),
     }
+}
+
+/// Isolates per deployment in the tests: `RENOX_TEST_POOL` (default 1), so
+/// `limits.rs` and `termination.rs` can run per pool member (#156).
+pub fn test_pool() -> usize {
+    std::env::var("RENOX_TEST_POOL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
 }
 
 pub fn ctx(id: &str) -> RequestCtx {

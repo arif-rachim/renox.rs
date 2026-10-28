@@ -9,13 +9,21 @@
 //! thread that created it, `deno_core`'s `JsRuntime` is `!Send`, and a
 //! dedicated thread lets the CPU watchdog measure exactly that thread's CPU
 //! clock. See README, "Thread model".
+//!
+//! Pool (#156): a deployment that is hot (requests waiting on a busy
+//! isolate) runs up to [`IsolateSpec::max_isolates`] isolates, each on its
+//! own thread. A request goes to the least-loaded member; one spare is kept
+//! ready once the deployment is hot, so a member that is terminated (CPU,
+//! heap, uncaught error) is replaced at once and the termination ends only
+//! the requests on that member. The concurrency limit stays per deployment.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -39,7 +47,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::{ErrorCode, PlatformResponse};
 use crate::limits::Limits;
 use crate::limits::concurrency::ConcurrencyLimit;
-use crate::limits::cpu::Watchdog;
+use crate::limits::cpu::{CpuLedger, CpuWatch, Watchdog};
 use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
@@ -74,6 +82,9 @@ pub struct IsolateSpec {
     /// the cell (`ops/db.rs`). `None` gives a deployment whose `ctx.db`
     /// calls fail.
     pub db: Option<DbHandle>,
+    /// Isolates of the deployment when it is hot, the spare not counted
+    /// (#156; the cell sets it per tier). 0 and 1 mean one isolate, no pool.
+    pub max_isolates: usize,
 }
 
 /// Per-request context from the cell.
@@ -241,10 +252,10 @@ pub struct CreateStats {
 struct DispatchJob {
     seq: u64,
     route: usize,
-    params: BTreeMap<String, ParamValue>,
+    params: Arc<BTreeMap<String, ParamValue>>,
     method: String,
     url: String,
-    headers: Vec<(ByteString, ByteString)>,
+    headers: Arc<Vec<(ByteString, ByteString)>>,
     body: Bytes,
     want_body: bool,
     /// Page routes: what the bootstrap needs for `LoaderContext` and
@@ -295,6 +306,9 @@ enum ThreadReply {
         code: ErrorCode,
         meter: InvocationMeter,
     },
+    /// The member was already terminated: nothing of the request ran, and
+    /// the handle sends it to another member.
+    Refused,
 }
 
 /// Shared state between a handle and its isolate thread.
@@ -302,13 +316,48 @@ struct ThreadShared {
     poisoned: AtomicBool,
 }
 
-/// One live isolate on its thread.
+/// One live isolate on its thread: a member of the deployment's pool.
 struct IsolateThread {
     tx: mpsc::UnboundedSender<Command>,
     v8_handle: v8::IsolateHandle,
     shared: Arc<ThreadShared>,
     stats: CreateStats,
+    /// Requests sent to this member and not answered yet.
+    load: AtomicUsize,
 }
+
+impl IsolateThread {
+    fn healthy(&self) -> bool {
+        !self.shared.poisoned.load(Ordering::SeqCst)
+    }
+
+    fn poison(&self) {
+        self.shared.poisoned.store(true, Ordering::SeqCst);
+        self.v8_handle.terminate_execution();
+    }
+}
+
+/// Counts a request against its member's load while it is in flight.
+struct LoadGuard(Arc<IsolateThread>);
+
+impl LoadGuard {
+    /// Take a member for one request. Called with the members lock held,
+    /// so concurrent picks see each other's load.
+    fn take(t: &Arc<IsolateThread>) -> LoadGuard {
+        t.load.fetch_add(1, Ordering::SeqCst);
+        LoadGuard(t.clone())
+    }
+}
+
+impl Drop for LoadGuard {
+    fn drop(&mut self) {
+        self.0.load.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A member with this many requests in flight counts as busy: the pool
+/// grows (up to `max_isolates`) instead of queueing more on it.
+pub const POOL_GROW_AT_LOAD: usize = 2;
 
 impl Drop for IsolateThread {
     fn drop(&mut self) {
@@ -318,8 +367,21 @@ impl Drop for IsolateThread {
     }
 }
 
-/// The handle of one deployment's isolate. Cheap to share (`Arc`).
+/// The handle of one deployment's isolates. Cheap to share (`Arc`).
 pub struct IsolateHandle {
+    inner: Arc<Pool>,
+}
+
+impl std::ops::Deref for IsolateHandle {
+    type Target = Pool;
+
+    fn deref(&self) -> &Pool {
+        &self.inner
+    }
+}
+
+/// The isolates of one deployment and what it takes to create one more.
+pub struct Pool {
     runtime: Runtime,
     spec: Arc<IsolateSpec>,
     artifact: Arc<Artifact>,
@@ -330,9 +392,17 @@ pub struct IsolateHandle {
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
+    /// The deployment's concurrency limit, shared by all members.
     concurrency: ConcurrencyLimit,
     seq: AtomicU64,
-    current: Mutex<Option<Arc<IsolateThread>>>,
+    /// The members, in creation order.
+    members: Mutex<Vec<Arc<IsolateThread>>>,
+    /// A ready isolate that takes over from a terminated member, or joins
+    /// when the deployment grows. Kept only while the deployment is hot.
+    spare: Mutex<Option<Arc<IsolateThread>>>,
+    max_members: usize,
+    /// A member or the spare is being created in the background.
+    growing: AtomicBool,
     /// Serialises re-creation so concurrent requests build one isolate.
     respawn: tokio::sync::Mutex<()>,
     last_failure: Mutex<Option<(Instant, CreateError)>>,
@@ -383,7 +453,8 @@ impl IsolateHandle {
                 secrets::MIN_SECRET_BYTES
             )));
         }
-        let handle = IsolateHandle {
+        let max_members = spec.max_isolates.max(1);
+        let pool = Pool {
             runtime,
             spec: Arc::new(spec),
             artifact,
@@ -394,15 +465,38 @@ impl IsolateHandle {
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
             seq: AtomicU64::new(0),
-            current: Mutex::new(None),
+            members: Mutex::new(Vec::new()),
+            spare: Mutex::new(None),
+            max_members,
+            growing: AtomicBool::new(false),
             respawn: tokio::sync::Mutex::new(()),
             last_failure: Mutex::new(None),
         };
-        let thread = handle.spawn_thread().await?;
-        *handle.current.lock().expect("isolate lock") = Some(Arc::new(thread));
-        Ok(handle)
+        let thread = pool.spawn_thread().await?;
+        pool.members
+            .lock()
+            .expect("pool lock")
+            .push(Arc::new(thread));
+        Ok(IsolateHandle {
+            inner: Arc::new(pool),
+        })
     }
 
+    /// Dispatch one request to the handler its route names.
+    ///
+    /// `req`'s URI must be absolute (`https://<host><path>?<query>`), or its
+    /// `Host` header is used with `https`. 404 and 405 are answered here
+    /// without entering the isolate. The request then waits for one of the
+    /// deployment's concurrency slots (503 `RENOX_BUSY` at the deadline),
+    /// runs on the least-loaded member of the pool under the CPU and heap
+    /// limits, and is answered with 504 `RENOX_DEADLINE` at its deadline
+    /// whatever the handler does after.
+    pub async fn dispatch(&self, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
+        self.inner.dispatch(ctx, req).await
+    }
+}
+
+impl Pool {
     /// The effective limits (tier limits lowered by the manifest).
     pub fn limits(&self) -> Limits {
         self.limits
@@ -413,21 +507,44 @@ impl IsolateHandle {
         self.concurrency.available()
     }
 
-    /// Creation numbers of the current isolate.
+    /// Creation numbers of the oldest live member.
     pub fn stats(&self) -> Option<CreateStats> {
-        self.current
+        self.members
             .lock()
-            .expect("isolate lock")
-            .as_ref()
+            .expect("pool lock")
+            .iter()
+            .find(|t| t.healthy())
             .map(|t| t.stats)
     }
 
-    /// Stop the current isolate: running JavaScript is terminated and the
-    /// isolate is disposed on its thread. The next dispatch creates a new one.
+    /// Live members of the pool, the spare not counted.
+    pub fn pool_size(&self) -> usize {
+        self.members
+            .lock()
+            .expect("pool lock")
+            .iter()
+            .filter(|t| t.healthy())
+            .count()
+    }
+
+    /// Is a spare isolate ready?
+    pub fn has_spare(&self) -> bool {
+        self.spare.lock().expect("pool lock").is_some()
+    }
+
+    /// The most isolates the deployment runs, the spare not counted.
+    pub fn max_isolates(&self) -> usize {
+        self.max_members
+    }
+
+    /// Stop every isolate of the deployment, the spare included: running
+    /// JavaScript is terminated and each isolate is disposed on its thread.
+    /// The next dispatch creates a new one.
     pub fn terminate(&self) {
-        if let Some(t) = self.current.lock().expect("isolate lock").take() {
-            t.shared.poisoned.store(true, Ordering::SeqCst);
-            t.v8_handle.terminate_execution();
+        let members = std::mem::take(&mut *self.members.lock().expect("pool lock"));
+        let spare = self.spare.lock().expect("pool lock").take();
+        for t in members.iter().chain(spare.iter()) {
+            t.poison();
         }
     }
 
@@ -468,27 +585,147 @@ impl IsolateHandle {
             v8_handle,
             shared,
             stats,
+            load: AtomicUsize::new(0),
         })
     }
 
-    fn healthy(&self) -> Option<Arc<IsolateThread>> {
-        let cur = self.current.lock().expect("isolate lock");
-        match cur.as_ref() {
-            Some(t) if !t.shared.poisoned.load(Ordering::SeqCst) => Some(t.clone()),
+    fn count_recycle(&self, n: usize) {
+        self.runtime
+            .inner
+            .metrics
+            .recycles
+            .fetch_add(n as u64, Ordering::Relaxed);
+    }
+
+    /// Pick a member for one request, without waiting when a live member
+    /// exists. Poisoned members (CPU, heap, uncaught error) leave the pool
+    /// and the spare takes over: the recycle step of `ops.md` section 10.
+    /// The least-loaded member is chosen; when it is busy
+    /// ([`POOL_GROW_AT_LOAD`]) and the pool has room, the spare joins (or a
+    /// member is created in the background) and the deployment keeps a
+    /// spare from then on.
+    fn pick_live(self: &Arc<Self>) -> Option<LoadGuard> {
+        let mut members = self.members.lock().expect("pool lock");
+        let before = members.len();
+        members.retain(|t| t.healthy());
+        let dead = before - members.len();
+        let mut grow = false;
+        let picked = match members.iter().min_by_key(|t| t.load.load(Ordering::SeqCst)) {
+            None => None,
+            Some(best) => {
+                let busy = best.load.load(Ordering::SeqCst) >= POOL_GROW_AT_LOAD;
+                if busy && members.len() < self.max_members {
+                    match self.take_spare() {
+                        Some(spare) => {
+                            members.push(spare.clone());
+                            grow = true;
+                            Some(LoadGuard::take(&spare))
+                        }
+                        None => {
+                            grow = true;
+                            Some(LoadGuard::take(best))
+                        }
+                    }
+                } else {
+                    Some(LoadGuard::take(best))
+                }
+            }
+        };
+        // A dead member is replaced by the spare at once.
+        for _ in 0..dead {
+            if members.len() >= self.max_members {
+                break;
+            }
+            let Some(spare) = self.take_spare() else {
+                break;
+            };
+            members.push(spare);
+        }
+        let picked = match picked {
+            Some(p) => Some(p),
+            None => members.first().map(LoadGuard::take),
+        };
+        // Hot: the pool grew or lost a member; it keeps a spare from now on.
+        let hot = members.len() > 1 || grow || (dead > 0 && self.max_members > 1);
+        drop(members);
+        // Every poisoned member that leaves the pool is one recycle.
+        if dead > 0 {
+            self.count_recycle(dead);
+        }
+        if hot {
+            self.refill();
+        }
+        picked
+    }
+
+    fn take_spare(&self) -> Option<Arc<IsolateThread>> {
+        let mut spare = self.spare.lock().expect("pool lock");
+        match spare.take() {
+            Some(t) if t.healthy() => Some(t),
             _ => None,
         }
     }
 
-    /// The live isolate, or a fresh one if the current one was poisoned
-    /// (CPU, heap, uncaught error) or terminated: the recycle step of
-    /// `ops.md` section 10. A creation failure is cached for
+    /// Create one isolate in the background, if none is being created: a
+    /// member while the pool is below its size and busy, else the spare.
+    fn refill(self: &Arc<Self>) {
+        if self.max_members < 2 || self.has_spare() {
+            return;
+        }
+        if self.growing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let pool = self.clone();
+        tokio::spawn(async move {
+            let created = pool.spawn_thread().await;
+            let more = match created {
+                Ok(t) => {
+                    let t = Arc::new(t);
+                    let mut members = pool.members.lock().expect("pool lock");
+                    let before = members.len();
+                    members.retain(|m| m.healthy());
+                    let dead = before - members.len();
+                    if dead > 0 {
+                        pool.count_recycle(dead);
+                    }
+                    let busy = members
+                        .iter()
+                        .all(|m| m.load.load(Ordering::SeqCst) >= POOL_GROW_AT_LOAD);
+                    if members.len() < pool.max_members && (busy || members.is_empty()) {
+                        members.push(t);
+                        true
+                    } else {
+                        drop(members);
+                        *pool.spare.lock().expect("pool lock") = Some(t);
+                        false
+                    }
+                }
+                Err(e) => {
+                    let mut f = serde_json::Map::new();
+                    f.insert("code".into(), e.code().as_str().into());
+                    f.insert("phase".into(), "module_load".into());
+                    f.insert("cause_message".into(), e.to_string().into());
+                    pool.log("error", None, "pool isolate creation failed", f);
+                    false
+                }
+            };
+            pool.growing.store(false, Ordering::SeqCst);
+            // A member joined: the hot deployment still wants its spare.
+            if more {
+                pool.refill();
+            }
+        });
+    }
+
+    /// A member for one request: a live one, or a fresh isolate when none
+    /// is left and no spare is ready. A creation failure is cached for
     /// [`CREATE_FAILURE_CACHE`].
-    async fn live_thread(&self) -> Result<Arc<IsolateThread>, CreateError> {
-        if let Some(t) = self.healthy() {
+    async fn live_thread(self: &Arc<Self>) -> Result<LoadGuard, CreateError> {
+        if let Some(t) = self.pick_live() {
             return Ok(t);
         }
         let _guard = self.respawn.lock().await;
-        if let Some(t) = self.healthy() {
+        if let Some(t) = self.pick_live() {
             return Ok(t);
         }
         if let Some((at, err)) = self.last_failure.lock().expect("failure lock").as_ref()
@@ -499,19 +736,17 @@ impl IsolateHandle {
         match self.spawn_thread().await {
             Ok(t) => {
                 let t = Arc::new(t);
-                let old = self
-                    .current
-                    .lock()
-                    .expect("isolate lock")
-                    .replace(t.clone());
-                if old.is_some() {
-                    self.runtime
-                        .inner
-                        .metrics
-                        .recycles
-                        .fetch_add(1, Ordering::Relaxed);
+                let mut members = self.members.lock().expect("pool lock");
+                let before = members.len();
+                members.retain(|m| m.healthy());
+                let dead = before - members.len();
+                members.push(t.clone());
+                let guard = LoadGuard::take(&t);
+                drop(members);
+                if dead > 0 {
+                    self.count_recycle(dead);
                 }
-                Ok(t)
+                Ok(guard)
             }
             Err(e) => {
                 *self.last_failure.lock().expect("failure lock") =
@@ -540,15 +775,7 @@ impl IsolateHandle {
         });
     }
 
-    /// Dispatch one request to the handler its route names.
-    ///
-    /// `req`'s URI must be absolute (`https://<host><path>?<query>`), or its
-    /// `Host` header is used with `https`. 404 and 405 are answered here
-    /// without entering the isolate. The request then waits for one of the
-    /// deployment's concurrency slots (503 `RENOX_BUSY` at the deadline),
-    /// runs under the CPU and heap limits, and is answered with 504
-    /// `RENOX_DEADLINE` at its deadline whatever the handler does after.
-    pub async fn dispatch(&self, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
+    async fn dispatch(self: &Arc<Self>, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
         let admitted = Instant::now();
         let (parts, body) = req.into_parts();
         let path = parts.uri.path().to_string();
@@ -662,58 +889,74 @@ impl IsolateHandle {
             return fail(ErrorCode::Busy, MeterStatus::Busy);
         };
 
-        let thread = match self.live_thread().await {
-            Ok(t) => t,
-            Err(e) => {
-                let mut f = serde_json::Map::new();
-                f.insert("code".into(), e.code().as_str().into());
-                f.insert("phase".into(), "module_load".into());
-                f.insert("cause_message".into(), e.to_string().into());
-                self.log("error", Some(&ctx.request_id), "isolate creation failed", f);
-                let status = match e.code() {
-                    ErrorCode::CpuLimit => MeterStatus::CpuLimit,
-                    ErrorCode::Oom => MeterStatus::Oom,
-                    ErrorCode::Deadline => MeterStatus::Timeout,
-                    _ => MeterStatus::Error,
-                };
-                return fail(e.code(), status);
+        let url = absolute_url(&parts);
+        let headers: Arc<Vec<(ByteString, ByteString)>> = Arc::new(
+            parts
+                .headers
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        ByteString::from(k.as_str().as_bytes().to_vec()),
+                        ByteString::from(v.as_bytes().to_vec()),
+                    )
+                })
+                .collect(),
+        );
+        let params = Arc::new(params);
+        // A member that dies between the pick and the start of the request
+        // refuses it (or drops it with its queue); nothing of it ran, so it
+        // goes to another member, once.
+        let mut attempts = 0;
+        let (member, seq, waited) = loop {
+            attempts += 1;
+            let member = match self.live_thread().await {
+                Ok(t) => t,
+                Err(e) => {
+                    let mut f = serde_json::Map::new();
+                    f.insert("code".into(), e.code().as_str().into());
+                    f.insert("phase".into(), "module_load".into());
+                    f.insert("cause_message".into(), e.to_string().into());
+                    self.log("error", Some(&ctx.request_id), "isolate creation failed", f);
+                    let status = match e.code() {
+                        ErrorCode::CpuLimit => MeterStatus::CpuLimit,
+                        ErrorCode::Oom => MeterStatus::Oom,
+                        ErrorCode::Deadline => MeterStatus::Timeout,
+                        _ => MeterStatus::Error,
+                    };
+                    return fail(e.code(), status);
+                }
+            };
+            let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+            let (reply_tx, reply_rx) = oneshot::channel();
+            let job = DispatchJob {
+                seq,
+                route,
+                params: params.clone(),
+                want_body: method != "HEAD",
+                page: is_page.then(|| PageJob {
+                    fragment: fragment.clone(),
+                    session: session.clone(),
+                    action: action.clone(),
+                    template: route_def.page().is_some_and(|p| p.template.is_some()),
+                }),
+                method: method.clone(),
+                url: url.clone(),
+                headers: headers.clone(),
+                body: body.clone(),
+                ctx: ctx.clone(),
+                reply: reply_tx,
+            };
+            // A failed send drops the job and its reply sender: the wait
+            // below then ends at once with a closed channel.
+            let _ = member.0.tx.send(Command::Dispatch(Box::new(job)));
+            let waited = tokio::time::timeout_at(deadline.into(), reply_rx).await;
+            match waited {
+                Ok(Ok(ThreadReply::Refused)) | Ok(Err(_)) if attempts < 2 => continue,
+                waited => break (member, seq, waited),
             }
         };
-        let url = absolute_url(&parts);
-        let headers = parts
-            .headers
-            .iter()
-            .map(|(k, v)| {
-                (
-                    ByteString::from(k.as_str().as_bytes().to_vec()),
-                    ByteString::from(v.as_bytes().to_vec()),
-                )
-            })
-            .collect();
-        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
-        let (reply_tx, reply_rx) = oneshot::channel();
-        let job = DispatchJob {
-            seq,
-            route,
-            params,
-            want_body: method != "HEAD",
-            page: is_page.then(|| PageJob {
-                fragment: fragment.clone(),
-                session,
-                action: action.clone(),
-                template: route_def.page().is_some_and(|p| p.template.is_some()),
-            }),
-            method,
-            url,
-            headers,
-            body,
-            ctx: ctx.clone(),
-            reply: reply_tx,
-        };
-        if thread.tx.send(Command::Dispatch(Box::new(job))).is_err() {
-            return fail(ErrorCode::Internal, MeterStatus::Error);
-        }
-        let reply = match tokio::time::timeout_at(deadline.into(), reply_rx).await {
+        let thread = &member.0;
+        let reply = match waited {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => ThreadReply::Failed {
                 code: ErrorCode::Internal,
@@ -829,6 +1072,8 @@ impl IsolateHandle {
                     is_page,
                 )
             }
+            // Refused twice: both members died before the request started.
+            ThreadReply::Refused => fail(ErrorCode::Internal, MeterStatus::Error),
         }
     }
 }
@@ -1257,10 +1502,9 @@ struct InFlight {
     token: u32,
     ctx: RequestCtx,
     route: usize,
-    /// Thread CPU charged so far (ns), not counting the current slice.
+    /// Thread CPU charged to the request (ns); set from the CPU ledger when
+    /// the request ends.
     cpu_ns: u64,
-    /// CPU of the current slice that ran before this request joined it (ns).
-    slice_offset_ns: u64,
     peak_heap: u64,
     /// What the ops used, taken when the request ends.
     used: RequestEnd,
@@ -1285,27 +1529,128 @@ impl InFlight {
     }
 }
 
-/// How much CPU the current slice may use, measured from the slice start:
-/// the smallest remaining budget among the requests in flight (a request
-/// that joined mid-slice is offset by the slice CPU before it joined). With
-/// nothing in flight (a timer that outlived its request) the per-request
-/// limit still applies, so orphaned work cannot spin forever.
-fn slice_budget(limit: Duration, inflight: &HashMap<u64, InFlight>) -> Duration {
-    let limit_ns = limit.as_nanos() as u64;
-    let min_left = inflight
-        .values()
-        .map(|f| limit_ns.saturating_sub(f.cpu_ns) + f.slice_offset_ns)
-        .min()
-        .unwrap_or(limit_ns);
-    Duration::from_nanos(min_left)
+// ---------------------------------------------------------------------------
+// CPU attribution (#155; limits/cpu.rs, "Accounting").
+
+/// The CPU ledger of the isolate on this thread and the watchdog it steers.
+struct Attribution {
+    ledger: CpuLedger,
+    watch: Arc<CpuWatch>,
+    /// A slice is running: switches are charged and re-arm the watchdog.
+    in_slice: bool,
 }
 
-impl InFlight {
-    /// Charge the part of the current slice this request was in flight for.
-    fn charge(&mut self, slice_cpu_ns: u64) {
-        self.cpu_ns += slice_cpu_ns.saturating_sub(self.slice_offset_ns);
-        self.slice_offset_ns = 0;
+thread_local! {
+    /// Installed by `serve` for the isolate of this thread (one per thread).
+    static ATTRIBUTION: RefCell<Option<Attribution>> = const { RefCell::new(None) };
+}
+
+/// Run `f` on this thread's ledger, if `serve` installed one.
+fn with_attribution<R>(f: impl FnOnce(&mut Attribution) -> R) -> Option<R> {
+    ATTRIBUTION.with(|a| {
+        let mut a = a.try_borrow_mut().ok()?;
+        a.as_mut().map(f)
+    })
+}
+
+/// Apply a context switch inside a slice; when the running context changed,
+/// the watchdog measures the new run against its budget.
+fn attribute(change: impl FnOnce(&mut CpuLedger, u64) -> bool) {
+    with_attribution(|a| {
+        if !a.in_slice {
+            return;
+        }
+        let now = a.watch.now_ns();
+        if change(&mut a.ledger, now) {
+            a.watch.rebase(now, a.ledger.budget());
+        }
+    });
+}
+
+/// End a request in the ledger; returns its CPU (ns).
+fn release_cpu(token: u32) -> u64 {
+    with_attribution(|a| {
+        let now = a.watch.now_ns();
+        let cpu = a.ledger.release(token, now);
+        if a.in_slice {
+            a.watch.rebase(now, a.ledger.budget());
+        }
+        cpu
+    })
+    .unwrap_or(0)
+}
+
+/// The key of the request token in the async context object. The
+/// bootstrap's `AsyncVariable` builds its context mapping by spreading the
+/// previous one (`{ ...previous, [id]: entry }`), so the key survives every
+/// `requestVar.enter`; numeric `AsyncVariable` ids never collide with it.
+const CPU_TOKEN_KEY: &str = "renox:cpu";
+
+/// The request token in an async context value, if it carries one.
+fn context_token(scope: &mut v8::PinScope, cped: v8::Local<v8::Value>) -> Option<u32> {
+    let obj = v8::Local::<v8::Object>::try_from(cped).ok()?;
+    let key = v8::String::new(scope, CPU_TOKEN_KEY)?;
+    let v = obj.get(scope, key.into())?;
+    if v.is_uint32() {
+        v.uint32_value(scope)
+    } else {
+        None
     }
+}
+
+/// The context's `before` promise hook: a promise reaction (an `await`
+/// continuation, a `then` callback) starts. V8 has restored the
+/// continuation-preserved embedder data captured when the reaction was
+/// created: the async context of the request that created it (see
+/// [`CPU_TOKEN_KEY`]) or none.
+fn promise_before(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let cped = scope.get_continuation_preserved_embedder_data();
+    let token = context_token(scope, cped);
+    attribute(|l, now| l.enter(token, now));
+}
+
+/// The context's `after` promise hook: back to what the reaction
+/// interrupted.
+fn promise_after(
+    _scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    attribute(|l, now| l.leave(now));
+}
+
+/// Install the `before` and `after` hooks on the main context. Context
+/// hooks (not the isolate's `SetPromiseHook`) leave `init` and `resolve`
+/// unset, so V8 calls into Rust only around reactions and keeps its fast
+/// paths for creating and resolving promises.
+fn install_promise_hooks(worker: &mut MainWorker) {
+    deno_core::scope!(scope, &mut worker.js_runtime);
+    let before = v8::Function::new(scope, promise_before);
+    let after = v8::Function::new(scope, promise_after);
+    scope.set_promise_hooks(None, before, after, None);
+}
+
+/// Set the async context that JavaScript started now runs in: a
+/// null-prototype object holding the request token under
+/// [`CPU_TOKEN_KEY`], or `undefined` for none.
+fn set_async_context(worker: &mut MainWorker, token: Option<u32>) {
+    deno_core::scope!(scope, &mut worker.js_runtime);
+    let v: v8::Local<v8::Value> = match token {
+        Some(t) => {
+            let key: v8::Local<v8::Name> = v8::String::new(scope, CPU_TOKEN_KEY)
+                .expect("short ASCII string")
+                .into();
+            let value: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, t).into();
+            let null = v8::null(scope).into();
+            v8::Object::with_prototype_and_properties(scope, null, &[key], &[value]).into()
+        }
+        None => v8::undefined(scope).into(),
+    };
+    scope.set_continuation_preserved_embedder_data(v);
 }
 
 /// The isolate's main loop: accept dispatches, poll the event loop, and
@@ -1320,12 +1665,22 @@ async fn serve(
     let cpu_limit = Duration::from_millis(ctx.limits.cpu_ms);
     let mut calls: FuturesUnordered<SeqCall> = FuturesUnordered::new();
     let mut inflight: HashMap<u64, InFlight> = HashMap::new();
+    let watch = guards.watchdog.watch().clone();
+    ATTRIBUTION.with(|a| {
+        *a.borrow_mut() = Some(Attribution {
+            ledger: CpuLedger::new(cpu_limit),
+            watch: watch.clone(),
+            in_slice: false,
+        })
+    });
+    install_promise_hooks(worker);
     std::future::poll_fn(|cx| {
-        let slice = guards
-            .watchdog
-            .begin_slice(slice_budget(cpu_limit, &inflight));
-        let watch = guards.watchdog.watch().clone();
-        let slice_cpu = |watch: &crate::limits::cpu::CpuWatch| watch.now_ns().saturating_sub(slice);
+        let budget = with_attribution(|a| a.ledger.budget()).unwrap_or(cpu_limit);
+        let slice = guards.watchdog.begin_slice(budget);
+        with_attribution(|a| {
+            a.ledger.begin(slice);
+            a.in_slice = true;
+        });
         let mut stop = false;
 
         // 1. New commands.
@@ -1333,24 +1688,14 @@ async fn serve(
             match cmd {
                 Some(Command::Dispatch(job)) => {
                     if ctx.shared.poisoned.load(Ordering::SeqCst) {
-                        let _ = job.reply.send(ThreadReply::Failed {
-                            code: ErrorCode::Internal,
-                            meter: InvocationMeter::new(None, MeterStatus::Error),
-                        });
+                        let _ = job.reply.send(ThreadReply::Refused);
                         continue;
                     }
                     let seq = job.seq;
-                    // A request that joins mid-slice is charged only from
-                    // now on, and its synchronous part already runs inside
-                    // start_dispatch, under its own budget.
-                    let offset = slice_cpu(&watch);
-                    guards.watchdog.set_budget(
-                        slice_budget(cpu_limit, &inflight)
-                            .min(Duration::from_nanos(offset) + cpu_limit),
-                    );
+                    // The request is charged from now on; its synchronous
+                    // part runs inside start_dispatch, in its own context.
                     match start_dispatch(ctx, worker, platform, *job) {
-                        Ok((fut, mut flight)) => {
-                            flight.slice_offset_ns = offset;
+                        Ok((fut, flight)) => {
                             inflight.insert(seq, flight);
                             calls.push(Box::pin(async move { (seq, fut.await) }));
                         }
@@ -1361,13 +1706,10 @@ async fn serve(
                             });
                         }
                     }
-                    guards
-                        .watchdog
-                        .set_budget(slice_budget(cpu_limit, &inflight));
                 }
                 Some(Command::Cancel { seq, meter }) => {
                     if let Some(mut f) = inflight.remove(&seq) {
-                        f.charge(slice_cpu(&watch));
+                        f.cpu_ns = release_cpu(f.token);
                         f.used = end_request(ctx, worker, f.token, Ended::Terminated);
                         let _ = meter.send(f.meter(ctx, MeterStatus::Timeout));
                     }
@@ -1397,7 +1739,6 @@ async fn serve(
                 let Some(mut flight) = inflight.remove(&seq) else {
                     continue;
                 };
-                flight.charge(slice_cpu(&watch));
                 flight.peak_heap = flight
                     .peak_heap
                     .max(heap::used_heap_bytes(&mut worker.js_runtime));
@@ -1405,6 +1746,7 @@ async fn serve(
                     inflight.insert(seq, flight);
                     break;
                 }
+                flight.cpu_ns = release_cpu(flight.token);
                 flight.used = end_request(ctx, worker, flight.token, Ended::Finished);
                 let reply = finish_dispatch(ctx, worker, &flight, result);
                 if flight.used.rolled_back_tx {
@@ -1434,11 +1776,14 @@ async fn serve(
             }
         }
 
-        // End of slice: charge every request still in flight.
-        let used = guards.watchdog.end_slice(slice).as_nanos() as u64;
+        // End of slice: charge the last run, record the heap peak.
+        with_attribution(|a| {
+            a.ledger.end(a.watch.now_ns());
+            a.in_slice = false;
+        });
+        guards.watchdog.end_slice(slice);
         let heap_now = heap::used_heap_bytes(&mut worker.js_runtime);
         for f in inflight.values_mut() {
-            f.charge(used);
             f.peak_heap = f.peak_heap.max(heap_now);
         }
 
@@ -1456,6 +1801,7 @@ async fn serve(
         if let Some((code, status)) = killed {
             ctx.shared.poisoned.store(true, Ordering::SeqCst);
             for (_, mut flight) in inflight.drain() {
+                flight.cpu_ns = release_cpu(flight.token);
                 flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
                 let mut f = serde_json::Map::new();
                 f.insert("code".into(), code.as_str().into());
@@ -1509,6 +1855,7 @@ async fn serve(
             // Disposal: requests still in flight get no answer, but their
             // resources are released before the isolate goes.
             for (_, mut flight) in inflight.drain() {
+                release_cpu(flight.token);
                 flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
             }
             return Poll::Ready(());
@@ -1516,6 +1863,7 @@ async fn serve(
         Poll::Pending
     })
     .await;
+    ATTRIBUTION.with(|a| a.borrow_mut().take());
 }
 
 /// What a request's ops used, and what had to be cleaned up when it ended.
@@ -1635,7 +1983,17 @@ fn start_dispatch(
             return Err((job.reply, ErrorCode::Internal));
         }
     };
+    // The handler runs in the request's async context; V8 carries it into
+    // every reaction the handler creates (CPU attribution, #155).
+    with_attribution(|a| {
+        let now = a.watch.now_ns();
+        a.ledger.admit(token, now)
+    });
+    set_async_context(worker, Some(token));
+    attribute(|l, now| l.switch(Some(token), now));
     let fut = worker.js_runtime.call_with_args(&platform.dispatch, &args);
+    attribute(|l, now| l.switch(None, now));
+    set_async_context(worker, None);
     Ok((
         Box::pin(fut),
         InFlight {
@@ -1643,7 +2001,6 @@ fn start_dispatch(
             ctx: job.ctx,
             route: job.route,
             cpu_ns: 0,
-            slice_offset_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
             reply: Some(job.reply),
@@ -1674,7 +2031,7 @@ fn build_args(
     let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
     let method: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.method)?;
     let url: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.url)?;
-    let headers: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.headers)?;
+    let headers: v8::Local<v8::Value> = serde_v8::to_v8(scope, job.headers.as_slice())?;
     let body: v8::Local<v8::Value> = if job.body.is_empty() {
         v8::null(scope).into()
     } else {

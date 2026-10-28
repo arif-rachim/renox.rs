@@ -16,7 +16,7 @@ use http_body_util::BodyExt;
 use renox_data::{
     DbError, DbOptions, MigrationError, MigrationFile, TenantDb, migrate_with_checksums,
 };
-use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus};
+use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus, compress};
 use renox_meter::{Meter, MeterRecord, MeterStatus};
 use renox_runtime::error::{ErrorCode, PlatformResponse};
 use renox_runtime::isolate::{CreateError, MeterStatus as RuntimeStatus};
@@ -46,6 +46,18 @@ pub struct ManagerConfig {
     pub tenant_tiers: BTreeMap<String, TierName>,
     /// The node key page sessions and CSRF tokens are derived from (#41).
     pub platform_key: PlatformKey,
+}
+
+/// Isolates per hot deployment (#156; `renox_runtime::isolate`, "Pool"):
+/// the free tier gets two, the paid tier one per core up to eight. A
+/// deployment grows its pool only while requests wait on a busy isolate,
+/// and keeps one spare once it has grown.
+fn max_isolates(tier: TierName) -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    match tier {
+        TierName::Free => cores.clamp(1, 2),
+        TierName::Paid => cores.clamp(1, 8),
+    }
 }
 
 impl ManagerConfig {
@@ -285,6 +297,7 @@ impl CellManager {
                 limits: tier.runtime_limits(base),
                 secrets,
                 db: Some(db.clone()),
+                max_isolates: max_isolates(tier_name),
             };
             self.inner
                 .runtime
@@ -530,6 +543,7 @@ impl CellManager {
         let is_head = parts.method == http::Method::HEAD;
         let get_or_head = is_head || parts.method == http::Method::GET;
         let wants_html = prefers_html(&parts.headers);
+        let encoding = compress::negotiate(&parts.headers);
         let body = match body.collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => Bytes::new(),
@@ -689,6 +703,10 @@ impl CellManager {
             }
             out.response = r.response;
         }
+        // Compress before the meter record, so `egress_bytes` counts the
+        // bytes sent (#159; gateway README, "Compression"). HEAD gets the
+        // headers of the GET it stands for.
+        out.response = compress::apply(out.response, encoding);
         if is_head {
             *out.response.body_mut() = Bytes::new();
         }
