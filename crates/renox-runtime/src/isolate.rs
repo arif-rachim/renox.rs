@@ -1201,15 +1201,18 @@ async fn create_worker(
     ctx: &ThreadContext,
 ) -> Result<(MainWorker, Platform, Guards, Duration), CreateError> {
     let manifest = &ctx.artifact.manifest;
-    let loader: Rc<ArtifactLoader> = Rc::new(match manifest.code.format {
-        CodeFormat::EsmDir => ArtifactLoader::esm_dir(&ctx.artifact.code_dir())
-            .map_err(|e| CreateError::Internal(e.to_string()))?,
-        CodeFormat::Eszip => ArtifactLoader::in_memory(
-            crate::loader::eszip_modules(&ctx.artifact)
-                .await
-                .map_err(|e| CreateError::ModuleLoad(e.to_string()))?,
-        ),
-    });
+    let loader: Rc<ArtifactLoader> = Rc::new(
+        match manifest.code.format {
+            CodeFormat::EsmDir => ArtifactLoader::esm_dir(&ctx.artifact.code_dir())
+                .map_err(|e| CreateError::Internal(e.to_string()))?,
+            CodeFormat::Eszip => ArtifactLoader::in_memory(
+                crate::loader::eszip_modules(&ctx.artifact)
+                    .await
+                    .map_err(|e| CreateError::ModuleLoad(e.to_string()))?,
+            ),
+        }
+        .with_code_cache(&ctx.spec.tenant_id, &ctx.spec.deployment_hash),
+    );
     let fs: Arc<dyn deno_fs::FileSystem> = Arc::new(deno_fs::RealFs);
     // Step 1: every Deno permission denied, without prompting.
     let permissions = PermissionsContainer::new(

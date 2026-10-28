@@ -27,14 +27,31 @@
 //! `npm:` dependencies are not resolved at runtime: the CLI vendors them
 //! into the artifact (esm-dir, #32) or the eszip bundles them (README,
 //! "Module loader").
+//!
+//! V8 code cache (#157): the code V8 compiles for a module is kept in
+//! [`CodeCache`] (process-wide, in memory) and handed back when another
+//! isolate of the same tenant and deployment loads the same module: pool
+//! members, the spare, and re-creation after a recycle or an idle eviction
+//! skip compiling the module's eagerly compiled functions. A deployment's
+//! first isolate stores nothing: only a deployment created a second time
+//! gets entries, so the many tenants that only ever run one isolate (B1,
+//! B2) pay no memory for it (a `shop` deployment's cache is about 270 KB).
+//! Entries are
+//! scoped by tenant and deployment, so no tenant ever consumes code
+//! compiled from another tenant's source, and keyed by a hash of the full
+//! source text: V8 itself only checks the source length.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use deno_core::{
     ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
     ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
+    SourceCodeCacheInfo,
 };
 use deno_error::JsErrorBox;
 
@@ -161,6 +178,171 @@ enum Source {
 /// The loader of one isolate.
 pub struct ArtifactLoader {
     source: Source,
+    /// `<tenant>/<deployment>` when the code cache is used.
+    cache_scope: Option<String>,
+    /// Store what V8 compiles (not on a deployment's first isolate).
+    cache_store: bool,
+}
+
+/// Upper bound of [`CodeCache`]: an entry that would go over it empties
+/// the cache first, so entries of old deployments do not stay forever.
+pub const CODE_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024;
+
+/// Deployments remembered as created once; the set is emptied when full.
+const SEEN_MAX: usize = 100_000;
+
+/// Compiled code per (tenant, deployment, module), see the module docs.
+pub struct CodeCache {
+    entries: Mutex<HashMap<String, CacheEntry>>,
+    /// Scopes that already created an isolate (bounded like the entries).
+    seen: Mutex<HashSet<String>>,
+    bytes: AtomicUsize,
+    enabled: AtomicBool,
+    hits: AtomicU64,
+    stores: AtomicU64,
+}
+
+struct CacheEntry {
+    source_hash: u64,
+    data: Arc<[u8]>,
+}
+
+/// The process's code cache.
+pub fn code_cache() -> &'static CodeCache {
+    static CACHE: LazyLock<CodeCache> = LazyLock::new(|| CodeCache {
+        entries: Mutex::new(HashMap::new()),
+        seen: Mutex::new(HashSet::new()),
+        bytes: AtomicUsize::new(0),
+        enabled: AtomicBool::new(true),
+        hits: AtomicU64::new(0),
+        stores: AtomicU64::new(0),
+    });
+    &CACHE
+}
+
+fn cache_key(scope: &str, specifier: &str) -> String {
+    format!("{scope}\n{specifier}")
+}
+
+fn source_hash(code: &str) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    code.hash(&mut h);
+    h.finish()
+}
+
+impl CodeCache {
+    /// Turn the cache on or off for isolates created from now on (on by
+    /// default; off for the B1/B4 comparison).
+    pub fn set_enabled(&self, on: bool) {
+        self.enabled.store(on, Ordering::SeqCst);
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled.load(Ordering::SeqCst)
+    }
+
+    /// Modules served from the cache so far (V8 may still reject one).
+    pub fn hits(&self) -> u64 {
+        self.hits.load(Ordering::SeqCst)
+    }
+
+    /// Caches V8 produced and the cache stored (a module compiled without a
+    /// cache, or whose cache V8 rejected).
+    pub fn stores(&self) -> u64 {
+        self.stores.load(Ordering::SeqCst)
+    }
+
+    /// Bytes held.
+    pub fn bytes(&self) -> usize {
+        self.bytes.load(Ordering::SeqCst)
+    }
+
+    /// Entries of one `<tenant>/<deployment>` scope.
+    pub fn entries_for(&self, scope: &str) -> usize {
+        let prefix = format!("{scope}\n");
+        self.entries
+            .lock()
+            .expect("code cache lock")
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .count()
+    }
+
+    /// Drop every entry of a `<tenant>/<deployment>` scope.
+    pub fn forget(&self, scope: &str) {
+        let prefix = format!("{scope}\n");
+        let mut entries = self.entries.lock().expect("code cache lock");
+        entries.retain(|k, e| {
+            let keep = !k.starts_with(&prefix);
+            if !keep {
+                self.bytes.fetch_sub(e.data.len(), Ordering::SeqCst);
+            }
+            keep
+        });
+    }
+
+    fn lookup(&self, scope: &str, specifier: &str, code: &str) -> SourceCodeCacheInfo {
+        let hash = source_hash(code);
+        let data = self
+            .entries
+            .lock()
+            .expect("code cache lock")
+            .get(&cache_key(scope, specifier))
+            .filter(|e| e.source_hash == hash)
+            .map(|e| e.data.clone());
+        if data.is_some() {
+            self.hits.fetch_add(1, Ordering::SeqCst);
+        }
+        SourceCodeCacheInfo {
+            hash,
+            data: data.map(|d| std::borrow::Cow::Owned(d.to_vec())),
+        }
+    }
+
+    fn store(&self, scope: &str, specifier: &str, source_hash: u64, data: &[u8]) {
+        let mut entries = self.entries.lock().expect("code cache lock");
+        let key = cache_key(scope, specifier);
+        if data.len() > CODE_CACHE_MAX_BYTES {
+            return;
+        }
+        if let Some(old) = entries.remove(&key) {
+            self.bytes.fetch_sub(old.data.len(), Ordering::SeqCst);
+        }
+        if self.bytes.load(Ordering::SeqCst) + data.len() > CODE_CACHE_MAX_BYTES {
+            // Full: start over rather than keep stale deployments forever.
+            entries.clear();
+            self.bytes.store(0, Ordering::SeqCst);
+        }
+        self.bytes.fetch_add(data.len(), Ordering::SeqCst);
+        entries.insert(
+            key,
+            CacheEntry {
+                source_hash,
+                data: data.into(),
+            },
+        );
+        self.stores.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// `true` when `scope` created an isolate before (and remember it).
+    fn seen_before(&self, scope: &str) -> bool {
+        let mut seen = self.seen.lock().expect("code cache lock");
+        if seen.contains(scope) {
+            return true;
+        }
+        if seen.len() >= SEEN_MAX {
+            seen.clear();
+        }
+        seen.insert(scope.to_string());
+        false
+    }
+
+    fn purge(&self, scope: &str, specifier: &str) {
+        let mut entries = self.entries.lock().expect("code cache lock");
+        if let Some(e) = entries.remove(&cache_key(scope, specifier)) {
+            self.bytes.fetch_sub(e.data.len(), Ordering::SeqCst);
+        }
+    }
 }
 
 impl ArtifactLoader {
@@ -170,13 +352,30 @@ impl ArtifactLoader {
             .map_err(|_| JsErrorBox::generic("artifact code directory missing"))?;
         Ok(ArtifactLoader {
             source: Source::Dir(canonical),
+            cache_scope: None,
+            cache_store: false,
         })
     }
 
     pub fn in_memory(modules: Arc<HashMap<String, Arc<[u8]>>>) -> ArtifactLoader {
         ArtifactLoader {
             source: Source::Memory(modules),
+            cache_scope: None,
+            cache_store: false,
         }
+    }
+
+    /// Use the process's [`CodeCache`] under `<tenant_id>/<deployment_hash>`,
+    /// if it is enabled, from the deployment's
+    /// second isolate on.
+    pub fn with_code_cache(mut self, tenant_id: &str, deployment_hash: &str) -> ArtifactLoader {
+        let cache = code_cache();
+        if cache.enabled() {
+            let scope = format!("{tenant_id}/{deployment_hash}");
+            self.cache_store = cache.seen_before(&scope);
+            self.cache_scope = Some(scope);
+        }
+        self
     }
 
     fn read(&self, specifier: &ModuleSpecifier) -> Result<ModuleSource, JsErrorBox> {
@@ -204,11 +403,19 @@ impl ArtifactLoader {
         };
         let code = String::from_utf8(bytes)
             .map_err(|_| JsErrorBox::generic(format!("module is not UTF-8: {specifier}")))?;
+        // No cache info at all on a deployment's first isolate: with any,
+        // V8 would also serialise a cache for the loader to drop.
+        let cache = match (&self.cache_scope, &module_type) {
+            (Some(scope), ModuleType::JavaScript) if self.cache_store => {
+                Some(code_cache().lookup(scope, specifier.as_str(), &code))
+            }
+            _ => None,
+        };
         Ok(ModuleSource::new(
             module_type,
             ModuleSourceCode::String(code.into()),
             specifier,
-            None,
+            cache,
         ))
     }
 }
@@ -240,6 +447,24 @@ impl ModuleLoader for ArtifactLoader {
             }
         });
         ModuleLoadResponse::Sync(result)
+    }
+
+    fn code_cache_ready(
+        &self,
+        module_specifier: ModuleSpecifier,
+        hash: u64,
+        code_cache: &[u8],
+    ) -> Pin<Box<dyn std::future::Future<Output = ()>>> {
+        if let (Some(scope), true) = (&self.cache_scope, self.cache_store) {
+            self::code_cache().store(scope, module_specifier.as_str(), hash, code_cache);
+        }
+        Box::pin(async {})
+    }
+
+    fn purge_and_prevent_code_cache(&self, module_specifier: &str) {
+        if let Some(scope) = &self.cache_scope {
+            code_cache().purge(scope, module_specifier);
+        }
     }
 }
 
