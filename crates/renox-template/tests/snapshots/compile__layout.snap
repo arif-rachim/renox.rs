@@ -1,0 +1,37 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/_404 (NotFound)
+{% extends "pages/_layouts/main" %}{% block content %}<h1>Not found</h1><p dir="auto">Request id: {{ request_id }}</p>{% endblock %}
+== pages/_error (Error)
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>{{ status }}</title></head>
+<body><h1 dir="auto">{{ status }}</h1><p dir="auto">{{ message }}</p><p dir="auto">Request id: {{ request_id }}</p>
+</body></html>
+== pages/_layouts/main (Layout)
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="utf-8">
+  <title>{% block title %}Shop{% endblock %} · Renox</title>
+  <style{% if __renox.csp_nonce %} nonce="{{ __renox.csp_nonce }}"{% endif %}>body { margin: 0 }</style>
+</head>
+<body>
+  <header><a href="/">Shop</a> {% block cart_badge %}<span id="cart-badge" dir="auto">{{ ((cart_count) if (cart_count) is defined and (cart_count) is not none else (0)) }}</span>{% endblock %}</header>
+  <main>{% block content %}{% endblock %}</main>
+  <aside>{% block sidebar %}<p>No sidebar</p>{% endblock %}</aside>
+  <script src="/static/htmx.min.js" defer{% if __renox.csp_nonce %} nonce="{{ __renox.csp_nonce }}"{% endif %}></script>
+
+
+</body></html>
+== pages/about (Page)
+{% extends "pages/_layouts/main" %}{% block sidebar %}<a href="/contact">Contact</a>{% endblock %}{% block content %}
+  
+  <p>About us.</p>
+{% endblock %}
+-- fragments: {"cart_badge":{"target":"cart-badge"}}
+== pages/index (Page)
+{% extends "pages/_layouts/main" %}{% block title %}Home{% endblock %}{% block content %}
+  
+  <p dir="auto">Welcome, {{ user.name }}.</p>
+  {% block news %}<section id="news">{% for n in (news) | __loop %}<p dir="auto">{{ n.title }}</p>{% endfor %}</section>{% endblock %}
+{% endblock %}
+-- fragments: {"cart_badge":{"target":"cart-badge"},"news":{"target":"news"}}

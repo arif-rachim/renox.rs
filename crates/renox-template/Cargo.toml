@@ -1,0 +1,37 @@
+[package]
+name = "renox-template"
+version = "0.0.0"
+description = "Attribute templates -> minijinja: compiler, fragment map, renderer with limits, platform filters (docs/08-template-engine.md, ADR D8)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Leaf crate: no renox-* dependencies, no V8 (AGENTS.md, compile discipline).
+#
+# Features:
+# - `compiler`: the deploy-time transpiler (html5ever). Builds for Wasm, so
+#   the CLI can embed it (#43).
+# - `render`: the request-time renderer, its limits, and the platform filters.
+[features]
+default = ["compiler", "render"]
+compiler = ["dep:html5ever", "dep:markup5ever_rcdom"]
+render = ["minijinja/fuel", "dep:cpu-time"]
+
+[dependencies]
+# Default features minus `debug` (the debug() global) and `macros`
+# (templates have no macros; components are inlined at compile time).
+minijinja = { version = "3.0.4", default-features = false, features = ["builtins", "multi_template", "adjacent_loop_items", "std_collections", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0.21"
+
+html5ever = { version = "0.39.0", optional = true }
+markup5ever_rcdom = { version = "0.39.0", optional = true }
+# Thread CPU time of a render (meter `render_ms`, docs/contracts/meter.md).
+cpu-time = { version = "1.0.0", optional = true }
+
+[dev-dependencies]
+insta = "1"
+# unstable_machinery exposes compiled instructions, used only to prove that
+# consecutive static HTML compiles to one EmitRaw (tests/compile.rs).
+minijinja = { version = "3.0.4", features = ["unstable_machinery"] }

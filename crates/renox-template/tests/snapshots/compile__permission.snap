@@ -1,0 +1,15 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<ul>
+  {% for p in (products) | __loop %}<li dir="auto">
+    {{ p.name }}
+    {% if can("cart.add", p) %}<button hx-post="?/addToCart">Add</button>{% endif %}
+    {% if not can("cart.add", p) %}<span>Sign in to buy</span>{% endif %}
+  </li>{% endfor %}
+</ul>
+{% if can("admin.access", none) %}<a href="/admin">Admin</a>{% endif %}
+
+-- fragments: {}

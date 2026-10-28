@@ -1,0 +1,13 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<h1 dir="auto">{{ product.name }}</h1>
+<p dir="ltr">{{ product.sku }}</p>
+<p>Static text only</p>
+<input type="text" name="q" value="{{ query }}" dir="auto">
+<input type="number" name="n" value="{{ count }}">
+<textarea name="note" dir="auto">{{ note }}</textarea>
+
+-- fragments: {}

@@ -1,0 +1,9 @@
+<ul id="list" r-fragment="list">
+  <li r-for="p in products">
+    <x-product-card :product="p" compact>
+      <button slot="actions" hx-post="?/addToCart">Add {{ product }}</button>
+      <x-badge label="New" />
+    </x-product-card>
+  </li>
+</ul>
+<x-product-card :product="featured" currency="USD" />

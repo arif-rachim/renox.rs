@@ -1,0 +1,14 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<dl>
+  {% for item in (specs) | __loop %}
+    <dt dir="auto">{{ item.key }}</dt>
+    <dd dir="auto">{{ item.value }}</dd>
+  {% endfor %}
+  {% if warranty %}<dt>Warranty</dt><dd dir="auto">{{ warranty }}</dd>{% endif %}
+</dl>
+
+-- fragments: {}

@@ -1,0 +1,11 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<form>
+  <input type="checkbox" name="agree"{% if user.agreed %} checked{% endif %}{% if not user.agreed %} required{% endif %}>
+  <button type="submit"{% if cart.items | length == 0 %} disabled{% endif %}>Pay</button>
+</form>
+
+-- fragments: {}

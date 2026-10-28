@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-template-proto = { path = "../template-proto" }
+renox-template = { path = "../../../crates/renox-template", default-features = false, features = ["compiler"] }
 # fuel: measure the overhead of the F2 render DoS limit (docs/08-template-engine.md).
 minijinja = { version = "3.0.4", features = ["fuel"] }
 

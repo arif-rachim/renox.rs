@@ -1,0 +1,11 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<div dir="auto">{{ title }}</div>
+<script{% if __renox.csp_nonce %} nonce="{{ __renox.csp_nonce }}"{% endif %}>{% raw %}window.state = {{ "not interpolated" }}; if (a < b && c) { go(); }{% endraw %}</script>
+<style{% if __renox.csp_nonce %} nonce="{{ __renox.csp_nonce }}"{% endif %}>{% raw %}.a::before { content: "{{ literal }}"; }{% endraw %}</style>
+<script{% if __renox.csp_nonce %} nonce="{{ __renox.csp_nonce }}"{% endif %}>console.log("no delimiters here", 1 < 2);</script>
+
+-- fragments: {}

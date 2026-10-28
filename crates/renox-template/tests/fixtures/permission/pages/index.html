@@ -1,0 +1,8 @@
+<ul>
+  <li r-for="p in products">
+    {{ p.name }}
+    <button r-can="cart.add" :resource="p" hx-post="?/addToCart">Add</button>
+    <span r-cannot="cart.add" :resource="p">Sign in to buy</span>
+  </li>
+</ul>
+<a href="/admin" r-can="admin.access">Admin</a>

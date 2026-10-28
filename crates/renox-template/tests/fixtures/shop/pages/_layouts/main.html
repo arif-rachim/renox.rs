@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><slot name="title">Renox Shop</slot></title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="/">Renox Shop</a>
+    <nav><a href="/products">Products</a> <a href="/cart">Cart (<span id="cart-count" r-fragment="cart_count">{{ cart_count }}</span>)</a></nav>
+  </header>
+  <main id="main"><slot /></main>
+  <footer class="site-footer"><small>Prices include VAT. Dubai, United Arab Emirates.</small></footer>
+</body>
+</html>

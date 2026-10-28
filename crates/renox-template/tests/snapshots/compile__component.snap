@@ -1,0 +1,44 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+{% block list %}<ul id="list">
+  {% for p in (products) | __loop %}<li>
+    {% with __a1_0 = (true), __a1_1 = ('AED'), __a1_2 = (p), __s1_product = product, __s1_compact = compact, __s1_currency = currency %}{% with compact = __a1_0, currency = __a1_1, product = __a1_2 %}
+<article class="card{% if compact %} compact{% endif %}">
+  <h3 dir="auto">{{ product.name }}</h3>
+  {% if not compact %}<p dir="auto">{{ product.price | money(currency) }}</p>{% endif %}
+  <footer>{% with product = __s1_product, compact = __s1_compact, currency = __s1_currency %}<button hx-post="?/addToCart" dir="auto">Add {{ product }}</button>{% endwith %}</footer>
+  <div class="extra">{% with product = __s1_product, compact = __s1_compact, currency = __s1_currency %}
+      
+      {% with __a2_0 = ("New") %}{% with label = __a2_0 %}
+<span class="badge" dir="auto">{{ label }}</span>
+{% endwith %}{% endwith %}
+    {% endwith %}</div>
+</article>
+{% endwith %}{% endwith %}
+  </li>{% endfor %}
+</ul>{% endblock %}
+{% with __a3_0 = (false), __a3_1 = ("USD"), __a3_2 = (featured) %}{% with compact = __a3_0, currency = __a3_1, product = __a3_2 %}
+<article class="card{% if compact %} compact{% endif %}">
+  <h3 dir="auto">{{ product.name }}</h3>
+  {% if not compact %}<p dir="auto">{{ product.price | money(currency) }}</p>{% endif %}
+  <footer></footer>
+  <div class="extra">No extra content</div>
+</article>
+{% endwith %}{% endwith %}
+
+-- fragments: {"list":{"target":"list"}}
+== partials/badge (Partial)
+
+<span class="badge" dir="auto">{{ label }}</span>
+
+== partials/product-card (Partial)
+
+<article class="card{% if compact %} compact{% endif %}">
+  <h3 dir="auto">{{ product.name }}</h3>
+  {% if not compact %}<p dir="auto">{{ product.price | money(currency) }}</p>{% endif %}
+  <footer></footer>
+  <div class="extra">No extra content</div>
+</article>

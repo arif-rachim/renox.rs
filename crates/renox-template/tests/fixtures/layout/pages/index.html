@@ -1,0 +1,5 @@
+<r-layout use="main">
+  <r-group slot="title">Home</r-group>
+  <p>Welcome, {{ user.name }}.</p>
+  <section id="news" r-fragment="news"><p r-for="n in news">{{ n.title }}</p></section>
+</r-layout>

@@ -1,4 +1,0 @@
-<div>
-  {% if order.status == 'paid' %}<span>Paid</span>{% elif order.status == 'pending' and not order.expired %}<span>Pending</span>{% else %}<span>Cancelled</span>{% endif %}
-  {% if order.gift %}<em>Gift</em>{% endif %}
-</div>

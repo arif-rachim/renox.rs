@@ -1,4 +1,0 @@
-<div id="cart" x-data="{ open: false }" hx-get="/cart" hx-trigger="load, cart-updated from:body" hx-target="this" @click="open = !open" data-a="1" aria-label="Cart">
-  <button hx-post="?/addToCart" hx-vals='{"productId": "{{ p.id }}"}' x-on:click="count++">Add</button>
-  <a href="/search?q={{ q }}&amp;page=2">next</a>
-</div>

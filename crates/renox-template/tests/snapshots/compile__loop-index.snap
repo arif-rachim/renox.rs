@@ -1,0 +1,10 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<ol>
+  {% for p in (products) | __loop %}{% set i = loop.index0 %}<li data-index="{{ i }}" dir="auto">{{ i + 1 }}. {{ p.name }}</li>{% endfor %}
+</ol>
+
+-- fragments: {}

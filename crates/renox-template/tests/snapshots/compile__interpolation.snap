@@ -1,0 +1,8 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<p class="greeting" dir="auto">Hello, {{ user.name }}! You have {{ cart.items | length }} items &amp; {{ 3 > 2 }}.</p>
+
+-- fragments: {}

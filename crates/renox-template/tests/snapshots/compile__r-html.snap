@@ -1,0 +1,8 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<article class="post" dir="auto">{{ (post.body) | safe }}</article>
+
+-- fragments: {}
