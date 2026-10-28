@@ -58,7 +58,9 @@ use crate::ops::log::{LogEnv, RedactingSink};
 use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
 use crate::ops::secrets::{self, Redactor, SecretsState};
-use crate::pages::{MAX_DATA_JSON_BYTES, PageRender, select_fragment};
+use crate::pages::{
+    MAX_DATA_JSON_BYTES, PageCall, PageRender, PageSession, page_call, select_fragment,
+};
 use crate::request_resources;
 use crate::router::{ParamValue, RouteMatch, Router};
 use crate::runtime::{LogLine, LogSink, Runtime};
@@ -256,10 +258,20 @@ struct DispatchJob {
     headers: Arc<Vec<(ByteString, ByteString)>>,
     body: Bytes,
     want_body: bool,
-    /// Page routes: `Some(fragment)`; the loader gets `ctx.fragment`.
-    page: Option<Option<String>>,
+    /// Page routes: what the bootstrap needs for `LoaderContext` and
+    /// `ActionContext` (`ops.md` section 14).
+    page: Option<PageJob>,
     ctx: RequestCtx,
     reply: oneshot::Sender<ThreadReply>,
+}
+
+struct PageJob {
+    fragment: Option<String>,
+    session: String,
+    /// The action to run (`POST ?/<name>`), or `None` for `load`.
+    action: Option<String>,
+    /// The page has a template (an object result can be rendered).
+    template: bool,
 }
 
 enum Command {
@@ -282,9 +294,11 @@ enum ThreadReply {
         body: Bytes,
         meter: InvocationMeter,
     },
-    /// A page loader returned an object: the template data as JSON.
+    /// A page loader or action returned an object: the template data as
+    /// JSON, and an action's out-of-band fragments.
     Render {
         data_json: String,
+        fragments: Vec<String>,
         meter: InvocationMeter,
     },
     /// The request ended with a platform error.
@@ -782,6 +796,24 @@ impl Pool {
                     false,
                 );
             }
+            RouteMatch::Redirect { location } => {
+                // artifact.md section 3, "Trailing slashes": 308, query kept.
+                let location = match parts.uri.query() {
+                    Some(q) => format!("{location}?{q}"),
+                    None => location,
+                };
+                let response = http::Response::builder()
+                    .status(308)
+                    .header(http::header::LOCATION, location)
+                    .header("x-renox-request-id", ctx.request_id.as_str())
+                    .body(Bytes::new())
+                    .unwrap_or_else(|_| PlatformResponse::not_found(&ctx.request_id));
+                return Dispatched::plain(
+                    response,
+                    InvocationMeter::new(None, MeterStatus::Ok),
+                    false,
+                );
+            }
         };
         let route_def = &self.artifact.manifest.routes[route];
         let route_name = format!("{} {}", route_def.method.as_str(), route_def.path);
@@ -791,7 +823,31 @@ impl Pool {
         } else {
             None
         };
-        if is_page && route_def.handler_export().is_none() {
+        let action = match is_page.then(|| page_call(route_def, &method, parts.uri.query())) {
+            Some(PageCall::UnknownAction) => {
+                // An unknown or missing action name: 404, no tenant code.
+                return Dispatched::plain(
+                    PlatformResponse::not_found(&ctx.request_id),
+                    InvocationMeter::new(None, MeterStatus::Ok),
+                    false,
+                );
+            }
+            Some(PageCall::Action(name)) => Some(name),
+            _ => None,
+        };
+        // ops.md section 14: only an htmx request gets out-of-band fragments;
+        // a plain form POST gets the full page.
+        let htmx = parts
+            .headers
+            .get("hx-request")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.eq_ignore_ascii_case("true"));
+        let session = parts
+            .extensions
+            .get::<PageSession>()
+            .map(|s| s.id.clone())
+            .unwrap_or_default();
+        if is_page && action.is_none() && route_def.handler_export().is_none() {
             // An `.html` page, or `.ts` + `.html` without `load`: no tenant
             // code runs; the template gets `{}`.
             return Dispatched {
@@ -877,7 +933,12 @@ impl Pool {
                 route,
                 params: params.clone(),
                 want_body: method != "HEAD",
-                page: is_page.then(|| fragment.clone()),
+                page: is_page.then(|| PageJob {
+                    fragment: fragment.clone(),
+                    session: session.clone(),
+                    action: action.clone(),
+                    template: route_def.page().is_some_and(|p| p.template.is_some()),
+                }),
                 method: method.clone(),
                 url: url.clone(),
                 headers: headers.clone(),
@@ -956,9 +1017,41 @@ impl Pool {
             }
             ThreadReply::Render {
                 data_json,
+                fragments,
                 mut meter,
             } => {
-                meter.route = Some(route_name);
+                meter.route = Some(route_name.clone());
+                // ops.md section 14: an out-of-band name not in the page's
+                // fragment map is 500, whether or not the request is htmx.
+                let template = route_def.page().and_then(|p| p.template.as_deref());
+                let known = self
+                    .artifact
+                    .manifest
+                    .template_defs()
+                    .find(|(id, _)| Some(id.as_str()) == template)
+                    .and_then(|(_, d)| d.fragments.as_ref());
+                if let Some(unknown) = fragments
+                    .iter()
+                    .find(|f| !known.is_some_and(|k| k.contains_key(*f)))
+                {
+                    let mut f = serde_json::Map::new();
+                    f.insert("code".into(), "RENOX_INTERNAL".into());
+                    f.insert("route".into(), route_name.into());
+                    f.insert("reason".into(), "unknown_fragment".into());
+                    f.insert("fragment".into(), unknown.clone().into());
+                    self.log(
+                        "error",
+                        Some(&ctx.request_id),
+                        "action named an unknown fragment",
+                        f,
+                    );
+                    meter.status = MeterStatus::Error;
+                    return Dispatched::plain(
+                        PlatformResponse::error(ErrorCode::Internal, &ctx.request_id),
+                        meter,
+                        true,
+                    );
+                }
                 Dispatched {
                     response: http::Response::new(Bytes::new()),
                     meter,
@@ -966,7 +1059,7 @@ impl Pool {
                         template: route_def.page().and_then(|p| p.template.clone()),
                         fragment,
                         data_json,
-                        oob_fragments: Vec::new(),
+                        oob_fragments: if htmx { fragments } else { Vec::new() },
                     }),
                     page: true,
                 }
@@ -1024,6 +1117,9 @@ struct Platform {
     /// One handler per `manifest.routes[]` entry; `None` for a page route
     /// without `load` (it never enters the isolate).
     handlers: Vec<Option<v8::Global<v8::Function>>>,
+    /// Per route: action name -> function, from the page module's
+    /// `export const actions` (empty for every other route).
+    actions: Vec<BTreeMap<String, v8::Global<v8::Function>>>,
 }
 
 /// The limit machinery of one isolate thread.
@@ -1253,11 +1349,50 @@ async fn create_worker(
     };
     let module_time = module_start.elapsed();
 
-    // Step 5: every route's export must be a function (fail closed).
-    let handlers = {
+    // Step 5: every route's export must be a function, and every declared
+    // action a function of `export const actions` (fail closed).
+    let (handlers, actions) = {
         deno_core::scope!(scope, &mut worker.js_runtime);
         let mut handlers = Vec::with_capacity(manifest.routes.len());
+        let mut actions = Vec::with_capacity(manifest.routes.len());
         for r in &manifest.routes {
+            let mut route_actions = BTreeMap::new();
+            let declared = r.page().map(|p| p.actions.as_slice()).unwrap_or(&[]);
+            if !declared.is_empty() {
+                let ns = namespaces.get(&r.module).ok_or_else(|| {
+                    CreateError::ModuleLoad(format!(
+                        "route {}: module {} not loaded",
+                        r.path, r.module
+                    ))
+                })?;
+                let ns = v8::Local::new(scope, ns);
+                let key = v8::String::new(scope, "actions")
+                    .ok_or_else(|| CreateError::Manifest("export name".into()))?;
+                let obj = ns
+                    .get(scope, key.into())
+                    .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
+                    .ok_or_else(|| {
+                        CreateError::ModuleLoad(format!(
+                            "route {}: export actions of {} is missing or not an object",
+                            r.path, r.module
+                        ))
+                    })?;
+                for name in declared {
+                    let k = v8::String::new(scope, name)
+                        .ok_or_else(|| CreateError::Manifest("action name".into()))?;
+                    let f = obj
+                        .get(scope, k.into())
+                        .and_then(|v| v8::Local::<v8::Function>::try_from(v).ok())
+                        .ok_or_else(|| {
+                            CreateError::ModuleLoad(format!(
+                                "route {}: action {name} of {} is missing or not a function",
+                                r.path, r.module
+                            ))
+                        })?;
+                    route_actions.insert(name.clone(), v8::Global::new(scope, f));
+                }
+            }
+            actions.push(route_actions);
             if r.handler_export().is_none() {
                 handlers.push(None);
                 continue;
@@ -1287,9 +1422,18 @@ async fn create_worker(
                 })?;
             handlers.push(Some(v8::Global::new(scope, f)));
         }
-        handlers
+        (handlers, actions)
     };
-    Ok((worker, Platform { dispatch, handlers }, guards, module_time))
+    Ok((
+        worker,
+        Platform {
+            dispatch,
+            handlers,
+            actions,
+        },
+        guards,
+        module_time,
+    ))
 }
 
 async fn load_modules(
@@ -1336,6 +1480,8 @@ struct JsOutcome {
     data_json: Option<String>,
     /// `KIND_PAGE_INTERNAL`: why the page result was refused.
     reason: Option<String>,
+    /// `KIND_RENDER` after an action: the out-of-band fragment names.
+    fragments: Option<Vec<String>>,
 }
 
 const KIND_OK: u8 = 0;
@@ -1868,9 +2014,19 @@ fn build_args(
     token: u32,
     job: &DispatchJob,
 ) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
+    let action_name = job.page.as_ref().and_then(|p| p.action.as_ref());
     let handler: v8::Local<v8::Value> = match &platform.handlers[job.route] {
         Some(h) => v8::Local::new(scope, h).into(),
+        // An action on a page without `load`.
+        None if action_name.is_some() => v8::null(scope).into(),
         None => return Err(serde_v8::Error::Message("route has no handler".into())),
+    };
+    let action: v8::Local<v8::Value> = match action_name {
+        Some(name) => match platform.actions[job.route].get(name) {
+            Some(f) => v8::Local::new(scope, f).into(),
+            None => return Err(serde_v8::Error::Message("unknown action".into())),
+        },
+        None => v8::null(scope).into(),
     };
     let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
     let method: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.method)?;
@@ -1900,11 +2056,19 @@ fn build_args(
     let params: v8::Local<v8::Value> = serde_v8::to_v8(scope, &params_json)?;
     let want: v8::Local<v8::Value> = v8::Boolean::new(scope, job.want_body).into();
     let page: v8::Local<v8::Value> = match &job.page {
-        Some(fragment) => serde_v8::to_v8(scope, serde_json::json!({ "fragment": fragment }))?,
+        Some(p) => serde_v8::to_v8(
+            scope,
+            serde_json::json!({
+                "fragment": p.fragment,
+                "session": p.session,
+                "action": p.action,
+                "template": p.template,
+            }),
+        )?,
         None => v8::null(scope).into(),
     };
     Ok([
-        handler, token_v, method, url, headers, body, params, want, page,
+        handler, token_v, method, url, headers, body, params, want, page, action,
     ]
     .into_iter()
     .map(|l| v8::Global::new(scope, l))
@@ -1962,13 +2126,17 @@ fn finish_dispatch(
             ),
             Some(data_json) => ThreadReply::Render {
                 data_json,
+                fragments: o.fragments.unwrap_or_default(),
                 meter: flight.meter(ctx, MeterStatus::Ok),
             },
             None => page_internal("data_not_serialisable", None),
         },
         Ok(o) if o.kind == KIND_PAGE_INTERNAL => {
             let reason = o.reason.clone().unwrap_or_else(|| "load_result".into());
-            let detail = o.name.clone().map(|n| format!("load returned {n}"));
+            let detail = o
+                .name
+                .clone()
+                .map(|n| format!("the page handler returned {n}"));
             page_internal(&reason, detail)
         }
         Ok(o) if o.kind == KIND_OK => ThreadReply::Ok {

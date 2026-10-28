@@ -11,7 +11,8 @@ export interface Finding {
   file: string;
   line: number;
   column: number;
-  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state";
+  /** `secret` and `forbidden-file` come from the bundle-hygiene rules (#115, secrets.ts and build.ts). */
+  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "secret" | "forbidden-file";
   severity: "error" | "warning";
   message: string;
 }

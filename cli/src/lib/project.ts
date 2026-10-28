@@ -7,12 +7,15 @@ import { join } from "node:path";
 
 import { EXIT, type ExitCode, CliError, type Where } from "../errors.ts";
 import { type Json, isObject, validate } from "./schema.ts";
+import type { SecurityConfig } from "../check/security.ts";
 import { renoxTomlSchema } from "./schemas.ts";
 
 export interface ProjectConfig {
   app: { name: string; timezone: string };
   permissions: { network: string[]; secrets: string[] };
   limits?: { cpu_ms?: number; wall_ms?: number; memory_mb?: number; concurrency?: number };
+  /** `[security]`, as written (validated by src/check/security.ts at build). */
+  security?: SecurityConfig;
 }
 
 /** A renox.toml problem: exit 2, except a missing file (exit 1: not in an app folder). */
@@ -175,6 +178,7 @@ export function readProject(dir: string): ProjectConfig {
       secrets: (perms.secrets as string[] | undefined) ?? [],
     },
     ...(isObject(c.limits) ? { limits: c.limits as ProjectConfig["limits"] } : {}),
+    ...(isObject(c.security) ? { security: c.security as SecurityConfig } : {}),
   };
 }
 

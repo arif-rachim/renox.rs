@@ -6,6 +6,7 @@ import { writeAudit } from "../audit.ts";
 import { assertTransition } from "../contract.ts";
 import { jsonb, num, numOrNull, type Db } from "../db/db.ts";
 import { conflict, notFound } from "../errors.ts";
+import { crossTenant } from "../tenancy/scope.ts";
 
 export type DeploymentState = "uploaded" | "validated" | "rejected" | "activating" | "active" | "superseded" | "suspended" | "pruned";
 
@@ -155,7 +156,7 @@ export async function prune(tx: Db, tenantId: string, app: string, by: Actor): P
   const orphaned: string[] = [];
   for (const d of old) {
     await transition(tx, { tenant_id: tenantId, app, hash: d.hash }, d.state, "pruned", by);
-    const refs = await tx.query("select 1 from deployments where hash = $1 and state not in ('pruned', 'rejected') limit 1", [d.hash]);
+    const refs = await crossTenant(tx, "an artifact object is shared by every app that uploaded the same hash").query("select 1 from deployments where hash = $1 and state not in ('pruned', 'rejected') limit 1", [d.hash]);
     if (refs.length === 0) orphaned.push(artifactKey(d.hash));
   }
   return orphaned;

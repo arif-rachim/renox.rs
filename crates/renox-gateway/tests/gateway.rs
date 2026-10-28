@@ -345,6 +345,7 @@ async fn request_id_echoed_and_untrusted_headers_stripped() {
     h.insert(REQUEST_ID_HEADER, "spoofed".parse().unwrap());
     h.insert(CLIENT_IP_HEADER, "10.0.0.1".parse().unwrap());
     h.insert("x-renox-tenant", "t_b".parse().unwrap());
+    h.insert("x-renox-csrf", "tok".parse().unwrap());
     h.insert("connection", "keep-alive, x-secret-hop".parse().unwrap());
     h.insert("x-secret-hop", "1".parse().unwrap());
     h.insert("te", "trailers".parse().unwrap());
@@ -369,6 +370,8 @@ async fn request_id_echoed_and_untrusted_headers_stripped() {
         assert!(!seen.headers().contains_key(gone), "{gone}");
     }
     assert_eq!(seen.headers()["accept"], "text/plain");
+    // The page CSRF header reaches the cell, which checks and removes it (#41).
+    assert_eq!(seen.headers()["x-renox-csrf"], "tok");
 
     // Deadline = accept time + 30 s default.
     let limit = std::time::Duration::from_secs(30);

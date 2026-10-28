@@ -21,7 +21,9 @@ use http::{HeaderMap, Response};
 use renox_runtime::manifest::{Manifest, TemplateKind};
 use renox_runtime::pages::PageRender;
 use renox_template::minijinja::Value;
-use renox_template::{RenderContext, RenderError, RenderLimits, RenderTarget, Renderer};
+use renox_template::{
+    ErrorPage, RenderContext, RenderError, RenderLimits, RenderTarget, Renderer, Shell,
+};
 
 /// `RENOX_RENDER_LIMIT` (`errors.md` section 3).
 pub const RENDER_LIMIT_CODE: &str = "RENOX_RENDER_LIMIT";
@@ -40,6 +42,10 @@ pub struct PageRenderer {
     not_found_template: Option<String>,
     /// The app's UTC offset for the `date` filter.
     utc_offset_minutes: i32,
+    /// The deployment's artifact hash, for `<meta name="renox-deployment">`.
+    deployment: String,
+    /// The client script's `src`; `None` when client events are off.
+    client_script: Option<String>,
 }
 
 impl std::fmt::Debug for PageRenderer {
@@ -76,7 +82,15 @@ pub struct Rendered {
 impl PageRenderer {
     /// Loads `templates/<id>.jinja` for every `manifest.templates` key (the
     /// runtime has checked V14). `Ok(None)` when there are no templates.
-    pub fn load(artifact_dir: &Path, manifest: &Manifest) -> Result<Option<PageRenderer>, String> {
+    ///
+    /// `deployment` and `client_script` are what the page shell carries
+    /// (`renox_template::shell`, #126).
+    pub fn load(
+        artifact_dir: &Path,
+        manifest: &Manifest,
+        deployment: &str,
+        client_script: Option<String>,
+    ) -> Result<Option<PageRenderer>, String> {
         let mut sources = Vec::new();
         let mut fragments = BTreeMap::new();
         let mut error_template = None;
@@ -112,12 +126,31 @@ impl PageRenderer {
             error_template,
             not_found_template,
             utc_offset_minutes: utc_offset_minutes(&manifest.app.timezone),
+            deployment: deployment.to_string(),
+            client_script,
         }))
+    }
+
+    /// The page shell tags of one response (`client-events.md` section 1).
+    fn shell<'a>(
+        &'a self,
+        request_id: &'a str,
+        csp_nonce: Option<&'a str>,
+        error_code: Option<&'a str>,
+    ) -> Shell<'a> {
+        Shell {
+            request_id,
+            deployment: &self.deployment,
+            nonce: csp_nonce,
+            script_src: self.client_script.as_deref(),
+            error_code,
+        }
     }
 
     fn context(&self, csp_nonce: Option<&str>) -> RenderContext {
         RenderContext {
             csp_nonce: csp_nonce.map(str::to_string),
+            csrf_token: None,
             now_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -135,6 +168,7 @@ impl PageRenderer {
         page: &PageRender,
         request_id: &str,
         csp_nonce: Option<&str>,
+        csrf_token: Option<&str>,
         head: bool,
     ) -> Rendered {
         let Some(template) = page.template.as_deref() else {
@@ -173,7 +207,10 @@ impl PageRenderer {
                 None,
             );
         }
-        let cx = self.context(csp_nonce);
+        let cx = RenderContext {
+            csrf_token: csrf_token.map(str::to_string),
+            ..self.context(csp_nonce)
+        };
         let limits = RenderLimits::DEFAULT;
         let main: Vec<&str> = page.fragment.as_deref().into_iter().collect();
         let result = if page.oob_fragments.is_empty() {
@@ -185,25 +222,14 @@ impl PageRenderer {
                 .render(target, data, &cx, &limits)
                 .map(|o| (o.html, o.fuel_used, o.ms))
         } else if main.is_empty() {
-            // A full page plus out-of-band fragments: two passes, one budget
-            // each, both metered.
+            // An htmx action with `{ fragments }` and no fragment selected by
+            // `HX-Target`: only the out-of-band blocks.
+            let blocks: Vec<&str> = page.oob_fragments.iter().map(String::as_str).collect();
             self.renderer
-                .render(RenderTarget::Page(template), data.clone(), &cx, &limits)
-                .and_then(|page_out| {
-                    let blocks: Vec<&str> = page.oob_fragments.iter().map(String::as_str).collect();
-                    self.renderer
-                        .render_blocks(template, &blocks, data, &cx, &limits)
-                        .map(|(parts, stats)| {
-                            let mut html = page_out.html;
-                            for p in parts {
-                                html.push_str(&mark_oob(&p));
-                            }
-                            (
-                                html,
-                                page_out.fuel_used + stats.fuel_used,
-                                page_out.ms + stats.ms,
-                            )
-                        })
+                .render_blocks(template, &blocks, data, &cx, &limits)
+                .map(|(parts, stats)| {
+                    let html: String = parts.iter().map(|p| mark_oob(p)).collect();
+                    (html, stats.fuel_used, stats.ms)
                 })
         } else {
             let mut blocks = main.clone();
@@ -224,11 +250,14 @@ impl PageRenderer {
         };
         match result {
             Ok((html, fuel, ms)) => Rendered {
+                // A whole page gets the shell tags; fragments do not.
                 response: html_response(
                     200,
                     request_id,
                     if head {
                         Bytes::new()
+                    } else if page.fragment.is_none() && page.oob_fragments.is_empty() {
+                        Bytes::from(self.shell(request_id, csp_nonce, None).inject(&html))
                     } else {
                         Bytes::from(html)
                     },
@@ -329,22 +358,26 @@ impl PageRenderer {
         request_id: &str,
         csp_nonce: Option<&str>,
     ) -> Rendered {
+        let input = ErrorPage {
+            status,
+            code,
+            request_id,
+            message,
+        };
+        let fallback = || {
+            crate::pages::errors::default_page(input, Some(self.shell(request_id, csp_nonce, code)))
+        };
         let Some(template) = template else {
             return Rendered {
-                response: default_page(status, message, request_id),
+                response: fallback(),
                 fuel: 0,
                 ms: None,
                 limit: false,
                 log: None,
             };
         };
-        let data: Value = serde_json::from_value(serde_json::json!({
-            "status": status,
-            "code": code,
-            "request_id": request_id,
-            "message": message,
-        }))
-        .expect("plain JSON deserialises");
+        // Exactly the four fields (errors.md section 1).
+        let data: Value = serde_json::from_value(input.data()).expect("plain JSON deserialises");
         match self.renderer.render(
             RenderTarget::Page(template),
             data,
@@ -352,7 +385,11 @@ impl PageRenderer {
             &RenderLimits::ERROR_PAGE,
         ) {
             Ok(out) => Rendered {
-                response: html_response(status, request_id, Bytes::from(out.html)),
+                response: html_response(
+                    status,
+                    request_id,
+                    Bytes::from(self.shell(request_id, csp_nonce, code).inject(&out.html)),
+                ),
                 fuel: out.fuel_used,
                 ms: Some(out.ms),
                 limit: false,
@@ -369,7 +406,7 @@ impl PageRenderer {
                     fields.insert("cause_message".into(), e.to_string().into());
                 }
                 Rendered {
-                    response: default_page(status, message, request_id),
+                    response: fallback(),
                     fuel: stats.fuel_used,
                     ms: Some(stats.ms),
                     limit: false,
@@ -464,20 +501,18 @@ pub fn html_response(status: u16, request_id: &str, body: Bytes) -> Response<Byt
         .expect("static response parts are valid")
 }
 
-/// The platform default page (`errors.md` section 1): status, message,
-/// request id, no tenant content. Same page as the gateway's HTML errors.
+/// The platform default page (`errors.md` section 1) without shell tags,
+/// for paths that have no renderer: see [`crate::pages::errors`].
 pub fn default_page(status: u16, message: &str, request_id: &str) -> Response<Bytes> {
-    let page = format!(
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{status}</title></head>\
-         <body><h1>{status}</h1><p>{message}</p><p>Request id: <code>{request_id}</code></p></body></html>\n"
-    );
-    Response::builder()
-        .status(status)
-        .header("content-type", "text/html; charset=utf-8")
-        .header("cache-control", "no-store")
-        .header("x-renox-request-id", request_id)
-        .body(Bytes::from(page))
-        .expect("static response parts are valid")
+    crate::pages::errors::default_page(
+        ErrorPage {
+            status,
+            code: None,
+            request_id,
+            message,
+        },
+        None,
+    )
 }
 
 /// Whether `Accept` ranks `text/html` above `application/json` (the 404 page

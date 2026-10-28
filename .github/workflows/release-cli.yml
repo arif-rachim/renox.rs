@@ -1,0 +1,201 @@
+name: Release CLI
+
+# Builds the renox CLI as four standalone binaries (bun build --compile, no
+# Bun needed on the user's machine) and publishes them, with their SHA-256,
+# the install script and the pinned worker version, as a GitHub Release
+# (#163; docs/12-developer-experience.md, "Installing the CLI"). Runs only on
+# a `cli-v*` tag or by hand, never on docs or Rust changes. A manual run
+# without a version, or a pull request that changes this file or the install
+# script, builds and smoke-tests without publishing.
+#
+# Assets on the release tagged cli-v<version>:
+#   renox-<version>-<os>-<arch>, renox-<version>-<os>-<arch>.sha256
+#       os linux or darwin, arch x64 or arm64
+#   worker-version.txt   the renox-worker version this CLI pins
+#                        (WORKER_VERSION in cli/scripts/fetch-worker.ts)
+#   install.sh           cli/scripts/install.sh
+# Signing and provenance are #129.
+on:
+  push:
+    tags:
+      - "cli-v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release-cli.yml"
+      - "cli/scripts/install.sh"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the cli-v prefix (for example 0.1.0); must equal cli/package.json. Empty: build and smoke test only."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cli-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      # Inputs reach the shell through the environment only, never through
+      # ${{ }} inside a script.
+      INPUT_VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version=${GITHUB_REF_NAME#cli-v}
+          else
+            version=$INPUT_VERSION
+          fi
+          if [[ -n "$version" && ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version '$version' is not semver (expected for example 0.1.0)"
+            exit 1
+          fi
+          package=$(jq -r .version cli/package.json)
+          if [[ -n "$version" && "$version" != "$package" ]]; then
+            echo "::error::release $version but cli/package.json says $package"
+            exit 1
+          fi
+          worker=$(bun -e 'import { WORKER_VERSION } from "./cli/scripts/fetch-worker.ts"; console.log(WORKER_VERSION)')
+          if [[ ! "$worker" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::WORKER_VERSION in cli/scripts/fetch-worker.ts is not semver: '$worker'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "worker=$worker" >> "$GITHUB_OUTPUT"
+          echo "renox ${version:-0.0.0-dev}, pinned renox-worker $worker" | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: bun install --frozen-lockfile
+      - name: Compile
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          WORKER: ${{ steps.version.outputs.worker }}
+        run: |
+          v=${VERSION:-0.0.0-dev}
+          mkdir dist
+          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            name="renox-$v-$t"
+            (cd cli && bun build --compile --minify --target="bun-$t" src/main.ts --outfile "../dist/$name")
+            (cd dist && sha256sum "$name" > "$name.sha256")
+          done
+          echo "$WORKER" > dist/worker-version.txt
+          cp cli/scripts/install.sh dist/install.sh
+          ls -l dist
+      # Each binary is the format of its name (a cross-compile that silently
+      # fell back to the host target would pass every other check here).
+      - name: Check the binary formats
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          v=${VERSION:-0.0.0-dev}
+          check() {
+            out=$(file -b "dist/renox-$v-$1")
+            echo "$1: $out"
+            [[ "$out" == *"$2"* ]] || { echo "::error::renox-$v-$1 is not $2"; exit 1; }
+          }
+          check linux-x64 "ELF 64-bit LSB executable, x86-64"
+          check linux-arm64 "ELF 64-bit LSB executable, ARM aarch64"
+          check darwin-x64 "Mach-O 64-bit x86_64"
+          check darwin-arm64 "Mach-O 64-bit arm64"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: renox-cli
+          path: dist/
+          if-no-files-found: error
+      # The pinned worker must be released before a CLI that pins it: a tag
+      # fails here, a pull request or a manual dry run only warns.
+      - name: Mirror the pinned worker for the smoke test
+        id: worker
+        env:
+          WORKER: ${{ steps.version.outputs.worker }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dir="$RUNNER_TEMP/release/worker-v$WORKER"
+          mkdir -p "$dir"
+          asset="renox-worker-$WORKER-x86_64-unknown-linux-gnu"
+          if gh release download "worker-v$WORKER" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+              --pattern "$asset" --pattern "$asset.sha256"; then
+            echo "available=1" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$VERSION" ]]; then
+            echo "::error::the pinned worker release worker-v$WORKER has no $asset; release the worker first"
+            exit 1
+          else
+            echo "::warning::worker-v$WORKER has no $asset; the smoke test installs the CLI without a worker"
+            echo "available=0" >> "$GITHUB_OUTPUT"
+          fi
+      # #163: install.sh in a fresh container (no Bun, no checkout) installs
+      # and verifies the CLI and its worker; renox new and renox build run.
+      # The release layout is served locally (RENOX_RELEASE_BASE).
+      - name: Smoke test in a fresh container
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          WORKER_AVAILABLE: ${{ steps.worker.outputs.available }}
+        run: |
+          v=${VERSION:-0.0.0-dev}
+          mkdir -p "$RUNNER_TEMP/release/cli-v$v"
+          cp dist/* "$RUNNER_TEMP/release/cli-v$v/"
+          (cd "$RUNNER_TEMP/release" && python3 -m http.server 18000 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 2
+          no_worker=1
+          [[ "$WORKER_AVAILABLE" == 1 ]] && no_worker=0
+          docker run --rm --network host -v "$PWD/cli/scripts/install.sh:/install.sh:ro" \
+            -e V="$v" -e NO_WORKER="$no_worker" ubuntu:24.04 bash -euo pipefail -c '
+              apt-get update -qq >/dev/null && apt-get install -y -qq curl ca-certificates >/dev/null
+              if command -v bun >/dev/null; then echo "bun is installed; not a fresh container"; exit 1; fi
+              if [ "$NO_WORKER" = 1 ]; then export RENOX_NO_WORKER=1; fi
+              RENOX_RELEASE_BASE=http://127.0.0.1:18000 sh /install.sh "$V"
+              export PATH="$HOME/.renox/bin:$PATH"
+              if [ "$NO_WORKER" = 0 ]; then test -x "$HOME/.renox/bin/renox-worker"; fi
+              cd /tmp && renox new smoke && cd smoke && renox build
+              ls .renox/artifact/*/manifest.json
+            '
+          echo "fresh container: install.sh, renox new, renox build ok (worker installed: $((1 - no_worker)))" | tee -a "$GITHUB_STEP_SUMMARY"
+          # A binary whose checksum does not match is never installed.
+          echo tampered >> "$RUNNER_TEMP/release/cli-v$v/renox-$v-linux-x64"
+          if RENOX_NO_WORKER=1 RENOX_INSTALL_DIR="$RUNNER_TEMP/tampered" RENOX_RELEASE_BASE=http://127.0.0.1:18000 \
+              sh cli/scripts/install.sh "$v"; then
+            echo "::error::install.sh installed a binary whose checksum does not match"
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/tampered/renox"
+
+  release:
+    needs: build
+    if: needs.build.outputs.version != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      # Creating a release and uploading assets; nothing else.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: renox-cli
+          path: dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          tag="cli-v$VERSION"
+          worker=$(cat dist/worker-version.txt)
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "renox CLI $VERSION" \
+              --notes "renox CLI $VERSION built from $GITHUB_SHA; pins renox-worker $worker. Install: curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/install.sh | sh. Verify by hand with: sha256sum -c <asset>.sha256"
+          fi

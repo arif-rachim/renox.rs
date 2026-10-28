@@ -141,6 +141,11 @@ describe("tools", () => {
         .map((l) => JSON.stringify(l))
         .join("\n")}\n`,
     );
+    // A browser event renox dev recorded (#127), and a CSP report the worker logged.
+    writeFileSync(
+      join(project, ".renox", "logs", "browser.ndjson"),
+      `${JSON.stringify({ ts: "2026-10-28T00:00:02.000Z", level: "error", request_id: "r1", message: "js.error: TypeError: cart is undefined", fields: { source: "client", kind: "js.error", url: "/products/42", code: null, detail: { message: "TypeError: cart is undefined", source: "/products/42", line: 7, column: 5, stack: [] } } })}\n`,
+    );
     const on = structured(await client.callTool({ name: "dev_status", arguments: {} }));
     expect(on).toMatchObject({ running: true, url: "http://localhost:8787", lastBuild: { ok: false, problems: 1 } });
     const errs = await client.callTool({ name: "dev_errors", arguments: {} });
@@ -148,6 +153,17 @@ describe("tools", () => {
       running: true,
       build: { ok: false, at: "2026-10-28T00:00:01.000Z", problems: [{ code: "build", file: "functions/api/items.ts", line: 3, column: 7, message: 'Expected ";" but found "x"' }] },
       logErrors: [{ message: "charge failed for [redacted]", request_id: "r1" }],
+      browserErrors: [
+        {
+          kind: "js.error",
+          message: "js.error: TypeError: cart is undefined",
+          request_id: "r1",
+          url: "/products/42",
+          code: null,
+          detail: { message: "TypeError: cart is undefined", source: "/products/42", line: 7, column: 5, stack: [] },
+          at: "2026-10-28T00:00:02.000Z",
+        },
+      ],
     });
     expect(text(errs)).not.toContain("sk_test_0123456789abcdef");
     // A stale file from a dead process reads as not running.

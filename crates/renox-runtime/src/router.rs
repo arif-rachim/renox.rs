@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::manifest::{Method, RouteDef};
+use crate::manifest::{Method, RouteDef, RouteKind};
 
 /// One segment of a compiled route pattern.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,11 +125,19 @@ pub enum RouteMatch {
     /// A pattern matches the path but not for this method. `allow` is the
     /// value of the `Allow` header.
     MethodNotAllowed { allow: String },
+    /// Artifact v1 trailing slash rule (`artifact.md` section 3, "Trailing
+    /// slashes"): a `GET`/`HEAD` path ending in `/` that matches nothing,
+    /// whose path without the `/` matches a page route. Answer 308 to
+    /// `location` (the query string is the caller's to keep).
+    Redirect { location: String },
 }
 
 #[derive(Debug)]
 struct CompiledRoute {
+    /// Index into `manifest.routes`.
+    route: usize,
     method: Method,
+    page: bool,
     segments: Vec<Segment>,
 }
 
@@ -161,17 +169,30 @@ fn decode_segment(raw: &str) -> Option<String> {
 }
 
 impl Router {
+    /// A page route answers `GET` (and so `HEAD`), and `POST` when it
+    /// declares actions (`artifact.md` section 3, "Methods of a page route").
     pub fn new(routes: &[RouteDef]) -> Result<Router, PatternError> {
-        let routes = routes
-            .iter()
-            .map(|r| {
-                Ok(CompiledRoute {
-                    method: r.method,
-                    segments: compile(&r.path)?,
-                })
-            })
-            .collect::<Result<_, PatternError>>()?;
-        Ok(Router { routes })
+        let mut compiled = Vec::with_capacity(routes.len());
+        for (i, r) in routes.iter().enumerate() {
+            let segments = compile(&r.path)?;
+            let page = r.kind == RouteKind::Page;
+            let actions = page && r.page().is_some_and(|p| !p.actions.is_empty());
+            compiled.push(CompiledRoute {
+                route: i,
+                method: r.method,
+                page,
+                segments: segments.clone(),
+            });
+            if actions {
+                compiled.push(CompiledRoute {
+                    route: i,
+                    method: Method::Post,
+                    page,
+                    segments,
+                });
+            }
+        }
+        Ok(Router { routes: compiled })
     }
 
     /// Match `segments` (already decoded) against one pattern. Returns the
@@ -218,6 +239,22 @@ impl Router {
     /// catch-all. `HEAD` falls back to the `GET` route when no `HEAD` route
     /// exists (`ops.md` section 6).
     pub fn find(&self, method: &str, path: &str) -> RouteMatch {
+        let found = self.find_exact(method, path);
+        if found == RouteMatch::NotFound
+            && matches!(method, "GET" | "HEAD")
+            && path.len() > 1
+            && let Some(trimmed) = path.strip_suffix('/')
+            && let RouteMatch::Found { route, .. } = self.find_exact("GET", trimmed)
+            && self.routes.iter().any(|r| r.route == route && r.page)
+        {
+            return RouteMatch::Redirect {
+                location: trimmed.to_string(),
+            };
+        }
+        found
+    }
+
+    fn find_exact(&self, method: &str, path: &str) -> RouteMatch {
         let segments: Vec<String> = if path == "/" {
             Vec::new()
         } else {
@@ -254,9 +291,9 @@ impl Router {
             Some(m) => best_for(m),
             None => None,
         };
-        if let Some((route, _, params)) = hit {
+        if let Some((i, _, params)) = hit {
             return RouteMatch::Found {
-                route: *route,
+                route: self.routes[*i].route,
                 params: params.clone(),
             };
         }
@@ -381,6 +418,111 @@ mod tests {
             r.find("HEAD", "/x"),
             RouteMatch::Found { route: 1, .. }
         ));
+    }
+
+    fn page(path: &str, actions: &[&str]) -> RouteDef {
+        serde_json::from_value(serde_json::json!({
+            "kind": "page", "path": path, "module": "pages/p", "load": true,
+            "actions": actions, "template": "pages/p"
+        }))
+        .unwrap()
+    }
+
+    /// `docs/07-app-model.md`, "Routing rules": one row each. The CLI turns
+    /// `about.html`, `products/index.html`, `products/[id].html`,
+    /// `docs/[...slug].html` into these patterns; `_layouts/*` and `_404`
+    /// are never routes, so nothing can match them.
+    #[test]
+    fn page_routing_rule_rows() {
+        let r = Router::new(&[
+            page("/about", &[]),
+            page("/products", &[]),
+            page("/products/:id", &["addToCart"]),
+            page("/docs/*slug", &[]),
+            route(Method::Get, "/api/orders"),
+        ])
+        .unwrap();
+        assert!(matches!(
+            r.find("GET", "/about"),
+            RouteMatch::Found { route: 0, .. }
+        ));
+        assert!(matches!(
+            r.find("GET", "/products"),
+            RouteMatch::Found { route: 1, .. }
+        ));
+        match r.find("GET", "/products/42") {
+            RouteMatch::Found { route: 2, params } => assert_eq!(params["id"], one("42")),
+            other => panic!("{other:?}"),
+        }
+        match r.find("GET", "/docs/a/b") {
+            RouteMatch::Found { route: 3, params } => {
+                assert_eq!(
+                    params["slug"],
+                    ParamValue::Many(vec!["a".into(), "b".into()])
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            r.find("GET", "/api/orders"),
+            RouteMatch::Found { route: 4, .. }
+        ));
+        for not_a_route in ["/_layouts/main", "/_404", "/_error"] {
+            assert_eq!(r.find("GET", not_a_route), RouteMatch::NotFound);
+        }
+    }
+
+    /// A page answers GET and HEAD, and POST only when it has actions; any
+    /// other method is 405 with that Allow list.
+    #[test]
+    fn page_methods_and_allow() {
+        let r = Router::new(&[page("/products/:id", &["addToCart"]), page("/about", &[])]).unwrap();
+        assert!(matches!(
+            r.find("POST", "/products/1"),
+            RouteMatch::Found { route: 0, .. }
+        ));
+        assert!(matches!(
+            r.find("HEAD", "/products/1"),
+            RouteMatch::Found { route: 0, .. }
+        ));
+        assert_eq!(
+            r.find("DELETE", "/products/1"),
+            RouteMatch::MethodNotAllowed {
+                allow: "GET, HEAD, POST".into()
+            }
+        );
+        assert_eq!(
+            r.find("POST", "/about"),
+            RouteMatch::MethodNotAllowed {
+                allow: "GET, HEAD".into()
+            }
+        );
+    }
+
+    /// `artifact.md` section 3, "Trailing slashes": 308 for page routes on
+    /// GET/HEAD only; function routes and POST are never redirected.
+    #[test]
+    fn trailing_slash_redirects_pages_only() {
+        let r = Router::new(&[
+            page("/products/:id", &["addToCart"]),
+            route(Method::Get, "/api/hello"),
+        ])
+        .unwrap();
+        assert_eq!(
+            r.find("GET", "/products/42/"),
+            RouteMatch::Redirect {
+                location: "/products/42".into()
+            }
+        );
+        assert_eq!(
+            r.find("HEAD", "/products/42/"),
+            RouteMatch::Redirect {
+                location: "/products/42".into()
+            }
+        );
+        assert_eq!(r.find("POST", "/products/42/"), RouteMatch::NotFound);
+        assert_eq!(r.find("GET", "/api/hello/"), RouteMatch::NotFound);
+        assert_eq!(r.find("GET", "/nope/"), RouteMatch::NotFound);
     }
 
     #[test]

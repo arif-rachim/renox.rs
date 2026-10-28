@@ -6,9 +6,13 @@
 pub mod alloc;
 pub mod artifact;
 pub mod cell;
+pub mod client_events;
 pub mod config;
 pub mod manager;
+pub mod pages;
+pub mod ratelimit;
 pub mod render;
+pub mod tar_safe;
 pub mod tiers;
 pub mod worker;
 

@@ -68,9 +68,19 @@ impl Default for ProtocolLimits {
     }
 }
 
-/// The response written when the first request on a connection is refused.
-pub const BAD_REQUEST_RESPONSE: &[u8] =
-    b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+/// The response written when the first request on a connection is refused
+/// for its framing, with a fresh `x-renox-request-id` like every gateway
+/// response (`request_id.rs`).
+pub fn bad_request_response() -> Vec<u8> {
+    crate::request_id::raw_response("400 Bad Request", &[])
+}
+
+/// The response for a request head over the header limits (bytes or
+/// count). The guard enforces them before hyper does, so this 431 carries a
+/// request id; hyper's own 431 is written below the service and could not.
+pub fn header_too_large_response() -> Vec<u8> {
+    crate::request_id::raw_response("431 Request Header Fields Too Large", &[])
+}
 
 /// Why a request was refused. Only used in logs and tests; the client sees
 /// a bare `400` or a closed connection.
@@ -90,12 +100,29 @@ pub enum Violation {
     TransferEncodingOnHttp10,
     H2cUpgrade,
     ChunkFraming,
+    /// The request head (request line and header lines) is over the limit.
+    HeadTooLarge,
+    /// More header lines than the limit.
+    TooManyHeaders,
+}
+
+impl Violation {
+    /// The fixed response for a refused first request: 431 for the header
+    /// limits, 400 for everything else.
+    pub fn response(self) -> Vec<u8> {
+        match self {
+            Violation::HeadTooLarge | Violation::TooManyHeaders => header_too_large_response(),
+            _ => bad_request_response(),
+        }
+    }
 }
 
 /// One HTTP/1.x request head as the guard saw it.
 #[derive(Debug, Default)]
 struct Head {
     http10: bool,
+    /// Header lines seen.
+    headers: usize,
     content_lengths: Vec<u64>,
     transfer_encodings: Vec<Vec<u8>>,
 }
@@ -115,10 +142,6 @@ enum State {
     ChunkDataEnd(u8),
     /// Trailer lines after the last chunk, up to an empty line.
     Trailer,
-    /// A request head grew past the line buffer; hyper refuses it (431)
-    /// and closes, so the guard stops looking. Never entered from chunk
-    /// framing or trailers.
-    Opaque,
 }
 
 /// Validates HTTP/1.x request framing on the bytes read from a connection.
@@ -128,6 +151,10 @@ pub struct Http1Framing {
     state: State,
     line: Vec<u8>,
     max_line: usize,
+    /// Header lines allowed in one head.
+    max_headers: usize,
+    /// Bytes of the current request head so far (bounded by `max_line`).
+    head_bytes: usize,
     /// A CR was the last byte; the next must be LF.
     after_cr: bool,
     /// Whether any request head was completed on this connection.
@@ -135,8 +162,9 @@ pub struct Http1Framing {
 }
 
 impl Http1Framing {
-    /// `max_line` bounds the bytes buffered for one line (use the head
-    /// limit; hyper refuses longer heads with 431 anyway).
+    /// `max_line` bounds the bytes buffered for one line and the bytes of
+    /// one request head (use the head limit: a longer head is refused as
+    /// [`Violation::HeadTooLarge`]).
     pub fn new(max_line: usize) -> Self {
         Self {
             state: State::Head {
@@ -145,9 +173,18 @@ impl Http1Framing {
             },
             line: Vec::new(),
             max_line,
+            max_headers: usize::MAX,
+            head_bytes: 0,
             after_cr: false,
             seen_request: false,
         }
+    }
+
+    /// Refuses a head with more than `n` header lines
+    /// ([`Violation::TooManyHeaders`]).
+    pub fn with_max_headers(mut self, n: usize) -> Self {
+        self.max_headers = n;
+        self
     }
 
     /// Whether a complete request head was accepted before (so a response
@@ -160,7 +197,6 @@ impl Http1Framing {
     pub fn feed(&mut self, mut data: &[u8]) -> Result<(), Violation> {
         while !data.is_empty() {
             match &mut self.state {
-                State::Opaque => return Ok(()),
                 State::Body(left) => {
                     let n = (*left).min(data.len() as u64) as usize;
                     *left -= n as u64;
@@ -192,6 +228,15 @@ impl Http1Framing {
                 State::Head { .. } | State::ChunkSize | State::Trailer => {
                     let b = data[0];
                     data = &data[1..];
+                    if matches!(self.state, State::Head { .. }) {
+                        // hyper refuses a head that fills its buffer
+                        // (`max_buf_size` = `max_line`) before it is
+                        // complete, so a full buffer is refused here first.
+                        self.head_bytes += 1;
+                        if self.head_bytes >= self.max_line {
+                            return Err(Violation::HeadTooLarge);
+                        }
+                    }
                     if self.after_cr {
                         self.after_cr = false;
                         if b != b'\n' {
@@ -204,17 +249,12 @@ impl Http1Framing {
                     match b {
                         b'\r' => self.after_cr = true,
                         b'\n' => return Err(Violation::BareLf),
-                        // An over-long head is refused by hyper (431), so the
-                        // guard can stop looking. An over-long chunk-size or
-                        // trailer line is refused here: hyper's own limits
-                        // for those differ, and going opaque would switch
-                        // the guard off for the rest of the connection.
+                        // A head line cannot get here: the head byte count
+                        // above stops it first (431). An over-long
+                        // chunk-size or trailer line is refused (hyper's own
+                        // limits for those differ).
                         _ if self.line.len() >= self.max_line => {
-                            if !matches!(self.state, State::Head { .. }) {
-                                return Err(Violation::ChunkFraming);
-                            }
-                            self.state = State::Opaque;
-                            self.line = Vec::new();
+                            return Err(Violation::ChunkFraming);
                         }
                         _ => self.line.push(b),
                     }
@@ -225,6 +265,7 @@ impl Http1Framing {
     }
 
     fn next_request(&mut self) {
+        self.head_bytes = 0;
         self.state = State::Head {
             request_line: true,
             head: Head::default(),
@@ -249,6 +290,10 @@ impl Http1Framing {
                     let head = std::mem::take(head);
                     return self.end_head(head);
                 }
+                head.headers += 1;
+                if head.headers > self.max_headers {
+                    return Err(Violation::TooManyHeaders);
+                }
                 check_header_line(line, head)
             }
             State::ChunkSize => {
@@ -267,7 +312,7 @@ impl Http1Framing {
                 }
                 check_header_line(line, &mut Head::default())
             }
-            State::Body(_) | State::ChunkData(_) | State::ChunkDataEnd(_) | State::Opaque => Ok(()),
+            State::Body(_) | State::ChunkData(_) | State::ChunkDataEnd(_) => Ok(()),
         }
     }
 
@@ -292,6 +337,7 @@ impl Http1Framing {
             }
         }
         self.seen_request = true;
+        self.head_bytes = 0;
         self.state = match head.content_lengths.first() {
             _ if te => State::ChunkSize,
             Some(&n) if n > 0 => State::Body(n),
@@ -411,8 +457,9 @@ fn refused() -> io::Error {
 pub struct Http1Guard<I> {
     inner: I,
     framing: Http1Framing,
-    /// Bytes of [`BAD_REQUEST_RESPONSE`] still to write, then fail.
-    rejecting: Option<usize>,
+    /// The refusal ([`Violation::response`]) and the bytes of it written
+    /// so far; once written, the read fails.
+    rejecting: Option<(Vec<u8>, usize)>,
     refused: Option<Arc<AtomicU64>>,
 }
 
@@ -425,6 +472,12 @@ impl<I> Http1Guard<I> {
             refused,
         }
     }
+
+    /// See [`Http1Framing::with_max_headers`].
+    pub fn with_max_headers(mut self, n: usize) -> Self {
+        self.framing.max_headers = n;
+        self
+    }
 }
 
 impl<I: AsyncRead + AsyncWrite + Unpin> AsyncRead for Http1Guard<I> {
@@ -435,12 +488,12 @@ impl<I: AsyncRead + AsyncWrite + Unpin> AsyncRead for Http1Guard<I> {
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         loop {
-            if let Some(written) = this.rejecting {
-                if written < BAD_REQUEST_RESPONSE.len() {
-                    let rest = &BAD_REQUEST_RESPONSE[written..];
+            if let Some((response, written)) = &mut this.rejecting {
+                if *written < response.len() {
+                    let rest = &response[*written..];
                     match Pin::new(&mut this.inner).poll_write(cx, rest) {
                         Poll::Ready(Ok(n)) if n > 0 => {
-                            this.rejecting = Some(written + n);
+                            *written += n;
                             continue;
                         }
                         Poll::Ready(_) => return Poll::Ready(Err(refused())),
@@ -458,7 +511,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin> AsyncRead for Http1Guard<I> {
             match Pin::new(&mut this.inner).poll_read(cx, buf) {
                 Poll::Ready(Ok(())) => {
                     let new = &buf.filled()[before..];
-                    if let Err(_violation) = this.framing.feed(new) {
+                    if let Err(violation) = this.framing.feed(new) {
                         buf.set_filled(before);
                         if let Some(counter) = &this.refused {
                             counter.fetch_add(1, Ordering::Relaxed);
@@ -466,7 +519,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin> AsyncRead for Http1Guard<I> {
                         if this.framing.seen_request() {
                             return Poll::Ready(Err(refused()));
                         }
-                        this.rejecting = Some(0);
+                        this.rejecting = Some((violation.response(), 0));
                         continue;
                     }
                     return Poll::Ready(Ok(()));
@@ -791,11 +844,34 @@ mod tests {
     }
 
     #[test]
-    fn overlong_head_is_left_to_hyper() {
-        let mut f = Http1Framing::new(32);
+    fn head_limits_are_431() {
         let req = format!("GET / HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(100));
-        assert_eq!(f.feed(req.as_bytes()), Ok(()));
-        assert!(matches!(f.state, State::Opaque));
+        assert_eq!(
+            Http1Framing::new(32).feed(req.as_bytes()),
+            Err(Violation::HeadTooLarge)
+        );
+        // Under the limit is fine, and the count starts again per head.
+        let ok = "GET / HTTP/1.1\r\nX: a\r\n\r\n";
+        let mut f = Http1Framing::new(ok.len() + 1);
+        assert_eq!(f.feed(ok.repeat(3).as_bytes()), Ok(()));
+        let three = "GET / HTTP/1.1\r\nA: 1\r\nB: 2\r\nC: 3\r\n\r\n";
+        assert_eq!(
+            Http1Framing::new(1024)
+                .with_max_headers(3)
+                .feed(three.as_bytes()),
+            Ok(())
+        );
+        assert_eq!(
+            Http1Framing::new(1024)
+                .with_max_headers(2)
+                .feed(three.as_bytes()),
+            Err(Violation::TooManyHeaders)
+        );
+        let r = String::from_utf8(Violation::TooManyHeaders.response()).unwrap();
+        assert!(r.starts_with("HTTP/1.1 431 "));
+        assert!(r.contains("\r\nx-renox-request-id: "));
+        let r = String::from_utf8(Violation::BareLf.response()).unwrap();
+        assert!(r.starts_with("HTTP/1.1 400 "));
     }
 
     fn frame(kind: u8, len: u32) -> Vec<u8> {

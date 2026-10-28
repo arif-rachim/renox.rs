@@ -3,6 +3,7 @@
 
 import { assertTransition } from "../contract.ts";
 import type { Db } from "../db/db.ts";
+import type { TenantDb } from "../tenancy/scope.ts";
 import { ApiError, conflict } from "../errors.ts";
 import { prune, requireDeployment, transition, type Actor, type DeploymentRow } from "../deployments/repo.ts";
 import { ownerOf } from "../workers/assign.ts";
@@ -23,8 +24,8 @@ async function tenantInfo(db: Db, tenantId: string): Promise<{ tier: "free" | "p
   return row;
 }
 
-async function latestSecretsVersion(db: Db, app: string): Promise<number> {
-  const rows = await db.query<{ version: number }>("select version from secret_sets where app = $1", [app]);
+async function latestSecretsVersion(db: Db, tenantId: string, app: string): Promise<number> {
+  const rows = await db.query<{ version: number }>("select version from secret_sets where tenant_id = $1 and app = $2", [tenantId, app]);
   return Number(rows[0]?.version ?? 0);
 }
 
@@ -48,8 +49,8 @@ async function pointAt(tx: Db, deps: Deps, d: { tenant_id: string; app: string }
   }
 }
 
-export async function activate(deps: Deps, tenantId: string, app: string, hash: string, by: Actor): Promise<DeploymentRow> {
-  const { db } = deps;
+export async function activate(deps: Deps, db: TenantDb, app: string, hash: string, by: Actor): Promise<DeploymentRow> {
+  const { tenantId } = db;
   const service = routeService(deps);
   const { tier, state } = await tenantInfo(db, tenantId);
   if (state === "suspended") throw conflict("tenant", "the tenant is suspended");
@@ -59,10 +60,10 @@ export async function activate(deps: Deps, tenantId: string, app: string, hash: 
     if (d.state === "active") return "unchanged" as const;
     if (d.state === "superseded") throw conflict("state", "superseded -> activating is not allowed; use rollback");
     assertTransition("deployment", d.state, "activating");
-    const busy = await tx.query("select 1 from deployments where app = $1 and state = 'activating'", [app]);
+    const busy = await tx.query("select 1 from deployments where tenant_id = $1 and app = $2 and state = 'activating'", [tenantId, app]);
     if (busy.length > 0) throw conflict("state", "another activation of this app is in progress");
     // The secret version is pinned here, so prepare and the node's bundle fetch agree.
-    const secretsVersion = await latestSecretsVersion(tx, app);
+    const secretsVersion = await latestSecretsVersion(tx, tenantId, app);
     await transition(tx, d, d.state, "activating", by, { last_error: null, secrets_version: secretsVersion });
     return secretsVersion;
   });
@@ -98,8 +99,8 @@ export async function activate(deps: Deps, tenantId: string, app: string, hash: 
   return requireDeployment(db, tenantId, app, hash);
 }
 
-export async function rollback(deps: Deps, tenantId: string, app: string, hash: string | undefined, by: Actor): Promise<DeploymentRow> {
-  const { db } = deps;
+export async function rollback(deps: Deps, db: TenantDb, app: string, hash: string | undefined, by: Actor): Promise<DeploymentRow> {
+  const { tenantId } = db;
   const service = routeService(deps);
   const { tier, state } = await tenantInfo(db, tenantId);
   if (state === "suspended") throw conflict("tenant", "the tenant is suspended");
@@ -122,7 +123,7 @@ export async function rollback(deps: Deps, tenantId: string, app: string, hash: 
     if (t.state === "active") return t.hash;
     if (current === null) throw conflict("state", "there is no active deployment");
     assertTransition("deployment", t.state, "active");
-    const secretsVersion = await latestSecretsVersion(tx, app);
+    const secretsVersion = await latestSecretsVersion(tx, tenantId, app);
     await transition(tx, current, "active", "superseded", by);
     await transition(tx, t, "superseded", "active", by, { activated_at: by.now, secrets_version: secretsVersion });
     await pointAt(tx, deps, t, t.hash, current.hash, node, tier, secretsVersion, by.now);

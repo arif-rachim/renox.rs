@@ -1,7 +1,8 @@
-// `renox build`: project → artifact directory (docs/contracts/artifact.md).
+// `renox build`: project → artifact directory (docs/contracts/artifact.md,
+// version 1 from F2 on, also for apps with no pages).
 //
-// - Routes from functions/ (routes.ts); all function modules are bundled in
-//   one Bun.build with code splitting, so npm and bare imports are vendored
+// - Routes from functions/ and pages/ (routes.ts); all function and page
+//   modules are bundled in one Bun.build with code splitting, so npm and bare imports are vendored
 //   into the artifact and nothing is resolved at runtime (code.format =
 //   "esm-dir"). Code shared by several modules (zod, a project lib/) lands
 //   once in code/chunks/, so an isolate evaluates each dependency once
@@ -10,8 +11,17 @@
 //   every isolate as module source text. They are written next to the
 //   artifacts folder, in <out>/../sourcemaps/<hash>/, with project-relative
 //   source paths (`renox deploy` uploads them privately, #128).
+// - Templates (pages/**/*.html, partials/**/*.html, modules/, overrides/)
+//   are transpiled by `renox-worker transpile` (templates-compile.ts) into
+//   templates/<id>.jinja and manifest.templates with the fragment maps.
 // - migrations/NNN_name.sql → migrations/app/ with checksums.json.
-// - public/** → public/ with manifest.json (content hash, size, type).
+// - public/** → public/, indexed by public.json at the root (content hash,
+//   size, type); public/manifest.json is an ordinary file in version 1.
+// - Forbidden files of public/ (dotfiles except .well-known/, keys, .env,
+//   databases, logs, symlinks, files over 5 MiB; @renox/artifact-validate,
+//   #115) are left out and listed in `skipped`.
+// - With `secrets`, the bundled sources and copied files are scanned for
+//   secrets (secrets.ts); a finding fails the build.
 // - manifest.json, then the content hash names the directory:
 //   <out>/<hash>/. An existing directory with that name is reused
 //   (artifacts are content-addressed and never overwritten).
@@ -19,13 +29,18 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
+import { forbiddenReason } from "@renox/artifact-validate";
+
+import { checkSecurity, type SecurityConfig } from "../check/security.ts";
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
 import { readProject, type ProjectConfig } from "./project.ts";
-import { discoverFunctions, routeConflicts, routesOf, type FunctionModule, type Route } from "./routes.ts";
+import { discoverFunctions, discoverPages, routeConflicts, routesOf, type Route } from "./routes.ts";
+import { type CompiledTemplate, TemplateCache, templateFiles, templatesKey, transpile } from "./templates-compile.ts";
 import { type Json, validate } from "./schema.ts";
 import { schemas } from "./schemas.ts";
+import { formatSecret, scanBundle, SECRET_HINT, type ProjectSecret } from "./secrets.ts";
 
 /** The app does not build (exit 2). `problems` lists every one when there are several. */
 export class BuildError extends ValidationError {
@@ -49,12 +64,20 @@ function bundlerProblem(project: string, log: BuildMessage | ResolveMessage): { 
 }
 
 export interface Manifest {
-  artifact: { version: 0 };
+  artifact: { version: 1 };
   app: { name: string; timezone: string };
   code: { format: "esm-dir"; entry: Record<string, string> };
   routes: Route[];
+  templates?: Record<string, { kind: CompiledTemplate["kind"]; fragments?: CompiledTemplate["fragments"] }>;
   permissions: { network: string[]; secrets: string[] };
   limits?: ProjectConfig["limits"];
+  security?: SecurityConfig;
+}
+
+/** A file of public/ that the build left out, and why. */
+export interface Skipped {
+  path: string;
+  reason: string;
 }
 
 export interface BuildResult {
@@ -63,10 +86,18 @@ export interface BuildResult {
   /** Source maps of `code/`, outside the artifact. */
   mapsDir: string;
   manifest: Manifest;
+  /** Compiled templates by id (empty without templates). */
+  templates: Record<string, CompiledTemplate>;
+  /** Hash of everything but the templates: `renox dev` swaps fragments when only templates changed. */
+  codeHash: string;
   /** Bundled modules (rebuilt / taken from the cache). */
   rebuilt: number;
   cached: number;
   ms: number;
+  /** Forbidden files of public/ left out of the artifact. */
+  skipped: Skipped[];
+  /** Secrets allowed by a `renox-allow-secret` marker (only with `secrets`). */
+  allowedSecrets: ProjectSecret[];
 }
 
 /** Bundled code: `code/`-relative path → source, and the source maps the same way. */
@@ -84,6 +115,8 @@ export class BuildCache {
   private entry: { key: string; bundle: Bundle } | undefined;
   /** Set when a non-entry file changed: every module may import it. */
   invalidateAll = false;
+  /** The last template compile (an edit to a module does not re-run it). */
+  readonly templates = new TemplateCache();
 
   get(key: string): Bundle | undefined {
     if (this.invalidateAll) return undefined;
@@ -125,19 +158,41 @@ const CONTENT_TYPES: Record<string, string> = {
 export const contentType = (path: string): string =>
   CONTENT_TYPES[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 
-function listFiles(dir: string, rel = ""): string[] {
+/**
+ * Files under `dir`, sorted. Without `skipped`, a symbolic link is an error
+ * (V1); with it, symbolic links and forbidden files are left out and listed.
+ */
+function listFiles(dir: string, rel = "", skipped?: Skipped[]): string[] {
   if (!existsSync(join(dir, rel))) return [];
   const out: string[] = [];
   for (const d of readdirSync(join(dir, rel), { withFileTypes: true })) {
     const r = rel ? `${rel}/${d.name}` : d.name;
-    if (d.isSymbolicLink()) throw new BuildError(`V1: symbolic link ${r} is not allowed in an artifact`);
-    if (d.isDirectory()) out.push(...listFiles(dir, r));
+    if (d.isSymbolicLink()) {
+      if (skipped === undefined) throw new BuildError(`V1: symbolic link ${r} is not allowed in an artifact`);
+      skipped.push({ path: r, reason: "a symbolic link" });
+      continue;
+    }
+    if (skipped !== undefined) {
+      // A directory is judged as the folder of a file inside it.
+      const reason = forbiddenReason(d.isDirectory() ? `${r}/_` : r, { underPublic: true, size: d.isFile() ? statSync(join(dir, r)).size : 0 });
+      if (reason !== null) {
+        skipped.push({ path: d.isDirectory() ? `${r}/` : r, reason });
+        continue;
+      }
+    }
+    if (d.isDirectory()) out.push(...listFiles(dir, r, skipped));
     else if (d.isFile()) out.push(r);
   }
   return out.sort();
 }
 
-async function bundle(project: string, functions: FunctionModule[]): Promise<Bundle> {
+/** A module to bundle: its id (`functions/...`, `pages/...`) and source file. */
+interface Entry {
+  id: string;
+  source: string;
+}
+
+async function bundle(project: string, functions: Entry[]): Promise<Bundle> {
   // Paths in comments and source maps are relative to the working
   // directory: build from the project so the artifact is reproducible.
   const cwd = process.cwd();
@@ -188,13 +243,29 @@ async function bundle(project: string, functions: FunctionModule[]): Promise<Bun
 export async function buildFiles(
   project: string,
   cache?: BuildCache,
-): Promise<{ files: Map<string, Uint8Array>; maps: Map<string, string>; manifest: Manifest; rebuilt: number; cached: number }> {
+): Promise<{
+  files: Map<string, Uint8Array>;
+  maps: Map<string, string>;
+  manifest: Manifest;
+  templates: Record<string, CompiledTemplate>;
+  rebuilt: number;
+  cached: number;
+  skipped: Skipped[];
+}> {
   const config = readProject(project);
-  const functions = discoverFunctions(project);
-  if (functions.length === 0) throw new BuildError("no routes: functions/ has no module exporting GET, POST, ...");
-  const routes = routesOf(functions);
+  const fns = discoverFunctions(project);
+  const pages = discoverPages(project);
+  if (fns.length === 0 && pages.length === 0)
+    throw new BuildError("no routes: functions/ has no module exporting GET, POST, ... and pages/ has no page");
+  const routes = routesOf(fns, pages);
+  const functions: Entry[] = [...fns, ...pages.flatMap((p) => (p.source ? [{ id: p.id, source: p.source }] : []))];
+  if (functions.length === 0)
+    throw new BuildError("no code: an artifact needs at least one module (artifact.md, code.entry)", [], {
+      hint: "add a pages/*.ts loader or a functions/ module",
+    });
   const conflicts = routeConflicts(routes);
   if (conflicts.length) throw new BuildError("route conflicts", conflicts);
+  if (config.security) checkSecurity(config.security, routes);
   const enc = new TextEncoder();
   const files = new Map<string, Uint8Array>();
   const entry: Record<string, string> = {};
@@ -208,6 +279,19 @@ export async function buildFiles(
   }
   if (cache) cache.invalidateAll = false;
   for (const f of functions) entry[f.id] = `${f.id}.js`;
+
+  // Templates: transpiled by the worker, only when the app has any.
+  const sources = templateFiles(project);
+  let templates: Record<string, CompiledTemplate> = {};
+  if (Object.keys(sources).length) {
+    const tkey = templatesKey(sources);
+    const hit = cache?.templates.get(tkey);
+    templates = hit ?? (await transpile(sources));
+    if (!hit) cache?.templates.set(tkey, templates);
+  }
+  const missing = pages.filter((p) => p.html && !templates[p.id]);
+  if (missing.length) throw new BuildError("pages without a compiled template", missing.map((p) => `${p.html}: not compiled`));
+  for (const [id, t] of Object.entries(templates)) files.set(`templates/${id}.jinja`, enc.encode(t.source));
   for (const [p, code] of bundled.code) files.set(`code/${p}`, enc.encode(code));
   let size = 0;
   for (const [p, b] of files) if (p.startsWith("code/")) size += b.length;
@@ -237,40 +321,63 @@ export async function buildFiles(
 
   // Public files.
   const pubDir = join(project, "public");
-  const pubs = listFiles(pubDir);
+  const skipped: Skipped[] = [];
+  const pubs = listFiles(pubDir, "", skipped);
+  for (const k of skipped) k.path = `public/${k.path}`;
   if (pubs.length) {
     const entries: Record<string, { sha256: string; size: number; content_type: string }> = {};
     for (const p of pubs) {
-      if (p === "manifest.json") throw new BuildError("public/manifest.json is reserved in artifact version 0");
       const bytes = new Uint8Array(readFileSync(join(pubDir, p)));
       files.set(`public/${p}`, bytes);
       entries[`/${p}`] = { sha256: sha256Hex(bytes), size: bytes.length, content_type: contentType(p) };
     }
     const pm = { version: 0, files: entries };
     const errs = validate(schemas.publicManifest, pm as Json);
-    if (errs.length) throw new BuildError("public/manifest.json", errs);
-    files.set("public/manifest.json", enc.encode(`${JSON.stringify(pm, null, 2)}\n`));
+    if (errs.length) throw new BuildError("public.json", errs);
+    files.set("public.json", enc.encode(`${JSON.stringify(pm, null, 2)}\n`));
   }
 
+  const manifestTemplates = Object.fromEntries(
+    Object.entries(templates).map(([id, t]) => [id, t.fragments ? { kind: t.kind, fragments: t.fragments } : { kind: t.kind }]),
+  );
   const manifest: Manifest = {
-    artifact: { version: 0 },
+    artifact: { version: 1 },
     app: config.app,
     code: { format: "esm-dir", entry },
     routes,
+    ...(Object.keys(manifestTemplates).length ? { templates: manifestTemplates } : {}),
     permissions: config.permissions,
     ...(config.limits ? { limits: config.limits } : {}),
+    ...(config.security ? { security: config.security } : {}),
   };
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);
   files.set("manifest.json", enc.encode(`${JSON.stringify(manifest, null, 2)}\n`));
-  return { files, maps: bundled.maps, manifest, rebuilt, cached };
+  return { files, maps: bundled.maps, manifest, templates, rebuilt, cached, skipped };
+}
+
+/** Fails with every unallowed secret of the bundle (file, line, pattern); returns the allowed ones. */
+export function assertNoSecrets(maps: ReadonlyMap<string, string>, files: ReadonlyMap<string, Uint8Array>): ProjectSecret[] {
+  const report = scanBundle(maps, files);
+  if (report.findings.length === 0) return report.allowed;
+  const first = report.findings[0] as ProjectSecret;
+  const noReason = report.markersWithoutReason.map((m) => `${m.file}:${m.line}: renox-allow-secret needs a reason (renox-allow-secret: <why this is not a secret>)`);
+  throw new BuildError(
+    report.findings.length === 1 ? `secret in the bundle: ${formatSecret(first)}` : `${report.findings.length} secrets in the bundle`,
+    report.findings.length === 1 ? noReason : [...report.findings.map(formatSecret), ...noReason],
+    { file: first.file, line: first.line, column: first.column, hint: SECRET_HINT },
+  );
 }
 
 /** `renox build`: write `<out>/<hash>/` and return its hash. */
-export async function buildArtifact(project: string, out: string, cache?: BuildCache): Promise<BuildResult> {
+export async function buildArtifact(project: string, out: string, cache?: BuildCache, options: { secrets?: boolean } = {}): Promise<BuildResult> {
   const t0 = performance.now();
-  const { files, maps, manifest, rebuilt, cached } = await buildFiles(project, cache);
+  const { files, maps, manifest, templates, rebuilt, cached, skipped } = await buildFiles(project, cache);
+  const allowedSecrets = options.secrets === true ? assertNoSecrets(maps, files) : [];
   const hash = hashFiles(files);
+  const rest = new Map([...files].filter(([p]) => !p.startsWith("templates/") && p !== "manifest.json"));
+  rest.set("manifest.json", new TextEncoder().encode(JSON.stringify({ ...manifest, templates: undefined })));
+  const codeHash = hashFiles(rest);
   const dir = join(out, hash);
   const mapsDir = join(out, "..", "sourcemaps", hash);
   if (!existsSync(mapsDir)) {
@@ -294,7 +401,7 @@ export async function buildArtifact(project: string, out: string, cache?: BuildC
     }
     renameSync(tmp, dir);
   }
-  return { hash, dir, mapsDir, manifest, rebuilt, cached, ms: performance.now() - t0 };
+  return { hash, dir, mapsDir, manifest, templates, codeHash, rebuilt, cached, ms: performance.now() - t0, skipped, allowedSecrets };
 }
 
 /** The default artifact folder of a project. */

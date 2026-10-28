@@ -26,9 +26,11 @@ else
 	@echo "rust: no workspace members yet, skipping fmt/clippy"
 endif
 
+# CRATES="renox-cell renox-template" tests only those packages (CI on a pull
+# request, #189); empty tests the whole workspace.
 rust-test:
 ifneq ($(RUST_MEMBERS),)
-	cargo test --workspace
+	cargo test $(if $(strip $(CRATES)),$(addprefix -p ,$(CRATES)),--workspace)
 else
 	@echo "rust: no workspace members yet, skipping tests"
 endif
@@ -47,7 +49,18 @@ docs-check:
 	bun x tsc --noEmit -p docs/contracts
 	bun run docs/contracts/validate.ts
 
+# Tests that need renox-worker (template transpile, the shop build, renox dev
+# end to end) skip without RENOX_WORKER_PATH; in CI that is an error (#186).
 ts-test:
+ifeq ($(RENOX_WORKER_PATH),)
+ifneq ($(CI),)
+	@echo "ts-test: CI is set and RENOX_WORKER_PATH is not; the tests that need renox-worker must run in CI (#186)" >&2
+	@exit 1
+else
+	@echo "ts-test: RENOX_WORKER_PATH is not set, so the tests that need renox-worker (templates, shop build, renox dev end to end) are SKIPPED."
+	@echo "ts-test: to run them: cargo build -p renox-cell --bin renox-worker && export RENOX_WORKER_PATH=\$$PWD/target/debug/renox-worker"
+endif
+endif
 	bun run test
 
 bench:

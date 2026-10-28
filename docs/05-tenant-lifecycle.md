@@ -13,7 +13,8 @@ renox deploy
   ├─ 2. Upload to the control plane (POST /v1/deployments) with the tenant token
   │
   ├─ 3. Control plane validates: bundle size, manifest, requested permissions
-  │     (network, secrets, modules), templates and policies against schemas, route conflicts
+  │     (network, secrets, modules), templates and policies against schemas, route conflicts,
+  │     bundle hygiene (forbidden files, secrets; below)
   │
   ├─ 4. Artifact stored in object storage, content-addressed: sha256(bundle). Never overwritten.
   │
@@ -22,6 +23,14 @@ renox deploy
   └─ 6. Route table updated via pub/sub: tenant hostname → new hash.
         Rollback = move the pointer back to an old hash. No rebuild.
 ```
+
+### Bundle hygiene
+
+The same rules run in `renox build` and in the control plane's validation (`@renox/artifact-validate`, #115), so the artifact store never holds a known secret or a stray private file (`docs/24-threat-model.md` sections B and C):
+
+- **Forbidden files** (H1): dotfiles and dot-directories (`.env*`, `.git/`, editor folders) except `public/.well-known/`; `node_modules/` outside the bundle; keys and certificates (`*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`); databases (`*.db`, `*.sqlite`); `*.log`; symbolic links; `public/` files over 5 MiB (those belong in storage). `renox build` leaves them out of `public/` and says so; an upload holding one is rejected.
+- **Secrets** (H2): private key blocks, AWS access key ids, GitHub tokens, Stripe live keys, Slack tokens and webhooks, Google API keys, unsigned JWTs, and high-entropy strings assigned to names like `secret`, `token`, `key`, `password`. `renox build` and `renox check --secrets` scan the project's own bundled sources and the files copied as they are, and fail with file and line; the control plane scans the files stored as they are (`public/`, `migrations/`, `templates/`). A line that must keep such a string carries `renox-allow-secret: <reason>`. Findings name the pattern and a masked prefix, never the value.
+- A rejected upload is never written to the artifact bucket.
 
 ### Artifact contents
 

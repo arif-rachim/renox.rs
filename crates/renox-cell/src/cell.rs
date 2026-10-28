@@ -18,6 +18,8 @@ use std::time::Instant;
 
 use renox_runtime::IsolateHandle;
 
+use crate::pages::PageGuard;
+use crate::ratelimit::RouteBuckets;
 use crate::render::SharedPages;
 use tokio::sync::Notify;
 
@@ -28,12 +30,24 @@ pub struct CellKey {
     pub deployment_hash: String,
 }
 
+/// What the cell does around the isolate for one deployment (artifact v1).
+pub struct WebLayer {
+    /// The deployment's templates; `None` without templates.
+    pub(crate) pages: Option<SharedPages>,
+    /// Sessions and CSRF for page routes (#41); `None` without page routes.
+    pub(crate) guard: Option<PageGuard>,
+    /// `security.ratelimit` buckets (#47); `None` without buckets.
+    pub(crate) buckets: Option<RouteBuckets>,
+    /// The session cookie may be `SameSite=None` (CORS with credentials).
+    pub(crate) same_site_none: bool,
+}
+
 /// A live cell.
 pub struct Cell {
     pub key: CellKey,
     pub(crate) isolate: IsolateHandle,
-    /// The deployment's templates (artifact v1); `None` without templates.
-    pub(crate) pages: Option<SharedPages>,
+    /// Pages, sessions, buckets of the deployment.
+    pub(crate) web: WebLayer,
     inflight: AtomicUsize,
     last_used: Mutex<Instant>,
     draining: AtomicBool,
@@ -43,11 +57,11 @@ pub struct Cell {
 }
 
 impl Cell {
-    pub(crate) fn new(key: CellKey, isolate: IsolateHandle, pages: Option<SharedPages>) -> Cell {
+    pub(crate) fn new(key: CellKey, isolate: IsolateHandle, web: WebLayer) -> Cell {
         Cell {
             key,
             isolate,
-            pages,
+            web,
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
             draining: AtomicBool::new(false),

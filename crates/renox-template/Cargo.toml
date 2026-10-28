@@ -12,9 +12,14 @@ publish.workspace = true
 # - `compiler`: the deploy-time transpiler (html5ever). Builds for Wasm, so
 #   the CLI can embed it (#43).
 # - `render`: the request-time renderer, its limits, and the platform filters.
+#
+# `compiler` also carries `emit_js` (render path B, #42), which reads the
+# emitted minijinja source through minijinja's parser (`unstable_machinery`:
+# no semver guarantee, so the minijinja version is pinned by Cargo.lock and
+# tests/emit_js.rs fails on a parser change).
 [features]
 default = ["compiler", "render"]
-compiler = ["dep:html5ever", "dep:markup5ever_rcdom"]
+compiler = ["dep:html5ever", "dep:markup5ever_rcdom", "minijinja/unstable_machinery"]
 render = ["minijinja/fuel", "dep:cpu-time"]
 
 [dependencies]

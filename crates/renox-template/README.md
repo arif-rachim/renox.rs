@@ -27,6 +27,7 @@ Features: `compiler` (html5ever; builds for `wasm32-unknown-unknown` with `--no-
 | `compiler::attrs` | `r-for` parsing, `:class` objects, boolean and URL attributes, escaping |
 | `render` | `Renderer`, `RenderLimits`, `RenderContext`, `RenderError`, the `__renox` platform value |
 | `filters` | `money`, `date`, `ago`, `number`, `truncate`, `json`, `upper`, `lower`, and the internal `__url` |
+| `emit_js` | Render path B (ADR D7, #42): the compiled templates as one JavaScript module that renders in the isolate (see below) |
 
 ## Covered syntax
 
@@ -50,6 +51,9 @@ Every row of the syntax table in `docs/08-template-engine.md` has a fixture unde
 | `r-can="action" :resource="x"`, `r-cannot` | `{% if can("action", x) %}` / `{% if not can(...) %}`; actions checked against `CompileOptions::actions` when given | `permission` |
 | `<billing:plan-badge>` | the module partial, or its `overrides/billing/...` replacement | `module-component` |
 | `<script>` / `<style>` | content literal (`{% raw %}` when it has delimiters); `nonce="{{ __renox.csp_nonce }}"` added | `script-style` |
+| `<x-form action="add">` | `<form method="post" action="?/add" hx-post="?/add" ...>` plus `<input type="hidden" name="_csrf" value="{{ __renox.csrf_token }}">`; other attributes kept (#41) | `render.rs::platform_components_carry_csrf_and_nonce` |
+| `<x-csrf />` | the hidden `_csrf` input alone, for hand-written forms | same |
+| `<x-script src="...">` | `<script src="..." nonce="...">` (empty element) | same |
 | user text | `dir="auto"` on elements with interpolated text, `r-html`, text inputs with a bound `value` | `dir-auto` |
 | static HTML | one chunk, one `EmitRaw` (`static_html_is_one_chunk`) | `static-merge` |
 
@@ -79,7 +83,7 @@ Measured on the shop list page (100 products, 26.1 KB, `tests/render.rs`): 4,770
 
 - HTML auto-escaping everywhere; `/` is not escaped (minijinja's default does), `none`/`undefined` print nothing; undefined lookups chain (`a.b.c` on a missing `a` is empty, like `?.`).
 - No global function except `can`, and no `range`, `namespace`, `debug`. The compiler rejects every call in tenant expressions anyway; this is the second layer.
-- `__renox` (the platform value: CSP nonce, locale, limits, the `can` hook) comes from `RenderContext`, never from tenant data; a data key `__renox` is ignored.
+- `__renox` (the platform value: CSP nonce, CSRF token, locale, limits, the `can` hook) comes from `RenderContext`, never from tenant data; a data key `__renox` is ignored.
 - `r-can` without a `can` hook denies.
 
 ## Filters
@@ -100,9 +104,23 @@ The CLDR patterns for the two platform locales are written out in `src/filters/`
 
 ## Not covered yet
 
-- Built-in components `<x-form>`, `<x-csrf>`, `<x-script>` (#41) and `<x-image>` (storage module); module filters are accepted by name (`CompileOptions::filters`) but implemented by F4.
+- Built-in component `<x-image>` (storage module); module filters are accepted by name (`CompileOptions::filters`) but implemented by F4.
 - Module template ids and overrides of module pages and layouts (`artifact.md` Open 5, F4); slot providers from modules.
 - `<slot>` inside `<head>` other than in `<title>` (the HTML parser moves unknown elements out of `<head>`).
 - A layout using another layout.
 - The fragment cache.
 - Template size cap (`artifact.md` Open 4): compile time on large templates is not measured yet, so no cap is proposed.
+
+## Render path B (`emit_js`)
+
+`emit_js::emit_module(&compiled)` turns the same compiled templates path A renders into one ES module: `render(id, data, cx)` and `renderFragment(id, block, data, cx)`, where `cx` is `{ locale, csp_nonce, csrf_token, can }`. It parses each minijinja source with minijinja's own parser (`minijinja::machinery`, behind the `compiler` feature) and translates the syntax tree, so both paths start from the same source and the same compiler checks. `src/emit_js/runtime.js` reproduces the renderer: escaping, `none`/`undefined`, chainable lookups, truthiness, equality and ordering, value printing, the filters in both locales, `__url`. `examples/emit_js.rs` writes the module of an app directory (`bench/scenarios/B8`).
+
+`tests/emit_js.rs` renders every fixture (pages, layouts, partials, every fragment) on both paths with four data sets (realistic, hostile strings and edge numbers, nulls, empty) and the three locales, and requires byte-equal HTML, or an error on both paths.
+
+Not covered, refused with an `EmitError`: the `date`, `ago`, and `round` filters and module filters (the `filter` fixture), slices, `{% set %}` blocks, loop filters, tuple loop targets, computed `extends`/`include` names. Two known differences: an integral float computed by template arithmetic (`4 / 2`) prints `2.0` on path A and `2` on path B; a fragment on path A also fails when the rest of the page fails (path A evaluates the whole page first, B the block only).
+
+Limits on path B: no fuel (V8 has no instruction counter). The isolate CPU limit is the bound, enforced in Rust by the runtime. The module also counts iterations (`__loop`, same 100,000) and output size against `RenderLimits::DEFAULT` and throws `RENOX_RENDER_LIMIT`. These two checks run in JavaScript and are a convenience, not the enforcement.
+
+## For the CLI (#43)
+
+`transpile::compile_json` is the compiler as one JSON call (`{ "files": {...} }` in; `{ "ok", "templates" }` or `{ "ok": false, "diagnostics" }` out). `renox-worker transpile` serves it on stdin/stdout, and that is what `renox build` uses. `src/wasm.rs` exposes the same call through a C ABI for a `wasm32-unknown-unknown` build (`bench/scenarios/B16/build-wasm.sh`). It was measured against the worker for the cold path and was slower (`cli/README.md`, "Templates"). It is kept so that measurement can be repeated, and is compiled only for `wasm32`.

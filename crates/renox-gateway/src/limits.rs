@@ -5,8 +5,8 @@
 //!
 //! | Limit | Where | Over the limit |
 //! | --- | --- | --- |
-//! | `max_header_bytes` | hyper read buffer (HTTP/1.1), `SETTINGS_MAX_HEADER_LIST_SIZE` (HTTP/2) | 431, connection closed |
-//! | `max_headers` | hyper parser (HTTP/1.1) | 431, connection closed |
+//! | `max_header_bytes` | `Http1Guard` and hyper read buffer (HTTP/1.1), `SETTINGS_MAX_HEADER_LIST_SIZE` (HTTP/2) | 431 with a request id, connection closed |
+//! | `max_headers` | `Http1Guard` and hyper parser (HTTP/1.1) | 431 with a request id, connection closed |
 //! | `max_body_bytes_*` | [`check_body`] before dispatch | 413 `RENOX_BODY_TOO_LARGE` |
 //! | `header_read_timeout` | hyper (HTTP/1.1 request head), TLS handshake | connection closed |
 //! | `idle_timeout` | [`IdleTimeout`] around the socket | connection closed |
@@ -146,11 +146,7 @@ pub fn platform_error(
         .status(status)
         .header(header::CACHE_CONTROL, "no-store");
     if prefers_html(request_headers) {
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{status}</title></head>\
-             <body><h1>{status}</h1><p>{message}</p><p>Request id: <code>{request_id}</code></p></body></html>\n",
-            status = status.as_u16(),
-        );
+        let page = default_page_html(status.as_u16(), message, request_id);
         builder
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
             .body(Body::from(page))
@@ -164,6 +160,25 @@ pub fn platform_error(
             .body(Body::from(body.to_string()))
             .expect("valid response")
     }
+}
+
+/// The platform default error page (`errors.md` section 1): status,
+/// message, request id, no tenant content. The gateway's HTML errors use it,
+/// and the cell uses it when a deployment has no error template or the
+/// template fails (#93).
+pub fn default_page_html(status: u16, message: &str, request_id: &str) -> String {
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    format!(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{status}</title></head>\
+         <body><h1>{status}</h1><p>{}</p><p>Request id: <code>{}</code></p></body></html>\n",
+        esc(message),
+        esc(request_id),
+    )
 }
 
 /// Whether `Accept` ranks `text/html` above `application/json`.
@@ -250,9 +265,11 @@ impl Drop for ConnectionGuard {
     }
 }
 
-/// The response written on a connection refused at the per-IP cap.
-pub const CONNECTION_LIMIT_RESPONSE: &[u8] =
-    b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nretry-after: 1\r\nconnection: close\r\n\r\n";
+/// The response written on a connection refused at the per-IP cap, with its
+/// own request id.
+pub fn connection_limit_response() -> Vec<u8> {
+    crate::request_id::raw_response("503 Service Unavailable", &[("retry-after", "1")])
+}
 
 /// Closes a connection that moves no bytes in either direction for
 /// `timeout`. The timer is only checked while the connection is waiting on

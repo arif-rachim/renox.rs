@@ -71,7 +71,7 @@ export interface CreatedToken {
   expires_at: number;
 }
 
-/** Inserts a tenant token; the value is returned here and never stored. */
+/** Inserts a tenant token; the value is returned here and never stored. `userId`: the user it acts for (at most their role). */
 export async function createTenantToken(
   db: Db,
   tenantId: string,
@@ -79,13 +79,14 @@ export async function createTenantToken(
   scopes: string[],
   days: number,
   now: number,
+  userId: string | null = null,
 ): Promise<CreatedToken> {
   const value = newTokenValue("pat");
   const id = `tok_${ulid(now)}`;
   const expires = now + days * DAY_MS;
   await db.query(
-    "insert into tokens (id, tenant_id, name, token_sha256, scopes, created_at, expires_at) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7)",
-    [id, tenantId, name, sha256hex(value), jsonb(scopes), now, expires],
+    "insert into tokens (id, tenant_id, name, token_sha256, scopes, created_at, expires_at, user_id) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8)",
+    [id, tenantId, name, sha256hex(value), jsonb(scopes), now, expires, userId],
   );
   return { id, name, token: value, scopes, created_at: now, expires_at: expires };
 }

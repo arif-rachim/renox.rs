@@ -1,13 +1,24 @@
 //! The worker process: config → runtime, meter, route table, cell manager,
 //! gateway. The `renox-worker` binary is a thin `main` around [`Worker`];
 //! tests start it in-process.
+//!
+//! With `[tls]` (#162) the gateway serves HTTPS on `listen` (SNI picks the
+//! certificate, the SNI/`Host` rule of #107 applies), and a second, plain
+//! listener on `tls.http_listen` serves only ACME HTTP-01 challenges and
+//! answers everything else with `308` to the HTTPS URL. SIGHUP reloads the
+//! certificate directory as well as the route table.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use renox_gateway::{Gateway, GatewayConfig, RouteEntry, RouteTable};
+use bytes::Bytes;
+use http::{Request, Response, StatusCode, header};
+use http_body_util::Full;
+use renox_gateway::{
+    CertStore, Gateway, GatewayConfig, LoadReport, RouteEntry, RouteTable, TlsConfig, parse_host,
+};
 use renox_meter::{Meter, MeterConfig, NdjsonFileSink};
 use renox_runtime::ops::fetch::FetchConfig;
 use renox_runtime::ops::log::NdjsonLogSink;
@@ -18,14 +29,20 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use crate::artifact::LocalArtifactStore;
-use crate::config::WorkerConfig;
+use crate::client_events::ClientLogSink;
+use crate::config::{TlsSection, WorkerConfig};
 use crate::manager::{CellManager, ManagerConfig};
+use crate::pages::PlatformKey;
 
 /// Why the worker did not start. No file contents, no secrets.
 #[derive(Debug)]
 pub enum WorkerError {
     Io(String, std::io::Error),
     Routes(String),
+    /// `platform_key_file` refused (never contains key bytes).
+    Key(String),
+    /// `[tls] cert_dir` unreadable (never contains key bytes).
+    Tls(String),
 }
 
 impl std::fmt::Display for WorkerError {
@@ -33,6 +50,8 @@ impl std::fmt::Display for WorkerError {
         match self {
             WorkerError::Io(what, e) => write!(f, "{what}: {e}"),
             WorkerError::Routes(e) => write!(f, "route table: {e}"),
+            WorkerError::Key(e) => write!(f, "platform key: {e}"),
+            WorkerError::Tls(e) => write!(f, "tls: {e}"),
         }
     }
 }
@@ -48,11 +67,17 @@ struct RoutesFile {
 
 /// A running worker.
 pub struct Worker {
+    /// The gateway's address: HTTPS with `[tls]`, plain HTTP without.
     pub addr: SocketAddr,
+    /// The plain listener of `[tls] http_listen` (ACME and redirects).
+    pub http_addr: Option<SocketAddr>,
     pub manager: CellManager,
     pub routes: Arc<RouteTable>,
     routes_file: PathBuf,
+    certs: Option<Arc<CertStore>>,
     server: JoinHandle<std::io::Result<()>>,
+    /// The plain listener and the SIGHUP certificate reloader.
+    tasks: Vec<JoinHandle<()>>,
 }
 
 impl Worker {
@@ -81,8 +106,10 @@ impl Worker {
             );
         }
         fetch.extra_blocked = ExtraBlocked(config.fetch_blocked_addresses.clone());
+        let log_sink: Arc<dyn renox_runtime::LogSink> =
+            Arc::new(NdjsonLogSink::new(Box::new(log_file)));
         let runtime = Runtime::new(RuntimeConfig {
-            log_sink: Arc::new(NdjsonLogSink::new(Box::new(log_file))),
+            log_sink: log_sink.clone(),
             fetch,
         });
         let mut meter_config = MeterConfig::new(&config.node_id, &config.node_id, &config.data_dir);
@@ -96,6 +123,15 @@ impl Worker {
             RouteTable::from_json(&routes_json).map_err(|e| WorkerError::Routes(e.to_string()))?,
         );
         let tiers = config.tier_table();
+        let platform_key = match &config.platform_key_file {
+            Some(path) => PlatformKey::load(path).map_err(|e| WorkerError::Key(e.to_string()))?,
+            None => {
+                tracing::warn!(
+                    "platform_key_file is not set: page sessions use a random key and end when the worker restarts"
+                );
+                PlatformKey::random()
+            }
+        };
         let manager = CellManager::new(
             runtime,
             meter,
@@ -106,6 +142,7 @@ impl Worker {
                 tiers: tiers.clone(),
                 default_tier: config.default_tier,
                 tenant_tiers: config.tenant_tiers.clone(),
+                platform_key,
             },
         );
         let mut gw_config = GatewayConfig::new(&config.artifacts_dir);
@@ -114,6 +151,12 @@ impl Worker {
         gw_config.rate_limit.burst = config.gateway.rate_limit_burst;
         gw_config.limits.max_connections_per_ip = config.gateway.max_connections_per_ip;
         let gateway = Gateway::new(gw_config, routes.clone());
+        // `/__renox/events` lines go to the same tenant log (#126).
+        gateway.set_client_event_sink(Arc::new(ClientLogSink::new(log_sink, &config.data_dir)));
+        let certs = match &config.tls {
+            Some(tls) => Some(load_certificates(tls)?),
+            None => None,
+        };
         let listener = TcpListener::bind(config.listen)
             .await
             .map_err(io("bind the listen address"))?;
@@ -121,15 +164,46 @@ impl Worker {
             .local_addr()
             .map_err(io("read the listen address"))?;
         let dispatcher = Arc::new(manager.clone());
-        let server = tokio::spawn(async move { gateway.serve(listener, dispatcher).await });
-        tracing::info!(%addr, routes = routes.len(), "renox-worker listening");
+        let mut tasks = Vec::new();
+        let mut http_addr = None;
+        let server = match (&config.tls, &certs) {
+            (Some(tls), Some(store)) => {
+                if let Some(http_listen) = tls.http_listen {
+                    let plain = TcpListener::bind(http_listen)
+                        .await
+                        .map_err(io("bind tls.http_listen"))?;
+                    http_addr = Some(plain.local_addr().map_err(io("read tls.http_listen"))?);
+                    let site = Arc::new(PlainSite {
+                        acme_dir: tls.acme_dir.clone(),
+                        https_port: tls.https_port.unwrap_or(addr.port()),
+                    });
+                    tasks.push(tokio::spawn(serve_plain(plain, site)));
+                }
+                tasks.push(spawn_sighup_reload(store.clone()));
+                let store = store.clone();
+                tokio::spawn(async move { gateway.serve_tls(listener, store, dispatcher).await })
+            }
+            _ => tokio::spawn(async move { gateway.serve(listener, dispatcher).await }),
+        };
+        tracing::info!(%addr, ?http_addr, tls = certs.is_some(), routes = routes.len(), "renox-worker listening");
         Ok(Worker {
             addr,
+            http_addr,
             manager,
             routes,
             routes_file: config.routes_file.clone(),
+            certs,
             server,
+            tasks,
         })
+    }
+
+    /// Re-read `[tls] cert_dir` (SIGHUP, or a control message from the
+    /// control plane, #59). New handshakes use the new certificates;
+    /// established connections keep theirs. `None` without `[tls]`.
+    pub fn reload_certificates(&self) -> Option<Result<LoadReport, WorkerError>> {
+        let store = self.certs.as_ref()?;
+        Some(reload_store(store))
     }
 
     /// Re-read the route table file (SIGHUP). On a file that fails
@@ -151,6 +225,270 @@ impl Worker {
     /// Stop accepting connections and write every queued meter record.
     pub async fn shutdown(self) {
         self.server.abort();
+        for t in &self.tasks {
+            t.abort();
+        }
         self.manager.meter().flush_and_close().await;
+    }
+}
+
+fn load_certificates(tls: &TlsSection) -> Result<Arc<CertStore>, WorkerError> {
+    let (store, report) = CertStore::load(&TlsConfig {
+        cert_dir: tls.cert_dir.clone(),
+    })
+    .map_err(|e| WorkerError::Tls(e.to_string()))?;
+    log_report(&report);
+    if report.names.is_empty() {
+        tracing::warn!("tls: no certificate loaded; every handshake is refused until a reload");
+    }
+    Ok(store)
+}
+
+fn reload_store(store: &CertStore) -> Result<LoadReport, WorkerError> {
+    let report = store
+        .reload()
+        .map_err(|e| WorkerError::Tls(e.to_string()))?;
+    log_report(&report);
+    Ok(report)
+}
+
+/// Names and failures only; never key material (`CertStore` messages
+/// do not contain any).
+fn log_report(report: &LoadReport) {
+    for (dir, reason) in &report.failed {
+        tracing::error!(entry = %dir, %reason, "tls: certificate not loaded");
+    }
+    tracing::info!(
+        names = report.names.len(),
+        failed = report.failed.len(),
+        "tls: certificates loaded"
+    );
+}
+
+/// SIGHUP reloads the certificates. The binary's own SIGHUP handler reloads
+/// the route table; both handlers receive every signal.
+fn spawn_sighup_reload(store: Arc<CertStore>) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut hup = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!(error = %e, "tls: cannot install the SIGHUP handler");
+                return;
+            }
+        };
+        while hup.recv().await.is_some() {
+            if let Err(e) = reload_store(&store) {
+                tracing::error!(error = %e, "tls: reload refused; the previous certificates stay in use");
+            }
+        }
+    })
+}
+
+/// Bounds of the plain listener: it serves two kinds of tiny responses,
+/// so one request per connection, a short head timeout, and a global cap.
+const PLAIN_MAX_CONNECTIONS: usize = 1024;
+const PLAIN_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+const PLAIN_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
+const PLAIN_MAX_HEAD_BYTES: usize = 16 * 1024;
+/// A key authorization is `<token>.<thumbprint>`, well under this.
+const ACME_MAX_FILE_BYTES: u64 = 4096;
+const ACME_PREFIX: &str = "/.well-known/acme-challenge/";
+
+/// What the plain listener needs to answer.
+struct PlainSite {
+    acme_dir: Option<PathBuf>,
+    https_port: u16,
+}
+
+async fn serve_plain(listener: TcpListener, site: Arc<PlainSite>) {
+    let slots = Arc::new(tokio::sync::Semaphore::new(PLAIN_MAX_CONNECTIONS));
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(c) => c,
+            Err(_) => {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+        };
+        // Over the cap the connection is closed at once.
+        let Ok(permit) = slots.clone().try_acquire_owned() else {
+            continue;
+        };
+        let site = site.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
+                let site = site.clone();
+                async move { Ok::<_, std::convert::Infallible>(plain_response(&site, &req).await) }
+            });
+            let conn = hyper::server::conn::http1::Builder::new()
+                .timer(hyper_util::rt::TokioTimer::new())
+                .header_read_timeout(PLAIN_HEADER_TIMEOUT)
+                .max_buf_size(PLAIN_MAX_HEAD_BYTES)
+                .keep_alive(false)
+                .serve_connection(hyper_util::rt::TokioIo::new(stream), service);
+            let _ = tokio::time::timeout(PLAIN_CONNECTION_TIMEOUT, conn).await;
+        });
+    }
+}
+
+fn plain(status: StatusCode, body: &'static str) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Full::new(Bytes::from_static(body.as_bytes())))
+        .expect("valid response")
+}
+
+/// The plain listener's one handler: an ACME challenge from `acme_dir`, or
+/// `308` to the same host and path over HTTPS. A request body is never read.
+async fn plain_response<B>(site: &PlainSite, req: &Request<B>) -> Response<Full<Bytes>> {
+    let path = req.uri().path();
+    if let Some(token) = path.strip_prefix(ACME_PREFIX) {
+        if !matches!(*req.method(), http::Method::GET | http::Method::HEAD) {
+            return plain(StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n");
+        }
+        return match acme_answer(site.acme_dir.as_deref(), token).await {
+            Some(body) => Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .header(header::CACHE_CONTROL, "no-store")
+                .body(Full::new(if req.method() == http::Method::HEAD {
+                    Bytes::new()
+                } else {
+                    body
+                }))
+                .expect("valid response"),
+            None => plain(StatusCode::NOT_FOUND, "not found\n"),
+        };
+    }
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| parse_host(h).ok());
+    let Some(host) = host else {
+        return plain(StatusCode::BAD_REQUEST, "bad host\n");
+    };
+    let path_and_query = req.uri().path_and_query().map_or("/", |p| p.as_str());
+    let location = if site.https_port == 443 {
+        format!("https://{host}{path_and_query}")
+    } else {
+        format!("https://{host}:{}{path_and_query}", site.https_port)
+    };
+    match Response::builder()
+        .status(StatusCode::PERMANENT_REDIRECT)
+        .header(header::LOCATION, location)
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Full::new(Bytes::new()))
+    {
+        Ok(r) => r,
+        Err(_) => plain(StatusCode::BAD_REQUEST, "bad request\n"),
+    }
+}
+
+/// The key authorization for `token`: a regular file (no link followed)
+/// named by a base64url token (RFC 8555 section 8.3), at most 4 KiB.
+async fn acme_answer(dir: Option<&Path>, token: &str) -> Option<Bytes> {
+    let dir = dir?;
+    if token.is_empty()
+        || token.len() > 255
+        || !token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return None;
+    }
+    let path = dir.join(token);
+    let meta = tokio::fs::symlink_metadata(&path).await.ok()?;
+    if !meta.is_file() || meta.len() > ACME_MAX_FILE_BYTES {
+        return None;
+    }
+    tokio::fs::read(&path).await.ok().map(Bytes::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn site(dir: Option<PathBuf>, port: u16) -> PlainSite {
+        PlainSite {
+            acme_dir: dir,
+            https_port: port,
+        }
+    }
+
+    fn req(method: &str, uri: &str, host: Option<&str>) -> Request<()> {
+        let mut b = Request::builder().method(method).uri(uri);
+        if let Some(h) = host {
+            b = b.header(header::HOST, h);
+        }
+        b.body(()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn redirects_keep_host_path_and_query() {
+        let s = site(None, 443);
+        let r = plain_response(&s, &req("POST", "/a/b?x=1", Some("Shop.Example.COM:80"))).await;
+        assert_eq!(r.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            r.headers()[header::LOCATION],
+            "https://shop.example.com/a/b?x=1"
+        );
+        let s = site(None, 8443);
+        let r = plain_response(&s, &req("GET", "/", Some("a.test"))).await;
+        assert_eq!(r.headers()[header::LOCATION], "https://a.test:8443/");
+        for bad in [None, Some("a b"), Some("a.test/evil"), Some("")] {
+            let r = plain_response(&s, &req("GET", "/", bad)).await;
+            assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{bad:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn acme_tokens_are_served_from_the_directory_only() {
+        let dir = std::env::temp_dir().join(format!("renox-acme-unit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("tok_EN-1"), "tok_EN-1.thumb").unwrap();
+        std::fs::write(dir.join("big"), vec![b'x'; 5000]).unwrap();
+        std::fs::write(dir.parent().unwrap().join("renox-acme-outside"), "secret").unwrap();
+        std::os::unix::fs::symlink(
+            dir.parent().unwrap().join("renox-acme-outside"),
+            dir.join("link"),
+        )
+        .ok();
+        let s = site(Some(dir.clone()), 443);
+        let r = plain_response(
+            &s,
+            &req(
+                "GET",
+                "/.well-known/acme-challenge/tok_EN-1",
+                Some("a.test"),
+            ),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::OK);
+        for token in ["missing", "big", "link", "..%2Fx", "a.b", ""] {
+            let uri = format!("/.well-known/acme-challenge/{token}");
+            let r = plain_response(&s, &req("GET", &uri, Some("a.test"))).await;
+            assert_eq!(r.status(), StatusCode::NOT_FOUND, "{token}");
+        }
+        let r = plain_response(
+            &s,
+            &req(
+                "POST",
+                "/.well-known/acme-challenge/tok_EN-1",
+                Some("a.test"),
+            ),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::METHOD_NOT_ALLOWED);
+        let none = site(None, 443);
+        let r = plain_response(
+            &none,
+            &req("GET", "/.well-known/acme-challenge/tok_EN-1", None),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
     }
 }

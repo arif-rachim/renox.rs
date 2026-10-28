@@ -159,6 +159,20 @@ fn text_of(nodes: &[Handle]) -> String {
         .collect()
 }
 
+/// The hidden CSRF field (`<x-csrf>`, and the first child of `<x-form>`).
+fn csrf_input() -> String {
+    format!("<input type=\"hidden\" name=\"_csrf\" value=\"{{{{ {PLATFORM_VAR}.csrf_token }}}}\">")
+}
+
+/// A page action name (`docs/contracts/artifact.md`, page route `actions`).
+fn is_page_action_name(s: &str) -> bool {
+    let mut c = s.chars();
+    c.next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && s.len() <= 64
+        && c.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 fn is_component_tag(tag: &str) -> bool {
     tag.starts_with("x-") || tag.contains(':')
 }
@@ -814,6 +828,22 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 self.error(ctx, node, None, format!("unknown element `<{tag}>`"));
                 return;
             }
+            "x-csrf" => {
+                self.check_directives(ctx, node, &["r-html"]);
+                if children.iter().any(|c| !is_blank_text(c)) {
+                    self.error(ctx, node, None, "`<x-csrf>` takes no content");
+                }
+                self.out.push_str(&csrf_input());
+                return;
+            }
+            "x-form" => {
+                self.emit_x_form(ctx, node, &children);
+                return;
+            }
+            "x-script" => {
+                self.emit_x_script(ctx, node, &children);
+                return;
+            }
             _ if is_component_tag(tag) => {
                 self.emit_component(ctx, node, tag);
                 return;
@@ -861,6 +891,61 @@ impl<'c, 'p> Emitter<'c, 'p> {
         self.out.push_str("</");
         self.out.push_str(tag);
         self.out.push('>');
+    }
+
+    /// `<x-form action="name">`: a `<form>` that posts to the page action
+    /// `?/name` (plain and htmx) and carries the CSRF field
+    /// (`docs/08-template-engine.md`, "Built-in components"; #41).
+    fn emit_x_form(&mut self, ctx: &Ctx, node: &Handle, children: &[Handle]) {
+        self.check_directives(ctx, node, &["r-html"]);
+        let action = attr(node, "action").unwrap_or_default();
+        let action = action.trim().to_string();
+        if !is_page_action_name(&action) {
+            self.error(
+                ctx,
+                node,
+                Some("action"),
+                format!(
+                    "`<x-form>` needs `action` naming a page action (`addToCart`), got `{action}`"
+                ),
+            );
+            return;
+        }
+        let list: Vec<(String, String)> = attr_list(node)
+            .into_iter()
+            .filter(|(n, _)| {
+                !matches!(
+                    n.as_str(),
+                    "action" | ":action" | "method" | ":method" | "hx-post"
+                )
+            })
+            .collect();
+        let target = format!("?/{action}");
+        self.out.push_str("<form method=\"post\" action=\"");
+        attrs::escape_attr(&target, '"', &mut self.out);
+        self.out.push_str("\" hx-post=\"");
+        attrs::escape_attr(&target, '"', &mut self.out);
+        self.out.push('"');
+        self.emit_attrs(ctx, node, "form", &list);
+        self.out.push('>');
+        self.out.push_str(&csrf_input());
+        self.emit_children(ctx, Some(node), children);
+        self.out.push_str("</form>");
+    }
+
+    /// `<x-script src="...">`: a `<script>` with the per-request CSP nonce.
+    fn emit_x_script(&mut self, ctx: &Ctx, node: &Handle, children: &[Handle]) {
+        self.check_directives(ctx, node, &["r-html"]);
+        if children.iter().any(|c| !is_blank_text(c)) {
+            self.error(ctx, node, None, "`<x-script>` takes no content; use `src`");
+        }
+        let list = attr_list(node);
+        self.out.push_str("<script");
+        self.emit_attrs(ctx, node, "script", &list);
+        self.out.push_str(&format!(
+            "{{% if {PLATFORM_VAR}.csp_nonce %}} nonce=\"{{{{ {PLATFORM_VAR}.csp_nonce }}}}\"{{% endif %}}"
+        ));
+        self.out.push_str("></script>");
     }
 
     /// `dir="auto"` on elements that show user text: direct text with an

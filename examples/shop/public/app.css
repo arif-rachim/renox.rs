@@ -1,0 +1,13 @@
+/* examples/shop: just enough layout to use the pages. Logical properties for RTL. */
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #222; }
+.site-header { display: flex; gap: 1rem; align-items: center; padding: .75rem 1.5rem; background: #2d3e50; color: #fff; }
+.site-header a { color: #fff; text-decoration: none; }
+.site-header .cart { margin-inline-start: auto; }
+main { padding: 1.5rem; max-width: 72rem; margin-inline: auto; }
+.grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 1rem; }
+.card { border: 1px solid #ddd; border-radius: .5rem; padding: .75rem; }
+.card h3 { font-size: 1rem; margin: 0 0 .25rem; }
+.price { font-weight: 600; }
+.out { color: #a00; }
+.search { display: flex; gap: .5rem; margin-block-end: 1rem; }
+.notice { background: #e8f5e9; padding: .5rem .75rem; border-radius: .25rem; }

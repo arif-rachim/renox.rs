@@ -29,6 +29,61 @@ pub struct PageRender {
     pub oob_fragments: Vec<String>,
 }
 
+/// The session of a page request (`ops.md` section 14, "Session"). The cell
+/// verifies or mints it before dispatch and passes it as a request
+/// extension; the runtime hands `id` to `ctx.session`. A request without it
+/// (runtime tests) gets an empty id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageSession {
+    pub id: String,
+}
+
+/// `^[A-Za-z_][A-Za-z0-9_]{0,63}$` (`artifact.md`, page route `actions`).
+pub fn valid_action_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && name.len() <= 64
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// The action a page `POST` names (`artifact.md` section 3, "Methods of a
+/// page route"): the query must start with `/<name>`; anything after a
+/// following `&` is ordinary query data. No `?/` at all names `default`.
+/// `None` when the query starts with `/` but the name is not valid (the
+/// caller answers 404).
+pub fn action_name(query: Option<&str>) -> Option<String> {
+    match query.and_then(|q| q.strip_prefix('/')) {
+        None => Some("default".into()),
+        Some(rest) => {
+            let name = rest.split('&').next().unwrap_or("");
+            valid_action_name(name).then(|| name.to_string())
+        }
+    }
+}
+
+/// What a page request asks for, decided in Rust before any tenant code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageCall {
+    /// `GET`/`HEAD`: `load` (if any), then render.
+    Load,
+    /// `POST ?/<name>` naming one of the page's actions.
+    Action(String),
+    /// A `POST` whose action is unknown or malformed: 404, no tenant code.
+    UnknownAction,
+}
+
+/// Classify a request to a page route by method and query.
+pub fn page_call(route: &RouteDef, method: &str, query: Option<&str>) -> PageCall {
+    if method != "POST" {
+        return PageCall::Load;
+    }
+    let actions = route.page().map(|p| p.actions.as_slice()).unwrap_or(&[]);
+    match action_name(query) {
+        Some(name) if actions.contains(&name) => PageCall::Action(name),
+        _ => PageCall::UnknownAction,
+    }
+}
+
 /// Fragment selection, rule 1: `HX-Request: true` and an `HX-Target` equal to
 /// the `target` of a fragment of the page's map selects that fragment.
 /// Anything else renders the full page.
@@ -110,6 +165,35 @@ mod tests {
             None
         );
         assert_eq!(pick(&[]), None);
+    }
+
+    #[test]
+    fn action_names_from_the_query() {
+        assert_eq!(action_name(Some("/addToCart")), Some("addToCart".into()));
+        assert_eq!(
+            action_name(Some("/addToCart&qty=2")),
+            Some("addToCart".into())
+        );
+        assert_eq!(action_name(None), Some("default".into()));
+        assert_eq!(action_name(Some("qty=2")), Some("default".into()));
+        assert_eq!(action_name(Some("/")), None);
+        assert_eq!(action_name(Some("/a-b")), None);
+        assert_eq!(action_name(Some("/9x")), None);
+        let route: RouteDef = serde_json::from_value(serde_json::json!({
+            "kind": "page", "path": "/p", "module": "pages/p", "actions": ["add"], "template": "pages/p"
+        }))
+        .unwrap();
+        assert_eq!(page_call(&route, "GET", Some("/add")), PageCall::Load);
+        assert_eq!(
+            page_call(&route, "POST", Some("/add")),
+            PageCall::Action("add".into())
+        );
+        assert_eq!(
+            page_call(&route, "POST", Some("/remove")),
+            PageCall::UnknownAction
+        );
+        // No `?/name` runs `default`, which this page does not declare.
+        assert_eq!(page_call(&route, "POST", None), PageCall::UnknownAction);
     }
 
     #[test]
