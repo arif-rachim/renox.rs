@@ -8,9 +8,10 @@ Renox is a multi-tenant hosting platform: tenants deploy web applications and fu
 
 | Expectation | Measure | Target (see `14-benchmarks.md`) |
 | --- | --- | --- |
-| Density | Idle tenants per 8 GB node | ≥ 1,000 (isolate evicted, file closed) |
-| Memory per active tenant | RSS of a warm isolate, example app | ≤ 10 MB (F0 measured 9.8 MB for a dependency-free app without snapshot; 74 MB with nine npm packages, to be fixed by bundling in F1) |
-| Cold start | Snapshot → first request completed | p50 ≤ 20 ms, p99 ≤ 100 ms (F0 measured p50 32 ms, p99 39 ms without snapshot or eszip) |
+| Density | Idle tenants per 8 GB node | ≥ 1,000 (isolate evicted, file closed; F1 measured 1,000 registered tenants at 0.06 MB per idle tenant, provisional) |
+| Memory per active tenant | RSS of a warm isolate, example app | ≤ 10 MB (F1 measured 11.1 MB for `shop` with its real npm dependencies and 7.4 MB for `hello`, provisional, `14-benchmarks.md` "F1 results"; F0: 9.8 MB without snapshot, 74 MB unbundled) |
+| Cold start | Snapshot → first request completed | p50 ≤ 20 ms, p99 ≤ 100 ms (F1 measured p50 22 ms, p99 45 ms with the platform snapshot, provisional; F0: p50 32 ms without snapshot) |
+| Throughput | `hello` function, one node | ≥ 40k req/s (F1 measured 21k req/s on 4 shared vCPUs with the load generator on the same machine, provisional) |
 | SSR latency | Medium page (25 KB, 100 items, 5 queries), warm | p50 ≤ 3 ms, p99 ≤ 15 ms inside the node |
 | Fragment latency | One block, 1 query | p50 ≤ 1 ms |
 | Isolation | A tenant with an infinite loop or unbounded allocation | Other tenants unaffected; the offending request is terminated at its limit |

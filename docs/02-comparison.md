@@ -44,7 +44,7 @@ Supabase and Cloudflare are the closest architectural comparables (isolates + pe
 | --- | --- | --- | --- | --- | --- | --- |
 | Process per tenant (Bun/Node) + cgroups | ~30–50 MB | ~10–30 ms | Strong (OS) | Best | Fly.io/Railway pattern | Rejected: 5–10x less dense |
 | MicroVM per tenant (Firecracker) | ~100 MB+ | ~100 ms+ (faster with snapshots) | Very strong | Best | AWS Lambda, Fly.io | Only for the top tier / suspicious tenants |
-| **V8 isolate per tenant** | **~2–10 MB** | **~1–10 ms** | Adequate; must be layered with a process sandbox | Good via Deno | Cloudflare, Deno Deploy, Supabase, Vercel Edge | **Chosen (D2, D3, D6)** |
+| **V8 isolate per tenant** | **~2–10 MB (F1 measured 7.4 MB `hello`, 11.1 MB `shop`, provisional)** | **~1–10 ms to create; F1 cold start p50 22 ms including the tenant file and the first request (provisional)** | Adequate; must be layered with a process sandbox | Good via Deno | Cloudflare, Deno Deploy, Supabase, Vercel Edge | **Chosen (D2, D3, D6)** |
 | Wasm per tenant (wasmtime) | < 1 MB | < 1 ms | Very strong | Poor for JS | Fermyon, Fastly | Future option for non-JS functions |
 
 Numbers are ranges from those platforms' publications; Renox targets are in `14-benchmarks.md`.
@@ -53,7 +53,7 @@ Numbers are ranges from those platforms' publications; Renox targets are in `14-
 
 | Engine | Memory per instance | Speed | Compatibility | Per-tenant sandbox | Decision |
 | --- | --- | --- | --- | --- | --- |
-| V8 via Supabase Edge Runtime / `deno_runtime` | ~2–10 MB | JIT, fastest | `npm:`, `node:*`, Web APIs | ✅ heap limit, terminate, op permissions | **Chosen (D3)** |
+| V8 via Supabase Edge Runtime / `deno_runtime` | ~2–10 MB (F1 measured 7.4–11.1 MB, provisional) | JIT, fastest | `npm:`, `node:*`, Web APIs | ✅ heap limit, terminate, op permissions | **Chosen (D3)** |
 | V8 via raw `deno_core` | ~2–5 MB | Same | Web APIs and Node compat must be built | ✅ | Rejected: scope |
 | Bun (JavaScriptCore) | ~30–50 MB per process | JIT, on par with V8 | Very good | ❌ no isolates | Used for the control plane (D4), not for tenants |
 | QuickJS (`rquickjs`) | < 1 MB | 10–50x slower (no JIT) | Many npm packages fail | ✅ | Rejected: SSR and libraries need speed |
