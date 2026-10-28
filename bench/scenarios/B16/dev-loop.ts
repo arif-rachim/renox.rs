@@ -26,6 +26,8 @@ const samples: number[] = [];
 for (let run = 0; run < Number(runsArg); run++) {
   const dir = mkdtempSync(join(tmpdir(), "renox-b16-"));
   cpSync(join(repo, "examples/shop"), dir, { recursive: true, filter: (p) => !p.includes("node_modules") && !p.includes(".renox") });
+  // Bare imports (zod, stripe) resolve from the workspace's node_modules.
+  cpSync(join(repo, "examples/shop/node_modules"), join(dir, "node_modules"), { recursive: true, dereference: true });
   const port = 20000 + Math.floor(Math.random() * 20000);
   const dev = await startDev({ project: dir, port, log: () => {} });
   const base = `http://localhost:${port}`;
