@@ -12,6 +12,12 @@
 //!   `<x-csrf>` emit. An action runs only when the submitted token equals
 //!   the cookie and both equal the session's token. Comparisons are
 //!   constant-time.
+//! - BREACH (#111; `docs/24-threat-model.md`, "BREACH"): a token written
+//!   into a response body is masked per response, `base64url(mask ||
+//!   mask XOR token)` with 32 fresh random bytes of mask ([`mask_token`]),
+//!   so compressed HTML never repeats the secret. The check unmasks what
+//!   the client submits ([`unmask_token`]); the unmasked form (the cookie
+//!   value, which travels only in headers) is accepted too.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -90,6 +96,41 @@ impl SessionKeys {
     /// The CSRF token bound to a session.
     pub fn csrf_token(&self, session_id: &str) -> String {
         URL_SAFE_NO_PAD.encode(self.mac("csrf", session_id).finalize().into_bytes())
+    }
+}
+
+/// Length of the raw token (HMAC-SHA256).
+const TOKEN_BYTES: usize = 32;
+
+/// The token as written into a response body: `base64url(mask || mask XOR
+/// token)` with a fresh random mask (86 characters). `token` is the
+/// session's token ([`SessionKeys::csrf_token`]).
+pub fn mask_token(token: &str) -> String {
+    let raw = URL_SAFE_NO_PAD
+        .decode(token)
+        .expect("csrf_token is base64url of 32 bytes");
+    let mut out = vec![0u8; 2 * raw.len()];
+    let (mask, masked) = out.split_at_mut(raw.len());
+    getrandom::fill(mask).expect("the OS random source is available");
+    for ((m, x), t) in masked.iter_mut().zip(mask.iter()).zip(raw.iter()) {
+        *m = x ^ t;
+    }
+    URL_SAFE_NO_PAD.encode(out)
+}
+
+/// The session token a submitted value stands for: a masked token is
+/// unmasked, an unmasked one (43 characters) is returned as is. `None` for
+/// anything else, which the check treats as a mismatch.
+pub fn unmask_token(submitted: &str) -> Option<String> {
+    let bytes = URL_SAFE_NO_PAD.decode(submitted).ok()?;
+    match bytes.len() {
+        TOKEN_BYTES => Some(submitted.to_string()),
+        n if n == 2 * TOKEN_BYTES => {
+            let (mask, masked) = bytes.split_at(TOKEN_BYTES);
+            let raw: Vec<u8> = mask.iter().zip(masked).map(|(m, x)| m ^ x).collect();
+            Some(URL_SAFE_NO_PAD.encode(raw))
+        }
+        _ => None,
     }
 }
 
@@ -287,6 +328,28 @@ mod tests {
         assert_eq!(form_token(&h, body).as_deref(), Some("tok"));
         h.insert("content-type", "application/json".parse().unwrap());
         assert_eq!(form_token(&h, b"{\"_csrf\":\"x\"}"), None);
+    }
+
+    /// `docs/24-threat-model.md`, "BREACH: CSRF token recovered through
+    /// compressed responses" (#111).
+    #[test]
+    fn masked_tokens_differ_per_response_and_unmask_to_the_token() {
+        let k = keys();
+        let token = k.csrf_token(&SessionKeys::new_session_id());
+        let (a, b) = (mask_token(&token), mask_token(&token));
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 86);
+        assert!(!a.contains(&token) && !b.contains(&token));
+        assert_eq!(unmask_token(&a).as_deref(), Some(token.as_str()));
+        assert_eq!(unmask_token(&b).as_deref(), Some(token.as_str()));
+        assert_eq!(unmask_token(&token).as_deref(), Some(token.as_str()));
+        // Flip one bit of the mask: it unmasks to another value.
+        let mut raw = URL_SAFE_NO_PAD.decode(&a).unwrap();
+        raw[0] ^= 1;
+        let flipped = URL_SAFE_NO_PAD.encode(&raw);
+        assert_ne!(unmask_token(&flipped).as_deref(), Some(token.as_str()));
+        assert_eq!(unmask_token("short"), None);
+        assert_eq!(unmask_token("not base64 !"), None);
     }
 
     #[test]

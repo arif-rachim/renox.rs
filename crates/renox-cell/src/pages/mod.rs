@@ -15,7 +15,9 @@
 //! 4. Page action (`POST ?/<name>` naming a declared action): the token from
 //!    `x-renox-csrf` or the `_csrf` form field must equal the
 //!    `__Host-renox_csrf` cookie, and both the session's token. Otherwise
-//!    403 `RENOX_CSRF` and no tenant code runs (no meter record).
+//!    403 `RENOX_CSRF` and no tenant code runs (no meter record). The
+//!    submitted token is unmasked first: the renderer gets a token masked
+//!    per response (BREACH, #111; `session::mask_token`).
 
 pub mod errors;
 pub mod keys;
@@ -53,8 +55,9 @@ impl std::fmt::Debug for PageGuard {
 pub enum Gate {
     /// Not a page route: dispatch unchanged.
     Pass,
-    /// A page route: dispatch with the session; `csrf_token` goes to the
-    /// renderer (`<x-form>`, `<x-csrf>`), `set_cookie` onto the response.
+    /// A page route: dispatch with the session; `csrf_token` (masked for
+    /// this response) goes to the renderer (`<x-form>`, `<x-csrf>`),
+    /// `set_cookie` onto the response.
     Page {
         session: PageSession,
         csrf_token: String,
@@ -131,7 +134,9 @@ impl PageGuard {
             let reason = match (&submitted, &cookie_token) {
                 (None, _) | (_, None) => Some("missing"),
                 (Some(s), Some(c)) => {
-                    (!(session::same(s, c) && session::same(c, &expected))).then_some("mismatch")
+                    let ok = session::unmask_token(s)
+                        .is_some_and(|s| session::same(&s, c) && session::same(c, &expected));
+                    (!ok).then_some("mismatch")
                 }
             };
             if let Some(reason) = reason {
@@ -144,7 +149,7 @@ impl PageGuard {
         }
         Gate::Page {
             session: PageSession { id: session_id },
-            csrf_token: expected,
+            csrf_token: session::mask_token(&expected),
             set_cookie,
         }
     }
@@ -153,6 +158,8 @@ impl PageGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
     fn guard() -> PageGuard {
         let routes: Vec<RouteDef> = serde_json::from_value(serde_json::json!([
@@ -163,6 +170,8 @@ mod tests {
         PageGuard::new(&routes, SessionKeys::new([5u8; 32])).unwrap()
     }
 
+    /// A first GET: the session cookie pair, the raw token of the CSRF
+    /// cookie, and the session id.
     fn get_cookies(g: &PageGuard) -> (String, String, String) {
         let mut h = HeaderMap::new();
         match g.check("GET", "/products/1", None, &mut h, b"", false) {
@@ -177,10 +186,78 @@ mod tests {
                     set_cookie[0].contains("HttpOnly") && set_cookie[0].contains("SameSite=Lax")
                 );
                 assert!(!set_cookie[1].contains("HttpOnly"));
-                (sid, csrf_token, session.id)
+                let cookie_token = set_cookie[1]
+                    .split(';')
+                    .next()
+                    .and_then(|p| p.split_once('='))
+                    .unwrap()
+                    .1
+                    .to_string();
+                // The rendered token is masked, never the cookie's bytes.
+                assert_ne!(csrf_token, cookie_token);
+                assert_eq!(
+                    session::unmask_token(&csrf_token).as_deref(),
+                    Some(cookie_token.as_str())
+                );
+                (sid, cookie_token, session.id)
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    fn action(g: &PageGuard, cookies: &str, token: &str) -> Gate {
+        let mut h = headers(
+            cookies,
+            &[("content-type", "application/x-www-form-urlencoded")],
+        );
+        let body = format!("productId=1&_csrf={token}");
+        g.check(
+            "POST",
+            "/products/1",
+            Some("/addToCart"),
+            &mut h,
+            body.as_bytes(),
+            false,
+        )
+    }
+
+    /// `docs/24-threat-model.md`, "BREACH: CSRF token recovered through
+    /// compressed responses" (#111): two responses for the same session
+    /// carry different token strings, both pass the action check, and a
+    /// token with a flipped mask fails.
+    #[test]
+    fn rendered_tokens_are_masked_per_response() {
+        let g = guard();
+        let (sid, cookie_token, _) = get_cookies(&g);
+        let both = format!("{sid}; {}={cookie_token}", session::CSRF_COOKIE);
+        let rendered = || {
+            let mut h = headers(&both, &[]);
+            match g.check("GET", "/products/1", None, &mut h, b"", false) {
+                Gate::Page {
+                    csrf_token,
+                    set_cookie,
+                    ..
+                } => {
+                    assert!(set_cookie.is_empty(), "same session, same cookies");
+                    csrf_token
+                }
+                other => panic!("{other:?}"),
+            }
+        };
+        let (a, b) = (rendered(), rendered());
+        assert_ne!(a, b);
+        assert!(matches!(action(&g, &both, &a), Gate::Page { .. }));
+        assert!(matches!(action(&g, &both, &b), Gate::Page { .. }));
+        let mut raw = URL_SAFE_NO_PAD.decode(&a).unwrap();
+        raw[3] ^= 0x10;
+        let flipped = URL_SAFE_NO_PAD.encode(&raw);
+        assert!(matches!(
+            action(&g, &both, &flipped),
+            Gate::Refused {
+                reason: "mismatch",
+                ..
+            }
+        ));
     }
 
     fn headers(cookie: &str, extra: &[(&str, &str)]) -> HeaderMap {

@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { lintFetch, lintGlobalState, lintSql } from "../src/lib/lint.ts";
+import { lintFetch, lintGlobalState, lintRedirect, lintSql } from "../src/lib/lint.ts";
 
 test("template interpolation and concatenation in SQL are errors", () => {
   const src = [
@@ -74,4 +74,23 @@ test("global-state: globalThis writes and module-level let/var writes inside fun
 test("global-state: reads, shadowing, parameters, top-level init, strings, comments, and renox-allow-global are not flagged", () => {
   const src = readFileSync(join(import.meta.dir, "fixtures/lint-global/clean.ts"), "utf8");
   expect(lintGlobalState(src, "clean.ts")).toEqual([]);
+});
+
+/**
+ * docs/24-threat-model.md, "Open redirect via `next`/`return_to`" (#111):
+ * a redirect to a target taken from the request, directly or through a
+ * variable, is an error. Every line marked `// FLAG` is one finding.
+ */
+test("no-unsafe-redirect: redirects to request input are errors with file and line", () => {
+  const file = "functions/api/redirect.ts";
+  const src = readFileSync(join(import.meta.dir, "fixtures/lint-redirect/flagged.ts"), "utf8");
+  const expected = src.split("\n").flatMap((l, i) => (l.includes("// FLAG") ? [i + 1] : []));
+  const f = lintRedirect(src, file);
+  expect(f.map((x) => x.line)).toEqual(expected);
+  expect(new Set(f.map((x) => `${x.file} ${x.rule} ${x.severity}`))).toEqual(new Set([`${file} no-unsafe-redirect error`]));
+});
+
+test("no-unsafe-redirect: redirect.safe, safeRedirectTarget, constants, strings, and comments are not flagged", () => {
+  const src = readFileSync(join(import.meta.dir, "fixtures/lint-redirect/clean.ts"), "utf8");
+  expect(lintRedirect(src, "clean.ts")).toEqual([]);
 });
