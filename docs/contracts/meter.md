@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0** (F1). Written into every batch as `schema_version` |
+| Version | **0.1** (F2, #152). Batches carry `schema_version: 0`: 0.1 is additive, and every version 0 record is a valid 0.1 record (section 8). History: "Changelog" at the bottom |
 | Producers | `crates/renox-meter` (P4), fed by `crates/renox-runtime` (P1) and `crates/renox-cell` (P5) |
 | Consumers | `control/billing` (P14, F3): aggregation into billing tables; dashboard usage views (P13, F3); abuse detection (`docs/24-threat-model.md`) |
 | Machine-readable | [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json): the batch envelope (root) and the record (`$defs/record`) |
@@ -20,7 +20,7 @@ Every invocation of tenant code produces exactly one meter record. Records are t
 
 ## 2. Record fields
 
-All fields are required. Integers are JSON numbers within ±(2^53 − 1). `f64` fields are non-negative JSON numbers, rounded to 3 decimal places (microsecond resolution).
+All fields are required except `render_ms`. Integers are JSON numbers within ±(2^53 − 1). `f64` fields are non-negative JSON numbers, rounded to 3 decimal places (microsecond resolution).
 
 | Field | Type | Unit | Source | Meaning |
 | --- | --- | --- | --- | --- |
@@ -39,7 +39,8 @@ All fields are required. Integers are JSON numbers within ±(2^53 − 1). `f64` 
 | `fetch_blocked` | integer | count | runtime, `op_fetch` | Outbound requests rejected with `RENOX_FETCH_BLOCKED`, whether or not tenant code caught the error |
 | `db_ms` | f64 | milliseconds | runtime, `op_db_*` | Wall time spent in database ops, including waits for the write lock |
 | `db_rows` | integer | rows | runtime, `op_db_*` | Rows returned by queries plus rows changed by statements (`changes`) |
-| `render_fuel` | integer | fuel units | runtime | Template render fuel. Always `0` in F1; filled from F2 (`docs/08-template-engine.md`) |
+| `render_fuel` | integer | fuel units | cell, from `renox-template` | Template render fuel used by every render of this invocation (the page or fragment, out-of-band fragments, and an error page). `0` when nothing was rendered, and in F1 (`docs/08-template-engine.md`) |
+| `render_ms` | f64, **optional** (0.1) | CPU milliseconds | cell: **thread CPU time** (`CLOCK_THREAD_CPUTIME_ID`) of the render-pool thread while it rendered for this invocation | Rendering runs off the isolate thread, outside the tenant's CPU limit, so it is **not** in `cpu_ms`. Absent means `0`: version 0 producers omit it, and so may a producer for an invocation that rendered nothing |
 | `logs_dropped` | integer | lines | runtime, `op_log` | Log lines dropped by the tenant log rate limit during this request (`ops.md` section 4) |
 | `http_status` | integer, 100–599 | — | cell | Status code sent to the client. For an invocation ended by client disconnect, the status that was sent or would have been sent |
 | `status` | enum (below) | — | cell | How the invocation ended, from the platform's point of view |
@@ -55,6 +56,7 @@ All fields are required. Integers are JSON numbers within ±(2^53 − 1). `f64` 
 | `oom` | The isolate hit its heap limit (`RENOX_OOM`) | 503 |
 | `blocked_fetch` | The handler failed with an **uncaught** `RENOX_FETCH_BLOCKED`. A blocked fetch that tenant code caught is `ok` with `fetch_blocked > 0` | 500 |
 | `busy` | Rejected by the per-deployment concurrency limit after queueing (`RENOX_BUSY`); no tenant code ran, so `cpu_ms`, `db_*`, `fetch_*` are 0 | 503 |
+| `render_limit` | Rendering the page or a fragment ran out of fuel, iterations, output size, include depth, or render time (`RENOX_RENDER_LIMIT`, F2). `render_fuel` and `render_ms` hold what was used up to the stop | 500 |
 
 `busy` is an addition to the list in issue #16 (it was proposed in `ops.md` section 7). The record is kept because dashboards need to show rejected load, but billing does not charge it (section 5).
 
@@ -107,7 +109,7 @@ Not produced in v0. They get their own record kind in a later version. A record 
 | --- | --- | --- | --- |
 | Realtime | F5 | `kind: "realtime"`, `tenant_id`, `deployment_hash`, `period_start`, `period_end`, `connection_seconds`, `peak_connections`, `messages_in`, `messages_out`, `bytes_out` | Per cell per minute |
 | Storage | F5 (SQLite), F7 (object storage) | `kind: "storage"`, `tenant_id`, `measured_at`, `sqlite_bytes`, `wal_bytes`, `object_bytes`, `object_count` | Hourly, end of hour (`docs/05-tenant-lifecycle.md`) |
-| Render | F2 | No new record; `render_fuel` and render time move into the invocation record | — |
+| Render | F2 (done in 0.1) | No new record: `render_fuel` and `render_ms` are fields of the invocation record (section 2) | — |
 | Background jobs and events | F4/F6 | Invocation records with a `route` of the form `JOB <name>` / `EVENT <name>` | Per run |
 
 ## 7. Mapping to billing dimensions
@@ -117,10 +119,17 @@ Not produced in v0. They get their own record kind in a later version. A record 
 | Billing dimension | Derived from | Notes |
 | --- | --- | --- |
 | Requests | Count of records with `status` ≠ `busy` | `busy` rejections are not charged |
-| CPU-ms | Sum of `cpu_ms` | `render_fuel` converted to CPU-ms from F2 (rendering runs outside the tenant's CPU limit but is charged to its quota, `docs/04-isolation-security.md`) |
+| CPU-ms | Sum of `cpu_ms + render_ms` (absent `render_ms` = 0) | Rendering runs outside the tenant's CPU limit but is charged to its quota (`docs/04-isolation-security.md`), so it is billed as the CPU time it took. `render_fuel` is not converted: it is kept for the render limits and dashboards |
 | Egress | Sum of `egress_bytes + fetch_sent_bytes` | Bytes leaving our network. `fetch_received_bytes` and `ingress_bytes` are kept for abuse detection and limits, not billed |
 | Storage | Storage meter (reserved, section 6) | Not derived from invocation records |
-| Not billed, kept for limits and dashboards | `wall_ms`, `peak_heap_bytes`, `db_ms`, `db_rows`, `fetch_blocked`, `logs_dropped`, `http_status` | Tier enforcement, usage views, anomaly alerts (`docs/24-threat-model.md`, abuse rows) |
+| Not billed, kept for limits and dashboards | `wall_ms`, `peak_heap_bytes`, `db_ms`, `db_rows`, `fetch_blocked`, `logs_dropped`, `render_fuel`, `http_status` | Tier enforcement, usage views, anomaly alerts (`docs/24-threat-model.md`, abuse rows) |
+
+## 8. Versioning
+
+- The contract version is `MAJOR.MINOR`. Batches carry only the major as `schema_version`, because a minor change never makes an old record invalid or changes the meaning of an existing field.
+- **Minor**: a new optional field (absent = a stated default), a new `status` value, a field whose allowed range widens. Consumers built for the new minor accept records of every older minor of the same major. A consumer built for an older minor may meet an unknown optional field or `status`: it keeps the batch for replay instead of dropping it, as for an unknown `schema_version`.
+- **Major**: a removed or renamed field, a changed unit or meaning, a new required field. It bumps `schema_version`.
+- Contract edits are made only by `type:contract` issues.
 
 ## Open
 
@@ -128,3 +137,11 @@ Not produced in v0. They get their own record kind in a later version. A record 
 2. **CPU attribution under concurrency.** `cpu_ms` sums the slices that run on behalf of the request (`ops.md` section 10). Microtasks scheduled by one request and run during another are attributed through the request's async context. If #25 shows that attribution is unreliable on the pinned runtime, the fallback in `ops.md` section 10 (one in-flight request per isolate) makes it exact.
 3. **Crash window.** Up to 5 s of records can be lost on a node crash (section 4). Acceptable for F1 because nothing is billed before F3; revisit with the F3 ingestion issue.
 4. **Cold-start cost.** Module evaluation at isolate start (`ops.md` section 11) is not charged to any request in v0. Whether to expose it as a field (`cold_start_ms`) for dashboards is open; adding it is a minor change.
+5. **`render_ms` vs fuel.** Billing uses `render_ms` (section 7). If #38 or the F2 benchmarks show render CPU time is too noisy per request to bill, billing could switch to a fuel-based conversion; that is a change of section 7 only, not of the record.
+
+## Changelog
+
+| Version | Issue | Changes |
+| --- | --- | --- |
+| 0 | #16 | First version (F1): record, batch, delivery, sinks, reserved meters, billing mapping |
+| 0.1 | #152 | `render_fuel` may be non-zero (filled by the cell); new optional `render_ms` (render-pool CPU time, outside `cpu_ms`); new `status` value `render_limit`; billed CPU-ms is `cpu_ms + render_ms`; versioning rules (section 8) |

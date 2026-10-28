@@ -3,7 +3,8 @@
 //   - every *.valid.json example validates and every *.invalid.json fails, for
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
-//     hash, manifest, migrations, public files: rules V1-V13);
+//     hash, manifest, migrations, public files, templates, pages, security:
+//     rules V1-V16, versions 0 and 1);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - the error catalogue docs/contracts/errors.md has exactly one row for
 //     every code used in ops.md and docs/23-failure-modes.md, and ctx.d.ts
@@ -312,7 +313,32 @@ function parsePattern(path: string): Segment[] {
     });
 }
 
-/** V4, V7, V8, V9 on a manifest that already passed the schema. */
+/** The methods a route answers: its own for a function, GET and HEAD (and POST with actions) for a page. */
+function routeMethods(route: JsonObject): string[] {
+  if (route.kind !== "page") return [route.method as string];
+  const actions = (route.actions as string[] | undefined) ?? [];
+  return actions.length > 0 ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
+}
+
+/** V14 (template kind matches its id) on manifest.templates. */
+function templateKindProblem(id: string, kind: string): string | null {
+  const last = id.split("/").pop() as string;
+  const expected = id.startsWith("partials/")
+    ? "partial"
+    : id.startsWith("pages/_layouts/")
+      ? "layout"
+      : id === "pages/_error"
+        ? "error"
+        : id === "pages/_404"
+          ? "not_found"
+          : last.startsWith("_")
+            ? null
+            : "page";
+  if (expected === null) return `"${id}" is not a page, layout, partial, error, or 404 template`;
+  return kind === expected ? null : `"${id}" must have kind "${expected}", not "${kind}"`;
+}
+
+/** V4, V7, V8, V9, V14 (kinds), V15, V16 on a manifest that already passed the schema. */
 function manifestRules(manifest: JsonObject): string[] {
   const errors: string[] = [];
   const app = manifest.app as JsonObject;
@@ -320,6 +346,8 @@ function manifestRules(manifest: JsonObject): string[] {
   const entry = code.entry as JsonObject;
   const routes = manifest.routes as JsonObject[];
   const permissions = manifest.permissions as JsonObject;
+  const templates = (isObject(manifest.templates) ? manifest.templates : {}) as Record<string, JsonObject>;
+  const security = (isObject(manifest.security) ? manifest.security : {}) as Record<string, Json>;
 
   try {
     new Intl.DateTimeFormat("en", { timeZone: app.timezone as string });
@@ -329,13 +357,36 @@ function manifestRules(manifest: JsonObject): string[] {
 
   const used = new Set<string>();
   const shapes = new Map<string, number>();
+  const pageTemplates = new Map<string, number>();
   routes.forEach((route, i) => {
-    const where = `routes[${i}] ${route.method} ${route.path}`;
-    const module = route.module as string;
-    used.add(module);
-    if (!(module in entry)) errors.push(`V7: ${where}: module "${module}" is not a key of code.entry`);
-    if (route.kind === "function" && route.export !== route.method) {
+    const page = route.kind === "page";
+    const where = page ? `routes[${i}] page ${route.path}` : `routes[${i}] ${route.method} ${route.path}`;
+    const module = route.module as string | undefined;
+    if (module !== undefined) {
+      used.add(module);
+      if (!(module in entry)) errors.push(`V7: ${where}: module "${module}" is not a key of code.entry`);
+      const prefix = page ? "pages/" : "functions/";
+      if (!module.startsWith(prefix)) errors.push(`V7: ${where}: module "${module}" must be under ${prefix}`);
+    }
+    if (!page && route.export !== route.method) {
       errors.push(`V7: ${where}: export "${route.export}" must equal the method`);
+    }
+    if (page) {
+      const load = route.load === true;
+      const actions = (route.actions as string[] | undefined) ?? [];
+      const template = route.template as string | undefined;
+      const htmlOnly = module === undefined && !load && actions.length === 0 && template !== undefined;
+      const tsOnly = module !== undefined && load && template === undefined;
+      const pair = module !== undefined && template !== undefined;
+      if (!(htmlOnly || tsOnly || pair)) {
+        errors.push(`V15: ${where}: module/load/actions/template is not an .html-only, .ts-only, or .ts + .html page`);
+      }
+      if (template !== undefined) {
+        const t = templates[template];
+        if (t === undefined) errors.push(`V15: ${where}: template "${template}" is not a key of templates`);
+        else if (t.kind !== "page") errors.push(`V15: ${where}: template "${template}" has kind "${t.kind}", not "page"`);
+        pageTemplates.set(template, (pageTemplates.get(template) ?? 0) + 1);
+      }
     }
     const segments = parsePattern(route.path as string);
     const names = new Set<string>();
@@ -346,14 +397,67 @@ function manifestRules(manifest: JsonObject): string[] {
         names.add(s.text);
       }
     });
-    const shape = `${route.method} /${segments.map((s) => (s.kind === "static" ? `s:${s.text}` : s.kind)).join("/")}`;
-    const previous = shapes.get(shape);
-    if (previous !== undefined) errors.push(`V8: ${where}: conflicts with routes[${previous}]`);
-    else shapes.set(shape, i);
+    const pattern = `/${segments.map((s) => (s.kind === "static" ? `s:${s.text}` : s.kind)).join("/")}`;
+    for (const method of routeMethods(route)) {
+      const shape = `${method} ${pattern}`;
+      const previous = shapes.get(shape);
+      if (previous !== undefined) {
+        errors.push(`V8: ${where}: conflicts with routes[${previous}] for ${method}`);
+        break;
+      }
+      shapes.set(shape, i);
+    }
   });
   for (const key of Object.keys(entry)) {
     if (!used.has(key)) errors.push(`V7: code.entry "${key}" is not used by any route`);
   }
+
+  for (const [id, t] of Object.entries(templates)) {
+    const problem = templateKindProblem(id, t.kind as string);
+    if (problem !== null) errors.push(`V14: templates ${problem}`);
+    if (t.kind === "page") {
+      const count = pageTemplates.get(id) ?? 0;
+      if (count !== 1) errors.push(`V15: page template "${id}" is used by ${count} page routes, expected 1`);
+      const targets = new Set<string>();
+      for (const [name, fragment] of Object.entries(t.fragments as JsonObject)) {
+        const target = (fragment as JsonObject).target;
+        if (typeof target !== "string") continue;
+        if (targets.has(target)) errors.push(`V15: templates "${id}": fragment "${name}" repeats target "${target}"`);
+        targets.add(target);
+      }
+    }
+  }
+
+  const csp = (isObject(security.csp) ? security.csp : {}) as Record<string, Json>;
+  if (csp.allow_unsafe !== true) {
+    for (const [key, sources] of Object.entries(csp)) {
+      if (!Array.isArray(sources)) continue;
+      for (const s of sources) {
+        if (s === "'unsafe-inline'" || s === "'unsafe-eval'") {
+          errors.push(`V16: security.csp.${key}: ${s} requires csp.allow_unsafe = true`);
+        }
+      }
+    }
+  }
+  for (const [key, sources] of Object.entries(csp)) {
+    if (!Array.isArray(sources) || key === "script_src" || key === "style_src") continue;
+    for (const s of sources) {
+      if (s === "'unsafe-inline'" || s === "'unsafe-eval'") errors.push(`V16: security.csp.${key}: ${s} is allowed only in script_src and style_src`);
+    }
+  }
+  const cors = (isObject(security.cors) ? security.cors : {}) as Record<string, Json>;
+  if (cors.credentials === true && (!Array.isArray(cors.origins) || cors.origins.length === 0)) {
+    errors.push("V16: security.cors.credentials requires a non-empty cors.origins");
+  }
+  const answered = new Set(routes.flatMap((r) => routeMethods(r).map((m) => `${m} ${r.path}`)));
+  const buckets = new Set<string>();
+  ((security.ratelimit as JsonObject[] | undefined) ?? []).forEach((b, i) => {
+    const key = `${b.method} ${b.path}`;
+    if (!answered.has(key)) errors.push(`V16: security.ratelimit[${i}]: no route answers ${key}`);
+    const bucket = `${key} ${b.key}`;
+    if (buckets.has(bucket)) errors.push(`V16: security.ratelimit[${i}]: duplicate bucket ${bucket}`);
+    buckets.add(bucket);
+  });
 
   for (const host of permissions.network as string[]) {
     const port = /:([0-9]+)$/u.exec(host.replace(/^http:\/\//u, ""))?.[1];
@@ -433,19 +537,6 @@ function checkArtifact(dir: string): string[] {
   };
   walk(dir, "");
 
-  const folded = new Map<string, string>();
-  for (const path of files.keys()) {
-    const key = path.toLowerCase();
-    const other = folded.get(key);
-    if (other !== undefined) errors.push(`V1: ${path} and ${other} differ only in case`);
-    folded.set(key, path);
-    const top = path.split("/")[0] as string;
-    if (top === "templates" || top === "policies") errors.push(`V1: ${top}/ is reserved and must be absent in version 0`);
-    else if (!(path === "manifest.json" || ["code", "migrations", "public"].includes(top))) {
-      errors.push(`V1: ${path}: not an allowed top-level entry`);
-    }
-  }
-
   const name = dir.split("/").pop() as string;
   const hash = contentHash(files);
   if (name !== hash) errors.push(`V2: directory name ${name} does not match the content hash ${hash}`);
@@ -457,6 +548,25 @@ function checkArtifact(dir: string): string[] {
     manifest = JSON.parse(text("manifest.json")) as Json;
   } catch {
     return [...errors, "V3: manifest.json is not JSON"];
+  }
+  const version =
+    isObject(manifest) && isObject(manifest.artifact) && typeof manifest.artifact.version === "number"
+      ? manifest.artifact.version
+      : 0;
+
+  const folded = new Map<string, string>();
+  for (const path of files.keys()) {
+    const key = path.toLowerCase();
+    const other = folded.get(key);
+    if (other !== undefined) errors.push(`V1: ${path} and ${other} differ only in case`);
+    folded.set(key, path);
+    const top = path.split("/")[0] as string;
+    if (top === "policies") errors.push("V1: policies/ is reserved and must be absent");
+    else if (version === 0 && (top === "templates" || path === "public.json")) {
+      errors.push(`V1: ${top === "templates" ? "templates/" : "public.json"} must be absent in version 0`);
+    } else if (!(path === "manifest.json" || path === "public.json" || ["code", "migrations", "public", "templates"].includes(top))) {
+      errors.push(`V1: ${path}: not an allowed top-level entry`);
+    }
   }
   const manifestErrors = checkMessage("manifest", manifest);
   errors.push(...manifestErrors.map((e) => (e.startsWith("schema") ? `V3: ${e}` : e)));
@@ -515,22 +625,42 @@ function checkArtifact(dir: string): string[] {
     }
   }
 
+  // V12: the public index is public.json in version 1 and public/manifest.json in version 0.
+  const indexPath = version === 0 ? "public/manifest.json" : "public.json";
   const publicFiles = [...files.keys()].filter((p) => p.startsWith("public/"));
-  if (publicFiles.length > 0) {
-    if (!files.has("public/manifest.json")) errors.push("V12: public/manifest.json is missing");
+  if (publicFiles.length > 0 || files.has(indexPath)) {
+    if (!files.has(indexPath)) errors.push(`V12: ${indexPath} is missing`);
     else {
-      const index = JSON.parse(text("public/manifest.json")) as Json;
-      errors.push(...checkMessage("public-manifest", index).map((e) => `V12: public/manifest.json ${e}`));
+      const index = JSON.parse(text(indexPath)) as Json;
+      errors.push(...checkMessage("public-manifest", index).map((e) => `V12: ${indexPath} ${e}`));
       const listed = isObject(index) && isObject(index.files) ? index.files : {};
-      const served = publicFiles.filter((p) => p !== "public/manifest.json").map((p) => p.slice("public".length));
+      const served = publicFiles.filter((p) => p !== indexPath).map((p) => p.slice("public".length));
       for (const url of served) {
         const meta = listed[url];
         const bytes = files.get(`public${url}`) as Uint8Array;
-        if (!isObject(meta)) errors.push(`V12: ${url} is not in public/manifest.json`);
+        if (!isObject(meta)) errors.push(`V12: ${url} is not in ${indexPath}`);
         else if (meta.sha256 !== sha256(bytes) || meta.size !== bytes.length) errors.push(`V12: ${url}: hash or size mismatch`);
       }
-      for (const url of Object.keys(listed)) if (!served.includes(url)) errors.push(`V12: public/manifest.json lists missing ${url}`);
+      for (const url of Object.keys(listed)) if (!served.includes(url)) errors.push(`V12: ${indexPath} lists missing ${url}`);
     }
+  }
+
+  // V14: templates/ holds exactly templates/<id>.jinja for the keys of manifest.templates, as UTF-8.
+  const templateIds = Object.keys(isObject(manifest.templates) ? manifest.templates : {});
+  const templateFiles = [...files.keys()].filter((p) => p.startsWith("templates/"));
+  for (const p of templateFiles) {
+    const id = p.slice("templates/".length).replace(/\.jinja$/u, "");
+    if (!p.endsWith(".jinja") || !templateIds.includes(id)) errors.push(`V14: ${p} is not a template listed in manifest.templates`);
+    else {
+      try {
+        new TextDecoder("utf-8", { fatal: true }).decode(files.get(p));
+      } catch {
+        errors.push(`V14: ${p} is not valid UTF-8`);
+      }
+    }
+  }
+  for (const id of templateIds) {
+    if (!files.has(`templates/${id}.jinja`)) errors.push(`V14: templates/${id}.jinja is missing`);
   }
   return errors;
 }
@@ -607,7 +737,9 @@ report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", met
 const artifacts: { dir: string; expect?: string }[] = [
   { dir: "examples/hello-artifact" },
   { dir: "examples/artifact/notes-artifact" },
+  { dir: "examples/artifact/shop-artifact" },
   { dir: "examples/artifact/broken-artifact", expect: "V2" }, // a file changed after hashing
+  { dir: "examples/artifact/broken-templates-artifact", expect: "V14" }, // a template file not in the manifest
 ];
 for (const { dir, expect } of artifacts) {
   for (const name of listDir(`${root}/${dir}`).filter((n) => /^[0-9a-f]{64}$/u.test(n))) {

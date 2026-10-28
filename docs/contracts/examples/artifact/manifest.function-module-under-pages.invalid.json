@@ -1,0 +1,56 @@
+{
+  "$comment": "invalid: a function route's module must be under functions/ (artifact.md V7) [expect: V7]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js",
+      "pages/api/x": "pages/api/x.js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/products/:id",
+      "module": "pages/products/[id]",
+      "load": true,
+      "actions": [
+        "addToCart"
+      ],
+      "template": "pages/products/[id]"
+    },
+    {
+      "kind": "function",
+      "method": "GET",
+      "path": "/api/x",
+      "module": "pages/api/x",
+      "export": "GET"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/products/[id]": {
+      "kind": "page",
+      "fragments": {
+        "product": {
+          "target": "product"
+        },
+        "cart_badge": {
+          "target": "cart-badge"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/artifact/v0/public-manifest.schema.json",
-  "title": "Renox public/manifest.json, artifact contract version 0",
-  "description": "Map from URL path to content hash, size, and content type of each static file under public/. Prose: docs/contracts/artifact.md section 4. That the keys equal the files and the hashes match is V12.",
+  "title": "Renox public index: public.json (artifact version 1) or public/manifest.json (artifact version 0)",
+  "description": "Map from URL path to content hash, size, and content type of each static file under public/. The index format version stays 0 in both locations. Prose: docs/contracts/artifact.md section 4. That the keys equal the files and the hashes match is V12.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "files"],

@@ -1,0 +1,32 @@
+{
+  "$comment": "invalid: page routes and templates do not exist in version 0 (artifact.md V3) [expect: const: expected \"function\"]",
+  "artifact": {
+    "version": 0
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/products/:id",
+      "module": "pages/products/[id]",
+      "load": true,
+      "actions": [
+        "addToCart"
+      ],
+      "template": "pages/products/[id]"
+    }
+  ],
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}
