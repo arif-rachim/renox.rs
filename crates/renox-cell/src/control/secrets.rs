@@ -5,10 +5,12 @@
 //! fetched it.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 
 use crate::cell::{SecretsError, SecretsFuture, SecretsRequest, SecretsSource};
+use crate::control::degraded::declares_secrets;
 use crate::control::http::ControlClient;
 
 #[derive(Deserialize)]
@@ -22,11 +24,17 @@ struct Bundle {
 /// [`SecretsSource`] over the control API.
 pub struct ControlSecrets {
     pub client: ControlClient,
+    /// A deployment whose manifest declares no secret needs no bundle, so
+    /// its cells start while the control plane is unreachable (#98).
+    pub artifacts_dir: PathBuf,
 }
 
 impl SecretsSource for ControlSecrets {
     fn secrets(&self, request: SecretsRequest) -> SecretsFuture<'_> {
         Box::pin(async move {
+            if !declares_secrets(&self.artifacts_dir, &request.deployment_hash) {
+                return Ok(BTreeMap::new());
+            }
             let Some(app) = &request.app else {
                 return Err(SecretsError::Unavailable(
                     "no route entry names the deployment's app".into(),

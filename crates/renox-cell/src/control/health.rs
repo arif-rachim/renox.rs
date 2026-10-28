@@ -48,6 +48,14 @@ impl Health {
         }
     }
 
+    /// Whether `component` is degraded now.
+    pub fn has(&self, component: &str) -> bool {
+        self.reasons
+            .lock()
+            .expect("health lock")
+            .contains_key(component)
+    }
+
     pub fn is_degraded(&self) -> bool {
         !self.reasons.lock().expect("health lock").is_empty()
     }

@@ -15,9 +15,12 @@
 //! | Secret bundles ([`crate::cell::SecretsSource`]) | [`secrets`] |
 //! | Tenant logs ([`renox_runtime::LogSink`]) | [`log_sink`] |
 //! | `GET /healthz` | [`health`] |
+//! | Degraded mode: route snapshot file, 503 for uncached cold starts | [`degraded`] |
+//! | Meter and log spool | [`crate::spool`] |
 //! | Meters ([`renox_meter::BatchPoster`]) | [`MeterPoster`] |
 //! | Artifacts | [`crate::artifact_s3`] |
 
+pub mod degraded;
 pub mod health;
 pub mod http;
 pub mod log_sink;

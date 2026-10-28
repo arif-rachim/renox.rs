@@ -179,6 +179,62 @@ pub fn tar_of(dir: &Path) -> Vec<u8> {
     tar
 }
 
+/// A TCP forwarder that can be stopped and started again on the same port:
+/// "object storage unreachable" for degraded-mode tests (#98).
+pub struct TcpProxy {
+    pub addr: SocketAddr,
+    target: SocketAddr,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl TcpProxy {
+    pub async fn start(target: SocketAddr) -> TcpProxy {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        let mut p = TcpProxy {
+            addr,
+            target,
+            task: None,
+        };
+        p.task = Some(Self::serve(l, target));
+        p
+    }
+
+    fn serve(l: tokio::net::TcpListener, target: SocketAddr) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut conns = tokio::task::JoinSet::new();
+            loop {
+                let Ok((mut inbound, _)) = l.accept().await else {
+                    continue;
+                };
+                conns.spawn(async move {
+                    if let Ok(mut out) = tokio::net::TcpStream::connect(target).await {
+                        let _ = tokio::io::copy_bidirectional(&mut inbound, &mut out).await;
+                    }
+                });
+            }
+        })
+    }
+
+    /// Closes the listener and every forwarded connection.
+    pub fn stop(&mut self) {
+        if let Some(t) = self.task.take() {
+            t.abort();
+        }
+    }
+
+    pub async fn restart(&mut self) {
+        self.stop();
+        let l = loop {
+            match tokio::net::TcpListener::bind(self.addr).await {
+                Ok(l) => break l,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        };
+        self.task = Some(Self::serve(l, self.target));
+    }
+}
+
 /// A running control API.
 pub struct Stack {
     pub addr: SocketAddr,
@@ -189,11 +245,21 @@ pub struct Stack {
     master_key: String,
     child: Option<Child>,
     pub root: PathBuf,
+    /// Tests of one binary share `RENOX_TEST_PG`: one stack at a time.
+    _exclusive: tokio::sync::MutexGuard<'static, ()>,
 }
+
+static EXCLUSIVE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 impl Stack {
     /// `None` (with a note on stderr) when the services are not configured.
     pub async fn start(name: &str) -> Option<Stack> {
+        Self::start_with(name, None).await
+    }
+
+    /// Like [`Stack::start`], with the API's S3 endpoint replaced by `s3`
+    /// (a [`TcpProxy`] in front of `RENOX_TEST_S3`).
+    pub async fn start_with(name: &str, s3: Option<String>) -> Option<Stack> {
         let Ok(pg) = std::env::var("RENOX_TEST_PG") else {
             eprintln!(
                 "skipped: set RENOX_TEST_PG (a disposable Postgres database) to run the controlled-mode tests"
@@ -208,6 +274,7 @@ impl Stack {
             eprintln!("skipped: bun is not on the PATH");
             return None;
         }
+        let exclusive = EXCLUSIVE.lock().await;
         let root =
             std::env::temp_dir().join(format!("renox-control-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -229,7 +296,7 @@ impl Stack {
             addr: SocketAddr::from(([127, 0, 0, 1], port)),
             url: format!("http://127.0.0.1:{port}"),
             pg,
-            s3: std::env::var("RENOX_TEST_S3").ok(),
+            s3: s3.or_else(|| std::env::var("RENOX_TEST_S3").ok()),
             operator: token("renox_op_"),
             master_key: {
                 let mut k = [0u8; 32];
@@ -238,6 +305,7 @@ impl Stack {
             },
             child: None,
             root,
+            _exclusive: exclusive,
         };
         stack.start_api().await;
         Some(stack)

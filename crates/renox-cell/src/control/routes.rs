@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use renox_gateway::{RouteEntry, RouteStatus, RouteTable};
 use serde::{Deserialize, Serialize};
 
+use crate::control::degraded::SnapshotFile;
 use crate::manager::{CellManager, DeploymentLookup, DeploymentMeta};
 use crate::tiers::TierName;
 
@@ -77,6 +78,8 @@ pub struct RouteState {
     table: Mutex<Table>,
     gateway: Arc<RouteTable>,
     manager: OnceLock<CellManager>,
+    /// Where every applied table is saved (#98).
+    snapshot_file: OnceLock<SnapshotFile>,
 }
 
 impl RouteState {
@@ -86,6 +89,7 @@ impl RouteState {
             table: Mutex::new(Table::default()),
             gateway,
             manager: OnceLock::new(),
+            snapshot_file: OnceLock::new(),
         }
     }
 
@@ -93,6 +97,11 @@ impl RouteState {
     /// once, after the manager is built (it needs this state as its lookup).
     pub fn set_manager(&self, manager: CellManager) {
         let _ = self.manager.set(manager);
+    }
+
+    /// Saves every applied table to `file` from now on (degraded mode, #98).
+    pub fn persist_to(&self, file: SnapshotFile) {
+        let _ = self.snapshot_file.set(file);
     }
 
     /// The route version of the last snapshot or delta applied.
@@ -165,6 +174,13 @@ impl RouteState {
     /// the gateway refuses (two active entries for one hostname) leaves the
     /// previous gateway table in use.
     fn publish(&self) {
+        if let Some(file) = self.snapshot_file.get() {
+            let (version, all) = {
+                let t = self.table.lock().expect("routes lock");
+                (t.version, t.entries.values().cloned().collect::<Vec<_>>())
+            };
+            file.save(version, &all);
+        }
         let entries = self.gateway_entries();
         let json = serde_json::json!({ "version": 0, "entries": entries }).to_string();
         if let Err(e) = self.gateway.reload_from_json(&json) {

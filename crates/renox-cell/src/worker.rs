@@ -38,6 +38,7 @@ use crate::artifact_s3::S3ArtifactStore;
 use crate::cell::LocalSecrets;
 use crate::client_events::ClientLogSink;
 use crate::config::{Mode, TlsSection, WorkerConfig};
+use crate::control::degraded::{Guard, GuardedDispatcher, SnapshotFile};
 use crate::control::health::Health;
 use crate::control::http::{ControlClient, read_node_token};
 use crate::control::log_sink::HttpLogSink;
@@ -46,6 +47,7 @@ use crate::control::secrets::ControlSecrets;
 use crate::control::{self, Controller, MeterPoster};
 use crate::manager::{CellManager, ManagerConfig, StaticTiers};
 use crate::pages::PlatformKey;
+use crate::spool::{self, Queue};
 
 /// Why the worker did not start. No file contents, no secrets.
 #[derive(Debug)]
@@ -138,8 +140,21 @@ impl Worker {
             }
             _ => None,
         };
+        // Degraded mode (#98): batches the control plane did not take wait
+        // in `<data_dir>/spool/` for the replayer.
+        let spool = [
+            Queue::meters(&config.data_dir),
+            Queue::logs(&config.data_dir),
+        ];
+        let health = Arc::new(Health::default());
         let log_sink: Arc<dyn renox_runtime::LogSink> = match &control {
-            Some(client) => Arc::new(HttpLogSink::start(client.clone(), None)),
+            Some(client) => {
+                let logs = spool[1].clone();
+                Arc::new(HttpLogSink::start(
+                    client.clone(),
+                    Some(Arc::new(move |body: Vec<u8>| logs.append(&body))),
+                ))
+            }
             None => Arc::new(NdjsonLogSink::new(Box::new(log_file))),
         };
         let runtime = Runtime::new(RuntimeConfig {
@@ -148,7 +163,10 @@ impl Worker {
         });
         let mut meter_config = MeterConfig::new(&config.node_id, &config.node_id, &config.data_dir);
         meter_config.flush_interval = Duration::from_millis(config.meter_flush_ms.max(1));
-        meter_config.dead_letter = NdjsonFileSink::new(config.meters_dir.join("dead"));
+        meter_config.dead_letter = match &control {
+            Some(_) => NdjsonFileSink::new(&spool[0].dir),
+            None => NdjsonFileSink::new(config.meters_dir.join("dead")),
+        };
         let meter = match &control {
             Some(client) => Meter::start(
                 meter_config,
@@ -175,6 +193,9 @@ impl Worker {
         let route_state = control
             .as_ref()
             .map(|c| Arc::new(RouteState::new(c.node_id(), routes.clone())));
+        let s3 = control
+            .as_ref()
+            .map(|c| Arc::new(S3ArtifactStore::new(&config.artifacts_dir, c.clone())));
         let tiers = config.tier_table();
         let platform_key = match &config.platform_key_file {
             Some(path) => PlatformKey::load(path).map_err(|e| WorkerError::Key(e.to_string()))?,
@@ -190,10 +211,8 @@ impl Worker {
             meter,
             ManagerConfig {
                 data_dir: config.data_dir.clone(),
-                artifacts: match &control {
-                    Some(client) => {
-                        Arc::new(S3ArtifactStore::new(&config.artifacts_dir, client.clone()))
-                    }
+                artifacts: match &s3 {
+                    Some(store) => store.clone(),
                     None => Arc::new(LocalArtifactStore::new(&config.artifacts_dir)),
                 },
                 idle_timeout: config.idle_timeout(),
@@ -208,6 +227,7 @@ impl Worker {
                 secrets: match &control {
                     Some(client) => Arc::new(ControlSecrets {
                         client: client.clone(),
+                        artifacts_dir: config.artifacts_dir.clone(),
                     }),
                     None => Arc::new(LocalSecrets {
                         data_dir: config.data_dir.clone(),
@@ -216,6 +236,20 @@ impl Worker {
                 platform_key,
             },
         );
+        if let Some(state) = &route_state {
+            state.set_manager(manager.clone());
+            // The last table this node applied: served until the control
+            // plane answers (#98); replaced by its first snapshot.
+            let file = SnapshotFile::in_data_dir(&config.data_dir);
+            if let Some(snapshot) = file.load() {
+                tracing::info!(
+                    version = snapshot.version,
+                    "route table restored from the snapshot file"
+                );
+                state.apply_snapshot(snapshot);
+            }
+            state.persist_to(file);
+        }
         let mut gw_config = GatewayConfig::new(&config.artifacts_dir);
         gw_config.wall_clock_limit = Duration::from_millis(tiers.max_wall_ms());
         gw_config.rate_limit.requests_per_second = config.gateway.rate_limit_per_ip;
@@ -234,7 +268,10 @@ impl Worker {
         let addr = listener
             .local_addr()
             .map_err(io("read the listen address"))?;
-        let dispatcher = Arc::new(manager.clone());
+        let dispatcher = Arc::new(GuardedDispatcher {
+            manager: manager.clone(),
+            guard: s3.map(|store| Guard::new(store, health.clone(), config.artifacts_dir.clone())),
+        });
         let mut tasks = Vec::new();
         let mut http_addr = None;
         let server = match (&config.tls, &certs) {
@@ -259,8 +296,6 @@ impl Worker {
         let mut health_addr = None;
         let controller = match (control, route_state, &config.control) {
             (Some(client), Some(state), Some(section)) => {
-                state.set_manager(manager.clone());
-                let health = Arc::new(Health::default());
                 if let Some(listen) = section.health_listen {
                     let (bound, task) = control::health::serve(listen, health.clone())
                         .await
@@ -268,6 +303,11 @@ impl Worker {
                     health_addr = Some(bound);
                     tasks.push(task);
                 }
+                tasks.push(spool::spawn_replayer(
+                    client.clone(),
+                    spool.to_vec(),
+                    health.clone(),
+                ));
                 let controller = Controller::new(
                     client,
                     state,
