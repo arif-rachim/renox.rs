@@ -12,12 +12,19 @@
 //   source paths (`renox deploy` uploads them privately, #128).
 // - migrations/NNN_name.sql → migrations/app/ with checksums.json.
 // - public/** → public/ with manifest.json (content hash, size, type).
+//   Forbidden files (dotfiles except .well-known/, keys, .env, databases,
+//   logs, symlinks, files over 5 MiB; @renox/artifact-validate, #115) are
+//   left out and listed in `skipped`.
+// - With `secrets`, the bundled sources and copied files are scanned for
+//   secrets (secrets.ts); a finding fails the build.
 // - manifest.json, then the content hash names the directory:
 //   <out>/<hash>/. An existing directory with that name is reused
 //   (artifacts are content-addressed and never overwritten).
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+
+import { forbiddenReason } from "@renox/artifact-validate";
 
 import { location, ValidationError, type Where } from "../errors.ts";
 
@@ -26,6 +33,7 @@ import { readProject, type ProjectConfig } from "./project.ts";
 import { discoverFunctions, routeConflicts, routesOf, type FunctionModule, type Route } from "./routes.ts";
 import { type Json, validate } from "./schema.ts";
 import { schemas } from "./schemas.ts";
+import { formatSecret, scanBundle, SECRET_HINT, type ProjectSecret } from "./secrets.ts";
 
 /** The app does not build (exit 2). `problems` lists every one when there are several. */
 export class BuildError extends ValidationError {
@@ -57,6 +65,12 @@ export interface Manifest {
   limits?: ProjectConfig["limits"];
 }
 
+/** A file of public/ that the build left out, and why. */
+export interface Skipped {
+  path: string;
+  reason: string;
+}
+
 export interface BuildResult {
   hash: string;
   dir: string;
@@ -67,6 +81,10 @@ export interface BuildResult {
   rebuilt: number;
   cached: number;
   ms: number;
+  /** Forbidden files of public/ left out of the artifact. */
+  skipped: Skipped[];
+  /** Secrets allowed by a `renox-allow-secret` marker (only with `secrets`). */
+  allowedSecrets: ProjectSecret[];
 }
 
 /** Bundled code: `code/`-relative path → source, and the source maps the same way. */
@@ -125,13 +143,29 @@ const CONTENT_TYPES: Record<string, string> = {
 export const contentType = (path: string): string =>
   CONTENT_TYPES[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 
-function listFiles(dir: string, rel = ""): string[] {
+/**
+ * Files under `dir`, sorted. Without `skipped`, a symbolic link is an error
+ * (V1); with it, symbolic links and forbidden files are left out and listed.
+ */
+function listFiles(dir: string, rel = "", skipped?: Skipped[]): string[] {
   if (!existsSync(join(dir, rel))) return [];
   const out: string[] = [];
   for (const d of readdirSync(join(dir, rel), { withFileTypes: true })) {
     const r = rel ? `${rel}/${d.name}` : d.name;
-    if (d.isSymbolicLink()) throw new BuildError(`V1: symbolic link ${r} is not allowed in an artifact`);
-    if (d.isDirectory()) out.push(...listFiles(dir, r));
+    if (d.isSymbolicLink()) {
+      if (skipped === undefined) throw new BuildError(`V1: symbolic link ${r} is not allowed in an artifact`);
+      skipped.push({ path: r, reason: "a symbolic link" });
+      continue;
+    }
+    if (skipped !== undefined) {
+      // A directory is judged as the folder of a file inside it.
+      const reason = forbiddenReason(d.isDirectory() ? `${r}/_` : r, { underPublic: true, size: d.isFile() ? statSync(join(dir, r)).size : 0 });
+      if (reason !== null) {
+        skipped.push({ path: d.isDirectory() ? `${r}/` : r, reason });
+        continue;
+      }
+    }
+    if (d.isDirectory()) out.push(...listFiles(dir, r, skipped));
     else if (d.isFile()) out.push(r);
   }
   return out.sort();
@@ -188,7 +222,7 @@ async function bundle(project: string, functions: FunctionModule[]): Promise<Bun
 export async function buildFiles(
   project: string,
   cache?: BuildCache,
-): Promise<{ files: Map<string, Uint8Array>; maps: Map<string, string>; manifest: Manifest; rebuilt: number; cached: number }> {
+): Promise<{ files: Map<string, Uint8Array>; maps: Map<string, string>; manifest: Manifest; rebuilt: number; cached: number; skipped: Skipped[] }> {
   const config = readProject(project);
   const functions = discoverFunctions(project);
   if (functions.length === 0) throw new BuildError("no routes: functions/ has no module exporting GET, POST, ...");
@@ -237,7 +271,9 @@ export async function buildFiles(
 
   // Public files.
   const pubDir = join(project, "public");
-  const pubs = listFiles(pubDir);
+  const skipped: Skipped[] = [];
+  const pubs = listFiles(pubDir, "", skipped);
+  for (const k of skipped) k.path = `public/${k.path}`;
   if (pubs.length) {
     const entries: Record<string, { sha256: string; size: number; content_type: string }> = {};
     for (const p of pubs) {
@@ -263,13 +299,27 @@ export async function buildFiles(
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);
   files.set("manifest.json", enc.encode(`${JSON.stringify(manifest, null, 2)}\n`));
-  return { files, maps: bundled.maps, manifest, rebuilt, cached };
+  return { files, maps: bundled.maps, manifest, rebuilt, cached, skipped };
+}
+
+/** Fails with every unallowed secret of the bundle (file, line, pattern); returns the allowed ones. */
+export function assertNoSecrets(maps: ReadonlyMap<string, string>, files: ReadonlyMap<string, Uint8Array>): ProjectSecret[] {
+  const report = scanBundle(maps, files);
+  if (report.findings.length === 0) return report.allowed;
+  const first = report.findings[0] as ProjectSecret;
+  const noReason = report.markersWithoutReason.map((m) => `${m.file}:${m.line}: renox-allow-secret needs a reason (renox-allow-secret: <why this is not a secret>)`);
+  throw new BuildError(
+    report.findings.length === 1 ? `secret in the bundle: ${formatSecret(first)}` : `${report.findings.length} secrets in the bundle`,
+    report.findings.length === 1 ? noReason : [...report.findings.map(formatSecret), ...noReason],
+    { file: first.file, line: first.line, column: first.column, hint: SECRET_HINT },
+  );
 }
 
 /** `renox build`: write `<out>/<hash>/` and return its hash. */
-export async function buildArtifact(project: string, out: string, cache?: BuildCache): Promise<BuildResult> {
+export async function buildArtifact(project: string, out: string, cache?: BuildCache, options: { secrets?: boolean } = {}): Promise<BuildResult> {
   const t0 = performance.now();
-  const { files, maps, manifest, rebuilt, cached } = await buildFiles(project, cache);
+  const { files, maps, manifest, rebuilt, cached, skipped } = await buildFiles(project, cache);
+  const allowedSecrets = options.secrets === true ? assertNoSecrets(maps, files) : [];
   const hash = hashFiles(files);
   const dir = join(out, hash);
   const mapsDir = join(out, "..", "sourcemaps", hash);
@@ -294,7 +344,7 @@ export async function buildArtifact(project: string, out: string, cache?: BuildC
     }
     renameSync(tmp, dir);
   }
-  return { hash, dir, mapsDir, manifest, rebuilt, cached, ms: performance.now() - t0 };
+  return { hash, dir, mapsDir, manifest, rebuilt, cached, ms: performance.now() - t0, skipped, allowedSecrets };
 }
 
 /** The default artifact folder of a project. */
