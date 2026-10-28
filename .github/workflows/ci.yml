@@ -63,10 +63,15 @@ jobs:
               - 'package.json'
               - 'bun.lock*'
               - 'tsconfig*.json'
+              # A change to the jobs themselves runs them.
+              - '.github/workflows/ci.yml'
+              - 'Makefile'
             docs:
               - 'docs/**'
               - '**/*.md'
               - '.github/scripts/check-links.ts'
+              - '.github/workflows/ci.yml'
+              - 'Makefile'
 
   rust:
     needs: changes
