@@ -34,6 +34,7 @@ pub mod limits;
 pub mod protocol;
 pub mod rate_limit;
 pub mod route_table;
+pub mod security;
 pub mod static_files;
 pub mod tls;
 
@@ -52,12 +53,18 @@ pub use tls::{CertStore, LoadReport, TlsConfig, TlsConnection, TlsError};
 pub const REQUEST_ID_HEADER: &str = "x-renox-request-id";
 /// Client IP header set by the gateway on the request to the cell.
 pub const CLIENT_IP_HEADER: &str = "x-renox-client-ip";
+/// The one client `x-renox-*` header that reaches the cell: the CSRF token
+/// htmx sends on page actions (`ops.md` section 14). The cell checks it and
+/// removes it before tenant code runs (`crates/renox-cell/src/pages`).
+pub const CSRF_HEADER: &str = "x-renox-csrf";
 
 /// Default security headers on every response
 /// (`docs/04-isolation-security.md`, "Clickjacking" and "Other headers"
-/// rows). CSP and CSRF are F2 (#47). The gateway overwrites any value the
-/// tenant handler set: in F1 these are not configurable, and from F2 they
-/// are configured in `renox.toml [security.headers]`, never by handler code.
+/// rows): the values [`security::headers::header_set`] gives a deployment
+/// without a `security` object, CSP aside (its value carries the request's
+/// nonce). The gateway overwrites any value the tenant handler set; from F2
+/// `renox.toml [security.headers]` configures `Referrer-Policy` and
+/// `Permissions-Policy` (#47), never handler code.
 pub const SECURITY_HEADERS: [(&str, &str); 5] = [
     ("x-content-type-options", "nosniff"),
     ("referrer-policy", "strict-origin-when-cross-origin"),
@@ -97,6 +104,9 @@ pub struct RequestCtx {
     pub deadline: Instant,
     /// The TCP peer address (IPv4-mapped IPv6 shown as IPv4).
     pub client_ip: IpAddr,
+    /// This request's CSP nonce (#47): the renderer puts it on every
+    /// `<script>`/`<style>`, the gateway sends it in the CSP header.
+    pub csp_nonce: String,
 }
 
 /// Implemented by the cell (#29). The gateway calls it for every request
@@ -177,6 +187,7 @@ struct Inner {
     config: GatewayConfig,
     routes: Arc<RouteTable>,
     statics: StaticFiles,
+    security: security::SecurityStore,
     limiter: RateLimiter,
     connections: Arc<ConnectionLimiter>,
     counters: Counters,
@@ -205,6 +216,7 @@ impl<D> Clone for AppState<D> {
 impl Gateway {
     pub fn new(config: GatewayConfig, routes: Arc<RouteTable>) -> Self {
         let statics = StaticFiles::new(config.artifact_root.clone());
+        let security = security::SecurityStore::new(config.artifact_root.clone());
         let limiter = RateLimiter::new(config.rate_limit);
         let connections = ConnectionLimiter::new(config.limits.max_connections_per_ip);
         Self {
@@ -212,6 +224,7 @@ impl Gateway {
                 config,
                 routes,
                 statics,
+                security,
                 limiter,
                 connections,
                 counters: Counters::default(),
@@ -232,6 +245,11 @@ impl Gateway {
     /// The static file cache, so the worker can forget evicted deployments.
     pub fn static_files(&self) -> &StaticFiles {
         &self.inner.statics
+    }
+
+    /// Per-deployment `security` settings (#47), read once per hash.
+    pub fn security(&self) -> &security::SecurityStore {
+        &self.inner.security
     }
 
     pub fn stats(&self) -> GatewayStats {
@@ -467,8 +485,11 @@ async fn handle<D: CellDispatcher>(
 ) -> Result<Response<Body>, Infallible> {
     let request_id = ulid::Ulid::generate().to_string();
     let tls = req.extensions().get::<TlsConnection>().is_some();
-    let mut response = route(&state, req, &request_id).await;
-    finish_response(response.headers_mut(), &request_id, tls);
+    let nonce = security::new_nonce();
+    let mut used: Option<Arc<security::DeploymentInfo>> = None;
+    let mut response = route(&state, req, &request_id, &nonce, &mut used).await;
+    let cfg = used.as_ref().map(|i| &i.security);
+    finish_response(response.headers_mut(), &request_id, tls, cfg, &nonce);
     Ok(response)
 }
 
@@ -476,6 +497,8 @@ async fn route<D: CellDispatcher>(
     state: &AppState<D>,
     req: Request<Body>,
     request_id: &str,
+    nonce: &str,
+    used: &mut Option<Arc<security::DeploymentInfo>>,
 ) -> Response<Body> {
     let inner = &state.gateway.inner;
     let counters = &inner.counters;
@@ -514,7 +537,26 @@ async fn route<D: CellDispatcher>(
         );
     }
 
-    if let Some(resp) = inner
+    // The deployment's `security` settings: they decide the response
+    // headers from here on, and preflights are answered here (#47).
+    let info = inner.security.get(&entry.deployment_hash).await;
+    *used = Some(info.clone());
+    match security::cors::preflight(&info.security.cors, req.method(), req.headers()) {
+        security::cors::Preflight::No => {}
+        security::cors::Preflight::Allowed(headers) => {
+            let mut b = Response::builder().status(StatusCode::NO_CONTENT);
+            for (k, v) in headers {
+                b = b.header(k, v);
+            }
+            return b.body(Body::empty()).expect("valid response");
+        }
+        security::cors::Preflight::Refused => {
+            return plain(StatusCode::FORBIDDEN, "CORS request refused");
+        }
+    }
+    let request_headers = req.headers().clone();
+
+    if let Some(mut resp) = inner
         .statics
         .serve(
             &entry.deployment_hash,
@@ -525,6 +567,7 @@ async fn route<D: CellDispatcher>(
         .await
     {
         counters.static_hits.fetch_add(1, Ordering::Relaxed);
+        security::cors::apply(&info.security.cors, &request_headers, resp.headers_mut());
         return resp;
     }
 
@@ -546,10 +589,13 @@ async fn route<D: CellDispatcher>(
         request_id: request_id.to_owned(),
         deadline: Instant::now() + inner.config.wall_clock_limit,
         client_ip,
+        csp_nonce: nonce.to_owned(),
     };
     prepare_request_headers(req.headers_mut(), request_id, client_ip);
     counters.dispatched.fetch_add(1, Ordering::Relaxed);
-    state.dispatcher.dispatch(ctx, req).await
+    let mut resp = state.dispatcher.dispatch(ctx, req).await;
+    security::cors::apply(&info.security.cors, &request_headers, resp.headers_mut());
+    resp
 }
 
 fn client_ip(req: &Request<Body>) -> IpAddr {
@@ -591,7 +637,7 @@ fn request_host(req: &Request<Body>) -> Result<String, HostError> {
 }
 
 /// Removes hop-by-hop headers (including those named in `Connection`) and
-/// every client-sent `x-renox-*` header, then sets the two headers tenant
+/// every client-sent `x-renox-*` header except [`CSRF_HEADER`], then sets the two headers tenant
 /// code may trust (`ops.md` section 6).
 fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip: IpAddr) {
     let named: Vec<HeaderName> = headers
@@ -609,7 +655,7 @@ fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip:
     }
     let renox: Vec<HeaderName> = headers
         .keys()
-        .filter(|k| k.as_str().starts_with("x-renox-"))
+        .filter(|k| k.as_str().starts_with("x-renox-") && k.as_str() != CSRF_HEADER)
         .cloned()
         .collect();
     for name in renox {
@@ -625,10 +671,17 @@ fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip:
     );
 }
 
-fn finish_response(headers: &mut HeaderMap, request_id: &str, tls: bool) {
-    for (name, value) in SECURITY_HEADERS {
-        headers.insert(name, HeaderValue::from_static(value));
-    }
+/// The protection headers (#47): the deployment's settings when the request
+/// reached one, else the defaults (unknown host, bad request, rate limited).
+fn finish_response(
+    headers: &mut HeaderMap,
+    request_id: &str,
+    tls: bool,
+    cfg: Option<&security::SecurityConfig>,
+    nonce: &str,
+) {
+    let defaults = security::SecurityConfig::default();
+    security::apply_headers(headers, cfg.unwrap_or(&defaults), nonce, tls);
     // HSTS only on TLS responses: on plain HTTP browsers ignore it, and it
     // must never be sent by a `renox dev` plain-HTTP listener.
     if tls {

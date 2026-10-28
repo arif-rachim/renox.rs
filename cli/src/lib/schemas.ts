@@ -12,7 +12,7 @@ export const schemas = {
   routeTable: routeTable as Json,
 };
 
-/** renox.toml (F1): the app, permissions, and limit overrides. */
+/** renox.toml: the app, permissions, limit overrides, and [security] (#47). */
 export const renoxTomlSchema: Json = {
   type: "object",
   additionalProperties: false,
@@ -33,6 +33,18 @@ export const renoxTomlSchema: Json = {
       properties: {
         network: { type: "array", items: { type: "string" }, uniqueItems: true },
         secrets: { type: "array", items: { type: "string", pattern: "^[A-Z][A-Z0-9_]{0,63}$" }, uniqueItems: true },
+      },
+    },
+    // Checked in depth against manifest.schema.json's `security` and V16 by
+    // src/check/security.ts; here only the table names, for "unknown key".
+    security: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        csp: { type: "object" },
+        cors: { type: "object" },
+        headers: { type: "object" },
+        ratelimit: { type: "array" },
       },
     },
     limits: {

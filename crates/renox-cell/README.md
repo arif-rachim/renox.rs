@@ -7,6 +7,8 @@ cargo run -p renox-cell --bin renox-worker -- --config crates/renox-cell/worker.
 cargo test -p renox-cell        # tests/two_tenants.rs links V8
 ```
 
+`renox-worker transpile` (#43) is the template compiler for the CLI: it reads `{ "files": { "<path>": "<source>" } }` on stdin and writes `renox_template::transpile::compile_json`'s result to stdout, then exits. No config, no V8, no network. `renox build` calls it for apps with templates (`cli/README.md`, "Templates").
+
 ## Configuration
 
 `renox-worker --config worker.toml`. Relative paths are resolved against the config file's directory. Unknown keys are refused. Example: `worker.example.toml`.
@@ -24,6 +26,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `meter_flush_ms` | 5000 | Meter batches are written at least this often |
 | `fetch_blocked_addresses` | `[]` | The node's own public addresses and the control plane's; tenant `fetch` is refused to them on top of the private ranges. Empty logs a warning at start; set it in production |
 | `default_tier` | `free` | Tier of tenants not listed in `tenant_tiers` |
+| `platform_key_file` | — | The node's platform key (mode 0600, ≥ 32 bytes); page session and CSRF keys are derived from it per tenant ("Sessions and CSRF"). Unset: a random key per process |
 | `[gateway]` | 100 / 200 / 100 | `rate_limit_per_ip` (req/s), `rate_limit_burst`, `max_connections_per_ip`: the gateway's per-client limits (`renox-gateway` README). Benchmarks that send all load from one address raise them |
 | `[tenant_tiers]` | — | `tenant_id = "free" \| "paid"` (F1 stand-in for the control plane) |
 | `[tiers.free]`, `[tiers.paid]` | see "Tiers" | Overrides of single tier fields |
@@ -84,12 +87,31 @@ A verified hash is cached (artifacts are never overwritten); a failure is not, s
 | Case | Answer |
 | --- | --- |
 | Page or selected fragment rendered | 200 `text/html; charset=utf-8`, `Cache-Control: no-store`, `Vary: HX-Request, HX-Target` |
-| Out-of-band fragments (an action's `{ fragments }`, wired by #41) | the main output, then each block with `hx-swap-oob="true"` on its first element; an unknown name is 500 |
+| Out-of-band fragments (an htmx action's `{ fragments }`, #41) | the `HX-Target` fragment if one is selected, then each block with `hx-swap-oob="true"` on its first element (only the blocks when no fragment is selected); an unknown name is 500 |
 | Render limit | 500 `RENOX_RENDER_LIMIT`, meter `status: render_limit`, one tenant log line with `template` and `limit` |
 | Platform error on a page route (handler threw, bad loader result, CPU, deadline) | the tenant's `pages/_error` with `status`, `code`, `request_id`, `message` under `RenderLimits::ERROR_PAGE`, else the platform default page |
 | `GET`/`HEAD` with no matching route, `Accept` preferring HTML | `pages/_404`, else `_error`, else the default page; no meter record |
 
 The meter record gets `render_fuel` and `render_ms` (render-thread CPU time) of every render of the invocation, error page included. Responses are buffered; streaming the layout shell is #161. The CSP nonce argument exists and is `None` until #47 wires the header. `date` uses the app's zone for the Gulf zones (`Asia/Dubai`, ...) and UTC otherwise.
+
+## Sessions and CSRF
+
+`src/pages/` (#41; `docs/contracts/ops.md` section 14). For a deployment with page routes, before dispatch:
+
+| Step | What |
+| --- | --- |
+| Header | `x-renox-csrf` is taken out of the request (the gateway passes this one client `x-renox-*` header through); tenant code never sees it |
+| Session | `__Host-renox_sid=<id>.<mac>`: 128-bit random id (base64url, 22 characters) signed with HMAC-SHA256 under the tenant key. Missing or invalid: a fresh id and `Set-Cookie` (`Path=/; Secure; HttpOnly; SameSite=Lax`). The id goes to `ctx.session.id` |
+| CSRF cookie | `__Host-renox_csrf=<token>`, token = HMAC-SHA256(tenant key, session id); set when missing or wrong. Not `HttpOnly`, so the page's script can copy it into `x-renox-csrf` for htmx |
+| Cookies | Both platform cookies are removed from `Cookie` before the isolate |
+| Action | `POST ?/<name>` naming a declared action: the token from `x-renox-csrf` or the `_csrf` form field (urlencoded or multipart) must equal the cookie, and both the session's token (constant-time). Otherwise 403 `RENOX_CSRF` (the `_error` page or the default page), one tenant log line with `route`, `action`, `reason` (`missing`/`mismatch`), no tenant code, no meter record |
+| Render | The token is the renderer's `__renox.csrf_token`: `<x-form action="name">` and `<x-csrf />` emit `<input type="hidden" name="_csrf">` with it |
+
+**CSP nonce (#47).** Every render (page, fragment, error and 404 pages, the 403 page) gets the gateway's `RequestCtx.csp_nonce`, so each `<script>`/`<style>` carries the nonce of the response's CSP header.
+
+**Rate-limit buckets (#47).** `security.ratelimit[]` buckets are enforced in `src/ratelimit.rs` after the runtime's router matched the route (the gateway does not match routes): a token bucket of `requests` per `window_s` per client IP (IPv6 by /64) per bucket, `HEAD` sharing the `GET` bucket. Over it: `429` with `Retry-After`, no body, no tenant code, no meter record, like the gateway's per-IP limit. The session cookie is `SameSite=None` only when `cors.credentials` is set with listed origins.
+
+Function routes are not checked (APIs; webhooks verify signatures). **Keys:** the tenant key is HKDF-SHA256 (salt `renox-pages-v1`, info = tenant id) of the node's platform key, read from `platform_key_file` (mode 0600, at least 32 bytes). Without the key a worker uses a random key per process and logs a warning; sessions then end on restart. F3 delivers the node key (#54, #55). The keys never reach an isolate or a log. Token masking against BREACH is #111.
 
 ## Not here yet
 

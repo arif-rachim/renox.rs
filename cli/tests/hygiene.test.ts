@@ -65,7 +65,9 @@ describe("forbidden files", () => {
     const out = mkdtempSync(join(tmpdir(), "renox-hygiene-out-"));
     const r = await buildArtifact(dir, out);
     const listing = filesUnder(r.dir);
-    expect(listing.filter((p) => p.startsWith("public/"))).toEqual(["public/.well-known/security.txt", "public/manifest.json", "public/style.css"]);
+    // Artifact v1: the public index is public.json at the root (#43).
+    expect(listing.filter((p) => p.startsWith("public/"))).toEqual(["public/.well-known/security.txt", "public/style.css"]);
+    expect(listing).toContain("public.json");
     for (const p of listing) expect(p).not.toMatch(/(^|\/)(\.env|\.git|id_rsa|config\.txt|server\.pem|app\.db|big\.bin)/u);
     expect(r.skipped.map((s) => s.path).sort()).toEqual(
       ["public/.env.production", "public/.git/", "public/app.db", "public/big.bin", "public/config.txt", "public/id_rsa", "public/server.pem"].sort(),
@@ -141,7 +143,8 @@ describe("secret scan", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("examples/shop, which vendors the Stripe SDK, passes the scan", async () => {
+  // examples/shop has templates since #45: `renox-worker transpile` compiles them (#43).
+  test.skipIf(!process.env.RENOX_WORKER_PATH)("examples/shop, which vendors the Stripe SDK, passes the scan", async () => {
     const r = await buildArtifact(join(repo, "examples/shop"), mkdtempSync(join(tmpdir(), "renox-hygiene-shop-")), undefined, { secrets: true });
     expect(r.allowedSecrets).toEqual([]);
     expect((await check(join(repo, "examples/shop"), { secretsOnly: true })).findings).toEqual([]);

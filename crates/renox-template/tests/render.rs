@@ -348,3 +348,52 @@ fn render_to_a_writer() {
     assert!(String::from_utf8(out).unwrap().contains("About us."));
     assert!(stats.fuel_used > 0);
 }
+
+/// `<x-form>`, `<x-csrf>`, `<x-script>` (#41; `docs/08-template-engine.md`,
+/// "Built-in components"): the CSRF field carries the request's token from
+/// the platform value, never from tenant data.
+#[test]
+fn platform_components_carry_csrf_and_nonce() {
+    let src = concat!(
+        r#"<x-form action="addToCart" class="add" hx-target="cart">"#,
+        r#"<input name="productId" :value="id"><button>Add</button></x-form>"#,
+        r#"<form method="post"><x-csrf /></form><x-script src="/app.js" defer></x-script>"#
+    );
+    let c = compile_files(&[("pages/cart.html", src)]).unwrap();
+    let r = renderer(&c);
+    let out = r
+        .render(
+            RenderTarget::Page("pages/cart"),
+            data(json!({ "id": 7, "csrf_token": "tenant-value" })),
+            &RenderContext {
+                csrf_token: Some("t0ken".into()),
+                csp_nonce: Some("n0nce".into()),
+                ..RenderContext::default()
+            },
+            &RenderLimits::DEFAULT,
+        )
+        .unwrap()
+        .html;
+    let form = concat!(
+        r#"<form method="post" action="?/addToCart" hx-post="?/addToCart" class="add" hx-target="cart">"#,
+        r#"<input type="hidden" name="_csrf" value="t0ken">"#
+    );
+    assert!(out.starts_with(form), "{out}");
+    assert!(
+        out.contains(r#"<input name="productId" value="7""#),
+        "{out}"
+    );
+    assert_eq!(
+        out.matches(r#"name="_csrf" value="t0ken""#).count(),
+        2,
+        "{out}"
+    );
+    assert!(!out.contains("tenant-value"));
+    assert!(
+        out.contains(r#"<script src="/app.js" defer nonce="n0nce"></script>"#),
+        "{out}"
+    );
+
+    let bad = compile_files(&[("pages/x.html", r#"<x-form action="add-to-cart"></x-form>"#)]);
+    assert!(bad.is_err());
+}

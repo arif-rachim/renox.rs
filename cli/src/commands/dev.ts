@@ -10,6 +10,13 @@
 // sees a half-updated state. A worker that exits is restarted with a message;
 // one that keeps crashing ends `renox dev` with exit code 3.
 //
+// Browser side (#43): the proxy serves an SSE channel and a small client
+// script, injected into HTML responses only here (lib/templates-dev.ts): a
+// failed build shows an overlay, a template-only change swaps the changed
+// fragments, anything else reloads. `.renox/types/` is regenerated after
+// every successful build (lib/types/generate.ts), and server stacks in the
+// terminal are mapped back to the TypeScript sources (lib/sourcemap.ts).
+//
 // The route table needs a dotted hostname (route-table.schema.json), so the
 // app is routed as `<app>.localhost`; `renox dev` listens on
 // `localhost:<port>` and forwards every request to the worker with that
@@ -20,6 +27,7 @@
 //   data/dev/app.db         the tenant file (tenant id `dev`)
 //   data/dev/secrets.json   from .env, mode 0600
 //   routes.json             <app>.localhost -> dev -> <hash>
+//   types/                  routes.d.ts, db.d.ts, index.d.ts (#43)
 //   worker.toml             generated worker config
 //   meters/, logs/          meter batches, tenant log lines
 
@@ -29,7 +37,14 @@ import { join, resolve } from "node:path";
 
 import { CliError, EnvironmentError, EXIT, formatError, location } from "../errors.ts";
 import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
+import { Symbolicator } from "../lib/sourcemap.ts";
+import { TemplateError } from "../lib/templates-compile.ts";
+import { changeEvent, DEV_CLIENT_JS, DEV_CLIENT_PATH, DEV_EVENTS_PATH, injectDevClient, sse } from "../lib/templates-dev.ts";
+import { writeTypes } from "../lib/types/generate.ts";
+import { DOWNLOAD_HINT, workerPath } from "../lib/worker.ts";
 import { clearDevState, type DevState, problemOf, writeDevState } from "../mcp/devstate.ts";
+
+export { workerPath };
 
 export const DEV_TENANT = "dev";
 
@@ -39,8 +54,6 @@ export const DEBOUNCE_MS = 30;
 export const MAX_RESTARTS = 5;
 export const RESTART_WINDOW_MS = 30_000;
 
-/** Where `bun cli/scripts/fetch-worker.ts` puts the release build. */
-const BIN_DIR = join(import.meta.dir, "..", "..", "bin");
 
 /** The hostname the app is routed under in the local route table. */
 export const devHost = (app: string): string => `${app}.localhost`;
@@ -66,20 +79,6 @@ export function parseDotenv(text: string): Record<string, string> {
     out[m[1] as string] = v;
   }
   return out;
-}
-
-const DOWNLOAD_HINT = "run `bun cli/scripts/fetch-worker.ts` to download the release build, or set RENOX_WORKER_PATH to a renox-worker binary";
-
-/** The worker binary: RENOX_WORKER_PATH, else <binDir>/<platform>-<arch>/renox-worker. Exit 3 when there is none. */
-export function workerPath(env = process.env.RENOX_WORKER_PATH, binDir = BIN_DIR): string {
-  if (env) {
-    const p = resolve(env);
-    if (!existsSync(p)) throw new EnvironmentError(`RENOX_WORKER_PATH is ${p}, which does not exist`, { hint: DOWNLOAD_HINT });
-    return p;
-  }
-  const p = join(binDir, `${process.platform}-${process.arch}`, "renox-worker");
-  if (existsSync(p)) return p;
-  throw new EnvironmentError("no renox-worker binary: RENOX_WORKER_PATH is not set and none was downloaded", { hint: DOWNLOAD_HINT });
 }
 
 /** Replaces the route table atomically (write, then rename): a reader sees the old or the new table. */
@@ -137,18 +136,19 @@ const waitForPort = async (port: number, ms: number, exited: Promise<number>): P
   }
 };
 
-/** Files that change the artifact: sources, migrations, public files, renox.toml. */
+/** Files that change the artifact: sources, templates, migrations, public files, renox.toml. */
 export function isAppInput(file: string): boolean {
   if (/^(\.renox|node_modules|\.git|dist|tests)(\/|$)/u.test(file)) return false;
   if (file === "renox.toml" || file.startsWith("migrations/") || file.startsWith("public/")) return true;
+  if (/^(pages|partials|modules|overrides)\/.*\.html$/u.test(file)) return true;
   return /\.(ts|js|mjs|json)$/u.test(file) && !/\.(test|spec)\.(ts|js|mjs)$/u.test(file) && file !== "package.json";
 }
 
 export interface DevServer {
   port: number;
   hash: () => string;
-  /** Resolves after the next rebuild (and its SIGHUP). */
-  nextReload: () => Promise<{ hash: string; ms: number }>;
+  /** Resolves after the next rebuild (and its SIGHUP), with what the browser was told. */
+  nextReload: () => Promise<{ hash: string; ms: number; event: string | null }>;
   /** Resolves after the next worker restart, with the new worker's pid. */
   nextRestart: () => Promise<number>;
   /** Resolves when `renox dev` gives up (the worker keeps crashing), with the error. */
@@ -183,6 +183,21 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   const cache = new BuildCache();
   const first = await buildArtifact(project, artifacts, cache);
   let current = first.hash;
+  let last = first;
+  writeTypes(project, first.manifest.routes, first.templates);
+  const symbols = new Symbolicator(() => join(artifacts, "..", "sourcemaps", current));
+  // Browsers listening on DEV_EVENTS_PATH.
+  const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const enc = new TextEncoder();
+  const broadcast = (event: string, data: unknown): void => {
+    for (const c of clients) {
+      try {
+        c.enqueue(enc.encode(sse(event, data)));
+      } catch {
+        clients.delete(c);
+      }
+    }
+  };
   const host = devHost(first.manifest.app.name);
   const routes = join(state, "routes.json");
   writeRoutes(routes, host, current);
@@ -251,17 +266,43 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     proxy = Bun.serve({
       hostname: "localhost",
       port: opts.port,
+      idleTimeout: 0,
       async fetch(req) {
         const u = new URL(req.url);
+        if (u.pathname === DEV_CLIENT_PATH)
+          return new Response(DEV_CLIENT_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+        if (u.pathname === DEV_EVENTS_PATH) {
+          let self: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const stream = new ReadableStream<Uint8Array>({
+            start(c) {
+              self = c;
+              clients.add(c);
+              c.enqueue(enc.encode(": renox dev\n\n"));
+              if (!status.lastBuild.ok) c.enqueue(enc.encode(sse("error", { problems: status.lastBuild.problems })));
+            },
+            cancel() {
+              if (self) clients.delete(self);
+            },
+          });
+          return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+        }
         const headers = new Headers(req.headers);
         headers.set("host", host);
         const init: RequestInit = { method: req.method, headers, redirect: "manual" };
         if (req.method !== "GET" && req.method !== "HEAD") init.body = await req.arrayBuffer();
+        let res: Response;
         try {
-          return await fetch(`http://127.0.0.1:${workerPort}${u.pathname}${u.search}`, init);
+          res = await fetch(`http://127.0.0.1:${workerPort}${u.pathname}${u.search}`, init);
         } catch {
           return new Response("renox dev: the worker is not reachable (restarting?)\n", { status: 502 });
         }
+        // Full HTML documents get the dev client; htmx fragments do not.
+        if (req.method === "HEAD" || headers.get("hx-request") === "true" || !(res.headers.get("content-type") ?? "").startsWith("text/html")) return res;
+        const html = injectDevClient(await res.text(), res.headers.get("content-security-policy"));
+        const out = new Headers(res.headers);
+        out.delete("content-length");
+        out.delete("content-encoding");
+        return new Response(html, { status: res.status, statusText: res.statusText, headers: out });
       },
     });
   } catch (e) {
@@ -282,7 +323,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   };
   writeDevState(project, status);
   log(`renox dev: http://localhost:${opts.port}  (artifact ${current.slice(0, 12)}, ${first.manifest.routes.length} routes)`);
-  for (const r of first.manifest.routes) log(`  ${r.method.padEnd(7)} ${r.path}`);
+  for (const r of first.manifest.routes) log(`  ${(r.kind === "function" ? r.method : "PAGE").padEnd(7)} ${r.path}`);
 
   // Tenant log lines to the terminal.
   const tenantLog = join(state, "logs", "tenant.ndjson");
@@ -299,9 +340,12 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     for (const line of buf.toString("utf8").split("\n")) {
       if (!line) continue;
       try {
-        const l = JSON.parse(line) as { level: string; message: string; fields?: unknown };
-        const f = l.fields && Object.keys(l.fields).length ? ` ${JSON.stringify(l.fields)}` : "";
+        const l = JSON.parse(line) as { level: string; message: string; fields?: Record<string, unknown> };
+        const { stack, ...rest } = l.fields ?? {};
+        const f = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : "";
         log(`[${l.level}] ${l.message}${f}`);
+        // Server stacks point at the TypeScript sources (.renox/sourcemaps/<hash>/).
+        if (typeof stack === "string" && stack) log(symbols.stack(stack).replace(/^/gmu, "    "));
       } catch {
         log(line);
       }
@@ -352,7 +396,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   };
   supervise(worker);
 
-  const waiters: Array<(r: { hash: string; ms: number }) => void> = [];
+  const waiters: Array<(r: { hash: string; ms: number; event: string | null }) => void> = [];
   let pending: ReturnType<typeof setTimeout> | undefined;
   let building = Promise.resolve();
   const rebuild = (): void => {
@@ -360,22 +404,31 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       const t0 = performance.now();
       try {
         const r = await buildArtifact(project, artifacts, cache);
+        const change = changeEvent(last, r, r.codeHash !== last.codeHash);
+        last = r;
         if (r.hash !== current) {
           current = r.hash;
           writeRoutes(routes, host, current);
           worker.kill("SIGHUP");
         }
+        writeTypes(project, r.manifest.routes, r.templates);
+        const wasFailing = !status.lastBuild.ok;
+        if (change?.event === "templates") broadcast("templates", { targets: change.targets });
+        else if (change) broadcast("reload", {});
+        else if (wasFailing) broadcast("ok", {});
         const ms = Math.round(performance.now() - t0);
         log(`rebuilt in ${ms} ms (${r.rebuilt} module${r.rebuilt === 1 ? "" : "s"}, artifact ${current.slice(0, 12)})`);
         status.artifact = current;
         status.routes = r.manifest.routes.length;
         status.lastBuild = { ok: true, at: new Date().toISOString(), ms, problems: [] };
         writeDevState(project, status);
-        for (const w of waiters.splice(0)) w({ hash: current, ms });
+        for (const w of waiters.splice(0)) w({ hash: current, ms, event: change?.event ?? null });
       } catch (e) {
         log(e instanceof CliError ? `build failed: ${location(e) ? `${location(e)}: ` : ""}${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}` : `build failed: ${(e as Error).message}`);
-        status.lastBuild = { ok: false, at: new Date().toISOString(), ms: Math.round(performance.now() - t0), problems: [problemOf(e)] };
+        const problems = e instanceof TemplateError ? e.locations().map((d) => problemOf(new CliError(d.message, EXIT.VALIDATION, d.where))) : [problemOf(e)];
+        status.lastBuild = { ok: false, at: new Date().toISOString(), ms: Math.round(performance.now() - t0), problems };
         writeDevState(project, status);
+        broadcast("error", { problems });
       }
     });
   };
@@ -386,7 +439,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     // The bundle is reused until a function source changes; another source
     // file may be imported by any module, so the cache is dropped. Set per
     // event, not per rebuild: one burst can touch lib/ and then functions/.
-    if (!f.startsWith("functions/")) cache.invalidateAll = true;
+    if (!f.startsWith("functions/") && !f.startsWith("pages/") && !f.endsWith(".html")) cache.invalidateAll = true;
     if (pending) clearTimeout(pending);
     pending = setTimeout(rebuild, opts.debounceMs ?? DEBOUNCE_MS);
   });
@@ -403,6 +456,13 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       watcher.close();
       clearInterval(tail);
       clearDevState(project);
+      for (const c of clients) {
+        try {
+          c.close();
+        } catch {
+          // Already closed by the browser.
+        }
+      }
       proxy.stop(true);
       worker.kill("SIGINT");
       const exited = await Promise.race([worker.exited.then(() => true), Bun.sleep(3000).then(() => false)]);

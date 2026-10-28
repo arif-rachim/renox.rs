@@ -1,8 +1,9 @@
-// renox check [--secrets]: renox.toml schema, route conflicts, manifest
-// schema (by building in memory), SQL interpolation lint, undeclared fetch
-// hosts, handlers that write to global scope, and the bundle-hygiene rules
-// (#115): secrets in what the build ships, forbidden files in public/.
-// `--secrets` runs only the secret scan.
+// renox check [--secrets] [--security]: renox.toml schema, route conflicts,
+// template diagnostics, manifest schema (by building in memory), SQL
+// interpolation lint, undeclared fetch hosts, handlers that write to global
+// scope, and the bundle-hygiene rules (#115): secrets in what the build
+// ships, forbidden files in public/. `--secrets` runs only the secret scan;
+// `--security` also prints the effective headers per route (#47).
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,6 +13,9 @@ import { buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
 import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
+import { securityReport } from "../check/security.ts";
+import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
+import { TemplateError } from "../lib/templates-compile.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
 
@@ -58,7 +62,9 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     }
   } catch (e) {
     // A missing renox.toml is not a check finding: the folder is not an app (exit 1).
-    if (e instanceof CliError && e.exitCode === EXIT.VALIDATION) errors.push(e);
+    // Template errors are one error per diagnostic, each with its file and line.
+    if (e instanceof TemplateError) for (const d of e.locations()) errors.push(new CliError(d.message, EXIT.VALIDATION, d.where));
+    else if (e instanceof CliError && e.exitCode === EXIT.VALIDATION) errors.push(e);
     else throw e;
   }
   if (options.secretsOnly) return { errors, findings };
@@ -70,12 +76,21 @@ export async function check(project: string, options: CheckOptions = {}): Promis
   return { errors, findings };
 }
 
+/** `renox check --security`: the effective headers, CORS, and buckets per route (#47). */
+export function securityOutput(project: string): string {
+  const config = readProject(project);
+  return securityReport(config.security ?? {}, sortRoutes(routesOf(discoverFunctions(project), discoverPages(project))));
+}
+
 export async function run(args: string[]): Promise<number> {
-  if (args.length > 1 || (args.length === 1 && args[0] !== "--secrets")) {
-    console.error("usage: renox check [--secrets]");
+  const flags = new Set(["--secrets", "--security"]);
+  if (args.some((a) => !flags.has(a)) || new Set(args).size !== args.length) {
+    console.error("usage: renox check [--secrets] [--security]");
     return EXIT.USER;
   }
-  const { errors, findings } = await check(process.cwd(), { secretsOnly: args[0] === "--secrets" });
+  const security = args.includes("--security");
+  const { errors, findings } = await check(process.cwd(), { secretsOnly: args.includes("--secrets") });
+  if (security && errors.length === 0) process.stdout.write(securityOutput(process.cwd()));
   for (const e of errors) console.error(`${location(e) ? `${location(e)}  ` : ""}error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
   for (const f of findings) console.error(`${f.file}:${f.line}:${f.column}  ${f.severity}  ${f.rule}  ${f.message}`);
   const failed = errors.length + findings.filter((f) => f.severity === "error").length;

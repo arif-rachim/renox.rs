@@ -1,0 +1,6 @@
+<!-- B13 (docs/14-benchmarks.md): nested 10,000 x 10,000 loops in a tenant
+     template. The render limits stop it: 500 RENOX_RENDER_LIMIT, meter
+     status render_limit, and the render time is never in cpu_ms. -->
+<table>
+  <tr r-for="a in rows"><td r-for="b in cols">{{ a }}{{ b }}</td></tr>
+</table>

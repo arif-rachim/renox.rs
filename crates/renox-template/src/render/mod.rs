@@ -127,6 +127,8 @@ pub struct RenderContext {
     pub locale: Locale,
     /// The per-request CSP nonce, added to every `<script>` and `<style>`.
     pub csp_nonce: Option<String>,
+    /// The request's CSRF token for `<x-form>` and `<x-csrf>` (#41).
+    pub csrf_token: Option<String>,
     /// "Now" for `ago`, Unix milliseconds.
     pub now_ms: i64,
     /// The app's UTC offset for `date` (Asia/Dubai: 240).
@@ -140,6 +142,7 @@ impl fmt::Debug for RenderContext {
         f.debug_struct("RenderContext")
             .field("locale", &self.locale)
             .field("csp_nonce", &self.csp_nonce.as_ref().map(|_| "<set>"))
+            .field("csrf_token", &self.csrf_token.as_ref().map(|_| "<set>"))
             .field("now_ms", &self.now_ms)
             .field("utc_offset_minutes", &self.utc_offset_minutes)
             .field("can", &self.can.is_some())
@@ -241,6 +244,7 @@ enum Stop {
 pub struct Scope {
     pub locale: Locale,
     pub csp_nonce: Option<String>,
+    pub csrf_token: Option<String>,
     pub now_ms: i64,
     pub utc_offset_minutes: i32,
     can: Option<Arc<CanFn>>,
@@ -271,12 +275,13 @@ impl Object for Scope {
     fn get_value(self: &Arc<Self>, key: &Value) -> Option<Value> {
         match key.as_str()? {
             "csp_nonce" => Some(Value::from(self.csp_nonce.clone())),
+            "csrf_token" => Some(Value::from(self.csrf_token.clone())),
             _ => None,
         }
     }
 
     fn enumerate(self: &Arc<Self>) -> Enumerator {
-        Enumerator::Str(&["csp_nonce"])
+        Enumerator::Str(&["csp_nonce", "csrf_token"])
     }
 }
 
@@ -693,6 +698,7 @@ impl Renderer {
         let scope = Arc::new(Scope {
             locale: cx.locale,
             csp_nonce: cx.csp_nonce.clone(),
+            csrf_token: cx.csrf_token.clone(),
             now_ms: cx.now_ms,
             utc_offset_minutes: cx.utc_offset_minutes,
             can: cx.can.clone(),

@@ -206,7 +206,7 @@ test("no RENOX_WORKER_PATH and no downloaded binary: exit 3 with the download in
   dirs.push(empty);
   let err: unknown;
   try {
-    workerPath(undefined, empty);
+    workerPath("", empty);
   } catch (e) {
     err = e;
   }

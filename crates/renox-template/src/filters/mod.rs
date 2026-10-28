@@ -20,6 +20,14 @@ fn locale(state: &State) -> Locale {
     scope_of(state).map(|s| s.locale).unwrap_or_default()
 }
 
+/// A value the loader did not provide (undefined or `null`): formatting
+/// filters render it as nothing. A fragment request evaluates the whole page
+/// before it renders the block, and its loader may skip the data the rest of
+/// the page needs (`docs/08-template-engine.md`, "Optimizations and limits").
+fn is_missing(v: &Value) -> bool {
+    matches!(v.kind(), ValueKind::Undefined | ValueKind::None)
+}
+
 fn to_f64(v: &Value, filter: &str) -> Result<f64, Error> {
     let n = match v.kind() {
         ValueKind::Number => f64::try_from(v.clone()).ok(),
@@ -91,6 +99,9 @@ pub fn format_number(n: f64, decimals: Option<usize>, locale: Locale) -> String 
 
 /// `{{ n | number }}`, `{{ n | number(2) }}`.
 pub fn number(state: &State, value: &Value, decimals: Option<u32>) -> Result<String, Error> {
+    if is_missing(value) {
+        return Ok(String::new());
+    }
     let n = to_f64(value, "number")?;
     Ok(format_number(
         n,
@@ -114,6 +125,9 @@ fn currency_symbol(code: &str, lang: Lang) -> String {
 /// decimals, grouped. `en-AE`: `AED 1,234.50`; `ar-AE`: `1,234.50 د.إ.`,
 /// or `١٬٢٣٤٫٥٠ د.إ.` with Eastern Arabic digits. The space is U+00A0.
 pub fn money(state: &State, value: &Value, currency: Option<&str>) -> Result<String, Error> {
+    if is_missing(value) {
+        return Ok(String::new());
+    }
     let n = to_f64(value, "money")?;
     let code = currency.unwrap_or("AED");
     if code.len() != 3 || !code.chars().all(|c| c.is_ascii_uppercase()) {
