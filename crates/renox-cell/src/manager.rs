@@ -369,22 +369,9 @@ impl CellManager {
             return;
         }
         if let Some(h) = guard.handle.take() {
-            match h.close().await {
-                Ok(()) => {}
-                // `TenantDb::close` runs its TRUNCATE checkpoint under the
-                // handle's module authorizer, which refuses the PRAGMA
-                // (renox-data follow-up). The connections are still closed,
-                // and SQLite checkpoints and removes the WAL when the last
-                // one closes (`tests/two_tenants.rs` checks the WAL size).
-                Err(DbError::Auth { .. }) => {
-                    tracing::debug!(
-                        tenant_id,
-                        "tenant database closed; explicit checkpoint refused by the authorizer"
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(tenant_id, error = %e, "closing the tenant database failed")
-                }
+            // `TenantDb::close` checkpoints with the platform policy (#147).
+            if let Err(e) = h.close().await {
+                tracing::error!(tenant_id, error = %e, "closing the tenant database failed")
             }
         }
     }

@@ -1,7 +1,8 @@
 //! Issue #29: the worker end to end through the gateway (V8-linked). Two
 //! tenants on one node (F1 done criterion), idle eviction (scale to zero),
 //! the deployment switch with drain, meters and logs written, and the
-//! `renox-worker` binary run from the command line.
+//! `renox-worker` binary run from the command line. Issue #160: a request
+//! during eviction and a cross-tenant read through `ctx.db`.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -420,5 +421,158 @@ async fn renox_worker_binary_serves_hello() {
     let _ = child.kill();
     let _ = child.wait();
     assert!(e.config.logs_dir.join("tenant.ndjson").exists());
+    let _ = std::fs::remove_dir_all(&e.root);
+}
+
+/// `docs/23-failure-modes.md` section 4, "Isolate evicted while a request
+/// arrives" (#160): the request waits for a fresh cell. The idle cell is
+/// held mid-eviction (out of the cell map, its database still closing) by a
+/// platform connection that holds the write lock, so the close's TRUNCATE
+/// checkpoint waits in the busy handler. A request sent in that window is
+/// not served by the evicted cell: it waits for the close, then gets a new
+/// cell on the reopened file, which still has the first request's row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn request_during_eviction_is_served_by_a_fresh_cell() {
+    let e = env(0.5);
+    let v1 = versioned_artifact(&e.config.artifacts_dir, 1);
+    write_routes(
+        &e.config.routes_file,
+        vec![route("e.test", "t_e", &v1, "active")],
+    );
+    let worker = Worker::start(e.config.clone()).await.unwrap();
+    let (status, body) = http(worker.addr, "e.test", "/api/v").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["n"],
+        1
+    );
+
+    // Hold the write lock from outside the worker.
+    let db_path = e.config.data_dir.join("t_e").join("app.db");
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        let db = renox_data::TenantDb::open(&db_path, renox_data::DbOptions::default()).unwrap();
+        db.transaction(|_tx| -> Result<(), renox_data::DbError> {
+            locked_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        })
+        .unwrap();
+        let _ = db.close();
+    });
+    locked_rx.recv().unwrap();
+
+    // The cell leaves the map; its database close is blocked.
+    let manager = worker.manager.clone();
+    wait_until("eviction started", Duration::from_secs(5), || {
+        manager.cell_count() == 0
+    })
+    .await;
+    assert_eq!(manager.cells_evicted(), 0, "eviction already finished");
+    assert_eq!(manager.open_databases(), 1, "database not closing");
+
+    let addr = worker.addr;
+    let during = tokio::spawn(async move { http(addr, "e.test", "/api/v").await });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !during.is_finished(),
+        "served while the old cell was closing"
+    );
+    release_tx.send(()).unwrap();
+
+    let (status, body) = during.await.unwrap();
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({ "v": 1, "n": 2, "greeting": null })
+    );
+    assert_eq!(manager.cells_created(), 2);
+    assert_eq!(manager.cells_evicted(), 1);
+    assert_eq!(manager.cell_count(), 1);
+    holder.join().unwrap();
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&e.root);
+}
+
+/// `docs/24-threat-model.md` section C, "Reading another tenant's data"
+/// (#160): tenants A and B run the same artifact on one worker. A writes a
+/// row to `app__x`; B reads `app__x` through `ctx.db` and sees only its own
+/// file, and B's `attach` of A's file is refused by the authorizer
+/// (`RENOX_DB_AUTH`). A still sees only its own row afterwards.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tenant_reads_only_its_own_file_through_ctx_db() {
+    let e = env(60.0);
+    let migration = "create table app__x (id integer primary key, v text not null);\n";
+    let sums = serde_json::json!({ "version": 0, "files": { "app/001_x.sql": renox_data::checksum(migration) } });
+    let manifest = serde_json::json!({
+        "artifact": { "version": 0 },
+        "app": { "name": "cross", "timezone": "UTC" },
+        "code": { "format": "esm-dir", "entry": { "functions/api/x": "functions/api/x.js" } },
+        "routes": [{ "kind": "function", "method": "GET", "path": "/api/x", "module": "functions/api/x", "export": "GET" }],
+        "permissions": { "network": [], "secrets": [] }
+    });
+    let code = r#"
+        export async function GET({ url, db }) {
+            const put = url.searchParams.get("put");
+            if (put) await db.execute("insert into app__x (v) values (?)", [put]);
+            const rows = await db.query("select v from app__x order by id");
+            let attach = "none";
+            const other = url.searchParams.get("attach");
+            if (other) {
+                try {
+                    await db.execute("attach database ? as other", [other]);
+                    attach = "allowed";
+                } catch (e) {
+                    attach = e.code;
+                }
+            }
+            return Response.json({ rows: rows.map((r) => r.v), attach });
+        }
+    "#;
+    let hash = write_artifact(
+        &e.config.artifacts_dir,
+        &[
+            ("manifest.json", manifest.to_string()),
+            ("code/functions/api/x.js", code.to_string()),
+            ("migrations/app/001_x.sql", migration.to_string()),
+            ("migrations/checksums.json", sums.to_string()),
+        ],
+    );
+    write_routes(
+        &e.config.routes_file,
+        vec![
+            route("a.test", "t_a", &hash, "active"),
+            route("b.test", "t_b", &hash, "active"),
+        ],
+    );
+    let worker = Worker::start(e.config.clone()).await.unwrap();
+    let get = |host: &'static str, path: String| async move {
+        let (status, body) = http(worker.addr, host, &path).await;
+        assert_eq!(status, 200, "{host}{path}: {body}");
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()
+    };
+
+    let a = get("a.test", "/api/x?put=secret-of-a".into()).await;
+    assert_eq!(a["rows"], serde_json::json!(["secret-of-a"]));
+
+    let a_file = e.config.data_dir.join("t_a").join("app.db");
+    let b = get("b.test", format!("/api/x?attach={}", a_file.display())).await;
+    assert_eq!(b["rows"], serde_json::json!([]), "B saw A's row");
+    assert_eq!(b["attach"], "RENOX_DB_AUTH");
+
+    let b = get("b.test", "/api/x?put=row-of-b".into()).await;
+    assert_eq!(b["rows"], serde_json::json!(["row-of-b"]));
+    let a = get("a.test", "/api/x".into()).await;
+    assert_eq!(
+        a["rows"],
+        serde_json::json!(["secret-of-a"]),
+        "A saw B's row"
+    );
+
+    // One file per tenant, each holding only its own row.
+    assert_ne!(a_file, e.config.data_dir.join("t_b").join("app.db"));
+    assert_eq!(worker.manager.open_databases(), 2);
+    worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&e.root);
 }
