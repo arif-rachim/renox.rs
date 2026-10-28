@@ -1,0 +1,22 @@
+{
+  "$comment": "valid: a loader that returns a Response (a redirect) is streamed back as is",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/docs/*slug",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {
+      "slug": [
+        "a",
+        "b"
+      ]
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "response"
+  }
+}

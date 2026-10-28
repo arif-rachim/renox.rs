@@ -1,0 +1,23 @@
+{
+  "$comment": "valid: an htmx POST ?/addToCart returns an object with out-of-band fragments (ops.md section 14)",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/products/:id",
+    "phase": "action",
+    "action": "addToCart",
+    "fragment": "product",
+    "params": {
+      "id": "42"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{\"product\":{\"id\":\"42\"},\"added\":true}",
+    "fragments": [
+      "cart_badge"
+    ]
+  }
+}

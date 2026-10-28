@@ -1,0 +1,56 @@
+{
+  "$comment": "invalid: the page answers POST /products/:id for its actions, so a function POST /products/:slug conflicts (artifact.md V8) [expect: V8]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js",
+      "functions/products/[slug]": "functions/products/[slug].js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/products/:id",
+      "module": "pages/products/[id]",
+      "load": true,
+      "actions": [
+        "addToCart"
+      ],
+      "template": "pages/products/[id]"
+    },
+    {
+      "kind": "function",
+      "method": "POST",
+      "path": "/products/:slug",
+      "module": "functions/products/[slug]",
+      "export": "POST"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/products/[id]": {
+      "kind": "page",
+      "fragments": {
+        "product": {
+          "target": "product"
+        },
+        "cart_badge": {
+          "target": "cart-badge"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}

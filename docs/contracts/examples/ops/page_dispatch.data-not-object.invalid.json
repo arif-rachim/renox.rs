@@ -1,0 +1,19 @@
+{
+  "$comment": "invalid: template data is a JSON object, never an array [expect: data_json]",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "render",
+    "data_json": "[1,2]",
+    "fragments": []
+  }
+}

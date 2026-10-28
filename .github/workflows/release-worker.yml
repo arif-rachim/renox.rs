@@ -6,11 +6,28 @@ name: Release worker
 # changes (rule 6). A manual run without a version builds and size-checks
 # the binary and keeps it as a workflow artifact, without a release.
 #
-# Asset name: renox-worker-<version>-<target>, plus <asset>.sha256.
+# Asset name: renox-worker-<version>-<target>, plus <asset>.sha256, on the
+# release tagged worker-v<version>. cli/scripts/fetch-worker.ts downloads the
+# same names (#154).
+#
+# The binary is packaged (#154; crates/renox-runtime/build.rs, README
+# "Packaging"): the platform snapshot and Deno's residual lazy sources are
+# embedded, so it runs without the cargo registry. Two builds of the same
+# source: the first writes them (Runtime::write_packaged), the second embeds
+# them (feature renox-runtime/packaged).
+#
+# A pull request that changes this packaging (Rust or this file only, rule 6)
+# builds and smoke-tests the binary without publishing it.
 on:
   push:
     tags:
       - "worker-v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release-worker.yml"
+      - "crates/renox-runtime/build.rs"
+      - "crates/renox-runtime/src/runtime.rs"
+      - "crates/renox-runtime/tests/packaged.rs"
   workflow_dispatch:
     inputs:
       version:
@@ -38,8 +55,12 @@ jobs:
           # aarch64: no arm64 runner is configured for this repository yet;
           # add `{ target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }`
           # when one is (issue #36, Out).
+          # smoke: native = the binary runs on this runner, so the
+          # fetch-worker + renox dev test runs; docker = that plus the
+          # clean-container test (Linux).
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
+            smoke: docker
     runs-on: ${{ matrix.runner }}
     env:
       RUSTC_WRAPPER: sccache
@@ -86,32 +107,96 @@ jobs:
             echo "::error::no renox-worker binary target in the workspace (crates/renox-cell, docs/18-build-plan.md P5)"
             exit 1
           fi
-      - name: Build
-        run: cargo build --release --locked --bin renox-worker
-      - name: Size check
+      # Step 1 of the packaged build: snapshot and residual lazy sources,
+      # written by the same source and v8 as the binary below.
+      - name: Write the packaged sources
         run: |
-          bin=target/release/renox-worker
-          bytes=$(stat -c %s "$bin")
-          mb=$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1048576 }')
-          echo "renox-worker ($TARGET): $mb MB (limit $MAX_BINARY_MB MB)" | tee -a "$GITHUB_STEP_SUMMARY"
-          if (( bytes > MAX_BINARY_MB * 1048576 )); then
-            echo "::error::renox-worker is $mb MB, over the $MAX_BINARY_MB MB B20 limit"
-            exit 1
-          fi
+          echo "RENOX_PACKAGED_DIR=$RUNNER_TEMP/packaged" >> "$GITHUB_ENV"
+          RENOX_PACKAGED_DIR="$RUNNER_TEMP/packaged" cargo test --release --locked \
+            -p renox-runtime --test packaged -- --ignored --exact write_packaged_sources --nocapture
+      - name: Build
+        run: |
+          cargo build --release --locked -p renox-cell --bin renox-worker \
+            --features renox-runtime/packaged
+          cp target/release/renox-worker target/renox-worker
       - name: Package
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          name="renox-worker-${VERSION:-dev}-$TARGET"
+          # An unreleased build is 0.0.0-dev, still a semver for fetch-worker.ts.
+          name="renox-worker-${VERSION:-0.0.0-dev}-$TARGET"
           mkdir dist
-          cp target/release/renox-worker "dist/$name"
-          (cd dist && sha256sum "$name" > "$name.sha256")
+          cp target/renox-worker "dist/$name"
+          (cd dist && shasum -a 256 "$name" > "$name.sha256")
           ls -l dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: renox-worker-${{ matrix.target }}
           path: dist/
           if-no-files-found: error
+      # #154: the binary serves examples/hello in a clean container, with no
+      # cargo registry and no checkout.
+      - name: Smoke test in a clean container
+        if: matrix.smoke == 'docker'
+        run: |
+          smoke=$RUNNER_TEMP/smoke
+          hash=802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a
+          mkdir -p "$smoke/artifacts"
+          cp target/renox-worker "$smoke/"
+          cp -r "docs/contracts/examples/hello-artifact/$hash" "$smoke/artifacts/"
+          cat > "$smoke/worker.toml" <<'TOML'
+          listen = "0.0.0.0:18080"
+          data_dir = "/tmp/renox/data"
+          artifacts_dir = "artifacts"
+          routes_file = "routes.json"
+          meters_dir = "/tmp/renox/meters"
+          logs_dir = "/tmp/renox/logs"
+          TOML
+          printf '{"version":0,"entries":[{"hostname":"hello.test","tenant_id":"t_hello","deployment_hash":"%s","status":"active","updated_at":1}]}\n' \
+            "$hash" > "$smoke/routes.json"
+          docker run -d --name renox-smoke -p 127.0.0.1:18080:18080 -v "$smoke:/srv:ro" ubuntu:24.04 \
+            sh -c 'test ! -e /root/.cargo && exec /srv/renox-worker --config /srv/worker.toml'
+          body=""
+          for _ in $(seq 1 60); do
+            body=$(curl -fsS -H 'Host: hello.test' http://127.0.0.1:18080/api/hello) && break
+            sleep 1
+          done
+          docker logs renox-smoke 2>&1 | tail -20
+          docker rm -f renox-smoke >/dev/null
+          if [[ "$body" != '{"ok":true}' ]]; then
+            echo "::error::the packaged renox-worker did not serve examples/hello in a clean container (got '$body')"
+            exit 1
+          fi
+          echo "clean container: GET /api/hello -> $body" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: matrix.smoke != ''
+      # #154: fetch-worker.ts downloads and verifies the asset under the
+      # release layout (served locally), and renox dev runs it.
+      - name: fetch-worker and renox dev
+        if: matrix.smoke != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bun install --frozen-lockfile
+          v=${VERSION:-0.0.0-dev}
+          mkdir -p "$RUNNER_TEMP/release/worker-v$v"
+          cp dist/* "$RUNNER_TEMP/release/worker-v$v/"
+          (cd "$RUNNER_TEMP/release" && python3 -m http.server 18000 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 2
+          worker=$(RENOX_RELEASE_BASE=http://127.0.0.1:18000 bun cli/scripts/fetch-worker.ts "$v" | sed 's/.* -> //')
+          RENOX_WORKER_PATH="$worker" bun test cli/tests/dev.e2e.test.ts
+      # B20, last: a binary over the limit fails the job (and no release is
+      # published) after the smoke tests above have still run.
+      - name: Size check
+        run: |
+          bin=target/renox-worker
+          bytes=$(wc -c < "$bin" | tr -d ' ')
+          mb=$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1048576 }')
+          echo "renox-worker ($TARGET): $mb MB (limit $MAX_BINARY_MB MB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if (( bytes > MAX_BINARY_MB * 1048576 )); then
+            echo "::error::renox-worker is $mb MB, over the $MAX_BINARY_MB MB B20 limit"
+            exit 1
+          fi
       - run: sccache --show-stats
 
   release:

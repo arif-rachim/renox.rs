@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0** (F1). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking |
+| Version | **0.2** (F3, #50). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
 | Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12, [`deploy-api.md`](deploy-api.md)) and `cli/` (P11) |
 | Consumers | `sdk/` (P10) error classes; `cli/` (P11) and the dashboard (P13), which quote these rows; the public docs; tenants' own API clients |
 | Related | [`ops.md`](ops.md) section 13 (which codes ops throw and which the platform answers with), [`meter.md`](meter.md) (`status`), `docs/23-failure-modes.md` (when each failure happens) |
@@ -30,14 +30,38 @@ A `Response` that tenant code returns itself (for example a 404 or a 400 built b
 
 ### Page (HTML) routes, F2
 
-Page routes answer with HTML:
+A platform error on a page route (`artifact.md` section 3, "Page routes") is answered with HTML, chosen in this order:
 
-- the tenant's `pages/_error.html` (F2), rendered with `{ status, code, request_id, message }` from the same table, under the normal render limits, or
-- if the app has no `_error.html`, if rendering it fails, or if it hits a limit itself, the **platform default page**: a static HTML page with the HTTP status, the message, and the request id, and no tenant content. It is never rendered with tenant code.
+1. The tenant's `pages/_error.html`: the template with `kind: "error"` in `manifest.templates`.
+2. The **platform default page**, if the app has no error template, if rendering it fails, or if it hits a limit itself: a static HTML page with the HTTP status, the message, and the request id, and no tenant content. It is never rendered with tenant code or tenant templates. It is the same page the gateway already sends for its own HTML errors (413), and the page every collateral request of a recycled isolate gets (`ops.md` section 10).
+
+**Inputs.** The error template receives exactly four variables, and nothing else:
+
+| Variable | Type | Value |
+| --- | --- | --- |
+| `status` | integer | The HTTP status from section 3 |
+| `code` | string or `null` | The code from section 3; `null` only for the 404 page below |
+| `request_id` | string | Same as `x-renox-request-id` |
+| `message` | string | The fixed English text from the "Message" column |
+
+No loader runs: `pages/_error.ts` is a build error (`renox check`), and the template sees no `ctx`, no session, no loader data of the failed request, no `params`, and no detail of the cause (limit values, stack, SQL). Layouts and partials may be used, so the page can look like the rest of the app.
+
+**Render budget: a fixed error-page budget**, decided here (#93 proposed "a tiny fixed fuel budget", version 0 of this file said "the normal render limits"; the fixed budget wins). The error page renders exactly when a request has already failed, often under load (`RENOX_CPU_LIMIT`, `RENOX_BUSY`). With the normal limits, a heavy `_error.html` would double the cost of every failure, and a flood of failures would become a flood of renders. So the error template gets the same small budget on every tier, independent of what the failed request used:
+
+| Limit | Value |
+| --- | --- |
+| Fuel | 10,000 units *proposed* |
+| Output | 64 KiB |
+| Include and `extends` depth | 4 |
+| Render time | 10 ms |
+
+Hitting any of them falls back to the platform default page, with the original status and code (never `RENOX_RENDER_LIMIT`), and logs one `RENOX_RENDER_LIMIT` line with `template: "pages/_error"`. #93 confirms the fuel number with a test against `renox-template`'s fuel unit (#38) and records it here as a patch. What the error render uses is added to the failed invocation's `render_fuel` and `render_ms` (`meter.md`).
+
+**404 page.** A `GET` or `HEAD` that matches no route, on an artifact with templates, whose `Accept` header prefers `text/html`, gets the template with `kind: "not_found"` (`pages/_404.html`), with `status: 404`, `code: null`, the request id, and the message "Page not found.", under the same fixed budget. Without a `_404.html` it falls back to `_error.html`, then to the default page. A 404 like this has no meter record (no tenant code runs, `meter.md` section 1). A `Response` with status 404 returned by `load` is a tenant response and passes through untouched.
 
 ### When the route kind is not known
 
-The gateway can fail a request before a route is matched (`RENOX_BODY_TOO_LARGE`, `RENOX_UNAVAILABLE`). It answers with the platform default page when the request's `Accept` header prefers `text/html`, and with the JSON body otherwise.
+The gateway can fail a request before a route is matched (`RENOX_BODY_TOO_LARGE`, `RENOX_HOST_MISMATCH`, `RENOX_UNAVAILABLE`). It answers with the platform default page when the request's `Accept` header prefers `text/html`, and with the JSON body otherwise.
 
 ## 2. What is logged
 
@@ -59,10 +83,10 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 | `RENOX_INTERNAL` | F1 | 500 | The handler threw (including an uncaught thrown code below), returned something that is not a `Response`, module evaluation failed, or a route's export is missing | Internal error. Quote the request id when reporting it. | `route`, `cause_code` (if the cause was a `RenoxError`), `cause_message`, `stack` (redacted), `phase` | Read the logged cause and stack; catch expected errors and return your own `Response` | `ops.md` §6, §11; failure mode "Handler throws" |
 | `RENOX_BUSY` | F1 | 503, `Retry-After: 1` | All concurrency slots of the deployment (50 / 500) stayed busy until the request's deadline | The service is busy. Try again shortly. | `route`, `concurrency_limit`, `queued_ms` (one summary line per second while it lasts, not one per request) | Find slow handlers that hold slots; raise the tier for more concurrency | `ops.md` §10; failure modes "Too many concurrent requests", "Flood from many IPs on one tenant" |
 | `RENOX_BODY_TOO_LARGE` | F1 | 413 | The request body exceeded the limit for the route kind (1 MB default) at the gateway, before any tenant code ran | The request body is too large. | `limit_bytes`, `received_bytes` (not metered, `meter.md` §1) | Upload large files through the storage module; raise the limit per route when available | `ops.md` §6; failure mode "Request body over limit" |
-| `RENOX_HOST_MISMATCH` | F2 | 421 | The TLS SNI name and the `Host` header (or `:authority`) of a request resolve to different tenants. Refused at the gateway before routing; no tenant code runs and nothing is metered | The request was sent to the wrong host. | Not logged to a tenant (the tenant is ambiguous); counted in gateway metrics | Nothing in the app: a client or proxy reused a connection across hostnames. Do not share one TLS connection between your custom domains | `docs/24-threat-model.md` C, "Host/SNI confusion"; #107, #162 |
 | `RENOX_RENDER_LIMIT` | F2 | 500 | Template rendering ran out of fuel, iterations, output size, include depth, or render time | The page could not be rendered. | `template`, `line`, `limit` (`fuel` / `iterations` / `output` / `depth` / `time`) | Paginate the data passed to the template; reduce nested loops | `docs/08-template-engine.md`; failure mode "Template nested loops / huge output" |
 | `RENOX_CSRF` | F2 | 403 | A non-GET page action arrived without a valid CSRF token | The request could not be verified. Reload the page and try again. | `route`, `action`, `reason` (`missing` / `mismatch`) | Submit forms through the generated markup or htmx, which send the token; exempt webhook routes are automatic | `docs/04-isolation-security.md` "Web-layer protections"; failure mode "CSRF token missing or wrong" |
 | `RENOX_FORBIDDEN` | F5 | 403 | A Cedar policy denied the action (route `guard`, `authz.require`) | You do not have permission to do this. | `action`, `resource`, `policy_id` (dev only), `principal` (id only) | Check the role assignments and policies for the action | `docs/11-authorization.md`; failure mode "Policy denies" |
+| `RENOX_HOST_MISMATCH` | F2 | 421 | The TLS SNI name and the `Host` (or `:authority`) both resolve in the route table, to **different tenants**. Refused before routing; no cell is touched | The request was sent to the wrong host. | Not logged to any tenant sink, since the two names belong to different tenants. The operator log records both host names | Nothing in the app. Clients must send the same name in SNI and `Host`; browsers retry a 421 on a new connection by themselves | `artifact.md` §5; `docs/24-threat-model.md` "Host/SNI confusion" |
 | `RENOX_UNAVAILABLE` | F3 | 503, `Retry-After: 5` | The worker cannot load the deployment: artifact not cached and object storage or the control plane is unreachable, or the cell is marked unhealthy. In the deploy API: no healthy node can take an activation, or Postgres or object storage is unreachable | The service is temporarily unavailable. | `reason` (`artifact_unavailable` / `cell_unhealthy`); deploy API: the deployment's `last_error.stage` = `no_worker` | Nothing in the app; the platform retries and alerts. Check the status page; retry the activation | failure modes "Control plane unreachable from the worker", "Object storage unreachable"; `deploy-api.md` §6 |
 
 ### Thrown into tenant code
@@ -90,11 +114,17 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 
 `RENOX_DB_UNAVAILABLE` has an HTTP status because it fails the request before any tenant code runs (the cell cannot open the file). When it happens during a request it is thrown like the other `RENOX_DB_*` codes.
 
+### Client events (dev overlay only)
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_CLIENT_EVENTS_DROPPED` | F2 | — | The gateway dropped browser events sent to `/__renox/events`: body or batch over its limit, per-IP or per-tenant rate, sampling, or the daily cap. The endpoint still answers 204, so the browser never sees it | — (production never shows it) | One summary line per minute while it lasts: `reason` (`body_size` / `batch_size` / `ip_rate` / `tenant_rate` / `sampled` / `daily_cap` / `invalid`), `dropped` (count). Shown in the dev overlay's "Browser" tab | Fix the error that floods the endpoint; lower `extra` sizes; disable client events with `[client] events = false` | `client-events.md`; failure mode "Client-event flood (bug or abuse)" |
+
 ### Deploy (control plane and CLI)
 
 | Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `RENOX_DEPLOY_REJECTED` | F3 | 422 (deploy API) | An uploaded artifact failed validation: any of rules V1–V13 (bundle over 20 MB, route conflict, unknown permission key, path escape, hash mismatch, ...) or the upload rules T1–T8 (link or device entry, over 100 MiB or 10,000 entries, compression ratio over 50:1, extraction over 30 s, ...) | The artifact failed validation. | Deployment event with `rule` (`V1`–`V13`, `T1`–`T8`), `path` or `field`, `reason`; the deployment state becomes `rejected` | Run `renox check` locally, which applies the same rules, and fix what it reports | `artifact.md` §6; `deploy-api.md` §4; failure modes "Bundle over 20 MB, route conflict, unknown permission key", "Tarball decompression bomb / too many files" |
+| `RENOX_DEPLOY_REJECTED` | F3 | 422 (deploy API) | An uploaded artifact failed validation: any of rules V1–V16 (bundle over 20 MB, route conflict, unknown permission key, path escape, hash mismatch, ...) or the upload rules T1–T8 (link or device entry, over 100 MiB or 10,000 entries, compression ratio over 50:1, extraction over 30 s, ...) | The artifact failed validation. | Deployment event with `rule` (`V1`–`V13`, `T1`–`T8`), `path` or `field`, `reason`; the deployment state becomes `rejected` | Run `renox check` locally, which applies the same rules, and fix what it reports | `artifact.md` §6; `deploy-api.md` §4; failure modes "Bundle over 20 MB, route conflict, unknown permission key", "Tarball decompression bomb / too many files" |
 | `RENOX_ACTIVATION_FAILED` | F3 | 422 (deploy API) | Activation stopped on the owning node: the artifact could not be fetched, a migration file failed, module evaluation failed, the probe answered 5xx or hit a limit, or the node did not answer within 60 s. Nothing switched; the previous deployment keeps serving | The deployment could not be activated. | Deployment event with `stage` (`fetch` / `load` / `migrate` / `probe` / `timeout`), `module`, `file`, `sqlite_error`, `http_status`; the deployment returns to `validated` with `last_error` | Fix the failing migration file or handler and deploy again; applied migration files are not re-run | `deploy-api.md` §6; failure modes "Migration fails half-way during activation", "New deployment fails its first request" |
 | `RENOX_CLI_WORKER_UNVERIFIED` | F3 | — (CLI, exit code 3) | The CLI refused to run a `renox-worker` binary whose sha256 differs from the pinned release or whose sigstore signature or provenance does not verify | — | CLI output only: `expected_sha256`, `actual_sha256`, the binary path on the developer's own machine | Re-download the worker (`renox dev` fetches the pinned release) or pass a binary from an official release; never disable the check | `docs/24-threat-model.md` F, "Tampered release"; #129 |
 
@@ -111,8 +141,6 @@ Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](depl
 | `RENOX_CONFLICT` | F3 | 409 | A state transition the state machine does not allow, an app name or hostname already taken, another activation of the app in progress, a suspended tenant, an unknown node heartbeating, or a late `prepare_result` | The request conflicts with the current state. | Audit row; `details` `{ field, reason }` | Read the current state (`GET` the resource) and retry the right action; wait for the running activation | `deploy-api.md` §5, §6, §10 |
 | `RENOX_RATE_LIMITED` | F3 | 429, `Retry-After` | The token's request or upload bucket is empty, or too many unauthenticated requests came from one IP | Too many requests. Try again later. | — | Wait for `Retry-After`; batch work in CI instead of polling | `deploy-api.md` §2; `docs/24-threat-model.md` E, "Deploy API abuse" |
 
-
-
 ## 4. Rules for adding a code
 
 - Codes are `RENOX_` followed by upper-case words joined by `_`. A code names a cause the tenant can act on, not an implementation detail.
@@ -125,3 +153,11 @@ Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](depl
 1. **Localisation of messages.** The default page and the JSON `message` are English in F1. Arabic messages keyed by code and `Accept-Language` are expected with the F2 default page; the mechanism (a second fixed table) is not designed yet.
 2. **Rate limit (429).** Gateway rate limiting (`docs/23-failure-modes.md`, "Request flood from one IP") answers 429 with `Retry-After` and no code. The control API answers 429 with `RENOX_RATE_LIMITED` (F3); using the same code at the gateway would make it consistent with the others. This needs #22 to decide whether rate-limit responses carry a body at all, since a body costs bytes under a flood.
 3. **`RENOX_BUSY` log volume.** One summary line per second is a proposal for #28 to confirm.
+
+## Changelog
+
+| Version | Issue | Changes |
+| --- | --- | --- |
+| 0 | #91 | First catalogue (F1) |
+| 0.1 | #152 | Page (HTML) routes: the four error-template inputs, the fixed error-page render budget, the 404 page, and the fallback order (section 1). New rows: `RENOX_HOST_MISMATCH` (421, F2), `RENOX_CLIENT_EVENTS_DROPPED` (F2, dev overlay only) |
+| 0.2 | #50 | Deploy API (F3): section "Control API" (`RENOX_VALIDATION`, `RENOX_UNAUTHENTICATED`, `RENOX_TOKEN_SCOPE`, `RENOX_NOT_FOUND`, `RENOX_CONFLICT`, `RENOX_RATE_LIMITED`); `RENOX_ACTIVATION_FAILED`, `RENOX_CLI_WORKER_UNVERIFIED`; `RENOX_DEPLOY_REJECTED` gains T1-T8 and its message; `RENOX_UNAVAILABLE` covers the deploy API |

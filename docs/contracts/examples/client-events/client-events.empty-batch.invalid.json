@@ -1,0 +1,5 @@
+{
+  "$comment": "invalid: a batch holds at least one event [expect: minItems 1]",
+  "v": 0,
+  "events": []
+}

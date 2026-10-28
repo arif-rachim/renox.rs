@@ -1,0 +1,12 @@
+{
+  "$comment": "invalid: only csp-violation reports are accepted [expect: const: expected \"csp-violation\"]",
+  "body": [
+    {
+      "type": "deprecation",
+      "body": {
+        "blockedURL": "x",
+        "effectiveDirective": "y"
+      }
+    }
+  ]
+}

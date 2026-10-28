@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head><meta charset="utf-8"><title>{% block title %}Shop{% endblock %}</title></head>
+<body>
+<header><a href="/">Shop</a> <span id="cart-badge">{% block cart_badge %}{{ cartCount | default(0) }}{% endblock %}</span></header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

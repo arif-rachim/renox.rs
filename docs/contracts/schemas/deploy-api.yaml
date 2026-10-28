@@ -174,7 +174,7 @@ paths:
         The body is the artifact tree (artifact.md section 1) as a POSIX tar,
         optionally gzip-compressed, entries relative to the artifact root.
         The control plane recomputes the content hash, applies the upload caps
-        (section 4) and rules V1-V13 with the shared validation package, stores
+        (section 4) and rules V1-V16 with the shared validation package, stores
         the bytes under artifacts/<hash>.tar (never overwritten) and records the
         deployment. Uploading a hash that already has a non-rejected deployment
         in this app is idempotent and returns 200 with the existing record.
@@ -220,7 +220,7 @@ paths:
         "422":
           description: >-
             Validation failed; the deployment is recorded in state rejected. details lists
-            every violation found (V1-V13, T1-T8), at most 50.
+            every violation found (V1-V16, T1-T8), at most 50.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1253,7 +1253,7 @@ components:
       required: [rule, reason]
       description: One broken artifact rule (artifact.md section 6) or upload rule (deploy-api.md section 4). Never a filesystem path of the server.
       properties:
-        rule: { type: string, pattern: "^(V([1-9]|1[0-3])|T[1-8])$" }
+        rule: { type: string, pattern: "^(V([1-9]|1[0-6])|T[1-8])$" }
         path: { type: string, maxLength: 1024 }
         field: { type: string, maxLength: 256 }
         reason: { type: string, minLength: 1, maxLength: 512 }

@@ -1,0 +1,816 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/client-events/v0/client-event.schema.json",
+  "title": "Renox client events, contract version 0",
+  "description": "Root: the batch envelope a browser POSTs to /__renox/events. $defs/event: one event. $defs/cspReport and $defs/reportsJson: the raw CSP report bodies the endpoint also accepts and normalises to csp.violation. Prose: docs/contracts/client-events.md. Byte limits (32 KB body, 1 KB extra) are rules CE1 and CE2 in validate.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "events"
+  ],
+  "properties": {
+    "$comment": {
+      "type": "string"
+    },
+    "v": {
+      "const": 0
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "$defs": {
+    "kind": {
+      "enum": [
+        "js.error",
+        "js.unhandledrejection",
+        "js.console.error",
+        "htmx.responseError",
+        "htmx.sendError",
+        "htmx.timeout",
+        "htmx.targetError",
+        "htmx.swapError",
+        "csp.violation",
+        "realtime.connectError",
+        "realtime.closed"
+      ]
+    },
+    "pageUrl": {
+      "type": "string",
+      "maxLength": 2048,
+      "description": "Path and query of the page, no scheme, host, or fragment.",
+      "pattern": "^/[^#\\s]*$"
+    },
+    "resourceUrl": {
+      "type": "string",
+      "maxLength": 2048,
+      "description": "Same-origin: path only. Cross-origin: origin and path. Never a query or a fragment.",
+      "pattern": "^(/[^?#\\s]*|https?://[^/?#\\s]+(/[^?#\\s]*)?)$"
+    },
+    "selector": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "CSS selector or element id of the htmx target, as htmx reports it."
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/resourceUrl"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "function": {
+          "type": "string",
+          "maxLength": 256
+        }
+      }
+    },
+    "stack": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/frame"
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ts",
+        "url",
+        "request_id",
+        "deployment",
+        "ua",
+        "session_fingerprint",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/kind"
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Unix time in ms, browser clock."
+        },
+        "url": {
+          "$ref": "#/$defs/pageUrl"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z_-]{8,64}$"
+            }
+          ]
+        },
+        "deployment": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "ua": {
+          "enum": [
+            "chrome",
+            "edge",
+            "firefox",
+            "safari",
+            "samsung",
+            "other"
+          ]
+        },
+        "session_fingerprint": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,32}$",
+          "description": "Random per page load; not a user id."
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^RENOX_[A-Z0-9]+(_[A-Z0-9]+)*$",
+              "maxLength": 64
+            }
+          ]
+        },
+        "extra": {
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,31}$"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "maxLength": 256
+              }
+            ]
+          }
+        },
+        "detail": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "js.error"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "message",
+                  "source",
+                  "line",
+                  "column",
+                  "stack"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "source": {
+                    "$ref": "#/$defs/resourceUrl"
+                  },
+                  "line": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "column": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "stack": {
+                    "$ref": "#/$defs/stack"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "js.unhandledrejection"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "message",
+                  "stack"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "stack": {
+                    "$ref": "#/$defs/stack"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "js.console.error"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.responseError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "code",
+                  "target",
+                  "request_url"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "integer",
+                    "minimum": 100,
+                    "maximum": 599
+                  },
+                  "code": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^RENOX_[A-Z0-9]+(_[A-Z0-9]+)*$",
+                        "maxLength": 64
+                      }
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/$defs/selector"
+                  },
+                  "request_url": {
+                    "$ref": "#/$defs/resourceUrl"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.sendError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "target",
+                  "request_url"
+                ],
+                "properties": {
+                  "target": {
+                    "$ref": "#/$defs/selector"
+                  },
+                  "request_url": {
+                    "$ref": "#/$defs/resourceUrl"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.timeout"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "target",
+                  "request_url"
+                ],
+                "properties": {
+                  "target": {
+                    "$ref": "#/$defs/selector"
+                  },
+                  "request_url": {
+                    "$ref": "#/$defs/resourceUrl"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.targetError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "target"
+                ],
+                "properties": {
+                  "target": {
+                    "$ref": "#/$defs/selector"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.swapError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "target",
+                  "message"
+                ],
+                "properties": {
+                  "target": {
+                    "$ref": "#/$defs/selector"
+                  },
+                  "message": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "csp.violation"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "blocked_uri",
+                  "violated_directive",
+                  "effective_directive",
+                  "source_file",
+                  "line",
+                  "column",
+                  "disposition"
+                ],
+                "properties": {
+                  "blocked_uri": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/resourceUrl"
+                      },
+                      {
+                        "enum": [
+                          "inline",
+                          "eval",
+                          "wasm-eval",
+                          "trusted-types-policy",
+                          "trusted-types-sink",
+                          "data",
+                          "blob",
+                          ""
+                        ]
+                      }
+                    ]
+                  },
+                  "violated_directive": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^[a-z-]+( .*)?$"
+                  },
+                  "effective_directive": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z-]+$"
+                  },
+                  "source_file": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/resourceUrl"
+                      }
+                    ]
+                  },
+                  "line": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "column": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  },
+                  "disposition": {
+                    "enum": [
+                      "enforce",
+                      "report"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "realtime.connectError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "transport",
+                  "url"
+                ],
+                "properties": {
+                  "transport": {
+                    "enum": [
+                      "sse",
+                      "ws"
+                    ]
+                  },
+                  "url": {
+                    "$ref": "#/$defs/resourceUrl"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "realtime.closed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "transport",
+                  "url",
+                  "code",
+                  "reason"
+                ],
+                "properties": {
+                  "transport": {
+                    "enum": [
+                      "sse",
+                      "ws"
+                    ]
+                  },
+                  "url": {
+                    "$ref": "#/$defs/resourceUrl"
+                  },
+                  "code": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 4999
+                      }
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 123
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "cspReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "csp-report"
+      ],
+      "description": "application/csp-report body (report-uri, CSP Level 2). Unknown members inside csp-report are ignored by the endpoint.",
+      "properties": {
+        "csp-report": {
+          "type": "object",
+          "required": [
+            "blocked-uri",
+            "violated-directive"
+          ],
+          "properties": {
+            "document-uri": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "blocked-uri": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "violated-directive": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "effective-directive": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "source-file": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "line-number": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "column-number": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "disposition": {
+              "enum": [
+                "enforce",
+                "report"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "reportsJson": {
+      "description": "application/reports+json body (report-to, Reporting API): an array of reports, all of type csp-violation. A body with any other report type is invalid and dropped whole.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": [
+          "type",
+          "body"
+        ],
+        "properties": {
+          "type": {
+            "const": "csp-violation"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "age": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "user_agent": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "body": {
+            "type": "object",
+            "required": [
+              "blockedURL",
+              "effectiveDirective"
+            ],
+            "properties": {
+              "documentURL": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "blockedURL": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "effectiveDirective": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "originalPolicy": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "sourceFile": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "lineNumber": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "columnNumber": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "disposition": {
+                "enum": [
+                  "enforce",
+                  "report"
+                ]
+              },
+              "statusCode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 599
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

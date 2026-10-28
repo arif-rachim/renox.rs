@@ -1,0 +1,37 @@
+{
+  "artifact": { "version": 1 },
+  "app": { "name": "shop", "timezone": "Asia/Dubai" },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js",
+      "pages/logout": "pages/logout.js",
+      "functions/api/health": "functions/api/health.js"
+    }
+  },
+  "routes": [
+    { "kind": "page", "path": "/", "template": "pages/index" },
+    { "kind": "page", "path": "/products/:id", "module": "pages/products/[id]", "load": true, "actions": ["addToCart"], "template": "pages/products/[id]" },
+    { "kind": "page", "path": "/logout", "module": "pages/logout", "load": true },
+    { "kind": "function", "method": "GET", "path": "/api/health", "module": "functions/api/health", "export": "GET" }
+  ],
+  "templates": {
+    "pages/_layouts/main": { "kind": "layout" },
+    "pages/index": { "kind": "page", "fragments": { "cart_badge": { "target": "cart-badge" } } },
+    "pages/products/[id]": {
+      "kind": "page",
+      "fragments": { "cart_badge": { "target": "cart-badge" }, "product": { "target": "product" }, "related": { "target": null } }
+    },
+    "pages/_error": { "kind": "error" },
+    "pages/_404": { "kind": "not_found" },
+    "partials/product-card": { "kind": "partial" }
+  },
+  "permissions": { "network": [], "secrets": [] },
+  "security": {
+    "csp": { "script_src": ["https://js.stripe.com"], "frame_src": ["https://js.stripe.com"], "img_src": ["https://*.cdn.example.net", "data:"] },
+    "cors": { "origins": ["https://partner.example.com"], "methods": ["GET"], "max_age_s": 600 },
+    "headers": { "referrer_policy": "strict-origin-when-cross-origin" },
+    "ratelimit": [{ "method": "POST", "path": "/products/:id", "requests": 30, "window_s": 60, "key": "ip" }]
+  },
+  "modules": {}
+}

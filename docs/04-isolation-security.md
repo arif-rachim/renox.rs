@@ -41,6 +41,7 @@ Node worker (one Rust process tree per node)
 | Render | minijinja fuel, iteration limit, output size limit, include depth, render timeout | Charged to the tenant quota |
 | Realtime | Connections per tenant and per user, message size, backpressure | 100 / 10,000 connections |
 | Logs | Volume per tenant per minute | Rate limited, then sampled |
+| Client events (`/__renox/events`) | Body size, events per batch, requests per IP, events per tenant per minute and per day | Dropped and counted; the endpoint always answers 204 and never reaches the isolate (`docs/contracts/client-events.md` section 7) |
 
 All limits are measured per request and recorded for billing (`05-tenant-lifecycle.md`).
 
@@ -87,7 +88,7 @@ Browser-facing protections are enforced by the gateway and the template engine, 
 | Protection | Default | Configuration |
 | --- | --- | --- |
 | CORS | Closed: only the app's own origins. SSR + htmx pages need no CORS at all | `[security.cors] origins = ["https://partner.example"]`, `methods`, `headers`, `credentials`; overridable per function via `export const cors = {...}` |
-| CSP | Strict: `default-src 'self'`; scripts and styles from `'self'` plus a per-request nonce that the template engine injects into every `<script>`/`<style>` it emits; htmx, Alpine, and islands bundles are allowed; `frame-ancestors 'none'`; `object-src 'none'`; `upgrade-insecure-requests` | `[security.csp] script_src += ["https://js.stripe.com", "https://checkout.tabby.ai"]` and the same for `img_src`, `connect_src`, `frame_src`, `font_src`. `unsafe-inline` and `unsafe-eval` are refused unless `allow_unsafe = true` is set explicitly and is flagged in the dashboard. Report-only mode and a `report_to` endpoint are available |
+| CSP | Strict: `default-src 'self'`; scripts and styles from `'self'` plus a per-request nonce that the template engine injects into every `<script>`/`<style>` it emits; htmx, Alpine, and islands bundles are allowed; `frame-ancestors 'none'`; `object-src 'none'`; `upgrade-insecure-requests` | `[security.csp] script_src += ["https://js.stripe.com", "https://checkout.tabby.ai"]` and the same for `img_src`, `connect_src`, `frame_src`, `font_src`. `unsafe-inline` and `unsafe-eval` are refused unless `allow_unsafe = true` is set explicitly and is flagged in the dashboard. Report-only mode is available; violation reports go to `/__renox/events?kind=csp` on the app's own origin, under the client-event limits and privacy rules (`docs/contracts/client-events.md` sections 6–8) |
 | HSTS | On, `max-age=31536000; includeSubDomains`; preload on request | Cannot be disabled on `*.renox.app` |
 | Clickjacking | `X-Frame-Options: DENY` + `frame-ancestors 'none'` | Per page: `export const frame = { ancestors: ["https://host.example"] }` for embeddable widgets |
 | Other headers | `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying camera/microphone/geolocation by default, `Cross-Origin-Opener-Policy: same-origin` | `[security.headers]` |

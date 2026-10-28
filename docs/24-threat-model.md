@@ -44,7 +44,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
 | CPU, memory, wall-clock exhaustion | Watchdog, heap limit, deadline, semaphore (all in Rust) | cgroup per process | #26, B12 | F1 |
-| SSRF to metadata, loopback, private ranges | Resolve DNS, check every IP, then connect to the checked IP (no second resolution); every redirect hop re-checked | Egress proxy with the same rules | #27; DNS pinning `TODO` → #108 | F1 |
+| SSRF to metadata, loopback, private ranges | Resolve DNS, check every IP, then connect to the checked IP (no second resolution); every redirect hop re-checked | Egress proxy with the same rules | #27; DNS pinning #108 (`crates/renox-runtime/tests/fetch_rebinding.rs`) | F1 |
 | DNS rebinding on `fetch` (TOCTOU between check and connect) | Connect to the already-validated socket address; happy-eyeballs disabled for tenant fetch | TTL ignored for policy purposes | #108 | F1 |
 | TLS downgrade or invalid certificate on `fetch` | rustls with webpki roots; no `insecure` option for tenants; HTTP only when the host is explicitly declared with `http://` | — | #108 | F1 |
 | Secrets in logs, errors, bundle, responses | Secrets injected as a frozen object by an op; redaction on every log and error path | Bundle scan refuses `.env` and key files | #28; #115 | F1/F3 |
@@ -95,7 +95,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
-| Vulnerable or malicious crate / npm package | `cargo deny` (advisories, sources, licences) and `bun audit` in CI; Dependabot or Renovate with grouped weekly PRs | Lockfiles committed; `--locked` / `--frozen-lockfile` in CI | `TODO` → #109 | F1 |
+| Vulnerable or malicious crate / npm package | `cargo deny` (advisories, sources, licences) and `bun audit` in CI; Dependabot or Renovate with grouped weekly PRs | Lockfiles committed; `--locked` / `--frozen-lockfile` in CI | #109: CI jobs `cargo-deny` and `bun-audit` (`.github/workflows/ci.yml`) | F1 |
 | Tampered prebuilt `rusty_v8` binary | Pinned version; sha256 of the archive verified against a checksum committed to the repo (`RUSTY_V8_ARCHIVE` from a mirror we control) | Build fails on mismatch | #109 | F1 |
 | Compromised GitHub Action | Every action pinned to a commit SHA; minimal `permissions:` per job; no secrets in PR builds from forks | Branch protection, required reviews, signed commits encouraged | #109 | F1 |
 | Tampered release of `renox-worker` or the `renox` CLI (runs on every tenant laptop via `renox dev`) | Releases signed with sigstore/cosign with SLSA provenance; the CLI verifies the worker's signature and hash before executing it | Checksums published; reproducible build goal | #129 | F3 |

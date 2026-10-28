@@ -25,7 +25,7 @@ const artifactDir = (group: string): string => {
 };
 
 describe("contract example artifacts", () => {
-  for (const group of ["hello-artifact", "artifact/notes-artifact"]) {
+  for (const group of ["hello-artifact", "artifact/notes-artifact", "artifact/shop-artifact"]) {
     test(`${group} is valid and its directory name is its hash`, () => {
       const dir = artifactDir(group);
       const result = checkArtifactFiles(readTree(dir), { expectedHash: dir.split("/").pop() as string, tier: TIERS.free });
@@ -38,6 +38,12 @@ describe("contract example artifacts", () => {
     const dir = artifactDir("artifact/broken-artifact");
     const result = checkArtifactFiles(readTree(dir), { expectedHash: dir.split("/").pop() as string });
     expect(result.violations.map((v) => v.rule)).toContain("V2");
+  });
+
+  test("broken-templates-artifact is rejected for V14", () => {
+    const dir = artifactDir("artifact/broken-templates-artifact");
+    const result = checkArtifactFiles(readTree(dir), { expectedHash: dir.split("/").pop() as string });
+    expect(result.violations.map((v) => v.rule)).toContain("V14");
   });
 
   test("hash vectors", () => {

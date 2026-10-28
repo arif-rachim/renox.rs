@@ -13,7 +13,7 @@
 The deploy API is how a tenant developer's code gets from a laptop or CI into the route table, and how worker nodes learn what to run. It has three kinds of callers, each with its own token: **tenants** (CLI, dashboard, MCP), **nodes** (`renox-worker` in `mode = "controlled"`), and **operators**. The control plane is the source of truth (Postgres) and owns object storage for artifacts; a node never reads Postgres or the artifact bucket's listing.
 
 ```
-renox deploy ──► POST /v1/apps/{app}/deployments   (tar) ──► validate (V1–V13, T1–T8) ──► artifacts/<hash>.tar
+renox deploy ──► POST /v1/apps/{app}/deployments   (tar) ──► validate (V1–V16, T1–T8) ──► artifacts/<hash>.tar
              ──► POST /v1/apps/{app}/activate              ──► prepare ──► owning node: fetch, migrate, create cell, probe
                                                            ◄── prepare_result
                                                            ──► route_delta ──► every node (SSE stream)
@@ -79,7 +79,7 @@ Extraction streams the tar and stops at the **first** violation of the upload ru
 | T7 | The same path appears twice, or a path appears as both a file and a directory | — |
 | T8 | Wall-clock time for receiving and extracting the body | 30 s |
 
-After extraction the shared validation package (`packages/artifact-validate`, the same code `renox check` runs, #52) applies V1–V12 to the tree and V10 against the tenant's tier. The secret and bundle-hygiene rules of #115 join the same package and report under their own rule ids in a minor version.
+After extraction the shared validation package (`packages/artifact-validate`, the same code `renox check` runs, #52) applies V1–V12 and V14–V16 to the tree (artifact versions 0 and 1) and V10 against the tenant's tier. The secret and bundle-hygiene rules of #115 join the same package and report under their own rule ids in a minor version.
 
 Outcomes:
 
@@ -221,7 +221,7 @@ Draining: activation publishes the new deployment `active` and the previous one 
 | `RENOX_NOT_FOUND` | 404 | Unknown resource, or one of another tenant | — |
 | `RENOX_CONFLICT` | 409 | A transition not allowed by section 5 or 10; a name or hostname taken; another activation in progress; a tenant suspended; an unknown node heartbeating; a late `prepare_result` | `{ field, reason }` |
 | `RENOX_BODY_TOO_LARGE` | 413 | A body over its limit (sections 1 and 4) | — |
-| `RENOX_DEPLOY_REJECTED` | 422 | Upload validation, V1–V13 and T1–T8 (section 4) | `{ rule, path or field, reason }`, at most 50 |
+| `RENOX_DEPLOY_REJECTED` | 422 | Upload validation, V1–V16 and T1–T8 (section 4) | `{ rule, path or field, reason }`, at most 50 |
 | `RENOX_ACTIVATION_FAILED` | 422 | The node reported a failure or timed out (section 6) | one activation error |
 | `RENOX_RATE_LIMITED` | 429, `Retry-After` | Section 2 | — |
 | `RENOX_INTERNAL` | 500 | A bug; the request id finds the operator log | — |

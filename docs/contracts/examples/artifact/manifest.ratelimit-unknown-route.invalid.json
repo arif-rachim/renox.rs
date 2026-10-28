@@ -1,0 +1,59 @@
+{
+  "$comment": "invalid: no route answers POST /login (artifact.md V16) [expect: V16]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/products/:id",
+      "module": "pages/products/[id]",
+      "load": true,
+      "actions": [
+        "addToCart"
+      ],
+      "template": "pages/products/[id]"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/products/[id]": {
+      "kind": "page",
+      "fragments": {
+        "product": {
+          "target": "product"
+        },
+        "cart_badge": {
+          "target": "cart-badge"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  },
+  "security": {
+    "ratelimit": [
+      {
+        "method": "POST",
+        "path": "/login",
+        "requests": 10,
+        "window_s": 60,
+        "key": "ip"
+      }
+    ]
+  }
+}

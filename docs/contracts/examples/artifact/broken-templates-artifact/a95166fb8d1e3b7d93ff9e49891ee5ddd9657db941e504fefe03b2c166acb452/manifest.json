@@ -1,0 +1,12 @@
+{
+  "$comment": "broken on purpose: templates/partials/stray.jinja is not a key of manifest.templates (artifact.md V14)",
+  "artifact": { "version": 1 },
+  "app": { "name": "about", "timezone": "UTC" },
+  "code": { "format": "esm-dir", "entry": { "functions/api/ping": "functions/api/ping.js" } },
+  "routes": [
+    { "kind": "page", "path": "/about", "template": "pages/about" },
+    { "kind": "function", "method": "GET", "path": "/api/ping", "module": "functions/api/ping", "export": "GET" }
+  ],
+  "templates": { "pages/about": { "kind": "page", "fragments": {} } },
+  "permissions": { "network": [], "secrets": [] }
+}
