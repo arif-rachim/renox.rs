@@ -9,8 +9,13 @@ name: CI
 #
 # Only `pull_request` is used, never `pull_request_target`: PRs from forks run
 # without secrets and with the read-only token below (issue #109).
+# `push` is limited to `main`: a branch with a pull request already runs on
+# `pull_request`, and a push run on top of it doubled the Actions minutes
+# (85 of 113 push runs in October 2026 were on feature branches).
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 concurrency:
