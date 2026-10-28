@@ -26,9 +26,11 @@ else
 	@echo "rust: no workspace members yet, skipping fmt/clippy"
 endif
 
+# CRATES="renox-cell renox-template" tests only those packages (CI on a pull
+# request, #189); empty tests the whole workspace.
 rust-test:
 ifneq ($(RUST_MEMBERS),)
-	cargo test --workspace
+	cargo test $(if $(strip $(CRATES)),$(addprefix -p ,$(CRATES)),--workspace)
 else
 	@echo "rust: no workspace members yet, skipping tests"
 endif

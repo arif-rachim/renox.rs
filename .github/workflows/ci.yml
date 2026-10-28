@@ -3,9 +3,11 @@ name: CI
 # Each job runs only when its paths change (docs/12-developer-experience.md,
 # "Build and compile strategy", rule 6): docs changes never trigger a Rust or
 # TypeScript build. On a push the filter compares with the commit before the
-# push; on a pull request with the base branch. The supply-chain jobs
-# (actions-pinned, cargo-deny, bun-audit) run on every push and PR, so they can
-# be required checks (docs/22-development-plan.md, "Branch protection").
+# push; on a pull request with the base branch. The `lint` job (path filter,
+# pinned actions, cargo-deny, bun audit, docs) runs on every push and PR, so it
+# can be a required check (docs/22-development-plan.md, "Branch protection").
+# The small checks are steps of one job, not five jobs (#189): each job is
+# billed rounded up to a full minute.
 #
 # Only `pull_request` is used, never `pull_request_target`: PRs from forks run
 # without secrets and with the read-only token below (issue #109).
@@ -26,23 +28,35 @@ permissions:
   contents: read
 
 jobs:
-  changes:
+  # Every check that is not a build: the path filter the other jobs read, then
+  # one step per former job. Each check step runs even when an earlier one
+  # failed, so one run reports every failure; the jobs below read the filter
+  # outputs even when a lint step failed (`!cancelled()`), so a bun audit
+  # finding does not hide a test failure.
+  lint:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      rust_files: ${{ steps.filter.outputs.rust_files }}
       ts: ${{ steps.filter.outputs.ts }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
+      # No token left in .git: bun install and cargo-deny run in this job.
+      # The repository is public, so paths-filter fetches on push without it.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         id: filter
         with:
           # On push: compare with the commit before this push, not with the
           # default branch. Ignored on pull_request (compares with the base).
           base: ${{ github.ref }}
+          # rust_files: the rust job tests only the changed crates on a PR.
+          list-files: json
           filters: |
             rust:
               - 'crates/**'
@@ -81,9 +95,50 @@ jobs:
               - '.github/workflows/ci.yml'
               - 'Makefile'
 
+      # Every third-party action is pinned to a full commit SHA (issue #109).
+      - name: actions-pinned
+        if: success() || failure()
+        run: |
+          unpinned=$(grep -rnE '^[[:space:]-]*uses:' .github/workflows \
+            | grep -vE 'uses:[[:space:]]*\./' \
+            | grep -vE 'uses:[[:space:]]*[^@[:space:]]+@[0-9a-f]{40}([[:space:]]|$)' || true)
+          if [[ -n "$unpinned" ]]; then
+            echo "::error::actions must be pinned to a 40-character commit SHA (version in a comment):"
+            echo "$unpinned"
+            exit 1
+          fi
+          echo "all actions pinned"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: success() || failure()
+        with:
+          bun-version: 1.4.4
+      # Known-vulnerable npm packages in bun.lock (sdk, cli, control, modules, bench).
+      - name: bun-audit
+        if: success() || failure()
+        run: |
+          bun install --frozen-lockfile
+          bun audit
+      # Link check (relative links only, no network), docs/contracts type-check,
+      # and docs/contracts/validate.ts (schemas, examples, contract rules).
+      - name: docs
+        if: (success() || failure()) && steps.filter.outputs.docs == 'true'
+        run: make docs-check
+      # RustSec advisories, licences, sources (deny.toml).
+      - name: Rust toolchain for cargo-deny
+        if: success() || failure()
+        run: rustup show active-toolchain || rustup toolchain install
+      # Prebuilt cargo-deny, checksum-verified by install-action.
+      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        if: success() || failure()
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo-deny
+        if: success() || failure()
+        run: cargo deny --locked check
+
   rust:
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.rust == 'true' }}
     runs-on: ubuntu-24.04
     env:
       # renox-runtime links deno_runtime and V8: with debug info, target/
@@ -116,6 +171,33 @@ jobs:
       # (rust-toolchain.toml), Cargo.lock and the Cargo.toml files.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: make rust-check
+      # #189: on a pull request, test only the changed crates and the
+      # workspace packages that depend on them. The file list reaches the
+      # shell through the environment, never through ${{ }} in the script.
+      - name: Crates to test
+        env:
+          EVENT: ${{ github.event_name }}
+          FILES: ${{ needs.lint.outputs.rust_files }}
+        run: |
+          crates=""
+          if [[ "$EVENT" == "pull_request" ]]; then
+            crates=$(cargo metadata --format-version 1 --no-deps --locked | jq -r --argjson files "$FILES" '
+            # Workspace packages to test for the changed files: the crates under crates/
+            # that changed, plus every package that depends on them (by path). Empty
+            # (the whole workspace) when a file outside crates/ changed.
+            if any($files[]; startswith("crates/") | not) then "" else
+              [.packages[] | {name, dir: (.manifest_path | split("/") | .[-3:-1] | join("/")),
+                              deps: [.dependencies[] | select(.path != null) | .name]}] as $p
+              | ($files | map(split("/")[0:2] | join("/")) | unique) as $dirs
+              | def grow: . as $s
+                  | ($s + [$p[] | select(any(.deps[]; . as $d | any($s[]; . == $d))) | .name] | unique) as $n
+                  | if $n == $s then $s else $n | grow end;
+              [$p[] | select(.dir as $d | any($dirs[]; . == $d)) | .name] | unique | grow | join(" ")
+            end
+            ')
+          fi
+          echo "CRATES=$crates" >> "$GITHUB_ENV"
+          echo "rust tests: ${crates:-the whole workspace}" | tee -a "$GITHUB_STEP_SUMMARY"
       - run: make rust-test
       # The worker the ts job runs the CLI template, shop build and dev e2e
       # tests with (#186): built from this commit, without the test-hooks
@@ -142,10 +224,10 @@ jobs:
   # main, else the pinned release (cli/scripts/fetch-worker.ts verifies its
   # SHA-256). `make ts-test` fails in CI without RENOX_WORKER_PATH.
   ts:
-    needs: [changes, rust]
+    needs: [lint, rust]
     if: >-
-      always() && needs.changes.result == 'success'
-      && (needs.changes.outputs.ts == 'true' || needs.changes.outputs.rust == 'true')
+      !cancelled()
+      && (needs.lint.outputs.ts == 'true' || needs.lint.outputs.rust == 'true')
       && (needs.rust.result == 'success' || needs.rust.result == 'skipped')
     runs-on: ubuntu-24.04
     permissions:
@@ -202,25 +284,12 @@ jobs:
       - name: Benchmark harness smoke test
         run: bench/run.sh B0 --runs 1
 
-  docs:
-    needs: changes
-    if: needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.4
-      # Link check (relative links only, no network), docs/contracts type-check,
-      # and docs/contracts/validate.ts (schemas, examples, contract rules).
-      - run: make docs-check
-
   # control/api on a real Postgres: PGlite (the default in `make ts-test`)
   # hides driver differences, e.g. Bun's client double-encoding a string bound
   # to `$n::jsonb` (control/api/README.md, "Tests").
   control-postgres:
-    needs: changes
-    if: needs.changes.outputs.ts == 'true'
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.ts == 'true' }}
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -249,49 +318,3 @@ jobs:
       - run: psql -h localhost -U renox -d renox_harness -c 'create database renox_test'
       - run: bun test
         working-directory: control/api
-
-  # Every third-party action is pinned to a full commit SHA (issue #109).
-  actions-pinned:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - name: No action referenced by tag or branch
-        run: |
-          unpinned=$(grep -rnE '^[[:space:]-]*uses:' .github/workflows \
-            | grep -vE 'uses:[[:space:]]*\./' \
-            | grep -vE 'uses:[[:space:]]*[^@[:space:]]+@[0-9a-f]{40}([[:space:]]|$)' || true)
-          if [[ -n "$unpinned" ]]; then
-            echo "::error::actions must be pinned to a 40-character commit SHA (version in a comment):"
-            echo "$unpinned"
-            exit 1
-          fi
-          echo "all actions pinned"
-
-  # RustSec advisories, licences, sources (deny.toml).
-  cargo-deny:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - run: rustup show active-toolchain || rustup toolchain install
-      # Prebuilt cargo-deny, checksum-verified by install-action.
-      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
-        with:
-          tool: cargo-deny@0.20.2
-      - run: cargo deny --locked check
-
-  # Known-vulnerable npm packages in bun.lock (sdk, cli, control, modules, bench).
-  bun-audit:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - run: bun audit
