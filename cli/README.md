@@ -53,8 +53,9 @@ Limitations found so far (B17 will add to this list): the bundle targets a brows
 | `renox.toml` schema, route discovery, route conflicts (V8), manifest schema, migration names, bundle size | error |
 | `sql-interpolation`: the first argument of `db.query` / `db.queryOne` / `db.execute` (also `tx.` and `ctx.db.`) is a template literal with `${}`, uses `+`, or calls `.concat(` | error |
 | `fetch-undeclared-host`: `fetch("https://…")` / `ctx.fetch(...)` with a literal URL whose host is not in `[permissions] network` | warning |
+| `global-state`: inside a function body, a write to `globalThis` (`globalThis.x = …`, `globalThis["x"] = …`, compound assignments, `++`/`--`, `Object.assign(globalThis, …)`, `Object.defineProperty(globalThis, …)`) or an assignment to a module-level `let`/`var` binding that no parameter or local declaration shadows. Module state is shared by every request of the deployment (`docs/07-app-model.md`, "State rules"); `// renox-allow-global` on the line or the line above marks an intentional cache | error |
 
-The lint is a small tokenizer (comments, strings, and template literals with nested `${}` are understood), not a type checker: SQL passed through a variable is not followed. Tests are not linted.
+The lint is a small tokenizer (comments, strings, and template literals with nested `${}` are understood), not a type checker: SQL passed through a variable is not followed. `global-state` adds brace scopes on that tokenizer, not a parser: it does not see writes into a shared object (`cache.set(k, v)`, `counts[k] = 1` on a module-level `const`), writes through a cast (`(globalThis as any).x = 1`), or writes inside a `${}` of a template literal. Tests are not linted.
 
 ## Tests
 

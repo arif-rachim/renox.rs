@@ -1,0 +1,16 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`global-state: globalThis writes and module-level let/var writes inside functions are errors 1`] = `
+[
+  "module-level binding count assigned inside a function",
+  "module-level binding lastUser assigned inside a function",
+  "module-level binding hits assigned inside a function",
+  "globalThis.cache written inside a function",
+  "module-level binding legacy assigned inside a function",
+  "globalThis["user"] written inside a function",
+  "Object.assign(globalThis, ...) inside a function",
+  "module-level binding count assigned inside a function",
+  "globalThis.n written inside a function",
+  "module-level binding hits assigned inside a function",
+]
+`;

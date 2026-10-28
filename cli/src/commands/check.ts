@@ -1,11 +1,12 @@
 // renox check: renox.toml schema, route conflicts, manifest schema (by
-// building in memory), SQL interpolation lint, undeclared fetch hosts.
+// building in memory), SQL interpolation lint, undeclared fetch hosts,
+// handlers that write to global scope.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { buildFiles, BuildError } from "../lib/build.ts";
-import { type Finding, lintFetch, lintSql } from "../lib/lint.ts";
+import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
 import { ConfigError, readProject } from "../lib/project.ts";
 import { RouteError } from "../lib/routes.ts";
 
@@ -41,7 +42,7 @@ export async function check(project: string): Promise<CheckReport> {
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");
-    findings.push(...lintSql(src, f), ...lintFetch(src, f, network));
+    findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f));
   }
   return { errors, findings };
 }

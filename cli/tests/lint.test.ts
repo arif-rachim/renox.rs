@@ -3,7 +3,10 @@
 // undeclared fetch hosts.
 import { expect, test } from "bun:test";
 
-import { lintFetch, lintSql } from "../src/lib/lint.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { lintFetch, lintGlobalState, lintSql } from "../src/lib/lint.ts";
 
 test("template interpolation and concatenation in SQL are errors", () => {
   const src = [
@@ -49,4 +52,26 @@ test("literal fetch URLs to undeclared hosts are warnings", () => {
     [4, "warning"],
     [6, "warning"],
   ]);
+});
+
+/**
+ * docs/23-failure-modes.md, "Handler writes to global scope" (`renox check`
+ * lint, lint fixture); docs/16-risks.md, "Global state leaking between
+ * requests". Every line marked `// FLAG` in the fixture is one finding.
+ */
+test("global-state: globalThis writes and module-level let/var writes inside functions are errors", () => {
+  const file = "tests/fixtures/lint-global/flagged.ts";
+  const src = readFileSync(join(import.meta.dir, "fixtures/lint-global/flagged.ts"), "utf8");
+  const expected = src
+    .split("\n")
+    .flatMap((l, i) => (l.includes("// FLAG") ? [i + 1] : []));
+  const f = lintGlobalState(src, file);
+  expect(f.map((x) => x.line)).toEqual(expected);
+  expect(new Set(f.map((x) => `${x.rule} ${x.severity}`))).toEqual(new Set(["global-state error"]));
+  expect(f.map((x) => x.message.split(":")[0])).toMatchSnapshot();
+});
+
+test("global-state: reads, shadowing, parameters, top-level init, strings, comments, and renox-allow-global are not flagged", () => {
+  const src = readFileSync(join(import.meta.dir, "fixtures/lint-global/clean.ts"), "utf8");
+  expect(lintGlobalState(src, "clean.ts")).toEqual([]);
 });
