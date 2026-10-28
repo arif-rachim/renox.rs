@@ -165,6 +165,8 @@ fn empty_list_renders_the_r_empty_branch() {
     assert!(html.contains("No products found"));
 }
 
+/// `docs/24-threat-model.md`, row "XSS through template data": auto-escape,
+/// raw only via `r-html`.
 #[test]
 fn autoescaping_and_r_html() {
     let c = compile_files(&[(
@@ -182,8 +184,8 @@ fn autoescaping_and_r_html() {
     assert!(html.contains("<b>ok</b>"));
 }
 
-/// Bound URLs cannot carry `javascript:` (`docs/24-threat-model.md`, XSS
-/// through tenant data).
+/// Bound URLs cannot carry `javascript:` (`docs/24-threat-model.md`, row
+/// "XSS through template data").
 #[test]
 fn bound_urls_refuse_script_schemes() {
     let c = compile_files(&[(
@@ -281,7 +283,8 @@ fn r_can_uses_the_hook() {
 }
 
 /// Tenant data cannot replace the platform value (CSP nonce): a loader key
-/// named `__renox` is ignored.
+/// named `__renox` is ignored (`docs/24-threat-model.md`, row "XSS through
+/// template data", the per-request nonce).
 #[test]
 fn data_cannot_override_the_nonce() {
     let c = compile_fixture("script-style").unwrap();

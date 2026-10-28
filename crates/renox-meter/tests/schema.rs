@@ -48,6 +48,7 @@ fn serialised_batch_validates_against_the_contract_schema() {
         MeterStatus::Oom,
         MeterStatus::BlockedFetch,
         MeterStatus::Busy,
+        MeterStatus::RenderLimit,
     ];
     let records = statuses
         .iter()
@@ -75,6 +76,24 @@ fn serialised_field_names_are_exactly_the_schema_fields() {
     required.sort();
     fields.sort();
     assert_eq!(fields, required);
+}
+
+/// Contract 0.1: a record of a rendered page carries `render_fuel` and the
+/// optional `render_ms`; a record without a render omits `render_ms`.
+#[test]
+fn render_fields_validate_and_render_ms_is_optional() {
+    let v = validator();
+    let rendered = MeterRecord {
+        render_fuel: 4_770,
+        render_ms: Some(0.32449),
+        ..record(1)
+    };
+    let value = serde_json::to_value(batch(vec![rendered.clone(), record(2)])).unwrap();
+    assert_eq!(errors(&v, &value), Vec::<String>::new());
+    assert_eq!(value["records"][0]["render_ms"], serde_json::json!(0.324));
+    assert!(value["records"][1].get("render_ms").is_none());
+    let back: MeterRecord = serde_json::from_value(value["records"][1].clone()).unwrap();
+    assert_eq!(back.render_ms, None);
 }
 
 #[test]

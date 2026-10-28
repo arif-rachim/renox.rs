@@ -1,6 +1,7 @@
 //! Every render limit has a test (`docs/08-template-engine.md`,
 //! "Optimizations and limits"; AGENTS.md: "every per-tenant limit has a
-//! test proving it works"). No V8.
+//! test proving it works"). Every test here proves the row "Template nested
+//! loops / huge output" of `docs/23-failure-modes.md`. No V8.
 
 mod common;
 

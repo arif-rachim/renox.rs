@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-/// The artifact contract version this runtime understands.
-pub const ARTIFACT_VERSION: u32 = 0;
+/// The newest artifact contract version this runtime understands. Versions
+/// 0 and 1 are both accepted (`artifact.md` section 8).
+pub const ARTIFACT_VERSION: u32 = 1;
 
 /// V5: bytes under `code/` (20 MiB).
 pub const MAX_CODE_BYTES: u64 = 20 * 1024 * 1024;
@@ -59,6 +60,8 @@ impl Method {
 #[serde(rename_all = "lowercase")]
 pub enum RouteKind {
     Function,
+    /// Version 1: a `pages/` route (`artifact.md` section 3, "Page routes").
+    Page,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -69,14 +72,131 @@ pub enum CodeFormat {
     Eszip,
 }
 
+/// One route. Function routes carry `method`, `module`, `export` as in the
+/// manifest. A page route answers `GET` (and `HEAD`), so its `method` is
+/// `GET`; `module` is the page module or empty for an `.html`-only page,
+/// `export` is `load` when the module exports one, otherwise empty, and
+/// `page` holds the rest of the page fields.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "WireRoute")]
 pub struct RouteDef {
     pub kind: RouteKind,
     pub method: Method,
     pub path: String,
     pub module: String,
     pub export: String,
+    pub page: Option<PageRoute>,
+}
+
+/// The page fields of a version 1 page route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageRoute {
+    pub module: Option<String>,
+    pub load: bool,
+    pub actions: Vec<String>,
+    pub template: Option<String>,
+}
+
+impl RouteDef {
+    /// The page fields, for a page route.
+    pub fn page(&self) -> Option<&PageRoute> {
+        self.page.as_ref()
+    }
+
+    /// The exported function the isolate calls, if any.
+    pub fn handler_export(&self) -> Option<&str> {
+        (!self.export.is_empty()).then_some(self.export.as_str())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+enum WireRoute {
+    Function {
+        method: Method,
+        path: String,
+        module: String,
+        export: String,
+    },
+    Page {
+        path: String,
+        #[serde(default)]
+        module: Option<String>,
+        #[serde(default)]
+        load: bool,
+        #[serde(default)]
+        actions: Vec<String>,
+        #[serde(default)]
+        template: Option<String>,
+    },
+}
+
+impl TryFrom<WireRoute> for RouteDef {
+    type Error = String;
+
+    fn try_from(w: WireRoute) -> Result<RouteDef, String> {
+        Ok(match w {
+            WireRoute::Function {
+                method,
+                path,
+                module,
+                export,
+            } => RouteDef {
+                kind: RouteKind::Function,
+                method,
+                path,
+                module,
+                export,
+                page: None,
+            },
+            WireRoute::Page {
+                path,
+                module,
+                load,
+                actions,
+                template,
+            } => RouteDef {
+                kind: RouteKind::Page,
+                method: Method::Get,
+                path,
+                module: module.clone().unwrap_or_default(),
+                export: if load { "load".into() } else { String::new() },
+                page: Some(PageRoute {
+                    module,
+                    load,
+                    actions,
+                    template,
+                }),
+            },
+        })
+    }
+}
+
+/// `manifest.templates[id].kind` (version 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateKind {
+    Page,
+    Layout,
+    Partial,
+    Error,
+    NotFound,
+}
+
+/// One fragment of a page's fragment map.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FragmentDef {
+    pub target: Option<String>,
+}
+
+/// `manifest.templates[id]` (version 1).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplateDef {
+    pub kind: TemplateKind,
+    #[serde(default)]
+    pub fragments: Option<BTreeMap<String, FragmentDef>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -130,12 +250,26 @@ pub struct Manifest {
     pub limits: Option<LimitOverrides>,
     #[serde(default)]
     pub modules: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Version 1: template id -> kind and fragment map.
+    #[serde(default)]
+    pub templates: Option<BTreeMap<String, TemplateDef>>,
+    /// Version 1: the resolved `renox.toml [security]`; applied by the
+    /// gateway and the cell, kept opaque here.
+    #[serde(default)]
+    pub security: Option<serde_json::Value>,
     /// Free-text note the schema allows at the top level; ignored (#147).
     #[serde(rename = "$comment", default)]
     pub comment: Option<String>,
 }
 
-/// An artifact refused at load. `rule` is the contract's `V1`-`V13`. The
+impl Manifest {
+    /// The templates of a version 1 manifest (empty otherwise).
+    pub fn template_defs(&self) -> impl Iterator<Item = (&String, &TemplateDef)> {
+        self.templates.iter().flatten()
+    }
+}
+
+/// An artifact refused at load. `rule` is the contract's `V1`-`V16`. The
 /// message names artifact-relative paths only, never a path of the machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadError {
@@ -268,15 +402,6 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         .unwrap_or("")
         .to_string();
     let files = collect_files(root)?;
-    for (rel, _) in &files {
-        let top = rel.split('/').next().unwrap_or("");
-        if !matches!(top, "manifest.json" | "code" | "migrations" | "public") {
-            return Err(load_err(
-                "V1",
-                format!("unexpected top-level entry {top:?}"),
-            ));
-        }
-    }
     let hash = content_hash(root)?;
     if hash != dir_name {
         return Err(load_err(
@@ -288,12 +413,38 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         .map_err(|_| load_err("V3", "manifest.json missing"))?;
     let manifest: Manifest =
         serde_json::from_slice(&raw).map_err(|e| load_err("V3", format!("manifest.json: {e}")))?;
-    if manifest.artifact.version != ARTIFACT_VERSION {
+    let version = manifest.artifact.version;
+    if version > ARTIFACT_VERSION {
         return Err(load_err(
             "V3",
-            format!("unknown artifact.version {}", manifest.artifact.version),
+            format!("unknown artifact.version {version}"),
         ));
     }
+    if version == 0
+        && (manifest.templates.is_some()
+            || manifest.security.is_some()
+            || manifest.routes.iter().any(|r| r.kind == RouteKind::Page))
+    {
+        return Err(load_err(
+            "V3",
+            "templates, security, and page routes need artifact.version 1",
+        ));
+    }
+    for (rel, _) in &files {
+        let top = rel.split('/').next().unwrap_or("");
+        let allowed = match top {
+            "manifest.json" | "code" | "migrations" | "public" => true,
+            "templates" | "public.json" => version >= 1,
+            _ => false,
+        };
+        if !allowed {
+            return Err(load_err(
+                "V1",
+                format!("unexpected top-level entry {top:?}"),
+            ));
+        }
+    }
+    check_templates(&manifest, &files)?;
     let code_files: Vec<&(String, PathBuf)> = files
         .iter()
         .filter(|(r, _)| r.starts_with("code/"))
@@ -353,6 +504,10 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         ));
     }
     for r in &manifest.routes {
+        if r.kind == RouteKind::Page {
+            check_page_route(&manifest, r)?;
+            continue;
+        }
         if !manifest.code.entry.contains_key(&r.module) {
             return Err(load_err(
                 "V7",
@@ -376,7 +531,11 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         }
     }
     for id in manifest.code.entry.keys() {
-        if !manifest.routes.iter().any(|r| &r.module == id) {
+        if !manifest
+            .routes
+            .iter()
+            .any(|r| !r.module.is_empty() && &r.module == id)
+        {
             return Err(load_err(
                 "V7",
                 format!("code.entry {id:?} is not used by any route"),
@@ -388,6 +547,111 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         hash,
         manifest,
     })
+}
+
+/// V14: `templates/` holds exactly `templates/<id>.jinja` for the keys of
+/// `manifest.templates`, and each kind matches its id.
+fn check_templates(manifest: &Manifest, files: &[(String, PathBuf)]) -> Result<(), LoadError> {
+    let on_disk: Vec<&str> = files
+        .iter()
+        .filter_map(|(r, _)| r.strip_prefix("templates/"))
+        .collect();
+    for path in &on_disk {
+        let known = path
+            .strip_suffix(".jinja")
+            .is_some_and(|id| manifest.template_defs().any(|(k, _)| k == id));
+        if !known {
+            return Err(load_err(
+                "V14",
+                format!("templates/{path} is not in manifest.templates"),
+            ));
+        }
+    }
+    for (id, def) in manifest.template_defs() {
+        if !on_disk.contains(&format!("{id}.jinja").as_str()) {
+            return Err(load_err(
+                "V14",
+                format!("template {id:?} has no file templates/{id}.jinja"),
+            ));
+        }
+        let last = id.rsplit('/').next().unwrap_or("");
+        let expected = if id.starts_with("partials/") {
+            Some(TemplateKind::Partial)
+        } else if id.starts_with("pages/_layouts/") {
+            Some(TemplateKind::Layout)
+        } else if id == "pages/_error" {
+            Some(TemplateKind::Error)
+        } else if id == "pages/_404" {
+            Some(TemplateKind::NotFound)
+        } else if id.starts_with("pages/") && !last.starts_with('_') {
+            Some(TemplateKind::Page)
+        } else {
+            None
+        };
+        if expected != Some(def.kind) {
+            return Err(load_err(
+                "V14",
+                format!("template {id:?} cannot have kind {:?}", def.kind),
+            ));
+        }
+        if (def.kind == TemplateKind::Page) != def.fragments.is_some() {
+            return Err(load_err(
+                "V14",
+                format!("template {id:?}: fragments are required for pages only"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// V7 and V15 for one page route.
+fn check_page_route(manifest: &Manifest, r: &RouteDef) -> Result<(), LoadError> {
+    let page = r.page().expect("page route");
+    let name = format!("page {}", r.path);
+    if let Some(module) = &page.module {
+        if !module.starts_with("pages/") || !manifest.code.entry.contains_key(module) {
+            return Err(load_err(
+                "V7",
+                format!("{name} names unknown page module {module:?}"),
+            ));
+        }
+    } else if page.load || !page.actions.is_empty() {
+        return Err(load_err(
+            "V15",
+            format!("{name}: load and actions need a module"),
+        ));
+    }
+    match (&page.module, page.load, &page.template) {
+        (None, _, None) => {
+            return Err(load_err(
+                "V15",
+                format!("{name}: no module and no template"),
+            ));
+        }
+        (Some(_), false, None) => {
+            return Err(load_err(
+                "V15",
+                format!("{name}: a page without a template must export load"),
+            ));
+        }
+        _ => {}
+    }
+    if let Some(t) = &page.template {
+        let ok = manifest
+            .template_defs()
+            .any(|(id, d)| id == t && d.kind == TemplateKind::Page);
+        if !ok {
+            return Err(load_err(
+                "V15",
+                format!("{name}: template {t:?} is not a page template"),
+            ));
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    if !page.actions.iter().all(|a| seen.insert(a)) {
+        return Err(load_err("V15", format!("{name}: duplicate action names")));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -403,6 +667,43 @@ mod tests {
         let a = load_artifact(&hello_dir()).unwrap();
         assert_eq!(a.manifest.routes.len(), 1);
         assert_eq!(a.manifest.code.format, CodeFormat::EsmDir);
+    }
+
+    /// Artifact version 1 (#152): the contract's worked example loads, with
+    /// page routes, templates (V14) and `security`.
+    #[test]
+    fn shop_v1_artifact_loads() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/contracts/examples/artifact/shop-artifact/3597f77a2b9c91728657e3c2b8d45d8e3c05b3eed075edf02d328bbc90e62f64");
+        let a = load_artifact(&dir).unwrap();
+        assert_eq!(a.manifest.artifact.version, 1);
+        let product = &a.manifest.routes[1];
+        assert_eq!(product.kind, RouteKind::Page);
+        assert_eq!(product.handler_export(), Some("load"));
+        assert_eq!(a.manifest.routes[0].handler_export(), None);
+        assert_eq!(a.manifest.template_defs().count(), 6);
+    }
+
+    /// V3: version 1 fields in a version 0 manifest are refused.
+    #[test]
+    fn version_0_refuses_page_routes() {
+        let tmp = std::env::temp_dir().join(format!("renox-manifest-v0-{}", std::process::id()));
+        let src = tmp.join("src");
+        fs::create_dir_all(src.join("code")).unwrap();
+        fs::write(src.join("code/x.js"), "export function load() {}").unwrap();
+        let manifest = serde_json::json!({
+            "artifact": { "version": 0 },
+            "app": { "name": "x", "timezone": "UTC" },
+            "code": { "format": "esm-dir", "entry": { "pages/x": "x.js" } },
+            "routes": [{ "kind": "page", "path": "/", "module": "pages/x", "load": true }],
+            "permissions": { "network": [], "secrets": [] }
+        });
+        fs::write(src.join("manifest.json"), manifest.to_string()).unwrap();
+        let hash = content_hash(&src).unwrap();
+        let dir = tmp.join(&hash);
+        fs::rename(&src, &dir).unwrap();
+        let err = load_artifact(&dir).unwrap_err();
+        assert_eq!(err.rule, "V3", "{err}");
+        fs::remove_dir_all(&tmp).unwrap();
     }
 
     #[test]

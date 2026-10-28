@@ -77,6 +77,20 @@ One DB thread per tenant file, shared by all cells of the tenant (old and new de
 
 A verified hash is cached (artifacts are never overwritten); a failure is not, so a repaired copy is picked up. `renox-runtime` verifies V1-V7 again each time it creates an isolate from the directory. `canonical_listing` and `hash_files` compute the hash of in-memory files; `docs/contracts/examples/hash-vectors.json` holds vectors shared with the CLI's TypeScript implementation (`tests/artifact.rs` checks both the in-memory and the on-disk path against them).
 
+## Pages
+
+`src/render.rs` (#40). At cell creation the cell loads the artifact's `templates/` into a `renox_template::Renderer` (`PageRenderer`). When a dispatch returns a page render, the cell parses the loader JSON straight into `minijinja::Value` (`serde_json` with `float_roundtrip`) and renders on Tokio's blocking pool, outside the isolate and its CPU limit, under `RenderLimits::DEFAULT`:
+
+| Case | Answer |
+| --- | --- |
+| Page or selected fragment rendered | 200 `text/html; charset=utf-8`, `Cache-Control: no-store`, `Vary: HX-Request, HX-Target` |
+| Out-of-band fragments (an action's `{ fragments }`, wired by #41) | the main output, then each block with `hx-swap-oob="true"` on its first element; an unknown name is 500 |
+| Render limit | 500 `RENOX_RENDER_LIMIT`, meter `status: render_limit`, one tenant log line with `template` and `limit` |
+| Platform error on a page route (handler threw, bad loader result, CPU, deadline) | the tenant's `pages/_error` with `status`, `code`, `request_id`, `message` under `RenderLimits::ERROR_PAGE`, else the platform default page |
+| `GET`/`HEAD` with no matching route, `Accept` preferring HTML | `pages/_404`, else `_error`, else the default page; no meter record |
+
+The meter record gets `render_fuel` and `render_ms` (render-thread CPU time) of every render of the invocation, error page included. Responses are buffered; streaming the layout shell is #161. The CSP nonce argument exists and is `None` until #47 wires the header. `date` uses the app's zone for the Gulf zones (`Asia/Dubai`, ...) and UTC otherwise.
+
 ## Not here yet
 
 Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the process sandbox (F6), realtime (F5), TLS certificates from the control plane (F3). Requests and responses are buffered; streaming is F2.

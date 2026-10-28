@@ -82,6 +82,18 @@ The bootstrap's `dispatch` runs the handler with a frozen `ctx` (`req`, `url`, `
 
 **Request scope.** `ops.md` section 0 asks #25 to prove that the request token survives `await`, timers, and promise continuations (`tests/dispatch.rs`, `request_scope_follows_async_context`). It does: the token lives in a `deno_core` `AsyncVariable` (continuation-preserved embedder data), so concurrent requests on one isolate each see their own token, and the one-request-per-isolate fallback is not needed. A timer that fires after its request ended gets `RENOX_NO_REQUEST`. The bootstrap reads the token and passes it to each op as the first argument; the ops are captured in the bootstrap's closures and are unreachable from tenant code, so tenant code cannot supply a token of its own, and Rust refuses a token that is not live.
 
+### Page routes (artifact v1, #40)
+
+`src/manifest.rs` accepts artifact versions 0 and 1. Version 1 adds `kind: "page"` routes, `manifest.templates`, `security`, `templates/` and `public.json`; a version 0 manifest with any of them is V3. Load also checks V14 (template files match `manifest.templates`, kinds match ids) and V7/V15 for page routes. A page route is a `GET` route of the router (so `HEAD` works); its handler is the module's `load` export, or none.
+
+`src/pages.rs` picks the fragment (`HX-Request: true` and an `HX-Target` equal to a fragment's `target`, `artifact.md` "Fragment selection"). Then:
+
+- No `load` (`.html` page, or `.ts` + `.html` without `load`): nothing enters the isolate; `Dispatched::render` asks the cell to render the template with `{}`.
+- `load` returns a `Response`: sent as for a function.
+- `load` returns a plain object: the bootstrap serialises it with `JSON.stringify` inside V8 (`bigint` as a string, `Date` via `toJSON`, bytes and cycles refused), and `Dispatched::render` carries the JSON to the cell (the B9 path). Anything else, or a `.ts`-only page returning an object, is 500 `RENOX_INTERNAL` with `reason` (`load_result`, `data_not_serialisable`, `data_too_large`, `no_template`) in the tenant log.
+
+The loader's `ctx` has `fragment` (`ops.md` section 14). The runtime never renders and does not depend on `renox-template`: rendering happens in `renox-cell`, so it is never in `cpu_ms`. `session` and actions are #41.
+
 ## Limits
 
 `src/limits/` (issue #26), behaviour per `ops.md` section 10. The cell passes the tier's numbers in `IsolateSpec.limits` (`Limits::FREE`, `Limits::PAID`); the manifest's `limits` can only lower them.

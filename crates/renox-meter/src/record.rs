@@ -1,4 +1,5 @@
-//! The record and the batch envelope of `docs/contracts/meter.md` version 0.
+//! The record and the batch envelope of `docs/contracts/meter.md` version 0.1
+//! (`schema_version` 0).
 //!
 //! Field names and types match `docs/contracts/schemas/meter-record.schema.json`
 //! exactly; `tests/schema.rs` validates serialised values against that file.
@@ -22,9 +23,12 @@ pub enum MeterStatus {
     Oom,
     BlockedFetch,
     Busy,
+    /// Rendering hit a render limit (`RENOX_RENDER_LIMIT`, contract 0.1).
+    RenderLimit,
 }
 
-/// One invocation record (contract section 2). All fields are required.
+/// One invocation record (contract section 2). All fields are required
+/// except `render_ms` (0.1), which is omitted when nothing was rendered.
 ///
 /// A record never carries request or response content, header values, query
 /// strings, user identifiers, or secrets; `route` is the pattern, never the URL.
@@ -51,8 +55,17 @@ pub struct MeterRecord {
     #[serde(serialize_with = "millis")]
     pub db_ms: f64,
     pub db_rows: u64,
-    /// Always `0` in F1.
+    /// Template render fuel of every render of the invocation; `0` when
+    /// nothing was rendered.
     pub render_fuel: u64,
+    /// Thread CPU time of rendering on the render pool, outside `cpu_ms`
+    /// (contract 0.1). `None` is serialised as an absent field (= 0).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "opt_millis"
+    )]
+    pub render_ms: Option<f64>,
     pub logs_dropped: u64,
     pub http_status: u16,
     pub status: MeterStatus,
@@ -85,6 +98,13 @@ pub fn round_millis(value: f64) -> f64 {
         return 0.0;
     }
     (value * 1_000.0).round() / 1_000.0
+}
+
+fn opt_millis<S: Serializer>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error> {
+    match value {
+        Some(v) => serializer.serialize_f64(round_millis(*v)),
+        None => serializer.serialize_none(),
+    }
 }
 
 fn millis<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {

@@ -17,6 +17,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use renox_runtime::IsolateHandle;
+
+use crate::render::SharedPages;
 use tokio::sync::Notify;
 
 /// The key of a cell.
@@ -30,6 +32,8 @@ pub struct CellKey {
 pub struct Cell {
     pub key: CellKey,
     pub(crate) isolate: IsolateHandle,
+    /// The deployment's templates (artifact v1); `None` without templates.
+    pub(crate) pages: Option<SharedPages>,
     inflight: AtomicUsize,
     last_used: Mutex<Instant>,
     draining: AtomicBool,
@@ -39,10 +43,11 @@ pub struct Cell {
 }
 
 impl Cell {
-    pub(crate) fn new(key: CellKey, isolate: IsolateHandle) -> Cell {
+    pub(crate) fn new(key: CellKey, isolate: IsolateHandle, pages: Option<SharedPages>) -> Cell {
         Cell {
             key,
             isolate,
+            pages,
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
             draining: AtomicBool::new(false),

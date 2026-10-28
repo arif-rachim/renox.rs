@@ -31,6 +31,9 @@ pub mod render;
 
 #[cfg(feature = "compiler")]
 pub use compiler::{CompileOptions, Compiler, TemplateProject};
+/// The minijinja version the renderer is built on (for `Value`).
+#[cfg(feature = "render")]
+pub use minijinja;
 #[cfg(feature = "render")]
 pub use render::{
     CanFn, Locale, RenderContext, RenderError, RenderLimits, RenderOutput, RenderTarget, Renderer,

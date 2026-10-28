@@ -43,13 +43,14 @@ use crate::limits::cpu::Watchdog;
 use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
-use crate::manifest::{Artifact, CodeFormat, LoadError};
+use crate::manifest::{Artifact, CodeFormat, LoadError, RouteKind};
 use crate::ops::db::{DbEnv, DbHandle};
 use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
 use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
 use crate::ops::secrets::{self, Redactor, SecretsState};
+use crate::pages::{MAX_DATA_JSON_BYTES, PageRender, select_fragment};
 use crate::request_resources;
 use crate::router::{ParamValue, RouteMatch, Router};
 use crate::runtime::{LogLine, LogSink, Runtime};
@@ -151,8 +152,27 @@ impl InvocationMeter {
 /// The result of one dispatch.
 #[derive(Debug)]
 pub struct Dispatched {
+    /// The response. When `render` is set it is an empty placeholder: the
+    /// cell renders the page and builds the real response.
     pub response: http::Response<Bytes>,
     pub meter: InvocationMeter,
+    /// A page route whose `load` returned an object, or that has no loader:
+    /// what the cell renders (`ops.md` section 14, "Rendering").
+    pub render: Option<PageRender>,
+    /// The request matched a page route: platform errors are answered with
+    /// the error page (`errors.md` section 1, "Page (HTML) routes").
+    pub page: bool,
+}
+
+impl Dispatched {
+    fn plain(response: http::Response<Bytes>, meter: InvocationMeter, page: bool) -> Dispatched {
+        Dispatched {
+            response,
+            meter,
+            render: None,
+            page,
+        }
+    }
 }
 
 /// Why an isolate could not be created. Every variant is a
@@ -225,6 +245,8 @@ struct DispatchJob {
     headers: Vec<(ByteString, ByteString)>,
     body: Bytes,
     want_body: bool,
+    /// Page routes: `Some(fragment)`; the loader gets `ctx.fragment`.
+    page: Option<Option<String>>,
     ctx: RequestCtx,
     reply: oneshot::Sender<ThreadReply>,
 }
@@ -247,6 +269,11 @@ enum ThreadReply {
         status: u16,
         headers: Vec<(ByteString, ByteString)>,
         body: Bytes,
+        meter: InvocationMeter,
+    },
+    /// A page loader returned an object: the template data as JSON.
+    Render {
+        data_json: String,
         meter: InvocationMeter,
     },
     /// The request ended with a platform error.
@@ -480,7 +507,9 @@ impl IsolateHandle {
         }
     }
 
-    fn log(
+    /// Write one line to the tenant's log sink (redacted like every line
+    /// of this deployment). The cell uses it for render failures.
+    pub fn log(
         &self,
         level: &'static str,
         request_id: Option<&str>,
@@ -513,28 +542,54 @@ impl IsolateHandle {
         let (route, params) = match self.router.find(&method, &path) {
             RouteMatch::Found { route, params } => (route, params),
             RouteMatch::NotFound => {
-                return Dispatched {
-                    response: PlatformResponse::not_found(&ctx.request_id),
-                    meter: InvocationMeter::new(None, MeterStatus::Ok),
-                };
+                return Dispatched::plain(
+                    PlatformResponse::not_found(&ctx.request_id),
+                    InvocationMeter::new(None, MeterStatus::Ok),
+                    false,
+                );
             }
             RouteMatch::MethodNotAllowed { allow } => {
-                return Dispatched {
-                    response: PlatformResponse::method_not_allowed(&ctx.request_id, &allow),
-                    meter: InvocationMeter::new(None, MeterStatus::Ok),
-                };
+                return Dispatched::plain(
+                    PlatformResponse::method_not_allowed(&ctx.request_id, &allow),
+                    InvocationMeter::new(None, MeterStatus::Ok),
+                    false,
+                );
             }
         };
         let route_def = &self.artifact.manifest.routes[route];
         let route_name = format!("{} {}", route_def.method.as_str(), route_def.path);
+        let is_page = route_def.kind == RouteKind::Page;
+        let fragment = if is_page {
+            select_fragment(&self.artifact.manifest, route_def, &parts.headers)
+        } else {
+            None
+        };
+        if is_page && route_def.handler_export().is_none() {
+            // An `.html` page, or `.ts` + `.html` without `load`: no tenant
+            // code runs; the template gets `{}`.
+            return Dispatched {
+                response: http::Response::new(Bytes::new()),
+                meter: InvocationMeter::new(Some(route_name), MeterStatus::Ok),
+                render: Some(PageRender {
+                    template: route_def.page().and_then(|p| p.template.clone()),
+                    fragment,
+                    data_json: "{}".into(),
+                    oob_fragments: Vec::new(),
+                }),
+                page: true,
+            };
+        }
         let deadline = effective_deadline(ctx.deadline, self.limits.wall_ms, admitted);
         let ctx = RequestCtx {
             request_id: ctx.request_id,
             deadline,
         };
-        let fail = |code: ErrorCode, status: MeterStatus| Dispatched {
-            response: PlatformResponse::error(code, &ctx.request_id),
-            meter: InvocationMeter::new(Some(route_name.clone()), status),
+        let fail = |code: ErrorCode, status: MeterStatus| {
+            Dispatched::plain(
+                PlatformResponse::error(code, &ctx.request_id),
+                InvocationMeter::new(Some(route_name.clone()), status),
+                is_page,
+            )
         };
 
         // Concurrency: queue up to the deadline (ops.md section 10).
@@ -586,6 +641,7 @@ impl IsolateHandle {
             route,
             params,
             want_body: method != "HEAD",
+            page: is_page.then(|| fragment.clone()),
             method,
             url,
             headers,
@@ -644,22 +700,41 @@ impl IsolateHandle {
                     b = b.header(k.as_slice(), v.as_slice());
                 }
                 match b.body(body) {
-                    Ok(response) => Dispatched { response, meter },
+                    Ok(response) => Dispatched::plain(response, meter, is_page),
                     Err(_) => {
                         meter.status = MeterStatus::Error;
-                        Dispatched {
-                            response: PlatformResponse::error(ErrorCode::Internal, &ctx.request_id),
+                        Dispatched::plain(
+                            PlatformResponse::error(ErrorCode::Internal, &ctx.request_id),
                             meter,
-                        }
+                            is_page,
+                        )
                     }
+                }
+            }
+            ThreadReply::Render {
+                data_json,
+                mut meter,
+            } => {
+                meter.route = Some(route_name);
+                Dispatched {
+                    response: http::Response::new(Bytes::new()),
+                    meter,
+                    render: Some(PageRender {
+                        template: route_def.page().and_then(|p| p.template.clone()),
+                        fragment,
+                        data_json,
+                        oob_fragments: Vec::new(),
+                    }),
+                    page: true,
                 }
             }
             ThreadReply::Failed { code, mut meter } => {
                 meter.route = Some(route_name);
-                Dispatched {
-                    response: PlatformResponse::error(code, &ctx.request_id),
+                Dispatched::plain(
+                    PlatformResponse::error(code, &ctx.request_id),
                     meter,
-                }
+                    is_page,
+                )
             }
         }
     }
@@ -701,8 +776,9 @@ type ReadyResult = Result<(v8::IsolateHandle, CreateStats), CreateError>;
 /// The JavaScript functions the bootstrap hands to Rust.
 struct Platform {
     dispatch: v8::Global<v8::Function>,
-    /// One handler per `manifest.routes[]` entry.
-    handlers: Vec<v8::Global<v8::Function>>,
+    /// One handler per `manifest.routes[]` entry; `None` for a page route
+    /// without `load` (it never enters the isolate).
+    handlers: Vec<Option<v8::Global<v8::Function>>>,
 }
 
 /// The limit machinery of one isolate thread.
@@ -937,6 +1013,10 @@ async fn create_worker(
         deno_core::scope!(scope, &mut worker.js_runtime);
         let mut handlers = Vec::with_capacity(manifest.routes.len());
         for r in &manifest.routes {
+            if r.handler_export().is_none() {
+                handlers.push(None);
+                continue;
+            }
             let ns = namespaces.get(&r.module).ok_or_else(|| {
                 CreateError::ModuleLoad(format!(
                     "route {} {}: module {} not loaded",
@@ -960,7 +1040,7 @@ async fn create_worker(
                         r.module
                     ))
                 })?;
-            handlers.push(v8::Global::new(scope, f));
+            handlers.push(Some(v8::Global::new(scope, f)));
         }
         handlers
     };
@@ -1007,10 +1087,19 @@ struct JsOutcome {
     message: Option<String>,
     stack: Option<String>,
     code: Option<String>,
+    /// `KIND_RENDER`: the loader's object as JSON.
+    data_json: Option<String>,
+    /// `KIND_PAGE_INTERNAL`: why the page result was refused.
+    reason: Option<String>,
 }
 
 const KIND_OK: u8 = 0;
 const KIND_THROW: u8 = 1;
+/// A page loader returned an object (`ops.md` section 14).
+const KIND_RENDER: u8 = 3;
+/// A page loader's result broke a rule (`load_result`, `data_not_serialisable`,
+/// `data_too_large`).
+const KIND_PAGE_INTERNAL: u8 = 4;
 
 type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
 type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
@@ -1422,7 +1511,10 @@ fn build_args(
     token: u32,
     job: &DispatchJob,
 ) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
-    let handler: v8::Local<v8::Value> = v8::Local::new(scope, &platform.handlers[job.route]).into();
+    let handler: v8::Local<v8::Value> = match &platform.handlers[job.route] {
+        Some(h) => v8::Local::new(scope, h).into(),
+        None => return Err(serde_v8::Error::Message("route has no handler".into())),
+    };
     let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
     let method: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.method)?;
     let url: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.url)?;
@@ -1450,10 +1542,16 @@ fn build_args(
         .collect();
     let params: v8::Local<v8::Value> = serde_v8::to_v8(scope, &params_json)?;
     let want: v8::Local<v8::Value> = v8::Boolean::new(scope, job.want_body).into();
-    Ok([handler, token_v, method, url, headers, body, params, want]
-        .into_iter()
-        .map(|l| v8::Global::new(scope, l))
-        .collect())
+    let page: v8::Local<v8::Value> = match &job.page {
+        Some(fragment) => serde_v8::to_v8(scope, serde_json::json!({ "fragment": fragment }))?,
+        None => v8::null(scope).into(),
+    };
+    Ok([
+        handler, token_v, method, url, headers, body, params, want, page,
+    ]
+    .into_iter()
+    .map(|l| v8::Global::new(scope, l))
+    .collect())
 }
 
 fn finish_dispatch(
@@ -1472,7 +1570,50 @@ fn finish_dispatch(
         }
         Err(e) => Err(tenant_safe(&e)),
     };
+    let no_template = route.page().is_some_and(|p| p.template.is_none());
+    let page_internal = |reason: &str, detail: Option<String>| {
+        // ops.md section 14: the reason and detail go to the tenant log only.
+        let mut f = serde_json::Map::new();
+        f.insert("code".into(), "RENOX_INTERNAL".into());
+        f.insert("route".into(), route_name.clone().into());
+        f.insert("phase".into(), "request".into());
+        f.insert("reason".into(), reason.into());
+        if let Some(d) = detail {
+            f.insert("cause_message".into(), d.into());
+        }
+        log_line(
+            ctx,
+            "error",
+            Some(&flight.ctx.request_id),
+            "page loader result refused",
+            f,
+        );
+        ThreadReply::Failed {
+            code: ErrorCode::Internal,
+            meter: flight.meter(ctx, MeterStatus::Error),
+        }
+    };
     match outcome {
+        Ok(o) if o.kind == KIND_RENDER => match o.data_json {
+            Some(_) if no_template => page_internal(
+                "no_template",
+                Some("load returned an object on a page without a template".into()),
+            ),
+            Some(json) if json.len() > MAX_DATA_JSON_BYTES => page_internal(
+                "data_too_large",
+                Some(format!("{} bytes of JSON", json.len())),
+            ),
+            Some(data_json) => ThreadReply::Render {
+                data_json,
+                meter: flight.meter(ctx, MeterStatus::Ok),
+            },
+            None => page_internal("data_not_serialisable", None),
+        },
+        Ok(o) if o.kind == KIND_PAGE_INTERNAL => {
+            let reason = o.reason.clone().unwrap_or_else(|| "load_result".into());
+            let detail = o.name.clone().map(|n| format!("load returned {n}"));
+            page_internal(&reason, detail)
+        }
         Ok(o) if o.kind == KIND_OK => ThreadReply::Ok {
             status: o.status.unwrap_or(200),
             headers: o.headers.unwrap_or_default(),
