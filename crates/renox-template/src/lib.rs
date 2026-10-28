@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "compiler")]
 pub mod compiler;
+#[cfg(feature = "compiler")]
+pub mod emit_js;
 pub mod error_page;
 #[cfg(feature = "render")]
 pub mod filters;
