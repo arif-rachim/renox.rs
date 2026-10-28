@@ -47,7 +47,7 @@ export const TOOLS: ToolDef[] = [
     name: "dev_errors",
     title: "renox dev errors",
     description:
-      "The problems a developer would see from `renox dev`: the last build's problems ({code, message, file, line, column, hint}) and the latest error lines of the tenant log.",
+      "The problems a developer would see from `renox dev`: the last build's problems ({code, message, file, line, column, hint}), the latest error lines of the tenant log, and the latest browser errors ({kind, message, request_id, url, code, detail}) the page's client script reported. A browser error and a server log line with the same request_id belong to the same request.",
     inputSchema: noInput,
     annotations: readOnly,
   },
@@ -176,10 +176,32 @@ async function devErrors(project: string): Promise<Record<string, unknown>> {
       }
     }
   }
+  // Browser events (#127): what renox dev wrote to .renox/logs/browser.ndjson,
+  // plus the client lines the worker logged (CSP reports).
+  const browserErrors: { kind: string; message: string; request_id: string | null; url?: unknown; code?: unknown; detail?: unknown; at?: string }[] = [];
+  const clientOf = (l: { message?: string; ts?: string; request_id?: string | null; fields?: Record<string, unknown> }) => {
+    const f = l.fields ?? {};
+    if (f.source !== "client" || typeof f.kind !== "string") return null;
+    return { kind: f.kind, message: String(l.message ?? ""), request_id: l.request_id ?? null, url: f.url, code: f.code ?? null, detail: f.detail, ...(l.ts ? { at: l.ts } : {}) };
+  };
+  for (const file of ["browser.ndjson", "tenant.ndjson"]) {
+    const path = join(project, ".renox", "logs", file);
+    if (!existsSync(path)) continue;
+    for (const line of tail(path, 256 * 1024).split("\n").reverse()) {
+      if (browserErrors.length >= LOG_ERRORS) break;
+      try {
+        const e = clientOf(JSON.parse(line));
+        if (e) browserErrors.push(e);
+      } catch {
+        // a partial first line of the tail
+      }
+    }
+  }
   return {
     running: s !== null,
     build: s ? { ok: s.lastBuild.ok, at: s.lastBuild.at, problems: s.lastBuild.problems } : null,
     logErrors: logErrors.reverse(),
+    browserErrors: browserErrors.sort((a, b) => String(a.at ?? "").localeCompare(String(b.at ?? ""))),
   };
 }
 

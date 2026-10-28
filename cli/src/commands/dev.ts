@@ -39,6 +39,8 @@ import { CliError, EnvironmentError, EXIT, formatError, location } from "../erro
 import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
 import { Symbolicator } from "../lib/sourcemap.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
+import { allHints, CLIENT_EVENTS_PATH, clientLine, handleBatch, injectDevMeta, type PageRoute } from "../dev/client-events.ts";
+import { BROWSER_TAB_PATH, browserTabJs } from "../dev/overlay/browser-tab.ts";
 import { collectErrorDetails } from "../dev/overlay/details.ts";
 import { ERROR_DETAILS_PATH, ERROR_OVERLAY_JS, ERROR_OVERLAY_PATH, injectErrorOverlay } from "../dev/overlay/overlay.ts";
 import { changeEvent, DEV_CLIENT_JS, DEV_CLIENT_PATH, DEV_EVENTS_PATH, injectDevClient, sse } from "../lib/templates-dev.ts";
@@ -273,6 +275,12 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         const u = new URL(req.url);
         if (u.pathname === DEV_CLIENT_PATH)
           return new Response(DEV_CLIENT_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+        // Browser events (#127): batches are handled here (terminal, .renox/logs/browser.ndjson);
+        // CSP reports go on to the worker without the proxy's Origin (the worker's own host differs).
+        if (u.pathname === CLIENT_EVENTS_PATH && req.method === "POST" && u.searchParams.get("kind") !== "csp")
+          return handleBatch(req, { browserLog: join(state, "logs", "browser.ndjson"), routes: () => last.manifest.routes as PageRoute[], log });
+        if (u.pathname === BROWSER_TAB_PATH)
+          return new Response(browserTabJs(allHints()), { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
         // Error overlay (#93): the script, and the details of one request from .renox/logs and .renox/meters.
         if (u.pathname === ERROR_OVERLAY_PATH)
           return new Response(ERROR_OVERLAY_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
@@ -298,6 +306,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         }
         const headers = new Headers(req.headers);
         headers.set("host", host);
+        if (u.pathname === CLIENT_EVENTS_PATH) headers.delete("origin");
         const init: RequestInit = { method: req.method, headers, redirect: "manual" };
         if (req.method !== "GET" && req.method !== "HEAD") init.body = await req.arrayBuffer();
         let res: Response;
@@ -309,7 +318,10 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         // Full HTML documents get the dev client; htmx fragments do not.
         if (req.method === "HEAD" || headers.get("hx-request") === "true" || !(res.headers.get("content-type") ?? "").startsWith("text/html")) return res;
         const csp = res.headers.get("content-security-policy");
-        let html = injectDevClient(await res.text(), csp);
+        const nonce = csp ? /'nonce-([A-Za-z0-9+/=_-]+)'/u.exec(csp)?.[1] : undefined;
+        // First in <head>: the dev marker the client script reads, and the Browser tab, which must listen before it.
+        let html = injectDevMeta(await res.text(), `<script src="${BROWSER_TAB_PATH}"${nonce ? ` nonce="${nonce}"` : ""}></script>`);
+        html = injectDevClient(html, csp);
         // Error pages get the error overlay (#93); production pages never do.
         const requestId = res.headers.get("x-renox-request-id");
         if (res.status >= 400 && requestId) html = injectErrorOverlay(html, requestId, res.status, csp);
@@ -354,7 +366,13 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     for (const line of buf.toString("utf8").split("\n")) {
       if (!line) continue;
       try {
-        const l = JSON.parse(line) as { level: string; message: string; fields?: Record<string, unknown> };
+        const l = JSON.parse(line) as { level: string; message: string; request_id?: string | null; fields?: Record<string, unknown> };
+        // Browser events the worker logged (CSP reports): the [browser] form.
+        const browser = clientLine(l, last.manifest.routes as PageRoute[]);
+        if (browser) {
+          log(browser);
+          continue;
+        }
         const { stack, ...rest } = l.fields ?? {};
         const f = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : "";
         log(`[${l.level}] ${l.message}${f}`);
