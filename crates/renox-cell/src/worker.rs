@@ -18,6 +18,7 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use crate::artifact::LocalArtifactStore;
+use crate::client_events::ClientLogSink;
 use crate::config::WorkerConfig;
 use crate::manager::{CellManager, ManagerConfig};
 use crate::pages::PlatformKey;
@@ -85,8 +86,10 @@ impl Worker {
             );
         }
         fetch.extra_blocked = ExtraBlocked(config.fetch_blocked_addresses.clone());
+        let log_sink: Arc<dyn renox_runtime::LogSink> =
+            Arc::new(NdjsonLogSink::new(Box::new(log_file)));
         let runtime = Runtime::new(RuntimeConfig {
-            log_sink: Arc::new(NdjsonLogSink::new(Box::new(log_file))),
+            log_sink: log_sink.clone(),
             fetch,
         });
         let mut meter_config = MeterConfig::new(&config.node_id, &config.node_id, &config.data_dir);
@@ -128,6 +131,8 @@ impl Worker {
         gw_config.rate_limit.burst = config.gateway.rate_limit_burst;
         gw_config.limits.max_connections_per_ip = config.gateway.max_connections_per_ip;
         let gateway = Gateway::new(gw_config, routes.clone());
+        // `/__renox/events` lines go to the same tenant log (#126).
+        gateway.set_client_event_sink(Arc::new(ClientLogSink::new(log_sink, &config.data_dir)));
         let listener = TcpListener::bind(config.listen)
             .await
             .map_err(io("bind the listen address"))?;

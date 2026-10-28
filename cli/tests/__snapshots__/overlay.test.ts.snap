@@ -1,0 +1,247 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`error overlay rows cpu_limit 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_CPU_LIMIT",
+    ],
+    [
+      "what happened",
+      "request CPU limit reached; isolate recycled",
+    ],
+    [
+      "limit hit",
+      "CPU time per request (50 ms)",
+    ],
+    [
+      "route",
+      "GET /loop",
+    ],
+    [
+      "cpu_ms",
+      "51.2",
+    ],
+    [
+      "heap",
+      "3.0 MB",
+    ],
+    [
+      "wall_ms",
+      "53.9",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 503 RENOX_CPU_LIMIT",
+}
+`;
+
+exports[`error overlay rows oom 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_OOM",
+    ],
+    [
+      "what happened",
+      "isolate heap limit reached; isolate recycled",
+    ],
+    [
+      "limit hit",
+      "V8 heap per isolate (128.0 MB)",
+    ],
+    [
+      "route",
+      "GET /alloc",
+    ],
+    [
+      "cpu_ms",
+      "40.1",
+    ],
+    [
+      "heap",
+      "127.0 MB",
+    ],
+    [
+      "wall_ms",
+      "48.0",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 503 RENOX_OOM",
+}
+`;
+
+exports[`error overlay rows timeout 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_DEADLINE",
+    ],
+    [
+      "what happened",
+      "request deadline passed",
+    ],
+    [
+      "limit hit",
+      "wall-clock time per request (30000 ms)",
+    ],
+    [
+      "route",
+      "GET /hang",
+    ],
+    [
+      "wall_ms",
+      "30001.0",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 504 RENOX_DEADLINE",
+}
+`;
+
+exports[`error overlay rows render_limit 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_RENDER_LIMIT",
+    ],
+    [
+      "what happened",
+      "render limit reached",
+    ],
+    [
+      "limit hit",
+      "render fuel",
+    ],
+    [
+      "route",
+      "GET /nested",
+    ],
+    [
+      "cpu_ms",
+      "2.5",
+    ],
+    [
+      "heap",
+      "8.6 MB",
+    ],
+    [
+      "wall_ms",
+      "120.0",
+    ],
+    [
+      "template",
+      "pages/nested",
+    ],
+    [
+      "render_fuel",
+      "250000",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 500 RENOX_RENDER_LIMIT",
+}
+`;
+
+exports[`error overlay rows render_failed 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_INTERNAL",
+    ],
+    [
+      "what happened",
+      "page could not be rendered",
+    ],
+    [
+      "template",
+      "pages/products/index:42",
+    ],
+    [
+      "cause",
+      "template error: invalid operation: cannot convert to number (in pages/products/index:42)",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 500 RENOX_INTERNAL",
+}
+`;
+
+exports[`error overlay rows internal 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_INTERNAL",
+    ],
+    [
+      "what happened",
+      "load threw",
+    ],
+    [
+      "route",
+      "GET /throws",
+    ],
+    [
+      "cpu_ms",
+      "0.4",
+    ],
+    [
+      "heap",
+      "1.9 MB",
+    ],
+    [
+      "wall_ms",
+      "1.2",
+    ],
+    [
+      "cause",
+      "Error: database is down",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 500 RENOX_INTERNAL",
+}
+`;
+
+exports[`error overlay rows not_found 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "404 (no route)",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 404",
+}
+`;
+
+exports[`the proxy injects the overlay script with the nonce, id, and status 1`] = `"<!doctype html><html><head></head><body><h1>503</h1><script src="/__renox/dev/error-overlay.js" nonce="QUJDRA==" data-request-id="01JBQ3Z7MA0000000000000101" data-status="503"></script></body></html>"`;

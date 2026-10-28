@@ -24,10 +24,12 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "compiler")]
 pub mod compiler;
+pub mod error_page;
 #[cfg(feature = "render")]
 pub mod filters;
 #[cfg(feature = "render")]
 pub mod render;
+pub mod shell;
 #[cfg(feature = "compiler")]
 pub mod transpile;
 #[cfg(all(feature = "compiler", target_arch = "wasm32"))]
@@ -35,6 +37,7 @@ pub mod wasm;
 
 #[cfg(feature = "compiler")]
 pub use compiler::{CompileOptions, Compiler, TemplateProject};
+pub use error_page::ErrorPage;
 /// The minijinja version the renderer is built on (for `Value`).
 #[cfg(feature = "render")]
 pub use minijinja;
@@ -42,6 +45,7 @@ pub use minijinja;
 pub use render::{
     CanFn, Locale, RenderContext, RenderError, RenderLimits, RenderOutput, RenderTarget, Renderer,
 };
+pub use shell::Shell;
 
 /// The name of the platform value the compiler emits and the renderer
 /// provides (CSP nonce, locale, limits). Tenant expressions cannot name it.

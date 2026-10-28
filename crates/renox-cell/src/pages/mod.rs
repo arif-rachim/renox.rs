@@ -17,6 +17,7 @@
 //!    `__Host-renox_csrf` cookie, and both the session's token. Otherwise
 //!    403 `RENOX_CSRF` and no tenant code runs (no meter record).
 
+pub mod errors;
 pub mod keys;
 pub mod session;
 

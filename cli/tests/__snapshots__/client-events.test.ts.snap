@@ -1,0 +1,92 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Browser tab rows of a js.error 1`] = `
+[
+  [
+    "kind",
+    "js.error",
+  ],
+  [
+    "message",
+    "TypeError: cart is undefined",
+  ],
+  [
+    "source",
+    "/products/42:42:7",
+  ],
+  [
+    "stack",
+    "openCart /products/42:42:7",
+  ],
+  [
+    "page",
+    "/products/42?tab=reviews",
+  ],
+  [
+    "request id",
+    "01JBQ3Z7MA0000000000000101",
+  ],
+]
+`;
+
+exports[`Browser tab rows of an htmx error with a code and its hint 1`] = `
+[
+  [
+    "kind",
+    "htmx.responseError",
+  ],
+  [
+    "status",
+    "503",
+  ],
+  [
+    "request",
+    "/products",
+  ],
+  [
+    "target",
+    "#product-list",
+  ],
+  [
+    "code",
+    "RENOX_CPU_LIMIT",
+  ],
+  [
+    "hint",
+    "Move heavy work out of the request path",
+  ],
+  [
+    "page",
+    "/products",
+  ],
+  [
+    "request id",
+    "01JBQ3Z7MA0000000000000202",
+  ],
+]
+`;
+
+exports[`Browser tab rows of a CSP violation 1`] = `
+[
+  [
+    "kind",
+    "csp.violation",
+  ],
+  [
+    "blocked",
+    "script-src-elem inline",
+  ],
+  [
+    "in",
+    "/products:9:1",
+  ],
+  [
+    "page",
+    "/products",
+  ],
+  [
+    "request id",
+    "(none)",
+  ],
+]
+`;

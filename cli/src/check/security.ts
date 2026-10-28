@@ -29,6 +29,8 @@ export interface SecurityConfig {
 }
 
 export const CSP_REPORT_PATH = "/__renox/events?kind=csp";
+/** The `report-to` group, declared by `Reporting-Endpoints` (client-events.md section 6). */
+export const CSP_REPORT_GROUP = "renox-csp";
 export const DENIED_FEATURES = ["camera", "microphone", "geolocation"];
 const UNSAFE = ["'unsafe-inline'", "'unsafe-eval'"];
 
@@ -78,7 +80,7 @@ export function cspValue(security: SecurityConfig, nonce: string, tls: boolean):
     if (extra?.length) d.push([name, "'self'", ...extra].join(" "));
   d.push("object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'");
   if (tls) d.push("upgrade-insecure-requests");
-  d.push(`report-uri ${CSP_REPORT_PATH}`);
+  d.push(`report-uri ${CSP_REPORT_PATH}`, `report-to ${CSP_REPORT_GROUP}`);
   return d.join("; ");
 }
 
@@ -91,6 +93,7 @@ export function permissionsPolicy(security: SecurityConfig): string {
 export function headerSet(security: SecurityConfig, nonce = "<per-request>", tls = true): [string, string][] {
   return [
     [security.csp?.report_only ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy", cspValue(security, nonce, tls)],
+    ["Reporting-Endpoints", `${CSP_REPORT_GROUP}="${CSP_REPORT_PATH}"`],
     ["Strict-Transport-Security", "max-age=31536000; includeSubDomains"],
     ["X-Content-Type-Options", "nosniff"],
     ["X-Frame-Options", "DENY"],

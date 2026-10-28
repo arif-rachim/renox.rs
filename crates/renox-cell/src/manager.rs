@@ -32,7 +32,7 @@ use crate::pages::{CSRF_CODE, CSRF_MESSAGE, Gate, PageGuard, PlatformKey, Sessio
 use crate::ratelimit::RouteBuckets;
 use crate::render::{PageRenderer, Rendered, platform_error, prefers_html};
 use crate::tiers::{TierName, Tiers};
-use renox_gateway::security::SecurityConfig;
+use renox_gateway::security::{DeploymentInfo, SecurityConfig};
 
 /// What the manager needs from the worker config.
 #[derive(Clone)]
@@ -301,7 +301,7 @@ impl CellManager {
             }
         };
         let keys = SessionKeys::new(self.inner.config.platform_key.tenant_key(&key.tenant_id));
-        let web = match load_pages(&artifact_dir, keys).await {
+        let web = match load_pages(&artifact_dir, &key.deployment_hash, keys).await {
             Ok(p) => p,
             Err(e) => {
                 isolate.terminate();
@@ -758,11 +758,23 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
 /// The deployment's page renderer, from `manifest.json` and `templates/`.
 /// Also the page guard (sessions, CSRF) when the deployment has page routes,
 /// and the per-route buckets of `security.ratelimit` (#47).
-async fn load_pages(artifact_dir: &Path, keys: SessionKeys) -> Result<WebLayer, CellError> {
+async fn load_pages(
+    artifact_dir: &Path,
+    deployment_hash: &str,
+    keys: SessionKeys,
+) -> Result<WebLayer, CellError> {
     let dir = artifact_dir.to_path_buf();
+    let hash = deployment_hash.to_string();
     tokio::task::spawn_blocking(move || {
         let raw = std::fs::read(dir.join("manifest.json"))
             .map_err(|_| "V3: manifest.json cannot be read".to_string())?;
+        // `client.events` (client-events.md Open 1), read the way the
+        // gateway reads it, so the script tag and the endpoint agree.
+        let client_script = std::str::from_utf8(&raw)
+            .ok()
+            .and_then(|j| DeploymentInfo::parse(j).ok())
+            .is_none_or(|i| i.client_events)
+            .then(renox_gateway::client_script::script_src);
         let manifest: renox_runtime::manifest::Manifest =
             serde_json::from_slice(&raw).map_err(|e| format!("V3: manifest.json: {e}"))?;
         let guard = PageGuard::new(&manifest.routes, keys);
@@ -772,7 +784,7 @@ async fn load_pages(artifact_dir: &Path, keys: SessionKeys) -> Result<WebLayer, 
             None => SecurityConfig::default(),
         };
         let buckets = RouteBuckets::new(&manifest.routes, &security.ratelimit);
-        PageRenderer::load(&dir, &manifest).map(|p| WebLayer {
+        PageRenderer::load(&dir, &manifest, &hash, client_script).map(|p| WebLayer {
             pages: p.map(Arc::new),
             guard,
             buckets,

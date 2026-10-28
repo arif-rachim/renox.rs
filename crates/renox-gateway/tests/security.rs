@@ -52,7 +52,7 @@ async fn default_headers_and_the_request_nonce() {
     assert_eq!(
         csp,
         format!(
-            "default-src 'self'; script-src 'self' 'nonce-{n}'; style-src 'self' 'nonce-{n}'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp",
+            "default-src 'self'; script-src 'self' 'nonce-{n}'; style-src 'self' 'nonce-{n}'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp; report-to renox-csp",
             n = ctx.csp_nonce
         )
     );

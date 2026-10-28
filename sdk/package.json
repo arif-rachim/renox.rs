@@ -12,7 +12,7 @@
   },
   "files": ["src"],
   "scripts": {
-    "check": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json",
+    "check": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p client",
     "test": "bun test"
   },
   "devDependencies": {
