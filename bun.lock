@@ -23,6 +23,7 @@
       "name": "@renox/control-api",
       "version": "0.1.0",
       "dependencies": {
+        "@renox/artifact-validate": "workspace:*",
         "ajv": "8.20.0",
         "hono": "4.13.14",
       },
@@ -67,6 +68,10 @@
         "zod": "4.6.7",
       },
     },
+    "packages/artifact-validate": {
+      "name": "@renox/artifact-validate",
+      "version": "0.1.0",
+    },
     "sdk": {
       "name": "renox",
       "version": "0.1.0",
@@ -92,6 +97,8 @@
     "@renox-examples/npm-compat": ["@renox-examples/npm-compat@workspace:examples/npm-compat"],
 
     "@renox-examples/shop": ["@renox-examples/shop@workspace:examples/shop"],
+
+    "@renox/artifact-validate": ["@renox/artifact-validate@workspace:packages/artifact-validate"],
 
     "@renox/bench": ["@renox/bench@workspace:bench"],
 

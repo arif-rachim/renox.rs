@@ -5,6 +5,7 @@
     "sdk*",
     "cli*",
     "control/*",
+    "packages/*",
     "modules/*",
     "examples/*",
     "bench*"

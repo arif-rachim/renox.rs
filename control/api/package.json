@@ -10,6 +10,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@renox/artifact-validate": "workspace:*",
     "ajv": "8.20.0",
     "hono": "4.13.14"
   },
