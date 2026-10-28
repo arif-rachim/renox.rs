@@ -24,9 +24,17 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "compiler")]
 pub mod compiler;
+#[cfg(feature = "render")]
+pub mod filters;
+#[cfg(feature = "render")]
+pub mod render;
 
 #[cfg(feature = "compiler")]
 pub use compiler::{CompileOptions, Compiler, TemplateProject};
+#[cfg(feature = "render")]
+pub use render::{
+    CanFn, Locale, RenderContext, RenderError, RenderLimits, RenderOutput, RenderTarget, Renderer,
+};
 
 /// The name of the platform value the compiler emits and the renderer
 /// provides (CSP nonce, locale, limits). Tenant expressions cannot name it.
