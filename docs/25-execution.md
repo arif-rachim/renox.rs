@@ -98,7 +98,7 @@ Run the gate review issue #37 of arif-rachim/renox.rs. Follow docs/25-execution.
 
 Ran on 2026-10-28: GO to F2 and F3 with conditions (report on #37). The conditions are applied: issues #152 to #164 created, blockers of the F2/F3 issues edited, #36, #92, #110 and #146 closed, docs and status updated.
 
-## F2 (11 sessions + gate)
+## F2 (12 sessions + gate)
 
 Start after the F1 gate (#37) is closed. The gate report split the F1 follow-ups into #152 to #161 and moved every F2 contract edit into #152 and #153, so two contract-only batches go first. F3 runs at the same time as F2 (see below).
 
@@ -117,6 +117,14 @@ Work on batch H3 of arif-rachim/renox.rs: issues #160, #154, #139 in that order.
 ```
 
 `crates/renox-cell` tests and the packaging of `renox-worker`. #36 is closed; its release criterion lives in #154. H3 shares no files with J0.
+
+### Batch H4 — after H3 — the worker release (1 issue)
+
+```
+Work on issue #154 of arif-rachim/renox.rs alone, as batch H4. The packaging landed in PR #171; what is left is the B20 binary size (121.6 MB against the 100 MB limit, see the release-worker.yml run on PR #171) and the worker-v0.1.0 tag. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if the issue blocks you, do what the rules say and stop.
+```
+
+H3 left #154 open: the `packaged` build works, but the binary is over the B20 limit and the tag is not pushed. #154 blocks #157 (batch Y skips it until then), #139, #163, #129 and #55 (batch T). Files: `crates/renox-runtime/build.rs`, `runtime.rs`, `.github/workflows/release-worker.yml`, `cli/scripts/fetch-worker.ts`; no overlap with J, K, L, M, Y, R, S.
 
 ### Batch J — after J0 — renox-template and the render op (3 issues)
 
