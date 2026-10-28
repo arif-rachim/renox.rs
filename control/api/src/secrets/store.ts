@@ -37,18 +37,18 @@ async function dekOf(tx: Db, keys: KeyProvider, tenantId: string, now: number): 
 }
 
 /** Locks the app's set and returns the next version. */
-async function nextVersion(tx: Db, app: string): Promise<number> {
-  const rows = await tx.query<{ version: number }>("update secret_sets set version = version + 1 where app = $1 returning version", [app]);
+async function nextVersion(tx: Db, tenantId: string, app: string): Promise<number> {
+  const rows = await tx.query<{ version: number }>("update secret_sets set version = version + 1 where tenant_id = $1 and app = $2 returning version", [tenantId, app]);
   if (rows[0] === undefined) throw notFound();
   return Number(rows[0].version);
 }
 
 export async function putSecret(tx: Db, keys: KeyProvider, tenantId: string, app: string, name: string, value: string, now: number): Promise<number> {
   checkValue(value);
-  const open = await tx.query<{ name: string }>("select name from secrets where app = $1 and version_to is null", [app]);
+  const open = await tx.query<{ name: string }>("select name from secrets where tenant_id = $1 and app = $2 and version_to is null", [tenantId, app]);
   if (!open.some((r) => r.name === name) && open.length >= MAX_SECRETS) throw invalid("name", `an app has at most ${MAX_SECRETS} secrets`);
-  const version = await nextVersion(tx, app);
-  await tx.query("update secrets set version_to = $1 where app = $2 and name = $3 and version_to is null", [version, app, name]);
+  const version = await nextVersion(tx, tenantId, app);
+  await closeValue(tx, tenantId, app, name, version);
   const dek = await dekOf(tx, keys, tenantId, now);
   const { ciphertext, nonce } = encryptValue(dek, value, valueAad(tenantId, app, name, version));
   await tx.query(
@@ -58,25 +58,30 @@ export async function putSecret(tx: Db, keys: KeyProvider, tenantId: string, app
   return version;
 }
 
-export async function deleteSecret(tx: Db, app: string, name: string): Promise<number> {
-  const open = await tx.query("select 1 from secrets where app = $1 and name = $2 and version_to is null", [app, name]);
+/** Ends the open value of `name` at `version`. */
+async function closeValue(tx: Db, tenantId: string, app: string, name: string, version: number): Promise<void> {
+  await tx.query("update secrets set version_to = $2 where tenant_id = $1 and app = $3 and name = $4 and version_to is null", [tenantId, version, app, name]);
+}
+
+export async function deleteSecret(tx: Db, tenantId: string, app: string, name: string): Promise<number> {
+  const open = await tx.query("select 1 from secrets where tenant_id = $1 and app = $2 and name = $3 and version_to is null", [tenantId, app, name]);
   if (open.length === 0) throw notFound();
-  const version = await nextVersion(tx, app);
-  await tx.query("update secrets set version_to = $1 where app = $2 and name = $3 and version_to is null", [version, app, name]);
+  const version = await nextVersion(tx, tenantId, app);
+  await closeValue(tx, tenantId, app, name, version);
   return version;
 }
 
-export async function listSecrets(db: Db, app: string): Promise<{ version: number; secrets: { name: string; updated_at: number }[] }> {
-  const set = await db.query<{ version: number }>("select version from secret_sets where app = $1", [app]);
+export async function listSecrets(db: Db, tenantId: string, app: string): Promise<{ version: number; secrets: { name: string; updated_at: number }[] }> {
+  const version = await latestVersion(db, tenantId, app);
   const rows = await db.query<{ name: string; created_at: unknown }>(
-    "select name, created_at from secrets where app = $1 and version_to is null order by name",
-    [app],
+    "select name, created_at from secrets where tenant_id = $1 and app = $2 and version_to is null order by name",
+    [tenantId, app],
   );
-  return { version: Number(set[0]?.version ?? 0), secrets: rows.map((r) => ({ name: r.name, updated_at: num(r.created_at) })) };
+  return { version, secrets: rows.map((r) => ({ name: r.name, updated_at: num(r.created_at) })) };
 }
 
-export async function latestVersion(db: Db, app: string): Promise<number> {
-  const rows = await db.query<{ version: number }>("select version from secret_sets where app = $1", [app]);
+export async function latestVersion(db: Db, tenantId: string, app: string): Promise<number> {
+  const rows = await db.query<{ version: number }>("select version from secret_sets where tenant_id = $1 and app = $2", [tenantId, app]);
   return Number(rows[0]?.version ?? 0);
 }
 

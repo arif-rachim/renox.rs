@@ -6,10 +6,12 @@
 //
 // The fake key is assembled at run time (no scanner-shaped string in the repo).
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash, sha256Hex } from "@renox/artifact-validate";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { createApp_, harness, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, createApp_, harness, type Harness, tenant } from "./helpers.ts";
+
+afterEach(assertScoped);
 
 const enc = new TextEncoder();
 const FAKE_STRIPE = ["sk", "_live_", "51FAKEfakeFAKEfake0123456789abcd"].join("");

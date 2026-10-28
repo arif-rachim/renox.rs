@@ -1,10 +1,12 @@
 // Token auth (docs/contracts/deploy-api.md section 2; docs/24-threat-model.md
 // E, "Leaked CLI or CI token" and the IDOR row).
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { allows, covers, newTokenValue, parseBearer, sha256hex } from "../src/auth/tokens.ts";
 import { DAY_MS } from "../src/auth/tokens.ts";
-import { auditRows, createApp_, harness, nodeToken, OPERATOR_TOKEN, scopedToken, tenant } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, nodeToken, OPERATOR_TOKEN, scopedToken, tenant } from "./helpers.ts";
+
+afterEach(assertScoped);
 
 describe("token values", () => {
   test("format and parsing", () => {

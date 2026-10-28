@@ -9,12 +9,14 @@
 // resource assertion is on what the extractor pulled from the body (an upper
 // bound on what it held), and on the artifact store holding nothing.
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { UPLOAD_LIMITS } from "@renox/artifact-validate";
 import { absolutePath, allBombs, deepPath, device, dotDot, hardlink, highRatio, manyEntries, oversizedEntry, symlink, totalOverflow, type Bomb } from "@renox/artifact-validate/bombs";
 import { SOURCEMAP_LIMITS } from "../src/deployments/extract.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { createApp_, harness, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, createApp_, type Harness, harness, tenant } from "./helpers.ts";
+
+afterEach(assertScoped);
 import { contentHash } from "@renox/artifact-validate";
 
 const MiB = 1024 * 1024;

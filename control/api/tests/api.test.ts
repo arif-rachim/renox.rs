@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { MESSAGES } from "../src/errors.ts";
 import { check } from "../src/contract.ts";
-import { auditRows, createApp_, harness, tenant } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, tenant } from "./helpers.ts";
+
+afterEach(assertScoped);
 
 describe("audit", () => {
   test("every mutating call writes one row, whatever its outcome; reads write none", async () => {

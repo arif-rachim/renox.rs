@@ -1,11 +1,13 @@
 // POST /v1/ingest/meters and GET /v1/apps/{app}/usage (#56; deploy-api.md
 // section 11, meter.md sections 4-5).
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { hourOf, rollup } from "@renox/billing";
 import { helloArtifact, named, upload } from "./artifacts.ts";
-import { auditRows, createApp_, harness, nodeToken, scopedToken, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, type Harness, harness, nodeToken, scopedToken, tenant } from "./helpers.ts";
+
+afterEach(assertScoped);
 
 let seq = 0;
 const record = (hash: string, over: Record<string, unknown> = {}) => {

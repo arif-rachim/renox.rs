@@ -12,7 +12,7 @@ export interface Logger {
   error(msg: string, fields?: Fields): void;
 }
 
-const TOKEN = /renox_(pat|node|op)_[a-z2-7]{32}/gu;
+const TOKEN = /renox_(pat|node|op|ses)_[a-z2-7]{32}/gu;
 
 export const maskTokens = (text: string): string => text.replace(TOKEN, "renox_$1_[redacted]");
 

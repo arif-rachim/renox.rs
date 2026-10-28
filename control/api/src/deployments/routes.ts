@@ -5,7 +5,8 @@
 import type { Context, Hono } from "hono";
 import { checkArtifactFiles, TIERS, writeTar, type Violation } from "@renox/artifact-validate";
 import { operation } from "../audit.ts";
-import { tenantAuth, tenantId } from "../auth/middleware.ts";
+import { tenantAuth } from "../auth/middleware.ts";
+import { tenantDb } from "../tenancy/scope.ts";
 import { requireApp } from "../apps/repo.ts";
 import { check } from "../contract.ts";
 import { ApiError, conflict, invalid } from "../errors.ts";
@@ -36,11 +37,12 @@ async function tenantGuard(db: Db, tenant: string): Promise<{ tier: "free" | "pa
 }
 
 export function registerDeployments(app: Hono<Env>, deps: Deps): void {
-  const { db, store } = deps;
+  const { store } = deps;
   const actor = (c: Context<Env>): Actor => ({ actor: actorOf(c.get("principal")), requestId: c.get("requestId"), now: deps.now() });
 
   app.post("/v1/apps/:app/deployments", operation(deps, "uploadDeployment"), tenantAuth(deps, "deploy"), async (c) => {
-    const tenant = tenantId(c);
+    const db = tenantDb(deps, c);
+    const tenant = db.tenantId;
     const name = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
     const { tier } = await tenantGuard(db, tenant);
     const claimed = c.req.header("x-renox-artifact-hash") ?? "";
@@ -81,7 +83,7 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
         violations: null,
         last_error: null,
       });
-      await tx.query("delete from permissions where app = $1 and hash = $2", [name, claimed]);
+      await tx.query("delete from permissions where tenant_id = $1 and app = $2 and hash = $3", [tenant, name, claimed]);
       const perms = result.manifest?.permissions as { network: string[]; secrets: string[] };
       for (const [kind, values] of [
         ["network", perms.network],
@@ -115,7 +117,8 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
   });
 
   app.get("/v1/apps/:app/deployments", operation(deps, "listDeployments"), tenantAuth(deps, "apps:read"), async (c) => {
-    const tenant = tenantId(c);
+    const db = tenantDb(deps, c);
+    const tenant = db.tenantId;
     const name = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
     const state = c.req.query("state");
     if (state !== undefined) check("DeploymentState", state);
@@ -126,14 +129,16 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
   });
 
   app.get("/v1/apps/:app/deployments/:hash", operation(deps, "getDeployment"), tenantAuth(deps, "apps:read"), async (c) => {
-    const tenant = tenantId(c);
+    const db = tenantDb(deps, c);
+    const tenant = db.tenantId;
     const name = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
     const row = await requireDeployment(db, tenant, name, pathParam(c, "hash", "Sha256"));
     return c.json(deploymentView(row));
   });
 
   app.put("/v1/apps/:app/deployments/:hash/sourcemaps", operation(deps, "putSourcemaps"), tenantAuth(deps, "deploy"), async (c) => {
-    const tenant = tenantId(c);
+    const db = tenantDb(deps, c);
+    const tenant = db.tenantId;
     const name = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
     const hash = pathParam(c, "hash", "Sha256");
     await requireDeployment(db, tenant, name, hash);

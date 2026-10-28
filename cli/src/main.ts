@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
-// renox: new, build, dev, check, mcp. docs/12-developer-experience.md.
+// renox: new, build, dev, check, mcp, login, tokens. docs/12-developer-experience.md.
 // Exit codes: src/errors.ts and cli/README.md, "Exit codes".
 
 import { run as build } from "./commands/build.ts";
 import { run as check } from "./commands/check.ts";
 import { run as dev } from "./commands/dev.ts";
+import { run as login } from "./commands/login.ts";
 import { run as newApp } from "./commands/new.ts";
+import { run as tokens } from "./commands/tokens.ts";
 import { CliError, EXIT, exitCodeOf, formatError } from "./errors.ts";
 import { run as mcp } from "./mcp/command.ts";
 
@@ -16,11 +18,15 @@ const USAGE = `renox <command>
   dev [--port 8787]                     run the app on the local worker, rebuild on change
   check [--secrets]                     validate config, routes, manifest; lint SQL, fetch, global state; scan for secrets
   mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
+  login [--api <url>] [--with-token]    sign in to the control plane (device code; --with-token reads a token from stdin)
+  tokens list | create <name> --scope <s>... [--expires-days n] | revoke <id>
+                                        manage tenant tokens (the value is shown once)
 
 Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
-Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev.`;
+Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev;
+RENOX_TOKEN and RENOX_API_URL override the credentials saved by login.`;
 
-const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, mcp };
+const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, mcp, login: (a) => login(a), tokens: (a) => tokens(a) };
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;

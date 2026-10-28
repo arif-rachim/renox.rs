@@ -14,8 +14,8 @@ export interface AppRow {
 /** The app `name` of `tenantId`, or 404. */
 export async function requireApp(db: Db, tenantId: string, name: string): Promise<AppRow> {
   const rows = await db.query<{ name: string; tenant_id: string; created_at: unknown }>(
-    "select name, tenant_id, created_at from apps where name = $1 and tenant_id = $2",
-    [name, tenantId],
+    "select name, tenant_id, created_at from apps where tenant_id = $1 and name = $2",
+    [tenantId, name],
   );
   const row = rows[0];
   if (row === undefined) throw notFound();
@@ -30,15 +30,15 @@ export interface AppView {
   hostnames: string[];
 }
 
-/** The `App` schema of the contract for `rows`. */
+/** The `App` schema of the contract for `rows` (all of one tenant). */
 export async function appViews(db: Db, platformDomain: string, rows: AppRow[]): Promise<AppView[]> {
   if (rows.length === 0) return [];
   const names = rows.map((r) => r.name);
   const active = new Map(
     (
       await db.query<{ app: string; hash: string }>(
-        "select app, hash from deployments where state = 'active' and app = any($1::text[])",
-        [names],
+        "select app, hash from deployments where tenant_id = $1 and state = 'active' and app = any($2::text[])",
+        [rows[0]?.tenant_id, names],
       )
     ).map((r) => [r.app, r.hash]),
   );

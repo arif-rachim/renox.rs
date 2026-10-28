@@ -195,9 +195,13 @@ renox <command>
   dev [--port 8787]                     run the app on the local worker, rebuild on change
   check [--secrets]                     validate config, routes, manifest; lint SQL, fetch, global state; scan for secrets
   mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
+  login [--api <url>] [--with-token]    sign in to the control plane (device code; --with-token reads a token from stdin)
+  tokens list | create <name> --scope <s>... [--expires-days n] | revoke <id>
+                                        manage tenant tokens (the value is shown once)
 
 Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
-Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev."
+Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev;
+RENOX_TOKEN and RENOX_API_URL override the credentials saved by login."
 ,
 }
 `;
