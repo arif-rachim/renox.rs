@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title><slot name="title">Renox Shop</slot></title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/htmx-2.0.4.min.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/"><strong>Renox Shop</strong></a>
+    <a href="/products">Products</a>
+    <span class="cart">Cart: <span id="cart-badge" r-fragment="cart_badge">{{ cart_count ?? 0 }}</span></span>
+  </header>
+  <main>
+    <slot />
+  </main>
+  <footer><small>Prices in AED, VAT included.</small></footer>
+</body>
+</html>

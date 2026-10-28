@@ -160,3 +160,21 @@ fn filter_errors_are_render_errors() {
     assert!(!e.is_limit());
     assert!(e.to_string().contains("needs a number"), "{e}");
 }
+
+/// A value the loader did not provide renders as nothing (a fragment's
+/// loader may skip the rest of the page's data, #45); a wrong type still fails.
+#[test]
+fn missing_values_render_empty() {
+    assert_eq!(render("price | money", EN, json!({})), "");
+    assert_eq!(render("price | money", EN, json!({ "price": null })), "");
+    assert_eq!(render("n | number", EN, json!({})), "");
+    let c = compile_files(&[("pages/index.html", "<p>{{ price | money }}</p>")]).unwrap();
+    let r = Renderer::new(c.sources()).unwrap();
+    let bad = r.render(
+        RenderTarget::Page("pages/index"),
+        serde_json::from_value::<Value>(json!({ "price": [1] })).unwrap(),
+        &RenderContext::default(),
+        &RenderLimits::DEFAULT,
+    );
+    assert!(bad.is_err());
+}

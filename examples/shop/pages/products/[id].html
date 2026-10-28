@@ -1,0 +1,16 @@
+<r-layout use="main">
+  <r-group slot="title">{{ product.name }} · Renox Shop</r-group>
+  <article id="product" r-fragment="product">
+    <h1>{{ product.name }}</h1>
+    <p>{{ product.description }}</p>
+    <p class="price">{{ product.price | money }}</p>
+    <p class="notice" r-if="added">Added {{ added }} to your cart.</p>
+    <p class="out" r-if="error">{{ error }}</p>
+    <x-form action="addToCart" hx-target="#product" hx-swap="outerHTML" r-if="product.stock > 0">
+      <label>Quantity <input type="number" name="quantity" value="1" min="1" max="99"></label>
+      <button type="submit">Add to cart</button>
+    </x-form>
+    <p class="out" r-else>Out of stock</p>
+  </article>
+  <p><a href="/products">Back to all products</a></p>
+</r-layout>

@@ -75,7 +75,8 @@ describe("renox build", () => {
     expect(code).not.toMatch(/^import /mu);
   });
 
-  test("examples/shop: dependencies shared by modules are bundled once, in code/chunks/ (#143)", async () => {
+  // examples/shop has templates since #45: the worker compiles them.
+  test.skipIf(!worker)("examples/shop: dependencies shared by modules are bundled once, in code/chunks/ (#143)", async () => {
     const out = tmp("shop");
     const r = await buildArtifact(join(repo, "examples/shop"), out);
     expect(hashDir(r.dir)).toBe(r.hash);
