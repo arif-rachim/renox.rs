@@ -73,7 +73,7 @@ Extraction streams the tar and stops at the **first** violation of the upload ru
 | T1 | Entry types: regular files and directories only. Symbolic links, hard links, character and block devices, FIFOs, and sparse files are rejected. pax extended headers are read only for `path` and `size` | — |
 | T2 | Total uncompressed bytes of all file entries | 100 MiB (104,857,600), the V5 whole-artifact cap |
 | T3 | Number of entries (files and directories) | 10,000 |
-| T4 | Every entry path follows `artifact.md` section 1, "Paths" (no absolute path, no `..`, at most 32 segments and 512 bytes, NFC, no backslash or `:`) | 32 segments |
+| T4 | Every entry path follows `artifact.md` section 1, "Paths" (no absolute path, no `..`, at most 32 segments and 512 bytes, NFC, no backslash or `:`), after one leading `./` is removed (`tar -C <dir> .` writes it; the `./` entry itself is skipped) | 32 segments |
 | T5 | Size of one file entry | 20 MiB (the V5 `code/` cap) |
 | T6 | gzip only: uncompressed bytes read ÷ compressed bytes read, checked continuously once 1 MiB has been decompressed | 50 : 1 |
 | T7 | The same path appears twice, or a path appears as both a file and a directory | — |
@@ -110,7 +110,7 @@ Storage: the object key is `artifacts/<hash>.tar` (the uncompressed tar, so a no
 | `active` | The app's route entries point here; at most one per app | `superseded`, `suspended` |
 | `superseded` | Replaced by a newer activation; retained for rollback | `active`, `pruned` |
 | `suspended` | The tenant is suspended (billing, abuse); routes removed | `active` |
-| `pruned` | Beyond the retention limit; record kept, object deleted when unreferenced | — |
+| `pruned` | Beyond the retention limit; record kept, object deleted when unreferenced | `uploaded` |
 
 Every transition not in the table is refused with 409 `RENOX_CONFLICT`, `details: [{ field: "state", reason: "<from> -> <to> is not allowed" }]`, and nothing changes. Each transition writes an audit row and updates `updated_at`. The table is also `x-renox-state-machines.deployment` in the OpenAPI file; `validate.ts` checks that the two agree, and `control/api` enforces the transitions from that data.
 

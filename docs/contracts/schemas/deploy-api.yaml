@@ -56,7 +56,7 @@ x-renox-state-machines:
       active: [superseded, suspended]
       superseded: [active, pruned]
       suspended: [active]
-      pruned: []
+      pruned: [uploaded]
   domain:
     initial: [pending]
     transitions:
