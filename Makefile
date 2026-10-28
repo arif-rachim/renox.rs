@@ -3,7 +3,7 @@
 # skipped until the first crate exists under bench/spike/ (or crates/ later).
 
 RUST_MEMBERS := $(wildcard bench/spike/*/Cargo.toml crates/*/Cargo.toml)
-TS_PACKAGES := $(wildcard sdk/package.json cli/package.json control/*/package.json modules/*/package.json examples/*/package.json bench/package.json)
+TS_PACKAGES := $(wildcard sdk/package.json cli/package.json control/*/package.json packages/*/package.json modules/*/package.json examples/*/package.json bench/package.json)
 
 .PHONY: check test fmt bench rust-check rust-test ts-check ts-test docs-check
 
@@ -45,6 +45,7 @@ docs-check:
 	bun install --frozen-lockfile
 	bun .github/scripts/check-links.ts
 	bun x tsc --noEmit -p docs/contracts
+	bun run docs/contracts/validate.ts
 
 ts-test:
 	bun run test
