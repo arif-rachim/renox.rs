@@ -1,0 +1,54 @@
+{
+  "$comment": "invalid: HSTS cannot be configured, and unknown security keys are rejected (artifact.md section 3) [expect: additionalProperties]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/products/:id",
+      "module": "pages/products/[id]",
+      "load": true,
+      "actions": [
+        "addToCart"
+      ],
+      "template": "pages/products/[id]"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/products/[id]": {
+      "kind": "page",
+      "fragments": {
+        "product": {
+          "target": "product"
+        },
+        "cart_badge": {
+          "target": "cart-badge"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  },
+  "security": {
+    "csp": {
+      "script_src": []
+    },
+    "hsts": false
+  }
+}

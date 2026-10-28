@@ -1,6 +1,19 @@
 // Type-level examples for ctx.d.ts: compiled by `tsc --noEmit -p docs/contracts`,
 // never run. Valid uses must compile; each `@ts-expect-error` line must fail.
-import type { Ctx, FetchBlockedError, FunctionModule, Handler, Ops, Row } from "./ctx.d.ts";
+import type {
+  Action,
+  ActionContext,
+  Ctx,
+  FetchBlockedError,
+  FunctionModule,
+  Handler,
+  Loader,
+  LoaderContext,
+  Ops,
+  PageModule,
+  PageResult,
+  Row,
+} from "./ctx.d.ts";
 
 interface Product extends Row {
   id: string;
@@ -35,6 +48,45 @@ export const mod: FunctionModule = { GET, POST };
 
 export function describe(e: FetchBlockedError): string {
   return `${e.details.host}: ${e.details.reason}`;
+}
+
+// Pages (ops.md section 14).
+export const load: Loader = async ({ params, db, fragment, session }: LoaderContext) => {
+  const product = await db.queryOne<Product>("select id, name, stock from app__products where id = ?", [
+    String(params.id),
+  ]);
+  if (!product) return new Response(null, { status: 404 });
+  if (fragment === "cart_badge") return { cartFor: session.id };
+  return { product, inStock: product.stock > 0 };
+};
+
+const addToCart: Action = async ({ form, db, session }: ActionContext) => {
+  const productId = form.get("productId");
+  if (typeof productId !== "string") return new Response("bad request", { status: 400 });
+  await db.execute("insert into app__cart_items (session_id, product_id) values (?, ?)", [session.id, productId]);
+  return { fragments: ["cart_badge", `product_${productId}`] };
+};
+
+export const page: PageModule = { load, actions: { addToCart } };
+
+export const rendered: PageResult = { type: "render", data_json: '{"inStock":true}', fragments: [] };
+
+export async function pageNegatives(ctx: ActionContext, lctx: LoaderContext): Promise<void> {
+  // @ts-expect-error an action's db is its transaction: no nested transaction()
+  await ctx.db.transaction(async () => undefined);
+  // @ts-expect-error loaders get no form
+  lctx.form.get("x");
+  // @ts-expect-error the session id is read-only
+  ctx.session.id = "x";
+  // @ts-expect-error a loader returns an object or a Response
+  const badLoad: Loader = () => 42;
+  void badLoad;
+  // @ts-expect-error fragments are names
+  const badAction: Action = () => ({ fragments: [1] });
+  void badAction;
+  // @ts-expect-error a render result carries the data as JSON text
+  const badResult: PageResult = { type: "render", data_json: { a: 1 }, fragments: [] };
+  void badResult;
 }
 
 export async function negatives(ctx: Ctx, ops: Ops): Promise<void> {

@@ -1,0 +1,21 @@
+{
+  "$comment": "valid: GET /products/42 runs load, which returns template data (ops.md section 14)",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/products/:id",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {
+      "id": "42"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{\"product\":{\"id\":\"42\",\"name\":\"Dates 1 kg\",\"stock\":3},\"inStock\":true}",
+    "fragments": []
+  }
+}

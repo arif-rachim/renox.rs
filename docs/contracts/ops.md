@@ -2,13 +2,13 @@
 
 | | |
 | --- | --- |
-| Version | **1.0.0-f1** (F1, #17). The `-f1` tag is dropped (→ `1.0.0`) when the F1 runtime (#25) and SDK (#31) both implement it. History: "Changelog" at the bottom |
+| Version | **1.1.0** (F2, #153). 1.0.0 is implemented by the F1 runtime (#25–#28) and SDK (#31); the additions of 1.1.0 (section 14, the blocked ranges of section 2) are implemented by #40, #41, #44, and #170. History: "Changelog" at the bottom |
 | Producer | `crates/renox-runtime` (P1): implements the ops |
-| Consumers | `sdk/` (P10): types and the `ctx` wrapper; `crates/renox-cell` (P5): request envelope and meter record |
+| Consumers | `sdk/` (P10): types and the `ctx` wrapper; `crates/renox-cell` (P5): request envelope, page dispatch and rendering, meter record |
 | TypeScript view | [`ctx.d.ts`](ctx.d.ts): the same surface, one to one |
 | Machine-readable | [`ops.schema.json`](ops.schema.json): arguments, results, and errors of every op; examples under [`examples/ops/`](examples/ops/) (checked by `validate.ts`) |
 | Error catalogue | `errors.md`: HTTP status, tenant guidance, and logged fields for every code in section 13 |
-| Sources | `docs/07-app-model.md` ("The `ctx` surface"), `docs/06-data.md` ("The `db` API"), `docs/04-isolation-security.md` (limits, secrets, `fetch`), `docs/05-tenant-lifecycle.md` (metering), `bench/edge-runtime/NOTES.md` (what the pinned Edge Runtime offers) |
+| Sources | `docs/07-app-model.md` ("The `ctx` surface", "Pages"), `docs/06-data.md` ("The `db` API"), `docs/04-isolation-security.md` (limits, secrets, `fetch`, CSRF), `docs/05-tenant-lifecycle.md` (metering), `crates/renox-runtime/README.md` (how the runtime is built on `deno_runtime`) |
 
 Ops are the only way tenant JavaScript reaches anything outside its isolate. Tenant code never calls an op directly: the runtime's bootstrap script wraps them into `ctx` (and into `console`, `fetch`). The op names are therefore a contract between Rust and the SDK, not a tenant API. A tenant sees only `ctx.d.ts`.
 
@@ -16,10 +16,10 @@ Every limit below is enforced in Rust (`AGENTS.md`, "Per-tenant limits must be e
 
 ## 0. Conventions
 
-- **How ops are exposed.** Every op is a `deno_core` `#[op2]` function in one extension, `renox`, defined in `crates/renox-runtime` and added to the user-worker runtime that the crate builds on the pinned Supabase Edge Runtime (D3). Not a JavaScript shim over upstream APIs: the F0 spike (`bench/edge-runtime/NOTES.md`, "Per-worker limit options") shows the runtime has no per-request deadline, no egress byte limit, and no DNS-checked allowlist, and SQLite has no upstream op at all. If the pinned Edge Runtime cannot take an extra extension for user workers without a change, the patch lives in `crates/renox-runtime` and is listed in its notes. The extension's ESM bootstrap (section 11) is part of the platform snapshot.
+- **How ops are exposed.** Every op is a `deno_core` `#[op2]` function in one extension, `renox`, defined in `crates/renox-runtime` and added to the `deno_runtime` worker the crate creates for each deployment. The crate uses `deno_runtime` from crates.io directly, not the Supabase Edge Runtime crates (D3; `crates/renox-runtime/README.md`, "Upstream consumption mode"), so no upstream patch is needed. Not a JavaScript shim over upstream APIs: upstream has no per-request deadline, no egress byte limit, and no DNS-checked allowlist, and SQLite has no upstream op at all. The extension's ESM bootstrap (section 11) is part of the platform snapshot.
 - **Naming.** `op_<area>_<verb>`, snake_case, as registered with `deno_core`.
 - **Async.** Every op that can wait on I/O returns a `Promise`. The runtime may resolve it synchronously when the work is already done; tenant code must not rely on that. `op_log`, `op_deadline_remaining_ms`, and `op_secrets_get_all` are synchronous.
-- **Request scope.** Every op call is tied to the request whose handler made it. The dispatch wrapper (section 11, step 6) runs each handler inside a fresh **async context** that carries an opaque request token. The mechanism is V8's continuation-preserved embedder data, which `deno_core` exposes and Deno's `AsyncLocalStorage` uses. The token therefore follows every `await`, promise continuation, and timer created by that handler. Ops read the token from the current async context; it is never an op argument the SDK or tenant code supplies, so tenant code cannot act on behalf of another request. Rust keeps the set of live tokens per isolate. An op called with no token (module top level) or with the token of a request that has ended (a timer that fires after the response) rejects with `RENOX_NO_REQUEST`. The one exception is `op_log`, which then logs with `request_id: null`. `op_secrets_get_all` is consumed by the bootstrap before tenant code runs (section 3). Fallback: if #25 finds that the pinned runtime does not propagate the async context reliably, the cell admits **one in-flight request per isolate**, which makes the current request unambiguous. Concurrency (section 10) is then reached with more isolates per deployment, and every rule in this contract stays true.
+- **Request scope.** Every op call is tied to the request whose handler made it. The dispatch wrapper (section 11, step 6) runs each handler inside a fresh **async context** that carries an opaque request token. The mechanism is V8's continuation-preserved embedder data, which `deno_core` exposes and Deno's `AsyncLocalStorage` uses. The token therefore follows every `await`, promise continuation, and timer created by that handler. The bootstrap reads the token from the current async context and hands it to the op; the ops are held in the bootstrap's closures and are unreachable from tenant code, so tenant code can neither supply a token nor act on behalf of another request. Rust keeps the set of live tokens per isolate. An op called with no token (module top level) or with the token of a request that has ended (a timer that fires after the response) rejects with `RENOX_NO_REQUEST`. The one exception is `op_log`, which then logs with `request_id: null`. `op_secrets_get_all` is consumed by the bootstrap before tenant code runs (section 3). #25 proved that the token follows `await`, timers, and promise continuations (`deno_core` `AsyncVariable`), so concurrent requests share one isolate.
 - **Errors.** An op that fails rejects with a `RenoxError` whose `code` is one of the codes in section 13. Every code there also appears in `errors.md`, which owns HTTP status and tenant guidance, and `validate.ts` checks the sets. The SDK maps codes to the error subclasses in `ctx.d.ts`. An error message never contains a file path, an internal hostname or IP, a stack frame from Rust, or a secret value (`docs/23-failure-modes.md` rule 2).
 - **Cancellation.** When the request's deadline passes or the CPU watchdog fires, every pending op of that request is cancelled. Pending promises reject with `RENOX_DEADLINE`, or are dropped with the isolate after `RENOX_CPU_LIMIT` or `RENOX_OOM` (section 10).
 - **Values.** How arguments and results cross the boundary (`bigint`, `Uint8Array`, `null`, strings) is fixed in section 12.
@@ -155,7 +155,7 @@ interface FetchResponseHead {
 }
 ```
 
-The SDK builds a standard `Response` from the head and a `ReadableStream` over `op_fetch_body_read`.
+The SDK builds a standard `Response` from the head and a `ReadableStream` over `op_fetch_body_read`. `deno_fetch` already registers an op named `op_fetch`, so the runtime registers this one as `op_renox_fetch`. The name is internal (only the bootstrap calls it); the contract, the schema, and the examples keep `op_fetch`.
 
 ### Allowlist
 
@@ -175,14 +175,21 @@ allow = ["api.stripe.com", "*.tabby.ai", "graph.facebook.com:443", "http://legac
 
 ### Order of checks (every hop)
 
-1. Parse the URL. Scheme, host, and port must match an allowlist entry. Otherwise reject with `reason: "not_allowlisted"`, `"scheme"`, or `"port"`.
+1. Parse the URL. Scheme, host, and port must match an allowlist entry. Otherwise reject with `reason: "not_allowlisted"`, `"scheme"`, or `"port"`. The names `localhost`, `*.localhost`, and `metadata.google.internal` are refused with `"blocked_address"` whatever the allowlist says.
 2. Resolve DNS in Rust. **Every** resolved address is checked against the blocked ranges below; if any address is blocked, the request is rejected (`reason: "blocked_address"`). Failing closed avoids depending on which address happy-eyeballs would pick.
 3. Connect to one of the **already-checked** socket addresses: no second resolution (DNS rebinding, #108). TLS: rustls with webpki roots, SNI = the URL host. Tenants have no option to skip certificate checks.
 4. On a 3xx with `redirect: "follow"`, repeat 1–3 for the `Location` target. At most 5 hops (`reason: "redirect_limit"`). `https` → `http` is allowed only to a host declared with `http://`. `Authorization`, `Cookie`, and `Proxy-Authorization` are dropped when the origin changes. With `"manual"` the 3xx is returned as is; with `"error"` it rejects with `RENOX_FETCH_FAILED`.
 
 ### Blocked ranges
 
-The address is normalised first: IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible (`::a.b.c.d`), NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) and 6to4 (`2002::/16`) addresses are checked as the IPv4 address they embed.
+The address is normalised first, and these forms are checked as the IPv4 address they embed:
+
+- IPv4-mapped `::ffff:0:0/96` (`::ffff:a.b.c.d`) and IPv4-compatible `::/96` (`::a.b.c.d`);
+- IPv4-translated (SIIT) `::ffff:0:0:0/96` (`::ffff:0:a.b.c.d`);
+- NAT64: the well-known prefixes `64:ff9b::/96` and `64:ff9b:1::/48`, and the **network-specific prefixes** of the node's network (RFC 6052). Those are configured per node, like the node's own addresses below, and the embedded address is read at the position RFC 6052 gives for the prefix length (/32, /40, /48, /56, /64, /96);
+- 6to4 `2002::/16`.
+
+An address in one of these forms that embeds a blocked IPv4 address is blocked.
 
 | IPv4 | Why |
 | --- | --- |
@@ -194,6 +201,7 @@ The address is normalised first: IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible
 | `192.0.0.0/24`, `192.0.2.0/24`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24` | IETF protocol assignments, documentation, benchmarking |
 | `224.0.0.0/4` | Multicast |
 | `240.0.0.0/4`, `255.255.255.255/32` | Reserved, broadcast |
+| `192.88.99.0/24` | Former 6to4 relay anycast (deprecated, RFC 7526) |
 
 | IPv6 | Why |
 | --- | --- |
@@ -204,6 +212,9 @@ The address is normalised first: IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible
 | `100::/64` | Discard |
 | `2001:db8::/32` | Documentation |
 | `2001::/23` | IETF protocol assignments (includes Teredo `2001::/32`) |
+| `3fff::/20` | Documentation (RFC 9637) |
+| `5f00::/16` | Segment Routing (SRv6) SIDs (RFC 9602) |
+| `fec0::/10` | Site-local (deprecated) |
 
 The node's own public addresses and the control plane's addresses are also blocked (configured per node, not hard-coded here).
 
@@ -308,7 +319,7 @@ export const POST: Handler = async ({ req, db }) => { /* ... */ return new Respo
 - The handler must return (or resolve to) a `Response`. Anything else → 500 `RENOX_INTERNAL`, and the reason goes to the tenant log only.
 - A throw → 500 `RENOX_INTERNAL` with the request id; the error and its stack (redacted) go to the tenant log sink only.
 
-Reserved exports: `load`, `actions`, `guard` for pages (F2); `ws` for WebSocket (F5); `sse` (F5); `schedule` for jobs (F6); `cors` and `frame` options (F2).
+Page modules export `load` and `actions` (section 14). Reserved exports: `guard` for pages (F5, with `authz`); `ws` for WebSocket (F5); `sse` (F5); `schedule` for jobs (F6); `cors` and `frame` options (F2, `artifact.md` Open 6).
 
 ## 7. Meter record (emitted, not an op)
 
@@ -321,20 +332,20 @@ The runtime and cell emit one record per invocation (`docs/05-tenant-lifecycle.m
 | `cpu_ms`, `peak_heap_bytes` | runtime | Per-request thread CPU accounting (section 10), V8 heap statistics |
 | `fetch_sent_bytes`, `fetch_received_bytes`, `fetch_blocked` | runtime | `op_fetch` |
 | `db_ms`, `db_rows` | runtime | `op_db_*` |
-| `render_fuel` | runtime | Reserved (F2), 0 in F1 |
+| `render_fuel`, `render_ms` | cell | The renderer (section 14, "Rendering"). Rendering runs off the isolate thread, so it is not in `cpu_ms`. 0 / absent when nothing was rendered |
 | `logs_dropped` | runtime | `op_log` |
 
 Types, units, and the `status` values are defined in [`meter.md`](meter.md) section 2.
 
 ## 8. Reserved ops and `ctx` fields
 
-Not part of F1. Names are reserved so nothing else takes them.
+Not available yet. Names are reserved so nothing else takes them. `form`, `session.id`, `fragment`, and `action` are available to pages since 1.1.0 (section 14).
 
 | `ctx` field / op area | Phase |
 | --- | --- |
-| `form`, `render` (`op_render_*`), `webhook` (`verify`), streamed `fetch` request bodies | F2 |
+| `render` (`op_render_*`), `webhook` (`verify`), streamed `fetch` request bodies | F2 |
 | `kv` (`op_kv_*`) | F2 |
-| `auth`, `session` (from the `auth` module), `config`, `events` (`op_events_emit`), `hooks` (`op_hooks_run`), savepoints in `db` | F4 |
+| `auth`, session data beyond `session.id` (from the `auth` module), `config`, `events` (`op_events_emit`), `hooks` (`op_hooks_run`), savepoints in `db` | F4 |
 | `authz` (`op_authz_*`), `realtime` (`op_realtime_*`), `db.scoped()` | F5 |
 | `datasource(name)` (`op_datasource_*`) | F6–F7 |
 | `ai` (`op_ai_*`), `domains` (`op_domains_*`) | F7 |
@@ -359,7 +370,7 @@ Defaults from `docs/04-isolation-security.md`, "Per-tenant limits". An app may l
 | CPU per request | 50 ms | 500 ms | Per-request CPU accounting + watchdog thread → `TerminateExecution` |
 | Wall clock per request | 30 s | 60 s | Deadline set at the gateway as a duration, propagated to every op |
 | V8 heap per isolate | 128 MB | 512 MB | V8 heap limit + near-heap-limit callback |
-| Concurrent requests per deployment | 50 | 500 | Semaphore in the cell |
+| Concurrent requests per deployment | 50 | 500 | Semaphore per deployment in `crates/renox-runtime/src/limits/concurrency.rs`, acquired before the request enters the isolate |
 | Module evaluation at isolate start (section 11, step 4) | 500 ms CPU, 10 s wall | 5 s CPU, 10 s wall | Same watchdog and deadline as requests |
 
 What happens on each limit:
@@ -372,9 +383,11 @@ What happens on each limit:
 | **Concurrency** | Nothing (no tenant code runs) | 503 `RENOX_BUSY` with `Retry-After: 1`, after queueing up to the request's deadline (`docs/23-failure-modes.md`, "Too many concurrent requests") | `busy` | Kept |
 | **Module evaluation** (CPU, wall, or a throw) | — | 503 `RENOX_CPU_LIMIT`, 504 `RENOX_DEADLINE`, or 500 `RENOX_INTERNAL` for every request waiting on that isolate | the matching status | Isolate creation fails. The failure is cached per deployment for 5 s, so a broken deployment does not rebuild an isolate on every request. One log line with `phase: "module_load"` per failure |
 
-Per-request CPU accounting: the runtime reads the isolate thread's CPU clock (`CLOCK_THREAD_CPUTIME_ID`) each time execution enters and leaves JavaScript or a synchronous op. It charges each slice to the request whose async context (section 0, "Request scope") is current. The watchdog thread checks the running slice every 1 ms and terminates when the request's total would exceed its limit. Overshoot is bounded by that interval plus V8's interrupt latency, and the limits test asserts termination before 2× the limit. The same total is the meter's `cpu_ms`.
+Per-request CPU accounting: the runtime reads the isolate thread's CPU clock (`CLOCK_THREAD_CPUTIME_ID`) for each slice of JavaScript and synchronous op work, and charges the slice to the requests in flight during it (`crates/renox-runtime/README.md`, "CPU accounting"). A watchdog thread checks the running slice every 1 ms and calls V8's `TerminateExecution` when a request's total would exceed its limit. The same total is the meter's `cpu_ms`. The V8 heap limit is set with `CreateParams::heap_limits`; no upstream per-worker CPU or wall-clock timer is used. Idle eviction (10 minutes, `docs/05-tenant-lifecycle.md`) belongs to the cell.
 
-Mapping to the pinned Edge Runtime's per-worker options (`bench/edge-runtime/NOTES.md`): the V8 heap limit is `memoryLimitMb`. `cpuTimeSoftLimitMs`, `cpuTimeHardLimitMs`, and `workerTimeoutMs` are cumulative per worker, not per request, so they are **not** used for these limits. #25 sets them so they never fire before the per-request watchdog. Idle eviction (10 minutes, `docs/05-tenant-lifecycle.md`) belongs to the cell.
+**Termination bound.** Termination lands within one interrupt check: ± 5 ms for JavaScript loops. A single builtin call (a large `JSON.parse`, a regular expression, a sort) or a garbage collection already in progress runs to its end first, because V8 checks for interrupts only between them; under host CPU saturation, termination also waits until the watchdog thread is scheduled. So the CPU limit is a bound with a tail, not an exact cut: #146 measured a termination p99 of 13.2 ms over a 50 ms limit under allocation. The limits tests assert the ± 5 ms bound on a JavaScript loop on an idle host; the tail cases are measured by B12, not asserted.
+
+**Collateral rule (for tenants).** A deployment runs in one isolate, and concurrent requests share it. When one request hits the CPU or heap limit, the isolate is recycled, so **one bad request ends every in-flight request of that deployment**: each gets the same 503 code (`RENOX_CPU_LIMIT` or `RENOX_OOM`) and its own meter record with that `status`. Open transactions of all of them are rolled back. Tenants should keep handlers idempotent or safe to retry, and keep work that can run away (unbounded loops over input, large parses) out of hot routes. The isolate pool (#156) narrows this to one isolate of the pool; this paragraph changes with it.
 
 Per-op limits (statement time, rows, egress bytes, concurrent fetches, log rate) are in each op's section above.
 
@@ -382,10 +395,10 @@ Per-op limits (statement time, rows, egress bytes, concurrent fetches, log rate)
 
 The sequence from an empty worker to a dispatched request. Each step finishes before the next starts, and a failure in steps 1–5 is a module-evaluation failure (section 10).
 
-1. **Worker and platform snapshot.** The cell creates a user worker for the deployment:
+1. **Worker and platform snapshot.** The runtime creates a `deno_runtime` worker for the deployment:
    - Deno permissions all **denied** (`net`, `read`, `write`, `env`, `run`, `ffi`, `sys`, `import`), so nothing upstream can open a socket or file on the tenant's behalf. `op_fetch` and `op_db_*` are not permission-gated; they enforce their own rules.
-   - `envVars` empty, no remote modules, no npm resolution at runtime (dependencies are inside the artifact), and the module root is the artifact's `code/`.
-   - The isolate starts from the platform snapshot: Web APIs plus the `renox` extension's ESM bootstrap.
+   - No environment variables, no remote modules, no npm resolution at runtime (dependencies are inside the artifact). The module loader serves the artifact's `code/` under a virtual root (`file:///<path>`), so no path of the machine is visible.
+   - The isolate starts from the platform snapshot, built once per process: Web APIs plus the `renox` extension's ESM bootstrap.
 2. **Capture and harden.** The bootstrap takes the op functions it needs into private closures, then changes the global scope as in the table below. After this step tenant code cannot reach `Deno.core` or the op table.
 3. **Secrets.** The bootstrap calls `op_secrets_get_all` once, freezes the result, and keeps it in a closure (section 3).
 4. **Tenant modules.** The runtime imports every module listed in `manifest.code.entry` (`artifact.md` section 3): files under `code/` for `esm-dir`, or `file:///<path>` inside `bundle.eszip` for `eszip`. Top-level module code runs here, outside any request: `console` works (logged with `request_id: null`); `fetch`, `ctx.db` and the other ops reject with `RENOX_NO_REQUEST`. The module-evaluation limits of section 10 apply.
@@ -414,7 +427,7 @@ Changes to the global scope (step 2):
 | `WebSocket`, `WebSocketStream`, `EventSource` | Deleted | Outbound connections that would bypass `op_fetch`. Inbound WebSocket is F5 |
 | `caches`, `localStorage`, `sessionStorage`, `indexedDB` | Deleted | No persistence except `ctx.db` (docs/04: "Filesystem: none") |
 | `process.env` (from `node:process`) | Empty frozen object | No host environment |
-| `node:` modules that open sockets or files (`node:net`, `node:http` client, `node:fs`, `node:dns`, `node:child_process`, `node:worker_threads`) | Importable, but every I/O call fails with Deno's permission error | Fail closed. npm clients that use `fetch` work; clients built on `node:http` do not (B17 used no such client) |
+| `node:` modules | Only compute-only modules (`buffer`, `events`, `path`, `util`, `stream`, `url`, `string_decoder`, `zlib`, ...) can be imported. Modules that open sockets or files or create contexts (`node:fs`, `net`, `http`, `https`, `dns`, `child_process`, `worker_threads`, `vm`, `perf_hooks`, ...) are refused at import | Fail closed, even where a polyfill has an ungated op. npm clients that use `fetch` work; clients built on `node:http` do not |
 | `eval`, `new Function`, `WebAssembly.compile` | Kept | npm packages depend on them; the code still runs inside the isolate's limits |
 | `setTimeout`, `setInterval` | Kept | A timer that outlives its request runs without a request: ops reject with `RENOX_NO_REQUEST`. Timers are dropped with the isolate |
 | `ctx`, `ctx.secrets` | Frozen; a new `ctx` per request | Tenant code cannot replace platform objects |
@@ -465,17 +478,117 @@ One table, shared by Rust (`crates/renox-runtime`, `crates/renox-cell`) and Type
 | `RENOX_BUSY` | response | cell concurrency semaphore | — | 503 `RENOX_BUSY` + `Retry-After` | `busy` |
 | `RENOX_INTERNAL` | response | dispatch wrapper: handler threw, returned a non-`Response`, or module evaluation failed | — | 500 `RENOX_INTERNAL` | `error` |
 | `RENOX_BODY_TOO_LARGE` | response | gateway body limit (section 6) | — | 413 `RENOX_BODY_TOO_LARGE` | no record (`meter.md` section 1) |
+| `RENOX_CSRF` | response | cell, before a page action runs (section 14) | — | 403 `RENOX_CSRF` | no record: no tenant code runs, as for 404 and 405 (`meter.md` section 1) |
+| `RENOX_RENDER_LIMIT` | response | cell renderer (section 14, "Rendering") | — | 500 `RENOX_RENDER_LIMIT` | `render_limit` |
 
 "Uncaught" means the error propagated out of the handler. Tenant code that catches an op error and returns its own `Response` ends the request normally (`status: ok`). The error body format of platform responses (`{ error: { code, request_id, message } }` for API routes) is defined in `errors.md`.
+
+## 14. Pages
+
+Page routes (`artifact.md` section 3, "Page routes") run tenant code in two places: `load` for `GET`/`HEAD`, and one of `actions` for `POST ?/<name>`. Both run in the isolate exactly like a function handler (sections 0, 10, 11): same request token, same limits, same meter record. What differs is the `ctx` they get and what they return. The HTML is rendered by the cell, off the isolate thread (D7, path A; `docs/08-template-engine.md`).
+
+### Loader
+
+```ts
+export async function load(ctx: LoaderContext): Promise<object | Response>;
+```
+
+`LoaderContext` is `Ctx` (section 6) plus:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `fragment` | `string \| null` | The fragment the cell will render (`artifact.md` section 3, "Fragment selection"), or `null` for a full page. A loader may skip queries the fragment does not need |
+| `session` | `Session` | Below |
+
+- `params` are the route parameters, as for functions. `db` is the plain `Db` (no implicit transaction).
+- Returning a `Response` sends it as is: nothing is rendered (a redirect, JSON, custom HTML, a 404).
+- Returning an object makes it the template data. Anything else (a primitive, `null`, an array, `undefined`) is 500 `RENOX_INTERNAL`, logged with `reason: "load_result"`.
+- A `.html`-only page has no loader; its template data is `{}`.
+
+### Actions
+
+```ts
+export const actions: Record<string, (ctx: ActionContext) => Promise<ActionResult>>;
+```
+
+`ActionContext` is `Ctx` (section 6) with `db` replaced, plus:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `action` | `string` | The action name from `?/<name>` (`default` when the request had none) |
+| `form` | `FormData` | The request body parsed by the bootstrap from `application/x-www-form-urlencoded` or `multipart/form-data` before the action runs. Any other content type gives an empty `FormData` and leaves `req.body` unread. Bounded by the gateway's body limit (section 6) |
+| `fragment` | `string \| null` | As for the loader: the fragment selected by `HX-Target`, if any |
+| `session` | `Session` | Below |
+| `db` | `DbStatements` | **The action's transaction** (below). No `transaction()` method |
+
+**CSRF, before the action.** The cell checks the token before the request reaches the isolate (`docs/04-isolation-security.md`, CSRF). The token comes from the `x-renox-csrf` header (htmx, through the platform client script) or from the `_csrf` form field (`<x-form>`, `<x-csrf>`, `docs/08-template-engine.md`). It must match the double-submit cookie `__Host-renox_csrf`, which is bound to the session. A missing or wrong token is 403 `RENOX_CSRF` and no tenant code runs. Tenant code never sees or handles the token. Function routes are not CSRF-checked: they are APIs, and webhooks under `functions/webhooks/` verify signatures instead.
+
+**Transaction.** Every action runs in one `IMMEDIATE` transaction that the bootstrap opens before calling it (`op_db_tx_begin("immediate")`). The transaction commits when the action resolves, and rolls back when it throws or the request ends first (section 1). `ctx.db` statements all run inside it. Consequences tenants must know:
+
+- Actions of one tenant **serialise on its one writer**: while an action runs, other actions and writes wait for the write lock, up to the busy wait (`RENOX_DB_BUSY`). Keep actions short.
+- **Do not `fetch` inside an action** when you can avoid it: the transaction, and so the writer, stays held while the fetch waits. Fetch first in the loader, or emit a durable event (F4).
+- An action that opens the transaction and never writes still takes the write lock. Read-only work belongs in the loader.
+
+**Action results.**
+
+```ts
+type ActionResult = Response | (Record<string, unknown> & { fragments?: string[] }) | void;
+```
+
+| The action returns | Then |
+| --- | --- |
+| a `Response` | Sent as is, after the commit. Use `303` to `GET` after a plain form `POST` |
+| an object, or nothing (`{}`) | After the commit, the page's `load` runs again (if exported) with `ctx.fragment` unchanged. The template data is `{ ...loadResult, ...actionObject }` without the `fragments` key: the action's keys win. If `load` returns a `Response`, it is sent |
+| anything else | 500 `RENOX_INTERNAL`, logged with `reason: "action_result"`; the transaction is rolled back |
+
+What is rendered after an object result:
+
+- A plain form `POST` (no `HX-Request`) gets the **full page** with that data.
+- An htmx `POST` gets the fragment selected by `HX-Target` (if any), followed by every fragment named in `fragments`, each marked `hx-swap-oob="true"` (`docs/09-htmx-realtime.md`). With neither, it gets the full page.
+- A name in `fragments` that is not in the page's fragment map is 500 `RENOX_INTERNAL`, logged with the name. The commit has already happened; the dev overlay shows the error.
+- A page with no template (`.ts` only) must return a `Response` from its actions: an object is 500 `RENOX_INTERNAL`.
+
+### Session
+
+```ts
+interface Session { readonly id: string }
+```
+
+- `id` is an opaque random id (128 bits, base64url, 22 characters) carried in the signed cookie `__Host-renox_sid` (`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The cell verifies the signature before dispatch. A missing or invalid cookie gets a fresh id, and the response sets the cookie.
+- The signing key is per tenant, derived in the worker (HKDF) from node key material; it never reaches the isolate (#41).
+- F2 stores nothing per session: `id` is the key a tenant (or the F4 `auth` module) uses for its own tables, and what CSRF tokens are bound to. Session data and `auth` arrive in F4 (section 8).
+
+### Page dispatch: what crosses into Rust
+
+`ops.schema.json` (`$defs/page_dispatch`) fixes the exchange between the cell and the bootstrap for one page invocation. It is not an op: Rust calls the bootstrap's dispatch function, as for functions (section 11, step 6).
+
+- **Invocation** (Rust → bootstrap): `route` (the pattern), `phase` (`"load"` or `"action"`), `action` (the name, or `null` for `load`), `fragment` (name or `null`), `params`, and `session` (`{ id }`).
+- **Result** (bootstrap → Rust), one of:
+  - `{ "type": "response" }`: the handler returned a `Response`; it is streamed back as for functions.
+  - `{ "type": "render", "data_json": "...", "fragments": [...] }`: the template data and the out-of-band fragment names (`[]` after `load`). The bootstrap serialises the data with `JSON.stringify` inside V8, and the cell parses the string straight into the renderer's values (the B9 path, #10). Serialisation rules: `bigint` becomes a decimal string, `Date` its ISO string (`toJSON`), `undefined` and functions are dropped, a `Uint8Array` or a cycle is 500 `RENOX_INTERNAL`, and so is data over 8 MiB of JSON *proposed*.
+  - `{ "type": "internal", "reason": "..." }`: the handler threw (`threw`), or its result broke a rule above (`load_result`, `action_result`, `data_not_serialisable`, `data_too_large`, `no_template` for an object from a `.ts`-only page). The client gets 500 `RENOX_INTERNAL`; the reason and the redacted error go to the tenant log only.
+
+### Rendering
+
+- The cell renders on a blocking thread pool, outside the isolate and outside the tenant's CPU limit, under the render limits of `docs/08-template-engine.md` (fuel, iterations, output size, include depth, render time). The renderer's thread CPU time is the meter's `render_ms` and its fuel `render_fuel` (`meter.md`).
+- A render limit ends the request with 500 `RENOX_RENDER_LIMIT` (meter `status: render_limit`), answered with the error page of `errors.md` section 1.
+- The cell adds two values to the template data that tenant code cannot set: the CSP nonce for `<x-script>` and the platform's `<script>`/`<style>` tags, and the CSRF token for `<x-form>` and `<x-csrf>`. They live outside the tenant's data object, so a loader key with the same name cannot replace them.
+- Page responses get `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store` unless the loader returned a `Response`, and `Vary: HX-Request, HX-Target`.
+
+### TypeScript view
+
+`ctx.d.ts`: `LoaderContext`, `ActionContext`, `ActionResult`, `Session`, `Loader`, `Action`, `PageModule`, and the dispatch types `PageInvocation` and `PageResult`.
 
 ## Verification by implementing issues
 
 These are not open design questions. Each is a decided rule with a decided fallback, and the named issue proves it with a test:
 
-1. **Async context propagation** (section 0, "Request scope"): #25 proves that the request token survives `await`, timers, and promise continuations on the pinned runtime. Otherwise the cell uses the fallback, one in-flight request per isolate.
-2. **Extension on user workers** (section 0, "How ops are exposed"): #25 adds the `renox` extension to the pinned Edge Runtime's user workers, with a patch in `crates/renox-runtime` if needed.
+1. **Async context propagation** (section 0, "Request scope"): proved by #25 (`crates/renox-runtime/tests/dispatch.rs`, `request_scope_follows_async_context`).
+2. **Extension on the worker** (section 0, "How ops are exposed"): done by #25 on `deno_runtime`, with no patch.
 3. **Limit values**: #18–#21 (data), #27 (fetch), #28 (logs and secrets) assert the numbers in their tests. A change goes through this file as a minor version.
 4. **`x-renox-client-ip`** (section 6): the header name is fixed here. #22 decides which proxies are trusted to supply the client address.
+5. **Pages** (section 14): #41 tests CSRF (403 without a token, the action runs with one), the action transaction (rollback on throw), the re-run of `load` after an object result, and out-of-band fragments; #40 tests fragment selection and the `render_fuel`/`render_ms` fields; #44 tests that the SDK types are assignable to `ctx.d.ts`.
+6. **Blocked ranges** (section 2): #170 adds one test per range added in 1.1.0.
 
 ## Future (additive, not scheduled)
 
@@ -489,3 +602,4 @@ These are not open design questions. Each is a decided rule with a decided fallb
 | --- | --- | --- |
 | 0 | #12 | First sketch (F0): db, fetch, secrets, log, deadline, request envelope, meter fields, reserved ops |
 | 1.0.0-f1 | #17 | **Exposure:** `op2` extension `renox` in `crates/renox-runtime` (section 0). **Request scope:** carried by the async context, with the one-request-per-isolate fallback; only `op_log` works outside a request (section 0). **Secrets:** consumed before tenant code runs; values under 8 bytes refused; exact-substring redaction stated as a limitation (section 3). **New sections:** limits per tier and behaviour on each limit (section 10), isolate bootstrap and global hardening (section 11), serialisation rules (section 12), shared error code table, with response codes `RENOX_CPU_LIMIT`, `RENOX_OOM`, `RENOX_BUSY`, `RENOX_INTERNAL`, `RENOX_BODY_TOO_LARGE` alongside the thrown codes (section 13). **Numbers:** every "proposed" value is now the F1 value. **Meter fields:** section 7 renamed to the names in `meter.md` (`route`, `fetch_sent_bytes`, `fetch_received_bytes`, `http_status`, `ingress_bytes`). **Versioning:** moved to `MAJOR.MINOR.PATCH` (section 9). **Open list:** replaced by "Verification by implementing issues" and "Future" |
+| 1.1.0 | #153 | **Pages (section 14):** `LoaderContext`, `ActionContext` (`form`, `action`, `fragment`, `session`, `db` as the action's transaction), `ActionResult`, `Session`, CSRF before actions, the page dispatch exchange (`ops.schema.json` `$defs/page_dispatch`), rendering off the isolate thread; response codes `RENOX_CSRF` and `RENOX_RENDER_LIMIT` (section 13). **Termination bound and collateral rule** stated for tenants (section 10). **Blocked ranges (section 2):** SIIT, NAT64 network-specific prefixes, `192.88.99.0/24`, `3fff::/20`, `5f00::/16`, `fec0::/10`, and the refused names. **Stale text removed:** the Edge Runtime per-worker options and user-worker wording (sections 0, 10, 11), the semaphore's location, the async-context fallback, the `node:` row; `op_fetch` is registered as `op_renox_fetch`. Meter fields `render_fuel` and `render_ms` filled by the cell (section 7) |

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/meter/v0/meter-record.schema.json",
-  "title": "Renox meter batch and record, meter contract version 0",
+  "title": "Renox meter batch and record, meter contract version 0.1 (schema_version 0)",
   "description": "Root: one batch envelope (one line of the F1 ndjson sink, one HTTP body in F3). $defs/record: one invocation record. Prose: docs/contracts/meter.md. request_id uniqueness within a batch is rule M1 in validate.ts.",
   "type": "object",
   "additionalProperties": false,
@@ -70,10 +70,11 @@
         "fetch_blocked": { "$ref": "#/$defs/count" },
         "db_ms": { "$ref": "#/$defs/millis" },
         "db_rows": { "$ref": "#/$defs/count" },
-        "render_fuel": { "const": 0, "description": "Always 0 in F1; filled from F2." },
+        "render_fuel": { "$ref": "#/$defs/count", "description": "Template render fuel of the invocation; 0 when nothing was rendered." },
+        "render_ms": { "$ref": "#/$defs/millis", "description": "Optional (0.1): CPU time of rendering on the render pool, outside cpu_ms. Absent = 0." },
         "logs_dropped": { "$ref": "#/$defs/count" },
         "http_status": { "type": "integer", "minimum": 100, "maximum": 599 },
-        "status": { "enum": ["ok", "error", "timeout", "cpu_limit", "oom", "blocked_fetch", "busy"] }
+        "status": { "enum": ["ok", "error", "timeout", "cpu_limit", "oom", "blocked_fetch", "busy", "render_limit"] }
       }
     }
   }

@@ -1,0 +1,32 @@
+{
+  "$comment": "invalid: a .ts-only page must export load (artifact.md V15) [expect: V15]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/products/:id",
+      "module": "pages/products/[id]",
+      "load": false,
+      "actions": [
+        "addToCart"
+      ]
+    }
+  ],
+  "templates": {},
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}

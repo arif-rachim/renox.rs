@@ -1,0 +1,24 @@
+{
+  "$comment": "valid: one csp.violation event (client-events.md section 5)",
+  "v": 0,
+  "events": [
+    {
+      "kind": "csp.violation",
+      "ts": 1793318400123,
+      "url": "/products/42?tab=reviews",
+      "request_id": "01JBQ3Z7MA0000000000000101",
+      "deployment": "3597f77a2b9c91728657e3c2b8d45d8e3c05b3eed075edf02d328bbc90e62f64",
+      "ua": "chrome",
+      "session_fingerprint": "k3J9xQ2mP0aLz7Vb",
+      "detail": {
+        "blocked_uri": "https://evil.example.net/x.js",
+        "violated_directive": "script-src-elem",
+        "effective_directive": "script-src-elem",
+        "source_file": "/products/42",
+        "line": 3,
+        "column": 1,
+        "disposition": "enforce"
+      }
+    }
+  ]
+}

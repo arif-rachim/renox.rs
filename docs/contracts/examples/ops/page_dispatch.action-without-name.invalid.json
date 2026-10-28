@@ -1,0 +1,19 @@
+{
+  "$comment": "invalid: an action invocation names its action [expect: $.invocation.action]",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/products/:id",
+    "phase": "action",
+    "action": null,
+    "fragment": null,
+    "params": {
+      "id": "42"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "response"
+  }
+}

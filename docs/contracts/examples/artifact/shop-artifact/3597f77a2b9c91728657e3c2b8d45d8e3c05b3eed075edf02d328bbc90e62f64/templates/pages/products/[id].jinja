@@ -1,0 +1,9 @@
+{% extends "pages/_layouts/main" %}
+{% block title %}{{ product.name }}{% endblock %}
+{% block content %}
+<article id="product">{% block product %}
+  {% include "partials/product-card" %}
+  {% if inStock %}<form method="post" action="?/addToCart" hx-post="?/addToCart"><input type="hidden" name="productId" value="{{ product.id }}"><button>Add</button></form>{% else %}<span>Out of stock</span>{% endif %}
+{% endblock %}</article>
+<aside>{% block related %}{% endblock %}</aside>
+{% endblock %}

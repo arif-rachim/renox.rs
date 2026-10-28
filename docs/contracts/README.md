@@ -10,10 +10,11 @@ Rules:
 
 | Contract | Between | File | Issue | Status |
 | --- | --- | --- | --- | --- |
-| Runtime ops and `ctx` | `renox-runtime` (P1) ↔ SDK (P10), cell (P5) | [`ops.md`](ops.md), [`ctx.d.ts`](ctx.d.ts), [`ops.schema.json`](ops.schema.json) | #12 (v0), #17 | 1.0.0-f1 |
-| Artifact format and route table | cell (P5), gateway (P3), CLI (P11) ↔ control plane (P12) | [`artifact.md`](artifact.md), [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json) | #15 | v0 |
-| Meter record | `renox-meter` (P4) ↔ billing (P14) | [`meter.md`](meter.md), [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json) | #16 | v0 |
-| Error codes | every component ↔ tenants | [`errors.md`](errors.md) | #91 | v0 |
+| Runtime ops and `ctx` | `renox-runtime` (P1) ↔ SDK (P10), cell (P5) | [`ops.md`](ops.md), [`ctx.d.ts`](ctx.d.ts), [`ops.schema.json`](ops.schema.json) | #12 (v0), #17, #153 | 1.1.0 |
+| Artifact format and route table | cell (P5), gateway (P3), CLI (P11) ↔ control plane (P12) | [`artifact.md`](artifact.md), [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json) | #15 (v0), #152 | v1 (v0 accepted) |
+| Meter record | `renox-meter` (P4) ↔ billing (P14) | [`meter.md`](meter.md), [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json) | #16 (v0), #152 | 0.1 |
+| Client events | client script (P10) ↔ gateway (P3) ↔ dashboard (P13) | [`client-events.md`](client-events.md), [`schemas/client-event.schema.json`](schemas/client-event.schema.json) | #125 | v0 |
+| Error codes | every component ↔ tenants | [`errors.md`](errors.md) | #91 (v0), #152 | 0.1 |
 | Module manifest | broker (P9) ↔ CLI (P11) ↔ modules | `manifest.md` | F4 | Planned |
 | Deploy API | CLI (P11) ↔ control plane (P12) | `deploy-api.md` | F3 | Planned |
 
@@ -21,7 +22,7 @@ Rules:
 
 ```
 bunx tsc --noEmit -p docs/contracts      # ctx.d.ts and the type-level examples in ctx.usage.ts
-bun run docs/contracts/validate.ts       # JSON examples vs schemas, artifact rules V1-V13, meter rule M1, error catalogue vs ops.md/ctx.d.ts/23-failure-modes.md
+bun run docs/contracts/validate.ts       # JSON examples vs schemas, artifact rules V1-V16, meter rule M1, client-event rules CE1-CE2, error catalogue vs ops.md/ctx.d.ts/23-failure-modes.md
 ```
 
 Schemas are JSON Schema 2020-12: `ops.schema.json` at the top level, the others under `schemas/`. `*.valid.json` files must validate and `*.invalid.json` files must not; each invalid file says why in `$comment`, and `[expect: <reason>]` in that comment makes `validate.ts` check it fails for that reason. `validate.ts` has no dependencies and implements only the schema keywords these files use; a schema with any other keyword fails the check.
