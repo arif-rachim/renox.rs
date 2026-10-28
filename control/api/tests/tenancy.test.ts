@@ -127,15 +127,43 @@ describe("the role table", () => {
     expect(MATRIX["team:write"]).toEqual(["owner", "admin"]);
   });
 
-  test("control/api/README.md prints the same matrix", () => {
-    const readme = readFileSync(new URL("../README.md", import.meta.url).pathname, "utf8");
+  /** The `| `permission` | yes | … |` rows of a markdown table, as permission → roles. */
+  const matrixRows = (lines: string[]): Record<string, string[]> => {
     const rows = new Map<string, string[]>();
-    for (const line of readme.split("\n")) {
+    for (const line of lines) {
       const m = /^\| `([a-z:*]+)` \|(.*)\|$/u.exec(line);
       if (m === null) continue;
       const cells = (m[2] as string).split("|").map((c) => c.trim());
       rows.set(m[1] as string, ROLES.filter((_, i) => cells[i] === "yes"));
     }
-    expect(Object.fromEntries(rows)).toEqual(Object.fromEntries(PERMISSIONS.map((p) => [p, [...MATRIX[p]]])));
+    return Object.fromEntries(rows);
+  };
+  const expected = () => Object.fromEntries(PERMISSIONS.map((p) => [p, [...MATRIX[p]]]));
+
+  test("control/api/README.md prints the same matrix", () => {
+    const readme = readFileSync(new URL("../README.md", import.meta.url).pathname, "utf8");
+    expect(matrixRows(readme.split("\n"))).toEqual(expected());
+  });
+
+  test("docs/contracts/deploy-api.md section 2.1 prints the same matrix and operation table", () => {
+    const doc = readFileSync(new URL("../../../docs/contracts/deploy-api.md", import.meta.url).pathname, "utf8").split("\n");
+    const start = doc.indexOf("<!-- role-matrix -->");
+    expect(start).toBeGreaterThan(-1);
+    const end = doc.findIndex((l, i) => i > start + 1 && !l.startsWith("|"));
+    expect(matrixRows(doc.slice(start + 1, end))).toEqual(expected());
+    // The operation table: every listed operation needs exactly the permission of its row.
+    const callers: Record<string, string> = { "node token": "node", "operator token": "operator", none: "public" };
+    const listed = new Map<string, string>();
+    const table = doc.indexOf("<!-- operation-table -->");
+    expect(table).toBeGreaterThan(-1);
+    for (const line of doc.slice(table + 1, doc.findIndex((l, i) => i > table + 1 && !l.startsWith("|")))) {
+      const m = /^\| (`[a-z:]+`|node token|operator token|none) \| (`[A-Za-z]+`.*) \|$/u.exec(line);
+      if (m === null) continue;
+      const permission = callers[m[1] as string] ?? (m[1] as string).slice(1, -1);
+      for (const id of (m[2] as string).matchAll(/`([A-Za-z]+)`/gu)) listed.set(id[1] as string, permission);
+    }
+    const ids = new Set(ops.map((op) => op.operationId as string));
+    expect([...listed.keys()].sort()).toEqual([...ids].sort());
+    expect([...listed].filter(([id, p]) => ROUTE_PERMISSIONS[id] !== p)).toEqual([]);
   });
 });
