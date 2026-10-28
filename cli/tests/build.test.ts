@@ -10,12 +10,13 @@ import { buildArtifact } from "../src/lib/build.ts";
 import { hashDir } from "../src/lib/hash.ts";
 import { type Json, validate } from "../src/lib/schema.ts";
 import { schemas } from "../src/lib/schemas.ts";
+import { testWorker } from "./worker-env.ts";
 
 const repo = join(import.meta.dir, "../..");
 const tmp = (p: string): string => mkdtempSync(join(tmpdir(), `renox-cli-${p}-`));
 const readJson = (p: string): Json => JSON.parse(readFileSync(p, "utf8")) as Json;
 /** Templates are transpiled by `renox-worker transpile` (#43): those tests need the binary. */
-const worker = process.env.RENOX_WORKER_PATH;
+const worker = testWorker();
 
 describe("renox build", () => {
   test("examples/hello builds a schema-valid artifact named by its hash", async () => {

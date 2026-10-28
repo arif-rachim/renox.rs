@@ -104,7 +104,7 @@ Rule of thumb: at any moment run one session per track at most on the same crate
 Set in the repository settings (Settings → Branches → rule for `main`); not stored in the repository, so this paragraph is the record (issue #109, `24-threat-model.md` section F):
 
 - Pull request required before merging, with one approving review and review from code owners (`.github/CODEOWNERS`: `.github/`, `deny.toml`, `ops/`); stale approvals dismissed on new commits.
-- Required status checks, branch up to date before merging: `changes`, `actions-pinned`, `cargo-deny`, `bun-audit` (they run on every PR), and `rust`, `ts`, `docs` (path-filtered; a skipped job counts as passed).
+- Required status checks, branch up to date before merging: `lint` (runs on every PR; since #189 it holds the path filter and the former `changes`, `actions-pinned`, `cargo-deny`, `bun-audit` and `docs` jobs as steps), and `rust`, `ts` (path-filtered; a skipped job counts as passed).
 - No force pushes and no deletion of `main`; the rule also applies to administrators.
 - Actions: only `pull_request` workflows, never `pull_request_target`; fork PRs run without secrets; workflow permissions default to read-only.
 

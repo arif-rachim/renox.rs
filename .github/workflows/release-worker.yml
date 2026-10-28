@@ -16,13 +16,16 @@ name: Release worker
 # source: the first writes them (Runtime::write_packaged), the second embeds
 # them (feature renox-runtime/packaged).
 #
-# A pull request that changes this packaging (Rust or this file only, rule 6)
-# builds and smoke-tests the binary without publishing it.
+# Never on a pull request (#189: 28 minutes a run). A merge to main that
+# changes this packaging (Rust or this file only, rule 6) builds and
+# smoke-tests the binary once, without publishing it; the path filter does
+# not apply to the tag push.
 on:
   push:
     tags:
       - "worker-v*"
-  pull_request:
+    branches:
+      - main
     paths:
       - ".github/workflows/release-worker.yml"
       - "crates/renox-runtime/build.rs"

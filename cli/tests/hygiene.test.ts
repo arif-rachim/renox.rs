@@ -13,9 +13,12 @@ import { join } from "node:path";
 
 import { check } from "../src/commands/check.ts";
 import { BuildError, buildArtifact } from "../src/lib/build.ts";
+import { testWorker } from "./worker-env.ts";
 
 const repo = join(import.meta.dir, "../..");
 const main = join(import.meta.dir, "../src/main.ts");
+/** Building examples/shop transpiles its templates with renox-worker (#43). */
+const worker = testWorker();
 const FAKE_STRIPE = ["sk", "_live_", "51FAKEfakeFAKEfake0123456789abcd"].join("");
 
 /** examples/hello copied to a temp folder (with its node_modules link), changed by `edit`. */
@@ -144,7 +147,7 @@ describe("secret scan", () => {
   });
 
   // examples/shop has templates since #45: `renox-worker transpile` compiles them (#43).
-  test.skipIf(!process.env.RENOX_WORKER_PATH)("examples/shop, which vendors the Stripe SDK, passes the scan", async () => {
+  test.skipIf(!worker)("examples/shop, which vendors the Stripe SDK, passes the scan", async () => {
     const r = await buildArtifact(join(repo, "examples/shop"), mkdtempSync(join(tmpdir(), "renox-hygiene-shop-")), undefined, { secrets: true });
     expect(r.allowedSecrets).toEqual([]);
     expect((await check(join(repo, "examples/shop"), { secretsOnly: true })).findings).toEqual([]);
