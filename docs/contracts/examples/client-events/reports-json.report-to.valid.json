@@ -1,0 +1,22 @@
+{
+  "$comment": "valid: an application/reports+json body (report-to); normalised to csp.violation (client-events.md section 6)",
+  "body": [
+    {
+      "type": "csp-violation",
+      "age": 10,
+      "url": "https://shop.renox.app/products/42",
+      "user_agent": "Mozilla/5.0",
+      "body": {
+        "documentURL": "https://shop.renox.app/products/42",
+        "blockedURL": "inline",
+        "effectiveDirective": "script-src-elem",
+        "originalPolicy": "default-src 'self'",
+        "sourceFile": "https://shop.renox.app/products/42",
+        "lineNumber": 7,
+        "columnNumber": 5,
+        "disposition": "report",
+        "statusCode": 200
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "$comment": "valid: an application/csp-report body (report-uri); normalised to csp.violation (client-events.md section 6)",
+  "body": {
+    "csp-report": {
+      "document-uri": "https://shop.renox.app/products/42",
+      "blocked-uri": "https://evil.example.net/x.js",
+      "violated-directive": "script-src-elem",
+      "effective-directive": "script-src-elem",
+      "source-file": "https://shop.renox.app/products/42",
+      "line-number": 3,
+      "column-number": 1,
+      "disposition": "enforce",
+      "original-policy": "default-src 'self'"
+    }
+  }
+}

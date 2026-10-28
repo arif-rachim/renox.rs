@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: a csp-report without violated-directive [expect: required: missing \"violated-directive\"]",
+  "body": {
+    "csp-report": {
+      "blocked-uri": "inline"
+    }
+  }
+}
