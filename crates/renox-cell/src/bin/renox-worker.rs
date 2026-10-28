@@ -2,6 +2,11 @@
 //! Structured logs on stderr (`RUST_LOG` filters them); tenant logs and
 //! meters go to the directories named in the config. `SIGHUP` re-reads the
 //! route table file.
+//!
+//! `renox-worker transpile`: the template compiler for the CLI (#43). Reads
+//! `{ "files": { path: source } }` on stdin and writes the result of
+//! `renox_template::transpile::compile_json` to stdout; nothing else runs
+//! (no V8, no config).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,12 +14,38 @@ use std::process::ExitCode;
 use renox_cell::{Worker, WorkerConfig};
 
 fn usage() -> ExitCode {
-    eprintln!("usage: renox-worker --config <worker.toml>");
+    eprintln!("usage: renox-worker --config <worker.toml> | renox-worker transpile");
     ExitCode::from(2)
 }
 
+fn transpile() -> ExitCode {
+    use std::io::{Read, Write};
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        eprintln!("renox-worker transpile: stdin is not UTF-8");
+        return ExitCode::from(2);
+    }
+    let out = renox_template::transpile::compile_json(&input);
+    let mut stdout = std::io::stdout().lock();
+    if stdout
+        .write_all(out.as_bytes())
+        .and_then(|_| stdout.flush())
+        .is_err()
+    {
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("transpile") {
+        return transpile();
+    }
+    serve()
+}
+
 #[tokio::main]
-async fn main() -> ExitCode {
+async fn serve() -> ExitCode {
     tracing_subscriber::fmt()
         .json()
         .with_writer(std::io::stderr)

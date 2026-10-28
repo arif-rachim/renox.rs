@@ -1,5 +1,5 @@
-// renox check: renox.toml schema, route conflicts, manifest schema (by
-// building in memory), SQL interpolation lint, undeclared fetch hosts,
+// renox check: renox.toml schema, route conflicts, template diagnostics,
+// manifest schema (by building in memory), SQL interpolation lint, undeclared fetch hosts,
 // handlers that write to global scope.
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -9,6 +9,7 @@ import { CliError, EXIT, location } from "../errors.ts";
 import { buildFiles } from "../lib/build.ts";
 import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
+import { TemplateError } from "../lib/templates-compile.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
 
@@ -38,7 +39,9 @@ export async function check(project: string): Promise<CheckReport> {
     await buildFiles(project);
   } catch (e) {
     // A missing renox.toml is not a check finding: the folder is not an app (exit 1).
-    if (e instanceof CliError && e.exitCode === EXIT.VALIDATION) errors.push(e);
+    // Template errors are one error per diagnostic, each with its file and line.
+    if (e instanceof TemplateError) for (const d of e.locations()) errors.push(new CliError(d.message, EXIT.VALIDATION, d.where));
+    else if (e instanceof CliError && e.exitCode === EXIT.VALIDATION) errors.push(e);
     else throw e;
   }
   for (const f of sources(project)) {

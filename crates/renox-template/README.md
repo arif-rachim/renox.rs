@@ -109,3 +109,7 @@ The CLDR patterns for the two platform locales are written out in `src/filters/`
 - A layout using another layout.
 - The fragment cache.
 - Template size cap (`artifact.md` Open 4): compile time on large templates is not measured yet, so no cap is proposed.
+
+## For the CLI (#43)
+
+`transpile::compile_json` is the compiler as one JSON call (`{ "files": {...} }` in; `{ "ok", "templates" }` or `{ "ok": false, "diagnostics" }` out). `renox-worker transpile` serves it on stdin/stdout, and that is what `renox build` uses. `src/wasm.rs` exposes the same call through a C ABI for a `wasm32-unknown-unknown` build (`bench/scenarios/B16/build-wasm.sh`). It was measured against the worker for the cold path and was slower (`cli/README.md`, "Templates"). It is kept so that measurement can be repeated, and is compiled only for `wasm32`.

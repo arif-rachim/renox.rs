@@ -13,8 +13,9 @@ renox-data = { path = "../renox-data" }
 renox-gateway = { path = "../renox-gateway" }
 renox-meter = { path = "../renox-meter" }
 renox-runtime = { path = "../renox-runtime" }
-# Page rendering off the isolate thread (#40); the renderer only, no html5ever.
-renox-template = { path = "../renox-template", default-features = false, features = ["render"] }
+# Page rendering off the isolate thread (#40), and the compiler behind
+# `renox-worker transpile` for the CLI (#43).
+renox-template = { path = "../renox-template" }
 
 axum = { version = "0.8.9", default-features = false }
 # Page sessions and CSRF (#41): HKDF per tenant, HMAC-signed cookies,

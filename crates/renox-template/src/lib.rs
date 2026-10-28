@@ -28,6 +28,10 @@ pub mod compiler;
 pub mod filters;
 #[cfg(feature = "render")]
 pub mod render;
+#[cfg(feature = "compiler")]
+pub mod transpile;
+#[cfg(all(feature = "compiler", target_arch = "wasm32"))]
+pub mod wasm;
 
 #[cfg(feature = "compiler")]
 pub use compiler::{CompileOptions, Compiler, TemplateProject};

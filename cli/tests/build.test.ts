@@ -14,6 +14,8 @@ import { schemas } from "../src/lib/schemas.ts";
 const repo = join(import.meta.dir, "../..");
 const tmp = (p: string): string => mkdtempSync(join(tmpdir(), `renox-cli-${p}-`));
 const readJson = (p: string): Json => JSON.parse(readFileSync(p, "utf8")) as Json;
+/** Templates are transpiled by `renox-worker transpile` (#43): those tests need the binary. */
+const worker = process.env.RENOX_WORKER_PATH;
 
 describe("renox build", () => {
   test("examples/hello builds a schema-valid artifact named by its hash", async () => {
@@ -59,7 +61,10 @@ describe("renox build", () => {
     const sums = readJson(join(r.dir, "migrations/checksums.json"));
     expect(validate(schemas.migrationsChecksums, sums)).toEqual([]);
     expect(Object.keys((sums as { files: Record<string, string> }).files)).toEqual(["app/001_init.sql", "app/002_index.sql"]);
-    const pm = readJson(join(r.dir, "public/manifest.json"));
+    // Artifact v1: the public index is public.json at the root (artifact.md section 4).
+    const pm = readJson(join(r.dir, "public.json"));
+    expect(existsSync(join(r.dir, "public/manifest.json"))).toBe(false);
+    expect(r.manifest.artifact.version).toBe(1);
     expect(validate(schemas.publicManifest, pm)).toEqual([]);
     expect((pm as { files: Record<string, { content_type: string }> }).files["/style.css"]?.content_type).toBe("text/css; charset=utf-8");
     expect(r.manifest.permissions).toEqual({ network: ["api.example.com"], secrets: ["API_KEY"] });
@@ -102,6 +107,33 @@ describe("renox build", () => {
     cpSync(join(repo, "examples/hello"), src, { recursive: true, filter: (p) => !p.includes("node_modules") });
     const r = await buildArtifact(src, join(src, ".renox/artifact"));
     expect(validate(schemas.manifest, readJson(join(r.dir, "manifest.json")))).toEqual([]);
+  });
+});
+
+describe("renox build with pages and templates (#41, #43)", () => {
+  test.skipIf(!worker)("pages, templates/, fragment maps, and manifest v1", async () => {
+    const r = await buildArtifact(join(import.meta.dir, "fixtures/pages"), tmp("pages"));
+    expect(hashDir(r.dir)).toBe(r.hash);
+    expect(validate(schemas.manifest, readJson(join(r.dir, "manifest.json")))).toEqual([]);
+    expect(r.manifest.artifact.version).toBe(1);
+    expect(Object.keys(r.manifest.code.entry).sort()).toEqual(["functions/api/health", "pages/logout", "pages/products/[id]", "pages/products/index"]);
+    expect(r.manifest.templates?.["pages/products/[id]"]).toEqual({ kind: "page", fragments: {} });
+    expect(r.manifest.templates?.["pages/_layouts/main"]).toEqual({ kind: "layout" });
+    expect(r.manifest.templates?.["pages/_error"]?.kind).toBe("error");
+    expect(r.manifest.templates?.["pages/_404"]?.kind).toBe("not_found");
+    expect(readFileSync(join(r.dir, "templates/pages/products/[id].jinja"), "utf8")).toContain("{{ product.name }}");
+    expect(existsSync(join(r.dir, "code/pages/products/[id].js"))).toBe(true);
+  });
+
+  test.skipIf(!worker)("renox check reports template diagnostics with file and line", async () => {
+    const dir = tmp("tpl-diag");
+    cpSync(join(import.meta.dir, "fixtures/pages"), dir, { recursive: true });
+    await Bun.write(join(dir, "pages/about.html"), "<p>ok</p>\n<p>{{ range(10) }}</p>\n");
+    await Bun.write(join(dir, "pages/index.html"), "<x-nope></x-nope>\n");
+    const r = await check(dir);
+    const where = r.errors.map((e) => `${e.file}:${e.line}`).sort();
+    expect(where).toEqual(["pages/about.html:2", "pages/index.html:1"]);
+    expect(r.errors.map((e) => e.message).join("\n")).toContain("unknown component");
   });
 });
 

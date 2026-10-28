@@ -19,7 +19,7 @@ test("renox build: valid artifact with migrations and checksums; renox check pas
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
   expect(readdirSync(join(r.dir, "migrations/app"))).toEqual(["001_init.sql"]);
-  expect(r.manifest.routes.map((x) => `${x.method} ${x.path}`).sort()).toEqual([
+  expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${x.path}`).sort()).toEqual([
     "GET /api/products",
     "GET /api/products/:id",
     "POST /api/cart",

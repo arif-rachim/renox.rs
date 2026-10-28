@@ -7,6 +7,8 @@ cargo run -p renox-cell --bin renox-worker -- --config crates/renox-cell/worker.
 cargo test -p renox-cell        # tests/two_tenants.rs links V8
 ```
 
+`renox-worker transpile` (#43) is the template compiler for the CLI: it reads `{ "files": { "<path>": "<source>" } }` on stdin and writes `renox_template::transpile::compile_json`'s result to stdout, then exits. No config, no V8, no network. `renox build` calls it for apps with templates (`cli/README.md`, "Templates").
+
 ## Configuration
 
 `renox-worker --config worker.toml`. Relative paths are resolved against the config file's directory. Unknown keys are refused. Example: `worker.example.toml`.

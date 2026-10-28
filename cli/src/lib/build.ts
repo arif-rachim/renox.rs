@@ -1,7 +1,8 @@
-// `renox build`: project → artifact directory (docs/contracts/artifact.md).
+// `renox build`: project → artifact directory (docs/contracts/artifact.md,
+// version 1 from F2 on, also for apps with no pages).
 //
-// - Routes from functions/ (routes.ts); all function modules are bundled in
-//   one Bun.build with code splitting, so npm and bare imports are vendored
+// - Routes from functions/ and pages/ (routes.ts); all function and page
+//   modules are bundled in one Bun.build with code splitting, so npm and bare imports are vendored
 //   into the artifact and nothing is resolved at runtime (code.format =
 //   "esm-dir"). Code shared by several modules (zod, a project lib/) lands
 //   once in code/chunks/, so an isolate evaluates each dependency once
@@ -10,8 +11,12 @@
 //   every isolate as module source text. They are written next to the
 //   artifacts folder, in <out>/../sourcemaps/<hash>/, with project-relative
 //   source paths (`renox deploy` uploads them privately, #128).
+// - Templates (pages/**/*.html, partials/**/*.html, modules/, overrides/)
+//   are transpiled by `renox-worker transpile` (templates-compile.ts) into
+//   templates/<id>.jinja and manifest.templates with the fragment maps.
 // - migrations/NNN_name.sql → migrations/app/ with checksums.json.
-// - public/** → public/ with manifest.json (content hash, size, type).
+// - public/** → public/, indexed by public.json at the root (content hash,
+//   size, type); public/manifest.json is an ordinary file in version 1.
 // - manifest.json, then the content hash names the directory:
 //   <out>/<hash>/. An existing directory with that name is reused
 //   (artifacts are content-addressed and never overwritten).
@@ -23,7 +28,8 @@ import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
 import { readProject, type ProjectConfig } from "./project.ts";
-import { discoverFunctions, routeConflicts, routesOf, type FunctionModule, type Route } from "./routes.ts";
+import { discoverFunctions, discoverPages, routeConflicts, routesOf, type Route } from "./routes.ts";
+import { type CompiledTemplate, TemplateCache, templateFiles, templatesKey, transpile } from "./templates-compile.ts";
 import { type Json, validate } from "./schema.ts";
 import { schemas } from "./schemas.ts";
 
@@ -49,10 +55,11 @@ function bundlerProblem(project: string, log: BuildMessage | ResolveMessage): { 
 }
 
 export interface Manifest {
-  artifact: { version: 0 };
+  artifact: { version: 1 };
   app: { name: string; timezone: string };
   code: { format: "esm-dir"; entry: Record<string, string> };
   routes: Route[];
+  templates?: Record<string, { kind: CompiledTemplate["kind"]; fragments?: CompiledTemplate["fragments"] }>;
   permissions: { network: string[]; secrets: string[] };
   limits?: ProjectConfig["limits"];
 }
@@ -63,6 +70,10 @@ export interface BuildResult {
   /** Source maps of `code/`, outside the artifact. */
   mapsDir: string;
   manifest: Manifest;
+  /** Compiled templates by id (empty without templates). */
+  templates: Record<string, CompiledTemplate>;
+  /** Hash of everything but the templates: `renox dev` swaps fragments when only templates changed. */
+  codeHash: string;
   /** Bundled modules (rebuilt / taken from the cache). */
   rebuilt: number;
   cached: number;
@@ -84,6 +95,8 @@ export class BuildCache {
   private entry: { key: string; bundle: Bundle } | undefined;
   /** Set when a non-entry file changed: every module may import it. */
   invalidateAll = false;
+  /** The last template compile (an edit to a module does not re-run it). */
+  readonly templates = new TemplateCache();
 
   get(key: string): Bundle | undefined {
     if (this.invalidateAll) return undefined;
@@ -137,7 +150,13 @@ function listFiles(dir: string, rel = ""): string[] {
   return out.sort();
 }
 
-async function bundle(project: string, functions: FunctionModule[]): Promise<Bundle> {
+/** A module to bundle: its id (`functions/...`, `pages/...`) and source file. */
+interface Entry {
+  id: string;
+  source: string;
+}
+
+async function bundle(project: string, functions: Entry[]): Promise<Bundle> {
   // Paths in comments and source maps are relative to the working
   // directory: build from the project so the artifact is reproducible.
   const cwd = process.cwd();
@@ -188,11 +207,25 @@ async function bundle(project: string, functions: FunctionModule[]): Promise<Bun
 export async function buildFiles(
   project: string,
   cache?: BuildCache,
-): Promise<{ files: Map<string, Uint8Array>; maps: Map<string, string>; manifest: Manifest; rebuilt: number; cached: number }> {
+): Promise<{
+  files: Map<string, Uint8Array>;
+  maps: Map<string, string>;
+  manifest: Manifest;
+  templates: Record<string, CompiledTemplate>;
+  rebuilt: number;
+  cached: number;
+}> {
   const config = readProject(project);
-  const functions = discoverFunctions(project);
-  if (functions.length === 0) throw new BuildError("no routes: functions/ has no module exporting GET, POST, ...");
-  const routes = routesOf(functions);
+  const fns = discoverFunctions(project);
+  const pages = discoverPages(project);
+  if (fns.length === 0 && pages.length === 0)
+    throw new BuildError("no routes: functions/ has no module exporting GET, POST, ... and pages/ has no page");
+  const routes = routesOf(fns, pages);
+  const functions: Entry[] = [...fns, ...pages.flatMap((p) => (p.source ? [{ id: p.id, source: p.source }] : []))];
+  if (functions.length === 0)
+    throw new BuildError("no code: an artifact needs at least one module (artifact.md, code.entry)", [], {
+      hint: "add a pages/*.ts loader or a functions/ module",
+    });
   const conflicts = routeConflicts(routes);
   if (conflicts.length) throw new BuildError("route conflicts", conflicts);
   const enc = new TextEncoder();
@@ -208,6 +241,19 @@ export async function buildFiles(
   }
   if (cache) cache.invalidateAll = false;
   for (const f of functions) entry[f.id] = `${f.id}.js`;
+
+  // Templates: transpiled by the worker, only when the app has any.
+  const sources = templateFiles(project);
+  let templates: Record<string, CompiledTemplate> = {};
+  if (Object.keys(sources).length) {
+    const tkey = templatesKey(sources);
+    const hit = cache?.templates.get(tkey);
+    templates = hit ?? (await transpile(sources));
+    if (!hit) cache?.templates.set(tkey, templates);
+  }
+  const missing = pages.filter((p) => p.html && !templates[p.id]);
+  if (missing.length) throw new BuildError("pages without a compiled template", missing.map((p) => `${p.html}: not compiled`));
+  for (const [id, t] of Object.entries(templates)) files.set(`templates/${id}.jinja`, enc.encode(t.source));
   for (const [p, code] of bundled.code) files.set(`code/${p}`, enc.encode(code));
   let size = 0;
   for (const [p, b] of files) if (p.startsWith("code/")) size += b.length;
@@ -241,36 +287,42 @@ export async function buildFiles(
   if (pubs.length) {
     const entries: Record<string, { sha256: string; size: number; content_type: string }> = {};
     for (const p of pubs) {
-      if (p === "manifest.json") throw new BuildError("public/manifest.json is reserved in artifact version 0");
       const bytes = new Uint8Array(readFileSync(join(pubDir, p)));
       files.set(`public/${p}`, bytes);
       entries[`/${p}`] = { sha256: sha256Hex(bytes), size: bytes.length, content_type: contentType(p) };
     }
     const pm = { version: 0, files: entries };
     const errs = validate(schemas.publicManifest, pm as Json);
-    if (errs.length) throw new BuildError("public/manifest.json", errs);
-    files.set("public/manifest.json", enc.encode(`${JSON.stringify(pm, null, 2)}\n`));
+    if (errs.length) throw new BuildError("public.json", errs);
+    files.set("public.json", enc.encode(`${JSON.stringify(pm, null, 2)}\n`));
   }
 
+  const manifestTemplates = Object.fromEntries(
+    Object.entries(templates).map(([id, t]) => [id, t.fragments ? { kind: t.kind, fragments: t.fragments } : { kind: t.kind }]),
+  );
   const manifest: Manifest = {
-    artifact: { version: 0 },
+    artifact: { version: 1 },
     app: config.app,
     code: { format: "esm-dir", entry },
     routes,
+    ...(Object.keys(manifestTemplates).length ? { templates: manifestTemplates } : {}),
     permissions: config.permissions,
     ...(config.limits ? { limits: config.limits } : {}),
   };
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);
   files.set("manifest.json", enc.encode(`${JSON.stringify(manifest, null, 2)}\n`));
-  return { files, maps: bundled.maps, manifest, rebuilt, cached };
+  return { files, maps: bundled.maps, manifest, templates, rebuilt, cached };
 }
 
 /** `renox build`: write `<out>/<hash>/` and return its hash. */
 export async function buildArtifact(project: string, out: string, cache?: BuildCache): Promise<BuildResult> {
   const t0 = performance.now();
-  const { files, maps, manifest, rebuilt, cached } = await buildFiles(project, cache);
+  const { files, maps, manifest, templates, rebuilt, cached } = await buildFiles(project, cache);
   const hash = hashFiles(files);
+  const rest = new Map([...files].filter(([p]) => !p.startsWith("templates/") && p !== "manifest.json"));
+  rest.set("manifest.json", new TextEncoder().encode(JSON.stringify({ ...manifest, templates: undefined })));
+  const codeHash = hashFiles(rest);
   const dir = join(out, hash);
   const mapsDir = join(out, "..", "sourcemaps", hash);
   if (!existsSync(mapsDir)) {
@@ -294,7 +346,7 @@ export async function buildArtifact(project: string, out: string, cache?: BuildC
     }
     renameSync(tmp, dir);
   }
-  return { hash, dir, mapsDir, manifest, rebuilt, cached, ms: performance.now() - t0 };
+  return { hash, dir, mapsDir, manifest, templates, codeHash, rebuilt, cached, ms: performance.now() - t0 };
 }
 
 /** The default artifact folder of a project. */
