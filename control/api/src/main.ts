@@ -1,0 +1,29 @@
+// Entry point: `bun control/api/src/main.ts`. Reads the configuration from the
+// environment (config.ts), migrates the database, and serves the API.
+
+import { createApp } from "./app.ts";
+import { loadConfig } from "./config.ts";
+import { createLogger } from "./log.ts";
+import { migrate } from "./db/migrate.ts";
+import { openPostgres } from "./db/postgres.ts";
+import { openPglite } from "./db/pglite.ts";
+import { MemoryObjectStore, S3ObjectStore } from "./storage/object-store.ts";
+import type { Db } from "./db/db.ts";
+
+const log = createLogger();
+const config = loadConfig();
+
+async function openDb(url: string): Promise<Db> {
+  if (url === "pglite:memory") return openPglite();
+  if (url.startsWith("pglite:")) return openPglite(url.slice("pglite:".length));
+  return openPostgres(url);
+}
+
+const db = await openDb(config.databaseUrl);
+const applied = await migrate(db);
+if (config.s3 === null) log.warn("CONTROL_S3_ENDPOINT is not set: artifacts are kept in memory only");
+const store = config.s3 === null ? new MemoryObjectStore() : new S3ObjectStore(config.s3);
+const app = createApp({ db, store, config, log, now: Date.now });
+
+const server = Bun.serve({ port: config.port, fetch: app.fetch, idleTimeout: 0 });
+log.info("control api listening", { port: server.port, migrations_applied: applied });

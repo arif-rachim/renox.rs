@@ -1,0 +1,19 @@
+{
+  "name": "@renox/control-api",
+  "version": "0.1.0",
+  "description": "Renox control plane: deploy API (docs/contracts/deploy-api.md), Postgres, artifact store",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/main.ts",
+    "check": "tsc --noEmit -p .",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "hono": "4.13.14"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.12"
+  }
+}
