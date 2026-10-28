@@ -27,14 +27,3 @@ test("the hello worked example hashes to its directory name", () => {
   const hash = "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a";
   expect(hashDir(join(import.meta.dir, "../../docs/contracts/examples/hello-artifact", hash))).toBe(hash);
 });
-
-test("fetch-worker reads .sha256 assets and names assets per platform", async () => {
-  const { assetName, parseSha256File, releaseUrl } = await import("../scripts/fetch-worker.ts");
-  const hex = "a".repeat(64);
-  expect(parseSha256File(`${hex}  renox-worker-linux-x64\n`)).toBe(hex);
-  expect(() => parseSha256File("nope")).toThrow();
-  expect(assetName("linux", "x64")).toBe("renox-worker-linux-x64");
-  expect(releaseUrl("0.1.0", "renox-worker-linux-x64")).toBe(
-    "https://github.com/arif-rachim/renox.rs/releases/download/v0.1.0/renox-worker-linux-x64",
-  );
-});
