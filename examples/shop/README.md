@@ -25,6 +25,8 @@ Every statement is parameterised (`renox check` passes). Prices are integers in 
 
 `public/` holds `app.css` and `htmx-2.0.4.min.js` (htmx 2.0.4 from the npm package `htmx.org`, license 0BSD, vendored unchanged so the shop needs no outbound host). `htmx-config` turns off htmx's inline indicator styles, which the strict CSP would refuse.
 
+**Browser check.** `RENOX_WORKER_PATH=../../target/debug/renox-worker bun tests/browser-check.ts` drives the four interactions in Chromium (Playwright, `PLAYWRIGHT_PATH` or a global install) under the strict CSP and fails on any console error, CSP violations included. `screenshots/` holds its output: `1-list.png` (100 cards), `2-search.png` (`saffron`: the `product_list` fragment swapped, URL pushed), `3-detail.png`, `4-add-to-cart.png` (the `product` fragment with "Added 2 to your cart." and the badge at 2 out of band).
+
 Building the shop compiles its templates with `renox-worker transpile` (`cli/README.md`, "Templates"), so `renox build`/`renox check`/`renox dev` need the worker binary.
 
 ## Data
