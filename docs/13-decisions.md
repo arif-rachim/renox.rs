@@ -26,6 +26,7 @@ To change a decision: add a new ADR (next number) with status `proposed`, refere
 | D18 | accepted (new) | One SQL dialect for the module ecosystem: SQLite | Dual-dialect modules are tested twice and third-party authors will support only one | Dual dialect |
 | D19 | accepted (new) | Dev hot reload discards the isolate and creates a new one | Simpler and leak-free compared with hot-swapping contexts; tens of ms are acceptable in dev | Per-module context hot swap |
 | D20 | accepted (new) | Trimmed MVP: F0–F2 + the auth module + two real products, with kill criteria | A framework built without products is almost always wasted | Building the whole roadmap before there are users |
+| D22 | accepted (new) | D7's default is path A: pages and fragments render in Rust (minijinja) after marshaling. Path B (template compiled to JS, run in the isolate) is not offered to tenants; it stays a tested prototype | B8: path B costs the tenant more CPU than path A in total and loses its lead even at 1,000 items; under concurrency it multiplies CPU-limit terminations. Section below | Path B as the default; path B per page on opt-in |
 
 ## ADR template
 
@@ -39,3 +40,12 @@ Consequences: what becomes easier, what becomes harder, what we give up
 Alternatives considered: each with the reason it was rejected
 Evidence: links to bench/results/, issues, discussions
 ```
+
+## D22 — Render path A is the default (decides D7)
+Status: accepted
+Date: 2026-10-28
+Context: D7 keeps two render paths and lets benchmark B8 choose the default. Path B was built for #42 (`crates/renox-template/src/emit_js`): the same compiled templates as one JavaScript module, byte-equal with path A on the whole fixture set. B8 ran the `shop` list page and its `product_list` fragment through both paths end to end on `renox-worker`, at 100 and 1,000 items. At 100 items (26 KB): path A p50 2.40 ms, path B 3.09 ms; tenant CPU 0.70 ms isolate plus 0.26 ms render pool against 1.48 ms isolate. At 1,000 items (253 KB): 10.9 ms against 15.2 ms; 4.03 + 2.40 ms against 10.84 ms. Under 8 concurrent connections at 1,000 items path B served 1–2 requests per second, because nearly every request ended `RENOX_CPU_LIMIT` (the accounting finding #155, made continuous by path B's longer isolate occupancy). Path A lost about 4 % of requests the same way. Measured on the F1 container, not `node-small` (#158); the ratios are large enough that the re-run is not expected to change the decision.
+Decision: Pages and fragments render on path A, in Rust, off the isolate thread, under the render limits of `renox-template`. Path B is not a tenant-facing option. The emitter and its byte-equality test stay in `renox-template` as a prototype, so B8 can be re-run when the inputs change. The rule for when path B applies: never by default. Re-open this decision only with a B8 run that shows path B using less total CPU (isolate plus render pool) than path A for a realistic page. Two changes could do that: data sets well beyond 1,000 items where marshaling dominates (B9), or render-pool saturation on `node-small`.
+Consequences: Rendering stays outside the tenant's CPU limit and heap (D7's reason), and tenants get one render semantics and one set of limits (fuel, iterations, output, depth, time). We give up rendering without marshaling; B9 stays the cost to watch. Path A's fragment rendering evaluates the whole page first and costs more than the page itself at 1,000 items (B8 findings), which is to fix on path A. TSX in the isolate (`docs/08-template-engine.md`, "Secondary option") keeps its status: not the default.
+Alternatives considered: Path B as the default (more tenant CPU and slower in B8, no fuel equivalent, and a JS reimplementation of every filter to keep byte-equal). Path B per page on opt-in (the B8 numbers give no page where it pays off, and two semantics double the test surface). Dropping the prototype (kept: it is small, tested, and lets the decision be re-measured).
+Evidence: [B8 result](../bench/results/2026-10-28-B8-render-path-a-vs-b-renox-worker.md), `crates/renox-template/tests/emit_js.rs`, #42, #155.

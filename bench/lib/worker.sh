@@ -8,7 +8,8 @@
 #       Builds the artifact of every app named in <tenants-file> with the CLI
 #       (examples/<app> -> <dir>/artifacts/<hash>/) and writes
 #       <dir>/worker.toml and <dir>/routes.json. Each line of <tenants-file>:
-#       "<hostname> <tenant_id> <app>".
+#       "<hostname> <tenant_id> <app>"; <app> is a name under examples/ or
+#       the absolute path of an app directory (B8 stages one).
 #   bench/lib/worker.sh start <dir>
 #       Starts the worker in the background (log: <dir>/worker.log), waits
 #       until it listens, and prints its pid (also in <dir>/worker.pid).
@@ -42,13 +43,14 @@ cmd_setup() {
   [[ -f "$tenants" ]] || die "no tenants file $tenants"
   mkdir -p "$dir/artifacts" "$dir/data" "$dir/meters" "$dir/logs"
   local -A hashes=()
-  local host tenant app hash
+  local host tenant app app_dir hash
   while read -r host tenant app; do
     [[ -n "${host:-}" ]] || continue
     if [[ -z "${hashes[$app]:-}" ]]; then
-      [[ -f "$repo_dir/examples/$app/renox.toml" ]] || die "unknown app $app"
-      hash=$(cd "$repo_dir/examples/$app" && bun "$repo_dir/cli/src/main.ts" build --out "$dir/artifacts" | awk '/^artifact /{print $2}')
-      [[ ${#hash} -eq 64 ]] || die "building examples/$app failed"
+      if [[ $app == /* ]]; then app_dir=$app; else app_dir=$repo_dir/examples/$app; fi
+      [[ -f "$app_dir/renox.toml" ]] || die "unknown app $app"
+      hash=$(cd "$app_dir" && bun "$repo_dir/cli/src/main.ts" build --out "$dir/artifacts" | awk '/^artifact /{print $2}')
+      [[ ${#hash} -eq 64 ]] || die "building $app_dir failed"
       hashes[$app]=$hash
       echo "$app $hash" >>"$dir/apps.txt"
     fi

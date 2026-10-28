@@ -27,6 +27,7 @@ Features: `compiler` (html5ever; builds for `wasm32-unknown-unknown` with `--no-
 | `compiler::attrs` | `r-for` parsing, `:class` objects, boolean and URL attributes, escaping |
 | `render` | `Renderer`, `RenderLimits`, `RenderContext`, `RenderError`, the `__renox` platform value |
 | `filters` | `money`, `date`, `ago`, `number`, `truncate`, `json`, `upper`, `lower`, and the internal `__url` |
+| `emit_js` | Render path B (ADR D7, #42): the compiled templates as one JavaScript module that renders in the isolate (see below) |
 
 ## Covered syntax
 
@@ -109,6 +110,16 @@ The CLDR patterns for the two platform locales are written out in `src/filters/`
 - A layout using another layout.
 - The fragment cache.
 - Template size cap (`artifact.md` Open 4): compile time on large templates is not measured yet, so no cap is proposed.
+
+## Render path B (`emit_js`)
+
+`emit_js::emit_module(&compiled)` turns the same compiled templates path A renders into one ES module: `render(id, data, cx)` and `renderFragment(id, block, data, cx)`, where `cx` is `{ locale, csp_nonce, csrf_token, can }`. It parses each minijinja source with minijinja's own parser (`minijinja::machinery`, behind the `compiler` feature) and translates the syntax tree, so both paths start from the same source and the same compiler checks. `src/emit_js/runtime.js` reproduces the renderer: escaping, `none`/`undefined`, chainable lookups, truthiness, equality and ordering, value printing, the filters in both locales, `__url`. `examples/emit_js.rs` writes the module of an app directory (`bench/scenarios/B8`).
+
+`tests/emit_js.rs` renders every fixture (pages, layouts, partials, every fragment) on both paths with four data sets (realistic, hostile strings and edge numbers, nulls, empty) and the three locales, and requires byte-equal HTML, or an error on both paths.
+
+Not covered, refused with an `EmitError`: the `date`, `ago`, and `round` filters and module filters (the `filter` fixture), slices, `{% set %}` blocks, loop filters, tuple loop targets, computed `extends`/`include` names. Two known differences: an integral float computed by template arithmetic (`4 / 2`) prints `2.0` on path A and `2` on path B; a fragment on path A also fails when the rest of the page fails (path A evaluates the whole page first, B the block only).
+
+Limits on path B: no fuel (V8 has no instruction counter). The isolate CPU limit is the bound, enforced in Rust by the runtime. The module also counts iterations (`__loop`, same 100,000) and output size against `RenderLimits::DEFAULT` and throws `RENOX_RENDER_LIMIT`. These two checks run in JavaScript and are a convenience, not the enforcement.
 
 ## For the CLI (#43)
 
