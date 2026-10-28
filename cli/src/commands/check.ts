@@ -1,13 +1,14 @@
 // renox check: renox.toml schema, route conflicts, manifest schema (by
-// building in memory), SQL interpolation lint, undeclared fetch hosts.
+// building in memory), SQL interpolation lint, undeclared fetch hosts,
+// handlers that write to global scope.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { buildFiles, BuildError } from "../lib/build.ts";
-import { type Finding, lintFetch, lintSql } from "../lib/lint.ts";
-import { ConfigError, readProject } from "../lib/project.ts";
-import { RouteError } from "../lib/routes.ts";
+import { CliError, EXIT, location } from "../errors.ts";
+import { buildFiles } from "../lib/build.ts";
+import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
+import { readProject } from "../lib/project.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
 
@@ -23,34 +24,40 @@ function sources(dir: string, rel = ""): string[] {
 }
 
 export interface CheckReport {
-  errors: string[];
+  /** Config, route, and build problems (renox.toml, functions/, migrations, manifest). */
+  errors: CliError[];
   findings: Finding[];
 }
 
 export async function check(project: string): Promise<CheckReport> {
-  const errors: string[] = [];
+  const errors: CliError[] = [];
   const findings: Finding[] = [];
   let network: string[] = [];
   try {
     network = readProject(project).permissions.network;
     await buildFiles(project);
   } catch (e) {
-    if (e instanceof BuildError || e instanceof ConfigError || e instanceof RouteError) errors.push(e.message);
+    // A missing renox.toml is not a check finding: the folder is not an app (exit 1).
+    if (e instanceof CliError && e.exitCode === EXIT.VALIDATION) errors.push(e);
     else throw e;
   }
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");
-    findings.push(...lintSql(src, f), ...lintFetch(src, f, network));
+    findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f));
   }
   return { errors, findings };
 }
 
-export async function run(_args: string[]): Promise<number> {
+export async function run(args: string[]): Promise<number> {
+  if (args.length) {
+    console.error("usage: renox check");
+    return EXIT.USER;
+  }
   const { errors, findings } = await check(process.cwd());
-  for (const e of errors) console.error(`error  ${e}`);
+  for (const e of errors) console.error(`${location(e) ? `${location(e)}  ` : ""}error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
   for (const f of findings) console.error(`${f.file}:${f.line}:${f.column}  ${f.severity}  ${f.rule}  ${f.message}`);
   const failed = errors.length + findings.filter((f) => f.severity === "error").length;
   console.error(failed ? `renox check: ${failed} error(s)` : `renox check: ok${findings.length ? ` (${findings.length} warning(s))` : ""}`);
-  return failed ? 1 : 0;
+  return failed ? EXIT.VALIDATION : EXIT.OK;
 }

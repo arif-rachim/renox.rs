@@ -5,6 +5,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ValidationError, type Where } from "../errors.ts";
+
 export const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
 export type Method = (typeof METHODS)[number];
 
@@ -27,7 +29,18 @@ export interface FunctionModule {
   methods: Method[];
 }
 
-export class RouteError extends Error {}
+/** Route file problems (exit 2); `problems` lists every one when there are several. */
+export class RouteError extends ValidationError {
+  constructor(
+    message: string,
+    where: Where = {},
+    readonly problems: string[] = [],
+  ) {
+    super(problems.length ? `${message}:\n  ${problems.join("\n  ")}` : message, where);
+  }
+}
+
+const SEGMENT_HINT = "a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase";
 
 const PARAM = /^\[([a-z_][a-z0-9_]{0,31})\]$/u;
 const CATCH_ALL = /^\[\.\.\.([a-z_][a-z0-9_]{0,31})\]$/u;
@@ -52,8 +65,14 @@ export function patternFor(relNoExt: string): string {
       segs.push(`:${m[1]}`);
     } else if (STATIC.test(seg)) {
       segs.push(seg);
+    } else if (/^\[\.{0,3}[A-Za-z_][A-Za-z0-9_]*\]$/u.test(seg)) {
+      throw new RouteError(`${relNoExt}: parameter ${seg} must be lowercase (${seg.toLowerCase()})`, { hint: SEGMENT_HINT });
+    } else if (seg.includes("[") || seg.includes("]")) {
+      throw new RouteError(`${relNoExt}: segment ${JSON.stringify(seg)} has an unbalanced or misplaced bracket`, { hint: SEGMENT_HINT });
+    } else if (/\s/u.test(seg)) {
+      throw new RouteError(`${relNoExt}: segment ${JSON.stringify(seg)} contains a space`, { hint: SEGMENT_HINT });
     } else {
-      throw new RouteError(`${relNoExt}: segment ${JSON.stringify(seg)} is not a valid route segment`);
+      throw new RouteError(`${relNoExt}: segment ${JSON.stringify(seg)} is not a valid route segment`, { hint: SEGMENT_HINT });
     }
   });
   return `/${segs.join("/")}`;
@@ -88,21 +107,77 @@ export function exportedMethods(code: string): Method[] {
   return METHODS.filter((m) => exports.includes(m));
 }
 
-/** Discover every function module under `<project>/functions`. */
+/**
+ * Discover every function module under `<project>/functions`. All route file
+ * problems are collected into one RouteError: invalid names, two files for
+ * one module (`a.ts`, `a.js`) or one URL (`a.ts`, `a/index.ts`), and paths
+ * that differ only in case (one file on macOS and Windows).
+ */
 export function discoverFunctions(project: string): FunctionModule[] {
   const base = join(project, "functions");
   const out: FunctionModule[] = [];
-  for (const rel of walk(base)) {
+  const problems: { message: string; file: string; hint?: string }[] = [];
+  const files = walk(base);
+  // Paths (files and folders) that differ only in case are one path on macOS and Windows.
+  const folded = new Map<string, string>();
+  for (const rel of files) {
+    const parts = rel.split("/");
+    for (let i = 1; i <= parts.length; i++) {
+      const path = `functions/${parts.slice(0, i).join("/")}`;
+      const seen = folded.get(path.toLowerCase());
+      if (seen === undefined) folded.set(path.toLowerCase(), path);
+      else if (seen !== path) {
+        problems.push({
+          message: `differs only in case from ${seen}: on a case-insensitive file system (macOS, Windows) they are one ${i === parts.length ? "file" : "folder"}`,
+          file: path,
+          hint: "rename one of them",
+        });
+        folded.set(path.toLowerCase(), path);
+        break;
+      }
+    }
+  }
+  for (const rel of files) {
     const relNoExt = rel.replace(/\.(ts|js|mjs)$/u, "");
-    const methods = exportedMethods(readFileSync(join(base, rel), "utf8"));
+    const source = `functions/${rel}`;
+    let pattern: string;
+    try {
+      pattern = patternFor(relNoExt);
+    } catch (e) {
+      if (!(e instanceof RouteError)) throw e;
+      problems.push({ message: e.message.replace(`${relNoExt}: `, ""), file: source, ...(e.hint ? { hint: e.hint } : {}) });
+      continue;
+    }
+    let methods: Method[];
+    try {
+      methods = exportedMethods(readFileSync(join(base, rel), "utf8"));
+    } catch {
+      // A syntax error: the bundler reports it with its line and column.
+      methods = [...METHODS];
+    }
     if (methods.length === 0) continue;
-    out.push({ id: `functions/${relNoExt}`, source: `functions/${rel}`, pattern: patternFor(relNoExt), methods });
+    out.push({ id: `functions/${relNoExt}`, source, pattern, methods });
   }
-  const ids = new Set<string>();
+  const byId = new Map<string, FunctionModule>();
+  const byPattern = new Map<string, FunctionModule>();
   for (const f of out) {
-    if (ids.has(f.id)) throw new RouteError(`${f.id}: two files map to the same module (for example a.ts and a.js)`);
-    ids.add(f.id);
+    const sameId = byId.get(f.id);
+    const samePattern = byPattern.get(f.pattern);
+    if (sameId) problems.push({ message: `is the same module as ${sameId.source}; keep one`, file: f.source });
+    else if (samePattern) problems.push({ message: `maps to ${f.pattern}, as ${samePattern.source} does; keep one`, file: f.source });
+    byId.set(f.id, f);
+    byPattern.set(f.pattern, f);
   }
+  if (problems.length === 1) {
+    const [p] = problems as [(typeof problems)[number]];
+    throw new RouteError(p.message, { file: p.file, ...(p.hint ? { hint: p.hint } : {}) });
+  }
+  if (problems.length > 1)
+    throw new RouteError(
+      `${problems.length} route file problems`,
+      { hint: SEGMENT_HINT },
+      problems.map((p) => `${p.file}: ${p.message}`),
+    );
   return out;
 }
 

@@ -1,6 +1,5 @@
 // Error codes and classes of docs/contracts/ops.md section 13 (contract
-// version 1.0.0-f1 plus the two response codes of 1.1.0, #153; the page
-// types of 1.1.0 come with #44). tests/errors.test.ts checks the lists below against the
+// version 1.1.0). tests/errors.test.ts checks the lists below against the
 // table in ops.md; tests/contract.test-d.ts checks the types against ctx.d.ts.
 
 /** Codes an op rejects with inside tenant code ("thrown" and "both" in ops.md section 13). */

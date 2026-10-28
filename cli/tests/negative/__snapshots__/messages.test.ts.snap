@@ -1,0 +1,264 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`messages and exit codes missing renox.toml 1`] = `
+{
+  "exit": 1,
+  "stderr": 
+"renox build: renox.toml: not found: this folder is not a Renox app
+  hint: run renox in the app folder (the one with renox.toml), or create an app with \`renox new <name>\`"
+,
+}
+`;
+
+exports[`messages and exit codes missing renox.toml (check) 1`] = `
+{
+  "exit": 1,
+  "stderr": 
+"renox check: renox.toml: not found: this folder is not a Renox app
+  hint: run renox in the app folder (the one with renox.toml), or create an app with \`renox new <name>\`"
+,
+}
+`;
+
+exports[`messages and exit codes invalid TOML 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox build: renox.toml:5: invalid TOML: Expected ']' to close a table header but found (0x0A)
+  hint: fix the TOML syntax (https://toml.io)"
+,
+}
+`;
+
+exports[`messages and exit codes unknown table 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox build: renox.toml:9: unknown table "limit"
+  hint: did you mean [limits]?"
+,
+}
+`;
+
+exports[`messages and exit codes unknown key 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox build: renox.toml:4: unknown key "region" in [app]
+  renox.toml:7: unknown key "netwrok" in [permissions] (did you mean network?)
+  hint: [app] takes name, timezone"
+,
+}
+`;
+
+exports[`messages and exit codes bad timezone 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox build: renox.toml:3: app.timezone: unknown time zone "Asia/Atlantis"
+  hint: use an IANA time zone name such as "Asia/Dubai", "Europe/London", or "UTC""
+,
+}
+`;
+
+exports[`messages and exit codes schema error 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox.toml:2  error  app.name: does not match ^[a-z][a-z0-9-]{0,62}$
+  renox.toml:6: limits.cpu_ms: above 500
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes syntax error in a route 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox build: functions/api/bad.ts:2:34: Unexpected }
+  hint: fix the syntax error, then save again"
+,
+}
+`;
+
+exports[`messages and exit codes syntax error in an imported file 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox build: lib/f.ts:2:15: Expected "]" but found ";"
+  hint: fix the syntax error, then save again"
+,
+}
+`;
+
+exports[`messages and exit codes two syntax errors 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"error  functions/ does not build:
+  functions/api/a.ts:1:27: Unexpected ;
+  functions/api/b.ts:1:20: Unexpected )
+  hint: fix the errors above, then save again
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes unclosed bracket 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"functions/api/[id.ts  error  segment "[id" has an unbalanced or misplaced bracket
+  hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes space in a name 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"functions/api/my notes.ts  error  segment "my notes" contains a space
+  hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes uppercase parameter 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"functions/api/[Id].ts  error  parameter [Id] must be lowercase ([id])
+  hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes files differing only in case 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"functions/about.ts  error  differs only in case from functions/About.ts: on a case-insensitive file system (macOS, Windows) they are one file
+  hint: rename one of them
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes folders differing only in case 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"renox build: functions/api: differs only in case from functions/Api: on a case-insensitive file system (macOS, Windows) they are one folder
+  hint: rename one of them"
+,
+}
+`;
+
+exports[`messages and exit codes two files for one route 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"functions/a/index.ts  error  maps to /a, as functions/a.ts does; keep one
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes several route problems at once 1`] = `
+{
+  "exit": 2,
+  "stderr": 
+"error  2 route file problems:
+  functions/[x.ts: segment "[x" has an unbalanced or misplaced bracket
+  functions/b c.ts: segment "b c" contains a space
+  hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+renox check: 1 error(s)"
+,
+}
+`;
+
+exports[`messages and exit codes unknown command 1`] = `
+{
+  "exit": 1,
+  "stderr": 
+"renox: unknown command "deploy-now"
+
+renox <command>
+
+  new <name> [--template blank|hello]   create an app
+  build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
+  dev [--port 8787]                     run the app on the local worker, rebuild on change
+  check                                 validate config, routes, manifest; lint SQL, fetch, global state
+  mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
+
+Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
+Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev."
+,
+}
+`;
+
+exports[`messages and exit codes unknown build flag 1`] = `
+{
+  "exit": 1,
+  "stderr": "usage: renox build [--out <dir>]",
+}
+`;
+
+exports[`messages and exit codes build --out without a folder 1`] = `
+{
+  "exit": 1,
+  "stderr": "usage: renox build [--out <dir>]",
+}
+`;
+
+exports[`messages and exit codes dev with a bad port 1`] = `
+{
+  "exit": 1,
+  "stderr": "usage: renox dev [--port <port>]",
+}
+`;
+
+exports[`messages and exit codes new with a bad name 1`] = `
+{
+  "exit": 1,
+  "stderr": 
+"renox new: app name "My App" is not valid
+  hint: use lowercase letters, digits, and -, starting with a letter (at most 63 characters)"
+,
+}
+`;
+
+exports[`messages and exit codes new into a folder that is not empty 1`] = `
+{
+  "exit": 1,
+  "stderr": 
+"renox new: taken/ exists and is not empty
+  hint: choose another name, or remove the folder"
+,
+}
+`;
+
+exports[`messages and exit codes new with an unknown template 1`] = `
+{
+  "exit": 1,
+  "stderr": 
+"renox new: unknown template "react"
+  hint: use --template blank or --template hello"
+,
+}
+`;
+
+exports[`messages and exit codes RENOX_WORKER_PATH that does not exist 1`] = `
+{
+  "exit": 3,
+  "stderr": 
+"renox dev: RENOX_WORKER_PATH is /nonexistent/renox-worker, which does not exist
+  hint: run \`bun cli/scripts/fetch-worker.ts\` to download the release build, or set RENOX_WORKER_PATH to a renox-worker binary"
+,
+}
+`;

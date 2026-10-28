@@ -3,15 +3,20 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { EXIT, UserError } from "../errors.ts";
 import { TEMPLATES, type TemplateName, TSCONFIG } from "../lib/templates.ts";
 
 const NAME = /^[a-z][a-z0-9-]{0,62}$/u;
 
 export function newApp(name: string, template: string, parent = process.cwd()): string {
-  if (!NAME.test(name)) throw new Error(`app name ${JSON.stringify(name)} must match ${NAME.source}`);
-  if (!(template in TEMPLATES)) throw new Error(`unknown template ${template} (blank, hello)`);
+  if (!NAME.test(name))
+    throw new UserError(`app name ${JSON.stringify(name)} is not valid`, {
+      hint: "use lowercase letters, digits, and -, starting with a letter (at most 63 characters)",
+    });
+  if (!(template in TEMPLATES)) throw new UserError(`unknown template ${JSON.stringify(template)}`, { hint: "use --template blank or --template hello" });
   const dir = resolve(parent, name);
-  if (existsSync(dir) && readdirSync(dir).length > 0) throw new Error(`${name}/ exists and is not empty`);
+  if (existsSync(dir) && readdirSync(dir).length > 0)
+    throw new UserError(`${name}/ exists and is not empty`, { hint: "choose another name, or remove the folder" });
   const files: Record<string, string> = {
     ...TEMPLATES[template as TemplateName],
     "renox.toml": `[app]\nname = "${name}"\ntimezone = "Asia/Dubai"\n\n[permissions]\n# Outbound hosts for fetch, e.g. ["api.stripe.com"]; empty = no network.\nnetwork = []\n# Secret names the app reads from ctx.secrets.\nsecrets = []\n`,
@@ -43,7 +48,7 @@ export function run(args: string[]): number {
   const template = t >= 0 ? args[t + 1] : "blank";
   if (!name || template === undefined) {
     console.error("usage: renox new <name> [--template blank|hello]");
-    return 2;
+    return EXIT.USER;
   }
   const dir = newApp(name, template);
   console.log(`created ${name}/ from the ${template} template\n  cd ${name} && renox dev`);

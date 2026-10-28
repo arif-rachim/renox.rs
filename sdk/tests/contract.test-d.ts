@@ -14,6 +14,10 @@ type Expect<T extends true> = T;
 // The request context, required by the issue in both directions.
 export type CtxAssignable = Expect<Mutual<S.Ctx, C.Ctx>>;
 export type CtxIdentical = Expect<Equal<S.Ctx, C.Ctx>>;
+// The page contexts (#44: "types match the contract (assignability test)").
+export type LoaderContextAssignable = Expect<Mutual<S.LoaderContext, C.LoaderContext>>;
+export type ActionContextAssignable = Expect<Mutual<S.ActionContext, C.ActionContext>>;
+export type ActionResultAssignable = Expect<Mutual<S.ActionResult, C.ActionResult>>;
 
 export type Checks = [
   Expect<Equal<S.Handler, C.Handler>>,
@@ -40,6 +44,15 @@ export type Checks = [
   Expect<Equal<S.FetchBlockedReason, C.FetchBlockedReason>>,
   Expect<Equal<S.FetchFailedReason, C.FetchFailedReason>>,
   Expect<Equal<S.ErrorResponseBody, C.ErrorResponseBody>>,
+  // Pages (ops.md section 14).
+  Expect<Equal<S.Session, C.Session>>,
+  Expect<Equal<S.LoaderContext, C.LoaderContext>>,
+  Expect<Equal<S.ActionContext, C.ActionContext>>,
+  Expect<Equal<S.PageData, C.PageData>>,
+  Expect<Equal<S.Loader, C.Loader>>,
+  Expect<Equal<S.ActionResult, C.ActionResult>>,
+  Expect<Equal<S.Action, C.Action>>,
+  Expect<Equal<S.PageModule, C.PageModule>>,
   // Error classes: instance types (the contract declares no constructors).
   Expect<Mutual<S.RenoxError, C.RenoxError>>,
   Expect<Mutual<S.DbPermissionError, C.DbPermissionError>>,
@@ -58,5 +71,7 @@ export type Checks = [
 // Negative controls: the helpers do reject a difference.
 // @ts-expect-error a Ctx without `db` is not the contract Ctx
 export type MissingField = Expect<Mutual<Omit<S.Ctx, "db">, C.Ctx>>;
+// @ts-expect-error an ActionContext without `form` is not the contract's
+export type ActionNoForm = Expect<Mutual<Omit<S.ActionContext, "form">, C.ActionContext>>;
 // @ts-expect-error a wider code union is not identical
 export type WiderCodes = Expect<Equal<S.RenoxErrorCode | "RENOX_EXTRA", C.RenoxErrorCode>>;
