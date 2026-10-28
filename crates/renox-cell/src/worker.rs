@@ -20,12 +20,15 @@ use tokio::task::JoinHandle;
 use crate::artifact::LocalArtifactStore;
 use crate::config::WorkerConfig;
 use crate::manager::{CellManager, ManagerConfig};
+use crate::pages::PlatformKey;
 
 /// Why the worker did not start. No file contents, no secrets.
 #[derive(Debug)]
 pub enum WorkerError {
     Io(String, std::io::Error),
     Routes(String),
+    /// `platform_key_file` refused (never contains key bytes).
+    Key(String),
 }
 
 impl std::fmt::Display for WorkerError {
@@ -33,6 +36,7 @@ impl std::fmt::Display for WorkerError {
         match self {
             WorkerError::Io(what, e) => write!(f, "{what}: {e}"),
             WorkerError::Routes(e) => write!(f, "route table: {e}"),
+            WorkerError::Key(e) => write!(f, "platform key: {e}"),
         }
     }
 }
@@ -96,6 +100,15 @@ impl Worker {
             RouteTable::from_json(&routes_json).map_err(|e| WorkerError::Routes(e.to_string()))?,
         );
         let tiers = config.tier_table();
+        let platform_key = match &config.platform_key_file {
+            Some(path) => PlatformKey::load(path).map_err(|e| WorkerError::Key(e.to_string()))?,
+            None => {
+                tracing::warn!(
+                    "platform_key_file is not set: page sessions use a random key and end when the worker restarts"
+                );
+                PlatformKey::random()
+            }
+        };
         let manager = CellManager::new(
             runtime,
             meter,
@@ -106,6 +119,7 @@ impl Worker {
                 tiers: tiers.clone(),
                 default_tier: config.default_tier,
                 tenant_tiers: config.tenant_tiers.clone(),
+                platform_key,
             },
         );
         let mut gw_config = GatewayConfig::new(&config.artifacts_dir);

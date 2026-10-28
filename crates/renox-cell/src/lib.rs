@@ -8,6 +8,7 @@ pub mod artifact;
 pub mod cell;
 pub mod config;
 pub mod manager;
+pub mod pages;
 pub mod render;
 pub mod tiers;
 pub mod worker;

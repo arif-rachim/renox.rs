@@ -36,7 +36,7 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 
 - the original method, URI, and body;
 - hop-by-hop headers removed (`Connection` and the headers it names, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`, `Upgrade`);
-- every client-sent `x-renox-*` header removed, then `x-renox-request-id` and `x-renox-client-ip` set, so tenant code can trust those two (`docs/contracts/ops.md` section 6).
+- every client-sent `x-renox-*` header removed except `x-renox-csrf` (the page CSRF token, which the cell checks and removes before tenant code, #41), then `x-renox-request-id` and `x-renox-client-ip` set, so tenant code can trust those two (`docs/contracts/ops.md` section 6).
 
 `deadline` is the one clock for the request (`docs/03-architecture.md`, "Deadlines"): the cell, ops, queries, and fetches all derive their timeouts from it.
 

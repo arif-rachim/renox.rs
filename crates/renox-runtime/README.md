@@ -92,7 +92,20 @@ The bootstrap's `dispatch` runs the handler with a frozen `ctx` (`req`, `url`, `
 - `load` returns a `Response`: sent as for a function.
 - `load` returns a plain object: the bootstrap serialises it with `JSON.stringify` inside V8 (`bigint` as a string, `Date` via `toJSON`, bytes and cycles refused), and `Dispatched::render` carries the JSON to the cell (the B9 path). Anything else, or a `.ts`-only page returning an object, is 500 `RENOX_INTERNAL` with `reason` (`load_result`, `data_not_serialisable`, `data_too_large`, `no_template`) in the tenant log.
 
-The loader's `ctx` has `fragment` (`ops.md` section 14). The runtime never renders and does not depend on `renox-template`: rendering happens in `renox-cell`, so it is never in `cpu_ms`. `session` and actions are #41.
+The loader's `ctx` has `fragment` and `session` (`ops.md` section 14). The runtime never renders and does not depend on `renox-template`: rendering happens in `renox-cell`, so it is never in `cpu_ms`.
+
+**Actions (#41).** A page route with `actions` also answers `POST` in the router (`Allow: GET, HEAD, POST`). `pages::page_call` reads the action from the query (`?/<name>`, up to `&`; no `?/` names `default`); an unknown or malformed name is 404 before any tenant code. At isolate creation every declared action must be a function of the module's `export const actions` (fail closed, like a missing `load`). The bootstrap's `runAction`:
+
+1. parses `ctx.form` from `application/x-www-form-urlencoded` or `multipart/form-data` (any other type: an empty `FormData`) and deletes `_csrf`;
+2. opens the request's `IMMEDIATE` transaction and calls the action with `db` bound to it (no `transaction()`);
+3. on a throw, or a result that is not a `Response`, a plain object, or nothing, rolls back (500 with `reason` `threw`, `action_result`, or `no_template` for an object from a `.ts`-only page); otherwise commits;
+4. after an object, runs `load` again outside the transaction and returns `{ ...loadResult, ...actionObject }` without `fragments`, plus the `fragments` names.
+
+Only an htmx request (`HX-Request: true`) gets the out-of-band fragments; a plain form `POST` gets the full page. A name not in the page's fragment map is 500 `RENOX_INTERNAL` (after the commit), logged with the name. Since every transaction is `IMMEDIATE`, a tenant's actions serialise on its one writer: keep them short and keep `fetch` out of them (`ops.md` section 14).
+
+The session id comes from the cell as a `pages::PageSession` request extension (the cell verifies the signed cookie; the runtime never sees a key). A request without it gets an empty id.
+
+**Trailing slashes (artifact v1).** `GET`/`HEAD` `/products/42/` with no route of its own, whose path without the `/` is a page route, is answered `308` to `/products/42` with the query kept, before the isolate and without a meter record. Function routes and `POST` are never redirected.
 
 ## Limits
 

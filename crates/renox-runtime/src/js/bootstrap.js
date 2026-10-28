@@ -27,6 +27,7 @@ const {
   ArrayIsArray,
   ArrayPrototypeJoin,
   ArrayPrototypeMap,
+  ArrayPrototypeSome,
   ArrayPrototypePush,
   BigInt,
   Error,
@@ -48,6 +49,7 @@ const {
   String,
   StringPrototypeIsWellFormed,
   StringPrototypeStartsWith,
+  StringPrototypeToLowerCase,
   StringPrototypeToUpperCase,
   SafeWeakSet,
   TypeError,
@@ -67,6 +69,7 @@ function lazy(specifier) {
 }
 const requestMod = lazy("ext:deno_fetch/23_request.js");
 const responseMod = lazy("ext:deno_fetch/23_response.js");
+const formDataMod = lazy("ext:deno_fetch/21_formdata.js");
 const streamsMod = lazy("ext:deno_web/06_streams.js");
 const urlMod = lazy("ext:deno_web/00_url.js");
 
@@ -508,12 +511,105 @@ function pageResult(res) {
   return { kind: KIND_RENDER, data_json: json };
 }
 
+/** The content types an action's `ctx.form` is parsed from (ops.md section 14). */
+function isFormBody(req) {
+  const type = StringPrototypeToLowerCase(req.headers.get("content-type") ?? "");
+  return (
+    StringPrototypeStartsWith(type, "application/x-www-form-urlencoded") ||
+    StringPrototypeStartsWith(type, "multipart/form-data")
+  );
+}
+
+/**
+ * Runs one page action (ops.md section 14, "Actions"): the form is parsed,
+ * the IMMEDIATE transaction opened, the action called with `ctx.db` bound to
+ * it; commit when it resolves to a Response, an object, or nothing,
+ * rollback when it throws or returns anything else. After an object, `load`
+ * runs again (outside the transaction) and the data is
+ * `{ ...loadResult, ...actionObject }` without `fragments`.
+ */
+async function runAction(action, load, base, page, req, wantBody) {
+  const token = currentToken();
+  // The CSRF field was checked by the cell; tenant code never sees it.
+  let form;
+  if (isFormBody(req)) {
+    form = await req.formData();
+    form.delete("_csrf");
+  } else {
+    form = new (formDataMod().FormData)();
+  }
+  let tx;
+  try {
+    tx = await op_db_tx_begin(token, "immediate");
+  } catch (e) {
+    throw toRenoxError(e);
+  }
+  const rollback = async () => {
+    try {
+      await op_db_tx_rollback(token, tx);
+    } catch {
+      // The request may have ended; Rust rolls back in that case.
+    }
+  };
+  let res;
+  try {
+    const ctx = ObjectFreeze({ ...base, db: statements(tx), form, action: page.action, fragment: page.fragment ?? null });
+    res = await action(ctx);
+  } catch (e) {
+    await rollback();
+    throw e;
+  }
+  if (res === undefined) res = {};
+  const response = isResponse(res);
+  if (!response) {
+    const plain = res !== null && typeof res === "object" && !ArrayIsArray(res);
+    if (!plain || !page.template) {
+      // Anything but a Response or a plain object, or an object from a page
+      // without a template: refused, and nothing is committed.
+      await rollback();
+      if (plain) return { kind: KIND_PAGE_INTERNAL, reason: "no_template", name: "object" };
+      return { kind: KIND_PAGE_INTERNAL, reason: "action_result", name: res === null ? "null" : ArrayIsArray(res) ? "array" : typeof res };
+    }
+  }
+  let fragments = [];
+  if (!response && res.fragments !== undefined) {
+    const list = res.fragments;
+    if (!ArrayIsArray(list) || ArrayPrototypeSome(list, (f) => typeof f !== "string")) {
+      await rollback();
+      return { kind: KIND_PAGE_INTERNAL, reason: "action_result", name: "fragments" };
+    }
+    fragments = ArrayPrototypeMap(list, (f) => f);
+  }
+  try {
+    await op_db_tx_commit(token, tx);
+  } catch (e) {
+    throw toRenoxError(e);
+  }
+  if (response) return serializeResponse(res, wantBody);
+  const actionData = { ...res };
+  delete actionData.fragments;
+  let data = actionData;
+  if (load !== null) {
+    const loaded = await load(ObjectFreeze({ ...base, db, fragment: page.fragment ?? null }));
+    if (isResponse(loaded)) return serializeResponse(loaded, wantBody);
+    if (loaded === null || typeof loaded !== "object" || ArrayIsArray(loaded)) return pageResult(loaded);
+    data = { ...loaded, ...actionData };
+  }
+  const out = pageResult(data);
+  if (out.kind === KIND_RENDER) out.fragments = fragments;
+  return out;
+}
+
 /**
  * Called by Rust for every request. Runs the handler inside a fresh async
  * context carrying `token`; resolves to a plain object Rust deserialises.
  * Never rejects: every failure is described in the result.
+ *
+ * `page` is null for a function route, else `{ fragment, session, action,
+ * template }`; for an action, `action` is the action function and
+ * `handler` the page's `load` (or null).
  */
-function dispatch(handler, token, method, url, headers, body, params, wantBody, page) {
+function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action) {
   const previous = requestVar.enter(token);
   try {
     let p;
@@ -541,8 +637,14 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
         log,
         deadline,
       };
-      // LoaderContext (ops.md section 14): the fragment the cell renders.
-      if (page !== null) fields.fragment = page.fragment ?? null;
+      if (page !== null) {
+        // LoaderContext / ActionContext (ops.md section 14).
+        fields.session = ObjectFreeze({ id: page.session });
+        if (action !== null) {
+          return PromisePrototypeThen(runAction(action, handler, fields, page, req, wantBody), undefined, describeThrow);
+        }
+        fields.fragment = page.fragment ?? null;
+      }
       const ctx = ObjectFreeze(fields);
       p = PromiseResolve(handler(ctx));
     } catch (e) {

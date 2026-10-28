@@ -52,6 +52,10 @@ pub use tls::{CertStore, LoadReport, TlsConfig, TlsConnection, TlsError};
 pub const REQUEST_ID_HEADER: &str = "x-renox-request-id";
 /// Client IP header set by the gateway on the request to the cell.
 pub const CLIENT_IP_HEADER: &str = "x-renox-client-ip";
+/// The one client `x-renox-*` header that reaches the cell: the CSRF token
+/// htmx sends on page actions (`ops.md` section 14). The cell checks it and
+/// removes it before tenant code runs (`crates/renox-cell/src/pages`).
+pub const CSRF_HEADER: &str = "x-renox-csrf";
 
 /// Default security headers on every response
 /// (`docs/04-isolation-security.md`, "Clickjacking" and "Other headers"
@@ -591,7 +595,7 @@ fn request_host(req: &Request<Body>) -> Result<String, HostError> {
 }
 
 /// Removes hop-by-hop headers (including those named in `Connection`) and
-/// every client-sent `x-renox-*` header, then sets the two headers tenant
+/// every client-sent `x-renox-*` header except [`CSRF_HEADER`], then sets the two headers tenant
 /// code may trust (`ops.md` section 6).
 fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip: IpAddr) {
     let named: Vec<HeaderName> = headers
@@ -609,7 +613,7 @@ fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip:
     }
     let renox: Vec<HeaderName> = headers
         .keys()
-        .filter(|k| k.as_str().starts_with("x-renox-"))
+        .filter(|k| k.as_str().starts_with("x-renox-") && k.as_str() != CSRF_HEADER)
         .cloned()
         .collect();
     for name in renox {

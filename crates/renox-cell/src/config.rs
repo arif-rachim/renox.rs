@@ -51,6 +51,12 @@ pub struct WorkerConfig {
     /// Gateway limits per client IP.
     #[serde(default)]
     pub gateway: GatewaySection,
+    /// The node's platform key (mode 0600, at least 32 bytes): page session
+    /// and CSRF keys are derived from it per tenant (`src/pages/keys.rs`).
+    /// Absent: a random key per process, logged as a warning (sessions end
+    /// on restart). F3 delivers the node key (#54, #55).
+    #[serde(default)]
+    pub platform_key_file: Option<PathBuf>,
 }
 
 /// `[gateway]`: the per-client limits of `renox-gateway` (README of that
@@ -130,6 +136,11 @@ impl WorkerConfig {
             if p.is_relative() {
                 *p = base.join(&*p);
             }
+        }
+        if let Some(p) = &mut c.platform_key_file
+            && p.is_relative()
+        {
+            *p = base.join(&*p);
         }
         if !(c.gateway.rate_limit_per_ip.is_finite() && c.gateway.rate_limit_per_ip > 0.0) {
             return Err(ConfigError::Invalid(

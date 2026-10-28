@@ -4,7 +4,7 @@
 // these fixed sets; no part of it reaches the file system.
 
 import { type ProjectConfig, readProject } from "../lib/project.ts";
-import { discoverFunctions, routeConflicts, routesOf, sortRoutes } from "../lib/routes.ts";
+import { discoverFunctions, discoverPages, routeConflicts, routesOf, sortRoutes } from "../lib/routes.ts";
 import { problemOf } from "./devstate.ts";
 import { CTX_TYPES, DOCS, titleOf } from "./docs.ts";
 
@@ -85,7 +85,7 @@ export function readResource(uri: string, project: string): ResourceContents | n
   }
   if (uri === ROUTES) {
     try {
-      const routes = sortRoutes(routesOf(discoverFunctions(project)));
+      const routes = sortRoutes(routesOf(discoverFunctions(project), discoverPages(project)));
       return json(uri, { ok: true, routes, conflicts: routeConflicts(routes) });
     } catch (e) {
       return json(uri, { ok: false, problems: [problemOf(e)] });

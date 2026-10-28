@@ -27,6 +27,7 @@ use tokio::sync::OnceCell;
 
 use crate::artifact::{ArtifactError, ArtifactStore};
 use crate::cell::{Cell, CellKey, InFlightGuard, SecretsError, load_secrets, valid_tenant_id};
+use crate::pages::{CSRF_CODE, CSRF_MESSAGE, Gate, PageGuard, PlatformKey, SessionKeys};
 use crate::render::{PageRenderer, Rendered, SharedPages, platform_error, prefers_html};
 use crate::tiers::{TierName, Tiers};
 
@@ -40,6 +41,8 @@ pub struct ManagerConfig {
     pub tiers: Tiers,
     pub default_tier: TierName,
     pub tenant_tiers: BTreeMap<String, TierName>,
+    /// The node key page sessions and CSRF tokens are derived from (#41).
+    pub platform_key: PlatformKey,
 }
 
 impl ManagerConfig {
@@ -294,7 +297,8 @@ impl CellManager {
                 return Err(e);
             }
         };
-        let pages = match load_pages(&artifact_dir).await {
+        let keys = SessionKeys::new(self.inner.config.platform_key.tenant_key(&key.tenant_id));
+        let pages = match load_pages(&artifact_dir, keys).await {
             Ok(p) => p,
             Err(e) => {
                 isolate.terminate();
@@ -303,7 +307,8 @@ impl CellManager {
             }
         };
         let stats = isolate.stats();
-        let cell = Arc::new(Cell::new(key.clone(), isolate, pages));
+        let (pages, guard) = pages;
+        let cell = Arc::new(Cell::new(key.clone(), isolate, pages, guard));
         self.inner
             .created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -519,7 +524,7 @@ impl CellManager {
             }
         };
         let _guard = InFlightGuard(&cell);
-        let (parts, body) = req.into_parts();
+        let (mut parts, body) = req.into_parts();
         let is_head = parts.method == http::Method::HEAD;
         let get_or_head = is_head || parts.method == http::Method::GET;
         let wants_html = prefers_html(&parts.headers);
@@ -528,6 +533,59 @@ impl CellManager {
             Err(_) => Bytes::new(),
         };
         let ingress = body.len() as u64;
+        // Pages (#41): session, CSRF, platform cookies and header removed.
+        let mut csrf_token = None;
+        let mut set_cookie = Vec::new();
+        match cell.guard.as_ref().map(|g| {
+            g.check(
+                parts.method.as_str(),
+                parts.uri.path(),
+                parts.uri.query(),
+                &mut parts.headers,
+                &body,
+                false,
+            )
+        }) {
+            Some(Gate::Refused {
+                route,
+                action,
+                reason,
+            }) => {
+                let mut f = serde_json::Map::new();
+                f.insert("code".into(), CSRF_CODE.into());
+                f.insert("route".into(), route.into());
+                f.insert("action".into(), action.into());
+                f.insert("reason".into(), reason.into());
+                cell.isolate
+                    .log("warn", Some(&ctx.request_id), "csrf check failed", f);
+                // 403 with the error page; no tenant code ran, no meter record.
+                let response = match cell.pages.clone() {
+                    Some(pages) => {
+                        let request_id = ctx.request_id.clone();
+                        on_render_pool(move || {
+                            pages.error_page(403, Some(CSRF_CODE), CSRF_MESSAGE, &request_id, None)
+                        })
+                        .await
+                        .response
+                    }
+                    None => crate::render::default_page(403, CSRF_MESSAGE, &ctx.request_id),
+                };
+                return to_body(response);
+            }
+            Some(Gate::Page {
+                session,
+                csrf_token: token,
+                set_cookie: cookies,
+            }) => {
+                parts.extensions.insert(session);
+                csrf_token = Some(token);
+                set_cookie = cookies;
+            }
+            Some(Gate::Pass) => {}
+            None => {
+                parts.headers.remove(crate::pages::session::CSRF_HEADER);
+            }
+        }
         let rt_ctx = renox_runtime::RequestCtx {
             request_id: ctx.request_id.clone(),
             deadline: ctx.deadline,
@@ -543,9 +601,12 @@ impl CellManager {
         if let Some(pages) = cell.pages.clone() {
             let request_id = ctx.request_id.clone();
             if let Some(page) = out.render.take() {
+                let token = csrf_token.clone();
                 rendered = Some(
-                    on_render_pool(move || pages.render_page(&page, &request_id, None, is_head))
-                        .await,
+                    on_render_pool(move || {
+                        pages.render_page(&page, &request_id, None, token.as_deref(), is_head)
+                    })
+                    .await,
                 );
             } else if out.page
                 && out.meter.status != RuntimeStatus::Ok
@@ -591,6 +652,15 @@ impl CellManager {
         }
         if is_head {
             *out.response.body_mut() = Bytes::new();
+        }
+        if out.page {
+            for c in &set_cookie {
+                if let Ok(v) = http::HeaderValue::from_str(c) {
+                    out.response
+                        .headers_mut()
+                        .append(http::header::SET_COOKIE, v);
+                }
+            }
         }
         // 404 and 405 answered by route matching produce no record
         // (`meter.md` section 1).
@@ -647,14 +717,19 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
 }
 
 /// The deployment's page renderer, from `manifest.json` and `templates/`.
-async fn load_pages(artifact_dir: &Path) -> Result<Option<SharedPages>, CellError> {
+/// Also the page guard (sessions, CSRF) when the deployment has page routes.
+async fn load_pages(
+    artifact_dir: &Path,
+    keys: SessionKeys,
+) -> Result<(Option<SharedPages>, Option<PageGuard>), CellError> {
     let dir = artifact_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let raw = std::fs::read(dir.join("manifest.json"))
             .map_err(|_| "V3: manifest.json cannot be read".to_string())?;
         let manifest: renox_runtime::manifest::Manifest =
             serde_json::from_slice(&raw).map_err(|e| format!("V3: manifest.json: {e}"))?;
-        PageRenderer::load(&dir, &manifest).map(|p| p.map(Arc::new))
+        let guard = PageGuard::new(&manifest.routes, keys);
+        PageRenderer::load(&dir, &manifest).map(|p| (p.map(Arc::new), guard))
     })
     .await
     .map_err(|e| e.to_string())

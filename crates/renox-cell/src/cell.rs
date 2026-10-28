@@ -18,6 +18,7 @@ use std::time::Instant;
 
 use renox_runtime::IsolateHandle;
 
+use crate::pages::PageGuard;
 use crate::render::SharedPages;
 use tokio::sync::Notify;
 
@@ -34,6 +35,8 @@ pub struct Cell {
     pub(crate) isolate: IsolateHandle,
     /// The deployment's templates (artifact v1); `None` without templates.
     pub(crate) pages: Option<SharedPages>,
+    /// Sessions and CSRF for page routes (#41); `None` without page routes.
+    pub(crate) guard: Option<PageGuard>,
     inflight: AtomicUsize,
     last_used: Mutex<Instant>,
     draining: AtomicBool,
@@ -43,11 +46,17 @@ pub struct Cell {
 }
 
 impl Cell {
-    pub(crate) fn new(key: CellKey, isolate: IsolateHandle, pages: Option<SharedPages>) -> Cell {
+    pub(crate) fn new(
+        key: CellKey,
+        isolate: IsolateHandle,
+        pages: Option<SharedPages>,
+        guard: Option<PageGuard>,
+    ) -> Cell {
         Cell {
             key,
             isolate,
             pages,
+            guard,
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
             draining: AtomicBool::new(false),

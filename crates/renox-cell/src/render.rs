@@ -118,6 +118,7 @@ impl PageRenderer {
     fn context(&self, csp_nonce: Option<&str>) -> RenderContext {
         RenderContext {
             csp_nonce: csp_nonce.map(str::to_string),
+            csrf_token: None,
             now_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -135,6 +136,7 @@ impl PageRenderer {
         page: &PageRender,
         request_id: &str,
         csp_nonce: Option<&str>,
+        csrf_token: Option<&str>,
         head: bool,
     ) -> Rendered {
         let Some(template) = page.template.as_deref() else {
@@ -173,7 +175,10 @@ impl PageRenderer {
                 None,
             );
         }
-        let cx = self.context(csp_nonce);
+        let cx = RenderContext {
+            csrf_token: csrf_token.map(str::to_string),
+            ..self.context(csp_nonce)
+        };
         let limits = RenderLimits::DEFAULT;
         let main: Vec<&str> = page.fragment.as_deref().into_iter().collect();
         let result = if page.oob_fragments.is_empty() {
@@ -185,25 +190,14 @@ impl PageRenderer {
                 .render(target, data, &cx, &limits)
                 .map(|o| (o.html, o.fuel_used, o.ms))
         } else if main.is_empty() {
-            // A full page plus out-of-band fragments: two passes, one budget
-            // each, both metered.
+            // An htmx action with `{ fragments }` and no fragment selected by
+            // `HX-Target`: only the out-of-band blocks.
+            let blocks: Vec<&str> = page.oob_fragments.iter().map(String::as_str).collect();
             self.renderer
-                .render(RenderTarget::Page(template), data.clone(), &cx, &limits)
-                .and_then(|page_out| {
-                    let blocks: Vec<&str> = page.oob_fragments.iter().map(String::as_str).collect();
-                    self.renderer
-                        .render_blocks(template, &blocks, data, &cx, &limits)
-                        .map(|(parts, stats)| {
-                            let mut html = page_out.html;
-                            for p in parts {
-                                html.push_str(&mark_oob(&p));
-                            }
-                            (
-                                html,
-                                page_out.fuel_used + stats.fuel_used,
-                                page_out.ms + stats.ms,
-                            )
-                        })
+                .render_blocks(template, &blocks, data, &cx, &limits)
+                .map(|(parts, stats)| {
+                    let html: String = parts.iter().map(|p| mark_oob(p)).collect();
+                    (html, stats.fuel_used, stats.ms)
                 })
         } else {
             let mut blocks = main.clone();

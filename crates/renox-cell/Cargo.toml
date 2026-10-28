@@ -17,6 +17,14 @@ renox-runtime = { path = "../renox-runtime" }
 renox-template = { path = "../renox-template", default-features = false, features = ["render"] }
 
 axum = { version = "0.8.9", default-features = false }
+# Page sessions and CSRF (#41): HKDF per tenant, HMAC-signed cookies,
+# constant-time comparison, form field lookup.
+base64 = "0.22"
+form_urlencoded = "1"
+getrandom = "0.3"
+hkdf = "0.12"
+hmac = "0.12"
+subtle = "2.6"
 bytes = "1"
 http = "1"
 http-body-util = "0.1"

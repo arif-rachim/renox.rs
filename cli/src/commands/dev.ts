@@ -282,7 +282,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   };
   writeDevState(project, status);
   log(`renox dev: http://localhost:${opts.port}  (artifact ${current.slice(0, 12)}, ${first.manifest.routes.length} routes)`);
-  for (const r of first.manifest.routes) log(`  ${r.method.padEnd(7)} ${r.path}`);
+  for (const r of first.manifest.routes) log(`  ${(r.kind === "function" ? r.method : "PAGE").padEnd(7)} ${r.path}`);
 
   // Tenant log lines to the terminal.
   const tenantLog = join(state, "logs", "tenant.ndjson");
