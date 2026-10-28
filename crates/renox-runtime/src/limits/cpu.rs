@@ -443,28 +443,37 @@ mod tests {
     /// The seqlock never hands the watchdog a torn (start, budget) pair.
     #[test]
     fn rebase_is_seen_whole() {
-        let w = Watchdog::start(Box::new(|| {})).unwrap();
-        let watch = w.watch().clone();
-        let stop = Arc::new(AtomicBool::new(false));
-        let s = stop.clone();
+        // No watchdog thread: the test samples the pair itself.
+        let watch = Arc::new(CpuWatch {
+            clock: ThreadCpuClock::current().unwrap(),
+            slice_start_ns: AtomicU64::new(IDLE),
+            budget_ns: AtomicU64::new(u64::MAX),
+            seq: AtomicU64::new(0),
+            fired: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+        });
+        let seen = Arc::new(AtomicU64::new(0));
         let reader = {
-            let watch = watch.clone();
+            let (watch, seen) = (watch.clone(), seen.clone());
             thread::spawn(move || {
-                let mut seen = 0u64;
-                while !s.load(Ordering::SeqCst) {
+                while seen.load(Ordering::SeqCst) < 10_000 {
                     if let Some((start, budget)) = watch.sample() {
-                        assert_eq!(start, budget, "torn pair");
-                        seen += 1;
+                        assert!(start == budget || start == IDLE, "torn pair");
+                        seen.fetch_add(1, Ordering::SeqCst);
                     }
+                    thread::yield_now();
                 }
-                seen
             })
         };
-        for i in 1..200_000u64 {
+        // Rewrite the pair until the reader has sampled it 10,000 times.
+        let t = std::time::Instant::now();
+        let mut i = 1u64;
+        while !reader.is_finished() && t.elapsed() < Duration::from_secs(10) {
             watch.rebase(i, Duration::from_nanos(i));
+            i += 1;
         }
-        stop.store(true, Ordering::SeqCst);
-        assert!(reader.join().unwrap() > 0);
+        reader.join().unwrap();
+        assert!(seen.load(Ordering::SeqCst) >= 10_000);
     }
 
     #[test]

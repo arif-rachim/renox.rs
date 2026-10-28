@@ -1208,30 +1208,40 @@ fn context_token(scope: &mut v8::PinScope, cped: v8::Local<v8::Value>) -> Option
     }
 }
 
-/// V8's isolate promise hook. `Before`: a promise reaction (an `await`
-/// continuation, a `then` callback) starts; V8 has restored the
+/// The context's `before` promise hook: a promise reaction (an `await`
+/// continuation, a `then` callback) starts. V8 has restored the
 /// continuation-preserved embedder data captured when the reaction was
 /// created: the async context of the request that created it (see
-/// [`CPU_TOKEN_KEY`]) or none. `After`: back to what it interrupted.
-extern "C" fn promise_hook(
-    kind: v8::PromiseHookType,
-    promise: v8::Local<v8::Promise>,
-    _parent: v8::Local<v8::Value>,
+/// [`CPU_TOKEN_KEY`]) or none.
+fn promise_before(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
 ) {
-    match kind {
-        v8::PromiseHookType::Before => {
-            let token = {
-                // SAFETY: V8 calls the hook on the isolate's thread with a
-                // live promise handle, inside a context.
-                v8::callback_scope!(unsafe scope, promise);
-                let cped = scope.get_continuation_preserved_embedder_data();
-                context_token(scope, cped)
-            };
-            attribute(|l, now| l.enter(token, now));
-        }
-        v8::PromiseHookType::After => attribute(|l, now| l.leave(now)),
-        _ => {}
-    }
+    let cped = scope.get_continuation_preserved_embedder_data();
+    let token = context_token(scope, cped);
+    attribute(|l, now| l.enter(token, now));
+}
+
+/// The context's `after` promise hook: back to what the reaction
+/// interrupted.
+fn promise_after(
+    _scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    attribute(|l, now| l.leave(now));
+}
+
+/// Install the `before` and `after` hooks on the main context. Context
+/// hooks (not the isolate's `SetPromiseHook`) leave `init` and `resolve`
+/// unset, so V8 calls into Rust only around reactions and keeps its fast
+/// paths for creating and resolving promises.
+fn install_promise_hooks(worker: &mut MainWorker) {
+    deno_core::scope!(scope, &mut worker.js_runtime);
+    let before = v8::Function::new(scope, promise_before);
+    let after = v8::Function::new(scope, promise_after);
+    scope.set_promise_hooks(None, before, after, None);
 }
 
 /// Set the async context that JavaScript started now runs in: a
@@ -1273,10 +1283,7 @@ async fn serve(
             in_slice: false,
         })
     });
-    worker
-        .js_runtime
-        .v8_isolate()
-        .set_promise_hook(promise_hook);
+    install_promise_hooks(worker);
     std::future::poll_fn(|cx| {
         let budget = with_attribution(|a| a.ledger.budget()).unwrap_or(cpu_limit);
         let slice = guards.watchdog.begin_slice(budget);
