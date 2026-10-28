@@ -1,16 +1,19 @@
 # renox-gateway
 
-The data plane's front door (P3, `docs/03-architecture.md` Gateway row): hostname → tenant → deployment routing, static files from `public/`, per-IP rate limiting, and the default security headers. Leaf crate: no dependency on other `renox-*` crates, no V8 (`cargo tree -p renox-gateway | grep v8` is empty). There is no binary; `renox-worker` (`crates/renox-cell`, #29) calls `Gateway::serve`.
+The data plane's front door (P3, `docs/03-architecture.md` Gateway row): hostname → tenant → deployment routing, static files from `public/`, per-IP rate limiting, protocol hardening, and the default security headers. Leaf crate: no dependency on other `renox-*` crates, no V8 (`cargo tree -p renox-gateway | grep v8` is empty). There is no binary; `renox-worker` (`crates/renox-cell`, #29) calls `Gateway::serve`.
 
 ## Request path
 
+Below the HTTP parser, the **protocol guards** (see "Protocol limits") refuse an HTTP/1 request with ambiguous framing before hyper parses it, and close an HTTP/2 connection that is over its stream-reset budget. Then, per request:
+
 1. A ULID request id is assigned.
 2. **Rate limit**: token bucket per client IP (IPv6 by /64). Over the limit → `429` with `Retry-After` and an empty body (no error code: under a flood the gateway spends no bytes on a body; `docs/contracts/errors.md` "Open" 2). The cell is not called and nothing is metered.
-3. **Host**: the URI authority (HTTP/2 `:authority`) or the single `Host` header, with the port and a trailing dot removed and lower-cased. Missing, repeated, or not a DNS hostname (IP literals included) → `400`.
+3. **Host**: the URI authority (HTTP/2 `:authority`) or the single `Host` header, with the port and a trailing dot removed and lower-cased. Missing, repeated, not a DNS hostname (IP literals included), or an authority and a `Host` header naming different hosts → `400`.
 4. **Route table** lookup (`docs/contracts/artifact.md` section 5). No entry, or only `draining` entries → `404 Not found`; no cell is touched.
-5. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's `public/manifest.json` is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
-6. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`.
-7. Every response, whatever produced it, gets the default security headers (below) and `x-renox-request-id`.
+5. **SNI / Host** (TLS only, `src/host_check.rs`): the SNI name of the connection and the request's host must resolve to the same tenant, otherwise `421` `RENOX_HOST_MISMATCH` (JSON body, or the default page when `Accept` prefers HTML). Two hostnames of one tenant may share a connection (HTTP/2 coalescing under one certificate); browsers retry a 421 on a new connection.
+6. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's `public/manifest.json` is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
+7. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`.
+8. Every response, whatever produced it, gets the default security headers (below) and `x-renox-request-id`.
 
 ## `CellDispatcher` and `RequestCtx`
 
@@ -86,7 +89,59 @@ Certificates are issued and pushed by the control plane from F3 (ACME, #59); key
 | `idle_timeout` | 60 s | `IdleTimeout` around the socket: no byte read or written for this long while waiting on the socket | connection closed |
 | `max_connections_per_ip` | 100 | `ConnectionLimiter` at accept (IPv6 by /64) | plain HTTP: fixed `503` + `Retry-After: 1`, closed; TLS: closed before the handshake |
 
-The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.1 only (no h2c, no cleartext upgrade), TLS uses HTTP/2 when ALPN negotiated `h2`. A sniffing step would read the first bytes before the head timer starts. Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
+The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.x only (no h2c, no cleartext upgrade), TLS uses HTTP/2 when ALPN negotiated `h2`. A sniffing step would read the first bytes before the head timer starts. Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
+
+## Protocol limits
+
+`src/protocol.rs` and `src/host_check.rs` (#107; `docs/24-threat-model.md` section C). The gateway is the only HTTP parser between the internet and a cell, so a request that two parsers could read differently is refused here, before routing, and never reaches the `CellDispatcher`.
+
+**HTTP/1.x guard.** `Http1Guard` wraps every HTTP/1 connection (plain, and TLS without ALPN `h2`) and checks the raw bytes before hyper sees them. hyper alone accepts several of these cases: it drops `Content-Length` when `Transfer-Encoding` is also present, merges equal duplicate lengths, and accepts bare LF. The guard follows the body framing (`Content-Length` or `chunked`) to find each next request head on a keep-alive connection. It refuses:
+
+| Refused | Why |
+| --- | --- |
+| `Transfer-Encoding` together with `Content-Length` (CL.TE, TE.CL) | Classic smuggling: the two parsers disagree on the body length |
+| More than one `Content-Length` (even equal), or one that is not plain digits | RFC 9112 section 6.3 |
+| `Transfer-Encoding` other than exactly `chunked`, repeated, or on HTTP/1.0 | `chunked, identity` and friends |
+| Bare LF or bare CR as a line ending, anywhere in a head or chunk framing | Lenient parsers split lines differently |
+| Obsolete line folding (a header line starting with SP or HT) | RFC 9112 section 5.2 |
+| Whitespace between a header name and `:`, a name that is not a token, a control character (NUL included) in a value | RFC 9112 section 5.1 |
+| A request line that is not `token SP target SP HTTP/1.0` or `HTTP/1.1` (one space each, visible ASCII target); this includes the h2c prior-knowledge preface `PRI * HTTP/2.0` | Invalid characters in the request line |
+| `CONNECT` | The gateway is an origin, not a proxy |
+| `Upgrade: h2c` or an `HTTP2-Settings` header | No cleartext HTTP/2 or upgrade |
+| A chunk size that is not 1–16 hex digits (optional `;ext`), or chunk data not followed by CRLF | Chunk framing |
+
+A refused first request on a connection gets a fixed `400 Bad Request` with `connection: close`. A violation later on the connection closes it without a response, because a response to an earlier request may still be in flight. A head longer than the header limit is left to hyper, which answers `431`.
+
+**HTTP/2.** `H2ResetBudget` wraps every HTTP/2 connection and counts the client's `RST_STREAM` frames (rapid reset, CVE-2023-44487). hyper's own limit only covers streams reset before the server accepted them.
+
+**SNI / Host** is described under "Request path", step 5. The SNI is taken from the TLS session (`TlsSni` request extension). On plain HTTP there is no SNI and no check.
+
+**Static assets.** `StaticFiles` keys a static response by `(deployment_hash, path)`. The deployment hash is the content hash of the artifact, chosen by the hostname's route entry, so the key implies the tenant and hostname. No request header other than `If-None-Match` (which only turns a 200 into a 304) changes the response. The gateway never sets `Vary`. `public/manifest.json` has no precompressed variants, so there is no `Accept-Encoding` negotiation until a contract adds variants.
+
+Every knob, its default, and where it is set. `GatewayConfig.protocol` is `ProtocolLimits`. The other HTTP/1 knobs come from `GatewayConfig.limits` (see "Input limits"). None of them is in `worker.toml` yet; the worker uses the defaults.
+
+| Knob | Default | Config key | Mechanism |
+| --- | --- | --- | --- |
+| HTTP/1 head read timeout | 10 s | `limits.header_read_timeout` | hyper `http1::Builder::header_read_timeout` |
+| HTTP/1 read buffer (head size) | 16 KiB | `limits.max_header_bytes` | hyper `max_buf_size`; also the guard's line buffer |
+| HTTP/1 header count | 100 | `limits.max_headers` | hyper `max_headers` |
+| HTTP/1 half-close | off | fixed | hyper `half_close(false)`: a client `FIN` ends the connection |
+| HTTP/1 pipeline flush aggregation | off | fixed | hyper `pipeline_flush(false)` |
+| HTTP/1 multiple spaces in the request line | refused | fixed | hyper `allow_multiple_spaces_in_request_line_delimiters(false)`, and the guard |
+| HTTP/1 invalid header lines | refused | fixed | hyper `ignore_invalid_headers(false)`, and the guard |
+| HTTP/1 framing rules (table above) | on | fixed | `Http1Guard` |
+| h2c / cleartext upgrade | refused | fixed | plain listener is HTTP/1 only; `Upgrade: h2c` refused by the guard; `Upgrade` stripped before dispatch |
+| HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` | 128 | `protocol.h2_max_concurrent_streams` | hyper `http2::Builder::max_concurrent_streams` |
+| HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` | 16 KiB | `limits.max_header_bytes` | hyper `max_header_list_size` |
+| HTTP/2 client resets per second | 100 | `protocol.h2_max_resets_per_second` | `H2ResetBudget`: over it, the connection is closed |
+| HTTP/2 resets before accept | 20 | `protocol.h2_max_pending_accept_reset_streams` | hyper / `h2`: over it, `GOAWAY ENHANCE_YOUR_CALM` |
+| HTTP/2 server resets caused by client errors | 1,024 | `protocol.h2_max_local_error_reset_streams` | hyper / `h2`: over it, `GOAWAY ENHANCE_YOUR_CALM` |
+| HTTP/2 keep-alive `PING` interval | 30 s | `protocol.h2_keep_alive_interval` | hyper `keep_alive_interval` |
+| HTTP/2 keep-alive `PING` timeout | 20 s | `protocol.h2_keep_alive_timeout` | hyper `keep_alive_timeout` |
+| HTTP/2 frame size, window sizes, send buffer | hyper defaults (16 KiB frames, 1 MiB stream / connection windows, 400 KiB send buffer) | not exposed | hyper `http2::Builder` |
+| SNI / Host consistency | on (TLS) | fixed | `host_check::consistent`; 421 `RENOX_HOST_MISMATCH` |
+
+`Gateway::stats()` counts `protocol_refused` (connections closed by either guard) and `host_mismatch` (421 responses).
 
 ## Configuration
 
@@ -100,7 +155,8 @@ The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.1 only 
 | `rate_limit.burst` | 200 | Bucket size |
 | `rate_limit.max_tracked_clients` | 100,000 | When reached, fully refilled buckets are dropped |
 | `limits` | see "Input limits" | Header, body, timeout, and connection limits |
+| `protocol` | see "Protocol limits" | HTTP/2 stream and reset limits |
 
 ## Tests
 
-`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client.
+`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/protocol.rs` sends hand-written bytes (smuggling, h2c), drives an `h2` client (rapid reset, `:authority`), and checks SNI vs `Host` over TLS; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client.
