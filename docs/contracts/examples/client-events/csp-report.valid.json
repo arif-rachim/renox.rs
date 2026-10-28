@@ -1,0 +1,17 @@
+{
+  "$comment": "valid: application/csp-report body as Chrome sends it to report-uri; original-policy and script-sample are accepted and dropped by normalisation",
+  "csp-report": {
+    "document-uri": "https://shop.renox.app/products?page=2",
+    "referrer": "",
+    "violated-directive": "script-src-elem",
+    "effective-directive": "script-src-elem",
+    "original-policy": "default-src 'self'; script-src 'self' 'nonce-abc'; report-uri /__renox/events?kind=csp",
+    "disposition": "enforce",
+    "blocked-uri": "inline",
+    "line-number": 41,
+    "column-number": 9,
+    "source-file": "https://shop.renox.app/products",
+    "status-code": 200,
+    "script-sample": ""
+  }
+}

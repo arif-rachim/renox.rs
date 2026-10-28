@@ -1,0 +1,615 @@
+{
+  "$comment": "invalid: 21 events, the batch maximum is 20 [expect: maxItems 20]",
+  "v": 0,
+  "events": [
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "js.error",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "message": "Cannot read properties of undefined (reading 'price')",
+        "source": "/assets/cart-3f9a.js",
+        "line": 12,
+        "column": 7,
+        "stack": [
+          {
+            "file": "/assets/cart-3f9a.js",
+            "line": 12,
+            "column": 7,
+            "function": "total"
+          },
+          {
+            "file": "https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js",
+            "line": 1,
+            "column": 4410,
+            "function": null
+          }
+        ]
+      }
+    }
+  ]
+}

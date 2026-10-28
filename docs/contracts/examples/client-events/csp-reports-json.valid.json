@@ -1,0 +1,20 @@
+[
+  {
+    "type": "csp-violation",
+    "age": 12,
+    "url": "https://shop.renox.app/products?page=2",
+    "user_agent": "Mozilla/5.0",
+    "body": {
+      "documentURL": "https://shop.renox.app/products?page=2",
+      "blockedURL": "https://evil.example/x.js",
+      "effectiveDirective": "script-src-elem",
+      "originalPolicy": "default-src 'self'",
+      "sourceFile": "https://shop.renox.app/products",
+      "lineNumber": 3,
+      "columnNumber": 1,
+      "disposition": "enforce",
+      "statusCode": 200,
+      "sample": ""
+    }
+  }
+]

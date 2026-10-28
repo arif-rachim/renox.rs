@@ -39,12 +39,12 @@ Target from save to browser update: under 300 ms for a single file. Discarding t
 
 Server errors alone are not enough: an exception in an Alpine component or an island, an htmx fragment that returned an error or found no swap target, a script blocked by the CSP, or a WebSocket that cannot connect would otherwise leave a page that "does nothing". The platform captures these from the browser (`docs/contracts/client-events.md`, #125):
 
-- Every response carries `Renox-Request-Id`; pages carry it in a meta tag, fragments in the header. A browser error is reported with the id of the page or fragment on screen, so the dashboard and the overlay show the server log line and the browser error for the same request side by side.
+- Every response carries `x-renox-request-id`; pages also carry it in a `<meta name="renox-request-id">` tag, fragments in the header (`docs/contracts/client-events.md` section 1). A browser error is reported with the id of the page or fragment on screen, so the dashboard and the overlay show the server log line and the browser error for the same request side by side.
 - A small platform script (`/__renox/client.js`, ≤ 4 KB, nonce'd under the strict CSP) captures `window.onerror`, unhandled rejections, the htmx error events, realtime connect and close failures, and CSP violation reports, and sends batches to `/__renox/events` on the app's own origin with `sendBeacon` (#126, #127).
-- The gateway validates and rate-limits the events per IP and per tenant before writing them to the tenant log sink with `source=client`; the endpoint never touches the isolate.
+- The gateway validates and rate-limits the events before writing them to the tenant log sink with `source=client`; the endpoint always answers `204` and never touches the isolate. Limits (contract section 6): 32 KB and 20 events per batch, 2,048 code points per string, 60 requests per minute per IP per tenant, 1,000 events per minute per tenant then sampled 1 in 10, and a daily cap tied to the tenant's log allowance.
 - In dev the overlay has a "Browser" tab, `renox dev` prints `[browser] …` lines, and the MCP `dev_errors` tool returns the same events. A `renox:error` DOM event lets the app show its own toast.
 - In production the dashboard groups events by fingerprint per deployment, flags regressions, and symbolicates frames against sourcemaps that `renox deploy` uploads privately (never served) (#128).
-- Privacy: no cookies, form values, or storage are read; stack frames keep file, line, column, and function only; `[client] events = false` in `renox.toml` disables the script and the endpoint.
+- Privacy (contract section 8): no cookies, form values, or storage are read; no user id, only a random per-page-load `session_fingerprint`; URLs lose their fragment; stack frames keep file, line, column, and function only; strings are truncated at 2 KB; `[client] events = false` in `renox.toml` disables the script and the endpoint.
 
 ## Deploy without downtime
 

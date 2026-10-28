@@ -5,6 +5,8 @@
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
 //     hash, manifest, migrations, public files: rules V1-V13);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
+//   - client event batches follow docs/contracts/client-events.md (schema plus
+//     rules CE1 and CE2);
 //   - the error catalogue docs/contracts/errors.md has exactly one row for
 //     every code used in ops.md and docs/23-failure-modes.md, and ctx.d.ts
 //     uses exactly the codes of ops.md section 13.
@@ -393,11 +395,29 @@ function meterBatchRules(batch: JsonObject): string[] {
   return errors;
 }
 
+/** client-events.md section 3: CE1, the batch is at most 32 KB; CE2, each `extra` is at most 1 KB. */
+const MAX_CLIENT_BATCH_BYTES = 32 * 1024;
+const MAX_CLIENT_EXTRA_BYTES = 1024;
+function clientEventRules(batch: JsonObject): string[] {
+  const errors: string[] = [];
+  const { $comment: _, ...sent } = batch;
+  const size = encoder.encode(JSON.stringify(sent)).length;
+  if (size > MAX_CLIENT_BATCH_BYTES) errors.push(`CE1: batch is ${size} bytes, limit ${MAX_CLIENT_BATCH_BYTES}`);
+  (batch.events as JsonObject[]).forEach((e, i) => {
+    if (e.extra === undefined) return;
+    const extra = encoder.encode(JSON.stringify(e.extra)).length;
+    if (extra > MAX_CLIENT_EXTRA_BYTES) errors.push(`CE2: events[${i}].extra is ${extra} bytes, limit ${MAX_CLIENT_EXTRA_BYTES}`);
+  });
+  return errors;
+}
+
 const schemaFile = (name: string): string => `${root}/schemas/${name}.schema.json`;
 
 /** A "message" is one JSON document kind with its schema and the semantic rules applied after it. */
 interface Message {
   schema: string;
+  /** Validate against `$defs/<def>` of the schema instead of its root. */
+  def?: string;
   rules?: (doc: JsonObject) => string[];
 }
 const messages: Record<string, Message> = {
@@ -406,12 +426,17 @@ const messages: Record<string, Message> = {
   "migrations-checksums": { schema: schemaFile("migrations-checksums") },
   "public-manifest": { schema: schemaFile("public-manifest") },
   "meter-batch": { schema: schemaFile("meter-record"), rules: meterBatchRules },
+  "client-events": { schema: `${root}/schemas/client-event.json`, rules: clientEventRules },
+  "csp-report": { schema: `${root}/schemas/client-event.json`, def: "csp-report" },
+  "csp-reports-json": { schema: `${root}/schemas/client-event.json`, def: "csp-reports-json" },
 };
 
 function checkMessage(kind: string, doc: Json): string[] {
   const message = messages[kind];
   if (message === undefined) throw new Error(`unknown message kind ${kind}`);
-  const errors = validate(readJson(message.schema), doc).map((e) => `schema ${e}`);
+  const schema = readJson(message.schema);
+  const target: Json = message.def === undefined ? schema : { $ref: `#/$defs/${message.def}` };
+  const errors = validate(target, doc, schema).map((e) => `schema ${e}`);
   if (errors.length === 0 && message.rules !== undefined && isObject(doc)) errors.push(...message.rules(doc));
   return errors;
 }
@@ -575,7 +600,7 @@ function checkExample(path: string, check: (doc: Json) => string[]): void {
 const schemas = [
   `${root}/ops.schema.json`,
   ...listDir(`${root}/schemas`)
-    .filter((f) => f.endsWith(".schema.json"))
+    .filter((f) => f.endsWith(".schema.json") || f === "client-event.json")
     .map((f) => `${root}/schemas/${f}`),
 ];
 for (const path of schemas) {
@@ -590,7 +615,7 @@ for (const file of listDir(`${root}/examples/ops`).filter((f) => f.endsWith(".js
 }
 
 // 3. Single-file examples (examples/<contract>/<message>.<case>.(valid|invalid).json).
-for (const contract of ["artifact", "meter"]) {
+for (const contract of ["artifact", "meter", "client-events"]) {
   for (const file of listDir(`${root}/examples/${contract}`).filter((f) => f.endsWith(".json"))) {
     const kind = Object.keys(messages).find((k) => file.startsWith(`${k}.`));
     if (kind === undefined) {
@@ -600,6 +625,16 @@ for (const contract of ["artifact", "meter"]) {
     checkExample(`${root}/examples/${contract}/${file}`, (doc) => checkMessage(kind, doc));
   }
 }
+// client-events.md section 4: every event kind has at least one valid example.
+const eventKinds = (((readJson(`${root}/schemas/client-event.json`) as JsonObject).$defs as JsonObject).event as JsonObject)
+  .properties as JsonObject;
+const covered = new Set<string>();
+for (const file of listDir(`${root}/examples/client-events`).filter((f) => /^client-events\..*\.valid\.json$/u.test(f))) {
+  const doc = readJson(`${root}/examples/client-events/${file}`);
+  if (isObject(doc) && Array.isArray(doc.events)) for (const e of doc.events) if (isObject(e)) covered.add(e.kind as string);
+}
+const uncovered = ((eventKinds.kind as JsonObject).enum as string[]).filter((k) => !covered.has(k));
+report(uncovered.length === 0, "examples/client-events has a valid example for every kind", uncovered.map((k) => `${k} has no valid example`));
 const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
 report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);
 

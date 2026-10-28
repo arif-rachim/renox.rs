@@ -1,0 +1,20 @@
+{
+  "$comment": "invalid: an htmx.responseError detail without status [expect: missing \"status\"]",
+  "v": 0,
+  "events": [
+    {
+      "kind": "htmx.responseError",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": "01JBQ3Z7MA0000000000000001",
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "chrome",
+      "session_fingerprint": "9f86d081884c7d65",
+      "detail": {
+        "code": null,
+        "method": "GET",
+        "request_url": "/x"
+      }
+    }
+  ]
+}

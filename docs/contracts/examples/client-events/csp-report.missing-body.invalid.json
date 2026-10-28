@@ -1,0 +1,4 @@
+{
+  "$comment": "invalid: not a csp-report body [expect: missing \"csp-report\"]",
+  "document-uri": "https://shop.renox.app/"
+}

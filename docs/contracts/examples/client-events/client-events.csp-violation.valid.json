@@ -1,0 +1,24 @@
+{
+  "$comment": "valid: a csp.violation as normalised by the gateway from a browser report; request_id and session_fingerprint are null (client-events.md section 5)",
+  "v": 0,
+  "events": [
+    {
+      "kind": "csp.violation",
+      "ts": 1793318400123,
+      "url": "/products?page=2",
+      "request_id": null,
+      "deployment": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6",
+      "ua": "firefox",
+      "session_fingerprint": null,
+      "detail": {
+        "blocked_uri": "inline",
+        "violated_directive": "script-src-elem",
+        "effective_directive": "script-src-elem",
+        "source_file": "/products",
+        "line": 41,
+        "column": 9,
+        "disposition": "enforce"
+      }
+    }
+  ]
+}

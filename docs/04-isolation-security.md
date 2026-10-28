@@ -40,7 +40,7 @@ Node worker (one Rust process tree per node)
 | Database | Small connection pool per tenant, `busy_timeout`, statement time limit, file size quota | 100 MB / 10 GB |
 | Render | minijinja fuel, iteration limit, output size limit, include depth, render timeout | Charged to the tenant quota |
 | Realtime | Connections per tenant and per user, message size, backpressure | 100 / 10,000 connections |
-| Logs | Volume per tenant per minute | Rate limited, then sampled |
+| Logs | Volume per tenant per minute; browser events at `/__renox/events` have their own budget (60 requests per minute per IP, 1,000 events per minute per tenant, daily cap at 10 % of the log allowance, `docs/contracts/client-events.md` section 6) | Rate limited, then sampled |
 
 All limits are measured per request and recorded for billing (`05-tenant-lifecycle.md`).
 
@@ -97,6 +97,8 @@ Browser-facing protections are enforced by the gateway and the template engine, 
 | Input validation | `validate(req, Schema)` (zod/valibot) before handler bodies; file uploads limited by size and type | Per handler |
 | Output escaping | Templates auto-escape; raw HTML only via explicit `r-html`; URLs in `:href` are checked for `javascript:` | — |
 | TLS | Automatic certificates (ACME) for `*.renox.app` and custom domains; TLS 1.2+; OCSP stapling | — |
+
+CSP violation reports go to `/__renox/events?kind=csp` on the app's own origin, which the gateway answers itself with `204` and normalises to `csp.violation` client events; header names, the endpoint, limits, and privacy rules are in `docs/contracts/client-events.md`.
 
 All of these are measured by `renox check --security`, which reports the effective headers for each route and fails on `unsafe-inline` without an explicit opt-in.
 

@@ -1,0 +1,774 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/client-events/v0/client-event.json",
+  "title": "Renox client events, contract version 0",
+  "description": "Root: one batch POSTed to /__renox/events. $defs/event: one event. $defs/csp-report and $defs/csp-reports-json: the raw browser CSP report bodies accepted with ?kind=csp. Prose: docs/contracts/client-events.md. Body size (CE1) and extra size (CE2) are checked by validate.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "events"
+  ],
+  "properties": {
+    "$comment": {
+      "type": "string"
+    },
+    "v": {
+      "const": 0
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "$defs": {
+    "str": {
+      "type": "string",
+      "maxLength": 2048,
+      "description": "Every string in an event: at most 2,048 code points (client-events.md section 3)."
+    },
+    "uint": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^/[^#\\s]*$",
+      "maxLength": 2048,
+      "description": "Path and query on the app's origin; never a fragment, scheme, or host."
+    },
+    "request_url": {
+      "type": "string",
+      "pattern": "^(/[^#\\s]*|https?://[^/?#\\s]+(/[^?#\\s]*)?)$",
+      "maxLength": 2048,
+      "description": "Same-origin path and query, or another origin's URL with query and fragment removed."
+    },
+    "file": {
+      "type": "string",
+      "pattern": "^(/[^?#\\s]*|https?://[^/?#\\s]+(/[^?#\\s]*)?)$",
+      "maxLength": 2048,
+      "description": "A script path on the app's origin or a third-party URL, query and fragment removed."
+    },
+    "selector": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "method": {
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    "transport": {
+      "enum": [
+        "websocket",
+        "sse"
+      ]
+    },
+    "directive": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]{0,63}( .*)?$",
+      "maxLength": 2048
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "line",
+        "column",
+        "function"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/file"
+        },
+        "line": {
+          "$ref": "#/$defs/uint"
+        },
+        "column": {
+          "$ref": "#/$defs/uint"
+        },
+        "function": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2048
+        }
+      }
+    },
+    "stack": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/frame"
+      }
+    },
+    "extra": {
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string",
+            "maxLength": 2048
+          },
+          {
+            "type": [
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        ]
+      },
+      "description": "Tenant-provided context; at most 1,024 bytes as compact JSON (rule CE2 in validate.ts)."
+    },
+    "detail:js.error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message",
+        "source",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/str"
+        },
+        "source": {
+          "$ref": "#/$defs/file"
+        },
+        "line": {
+          "$ref": "#/$defs/uint"
+        },
+        "column": {
+          "$ref": "#/$defs/uint"
+        },
+        "stack": {
+          "$ref": "#/$defs/stack"
+        }
+      }
+    },
+    "detail:js.unhandledrejection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/str"
+        },
+        "stack": {
+          "$ref": "#/$defs/stack"
+        }
+      }
+    },
+    "detail:js.console.error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/str"
+        }
+      }
+    },
+    "detail:htmx.responseError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "code",
+        "method",
+        "request_url"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^RENOX_[A-Z0-9]+(_[A-Z0-9]+)*$"
+        },
+        "method": {
+          "$ref": "#/$defs/method"
+        },
+        "request_url": {
+          "$ref": "#/$defs/request_url"
+        },
+        "target": {
+          "$ref": "#/$defs/selector"
+        }
+      }
+    },
+    "detail:htmx.sendError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "request_url"
+      ],
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/method"
+        },
+        "request_url": {
+          "$ref": "#/$defs/request_url"
+        }
+      }
+    },
+    "detail:htmx.timeout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "request_url",
+        "timeout_ms"
+      ],
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/method"
+        },
+        "request_url": {
+          "$ref": "#/$defs/request_url"
+        },
+        "timeout_ms": {
+          "$ref": "#/$defs/uint"
+        }
+      }
+    },
+    "detail:htmx.targetError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/selector"
+        },
+        "request_url": {
+          "$ref": "#/$defs/request_url"
+        }
+      }
+    },
+    "detail:htmx.swapError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/str"
+        },
+        "target": {
+          "$ref": "#/$defs/selector"
+        },
+        "request_url": {
+          "$ref": "#/$defs/request_url"
+        }
+      }
+    },
+    "detail:csp.violation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blocked_uri",
+        "violated_directive",
+        "disposition"
+      ],
+      "properties": {
+        "blocked_uri": {
+          "$ref": "#/$defs/str"
+        },
+        "violated_directive": {
+          "$ref": "#/$defs/directive"
+        },
+        "effective_directive": {
+          "$ref": "#/$defs/directive"
+        },
+        "source_file": {
+          "$ref": "#/$defs/file"
+        },
+        "line": {
+          "$ref": "#/$defs/uint"
+        },
+        "column": {
+          "$ref": "#/$defs/uint"
+        },
+        "disposition": {
+          "enum": [
+            "enforce",
+            "report"
+          ]
+        }
+      }
+    },
+    "detail:realtime.connectError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "channel_url"
+      ],
+      "properties": {
+        "transport": {
+          "$ref": "#/$defs/transport"
+        },
+        "channel_url": {
+          "$ref": "#/$defs/request_url"
+        }
+      }
+    },
+    "detail:realtime.closed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "channel_url",
+        "code",
+        "reason",
+        "was_clean"
+      ],
+      "properties": {
+        "transport": {
+          "$ref": "#/$defs/transport"
+        },
+        "channel_url": {
+          "$ref": "#/$defs/request_url"
+        },
+        "code": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 4999
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 123
+        },
+        "was_clean": {
+          "type": "boolean"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ts",
+        "url",
+        "request_id",
+        "deployment",
+        "ua",
+        "session_fingerprint",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "js.error",
+            "js.unhandledrejection",
+            "js.console.error",
+            "htmx.responseError",
+            "htmx.sendError",
+            "htmx.timeout",
+            "htmx.targetError",
+            "htmx.swapError",
+            "csp.violation",
+            "realtime.connectError",
+            "realtime.closed"
+          ]
+        },
+        "ts": {
+          "$ref": "#/$defs/uint"
+        },
+        "url": {
+          "$ref": "#/$defs/path"
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9A-Za-z_-]{8,64}$"
+        },
+        "deployment": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "ua": {
+          "enum": [
+            "chrome",
+            "edge",
+            "firefox",
+            "safari",
+            "samsung",
+            "other"
+          ]
+        },
+        "session_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "detail": {
+          "type": "object"
+        },
+        "extra": {
+          "$ref": "#/$defs/extra"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "js.error"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:js.error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "js.unhandledrejection"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:js.unhandledrejection"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "js.console.error"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:js.console.error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.responseError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:htmx.responseError"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.sendError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:htmx.sendError"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.timeout"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:htmx.timeout"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.targetError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:htmx.targetError"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "htmx.swapError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:htmx.swapError"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "csp.violation"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:csp.violation"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "realtime.connectError"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:realtime.connectError"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "realtime.closed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "detail": {
+                "$ref": "#/$defs/detail:realtime.closed"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "csp-report": {
+      "type": "object",
+      "description": "Body of application/csp-report (report-uri). Browsers add fields over time, so unknown fields are allowed and dropped by normalisation.",
+      "required": [
+        "csp-report"
+      ],
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "csp-report": {
+          "type": "object",
+          "required": [
+            "document-uri",
+            "blocked-uri",
+            "violated-directive"
+          ],
+          "properties": {
+            "document-uri": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "blocked-uri": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "violated-directive": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "effective-directive": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "source-file": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "line-number": {
+              "$ref": "#/$defs/uint"
+            },
+            "column-number": {
+              "$ref": "#/$defs/uint"
+            },
+            "disposition": {
+              "enum": [
+                "enforce",
+                "report"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "csp-reports-json": {
+      "type": "array",
+      "description": "Body of application/reports+json (report-to). Only type csp-violation is normalised; others are dropped.",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": [
+          "type",
+          "url",
+          "body"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "age": {
+            "$ref": "#/$defs/uint"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "documentURL": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "blockedURL": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "effectiveDirective": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "sourceFile": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "lineNumber": {
+                "$ref": "#/$defs/uint"
+              },
+              "columnNumber": {
+                "$ref": "#/$defs/uint"
+              },
+              "disposition": {
+                "enum": [
+                  "enforce",
+                  "report"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

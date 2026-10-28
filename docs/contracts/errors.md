@@ -95,6 +95,12 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `RENOX_DEPLOY_REJECTED` | F3 | 422 (deploy API) | An uploaded artifact failed validation: any of rules V1–V13 (bundle over 20 MB, route conflict, unknown permission key, path escape, hash mismatch, ...) | — (only the deploying developer sees it) | Deployment event with `rule` (`V1`–`V13`), `path` or `field`, `reason`; the deployment state becomes `rejected` | Run `renox check` locally, which applies the same rules, and fix what it reports | `artifact.md` §6; failure mode "Bundle over 20 MB, route conflict, unknown permission key" |
 
+### Client events (dev overlay only)
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_CLIENT_EVENTS_DROPPED` | F2 | — (`/__renox/events` always answers 204) | The gateway dropped browser events at `/__renox/events`: body over 32 KB, more than 20 events, an invalid event, the per-IP or per-tenant rate, or the daily cap | — (never shown in production; the `renox dev` overlay and terminal show it, the dashboard shows the count) | One summary line per minute with drops: `source: "client"`, `dropped`, `reason` (`body_size` / `batch_size` / `invalid` / `ip_rate` / `daily_cap`) | Look for an error loop in client code (the same event reported on every frame or request); report fewer, smaller events through `renox.reportError` | [`client-events.md`](client-events.md) §6, §10; failure mode "Client-event flood" |
+
 ## 4. Rules for adding a code
 
 - Codes are `RENOX_` followed by upper-case words joined by `_`. A code names a cause the tenant can act on, not an implementation detail.
