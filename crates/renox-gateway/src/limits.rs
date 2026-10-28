@@ -146,11 +146,7 @@ pub fn platform_error(
         .status(status)
         .header(header::CACHE_CONTROL, "no-store");
     if prefers_html(request_headers) {
-        let page = format!(
-            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{status}</title></head>\
-             <body><h1>{status}</h1><p>{message}</p><p>Request id: <code>{request_id}</code></p></body></html>\n",
-            status = status.as_u16(),
-        );
+        let page = default_page_html(status.as_u16(), message, request_id);
         builder
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
             .body(Body::from(page))
@@ -164,6 +160,25 @@ pub fn platform_error(
             .body(Body::from(body.to_string()))
             .expect("valid response")
     }
+}
+
+/// The platform default error page (`errors.md` section 1): status,
+/// message, request id, no tenant content. The gateway's HTML errors use it,
+/// and the cell uses it when a deployment has no error template or the
+/// template fails (#93).
+pub fn default_page_html(status: u16, message: &str, request_id: &str) -> String {
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    format!(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{status}</title></head>\
+         <body><h1>{status}</h1><p>{}</p><p>Request id: <code>{}</code></p></body></html>\n",
+        esc(message),
+        esc(request_id),
+    )
 }
 
 /// Whether `Accept` ranks `text/html` above `application/json`.

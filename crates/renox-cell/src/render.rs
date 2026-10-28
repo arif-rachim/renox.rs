@@ -21,7 +21,9 @@ use http::{HeaderMap, Response};
 use renox_runtime::manifest::{Manifest, TemplateKind};
 use renox_runtime::pages::PageRender;
 use renox_template::minijinja::Value;
-use renox_template::{RenderContext, RenderError, RenderLimits, RenderTarget, Renderer, Shell};
+use renox_template::{
+    ErrorPage, RenderContext, RenderError, RenderLimits, RenderTarget, Renderer, Shell,
+};
 
 /// `RENOX_RENDER_LIMIT` (`errors.md` section 3).
 pub const RENDER_LIMIT_CODE: &str = "RENOX_RENDER_LIMIT";
@@ -356,22 +358,26 @@ impl PageRenderer {
         request_id: &str,
         csp_nonce: Option<&str>,
     ) -> Rendered {
+        let input = ErrorPage {
+            status,
+            code,
+            request_id,
+            message,
+        };
+        let fallback = || {
+            crate::pages::errors::default_page(input, Some(self.shell(request_id, csp_nonce, code)))
+        };
         let Some(template) = template else {
             return Rendered {
-                response: default_page(status, message, request_id),
+                response: fallback(),
                 fuel: 0,
                 ms: None,
                 limit: false,
                 log: None,
             };
         };
-        let data: Value = serde_json::from_value(serde_json::json!({
-            "status": status,
-            "code": code,
-            "request_id": request_id,
-            "message": message,
-        }))
-        .expect("plain JSON deserialises");
+        // Exactly the four fields (errors.md section 1).
+        let data: Value = serde_json::from_value(input.data()).expect("plain JSON deserialises");
         match self.renderer.render(
             RenderTarget::Page(template),
             data,
@@ -400,7 +406,7 @@ impl PageRenderer {
                     fields.insert("cause_message".into(), e.to_string().into());
                 }
                 Rendered {
-                    response: default_page(status, message, request_id),
+                    response: fallback(),
                     fuel: stats.fuel_used,
                     ms: Some(stats.ms),
                     limit: false,
@@ -495,20 +501,18 @@ pub fn html_response(status: u16, request_id: &str, body: Bytes) -> Response<Byt
         .expect("static response parts are valid")
 }
 
-/// The platform default page (`errors.md` section 1): status, message,
-/// request id, no tenant content. Same page as the gateway's HTML errors.
+/// The platform default page (`errors.md` section 1) without shell tags,
+/// for paths that have no renderer: see [`crate::pages::errors`].
 pub fn default_page(status: u16, message: &str, request_id: &str) -> Response<Bytes> {
-    let page = format!(
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{status}</title></head>\
-         <body><h1>{status}</h1><p>{message}</p><p>Request id: <code>{request_id}</code></p></body></html>\n"
-    );
-    Response::builder()
-        .status(status)
-        .header("content-type", "text/html; charset=utf-8")
-        .header("cache-control", "no-store")
-        .header("x-renox-request-id", request_id)
-        .body(Bytes::from(page))
-        .expect("static response parts are valid")
+    crate::pages::errors::default_page(
+        ErrorPage {
+            status,
+            code: None,
+            request_id,
+            message,
+        },
+        None,
+    )
 }
 
 /// Whether `Accept` ranks `text/html` above `application/json` (the 404 page

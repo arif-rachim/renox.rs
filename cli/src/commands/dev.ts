@@ -39,6 +39,8 @@ import { CliError, EnvironmentError, EXIT, formatError, location } from "../erro
 import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
 import { Symbolicator } from "../lib/sourcemap.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
+import { collectErrorDetails } from "../dev/overlay/details.ts";
+import { ERROR_DETAILS_PATH, ERROR_OVERLAY_JS, ERROR_OVERLAY_PATH, injectErrorOverlay } from "../dev/overlay/overlay.ts";
 import { changeEvent, DEV_CLIENT_JS, DEV_CLIENT_PATH, DEV_EVENTS_PATH, injectDevClient, sse } from "../lib/templates-dev.ts";
 import { writeTypes } from "../lib/types/generate.ts";
 import { DOWNLOAD_HINT, workerPath } from "../lib/worker.ts";
@@ -271,6 +273,14 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         const u = new URL(req.url);
         if (u.pathname === DEV_CLIENT_PATH)
           return new Response(DEV_CLIENT_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+        // Error overlay (#93): the script, and the details of one request from .renox/logs and .renox/meters.
+        if (u.pathname === ERROR_OVERLAY_PATH)
+          return new Response(ERROR_OVERLAY_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
+        if (u.pathname === ERROR_DETAILS_PATH) {
+          const id = u.searchParams.get("id") ?? "";
+          if (!/^[0-9A-Za-z]{26}$/u.test(id)) return new Response("bad id\n", { status: 400 });
+          return Response.json(await collectErrorDetails(state, id), { headers: { "cache-control": "no-store" } });
+        }
         if (u.pathname === DEV_EVENTS_PATH) {
           let self: ReadableStreamDefaultController<Uint8Array> | undefined;
           const stream = new ReadableStream<Uint8Array>({
@@ -298,7 +308,11 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         }
         // Full HTML documents get the dev client; htmx fragments do not.
         if (req.method === "HEAD" || headers.get("hx-request") === "true" || !(res.headers.get("content-type") ?? "").startsWith("text/html")) return res;
-        const html = injectDevClient(await res.text(), res.headers.get("content-security-policy"));
+        const csp = res.headers.get("content-security-policy");
+        let html = injectDevClient(await res.text(), csp);
+        // Error pages get the error overlay (#93); production pages never do.
+        const requestId = res.headers.get("x-renox-request-id");
+        if (res.status >= 400 && requestId) html = injectErrorOverlay(html, requestId, res.status, csp);
         const out = new Headers(res.headers);
         out.delete("content-length");
         out.delete("content-encoding");

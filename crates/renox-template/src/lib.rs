@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "compiler")]
 pub mod compiler;
+pub mod error_page;
 #[cfg(feature = "render")]
 pub mod filters;
 #[cfg(feature = "render")]
@@ -36,6 +37,7 @@ pub mod wasm;
 
 #[cfg(feature = "compiler")]
 pub use compiler::{CompileOptions, Compiler, TemplateProject};
+pub use error_page::ErrorPage;
 /// The minijinja version the renderer is built on (for `Value`).
 #[cfg(feature = "render")]
 pub use minijinja;
