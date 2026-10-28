@@ -29,6 +29,9 @@ subtle = "2.6"
 bytes = "1"
 http = "1"
 http-body-util = "0.1"
+# The plain :80 listener of a TLS worker (#162): ACME challenges, 308.
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 jsonschema = { version = "0.60", default-features = false }
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: loader data parsed exactly as V8 printed it (B9, #40).
@@ -36,6 +39,8 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "fs"] }
 toml = "0.9"
+# NFC check of tar entry paths (src/tar_safe.rs, T4).
+unicode-normalization = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
@@ -47,3 +52,7 @@ libc = "0.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
 # tests/pages.rs compiles the page templates of its test artifact.
 renox-template = { path = "../renox-template" }
+# tests/tls_worker.rs: certificates and a TLS client.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
