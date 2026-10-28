@@ -7013,6 +7013,7 @@ dependencies = [
  "renox-gateway",
  "renox-meter",
  "renox-runtime",
+ "renox-template",
  "serde",
  "serde_json",
  "sha2 0.10.9",
