@@ -8,4 +8,4 @@ Raw: bench/results/raw/2026-10-28-B16.json
 
 Verdict: **B16 met on the dev laptop.** A template edit reaches the browser in about 106 ms at p50 and 151 ms at p99, half the 300 ms target. F1's first data point (`cli/README.md`, function edit on `examples/hello`, 58-69 ms) did not compile templates and had no loader query.
 
-Where the time goes (one edit, from the `renox dev` terminal): the 30 ms debounce, about 10 ms for the template compile (the worker subcommand, measured cold at p50 9.0 ms in `bench/scenarios/B16/transpile.ts`), a cached bundle, then the new hash's first request, which pays for a fresh isolate (D19) and the loader's five queries. The fragment swap happens in the browser after that.
+What each sample contains (not timed separately in this run): the 30 ms debounce, the template compile by `renox-worker transpile` (measured on its own at p50 9.0 ms cold, `bench/scenarios/B16/transpile.ts`), a cached bundle, the artifact write and route switch, then the new hash's first request, which pays for a fresh isolate (D19) and the fragment loader's one query. The fragment swap happens in the browser after that.
