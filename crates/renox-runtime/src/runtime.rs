@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::isolate::{CreateError, IsolateHandle, IsolateSpec};
 use crate::manifest::Artifact;
@@ -170,8 +170,9 @@ fn init_platform_once() {
 
 /// Build the platform snapshot: every `deno_runtime` extension plus the
 /// `renox` extension's ESM bootstrap, evaluated once.
+#[cfg(not(feature = "packaged"))]
 fn build_snapshot() -> (&'static [u8], &'static LazySources, Duration) {
-    let start = Instant::now();
+    let start = std::time::Instant::now();
     let path = std::env::temp_dir().join(format!(
         "renox-snapshot-{}-{}.bin",
         std::process::id(),
@@ -221,6 +222,27 @@ fn build_snapshot() -> (&'static [u8], &'static LazySources, Duration) {
     let bytes = std::fs::read(&path).expect("read the platform snapshot just written");
     let _ = std::fs::remove_file(&path);
     (Box::leak(bytes.into_boxed_slice()), lazy, start.elapsed())
+}
+
+/// The snapshot and residual lazy sources embedded by `build.rs` from
+/// `RENOX_PACKAGED_DIR` (README, "Packaging"): nothing is read from disk.
+#[cfg(feature = "packaged")]
+fn build_snapshot() -> (&'static [u8], &'static LazySources, Duration) {
+    static LAZY: LazySources = LazySources {
+        js: packaged::LAZY_JS,
+        esm: packaged::LAZY_ESM,
+    };
+    (packaged::SNAPSHOT, &LAZY, Duration::ZERO)
+}
+
+// The snapshot extension is only instantiated when the snapshot is built
+// from sources; keep it compiled (and type-checked) in packaged builds.
+#[cfg(feature = "packaged")]
+const _: fn() -> deno_core::Extension = crate::globals::for_snapshot;
+
+#[cfg(feature = "packaged")]
+mod packaged {
+    include!(concat!(env!("OUT_DIR"), "/packaged.rs"));
 }
 
 impl Runtime {
@@ -278,6 +300,40 @@ impl Runtime {
             .artifacts
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Write this process's snapshot and residual lazy sources to `dir` in
+    /// the layout `build.rs` embeds with the `packaged` feature: the first
+    /// step of a release build (README, "Packaging"). The second build must
+    /// use the same source, features, and `v8` as the process that wrote
+    /// them, or the snapshot does not match the binary's ops.
+    pub fn write_packaged(&self, dir: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dir.join("lazy"))?;
+        std::fs::write(dir.join("snapshot.bin"), self.inner.snapshot)?;
+        let lazy = self.inner.lazy;
+        let mut tsv = String::new();
+        let entries = lazy
+            .js
+            .iter()
+            .map(|e| ("js", e))
+            .chain(lazy.esm.iter().map(|e| ("esm", e)));
+        for (n, (kind, (specifier, source))) in entries.enumerate() {
+            if specifier.contains(['\t', '\n']) {
+                return Err(std::io::Error::other(format!(
+                    "lazy specifier {specifier:?} cannot be written to lazy.tsv"
+                )));
+            }
+            let file = format!("lazy/{n:03}.js");
+            std::fs::write(dir.join(&file), source)?;
+            tsv.push_str(&format!("{kind}\t{specifier}\t{file}\n"));
+        }
+        std::fs::write(dir.join("lazy.tsv"), tsv)
+    }
+
+    /// Whether the snapshot and lazy sources are embedded in the binary
+    /// (`packaged` feature) rather than built from the Deno crates' sources.
+    pub fn is_packaged() -> bool {
+        cfg!(feature = "packaged")
     }
 
     /// Specifiers of the extension modules a fresh isolate still loads on

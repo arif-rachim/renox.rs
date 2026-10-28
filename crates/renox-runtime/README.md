@@ -52,7 +52,16 @@ It is built at process start rather than in `build.rs` because a build-time snap
 
 Deno 0.268 keeps many extension scripts out of the snapshot and loads them on first use (`core.loadExtScript`). The snapshot builder reports which ones it did not consume; `Runtime::new` reads them once, transpiles the TypeScript ones (Node polyfills, timers), and hands the same `'static` sources to every worker (`WorkerOptions::residual_lazy_*_sources`). The bootstrap loads the modules behind `Request`, `Response`, `ReadableStream`, and `URL` at its top level, which runs while the snapshot is built, so they are evaluated into the snapshot. Before #145/#146 they were loaded on first use, which cost a fresh isolate's first request about 13 ms inside its CPU budget (B4) and caused occasional `RENOX_CPU_LIMIT` on cold first requests (B2/B3). `Runtime::residual_lazy_specifiers` lists what is still loaded lazily. A verified artifact is kept per directory (`Runtime::load_artifact`), so a deployment is hashed once per process, not once per isolate.
 
-**Packaging follow-up:** both the snapshot and the lazy sources are read from the Deno crates' source files at process start, so `renox-worker` must run where the cargo registry sources exist (true for `renox dev`, tests, and CI). A deployable worker binary needs them embedded: a `build.rs` snapshot plus `include_str!` of the residual sources, which is what Deno's own build does. That belongs to the worker binary (#28/#34), where the doubled build cost is paid once in the release pipeline.
+## Packaging
+
+By default (the dev path: `renox dev` from a checkout, tests, CI) the snapshot and the lazy sources are read from the Deno crates' source files at process start, so the binary only runs where the cargo registry sources exist. The `packaged` feature (#154) embeds them instead, so a release `renox-worker` runs on a clean machine. It takes two builds of the same source:
+
+```
+RENOX_PACKAGED_DIR=$dir cargo test --release --locked -p renox-runtime --test packaged -- --ignored --exact write_packaged_sources
+RENOX_PACKAGED_DIR=$dir cargo build --release --locked -p renox-cell --bin renox-worker --features renox-runtime/packaged
+```
+
+The first writes this process's snapshot (`snapshot.bin`) and the transpiled residual lazy sources (`lazy/*.js`, listed in `lazy.tsv`) with `Runtime::write_packaged`. The second embeds them: `build.rs` generates `include_bytes!`/`include_str!` code, and `Runtime::new` uses it without reading any file (`Runtime::is_packaged()`). Both builds must use the same source, features, and `v8`, or the snapshot does not match the binary's ops (`deno_core` refuses a mismatched snapshot at start). This replaces a `build.rs` snapshot, which would compile the whole Deno tree a second time as a build dependency on every build; here the second build recompiles only `renox-runtime` and `renox-cell`, and only in the release pipeline (`.github/workflows/release-worker.yml`, which also runs the binary in a clean `ubuntu:24.04` container).
 
 ## Module loader
 

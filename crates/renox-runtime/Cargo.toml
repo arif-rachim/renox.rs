@@ -13,6 +13,10 @@ publish.workspace = true
 # (docs/12-developer-experience.md, "Tests without V8 wherever possible").
 default = ["v8"]
 v8 = ["dep:deno_runtime", "dep:deno_core", "dep:deno_fs", "dep:deno_error", "dep:deno_resolver", "dep:sys_traits", "dep:v8", "dep:eszip", "dep:futures"]
+# Embed the platform snapshot and the residual lazy sources, so the binary
+# runs without the cargo registry (#154; build.rs, README "Packaging").
+# Needs RENOX_PACKAGED_DIR from `Runtime::write_packaged`; release builds only.
+packaged = ["v8"]
 # Test-only connect override for the fetch connector (tests/fetch*.rs).
 # Never enabled by renox-cell; see ops/fetch_connector.rs.
 test-hooks = []
