@@ -192,3 +192,32 @@ async fn the_concurrency_limit_is_shared_by_the_members() {
     }
     assert!(iso.pool_size() <= 2);
 }
+
+/// `docs/23-failure-modes.md`, "Infinite loop / CPU over limit": requests
+/// sent to a member while it is being terminated, which never started on
+/// it, run on another member (here: the fresh isolate) instead of failing
+/// with 500.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn requests_queued_on_a_dying_member_run_elsewhere() {
+    let _serial = SERIAL.lock().await;
+    let rt = runtime();
+    let iso = pooled(&rt, 1).await;
+    let hog_iso = iso.clone();
+    let hog = tokio::spawn(async move {
+        hog_iso
+            .dispatch(ctx("req_hog_00000002"), hog())
+            .await
+            .response
+            .status()
+            .as_u16()
+    });
+    // The hog spins for 50 ms after a 0-ms await: queue requests behind it.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let queued: Vec<_> = (0..3)
+        .map(|i| spawn_wait(&iso, format!("req_queued_{i:06}"), 0))
+        .collect();
+    assert_eq!(hog.await.unwrap(), 503);
+    for h in queued {
+        assert_eq!(h.await.unwrap(), 200);
+    }
+}

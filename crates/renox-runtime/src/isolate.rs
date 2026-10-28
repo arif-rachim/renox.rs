@@ -250,10 +250,10 @@ pub struct CreateStats {
 struct DispatchJob {
     seq: u64,
     route: usize,
-    params: BTreeMap<String, ParamValue>,
+    params: Arc<BTreeMap<String, ParamValue>>,
     method: String,
     url: String,
-    headers: Vec<(ByteString, ByteString)>,
+    headers: Arc<Vec<(ByteString, ByteString)>>,
     body: Bytes,
     want_body: bool,
     /// Page routes: `Some(fragment)`; the loader gets `ctx.fragment`.
@@ -292,6 +292,9 @@ enum ThreadReply {
         code: ErrorCode,
         meter: InvocationMeter,
     },
+    /// The member was already terminated: nothing of the request ran, and
+    /// the handle sends it to another member.
+    Refused,
 }
 
 /// Shared state between a handle and its isolate thread.
@@ -830,54 +833,69 @@ impl Pool {
             return fail(ErrorCode::Busy, MeterStatus::Busy);
         };
 
-        let member = match self.live_thread().await {
-            Ok(t) => t,
-            Err(e) => {
-                let mut f = serde_json::Map::new();
-                f.insert("code".into(), e.code().as_str().into());
-                f.insert("phase".into(), "module_load".into());
-                f.insert("cause_message".into(), e.to_string().into());
-                self.log("error", Some(&ctx.request_id), "isolate creation failed", f);
-                let status = match e.code() {
-                    ErrorCode::CpuLimit => MeterStatus::CpuLimit,
-                    ErrorCode::Oom => MeterStatus::Oom,
-                    ErrorCode::Deadline => MeterStatus::Timeout,
-                    _ => MeterStatus::Error,
-                };
-                return fail(e.code(), status);
+        let url = absolute_url(&parts);
+        let headers: Arc<Vec<(ByteString, ByteString)>> = Arc::new(
+            parts
+                .headers
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        ByteString::from(k.as_str().as_bytes().to_vec()),
+                        ByteString::from(v.as_bytes().to_vec()),
+                    )
+                })
+                .collect(),
+        );
+        let params = Arc::new(params);
+        // A member that dies between the pick and the start of the request
+        // refuses it (or drops it with its queue); nothing of it ran, so it
+        // goes to another member, once.
+        let mut attempts = 0;
+        let (member, seq, waited) = loop {
+            attempts += 1;
+            let member = match self.live_thread().await {
+                Ok(t) => t,
+                Err(e) => {
+                    let mut f = serde_json::Map::new();
+                    f.insert("code".into(), e.code().as_str().into());
+                    f.insert("phase".into(), "module_load".into());
+                    f.insert("cause_message".into(), e.to_string().into());
+                    self.log("error", Some(&ctx.request_id), "isolate creation failed", f);
+                    let status = match e.code() {
+                        ErrorCode::CpuLimit => MeterStatus::CpuLimit,
+                        ErrorCode::Oom => MeterStatus::Oom,
+                        ErrorCode::Deadline => MeterStatus::Timeout,
+                        _ => MeterStatus::Error,
+                    };
+                    return fail(e.code(), status);
+                }
+            };
+            let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+            let (reply_tx, reply_rx) = oneshot::channel();
+            let job = DispatchJob {
+                seq,
+                route,
+                params: params.clone(),
+                want_body: method != "HEAD",
+                page: is_page.then(|| fragment.clone()),
+                method: method.clone(),
+                url: url.clone(),
+                headers: headers.clone(),
+                body: body.clone(),
+                ctx: ctx.clone(),
+                reply: reply_tx,
+            };
+            // A failed send drops the job and its reply sender: the wait
+            // below then ends at once with a closed channel.
+            let _ = member.0.tx.send(Command::Dispatch(Box::new(job)));
+            let waited = tokio::time::timeout_at(deadline.into(), reply_rx).await;
+            match waited {
+                Ok(Ok(ThreadReply::Refused)) | Ok(Err(_)) if attempts < 2 => continue,
+                waited => break (member, seq, waited),
             }
         };
-        let url = absolute_url(&parts);
-        let headers = parts
-            .headers
-            .iter()
-            .map(|(k, v)| {
-                (
-                    ByteString::from(k.as_str().as_bytes().to_vec()),
-                    ByteString::from(v.as_bytes().to_vec()),
-                )
-            })
-            .collect();
-        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
-        let (reply_tx, reply_rx) = oneshot::channel();
-        let job = DispatchJob {
-            seq,
-            route,
-            params,
-            want_body: method != "HEAD",
-            page: is_page.then(|| fragment.clone()),
-            method,
-            url,
-            headers,
-            body,
-            ctx: ctx.clone(),
-            reply: reply_tx,
-        };
         let thread = &member.0;
-        if thread.tx.send(Command::Dispatch(Box::new(job))).is_err() {
-            return fail(ErrorCode::Internal, MeterStatus::Error);
-        }
-        let reply = match tokio::time::timeout_at(deadline.into(), reply_rx).await {
+        let reply = match waited {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => ThreadReply::Failed {
                 code: ErrorCode::Internal,
@@ -961,6 +979,8 @@ impl Pool {
                     is_page,
                 )
             }
+            // Refused twice: both members died before the request started.
+            ThreadReply::Refused => fail(ErrorCode::Internal, MeterStatus::Error),
         }
     }
 }
@@ -1522,10 +1542,7 @@ async fn serve(
             match cmd {
                 Some(Command::Dispatch(job)) => {
                     if ctx.shared.poisoned.load(Ordering::SeqCst) {
-                        let _ = job.reply.send(ThreadReply::Failed {
-                            code: ErrorCode::Internal,
-                            meter: InvocationMeter::new(None, MeterStatus::Error),
-                        });
+                        let _ = job.reply.send(ThreadReply::Refused);
                         continue;
                     }
                     let seq = job.seq;
@@ -1858,7 +1875,7 @@ fn build_args(
     let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
     let method: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.method)?;
     let url: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.url)?;
-    let headers: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.headers)?;
+    let headers: v8::Local<v8::Value> = serde_v8::to_v8(scope, job.headers.as_slice())?;
     let body: v8::Local<v8::Value> = if job.body.is_empty() {
         v8::null(scope).into()
     } else {
