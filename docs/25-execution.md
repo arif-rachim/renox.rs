@@ -98,7 +98,7 @@ Run the gate review issue #37 of arif-rachim/renox.rs. Follow docs/25-execution.
 
 Ran on 2026-10-28: GO to F2 and F3 with conditions (report on #37). The conditions are applied: issues #152 to #164 created, blockers of the F2/F3 issues edited, #36, #92, #110 and #146 closed, docs and status updated.
 
-## F2 (11 sessions + gate)
+## F2 (12 sessions + gate)
 
 Start after the F1 gate (#37) is closed. The gate report split the F1 follow-ups into #152 to #161 and moved every F2 contract edit into #152 and #153, so two contract-only batches go first. F3 runs at the same time as F2 (see below).
 
@@ -118,6 +118,14 @@ Work on batch H3 of arif-rachim/renox.rs: issues #160, #154, #139 in that order.
 
 `crates/renox-cell` tests and the packaging of `renox-worker`. #36 is closed; its release criterion lives in #154. H3 shares no files with J0.
 
+### Batch H4 — after H3 — the worker release (1 issue)
+
+```
+Work on issue #154 of arif-rachim/renox.rs alone, as batch H4. The packaging landed in PR #171; what is left is the B20 binary size (121.6 MB against the 100 MB limit, see the release-worker.yml run on PR #171) and the worker-v0.1.0 tag. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if the issue blocks you, do what the rules say and stop.
+```
+
+H3 left #154 open: the `packaged` build works, but the binary is over the B20 limit and the tag is not pushed. #154 blocks #157 (batch Y skips it until then), #139, #163, #129 and #55 (batch T). Files: `crates/renox-runtime/build.rs`, `runtime.rs`, `.github/workflows/release-worker.yml`, `cli/scripts/fetch-worker.ts`; no overlap with J, K, L, M, Y, R, S.
+
 ### Batch J — after J0 — renox-template and the render op (3 issues)
 
 ```
@@ -136,20 +144,20 @@ Work on batch K of arif-rachim/renox.rs: issues #107, #159, #47 in that order. F
 Work on batch L of arif-rachim/renox.rs: issues #44, #48, #90 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-J, K, L run at the same time: `crates/renox-template` + `crates/renox-runtime`, `crates/renox-gateway`, `sdk` + `cli`. #47 waits for #40 (the `csp_nonce` field), so if J is slower than K, K's agent skips #47 and it goes into M instead.
+J, K, L ran at the same time (PRs #178, #176, #177, merged 2026-10-28). K landed #107 only: #159 was skipped by rule 6 (it needs `crates/renox-cell/src/manager.rs`, now in its Files, and goes into batch Y) and #47 by rule 3 (blocked by #40, now in batch M).
 
-### Batch Y — after J and H3 — CPU accounting, isolate pool, cold-start levers (3 issues)
-
-```
-Work on batch Y of arif-rachim/renox.rs: issues #155, #156, #157 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
-```
-
-All three touch `crates/renox-runtime/src/isolate.rs`, `src/limits/**` and `crates/renox-cell/src/manager.rs`. Merge Y before M; if M is already open and #41 conflicts, run Y after M instead.
-
-### Batch M — after J, K, L — pages: routing, loaders, actions, CLI transpile, shop pages (3 issues)
+### Batch Y — after J and H3 — CPU accounting, isolate pool, cold-start levers, compression (4 issues)
 
 ```
-Work on batch M of arif-rachim/renox.rs: issues #41, #43, #45 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+Work on batch Y of arif-rachim/renox.rs: issues #155, #156, #157, #159 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+All four touch `crates/renox-runtime/src/isolate.rs`, `src/limits/**` and `crates/renox-cell/src/manager.rs`. #159 moved here from K: it compresses in `manager.rs` before the meter record, after #156 has reshaped that file. Merge Y before M; if M is already open and #41 conflicts, run Y after M instead.
+
+### Batch M — after J, K, L — pages: routing, loaders, actions, CLI transpile, shop pages, web-layer protections (4 issues)
+
+```
+Work on batch M of arif-rachim/renox.rs: issues #41, #43, #45, #47 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
 ### Batch N — after M — client errors, error pages, CSRF hardening (4 issues)

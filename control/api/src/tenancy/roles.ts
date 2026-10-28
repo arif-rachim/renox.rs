@@ -89,6 +89,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   fetchCertificate: "node",
   ingestMeters: "node",
   ingestLogs: "node",
+  // Usage (src/ingest/routes.ts, #56).
+  getUsage: "apps:read",
   // Accounts (src/auth/accounts.ts).
   signup: "public",
   verifyEmail: "public",

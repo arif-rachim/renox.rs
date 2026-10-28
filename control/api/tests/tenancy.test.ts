@@ -85,6 +85,7 @@ describe("crossTenant call sites", () => {
       "auth/accounts.ts: a pending device code belongs to no tenant until a user approves it",
       "auth/notify.ts: a user's own email address",
       "deployments/repo.ts: an artifact object is shared by every app that uploaded the same hash",
+      "ingest/routes.ts: the tenant's quota is read through control/billing, which binds the tenant id as $3",
     ]);
   });
 });

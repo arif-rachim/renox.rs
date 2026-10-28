@@ -44,6 +44,7 @@ The start sequence is: open the database, apply the migrations in `migrations/`,
 | `src/deployments/` | Upload, validation and storage (#52) |
 | `src/routes/`, `src/workers/` | Activation, rollback, the route table, nodes (#53) |
 | `src/secrets/` | Secrets (#54) |
+| `src/ingest/` | Meter ingestion and the per-app usage view (#56; rollup and quotas in `control/billing`) |
 | `migrations/` | Forward-only SQL, `NNNN_<name>.sql` |
 
 ## Accounts, roles, and tenant scoping (#113)

@@ -1,0 +1,19 @@
+{
+  "name": "@renox/billing",
+  "version": "0.1.0",
+  "description": "Renox billing v0 (P14): hourly meter rollup, usage reads, tier quota signals, unit-cost report",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun src/main.ts",
+    "unit-cost": "bun src/unit-cost.ts",
+    "check": "tsc --noEmit -p .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.12"
+  }
+}

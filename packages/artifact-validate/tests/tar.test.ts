@@ -1,7 +1,7 @@
 // Upload rules T1-T8 (docs/contracts/deploy-api.md section 4;
 // docs/23-failure-modes.md "Tarball decompression bomb / too many files";
 // docs/24-threat-model.md E, "Deploy API abuse (huge uploads, bombs)").
-// #95 adds the generated-bomb suite with a disk-size assertion on top.
+// The generated-bomb suite of #95 is tests/bombs.test.ts.
 
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";

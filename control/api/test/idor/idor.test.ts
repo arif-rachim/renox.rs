@@ -36,7 +36,7 @@ export function contractRoutes(): Map<string, string> {
   return out;
 }
 
-/** Routes outside the deploy-api contract (accounts and team, #113): "METHOD /path" → operationId. */
+/** Routes outside the deploy-api contract (accounts and team, #113; usage, #56): "METHOD /path" → operationId. */
 export const EXTRA_ROUTES: Record<string, string> = {
   "POST /v1/account/signup": "signup",
   "POST /v1/account/verify": "verifyEmail",
@@ -63,6 +63,7 @@ export const EXTRA_ROUTES: Record<string, string> = {
   "POST /v1/team/owner-transfer": "proposeOwnerTransfer",
   "POST /v1/team/owner-transfer/accept": "acceptOwnerTransfer",
   "DELETE /v1/team/owner-transfer": "cancelOwnerTransfer",
+  "GET /v1/apps/:app/usage": "getUsage",
 };
 
 /** Callers that are not tenant principals: not part of this suite, with the reason. */

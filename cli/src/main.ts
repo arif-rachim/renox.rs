@@ -16,7 +16,7 @@ const USAGE = `renox <command>
   new <name> [--template blank|hello]   create an app
   build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
   dev [--port 8787]                     run the app on the local worker, rebuild on change
-  check                                 validate config, routes, manifest; lint SQL, fetch, global state
+  check [--secrets]                     validate config, routes, manifest; lint SQL, fetch, global state; scan for secrets
   mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
   login [--api <url>] [--with-token]    sign in to the control plane (device code; --with-token reads a token from stdin)
   tokens list | create <name> --scope <s>... [--expires-days n] | revoke <id>

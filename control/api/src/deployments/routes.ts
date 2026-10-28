@@ -3,16 +3,7 @@
 // GET .../deployments, GET .../deployments/{hash}, PUT .../sourcemaps.
 
 import type { Context, Hono } from "hono";
-import {
-  checkArtifactFiles,
-  extractTar,
-  InputTooLarge,
-  TarRejected,
-  TIERS,
-  UPLOAD_LIMITS,
-  writeTar,
-  type Violation,
-} from "@renox/artifact-validate";
+import { checkArtifactFiles, TIERS, writeTar, type Violation } from "@renox/artifact-validate";
 import { operation } from "../audit.ts";
 import { tenantAuth } from "../auth/middleware.ts";
 import { tenantDb } from "../tenancy/scope.ts";
@@ -20,6 +11,8 @@ import { requireApp } from "../apps/repo.ts";
 import { check } from "../contract.ts";
 import { ApiError, conflict, invalid } from "../errors.ts";
 import { pathParam } from "../http.ts";
+import { extractSourcemaps, extractUpload, gzipOf } from "./extract.ts";
+import { bundleViolations } from "./validate-bundle.ts";
 import { actorOf, type Deps, type Env } from "../context.ts";
 import type { Db } from "../db/db.ts";
 import {
@@ -34,19 +27,6 @@ import {
   transition,
   type Actor,
 } from "./repo.ts";
-
-const MiB = 1024 * 1024;
-/** deploy-api.md section 4: sourcemap tars are at most 50 MiB. */
-export const SOURCEMAP_LIMIT = 50 * MiB;
-
-function gzipOf(c: Context<Env>): boolean {
-  const type = (c.req.header("content-type") ?? "").split(";")[0]?.trim();
-  if (type === "application/x-tar") return false;
-  if (type === "application/gzip" || type === "application/x-gzip") return true;
-  throw invalid("content-type", "must be application/x-tar or application/gzip");
-}
-
-const bodyStream = (c: Context<Env>): ReadableStream<Uint8Array> => c.req.raw.body ?? new ReadableStream({ start: (ctl) => ctl.close() });
 
 async function tenantGuard(db: Db, tenant: string): Promise<{ tier: "free" | "paid" }> {
   const rows = await db.query<{ tier: "free" | "paid"; state: string }>("select tier, state from tenants where id = $1", [tenant]);
@@ -67,8 +47,7 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
     const { tier } = await tenantGuard(db, tenant);
     const claimed = c.req.header("x-renox-artifact-hash") ?? "";
     if (!/^[0-9a-f]{64}$/u.test(claimed)) throw invalid("x-renox-artifact-hash", "must be 64 lower-case hex characters");
-    const gzip = gzipOf(c);
-    if (Number(c.req.header("content-length") ?? "0") > UPLOAD_LIMITS.maxInputBytes) throw new ApiError("RENOX_BODY_TOO_LARGE");
+    gzipOf(c);
 
     // Idempotent: a hash this app already holds is returned as it is, unread.
     const existing = await findDeployment(db, tenant, name, claimed);
@@ -77,17 +56,11 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
       return c.json(deploymentView(existing), 200);
     }
 
-    let violations: Violation[] = [];
-    let files: Map<string, Uint8Array> | null = null;
-    try {
-      files = await extractTar(bodyStream(c), { gzip, limits: UPLOAD_LIMITS, now: Date.now });
-    } catch (e) {
-      if (e instanceof InputTooLarge) throw new ApiError("RENOX_BODY_TOO_LARGE");
-      if (!(e instanceof TarRejected)) throw e;
-      violations = [e.violation];
-    }
+    const extracted = await extractUpload(c);
+    const files = "files" in extracted ? extracted.files : null;
+    let violations: Violation[] = "violation" in extracted ? [extracted.violation] : [];
     const result = files === null ? null : checkArtifactFiles(files, { expectedHash: claimed, tier: TIERS[tier], app: name });
-    if (result !== null) violations = result.violations;
+    if (result !== null) violations = [...result.violations, ...bundleViolations(files as Map<string, Uint8Array>)];
     const ok = violations.length === 0 && result !== null && files !== null;
 
     // Store before recording, so a validated deployment always has its object.
@@ -169,14 +142,7 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
     const name = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
     const hash = pathParam(c, "hash", "Sha256");
     await requireDeployment(db, tenant, name, hash);
-    let files: Map<string, Uint8Array>;
-    try {
-      files = await extractTar(bodyStream(c), { gzip: gzipOf(c), limits: { ...UPLOAD_LIMITS, maxInputBytes: SOURCEMAP_LIMIT, maxTotalBytes: SOURCEMAP_LIMIT } });
-    } catch (e) {
-      if (e instanceof InputTooLarge) throw new ApiError("RENOX_BODY_TOO_LARGE");
-      if (e instanceof TarRejected) throw new ApiError("RENOX_VALIDATION", [{ field: e.violation.path ?? "body", reason: `${e.violation.rule}: ${e.violation.reason}` }], { status: 422 });
-      throw e;
-    }
+    const files = await extractSourcemaps(c);
     const notMaps = [...files.keys()].filter((p) => !p.endsWith(".map"));
     if (notMaps.length > 0) {
       throw new ApiError("RENOX_VALIDATION", notMaps.slice(0, 50).map((p) => ({ field: p, reason: "only .map files are accepted" })), { status: 422 });
