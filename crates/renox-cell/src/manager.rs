@@ -42,6 +42,18 @@ pub struct ManagerConfig {
     pub tenant_tiers: BTreeMap<String, TierName>,
 }
 
+/// Isolates per hot deployment (#156; `renox_runtime::isolate`, "Pool"):
+/// the free tier gets two, the paid tier one per core up to eight. A
+/// deployment grows its pool only while requests wait on a busy isolate,
+/// and keeps one spare once it has grown.
+fn max_isolates(tier: TierName) -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    match tier {
+        TierName::Free => cores.clamp(1, 2),
+        TierName::Paid => cores.clamp(1, 8),
+    }
+}
+
 impl ManagerConfig {
     fn tier_of(&self, tenant_id: &str) -> TierName {
         self.tenant_tiers
@@ -279,6 +291,7 @@ impl CellManager {
                 limits: tier.runtime_limits(base),
                 secrets,
                 db: Some(db.clone()),
+                max_isolates: max_isolates(tier_name),
             };
             self.inner
                 .runtime

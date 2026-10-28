@@ -51,6 +51,14 @@ const LIGHT: &str = r#"
     }
 "#;
 
+/// The deployment on exactly one isolate, whatever `RENOX_TEST_POOL` says:
+/// these tests are about requests sharing one isolate thread.
+fn one_isolate(dir: &std::path::Path, hash: &str) -> renox_runtime::IsolateSpec {
+    let mut s = spec(dir, hash, Limits::FREE);
+    s.max_isolates = 1;
+    s
+}
+
 fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     v[v.len() / 2]
@@ -73,11 +81,7 @@ async fn concurrent_light_requests_are_charged_their_own_cpu() {
         &[("GET", "/light"), ("POST", "/hog"), ("PUT", "/sync")],
         &[],
     );
-    let iso = Arc::new(
-        rt.create_isolate(spec(&dir, &hash, Limits::FREE))
-            .await
-            .unwrap(),
-    );
+    let iso = Arc::new(rt.create_isolate(one_isolate(&dir, &hash)).await.unwrap());
     // Warm up the JIT, then measure the request alone.
     for i in 0..10 {
         iso.dispatch(ctx(&format!("req_warm_{i:08}")), get("/light"))
@@ -160,11 +164,7 @@ async fn infinite_loop_among_concurrent_requests_is_terminated_at_its_own_limit(
         &[("GET", "/light"), ("POST", "/hog"), ("PUT", "/sync")],
         &[],
     );
-    let iso = Arc::new(
-        rt.create_isolate(spec(&dir, &hash, Limits::FREE))
-            .await
-            .unwrap(),
-    );
+    let iso = Arc::new(rt.create_isolate(one_isolate(&dir, &hash)).await.unwrap());
     let lights: Vec<_> = (0..15)
         .map(|i| {
             let iso = iso.clone();

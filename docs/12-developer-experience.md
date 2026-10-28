@@ -54,6 +54,10 @@ Server errors alone are not enough: an exception in an Alpine component or an is
 4. The route pointer is switched atomically; in-flight requests finish on the old version.
 5. Rollback is a pointer switch to the previous hash.
 
+## Concurrency and the blast radius
+
+A quiet deployment runs in one isolate. When requests start waiting on a busy isolate, the worker grows a pool of isolates for that deployment (up to 2 on the free tier, up to one per core and at most 8 on paid tiers), keeps one spare ready, and sends each request to the least-loaded isolate (#156). A request that hits the CPU or heap limit ends its own isolate and every request in flight on that isolate, which get the same 503 code; requests on the other isolates of the pool carry on, and the spare takes the dead isolate's place. Module-level state (in-memory caches, counters) lives per isolate, so two requests of one deployment can see different copies: keep shared state in `ctx.db`. The concurrency limit (50 free, 500 paid) counts the requests of the whole pool.
+
 ## Build and compile strategy (for platform developers)
 
 Two different people compile things, and the experience must differ.

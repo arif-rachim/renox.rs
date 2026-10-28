@@ -9,6 +9,13 @@
 //! thread that created it, `deno_core`'s `JsRuntime` is `!Send`, and a
 //! dedicated thread lets the CPU watchdog measure exactly that thread's CPU
 //! clock. See README, "Thread model".
+//!
+//! Pool (#156): a deployment that is hot (requests waiting on a busy
+//! isolate) runs up to [`IsolateSpec::max_isolates`] isolates, each on its
+//! own thread. A request goes to the least-loaded member; one spare is kept
+//! ready once the deployment is hot, so a member that is terminated (CPU,
+//! heap, uncaught error) is replaced at once and the termination ends only
+//! the requests on that member. The concurrency limit stays per deployment.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -16,7 +23,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -73,6 +80,9 @@ pub struct IsolateSpec {
     /// the cell (`ops/db.rs`). `None` gives a deployment whose `ctx.db`
     /// calls fail.
     pub db: Option<DbHandle>,
+    /// Isolates of the deployment when it is hot, the spare not counted
+    /// (#156; the cell sets it per tier). 0 and 1 mean one isolate, no pool.
+    pub max_isolates: usize,
 }
 
 /// Per-request context from the cell.
@@ -289,13 +299,48 @@ struct ThreadShared {
     poisoned: AtomicBool,
 }
 
-/// One live isolate on its thread.
+/// One live isolate on its thread: a member of the deployment's pool.
 struct IsolateThread {
     tx: mpsc::UnboundedSender<Command>,
     v8_handle: v8::IsolateHandle,
     shared: Arc<ThreadShared>,
     stats: CreateStats,
+    /// Requests sent to this member and not answered yet.
+    load: AtomicUsize,
 }
+
+impl IsolateThread {
+    fn healthy(&self) -> bool {
+        !self.shared.poisoned.load(Ordering::SeqCst)
+    }
+
+    fn poison(&self) {
+        self.shared.poisoned.store(true, Ordering::SeqCst);
+        self.v8_handle.terminate_execution();
+    }
+}
+
+/// Counts a request against its member's load while it is in flight.
+struct LoadGuard(Arc<IsolateThread>);
+
+impl LoadGuard {
+    /// Take a member for one request. Called with the members lock held,
+    /// so concurrent picks see each other's load.
+    fn take(t: &Arc<IsolateThread>) -> LoadGuard {
+        t.load.fetch_add(1, Ordering::SeqCst);
+        LoadGuard(t.clone())
+    }
+}
+
+impl Drop for LoadGuard {
+    fn drop(&mut self) {
+        self.0.load.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A member with this many requests in flight counts as busy: the pool
+/// grows (up to `max_isolates`) instead of queueing more on it.
+pub const POOL_GROW_AT_LOAD: usize = 2;
 
 impl Drop for IsolateThread {
     fn drop(&mut self) {
@@ -305,8 +350,21 @@ impl Drop for IsolateThread {
     }
 }
 
-/// The handle of one deployment's isolate. Cheap to share (`Arc`).
+/// The handle of one deployment's isolates. Cheap to share (`Arc`).
 pub struct IsolateHandle {
+    inner: Arc<Pool>,
+}
+
+impl std::ops::Deref for IsolateHandle {
+    type Target = Pool;
+
+    fn deref(&self) -> &Pool {
+        &self.inner
+    }
+}
+
+/// The isolates of one deployment and what it takes to create one more.
+pub struct Pool {
     runtime: Runtime,
     spec: Arc<IsolateSpec>,
     artifact: Arc<Artifact>,
@@ -317,9 +375,17 @@ pub struct IsolateHandle {
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
+    /// The deployment's concurrency limit, shared by all members.
     concurrency: ConcurrencyLimit,
     seq: AtomicU64,
-    current: Mutex<Option<Arc<IsolateThread>>>,
+    /// The members, in creation order.
+    members: Mutex<Vec<Arc<IsolateThread>>>,
+    /// A ready isolate that takes over from a terminated member, or joins
+    /// when the deployment grows. Kept only while the deployment is hot.
+    spare: Mutex<Option<Arc<IsolateThread>>>,
+    max_members: usize,
+    /// A member or the spare is being created in the background.
+    growing: AtomicBool,
     /// Serialises re-creation so concurrent requests build one isolate.
     respawn: tokio::sync::Mutex<()>,
     last_failure: Mutex<Option<(Instant, CreateError)>>,
@@ -370,7 +436,8 @@ impl IsolateHandle {
                 secrets::MIN_SECRET_BYTES
             )));
         }
-        let handle = IsolateHandle {
+        let max_members = spec.max_isolates.max(1);
+        let pool = Pool {
             runtime,
             spec: Arc::new(spec),
             artifact,
@@ -381,15 +448,38 @@ impl IsolateHandle {
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
             seq: AtomicU64::new(0),
-            current: Mutex::new(None),
+            members: Mutex::new(Vec::new()),
+            spare: Mutex::new(None),
+            max_members,
+            growing: AtomicBool::new(false),
             respawn: tokio::sync::Mutex::new(()),
             last_failure: Mutex::new(None),
         };
-        let thread = handle.spawn_thread().await?;
-        *handle.current.lock().expect("isolate lock") = Some(Arc::new(thread));
-        Ok(handle)
+        let thread = pool.spawn_thread().await?;
+        pool.members
+            .lock()
+            .expect("pool lock")
+            .push(Arc::new(thread));
+        Ok(IsolateHandle {
+            inner: Arc::new(pool),
+        })
     }
 
+    /// Dispatch one request to the handler its route names.
+    ///
+    /// `req`'s URI must be absolute (`https://<host><path>?<query>`), or its
+    /// `Host` header is used with `https`. 404 and 405 are answered here
+    /// without entering the isolate. The request then waits for one of the
+    /// deployment's concurrency slots (503 `RENOX_BUSY` at the deadline),
+    /// runs on the least-loaded member of the pool under the CPU and heap
+    /// limits, and is answered with 504 `RENOX_DEADLINE` at its deadline
+    /// whatever the handler does after.
+    pub async fn dispatch(&self, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
+        self.inner.dispatch(ctx, req).await
+    }
+}
+
+impl Pool {
     /// The effective limits (tier limits lowered by the manifest).
     pub fn limits(&self) -> Limits {
         self.limits
@@ -400,21 +490,44 @@ impl IsolateHandle {
         self.concurrency.available()
     }
 
-    /// Creation numbers of the current isolate.
+    /// Creation numbers of the oldest live member.
     pub fn stats(&self) -> Option<CreateStats> {
-        self.current
+        self.members
             .lock()
-            .expect("isolate lock")
-            .as_ref()
+            .expect("pool lock")
+            .iter()
+            .find(|t| t.healthy())
             .map(|t| t.stats)
     }
 
-    /// Stop the current isolate: running JavaScript is terminated and the
-    /// isolate is disposed on its thread. The next dispatch creates a new one.
+    /// Live members of the pool, the spare not counted.
+    pub fn pool_size(&self) -> usize {
+        self.members
+            .lock()
+            .expect("pool lock")
+            .iter()
+            .filter(|t| t.healthy())
+            .count()
+    }
+
+    /// Is a spare isolate ready?
+    pub fn has_spare(&self) -> bool {
+        self.spare.lock().expect("pool lock").is_some()
+    }
+
+    /// The most isolates the deployment runs, the spare not counted.
+    pub fn max_isolates(&self) -> usize {
+        self.max_members
+    }
+
+    /// Stop every isolate of the deployment, the spare included: running
+    /// JavaScript is terminated and each isolate is disposed on its thread.
+    /// The next dispatch creates a new one.
     pub fn terminate(&self) {
-        if let Some(t) = self.current.lock().expect("isolate lock").take() {
-            t.shared.poisoned.store(true, Ordering::SeqCst);
-            t.v8_handle.terminate_execution();
+        let members = std::mem::take(&mut *self.members.lock().expect("pool lock"));
+        let spare = self.spare.lock().expect("pool lock").take();
+        for t in members.iter().chain(spare.iter()) {
+            t.poison();
         }
     }
 
@@ -455,27 +568,147 @@ impl IsolateHandle {
             v8_handle,
             shared,
             stats,
+            load: AtomicUsize::new(0),
         })
     }
 
-    fn healthy(&self) -> Option<Arc<IsolateThread>> {
-        let cur = self.current.lock().expect("isolate lock");
-        match cur.as_ref() {
-            Some(t) if !t.shared.poisoned.load(Ordering::SeqCst) => Some(t.clone()),
+    fn count_recycle(&self, n: usize) {
+        self.runtime
+            .inner
+            .metrics
+            .recycles
+            .fetch_add(n as u64, Ordering::Relaxed);
+    }
+
+    /// Pick a member for one request, without waiting when a live member
+    /// exists. Poisoned members (CPU, heap, uncaught error) leave the pool
+    /// and the spare takes over: the recycle step of `ops.md` section 10.
+    /// The least-loaded member is chosen; when it is busy
+    /// ([`POOL_GROW_AT_LOAD`]) and the pool has room, the spare joins (or a
+    /// member is created in the background) and the deployment keeps a
+    /// spare from then on.
+    fn pick_live(self: &Arc<Self>) -> Option<LoadGuard> {
+        let mut members = self.members.lock().expect("pool lock");
+        let before = members.len();
+        members.retain(|t| t.healthy());
+        let dead = before - members.len();
+        let mut grow = false;
+        let picked = match members.iter().min_by_key(|t| t.load.load(Ordering::SeqCst)) {
+            None => None,
+            Some(best) => {
+                let busy = best.load.load(Ordering::SeqCst) >= POOL_GROW_AT_LOAD;
+                if busy && members.len() < self.max_members {
+                    match self.take_spare() {
+                        Some(spare) => {
+                            members.push(spare.clone());
+                            grow = true;
+                            Some(LoadGuard::take(&spare))
+                        }
+                        None => {
+                            grow = true;
+                            Some(LoadGuard::take(best))
+                        }
+                    }
+                } else {
+                    Some(LoadGuard::take(best))
+                }
+            }
+        };
+        // A dead member is replaced by the spare at once.
+        for _ in 0..dead {
+            if members.len() >= self.max_members {
+                break;
+            }
+            let Some(spare) = self.take_spare() else {
+                break;
+            };
+            members.push(spare);
+        }
+        let picked = match picked {
+            Some(p) => Some(p),
+            None => members.first().map(LoadGuard::take),
+        };
+        // Hot: the pool grew or lost a member; it keeps a spare from now on.
+        let hot = members.len() > 1 || grow || (dead > 0 && self.max_members > 1);
+        drop(members);
+        // Every poisoned member that leaves the pool is one recycle.
+        if dead > 0 {
+            self.count_recycle(dead);
+        }
+        if hot {
+            self.refill();
+        }
+        picked
+    }
+
+    fn take_spare(&self) -> Option<Arc<IsolateThread>> {
+        let mut spare = self.spare.lock().expect("pool lock");
+        match spare.take() {
+            Some(t) if t.healthy() => Some(t),
             _ => None,
         }
     }
 
-    /// The live isolate, or a fresh one if the current one was poisoned
-    /// (CPU, heap, uncaught error) or terminated: the recycle step of
-    /// `ops.md` section 10. A creation failure is cached for
+    /// Create one isolate in the background, if none is being created: a
+    /// member while the pool is below its size and busy, else the spare.
+    fn refill(self: &Arc<Self>) {
+        if self.max_members < 2 || self.has_spare() {
+            return;
+        }
+        if self.growing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let pool = self.clone();
+        tokio::spawn(async move {
+            let created = pool.spawn_thread().await;
+            let more = match created {
+                Ok(t) => {
+                    let t = Arc::new(t);
+                    let mut members = pool.members.lock().expect("pool lock");
+                    let before = members.len();
+                    members.retain(|m| m.healthy());
+                    let dead = before - members.len();
+                    if dead > 0 {
+                        pool.count_recycle(dead);
+                    }
+                    let busy = members
+                        .iter()
+                        .all(|m| m.load.load(Ordering::SeqCst) >= POOL_GROW_AT_LOAD);
+                    if members.len() < pool.max_members && (busy || members.is_empty()) {
+                        members.push(t);
+                        true
+                    } else {
+                        drop(members);
+                        *pool.spare.lock().expect("pool lock") = Some(t);
+                        false
+                    }
+                }
+                Err(e) => {
+                    let mut f = serde_json::Map::new();
+                    f.insert("code".into(), e.code().as_str().into());
+                    f.insert("phase".into(), "module_load".into());
+                    f.insert("cause_message".into(), e.to_string().into());
+                    pool.log("error", None, "pool isolate creation failed", f);
+                    false
+                }
+            };
+            pool.growing.store(false, Ordering::SeqCst);
+            // A member joined: the hot deployment still wants its spare.
+            if more {
+                pool.refill();
+            }
+        });
+    }
+
+    /// A member for one request: a live one, or a fresh isolate when none
+    /// is left and no spare is ready. A creation failure is cached for
     /// [`CREATE_FAILURE_CACHE`].
-    async fn live_thread(&self) -> Result<Arc<IsolateThread>, CreateError> {
-        if let Some(t) = self.healthy() {
+    async fn live_thread(self: &Arc<Self>) -> Result<LoadGuard, CreateError> {
+        if let Some(t) = self.pick_live() {
             return Ok(t);
         }
         let _guard = self.respawn.lock().await;
-        if let Some(t) = self.healthy() {
+        if let Some(t) = self.pick_live() {
             return Ok(t);
         }
         if let Some((at, err)) = self.last_failure.lock().expect("failure lock").as_ref()
@@ -486,19 +719,17 @@ impl IsolateHandle {
         match self.spawn_thread().await {
             Ok(t) => {
                 let t = Arc::new(t);
-                let old = self
-                    .current
-                    .lock()
-                    .expect("isolate lock")
-                    .replace(t.clone());
-                if old.is_some() {
-                    self.runtime
-                        .inner
-                        .metrics
-                        .recycles
-                        .fetch_add(1, Ordering::Relaxed);
+                let mut members = self.members.lock().expect("pool lock");
+                let before = members.len();
+                members.retain(|m| m.healthy());
+                let dead = before - members.len();
+                members.push(t.clone());
+                let guard = LoadGuard::take(&t);
+                drop(members);
+                if dead > 0 {
+                    self.count_recycle(dead);
                 }
-                Ok(t)
+                Ok(guard)
             }
             Err(e) => {
                 *self.last_failure.lock().expect("failure lock") =
@@ -527,15 +758,7 @@ impl IsolateHandle {
         });
     }
 
-    /// Dispatch one request to the handler its route names.
-    ///
-    /// `req`'s URI must be absolute (`https://<host><path>?<query>`), or its
-    /// `Host` header is used with `https`. 404 and 405 are answered here
-    /// without entering the isolate. The request then waits for one of the
-    /// deployment's concurrency slots (503 `RENOX_BUSY` at the deadline),
-    /// runs under the CPU and heap limits, and is answered with 504
-    /// `RENOX_DEADLINE` at its deadline whatever the handler does after.
-    pub async fn dispatch(&self, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
+    async fn dispatch(self: &Arc<Self>, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
         let admitted = Instant::now();
         let (parts, body) = req.into_parts();
         let path = parts.uri.path().to_string();
@@ -607,7 +830,7 @@ impl IsolateHandle {
             return fail(ErrorCode::Busy, MeterStatus::Busy);
         };
 
-        let thread = match self.live_thread().await {
+        let member = match self.live_thread().await {
             Ok(t) => t,
             Err(e) => {
                 let mut f = serde_json::Map::new();
@@ -650,6 +873,7 @@ impl IsolateHandle {
             ctx: ctx.clone(),
             reply: reply_tx,
         };
+        let thread = &member.0;
         if thread.tx.send(Command::Dispatch(Box::new(job))).is_err() {
             return fail(ErrorCode::Internal, MeterStatus::Error);
         }

@@ -2,6 +2,10 @@
 //! a semaphore per deployment; a request queues up to its deadline, then
 //! gets 503 `RENOX_BUSY` with `Retry-After: 1`
 //! (`docs/23-failure-modes.md`, "Too many concurrent requests").
+//!
+//! The semaphore belongs to the deployment, not to an isolate: with an
+//! isolate pool (#156, `isolate.rs`) every member draws from the same
+//! slots, so growing the pool never raises the limit.
 
 use std::sync::Arc;
 use std::time::Instant;
