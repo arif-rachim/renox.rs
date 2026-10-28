@@ -41,6 +41,12 @@ pub struct RouteEntry {
     pub status: RouteStatus,
     /// Unix time in milliseconds.
     pub updated_at: u64,
+    /// The control plane's route version that last wrote this entry
+    /// (`docs/contracts/deploy-api.md` section 8, #97). `None` in a local
+    /// route table file, which stays `artifact.md` version 0 and never
+    /// carries it.
+    #[serde(skip)]
+    pub version: Option<u64>,
 }
 
 /// The on-disk route table file (F1: a local JSON file).
@@ -144,8 +150,14 @@ impl RouteTable {
         if file.version != 0 {
             return Err(RouteTableError::UnknownVersion(file.version));
         }
+        self.replace(file.entries)
+    }
+
+    /// Replaces the whole table with `entries` (a control-plane snapshot,
+    /// #97). Validated like a file (V13); refused as a whole.
+    pub fn replace(&self, entries: Vec<RouteEntry>) -> Result<(), RouteTableError> {
         let mut map = Map::new();
-        for entry in file.entries {
+        for entry in entries {
             validate_entry(&entry)?;
             let host = map.entry(entry.hostname.clone()).or_default();
             if host
@@ -172,11 +184,25 @@ impl RouteTable {
     /// Upserting an `active` entry is a deployment switch: the hostname's
     /// previous active entry, if any, becomes `draining`, so the table keeps
     /// at most one active entry per hostname.
-    pub fn upsert(&self, entry: RouteEntry) -> Result<(), RouteTableError> {
+    ///
+    /// When both the stored entry and `entry` carry a route version, an
+    /// `entry` that is not newer is ignored (#97: reordered or replayed
+    /// control-plane deltas never undo a newer change). Returns whether the
+    /// table changed.
+    pub fn upsert(&self, entry: RouteEntry) -> Result<bool, RouteTableError> {
         validate_entry(&entry)?;
+        let mut applied = true;
         self.map.rcu(|current| {
             let mut map = Map::clone(current);
             let host = map.entry(entry.hostname.clone()).or_default();
+            let stale = host.entries.iter().any(|e| {
+                e.deployment_hash == entry.deployment_hash
+                    && matches!((e.version, entry.version), (Some(old), Some(new)) if new <= old)
+            });
+            applied = !stale;
+            if stale {
+                return map;
+            }
             if entry.status == RouteStatus::Active {
                 for e in &mut host.entries {
                     if e.status == RouteStatus::Active && e.deployment_hash != entry.deployment_hash
@@ -195,7 +221,7 @@ impl RouteTable {
             }
             map
         });
-        Ok(())
+        Ok(applied)
     }
 
     /// Removes every entry of `hostname`. Returns whether anything was removed.
@@ -353,6 +379,63 @@ pub fn parse_host(raw: &str) -> Result<String, HostError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn versioned(hash: char, status: RouteStatus, version: Option<u64>) -> RouteEntry {
+        RouteEntry {
+            hostname: "a.renox.app".into(),
+            tenant_id: "t_a".into(),
+            deployment_hash: hash.to_string().repeat(64),
+            status,
+            updated_at: 0,
+            version,
+        }
+    }
+
+    /// #97: an upsert that is not newer than the stored entry is ignored,
+    /// so a reordered delta cannot undo a switch.
+    #[test]
+    fn older_versions_are_ignored() {
+        let t = RouteTable::new();
+        assert!(
+            t.upsert(versioned('a', RouteStatus::Active, Some(5)))
+                .unwrap()
+        );
+        assert!(
+            !t.upsert(versioned('a', RouteStatus::Draining, Some(4)))
+                .unwrap()
+        );
+        assert!(
+            !t.upsert(versioned('a', RouteStatus::Draining, Some(5)))
+                .unwrap()
+        );
+        assert_eq!(t.lookup("a.renox.app").unwrap().version, Some(5));
+        assert!(
+            t.upsert(versioned('a', RouteStatus::Draining, Some(6)))
+                .unwrap()
+        );
+        assert!(t.lookup("a.renox.app").is_none());
+        // Without versions (a local file), the last write wins as before.
+        assert!(t.upsert(versioned('b', RouteStatus::Active, None)).unwrap());
+        assert!(
+            t.upsert(versioned('b', RouteStatus::Draining, None))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn replace_swaps_the_whole_table_or_nothing() {
+        let t = RouteTable::new();
+        t.replace(vec![versioned('a', RouteStatus::Active, Some(1))])
+            .unwrap();
+        let two_active = vec![
+            versioned('a', RouteStatus::Active, Some(2)),
+            versioned('b', RouteStatus::Active, Some(3)),
+        ];
+        assert!(t.replace(two_active).is_err());
+        assert_eq!(t.lookup("a.renox.app").unwrap().version, Some(1));
+        // A local file never carries `version`.
+        assert!(t.reload_from_json(r#"{"version":0,"entries":[{"hostname":"a.renox.app","tenant_id":"t_a","deployment_hash":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","status":"active","updated_at":1,"version":3}]}"#).is_err());
+    }
 
     #[test]
     fn host_parsing() {

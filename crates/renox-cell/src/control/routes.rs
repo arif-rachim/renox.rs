@@ -4,6 +4,25 @@
 //! whose `node_id` is this node, section 7) and to the cell manager
 //! (draining). The same entries answer the manager's
 //! [`DeploymentLookup`]: tier, app and secret version per deployment.
+//!
+//! Consistency (#97, section 8 "How a node applies them"):
+//!
+//! 1. Per `(hostname, deployment_hash)` the node keeps the entry or a
+//!    removal tombstone, with its version. An upsert or removal is applied
+//!    only if its version is greater than the stored one, so reordered and
+//!    duplicated deltas converge.
+//! 2. The table version is that of the last snapshot or delta applied. A
+//!    newer delta whose `prev_version` differs from it reveals a gap: it is
+//!    applied under rule 1 and [`RouteState::apply_delta`] returns false, so
+//!    the controller fetches a snapshot.
+//! 3. A snapshot replaces the whole table and drops the tombstones. Its
+//!    version stays as a floor: a late delta change at or below it is
+//!    ignored, because the snapshot already holds its effect (without the
+//!    floor, a delta older than the snapshot would bring back an entry the
+//!    snapshot no longer has; the convergence test below found it). The
+//!    controller fetches a snapshot after registering, on `resync`, after a
+//!    gap, and every `resync_interval_ms` with `If-None-Match` (304:
+//!    unchanged).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -70,6 +89,22 @@ struct Table {
     /// The route version of the last snapshot or delta applied.
     version: u64,
     entries: BTreeMap<Key, ControlEntry>,
+    /// Removals since the last snapshot, with their version (rule 1).
+    tombstones: BTreeMap<Key, u64>,
+    /// The version of the last snapshot: it stands for every key at that
+    /// version, so a change at or below it is already in the table (or was
+    /// removed before it) and is ignored.
+    floor: u64,
+}
+
+impl Table {
+    /// The version of what is stored for `key`: entry, tombstone, or the
+    /// last snapshot's version.
+    fn stored(&self, key: &Key) -> u64 {
+        let e = self.entries.get(key).map_or(0, |e| e.version);
+        let t = self.tombstones.get(key).copied().unwrap_or(0);
+        e.max(t).max(self.floor)
+    }
 }
 
 /// The applied route state of this node.
@@ -151,7 +186,16 @@ impl RouteState {
     pub fn apply_snapshot(&self, snapshot: Snapshot) {
         {
             let mut t = self.table.lock().expect("routes lock");
+            if snapshot.version < t.version {
+                tracing::warn!(
+                    snapshot = snapshot.version,
+                    table = t.version,
+                    "route snapshot older than the table; applied as the control plane's truth"
+                );
+            }
             t.version = snapshot.version;
+            t.floor = snapshot.version;
+            t.tombstones.clear();
             t.entries = snapshot
                 .entries
                 .into_iter()
@@ -161,23 +205,40 @@ impl RouteState {
         self.publish();
     }
 
-    /// Applies a delta. Returns false when its `prev_version` is not the
-    /// table's version (a gap): the caller fetches a snapshot.
+    /// Applies a delta under rule 1. Returns false when it reveals a gap
+    /// (rule 2): the caller fetches a snapshot. A delta no newer than the
+    /// table is a late or repeated one: its changes are each checked by
+    /// version, and it reveals nothing.
     pub fn apply_delta(&self, delta: Delta) -> bool {
-        let contiguous = {
+        let (contiguous, changed) = {
             let mut t = self.table.lock().expect("routes lock");
-            let contiguous = delta.prev_version == t.version;
+            let newer = delta.version > t.version;
+            let contiguous = !newer || delta.prev_version == t.version;
+            let mut changed = false;
             for r in delta.removals {
-                t.entries.remove(&(r.hostname, r.deployment_hash));
+                let key = (r.hostname, r.deployment_hash);
+                if r.version > t.stored(&key) {
+                    t.entries.remove(&key);
+                    t.tombstones.insert(key, r.version);
+                    changed = true;
+                }
             }
             for e in delta.upserts {
-                t.entries
-                    .insert((e.hostname.clone(), e.deployment_hash.clone()), e);
+                let key = (e.hostname.clone(), e.deployment_hash.clone());
+                if e.version > t.stored(&key) {
+                    t.tombstones.remove(&key);
+                    t.entries.insert(key, e);
+                    changed = true;
+                }
             }
-            t.version = t.version.max(delta.version);
-            contiguous
+            if newer {
+                t.version = delta.version;
+            }
+            (contiguous, changed || newer)
         };
-        self.publish();
+        if changed {
+            self.publish();
+        }
         contiguous
     }
 
@@ -193,6 +254,7 @@ impl RouteState {
                 deployment_hash: e.deployment_hash.clone(),
                 status: e.status,
                 updated_at: e.updated_at,
+                version: Some(e.version),
             })
             .collect()
     }
@@ -209,8 +271,7 @@ impl RouteState {
             file.save(version, &all);
         }
         let entries = self.gateway_entries();
-        let json = serde_json::json!({ "version": 0, "entries": entries }).to_string();
-        if let Err(e) = self.gateway.reload_from_json(&json) {
+        if let Err(e) = self.gateway.replace(entries.clone()) {
             tracing::error!(error = %e, "route table from the control plane refused; the previous table stays in use");
             return;
         }
@@ -332,5 +393,225 @@ mod tests {
             }],
         }));
         assert_eq!(gw.entries("a.renox.app").len(), 1);
+    }
+}
+
+/// #97: convergence under loss and reordering.
+#[cfg(test)]
+mod convergence {
+    use super::*;
+
+    /// xorshift64*: deterministic per seed, no dependency.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+        fn chance(&mut self, percent: u64) -> bool {
+            self.below(100) < percent
+        }
+    }
+
+    /// The control plane's table: every change takes the next version, at
+    /// most one active entry per hostname (R1), one delta per change set.
+    #[derive(Default)]
+    struct Server {
+        version: u64,
+        entries: BTreeMap<Key, ControlEntry>,
+    }
+
+    impl Server {
+        fn entry(
+            &mut self,
+            host: &str,
+            hash: char,
+            status: RouteStatus,
+            node: &str,
+        ) -> ControlEntry {
+            self.version += 1;
+            ControlEntry {
+                hostname: host.into(),
+                tenant_id: "t_x".into(),
+                app: "x".into(),
+                deployment_hash: hash.to_string().repeat(64),
+                status,
+                updated_at: self.version,
+                version: self.version,
+                tier: TierName::Free,
+                node_id: node.into(),
+                secrets_version: 0,
+            }
+        }
+
+        /// One random change set: an activation (new active, old one
+        /// draining) or the removal of a draining entry.
+        fn change(&mut self, rng: &mut Rng) -> Delta {
+            let prev = self.version;
+            let host = format!("h{}.renox.app", rng.below(4));
+            let hash = (b'a' + rng.below(6) as u8) as char;
+            let node = if rng.chance(80) { "node-1" } else { "node-2" };
+            let mut upserts = Vec::new();
+            let mut removals = Vec::new();
+            let draining: Vec<Key> = self
+                .entries
+                .iter()
+                .filter(|(k, e)| k.0 == host && e.status == RouteStatus::Draining)
+                .map(|(k, _)| k.clone())
+                .collect();
+            if !draining.is_empty() && rng.chance(30) {
+                let key = draining[rng.below(draining.len() as u64) as usize].clone();
+                self.entries.remove(&key);
+                self.version += 1;
+                removals.push(Removal {
+                    hostname: key.0,
+                    deployment_hash: key.1,
+                    version: self.version,
+                });
+            } else {
+                let key: Key = (host.clone(), hash.to_string().repeat(64));
+                let old: Vec<Key> = self
+                    .entries
+                    .iter()
+                    .filter(|(k, e)| k.0 == host && **k != key && e.status == RouteStatus::Active)
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for k in old {
+                    let mut e = self.entries[&k].clone();
+                    e = ControlEntry {
+                        status: RouteStatus::Draining,
+                        ..self.entry(
+                            &e.hostname,
+                            e.deployment_hash.as_bytes()[0] as char,
+                            RouteStatus::Draining,
+                            &e.node_id,
+                        )
+                    };
+                    self.entries.insert(k, e.clone());
+                    upserts.push(e);
+                }
+                let e = self.entry(&host, hash, RouteStatus::Active, node);
+                self.entries.insert(key, e.clone());
+                upserts.push(e);
+            }
+            Delta {
+                prev_version: prev,
+                version: self.version,
+                upserts,
+                removals,
+            }
+        }
+
+        fn snapshot(&self) -> Snapshot {
+            Snapshot {
+                version: self.version,
+                entries: self.entries.values().cloned().collect(),
+            }
+        }
+    }
+
+    /// The controller's handling of one delivered delta (`control/mod.rs`):
+    /// a gap fetches a snapshot at once.
+    fn deliver(state: &RouteState, server: &Server, delta: Delta) {
+        if !state.apply_delta(delta) {
+            state.apply_snapshot(server.snapshot());
+        }
+    }
+
+    /// Acceptance test of #97: a fake pub/sub that drops 30% of the deltas and
+    /// reorders the rest; after one periodic resync (a conditional snapshot:
+    /// 304 when the versions match) the node's table equals the control
+    /// plane's. 100 runs.
+    #[test]
+    fn lossy_reordered_deltas_converge_after_one_resync() {
+        for seed in 1..=100u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
+            let mut server = Server::default();
+            let state = RouteState::new("node-1", Arc::new(RouteTable::new()));
+            state.apply_snapshot(server.snapshot());
+            let mut in_flight: Vec<Delta> = Vec::new();
+            for _ in 0..80 {
+                let d = server.change(&mut rng);
+                if !rng.chance(30) {
+                    in_flight.push(d);
+                }
+                // Deliver some of what is in flight, in random order.
+                while !in_flight.is_empty() && rng.chance(50) {
+                    let i = rng.below(in_flight.len() as u64) as usize;
+                    let d = in_flight.swap_remove(i);
+                    deliver(&state, &server, d);
+                }
+            }
+            while !in_flight.is_empty() {
+                let i = rng.below(in_flight.len() as u64) as usize;
+                let d = in_flight.swap_remove(i);
+                deliver(&state, &server, d);
+            }
+            // One resync interval: `If-None-Match: "<table version>"`.
+            if state.version() != server.version {
+                state.apply_snapshot(server.snapshot());
+            }
+            let mut ours = state.entries();
+            ours.sort_by(|a, b| {
+                (&a.hostname, &a.deployment_hash).cmp(&(&b.hostname, &b.deployment_hash))
+            });
+            let theirs: Vec<ControlEntry> = server.entries.values().cloned().collect();
+            assert_eq!(ours, theirs, "seed {seed}");
+            assert_eq!(state.version(), server.version, "seed {seed}");
+        }
+    }
+
+    /// Rule 1: a delta older than what is stored changes nothing.
+    #[test]
+    fn an_older_delta_is_ignored() {
+        let gw = Arc::new(RouteTable::new());
+        let state = RouteState::new("node-1", gw.clone());
+        let mut server = Server::default();
+        let mut rng = Rng(7);
+        let first = server.change(&mut rng);
+        let host = first.upserts[0].hostname.clone();
+        let old_hash = first.upserts[0].deployment_hash.clone();
+        let mut second = Delta {
+            prev_version: first.version,
+            version: first.version + 1,
+            upserts: vec![],
+            removals: vec![],
+        };
+        let mut drained = first.upserts[0].clone();
+        drained.status = RouteStatus::Draining;
+        drained.version = first.version + 1;
+        second.upserts.push(drained);
+        assert!(state.apply_delta(first.clone()));
+        assert!(state.apply_delta(second));
+        // The first delta again (duplicated, late): ignored, no gap.
+        assert!(state.apply_delta(first));
+        let e = state
+            .entries()
+            .into_iter()
+            .find(|e| e.hostname == host && e.deployment_hash == old_hash)
+            .unwrap();
+        assert_eq!(e.status, RouteStatus::Draining);
+        // A late removal older than the stored entry is ignored as well.
+        assert!(state.apply_delta(Delta {
+            prev_version: 0,
+            version: 1,
+            upserts: vec![],
+            removals: vec![Removal {
+                hostname: host.clone(),
+                deployment_hash: old_hash.clone(),
+                version: 1
+            }],
+        }));
+        assert!(
+            state
+                .entries()
+                .iter()
+                .any(|e| e.hostname == host && e.deployment_hash == old_hash)
+        );
     }
 }

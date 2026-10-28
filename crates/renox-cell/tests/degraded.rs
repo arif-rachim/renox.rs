@@ -171,8 +171,9 @@ async fn control_plane_down_keeps_serving_and_spools_meters() {
     );
     worker.manager.meter().flush_and_close().await;
     let rows = eventually(Duration::from_secs(30), || async {
-        let rows = stack.sql(&format!("select count(*)::int as n, count(distinct request_id)::int as d from meters_raw where deployment_hash = '{hash}'")).await;
-        (rows[0]["n"].as_u64() == Some(served)).then_some(rows)
+        // The activation probe (#96) is metered too, under the activation id.
+        let rows = stack.sql(&format!("select count(*) filter (where request_id not like 'act\\_%')::int as n, count(distinct request_id) filter (where request_id not like 'act\\_%')::int as d, count(*) filter (where request_id like 'act\\_%')::int as probes from meters_raw where deployment_hash = '{hash}'")).await;
+        (rows[0]["n"].as_u64() == Some(served) && rows[0]["probes"].as_u64() == Some(1)).then_some(rows)
     })
     .await;
     let rows = rows.unwrap_or_else(|| {

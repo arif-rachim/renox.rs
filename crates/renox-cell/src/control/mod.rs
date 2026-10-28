@@ -30,7 +30,7 @@ pub mod routes;
 pub mod secrets;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use ::http::{HeaderValue, Method, StatusCode, header};
@@ -105,6 +105,8 @@ pub struct Controller {
     reregister: Notify,
     /// Wakes the stream loop to fetch a snapshot now.
     resync: Notify,
+    /// `resync_interval_ms` from the last registration (#97).
+    resync_every: AtomicU64,
     others: std::sync::Mutex<Option<MessageHandler>>,
     tasks: std::sync::Mutex<Vec<JoinHandle<()>>>,
 }
@@ -128,6 +130,7 @@ impl Controller {
             registered: AtomicBool::new(false),
             reregister: Notify::new(),
             resync: Notify::new(),
+            resync_every: AtomicU64::new(60_000),
             others: std::sync::Mutex::new(None),
             tasks: std::sync::Mutex::new(Vec::new()),
         })
@@ -174,15 +177,38 @@ impl Controller {
         a.json().await
     }
 
-    /// `GET /v1/nodes/{node_id}/routes`, applied.
-    pub async fn fetch_snapshot(&self) -> Result<u64, ControlError> {
-        let snap: Snapshot = self
+    /// `GET /v1/nodes/{node_id}/routes`, applied. `conditional` sends
+    /// `If-None-Match: "<table version>"` (the periodic resync of #97): a
+    /// 304 means the table is current and costs one small request. After a
+    /// gap or a `resync` the fetch is unconditional, since the table version
+    /// can match while a lost change is missing.
+    pub async fn fetch_snapshot(&self, conditional: bool) -> Result<u64, ControlError> {
+        let ours = self.routes.version();
+        let etag = [(
+            header::IF_NONE_MATCH,
+            HeaderValue::from_str(&format!("\"{ours}\"")).expect("digits"),
+        )];
+        let extra: &[(header::HeaderName, HeaderValue)] = if conditional { &etag } else { &[] };
+        let a = self
             .client
-            .get_json(&self.client.node_path("/routes"))
+            .send(
+                Method::GET,
+                &self.client.node_path("/routes"),
+                None,
+                extra,
+                CALL_TIMEOUT,
+            )
             .await?;
-        let version = snap.version;
-        self.routes.apply_snapshot(snap);
-        Ok(version)
+        match a.status {
+            StatusCode::NOT_MODIFIED if conditional => Ok(ours),
+            StatusCode::OK => {
+                let snap: Snapshot = a.json().await?;
+                let version = snap.version;
+                self.routes.apply_snapshot(snap);
+                Ok(version)
+            }
+            s => Err(ControlError::Status(s.as_u16())),
+        }
     }
 
     async fn stream_loop(self: Arc<Self>) {
@@ -193,6 +219,8 @@ impl Controller {
             let result = async {
                 let reg = self.register().await?;
                 self.registered.store(true, Ordering::SeqCst);
+                self.resync_every
+                    .store(reg.resync_interval_ms.max(1000), Ordering::SeqCst);
                 if let Some(h) = heartbeat.take() {
                     h.abort();
                 }
@@ -200,7 +228,7 @@ impl Controller {
                     Some(self.clone().spawn_heartbeat(Duration::from_millis(
                         reg.heartbeat_interval_ms.max(1000),
                     )));
-                self.fetch_snapshot().await?;
+                self.fetch_snapshot(false).await?;
                 self.health.recover("control_plane");
                 self.follow_stream(&mut backoff).await
             }
@@ -242,12 +270,19 @@ impl Controller {
         *backoff = BACKOFF_MIN;
         let mut body = answer.body;
         let mut buf = BytesMut::new();
+        let every = Duration::from_millis(self.resync_every.load(Ordering::SeqCst));
+        let mut periodic = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
         loop {
             let frame = tokio::select! {
                 f = tokio::time::timeout(STREAM_IDLE, body.frame()) => f,
                 _ = self.reregister.notified() => return Ok(()),
                 _ = self.resync.notified() => {
-                    self.fetch_snapshot().await?;
+                    self.fetch_snapshot(false).await?;
+                    continue;
+                }
+                // Section 8 rule 3: a lost delta is repaired within one interval.
+                _ = periodic.tick() => {
+                    self.fetch_snapshot(true).await?;
                     continue;
                 }
             };
@@ -284,12 +319,13 @@ impl Controller {
         };
         match message.get("type").and_then(Value::as_str) {
             Some("resync") => {
-                self.fetch_snapshot().await?;
+                self.fetch_snapshot(false).await?;
             }
             Some("route_delta") => match serde_json::from_value::<Delta>(message) {
                 Ok(delta) => {
                     if !self.routes.apply_delta(delta) {
-                        self.fetch_snapshot().await?;
+                        tracing::info!("route version gap; fetching a snapshot");
+                        self.fetch_snapshot(false).await?;
                     }
                 }
                 Err(e) => tracing::warn!(error = %e, "route_delta refused"),

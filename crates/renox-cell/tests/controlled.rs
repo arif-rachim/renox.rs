@@ -158,6 +158,21 @@ async fn deploy_through_the_api_and_serve_from_the_worker() {
     .expect("no log batch reached POST /v1/ingest/logs");
     assert_eq!(logged[0]["actor"], "node:node-it-1");
 
+    // #97: the periodic resync is conditional; an unchanged table is a 304
+    // and keeps the table as it is.
+    let version = controller.routes.version();
+    assert!(version > 0);
+    assert_eq!(controller.fetch_snapshot(true).await.unwrap(), version);
+    assert_eq!(controller.fetch_snapshot(false).await.unwrap(), version);
+    // The gateway's entry carries the control plane's version.
+    let entry_version = worker
+        .routes
+        .lookup("hello.renox.test")
+        .unwrap()
+        .version
+        .unwrap();
+    assert!(entry_version > 0 && entry_version <= version);
+
     // The operator health endpoint.
     let health = http(
         worker.health_addr.unwrap(),
