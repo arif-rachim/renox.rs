@@ -6,8 +6,9 @@ One implementation of the artifact rules, shared by the CLI (`renox check`, `ren
 | --- | --- | --- |
 | V1–V16 (the artifact tree) | [`docs/contracts/artifact.md`](../../docs/contracts/artifact.md) section 6 | `src/artifact.ts`, `src/schema.ts`, `src/paths.ts` |
 | T1–T8 (the upload tarball) | [`docs/contracts/deploy-api.md`](../../docs/contracts/deploy-api.md) section 4 | `src/tar.ts` |
+| H1 forbidden files, H2 secrets (bundle hygiene, #115) | `docs/05-tenant-lifecycle.md` "Bundle hygiene"; `docs/24-threat-model.md` sections B and C | `src/hygiene.ts`, `src/secrets.ts` |
 
-The F1 gate (#37) folded the tar rules of #95 into this package instead of a separate `tar-safe` package, so the API and the CLI import one reader.
+The F1 gate (#37) folded the tar rules of #95 and the bundle rules of #115 into this package instead of separate `tar-safe` and `bundle-rules` packages, so the API and the CLI import one implementation. The H rules are not part of `checkArtifactFiles`: `renox build` filters and scans before the artifact exists (`cli/src/lib/build.ts`, `cli/src/lib/secrets.ts`), and the control plane applies them to uploads (`control/api/src/deployments/validate-bundle.ts`). `docs/contracts/deploy-api.md` section 4 says these rules report under their own rule ids in a minor version of the contract; `H1` and `H2` are those ids until a contract issue records them.
 
 ## Safe extraction (T1–T8)
 
@@ -43,4 +44,4 @@ Each file is named `<rule>-<name>.tar` and must be rejected with that rule. The 
 
 ## Tests
 
-`bun test` in this directory. `tests/tar.test.ts` covers each T rule; `tests/bombs.test.ts` runs the generated bombs and checks how far into each one the reader got. `control/api/tests/extract.test.ts` sends the same bombs through the upload endpoint.
+`bun test` in this directory. `tests/tar.test.ts` covers each T rule; `tests/hygiene.test.ts` the H rules, with a false-positive corpus; `tests/bombs.test.ts` runs the generated bombs and checks how far into each one the reader got. `control/api/tests/extract.test.ts` sends the same bombs through the upload endpoint.

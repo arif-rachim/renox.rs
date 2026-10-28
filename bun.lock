@@ -18,6 +18,9 @@
       "bin": {
         "renox": "./src/main.ts",
       },
+      "dependencies": {
+        "@renox/artifact-validate": "workspace:*",
+      },
       "devDependencies": {
         "@modelcontextprotocol/sdk": "1.32.1",
       },

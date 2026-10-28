@@ -11,6 +11,7 @@ import { check } from "../contract.ts";
 import { ApiError, conflict, invalid } from "../errors.ts";
 import { pathParam } from "../http.ts";
 import { extractSourcemaps, extractUpload, gzipOf } from "./extract.ts";
+import { bundleViolations } from "./validate-bundle.ts";
 import { actorOf, type Deps, type Env } from "../context.ts";
 import type { Db } from "../db/db.ts";
 import {
@@ -57,7 +58,7 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
     const files = "files" in extracted ? extracted.files : null;
     let violations: Violation[] = "violation" in extracted ? [extracted.violation] : [];
     const result = files === null ? null : checkArtifactFiles(files, { expectedHash: claimed, tier: TIERS[tier], app: name });
-    if (result !== null) violations = result.violations;
+    if (result !== null) violations = [...result.violations, ...bundleViolations(files as Map<string, Uint8Array>)];
     const ok = violations.length === 0 && result !== null && files !== null;
 
     // Store before recording, so a validated deployment always has its object.
