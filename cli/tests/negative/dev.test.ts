@@ -65,6 +65,29 @@ describe("renox dev", () => {
     }
   }, 30_000);
 
+  test("a burst that edits lib/ and then a function rebuilds with the new lib (no stale bundle)", async () => {
+    const dir = app({
+      "renox.toml": VALID_TOML,
+      "lib/msg.ts": 'export const msg = "one";\n',
+      "functions/api/health.ts": 'import { msg } from "../../lib/msg.ts";\nexport const GET = () => Response.json({ msg });\n',
+    });
+    dirs.push(dir);
+    const dev = await startDev({ project: dir, port: freePort(), worker: fakeWorker(dir), log: () => {} });
+    try {
+      const before = dev.hash();
+      const reload = dev.nextReload();
+      writeFileSync(join(dir, "lib", "msg.ts"), 'export const msg = "two";\n');
+      await Bun.sleep(5);
+      // The function file is saved unchanged, last in the burst.
+      writeFileSync(join(dir, "functions", "api", "health.ts"), readFileSync(join(dir, "functions", "api", "health.ts")));
+      const { hash } = await reload;
+      expect(hash).not.toBe(before);
+      expect(readFileSync(join(dir, ".renox", "artifact", hash, "code", "functions", "api", "health.js"), "utf8")).toContain("two");
+    } finally {
+      await dev.stop();
+    }
+  }, 30_000);
+
   test("a failed build keeps the running artifact and its route", async () => {
     const dir = project();
     const lines: string[] = [];

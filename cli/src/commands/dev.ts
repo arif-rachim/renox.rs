@@ -222,20 +222,20 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   let proxy: ReturnType<typeof Bun.serve>;
   try {
     proxy = Bun.serve({
-    hostname: "localhost",
-    port: opts.port,
-    async fetch(req) {
-      const u = new URL(req.url);
-      const headers = new Headers(req.headers);
-      headers.set("host", host);
-      const init: RequestInit = { method: req.method, headers, redirect: "manual" };
-      if (req.method !== "GET" && req.method !== "HEAD") init.body = await req.arrayBuffer();
-      try {
-        return await fetch(`http://127.0.0.1:${workerPort}${u.pathname}${u.search}`, init);
-      } catch {
-        return new Response("renox dev: the worker is not reachable (restarting?)\n", { status: 502 });
-      }
-    },
+      hostname: "localhost",
+      port: opts.port,
+      async fetch(req) {
+        const u = new URL(req.url);
+        const headers = new Headers(req.headers);
+        headers.set("host", host);
+        const init: RequestInit = { method: req.method, headers, redirect: "manual" };
+        if (req.method !== "GET" && req.method !== "HEAD") init.body = await req.arrayBuffer();
+        try {
+          return await fetch(`http://127.0.0.1:${workerPort}${u.pathname}${u.search}`, init);
+        } catch {
+          return new Response("renox dev: the worker is not reachable (restarting?)\n", { status: 502 });
+        }
+      },
     });
   } catch (e) {
     worker.kill("SIGKILL");
@@ -313,8 +313,10 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         supervise(worker);
         await waitForPort(workerPort, 30_000, worker.exited);
       } catch (e) {
-        // Exited again during startup: the exit handler of the new worker counts it.
+        // Exited again during startup (its exit handler counts it), or never
+        // listened: killed, so the exit handler retries.
         log(`renox dev: ${(e as Error).message}`);
+        worker.kill("SIGKILL");
         return;
       }
       status.workerRestarts++;
@@ -328,10 +330,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   const waiters: Array<(r: { hash: string; ms: number }) => void> = [];
   let pending: ReturnType<typeof setTimeout> | undefined;
   let building = Promise.resolve();
-  const rebuild = (file: string): void => {
-    // The bundle is reused until a function source changes; another source
-    // file may be imported by any module, so the cache is dropped.
-    if (!file.startsWith("functions/")) cache.invalidateAll = true;
+  const rebuild = (): void => {
     building = building.then(async () => {
       const t0 = performance.now();
       try {
@@ -359,8 +358,12 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     if (!filename) return;
     const f = filename.split("\\").join("/");
     if (!isAppInput(f)) return;
+    // The bundle is reused until a function source changes; another source
+    // file may be imported by any module, so the cache is dropped. Set per
+    // event, not per rebuild: one burst can touch lib/ and then functions/.
+    if (!f.startsWith("functions/")) cache.invalidateAll = true;
     if (pending) clearTimeout(pending);
-    pending = setTimeout(() => rebuild(f), opts.debounceMs ?? DEBOUNCE_MS);
+    pending = setTimeout(rebuild, opts.debounceMs ?? DEBOUNCE_MS);
   });
 
   return {
