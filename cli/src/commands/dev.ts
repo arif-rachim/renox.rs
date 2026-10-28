@@ -22,6 +22,7 @@ import { connect } from "node:net";
 import { join, resolve } from "node:path";
 
 import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
+import { clearDevState, type DevState, problemOf, writeDevState } from "../mcp/devstate.ts";
 
 export const DEV_TENANT = "dev";
 
@@ -181,6 +182,18 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       }
     },
   });
+  // .renox/dev.json for the MCP tools dev_status and dev_errors.
+  const status: DevState = {
+    pid: process.pid,
+    port: opts.port,
+    url: `http://localhost:${opts.port}`,
+    startedAt: new Date().toISOString(),
+    artifact: current,
+    routes: first.manifest.routes.length,
+    lastBuild: { ok: true, at: new Date().toISOString(), ms: Math.round(first.ms), problems: [] },
+    workerRestarts: 0,
+  };
+  writeDevState(project, status);
   log(`renox dev: http://localhost:${opts.port}  (artifact ${current.slice(0, 12)}, ${first.manifest.routes.length} routes)`);
   for (const r of first.manifest.routes) log(`  ${r.method.padEnd(7)} ${r.path}`);
 
@@ -226,9 +239,15 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         }
         const ms = Math.round(performance.now() - t0);
         log(`rebuilt in ${ms} ms (${r.rebuilt} module${r.rebuilt === 1 ? "" : "s"}, artifact ${current.slice(0, 12)})`);
+        status.artifact = current;
+        status.routes = r.manifest.routes.length;
+        status.lastBuild = { ok: true, at: new Date().toISOString(), ms, problems: [] };
+        writeDevState(project, status);
         for (const w of waiters.splice(0)) w({ hash: current, ms });
       } catch (e) {
         log(`build failed: ${(e as Error).message}`);
+        status.lastBuild = { ok: false, at: new Date().toISOString(), ms: Math.round(performance.now() - t0), problems: [problemOf(e)] };
+        writeDevState(project, status);
       }
     });
   };
@@ -247,6 +266,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     stop: async () => {
       watcher.close();
       clearInterval(tail);
+      clearDevState(project);
       proxy.stop(true);
       worker.kill("SIGINT");
       const exited = await Promise.race([worker.exited.then(() => true), Bun.sleep(3000).then(() => false)]);

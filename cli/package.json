@@ -11,5 +11,8 @@
     "check": "tsc --noEmit -p .",
     "test": "bun test",
     "compile": "bun build --compile src/main.ts --outfile dist/renox"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
   }
 }

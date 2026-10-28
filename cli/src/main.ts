@@ -5,17 +5,19 @@ import { run as build } from "./commands/build.ts";
 import { run as check } from "./commands/check.ts";
 import { run as dev } from "./commands/dev.ts";
 import { run as newApp } from "./commands/new.ts";
+import { run as mcp } from "./mcp/command.ts";
 
 const USAGE = `renox <command>
 
   new <name> [--template blank|hello]   create an app
   build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
   dev [--port 8787]                     run the app on the local worker, rebuild on change
-  check                                 validate config, routes, manifest; lint SQL and fetch
+  check                                 validate config, routes, manifest; lint SQL, fetch, global state
+  mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
 
 Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev.`;
 
-const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check };
+const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, mcp };
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;

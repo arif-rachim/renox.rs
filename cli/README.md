@@ -1,6 +1,6 @@
-# renox CLI (v0, F1)
+# renox CLI (v0, F2)
 
-One CLI for the tenant dev loop (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`. Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
+One CLI for the tenant dev loop (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`, and `mcp` (P21). Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
 
 ```
 bun cli/src/main.ts <command>        # from the repository
@@ -16,6 +16,7 @@ bun test --cwd cli                   # tests; the dev end-to-end test needs RENO
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Prints the hash |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact |
 | `renox check` | Validates `renox.toml`, route conflicts, and the manifest (by building in memory), and lints the sources. Exit code 1 on any error |
+| `renox mcp [--project <dir>]` | Local MCP server on stdio for coding agents: the docs, the project's config and routes, and the `check`/`dev` status as tools (below) |
 
 ### `renox build`
 
@@ -38,6 +39,7 @@ Limitations found so far (B17 will add to this list): the bundle targets a brows
   routes.json             <app>.localhost -> dev -> <current hash>
   worker.toml             generated worker config
   meters/, logs/          meter batches; tenant log lines (also printed to the terminal)
+  dev.json                pid, URL, artifact, last build result (read by `renox mcp`); removed on stop
 ```
 
 - The worker binary is `RENOX_WORKER_PATH` if set, else `cli/bin/<platform>-<arch>/renox-worker`, which `bun cli/scripts/fetch-worker.ts [<version>]` downloads from the GitHub release `worker-v<version>` (default: the pinned `WORKER_VERSION`; asset `renox-worker-<version>-<target triple>` and its `.sha256`, the names `.github/workflows/release-worker.yml` publishes; the download is refused on a checksum mismatch). Locally: `cargo build -p renox-cell --bin renox-worker` and `RENOX_WORKER_PATH=target/debug/renox-worker`.
@@ -57,6 +59,53 @@ Limitations found so far (B17 will add to this list): the bundle targets a brows
 
 The lint is a small tokenizer (comments, strings, and template literals with nested `${}` are understood), not a type checker: SQL passed through a variable is not followed. `global-state` adds brace scopes on that tokenizer, not a parser: it does not see writes into a shared object (`cache.set(k, v)`, `counts[k] = 1` on a module-level `const`), writes through a cast (`(globalThis as any).x = 1`), or writes inside a `${}` of a template literal. Tests are not linted.
 
+### `renox mcp`
+
+The local platform MCP server (`docs/20-ai-agents-mcp.md`, sections 1 and 6). JSON-RPC 2.0 over stdio, one message per line; protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05` (the client's if it is one of them, else the newest). It serves the project in the current folder, or `--project <dir>`. stdout carries only protocol messages; the server logs to stderr.
+
+| Tool | Input | Returns |
+| --- | --- | --- |
+| `dev_status` | none | `running`, and while `renox dev` runs: `url`, `port`, `pid`, current `artifact`, `routes`, `lastBuild` (`ok`, `at`, `ms`, problem count), `workerRestarts` |
+| `dev_errors` | none | The last build's `problems` and the latest 20 `error` lines of the tenant log (`.renox/logs/tenant.ndjson`) |
+| `run_check` | none | `renox check` as data: `ok`, `errors`, `warnings`, `problems` |
+| `run_tests` | `filter?` | `bun test` in the project (120 s timeout): `ok`, `exitCode`, `timedOut`, `pass`, `fail`, `skip`, the last 32 KiB of `output` |
+| `search_docs` | `query`, `limit?` (1–50, default 10) | Lines of the docs that contain every query word: `uri`, `title`, `section`, `line`, `snippet` |
+
+A problem has the CLI's shape: `code`, `message`, and `file`, `line`, `column`, `hint` when known. Every result is both `structuredContent` and the same JSON as text. A bad input (an unknown argument, a `filter` outside the allowlist) is a tool result with `isError: true` and `error.code: "invalid_input"`.
+
+| Resource | Content |
+| --- | --- |
+| `docs://<path>` | Every `docs/*.md` and `docs/contracts/*.md` (`docs://00-overview.md`, `docs://contracts/ops.md`), Markdown |
+| `types://renox/ctx.d.ts` | The contract's `ctx` types (`docs/contracts/ctx.d.ts`), which the `renox` SDK re-exports |
+| `config://effective` | The resolved `renox.toml`, or `{ ok: false, problems }` |
+| `routes://` | The routes `renox build` would emit, in matching order, and route conflicts |
+
+No prompts, no subscriptions. The docs are embedded at build time by a Bun macro (`src/mcp/embed.ts`): `bun --compile` does not ship `docs/`, and the binary serves the docs it was built with.
+
+**What the tools can do.** Each tool is one fixed operation on the project folder. Model input never becomes a shell command or a path: `resources/read` looks the URI up in the fixed set above (a `docs://../x` is "resource not found"), and `run_tests` spawns `bun test` with a fixed argv and no shell. Its `filter` must match `^[A-Za-z0-9 _.:/-]{1,100}$` and is passed as the single argument after `--test-name-pattern`. `run_tests` runs the project's own tests with the developer's permissions, as `bun test` in a terminal would. Values of `.env` (8 bytes or longer) are replaced by `[redacted]` in every tool result, so secrets never reach the model. While `renox dev` runs, it writes its state to `.renox/dev.json`, which `dev_status` and `dev_errors` read. A file left by a dead process reads as not running. Deploy, logs, data and module tools need the control plane: they are F3–F4, on the remote server with OAuth scopes.
+
+Claude Code (`.mcp.json` in the app folder, or `claude mcp add renox -- renox mcp`):
+
+```json
+{
+  "mcpServers": {
+    "renox": { "command": "renox", "args": ["mcp"] }
+  }
+}
+```
+
+Cursor (`.cursor/mcp.json` in the app folder):
+
+```json
+{
+  "mcpServers": {
+    "renox": { "command": "renox", "args": ["mcp", "--project", "${workspaceFolder}"] }
+  }
+}
+```
+
+From this repository without the binary: `"command": "bun", "args": ["<repo>/cli/src/main.ts", "mcp"]`. To try it by hand: `npx @modelcontextprotocol/inspector --cli renox mcp --method tools/list`.
+
 ## Tests
 
-`cli/tests/`: route discovery and conflicts on fixtures, the hash vectors, the lints, `renox new` + `renox build` (schema-valid artifact named by its hash, reproducible, migrations and public files), `renox check`, and `dev.e2e.test.ts` (skipped unless `RENOX_WORKER_PATH` is set: serves the hello app through the worker, edits the file, the new response arrives within 1 s).
+`cli/tests/`: route discovery and conflicts on fixtures, the hash vectors, the lints, `renox new` + `renox build` (schema-valid artifact named by its hash, reproducible, migrations and public files), `renox check`, and `dev.e2e.test.ts` (skipped unless `RENOX_WORKER_PATH` is set: serves the hello app through the worker, edits the file, the new response arrives within 1 s). `mcp.test.ts` drives `renox mcp` through the official MCP SDK client (which validates every response against the MCP schemas): every tool and resource, the refused inputs, secret redaction, and the compiled binary serving the embedded docs; with `RENOX_MCP_INSPECTOR=<path to mcp-inspector>` it also runs the MCP Inspector CLI against every tool and resource.
