@@ -115,8 +115,9 @@ enum State {
     ChunkDataEnd(u8),
     /// Trailer lines after the last chunk, up to an empty line.
     Trailer,
-    /// The head grew past the line buffer; hyper refuses it (431) and
-    /// closes, so the guard stops looking.
+    /// A request head grew past the line buffer; hyper refuses it (431)
+    /// and closes, so the guard stops looking. Never entered from chunk
+    /// framing or trailers.
     Opaque,
 }
 
@@ -203,7 +204,15 @@ impl Http1Framing {
                     match b {
                         b'\r' => self.after_cr = true,
                         b'\n' => return Err(Violation::BareLf),
+                        // An over-long head is refused by hyper (431), so the
+                        // guard can stop looking. An over-long chunk-size or
+                        // trailer line is refused here: hyper's own limits
+                        // for those differ, and going opaque would switch
+                        // the guard off for the rest of the connection.
                         _ if self.line.len() >= self.max_line => {
+                            if !matches!(self.state, State::Head { .. }) {
+                                return Err(Violation::ChunkFraming);
+                            }
                             self.state = State::Opaque;
                             self.line = Vec::new();
                         }
@@ -368,10 +377,12 @@ fn check_header_line(line: &[u8], head: &mut Head) -> Result<(), Violation> {
     Ok(())
 }
 
-/// `1*HEXDIG [ ";" chunk-ext ]`; at most 16 hex digits.
+/// `1*HEXDIG BWS [ ";" chunk-ext ]`; at most 16 hex digits. Whitespace
+/// after the size is allowed (RFC 9112 section 7.1.1, as hyper does).
 fn parse_chunk_size(line: &[u8]) -> Result<u64, Violation> {
     let end = line.iter().position(|&b| b == b';').unwrap_or(line.len());
     let (digits, ext) = line.split_at(end);
+    let digits = digits.trim_ascii_end();
     if digits.is_empty() || digits.len() > 16 || !digits.iter().all(u8::is_ascii_hexdigit) {
         return Err(Violation::ChunkFraming);
     }
@@ -733,6 +744,10 @@ mod tests {
                 b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\nhello\r\n",
                 Violation::BareLf,
             ),
+            (
+                b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5 x\r\nhello\r\n",
+                Violation::ChunkFraming,
+            ),
             // A smuggled second request after a Content-Length body is
             // checked like any other head.
             (
@@ -749,6 +764,30 @@ mod tests {
                 String::from_utf8_lossy(req)
             );
         }
+    }
+
+    #[test]
+    fn overlong_chunk_lines_are_refused_not_ignored() {
+        // Adversarial review of #107: going opaque here would leave every
+        // later request on the connection unchecked.
+        let head = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n";
+        let ext = format!("{head}1;{}\r\na\r\n0\r\n\r\n", "e".repeat(100));
+        assert_eq!(
+            Http1Framing::new(64).feed(ext.as_bytes()),
+            Err(Violation::ChunkFraming)
+        );
+        let trailer = format!("{head}0\r\nX-T: {}\r\n\r\n", "t".repeat(100));
+        assert_eq!(
+            Http1Framing::new(64).feed(trailer.as_bytes()),
+            Err(Violation::ChunkFraming)
+        );
+    }
+
+    #[test]
+    fn whitespace_after_chunk_size_is_allowed() {
+        let req =
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5 ;a=b\r\nhello\r\n0\t\r\n\r\n";
+        assert_eq!(feed(req), Ok(()));
     }
 
     #[test]

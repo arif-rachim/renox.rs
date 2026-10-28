@@ -246,6 +246,22 @@ async fn well_formed_pipelined_requests_are_still_served() {
     assert_eq!(server.gateway.stats().protocol_refused, 0);
 }
 
+/// Adversarial review of #107: a chunk extension longer than the guard's
+/// line buffer must not switch the guard off for the rest of the
+/// connection, so the smuggled head after it never reaches the cell.
+#[tokio::test]
+async fn overlong_chunk_extension_does_not_disable_the_guard() {
+    let server = start_plain().await;
+    let ext = "e".repeat(20 * 1024);
+    let req = format!(
+        "POST /api HTTP/1.1\r\nHost: a.test\r\nTransfer-Encoding: chunked\r\n\r\n\
+         1;{ext}\r\na\r\n0\r\n\r\nGET /api HTTP/1.1\nHost: b.test\r\n\r\n"
+    );
+    let out = exchange(server.addr, req.as_bytes()).await;
+    assert!(!out.contains("tenant=t_b"), "{out:?}");
+    assert_eq!(server.cell.count(), 0);
+}
+
 // ---------------------------------------------------------------------------
 // TLS: SNI/Host and HTTP/2
 // ---------------------------------------------------------------------------
