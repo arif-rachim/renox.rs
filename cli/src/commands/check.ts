@@ -9,6 +9,8 @@ import { CliError, EXIT, location } from "../errors.ts";
 import { buildFiles } from "../lib/build.ts";
 import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
+import { securityReport } from "../check/security.ts";
+import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
@@ -52,12 +54,20 @@ export async function check(project: string): Promise<CheckReport> {
   return { errors, findings };
 }
 
+/** `renox check --security`: the effective headers, CORS, and buckets per route (#47). */
+export function securityOutput(project: string): string {
+  const config = readProject(project);
+  return securityReport(config.security ?? {}, sortRoutes(routesOf(discoverFunctions(project), discoverPages(project))));
+}
+
 export async function run(args: string[]): Promise<number> {
-  if (args.length) {
-    console.error("usage: renox check");
+  const security = args.includes("--security");
+  if (args.some((a) => a !== "--security")) {
+    console.error("usage: renox check [--security]");
     return EXIT.USER;
   }
   const { errors, findings } = await check(process.cwd());
+  if (security && errors.length === 0) process.stdout.write(securityOutput(process.cwd()));
   for (const e of errors) console.error(`${location(e) ? `${location(e)}  ` : ""}error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
   for (const f of findings) console.error(`${f.file}:${f.line}:${f.column}  ${f.severity}  ${f.rule}  ${f.message}`);
   const failed = errors.length + findings.filter((f) => f.severity === "error").length;

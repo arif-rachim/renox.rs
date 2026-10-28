@@ -26,10 +26,13 @@ use renox_runtime::{IsolateSpec, Runtime};
 use tokio::sync::OnceCell;
 
 use crate::artifact::{ArtifactError, ArtifactStore};
+use crate::cell::WebLayer;
 use crate::cell::{Cell, CellKey, InFlightGuard, SecretsError, load_secrets, valid_tenant_id};
 use crate::pages::{CSRF_CODE, CSRF_MESSAGE, Gate, PageGuard, PlatformKey, SessionKeys};
-use crate::render::{PageRenderer, Rendered, SharedPages, platform_error, prefers_html};
+use crate::ratelimit::RouteBuckets;
+use crate::render::{PageRenderer, Rendered, platform_error, prefers_html};
 use crate::tiers::{TierName, Tiers};
+use renox_gateway::security::SecurityConfig;
 
 /// What the manager needs from the worker config.
 #[derive(Clone)]
@@ -298,7 +301,7 @@ impl CellManager {
             }
         };
         let keys = SessionKeys::new(self.inner.config.platform_key.tenant_key(&key.tenant_id));
-        let pages = match load_pages(&artifact_dir, keys).await {
+        let web = match load_pages(&artifact_dir, keys).await {
             Ok(p) => p,
             Err(e) => {
                 isolate.terminate();
@@ -307,8 +310,7 @@ impl CellManager {
             }
         };
         let stats = isolate.stats();
-        let (pages, guard) = pages;
-        let cell = Arc::new(Cell::new(key.clone(), isolate, pages, guard));
+        let cell = Arc::new(Cell::new(key.clone(), isolate, web));
         self.inner
             .created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -533,17 +535,30 @@ impl CellManager {
             Err(_) => Bytes::new(),
         };
         let ingress = body.len() as u64;
+        // Per-route buckets (#47), after route matching: no tenant code, no
+        // meter record, like the gateway's own 429.
+        if let Some(buckets) = &cell.web.buckets
+            && let Some(retry) =
+                buckets.check(parts.method.as_str(), parts.uri.path(), ctx.client_ip)
+        {
+            return Response::builder()
+                .status(http::StatusCode::TOO_MANY_REQUESTS)
+                .header(http::header::RETRY_AFTER, retry)
+                .body(Body::empty())
+                .expect("valid response");
+        }
+        let nonce = Some(ctx.csp_nonce.clone()).filter(|n| !n.is_empty());
         // Pages (#41): session, CSRF, platform cookies and header removed.
         let mut csrf_token = None;
         let mut set_cookie = Vec::new();
-        match cell.guard.as_ref().map(|g| {
+        match cell.web.guard.as_ref().map(|g| {
             g.check(
                 parts.method.as_str(),
                 parts.uri.path(),
                 parts.uri.query(),
                 &mut parts.headers,
                 &body,
-                false,
+                cell.web.same_site_none,
             )
         }) {
             Some(Gate::Refused {
@@ -559,11 +574,18 @@ impl CellManager {
                 cell.isolate
                     .log("warn", Some(&ctx.request_id), "csrf check failed", f);
                 // 403 with the error page; no tenant code ran, no meter record.
-                let response = match cell.pages.clone() {
+                let response = match cell.web.pages.clone() {
                     Some(pages) => {
                         let request_id = ctx.request_id.clone();
+                        let nonce = nonce.clone();
                         on_render_pool(move || {
-                            pages.error_page(403, Some(CSRF_CODE), CSRF_MESSAGE, &request_id, None)
+                            pages.error_page(
+                                403,
+                                Some(CSRF_CODE),
+                                CSRF_MESSAGE,
+                                &request_id,
+                                nonce.as_deref(),
+                            )
                         })
                         .await
                         .response
@@ -598,13 +620,20 @@ impl CellManager {
         // errors on page routes and HTML 404s get the error pages
         // (errors.md section 1).
         let mut rendered: Option<Rendered> = None;
-        if let Some(pages) = cell.pages.clone() {
+        if let Some(pages) = cell.web.pages.clone() {
             let request_id = ctx.request_id.clone();
             if let Some(page) = out.render.take() {
                 let token = csrf_token.clone();
+                let nonce = nonce.clone();
                 rendered = Some(
                     on_render_pool(move || {
-                        pages.render_page(&page, &request_id, None, token.as_deref(), is_head)
+                        pages.render_page(
+                            &page,
+                            &request_id,
+                            nonce.as_deref(),
+                            token.as_deref(),
+                            is_head,
+                        )
                     })
                     .await,
                 );
@@ -612,9 +641,16 @@ impl CellManager {
                 && out.meter.status != RuntimeStatus::Ok
                 && let Some((status, code, message)) = platform_error(&out.response)
             {
+                let nonce = nonce.clone();
                 rendered = Some(
                     on_render_pool(move || {
-                        pages.error_page(status, Some(&code), &message, &request_id, None)
+                        pages.error_page(
+                            status,
+                            Some(&code),
+                            &message,
+                            &request_id,
+                            nonce.as_deref(),
+                        )
                     })
                     .await,
                 );
@@ -623,8 +659,11 @@ impl CellManager {
                 && get_or_head
                 && wants_html
             {
-                rendered =
-                    Some(on_render_pool(move || pages.not_found_page(&request_id, None)).await);
+                let nonce = nonce.clone();
+                rendered = Some(
+                    on_render_pool(move || pages.not_found_page(&request_id, nonce.as_deref()))
+                        .await,
+                );
             }
         } else if out.render.is_some() {
             // A page result without templates cannot happen after V15; fail
@@ -717,11 +756,9 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
 }
 
 /// The deployment's page renderer, from `manifest.json` and `templates/`.
-/// Also the page guard (sessions, CSRF) when the deployment has page routes.
-async fn load_pages(
-    artifact_dir: &Path,
-    keys: SessionKeys,
-) -> Result<(Option<SharedPages>, Option<PageGuard>), CellError> {
+/// Also the page guard (sessions, CSRF) when the deployment has page routes,
+/// and the per-route buckets of `security.ratelimit` (#47).
+async fn load_pages(artifact_dir: &Path, keys: SessionKeys) -> Result<WebLayer, CellError> {
     let dir = artifact_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let raw = std::fs::read(dir.join("manifest.json"))
@@ -729,7 +766,20 @@ async fn load_pages(
         let manifest: renox_runtime::manifest::Manifest =
             serde_json::from_slice(&raw).map_err(|e| format!("V3: manifest.json: {e}"))?;
         let guard = PageGuard::new(&manifest.routes, keys);
-        PageRenderer::load(&dir, &manifest).map(|p| (p.map(Arc::new), guard))
+        let security: SecurityConfig = match &manifest.security {
+            Some(v) => serde_json::from_value(v.clone())
+                .map_err(|e| format!("V16: manifest.security: {e}"))?,
+            None => SecurityConfig::default(),
+        };
+        let buckets = RouteBuckets::new(&manifest.routes, &security.ratelimit);
+        PageRenderer::load(&dir, &manifest).map(|p| WebLayer {
+            pages: p.map(Arc::new),
+            guard,
+            buckets,
+            // `SameSite=None` only when CORS with credentials is enabled
+            // (docs/04-isolation-security.md, "Cookies").
+            same_site_none: security.cors.credentials && !security.cors.origins.is_empty(),
+        })
     })
     .await
     .map_err(|e| e.to_string())

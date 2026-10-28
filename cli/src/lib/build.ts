@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
+import { checkSecurity, type SecurityConfig } from "../check/security.ts";
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
@@ -62,6 +63,7 @@ export interface Manifest {
   templates?: Record<string, { kind: CompiledTemplate["kind"]; fragments?: CompiledTemplate["fragments"] }>;
   permissions: { network: string[]; secrets: string[] };
   limits?: ProjectConfig["limits"];
+  security?: SecurityConfig;
 }
 
 export interface BuildResult {
@@ -228,6 +230,7 @@ export async function buildFiles(
     });
   const conflicts = routeConflicts(routes);
   if (conflicts.length) throw new BuildError("route conflicts", conflicts);
+  if (config.security) checkSecurity(config.security, routes);
   const enc = new TextEncoder();
   const files = new Map<string, Uint8Array>();
   const entry: Record<string, string> = {};
@@ -308,6 +311,7 @@ export async function buildFiles(
     ...(Object.keys(manifestTemplates).length ? { templates: manifestTemplates } : {}),
     permissions: config.permissions,
     ...(config.limits ? { limits: config.limits } : {}),
+    ...(config.security ? { security: config.security } : {}),
   };
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);

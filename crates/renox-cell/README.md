@@ -107,6 +107,10 @@ The meter record gets `render_fuel` and `render_ms` (render-thread CPU time) of 
 | Action | `POST ?/<name>` naming a declared action: the token from `x-renox-csrf` or the `_csrf` form field (urlencoded or multipart) must equal the cookie, and both the session's token (constant-time). Otherwise 403 `RENOX_CSRF` (the `_error` page or the default page), one tenant log line with `route`, `action`, `reason` (`missing`/`mismatch`), no tenant code, no meter record |
 | Render | The token is the renderer's `__renox.csrf_token`: `<x-form action="name">` and `<x-csrf />` emit `<input type="hidden" name="_csrf">` with it |
 
+**CSP nonce (#47).** Every render (page, fragment, error and 404 pages, the 403 page) gets the gateway's `RequestCtx.csp_nonce`, so each `<script>`/`<style>` carries the nonce of the response's CSP header.
+
+**Rate-limit buckets (#47).** `security.ratelimit[]` buckets are enforced in `src/ratelimit.rs` after the runtime's router matched the route (the gateway does not match routes): a token bucket of `requests` per `window_s` per client IP (IPv6 by /64) per bucket, `HEAD` sharing the `GET` bucket. Over it: `429` with `Retry-After`, no body, no tenant code, no meter record, like the gateway's per-IP limit. The session cookie is `SameSite=None` only when `cors.credentials` is set with listed origins.
+
 Function routes are not checked (APIs; webhooks verify signatures). **Keys:** the tenant key is HKDF-SHA256 (salt `renox-pages-v1`, info = tenant id) of the node's platform key, read from `platform_key_file` (mode 0600, at least 32 bytes). Without the key a worker uses a random key per process and logs a warning; sessions then end on restart. F3 delivers the node key (#54, #55). The keys never reach an isolate or a log. Token masking against BREACH is #111.
 
 ## Not here yet

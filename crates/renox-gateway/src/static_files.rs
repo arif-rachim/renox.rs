@@ -113,7 +113,8 @@ pub fn is_hashed_path(path: &str) -> bool {
         .is_some_and(|part| part.len() >= 8 && part.bytes().all(|c| c.is_ascii_hexdigit()))
 }
 
-/// Loads and caches `public/manifest.json` per deployment.
+/// Loads and caches the public index per deployment (`public.json` in
+/// artifact version 1, `public/manifest.json` in version 0).
 #[derive(Debug)]
 pub struct StaticFiles {
     artifact_root: PathBuf,
@@ -140,10 +141,21 @@ impl StaticFiles {
         if let Some(m) = self.lock().get(deployment_hash) {
             return m.clone();
         }
-        let path = self
-            .artifact_dir(deployment_hash)
-            .join("public")
-            .join("manifest.json");
+        // The index lives in `public.json` in version 1 and in
+        // `public/manifest.json` in version 0 (`artifact.md` section 4); the
+        // version comes from `manifest.json`, read once per hash.
+        let dir = self.artifact_dir(deployment_hash);
+        let version = match tokio::fs::read_to_string(dir.join("manifest.json")).await {
+            Ok(json) => crate::security::DeploymentInfo::parse(&json)
+                .map(|i| i.version)
+                .unwrap_or(0),
+            Err(_) => 0,
+        };
+        let path = if version >= 1 {
+            dir.join("public.json")
+        } else {
+            dir.join("public").join("manifest.json")
+        };
         let manifest = match tokio::fs::read_to_string(&path).await {
             Ok(json) => PublicManifest::parse(&json).unwrap_or_default(),
             Err(_) => PublicManifest::default(),

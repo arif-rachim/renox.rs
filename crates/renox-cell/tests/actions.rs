@@ -152,7 +152,10 @@ fn write_artifact(artifacts: &Path) -> String {
             { "kind": "function", "method": "POST", "path": "/api/x", "module": "functions/api/x", "export": "POST" }
         ],
         "templates": compiled.manifest_entries(),
-        "permissions": { "network": [], "secrets": [] }
+        "permissions": { "network": [], "secrets": [] },
+        "security": { "ratelimit": [
+            { "method": "POST", "path": "/api/x", "requests": 2, "window_s": 60, "key": "ip" }
+        ] }
     });
     std::fs::write(
         tmp.join("manifest.json"),
@@ -487,6 +490,11 @@ meter_flush_ms = 50
     // Function routes are not CSRF-checked.
     let r = http(addr, "POST", "/api/x", &[], "").await;
     assert_eq!(r.status, 200, "{}", r.body);
+    // #47: the per-route bucket (2 per minute per IP) stops the third.
+    assert_eq!(http(addr, "POST", "/api/x", &[], "").await.status, 200);
+    let limited = http(addr, "POST", "/api/x", &[], "").await;
+    assert_eq!(limited.status, 429);
+    assert!(limited.head.contains("retry-after: "), "{}", limited.head);
 
     // Trailing slash: 308 for pages (query kept), never for functions.
     let r = http(addr, "GET", "/cart/?q=1", &[], "").await;

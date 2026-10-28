@@ -25,14 +25,15 @@ export const DEV_CLIENT_JS = `(() => {
     overlay = document.createElement("renox-dev-overlay");
     const root = overlay.attachShadow({ mode: "open" });
     const box = document.createElement("div");
-    box.setAttribute("style", "position:fixed;inset:0;z-index:2147483647;background:rgba(20,20,20,.92);color:#f5f5f5;font:14px/1.5 ui-monospace,monospace;padding:24px;overflow:auto");
+    // CSSOM, not style attributes: the strict CSP (#47) refuses inline styles.
+    box.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(20,20,20,.92);color:#f5f5f5;font:14px/1.5 ui-monospace,monospace;padding:24px;overflow:auto";
     const h = document.createElement("h2");
     h.textContent = "renox dev: build failed";
-    h.setAttribute("style", "color:#ff6b6b;margin:0 0 12px");
+    h.style.cssText = "color:#ff6b6b;margin:0 0 12px";
     box.append(h);
     for (const p of problems) {
       const pre = document.createElement("pre");
-      pre.setAttribute("style", "white-space:pre-wrap;margin:0 0 12px");
+      pre.style.cssText = "white-space:pre-wrap;margin:0 0 12px";
       const where = p.file ? p.file + (p.line ? ":" + p.line + (p.column ? ":" + p.column : "") : "") + "  " : "";
       pre.textContent = where + p.message + (p.hint ? "\\nhint: " + p.hint : "");
       box.append(pre);

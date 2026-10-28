@@ -14,7 +14,7 @@ const USAGE = `renox <command>
   new <name> [--template blank|hello]   create an app
   build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
   dev [--port 8787]                     run the app on the local worker, rebuild on change
-  check                                 validate config, routes, manifest; lint SQL, fetch, global state
+  check [--security]                    validate config, routes, templates, manifest; lint SQL, fetch, global state; --security prints the effective headers per route
   mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
 
 Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.

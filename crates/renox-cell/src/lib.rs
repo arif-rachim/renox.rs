@@ -9,6 +9,7 @@ pub mod cell;
 pub mod config;
 pub mod manager;
 pub mod pages;
+pub mod ratelimit;
 pub mod render;
 pub mod tiers;
 pub mod worker;

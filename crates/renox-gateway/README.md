@@ -11,9 +11,10 @@ Below the HTTP parser, the **protocol guards** (see "Protocol limits") refuse an
 3. **Host**: the URI authority (HTTP/2 `:authority`) or the single `Host` header, with the port and a trailing dot removed and lower-cased. Missing, repeated, not a DNS hostname (IP literals included), or an authority and a `Host` header naming different hosts → `400`.
 4. **Route table** lookup (`docs/contracts/artifact.md` section 5). No entry, or only `draining` entries → `404 Not found`; no cell is touched.
 5. **SNI / Host** (TLS only, `src/host_check.rs`): the SNI name of the connection and the request's host must resolve to the same tenant, otherwise `421` `RENOX_HOST_MISMATCH` (JSON body, or the default page when `Accept` prefers HTML). Two hostnames of one tenant may share a connection (HTTP/2 coalescing under one certificate); browsers retry a 421 on a new connection.
-6. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's `public/manifest.json` is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
-7. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`.
-8. Every response, whatever produced it, gets the default security headers (below) and `x-renox-request-id`.
+6. **Deployment security** (#47, `src/security/`): `<hash>/manifest.json` is read once per hash for `artifact.version` and the `security` object. A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) is answered here: `204` with the `Access-Control-*` headers for a listed origin, method, and headers, else `403` with none; it never reaches the cell.
+7. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's public index (`public.json` in artifact version 1, `public/manifest.json` in version 0) is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
+8. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`, with a fresh CSP nonce in `RequestCtx.csp_nonce`. Per-route rate-limit buckets need route matching and are enforced by the cell (`crates/renox-cell/src/ratelimit.rs`).
+9. Every response, whatever produced it, gets the protection headers (below) and `x-renox-request-id`; responses to a listed CORS origin get `Access-Control-Allow-Origin` (and `-Credentials`), and every `Access-Control-*` header tenant code set is removed.
 
 ## `CellDispatcher` and `RequestCtx`
 
@@ -29,6 +30,7 @@ pub struct RequestCtx {
     pub request_id: String,       // ULID, also in x-renox-request-id
     pub deadline: Instant,        // accept time + wall-clock limit (30 s default)
     pub client_ip: IpAddr,        // TCP peer; IPv4-mapped IPv6 shown as IPv4
+    pub csp_nonce: String,        // this request's CSP nonce (#47): the renderer's and the header's
 }
 ```
 
@@ -51,19 +53,25 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 
 **Lock-free reads.** The map lives in an `ArcSwap`. A lookup is `ArcSwap::load` (an atomic pointer load, no lock, no reference-count contention between readers) plus one hash-map read. Writers clone the map, change the clone, and publish it with `ArcSwap::rcu` (compare-and-swap, retried on a concurrent write). A request sees either the table before or after a write, never a partial one, and writers never block readers.
 
-## Default security headers
+## Security headers, CSP, CORS (#47)
 
-Set on every response, overwriting any value from tenant code (configuration moves to `renox.toml [security.headers]` in F2, #47; it is never done by handler code):
+`src/security/` (`docs/04-isolation-security.md`, "Web-layer protections"; `docs/contracts/artifact.md` section 3, "Security"). Set on every response, overwriting any value from tenant code; configured only through `renox.toml [security]` → `manifest.security`, never by handler code. A request that reached no deployment (unknown host, bad request, rate limited) gets the defaults.
 
-| Header | Value |
-| --- | --- |
-| `X-Content-Type-Options` | `nosniff` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `X-Frame-Options` | `DENY` |
-| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
-| `Cross-Origin-Opener-Policy` | `same-origin` |
+| Header | Default | Configured by |
+| --- | --- | --- |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'nonce-<n>'; style-src 'self' 'nonce-<n>'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /__renox/events?kind=csp`, plus `upgrade-insecure-requests` on TLS | `csp.script_src`, `style_src` (appended), `img_src`, `connect_src`, `frame_src`, `font_src` (a directive `'self' <sources>` when listed); `csp.report_only` sends `Content-Security-Policy-Report-Only` instead |
+| `X-Content-Type-Options` | `nosniff` | — |
+| `X-Frame-Options` | `DENY` | — (per-page `frame` export is artifact Open 6) |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | `headers.referrer_policy` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | `headers.permissions_allow`: those features become `(self)` |
+| `Cross-Origin-Opener-Policy` | `same-origin` | — |
+| `Strict-Transport-Security` | TLS responses only (below) | — |
 
-CSP and CSRF are F2 (#47).
+**Nonce.** 128 random bits (base64), fresh per request, in `RequestCtx.csp_nonce`. The cell hands it to the renderer, which puts it on every `<script>` and `<style>` the compiler emitted (`renox-template`), so the page's tags and the header carry the same value. `upgrade-insecure-requests` is left out on plain HTTP, where it would break the `renox dev` listener on `localhost`.
+
+**CORS.** Closed by default: no `Access-Control-*` header for any origin. `cors.origins` lists origins (never `*`); `methods` (default `GET, HEAD, POST`), `headers`, `credentials`, `max_age_s` (600) shape the preflight answer. Same-origin requests need no CORS headers. With `credentials` the session cookie may be `SameSite=None` (`renox-cell`).
+
+`renox check --security` prints the same set per route (`cli/src/check/security.ts`); both test suites assert the same default CSP string.
 
 ## TLS
 

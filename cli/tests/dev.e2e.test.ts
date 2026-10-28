@@ -110,7 +110,10 @@ test.skipIf(!worker)(
       const page = await fetch(`${base}/box`);
       expect(page.status).toBe(200);
       const html = await page.text();
-      expect(html).toContain('<script src="/__renox/dev/client.js" defer></script></body>');
+      // The injected script carries the response's CSP nonce (#47).
+      const nonce = /'nonce-([^']+)'/u.exec(page.headers.get("content-security-policy") ?? "")?.[1];
+      expect(nonce).toBeDefined();
+      expect(html).toContain(`<script src="/__renox/dev/client.js" nonce="${nonce}" defer></script></body>`);
       expect(await (await fetch(`${base}/__renox/dev/client.js`)).text()).toContain("EventSource");
       // A fragment response is not touched.
       const frag = await (await fetch(`${base}/box`, { headers: { "hx-request": "true", "hx-target": "box" } })).text();

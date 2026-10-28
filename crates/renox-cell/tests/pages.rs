@@ -279,6 +279,27 @@ async fn shop_pages_render_through_the_full_path() {
     assert!(r.head.contains("content-type: text/html; charset=utf-8"));
     assert!(r.head.contains("cache-control: no-store"));
     assert!(r.head.contains("vary: hx-request, hx-target"));
+    // #47: the nonce on every emitted <script> is the CSP header's (the
+    // helper lower-cases the head, so compare lower-cased).
+    let nonce = r
+        .body
+        .split("nonce=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("a nonce on the script tag");
+    assert_eq!(nonce.len(), 24);
+    assert!(
+        r.head.contains(&format!(
+            "script-src 'self' 'nonce-{}'",
+            nonce.to_ascii_lowercase()
+        )),
+        "{}",
+        r.head
+    );
+    assert_eq!(
+        r.body.matches("<script").count(),
+        r.body.matches(&format!("nonce=\"{nonce}\"")).count()
+    );
 
     // Fragment request: only the block, and the loader was told which.
     let f = http(
