@@ -118,6 +118,10 @@ fn contract_invalid_examples_are_rejected() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        // The folder also holds valid examples (`*.valid.json`, #152).
+        if !name.ends_with(".invalid.json") {
+            continue;
+        }
         // Duplicate request ids are rule M1 in validate.ts, not a schema rule.
         if name.contains("duplicate-request-id") {
             continue;
@@ -127,4 +131,23 @@ fn contract_invalid_examples_are_rejected() {
         checked += 1;
     }
     assert!(checked >= 3);
+}
+
+#[test]
+fn contract_valid_examples_are_accepted() {
+    let v = validator();
+    let dir = contracts().join("examples/meter");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !name.ends_with(".valid.json") {
+            continue;
+        }
+        let value = read_json(path);
+        let errs = errors(&v, &value);
+        assert!(errs.is_empty(), "{name} must validate: {errs:?}");
+        checked += 1;
+    }
+    assert!(checked >= 1);
 }
