@@ -1,0 +1,8 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<a href="{{ (p.url) | __url }}" title="{{ p.name ~ ' (' ~ p.sku ~ ')' }}" data-visible="{{ p.ok and not p.hidden }}" dir="auto">{{ p.name }}</a>
+
+-- fragments: {}

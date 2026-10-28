@@ -13,6 +13,8 @@ renox-data = { path = "../renox-data" }
 renox-gateway = { path = "../renox-gateway" }
 renox-meter = { path = "../renox-meter" }
 renox-runtime = { path = "../renox-runtime" }
+# Page rendering off the isolate thread (#40); the renderer only, no html5ever.
+renox-template = { path = "../renox-template", default-features = false, features = ["render"] }
 
 axum = { version = "0.8.9", default-features = false }
 bytes = "1"
@@ -20,7 +22,8 @@ http = "1"
 http-body-util = "0.1"
 jsonschema = { version = "0.60", default-features = false }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# float_roundtrip: loader data parsed exactly as V8 printed it (B9, #40).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "fs"] }
 toml = "0.9"
@@ -33,3 +36,5 @@ libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
+# tests/pages.rs compiles the page templates of its test artifact.
+renox-template = { path = "../renox-template" }

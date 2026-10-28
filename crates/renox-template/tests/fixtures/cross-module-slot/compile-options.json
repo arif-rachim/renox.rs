@@ -1,0 +1,1 @@
+{ "slots": { "admin.sidebar": ["partials/orders-menu", "partials/users-menu"] } }

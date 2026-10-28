@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title><slot name="title">Shop</slot> · Renox</title>
+  <style>body { margin: 0 }</style>
+</head>
+<body>
+  <header><a href="/">Shop</a> <span id="cart-badge" r-fragment="cart_badge">{{ cart_count ?? 0 }}</span></header>
+  <main><slot /></main>
+  <aside><slot name="sidebar"><p>No sidebar</p></slot></aside>
+  <script src="/static/htmx.min.js" defer></script>
+</body>
+</html>

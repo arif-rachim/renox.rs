@@ -1,0 +1,560 @@
+//! Page rendering in the cell (ADR D7, path A; `docs/contracts/ops.md`
+//! section 14, "Rendering"; `docs/contracts/errors.md` section 1, "Page
+//! (HTML) routes").
+//!
+//! The isolate returns the loader's data as JSON ([`PageRender`]); the cell
+//! parses it straight into `minijinja::Value` (`serde_json` with
+//! `float_roundtrip`, no `serde_json::Value` in between: the B9 path) and
+//! renders with `renox-template` on Tokio's blocking pool, outside the
+//! isolate and its CPU limit. The render's thread CPU time and fuel are the
+//! meter's `render_ms` and `render_fuel`.
+//!
+//! F2 buffers the response; streaming the layout shell is #161.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use bytes::Bytes;
+use http::{HeaderMap, Response};
+use renox_runtime::manifest::{Manifest, TemplateKind};
+use renox_runtime::pages::PageRender;
+use renox_template::minijinja::Value;
+use renox_template::{RenderContext, RenderError, RenderLimits, RenderTarget, Renderer};
+
+/// `RENOX_RENDER_LIMIT` (`errors.md` section 3).
+pub const RENDER_LIMIT_CODE: &str = "RENOX_RENDER_LIMIT";
+const RENDER_LIMIT_MESSAGE: &str = "The page could not be rendered.";
+const INTERNAL_CODE: &str = "RENOX_INTERNAL";
+const INTERNAL_MESSAGE: &str = "Internal error. Quote the request id when reporting it.";
+const NOT_FOUND_MESSAGE: &str = "Page not found.";
+
+/// The renderer of one deployment: built once per cell from the artifact's
+/// `templates/` (artifact v1). `None` for an artifact without templates.
+pub struct PageRenderer {
+    renderer: Renderer,
+    /// Page template id -> its fragment names.
+    fragments: BTreeMap<String, BTreeSet<String>>,
+    error_template: Option<String>,
+    not_found_template: Option<String>,
+    /// The app's UTC offset for the `date` filter.
+    utc_offset_minutes: i32,
+}
+
+impl std::fmt::Debug for PageRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PageRenderer")
+            .field("pages", &self.fragments.keys().collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
+}
+
+/// UTC offsets of the zones the platform's first market uses (none has DST).
+/// Other zones render dates in UTC until a time-zone database is added.
+fn utc_offset_minutes(zone: &str) -> i32 {
+    match zone {
+        "Asia/Dubai" | "Asia/Muscat" => 240,
+        "Asia/Riyadh" | "Asia/Qatar" | "Asia/Bahrain" | "Asia/Kuwait" => 180,
+        _ => 0,
+    }
+}
+
+/// What one render produced: the response and what it used.
+#[derive(Debug)]
+pub struct Rendered {
+    pub response: Response<Bytes>,
+    pub fuel: u64,
+    /// Thread CPU milliseconds; `None` when nothing was rendered.
+    pub ms: Option<f64>,
+    /// A render limit ended the request (meter `status: render_limit`).
+    pub limit: bool,
+    /// For the tenant log: `(message, fields)` of a failure.
+    pub log: Option<(String, serde_json::Map<String, serde_json::Value>)>,
+}
+
+impl PageRenderer {
+    /// Loads `templates/<id>.jinja` for every `manifest.templates` key (the
+    /// runtime has checked V14). `Ok(None)` when there are no templates.
+    pub fn load(artifact_dir: &Path, manifest: &Manifest) -> Result<Option<PageRenderer>, String> {
+        let mut sources = Vec::new();
+        let mut fragments = BTreeMap::new();
+        let mut error_template = None;
+        let mut not_found_template = None;
+        for (id, def) in manifest.template_defs() {
+            let path = artifact_dir.join("templates").join(format!("{id}.jinja"));
+            let source = std::fs::read_to_string(&path)
+                .map_err(|_| format!("V14: templates/{id}.jinja cannot be read as UTF-8"))?;
+            sources.push((id.clone(), source));
+            match def.kind {
+                TemplateKind::Page => {
+                    fragments.insert(
+                        id.clone(),
+                        def.fragments
+                            .as_ref()
+                            .map(|f| f.keys().cloned().collect())
+                            .unwrap_or_default(),
+                    );
+                }
+                TemplateKind::Error => error_template = Some(id.clone()),
+                TemplateKind::NotFound => not_found_template = Some(id.clone()),
+                TemplateKind::Layout | TemplateKind::Partial => {}
+            }
+        }
+        if sources.is_empty() {
+            return Ok(None);
+        }
+        let renderer = Renderer::new(sources.iter().map(|(i, s)| (i.as_str(), s.as_str())))
+            .map_err(|e| format!("V14: {e}"))?;
+        Ok(Some(PageRenderer {
+            renderer,
+            fragments,
+            error_template,
+            not_found_template,
+            utc_offset_minutes: utc_offset_minutes(&manifest.app.timezone),
+        }))
+    }
+
+    fn context(&self, csp_nonce: Option<&str>) -> RenderContext {
+        RenderContext {
+            csp_nonce: csp_nonce.map(str::to_string),
+            now_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64,
+            utc_offset_minutes: self.utc_offset_minutes,
+            ..RenderContext::default()
+        }
+    }
+
+    /// Renders a page request: the page, or the selected fragment, then any
+    /// out-of-band fragments marked `hx-swap-oob="true"`. A failure is
+    /// answered with the error page. Blocking: call on the render pool.
+    pub fn render_page(
+        &self,
+        page: &PageRender,
+        request_id: &str,
+        csp_nonce: Option<&str>,
+        head: bool,
+    ) -> Rendered {
+        let Some(template) = page.template.as_deref() else {
+            return self.failure(
+                request_id,
+                csp_nonce,
+                Failure::internal("no_template", None),
+                0,
+                None,
+            );
+        };
+        let data: Value = match serde_json::from_str(&page.data_json) {
+            Ok(v) => v,
+            Err(e) => {
+                return self.failure(
+                    request_id,
+                    csp_nonce,
+                    Failure::internal("data_not_serialisable", Some(e.to_string())),
+                    0,
+                    None,
+                );
+            }
+        };
+        let known = self.fragments.get(template);
+        if let Some(unknown) = page
+            .oob_fragments
+            .iter()
+            .find(|f| !known.is_some_and(|k| k.contains(*f)))
+        {
+            // ops.md section 14: a name not in the page's fragment map.
+            return self.failure(
+                request_id,
+                csp_nonce,
+                Failure::internal("unknown_fragment", Some(format!("fragment `{unknown}`"))),
+                0,
+                None,
+            );
+        }
+        let cx = self.context(csp_nonce);
+        let limits = RenderLimits::DEFAULT;
+        let main: Vec<&str> = page.fragment.as_deref().into_iter().collect();
+        let result = if page.oob_fragments.is_empty() {
+            let target = match page.fragment.as_deref() {
+                Some(block) => RenderTarget::Fragment { template, block },
+                None => RenderTarget::Page(template),
+            };
+            self.renderer
+                .render(target, data, &cx, &limits)
+                .map(|o| (o.html, o.fuel_used, o.ms))
+        } else if main.is_empty() {
+            // A full page plus out-of-band fragments: two passes, one budget
+            // each, both metered.
+            self.renderer
+                .render(RenderTarget::Page(template), data.clone(), &cx, &limits)
+                .and_then(|page_out| {
+                    let blocks: Vec<&str> = page.oob_fragments.iter().map(String::as_str).collect();
+                    self.renderer
+                        .render_blocks(template, &blocks, data, &cx, &limits)
+                        .map(|(parts, stats)| {
+                            let mut html = page_out.html;
+                            for p in parts {
+                                html.push_str(&mark_oob(&p));
+                            }
+                            (
+                                html,
+                                page_out.fuel_used + stats.fuel_used,
+                                page_out.ms + stats.ms,
+                            )
+                        })
+                })
+        } else {
+            let mut blocks = main.clone();
+            blocks.extend(page.oob_fragments.iter().map(String::as_str));
+            self.renderer
+                .render_blocks(template, &blocks, data, &cx, &limits)
+                .map(|(parts, stats)| {
+                    let mut html = String::new();
+                    for (i, p) in parts.into_iter().enumerate() {
+                        if i == 0 {
+                            html.push_str(&p);
+                        } else {
+                            html.push_str(&mark_oob(&p));
+                        }
+                    }
+                    (html, stats.fuel_used, stats.ms)
+                })
+        };
+        match result {
+            Ok((html, fuel, ms)) => Rendered {
+                response: html_response(
+                    200,
+                    request_id,
+                    if head {
+                        Bytes::new()
+                    } else {
+                        Bytes::from(html)
+                    },
+                ),
+                fuel,
+                ms: Some(ms),
+                limit: false,
+                log: None,
+            },
+            Err(e) => {
+                let stats = e.stats();
+                let failure = if e.is_limit() {
+                    Failure::limit(template, &e)
+                } else {
+                    Failure::internal("render_failed", Some(e.to_string()))
+                };
+                self.failure(
+                    request_id,
+                    csp_nonce,
+                    failure,
+                    stats.fuel_used,
+                    Some(stats.ms),
+                )
+            }
+        }
+    }
+
+    fn failure(
+        &self,
+        request_id: &str,
+        csp_nonce: Option<&str>,
+        failure: Failure,
+        fuel: u64,
+        ms: Option<f64>,
+    ) -> Rendered {
+        let mut page = self.error_page(
+            500,
+            Some(failure.code),
+            failure.message,
+            request_id,
+            csp_nonce,
+        );
+        page.fuel += fuel;
+        page.ms = match (page.ms, ms) {
+            (Some(a), Some(b)) => Some(a + b),
+            (a, b) => a.or(b),
+        };
+        page.limit = failure.limit;
+        page.log = Some((failure.log_message, failure.fields));
+        page
+    }
+
+    /// The error page (`errors.md` section 1): the tenant's `pages/_error`
+    /// with exactly `status`, `code`, `request_id`, `message`, under the
+    /// fixed error-page budget; the platform default page when there is no
+    /// error template or it fails.
+    pub fn error_page(
+        &self,
+        status: u16,
+        code: Option<&str>,
+        message: &str,
+        request_id: &str,
+        csp_nonce: Option<&str>,
+    ) -> Rendered {
+        self.render_status_page(
+            self.error_template.as_deref(),
+            status,
+            code,
+            message,
+            request_id,
+            csp_nonce,
+        )
+    }
+
+    /// The 404 page for a `GET`/`HEAD` that matched no route: `pages/_404`,
+    /// then `pages/_error`, then the default page.
+    pub fn not_found_page(&self, request_id: &str, csp_nonce: Option<&str>) -> Rendered {
+        let template = self
+            .not_found_template
+            .as_deref()
+            .or(self.error_template.as_deref());
+        self.render_status_page(
+            template,
+            404,
+            None,
+            NOT_FOUND_MESSAGE,
+            request_id,
+            csp_nonce,
+        )
+    }
+
+    fn render_status_page(
+        &self,
+        template: Option<&str>,
+        status: u16,
+        code: Option<&str>,
+        message: &str,
+        request_id: &str,
+        csp_nonce: Option<&str>,
+    ) -> Rendered {
+        let Some(template) = template else {
+            return Rendered {
+                response: default_page(status, message, request_id),
+                fuel: 0,
+                ms: None,
+                limit: false,
+                log: None,
+            };
+        };
+        let data: Value = serde_json::from_value(serde_json::json!({
+            "status": status,
+            "code": code,
+            "request_id": request_id,
+            "message": message,
+        }))
+        .expect("plain JSON deserialises");
+        match self.renderer.render(
+            RenderTarget::Page(template),
+            data,
+            &self.context(csp_nonce),
+            &RenderLimits::ERROR_PAGE,
+        ) {
+            Ok(out) => Rendered {
+                response: html_response(status, request_id, Bytes::from(out.html)),
+                fuel: out.fuel_used,
+                ms: Some(out.ms),
+                limit: false,
+                log: None,
+            },
+            Err(e) => {
+                let stats = e.stats();
+                let mut fields = serde_json::Map::new();
+                fields.insert("code".into(), RENDER_LIMIT_CODE.into());
+                fields.insert("template".into(), template.into());
+                if let Some(l) = limit_name(&e) {
+                    fields.insert("limit".into(), l.into());
+                } else {
+                    fields.insert("cause_message".into(), e.to_string().into());
+                }
+                Rendered {
+                    response: default_page(status, message, request_id),
+                    fuel: stats.fuel_used,
+                    ms: Some(stats.ms),
+                    limit: false,
+                    log: Some(("error page could not be rendered".into(), fields)),
+                }
+            }
+        }
+    }
+}
+
+/// Why a page render failed.
+struct Failure {
+    code: &'static str,
+    message: &'static str,
+    limit: bool,
+    log_message: String,
+    fields: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Failure {
+    fn internal(reason: &str, detail: Option<String>) -> Failure {
+        let mut fields = serde_json::Map::new();
+        fields.insert("code".into(), INTERNAL_CODE.into());
+        fields.insert("phase".into(), "render".into());
+        fields.insert("reason".into(), reason.into());
+        if let Some(d) = detail {
+            fields.insert("cause_message".into(), d.into());
+        }
+        Failure {
+            code: INTERNAL_CODE,
+            message: INTERNAL_MESSAGE,
+            limit: false,
+            log_message: "page could not be rendered".into(),
+            fields,
+        }
+    }
+
+    fn limit(template: &str, e: &RenderError) -> Failure {
+        let mut fields = serde_json::Map::new();
+        fields.insert("code".into(), RENDER_LIMIT_CODE.into());
+        fields.insert("template".into(), template.into());
+        fields.insert("limit".into(), limit_name(e).unwrap_or("fuel").into());
+        fields.insert("render_fuel".into(), e.stats().fuel_used.into());
+        Failure {
+            code: RENDER_LIMIT_CODE,
+            message: RENDER_LIMIT_MESSAGE,
+            limit: true,
+            log_message: "render limit reached".into(),
+            fields,
+        }
+    }
+}
+
+/// The `limit` field of `RENOX_RENDER_LIMIT` (`errors.md` section 3).
+fn limit_name(e: &RenderError) -> Option<&'static str> {
+    Some(match e {
+        RenderError::Fuel(_) => "fuel",
+        RenderError::Iterations(_) => "iterations",
+        RenderError::OutputSize(_) => "output",
+        RenderError::Depth(_) => "depth",
+        RenderError::Timeout(_) => "time",
+        _ => return None,
+    })
+}
+
+/// `hx-swap-oob="true"` on the first element of an out-of-band fragment
+/// (`docs/09-htmx-realtime.md`).
+pub fn mark_oob(html: &str) -> String {
+    let Some(start) = html.find('<') else {
+        return html.to_string();
+    };
+    let rest = &html[start + 1..];
+    let name_len = rest
+        .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+        .unwrap_or(rest.len());
+    if name_len == 0 || !rest.as_bytes()[0].is_ascii_alphabetic() {
+        return html.to_string();
+    }
+    let at = start + 1 + name_len;
+    format!("{} hx-swap-oob=\"true\"{}", &html[..at], &html[at..])
+}
+
+/// A page response (`ops.md` section 14).
+pub fn html_response(status: u16, request_id: &str, body: Bytes) -> Response<Bytes> {
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/html; charset=utf-8")
+        .header("cache-control", "no-store")
+        .header("vary", "HX-Request, HX-Target")
+        .header("x-renox-request-id", request_id)
+        .body(body)
+        .expect("static response parts are valid")
+}
+
+/// The platform default page (`errors.md` section 1): status, message,
+/// request id, no tenant content. Same page as the gateway's HTML errors.
+pub fn default_page(status: u16, message: &str, request_id: &str) -> Response<Bytes> {
+    let page = format!(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{status}</title></head>\
+         <body><h1>{status}</h1><p>{message}</p><p>Request id: <code>{request_id}</code></p></body></html>\n"
+    );
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/html; charset=utf-8")
+        .header("cache-control", "no-store")
+        .header("x-renox-request-id", request_id)
+        .body(Bytes::from(page))
+        .expect("static response parts are valid")
+}
+
+/// Whether `Accept` ranks `text/html` above `application/json` (the 404 page
+/// rule of `errors.md` section 1).
+pub fn prefers_html(headers: &HeaderMap) -> bool {
+    let mut html = 0.0f32;
+    let mut json = 0.0f32;
+    for value in headers.get_all(http::header::ACCEPT) {
+        let Ok(value) = value.to_str() else { continue };
+        for item in value.split(',') {
+            let mut parts = item.split(';');
+            let media = parts.next().unwrap_or("").trim().to_ascii_lowercase();
+            let q = parts
+                .filter_map(|p| p.trim().strip_prefix("q="))
+                .find_map(|q| q.parse::<f32>().ok())
+                .unwrap_or(1.0);
+            match media.as_str() {
+                "text/html" => html = html.max(q),
+                "application/json" => json = json.max(q),
+                _ => {}
+            }
+        }
+    }
+    html > json
+}
+
+/// The status and code of a platform JSON error (`errors.md` section 1).
+pub fn platform_error(response: &Response<Bytes>) -> Option<(u16, String, String)> {
+    let v: serde_json::Value = serde_json::from_slice(response.body()).ok()?;
+    let e = v.get("error")?;
+    Some((
+        response.status().as_u16(),
+        e.get("code")?.as_str()?.to_string(),
+        e.get("message")?.as_str()?.to_string(),
+    ))
+}
+
+/// A shared renderer.
+pub type SharedPages = Arc<PageRenderer>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oob_marker_goes_on_the_first_element() {
+        assert_eq!(
+            mark_oob("<span id=\"cart-badge\">2</span>"),
+            "<span hx-swap-oob=\"true\" id=\"cart-badge\">2</span>"
+        );
+        assert_eq!(
+            mark_oob("\n<li>x</li>"),
+            "\n<li hx-swap-oob=\"true\">x</li>"
+        );
+        assert_eq!(mark_oob("text only"), "text only");
+    }
+
+    #[test]
+    fn accept_header_preference() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            "accept",
+            "text/html,application/xhtml+xml,*/*;q=0.8".parse().unwrap(),
+        );
+        assert!(prefers_html(&h));
+        h.insert(
+            "accept",
+            "application/json, text/html;q=0.5".parse().unwrap(),
+        );
+        assert!(!prefers_html(&h));
+        assert!(!prefers_html(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn gulf_offsets() {
+        assert_eq!(utc_offset_minutes("Asia/Dubai"), 240);
+        assert_eq!(utc_offset_minutes("Asia/Riyadh"), 180);
+        assert_eq!(utc_offset_minutes("Europe/Paris"), 0);
+    }
+}

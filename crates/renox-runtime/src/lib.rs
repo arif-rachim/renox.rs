@@ -14,6 +14,7 @@ pub mod error;
 pub mod limits;
 pub mod manifest;
 pub mod ops;
+pub mod pages;
 pub mod router;
 
 #[cfg(feature = "v8")]

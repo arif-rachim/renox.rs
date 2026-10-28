@@ -23,6 +23,7 @@ pub fn record(n: u64) -> MeterRecord {
         db_ms: 0.2114,
         db_rows: 1,
         render_fuel: 0,
+        render_ms: None,
         logs_dropped: 0,
         http_status: 200,
         status: MeterStatus::Ok,

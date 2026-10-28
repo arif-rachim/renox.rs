@@ -288,6 +288,7 @@ mod tests {
             path: path.to_string(),
             module: "m".to_string(),
             export: method.as_str().to_string(),
+            page: None,
         }
     }
 

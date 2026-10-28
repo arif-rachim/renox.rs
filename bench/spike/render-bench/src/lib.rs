@@ -1,15 +1,20 @@
 //! B6 first cut (issue #11): the render stage of the shop medium page in
-//! Rust, with no HTTP, SQLite or isolate. The page is
-//! `bench/spike/template-proto/tests/fixtures/shop-products.html` (issue #9),
-//! transpiled and compiled once; products arrive already as
-//! `minijinja::Value`, as they would after B9's marshaling step.
+//! Rust, with no HTTP, SQLite or isolate. The page is the `shop` fixture of
+//! `crates/renox-template` (`tests/fixtures/shop`, the B6 medium page of
+//! issue #9), compiled once by `renox_template::Compiler`; products arrive
+//! already as `minijinja::Value`, as they would after B9's marshaling step.
+//!
+//! The environment is a plain minijinja one (no render limits), so the
+//! numbers stay comparable with the first cut; the compiler-emitted
+//! `__loop` and `__url` filters are identity stubs here.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use minijinja::{Environment, Value, context};
+use minijinja::{Environment, UndefinedBehavior, Value, context};
 
-pub const PAGE: &str = "shop-products.html";
-pub const FRAGMENT: &str = "shop-products.html#product_list";
+pub const PAGE: &str = "pages/products/index";
+pub const LAYOUT: &str = "pages/_layouts/main";
+pub const FRAGMENT: &str = "pages/products/index#product_list";
 pub const FRAGMENT_BLOCK: &str = "product_list";
 
 /// Fuel budget for the "fuel enabled" measurement: large enough never to run
@@ -17,19 +22,17 @@ pub const FRAGMENT_BLOCK: &str = "product_list";
 /// keeps the remaining fuel as an `isize`, and `u64::MAX` wraps to -1.
 pub const FUEL_BUDGET: u64 = 1 << 40;
 
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../template-proto/tests/fixtures")
+/// The compiled shop fixture: `(template id, minijinja source)`.
+fn compiled() -> renox_template::CompiledTemplates {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../crates/renox-template/tests/fixtures/shop");
+    let project = renox_template::TemplateProject::from_dir(&dir).expect("shop fixture");
+    renox_template::Compiler::default()
+        .compile(&project)
+        .unwrap_or_else(|d| panic!("{d:?}"))
 }
 
-fn read(name: &str) -> String {
-    std::fs::read_to_string(fixtures().join(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
-}
-
-fn transpile(name: &str) -> String {
-    template_proto::transpile(&read(name)).unwrap_or_else(|d| panic!("{name}: {d:?}"))
-}
-
-/// The block body of `{% block <name> %}…{% endblock %}` in transpiled
+/// The block body of `{% block <name> %}…{% endblock %}` in compiled
 /// source, so the fragment can be compiled and rendered on its own, the way an
 /// htmx request for one fragment would be served. Assumes no nested blocks,
 /// which holds for `product_list`.
@@ -41,27 +44,31 @@ pub fn block_source(source: &str, name: &str) -> String {
 }
 
 /// Environment with the layout, the page, the page's `product_list` block as
-/// its own template, and the `money`/`date` filters the fixtures use (same
-/// stubs as template-proto's tests). `fuel` sets minijinja's fuel limit.
+/// its own template, and stub `money`/`date` filters. `fuel` sets
+/// minijinja's fuel limit.
 pub fn env(fuel: Option<u64>) -> Environment<'static> {
     let mut env = Environment::new();
     env.set_auto_escape_callback(|_| minijinja::AutoEscape::Html);
+    env.set_undefined_behavior(UndefinedBehavior::Chainable);
     env.set_fuel(fuel);
     env.add_filter("money", |v: Value| {
         format!("AED {:.2}", f64::try_from(v).unwrap_or(0.0))
     });
     env.add_filter("date", |v: Value| v.to_string());
-    env.add_template_owned("layouts/main.html", transpile("layouts/main.html"))
+    env.add_filter("__loop", |v: Value| v);
+    env.add_filter("__url", |v: Value| v);
+    let c = compiled();
+    env.add_template_owned(LAYOUT, c.templates[LAYOUT].source.clone())
         .expect("layout compiles");
-    let page = transpile(PAGE);
+    let page = c.templates[PAGE].source.clone();
     env.add_template_owned(FRAGMENT, block_source(&page, FRAGMENT_BLOCK))
         .expect("fragment compiles");
     env.add_template_owned(PAGE, page).expect("page compiles");
     env
 }
 
-/// `n` deterministic products, the same shape as template-proto's
-/// `render_shop` test (10 fields).
+/// `n` deterministic products of 10 fields (the shape of the F0 prototype's
+/// `render_shop` test).
 pub fn products(n: usize) -> Value {
     Value::from(
         (0..n)

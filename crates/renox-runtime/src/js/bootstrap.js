@@ -31,6 +31,7 @@ const {
   BigInt,
   Error,
   ErrorPrototype,
+  JSONStringify,
   ObjectDefineProperty,
   ObjectFreeze,
   ObjectKeys,
@@ -426,6 +427,9 @@ let secrets = ObjectFreeze({});
 const KIND_OK = 0;
 const KIND_THROW = 1;
 const KIND_NOT_RESPONSE = 2;
+// Page loaders (ops.md section 14): an object becomes template data.
+const KIND_RENDER = 3;
+const KIND_PAGE_INTERNAL = 4;
 
 function safeString(v) {
   try {
@@ -472,12 +476,44 @@ async function serializeResponse(res, wantBody) {
   return { kind: KIND_OK, status: res.status, headers, body };
 }
 
+function isResponse(v) {
+  return ObjectPrototypeIsPrototypeOf(responseMod().ResponsePrototype, v);
+}
+
+/** JSON.stringify replacer: bigint as a decimal string; bytes refused. */
+function dataReplacer(_key, value) {
+  if (typeof value === "bigint") return String(value);
+  if (value !== null && typeof value === "object" && isUint8Array(value)) {
+    throw new TypeError("a Uint8Array cannot be template data");
+  }
+  return value;
+}
+
+/**
+ * A loader's result that is not a Response (ops.md section 14, "Loader"):
+ * a plain object becomes the template data, serialised here inside V8 and
+ * parsed by the cell (the B9 path). Dates become ISO strings (toJSON),
+ * undefined and functions are dropped, a cycle or bytes are refused.
+ */
+function pageResult(res) {
+  if (res === null || typeof res !== "object" || ArrayIsArray(res)) {
+    return { kind: KIND_PAGE_INTERNAL, reason: "load_result", name: res === null ? "null" : ArrayIsArray(res) ? "array" : typeof res };
+  }
+  let json;
+  try {
+    json = JSONStringify(res, dataReplacer);
+  } catch (e) {
+    return { kind: KIND_PAGE_INTERNAL, reason: "data_not_serialisable", name: safeString(e?.message) };
+  }
+  return { kind: KIND_RENDER, data_json: json };
+}
+
 /**
  * Called by Rust for every request. Runs the handler inside a fresh async
  * context carrying `token`; resolves to a plain object Rust deserialises.
  * Never rejects: every failure is described in the result.
  */
-function dispatch(handler, token, method, url, headers, body, params, wantBody) {
+function dispatch(handler, token, method, url, headers, body, params, wantBody, page) {
   const previous = requestVar.enter(token);
   try {
     let p;
@@ -494,7 +530,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody) 
           }
         },
       });
-      const ctx = ObjectFreeze({
+      const fields = {
         req,
         url: new (urlMod().URL)(url),
         params: ObjectFreeze(params),
@@ -504,14 +540,20 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody) 
         secrets,
         log,
         deadline,
-      });
+      };
+      // LoaderContext (ops.md section 14): the fragment the cell renders.
+      if (page !== null) fields.fragment = page.fragment ?? null;
+      const ctx = ObjectFreeze(fields);
       p = PromiseResolve(handler(ctx));
     } catch (e) {
       p = PromiseReject(e);
     }
     return PromisePrototypeThen(
       p,
-      (res) => PromisePrototypeThen(serializeResponse(res, wantBody), undefined, describeThrow),
+      (res) => {
+        if (page !== null && !isResponse(res)) return pageResult(res);
+        return PromisePrototypeThen(serializeResponse(res, wantBody), undefined, describeThrow);
+      },
       describeThrow,
     );
   } finally {

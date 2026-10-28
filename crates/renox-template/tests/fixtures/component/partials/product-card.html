@@ -1,0 +1,7 @@
+<r-props product="Product" compact="bool = false" currency="string = 'AED'" />
+<article class="card" :class="{ compact: compact }">
+  <h3>{{ product.name }}</h3>
+  <p r-if="!compact">{{ product.price | money(currency) }}</p>
+  <footer><slot name="actions"></slot></footer>
+  <div class="extra"><slot>No extra content</slot></div>
+</article>

@@ -1,0 +1,16 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/_layouts/admin (Layout)
+<!DOCTYPE html><html lang="en"><head><title>Admin</title></head>
+<body><nav>{% include "partials/orders-menu" %}{% include "partials/users-menu" %}</nav><main>{% block content %}{% endblock %}</main><footer></footer>
+</body></html>
+== pages/admin (Page)
+{% extends "pages/_layouts/admin" %}{% block content %}<h1>Dashboard</h1>{% endblock %}
+-- fragments: {}
+== partials/orders-menu (Partial)
+<a href="/admin/orders">Orders</a>
+
+== partials/users-menu (Partial)
+{% if can("users.manage", none) %}<a href="/admin/users">Users</a>{% endif %}

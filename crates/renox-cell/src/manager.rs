@@ -27,6 +27,7 @@ use tokio::sync::OnceCell;
 
 use crate::artifact::{ArtifactError, ArtifactStore};
 use crate::cell::{Cell, CellKey, InFlightGuard, SecretsError, load_secrets, valid_tenant_id};
+use crate::render::{PageRenderer, Rendered, SharedPages, platform_error, prefers_html};
 use crate::tiers::{TierName, Tiers};
 
 /// What the manager needs from the worker config.
@@ -293,8 +294,16 @@ impl CellManager {
                 return Err(e);
             }
         };
+        let pages = match load_pages(&artifact_dir).await {
+            Ok(p) => p,
+            Err(e) => {
+                isolate.terminate();
+                self.release_db(&key.tenant_id).await;
+                return Err(e);
+            }
+        };
         let stats = isolate.stats();
-        let cell = Arc::new(Cell::new(key.clone(), isolate));
+        let cell = Arc::new(Cell::new(key.clone(), isolate, pages));
         self.inner
             .created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -511,6 +520,9 @@ impl CellManager {
         };
         let _guard = InFlightGuard(&cell);
         let (parts, body) = req.into_parts();
+        let is_head = parts.method == http::Method::HEAD;
+        let get_or_head = is_head || parts.method == http::Method::GET;
+        let wants_html = prefers_html(&parts.headers);
         let body = match body.collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => Bytes::new(),
@@ -520,10 +532,66 @@ impl CellManager {
             request_id: ctx.request_id.clone(),
             deadline: ctx.deadline,
         };
-        let out = cell
+        let mut out = cell
             .isolate
             .dispatch(rt_ctx, Request::from_parts(parts, body))
             .await;
+        // Pages (ops.md section 14): render off the isolate thread; platform
+        // errors on page routes and HTML 404s get the error pages
+        // (errors.md section 1).
+        let mut rendered: Option<Rendered> = None;
+        if let Some(pages) = cell.pages.clone() {
+            let request_id = ctx.request_id.clone();
+            if let Some(page) = out.render.take() {
+                rendered = Some(
+                    on_render_pool(move || pages.render_page(&page, &request_id, None, is_head))
+                        .await,
+                );
+            } else if out.page
+                && out.meter.status != RuntimeStatus::Ok
+                && let Some((status, code, message)) = platform_error(&out.response)
+            {
+                rendered = Some(
+                    on_render_pool(move || {
+                        pages.error_page(status, Some(&code), &message, &request_id, None)
+                    })
+                    .await,
+                );
+            } else if out.meter.route.is_none()
+                && out.response.status() == http::StatusCode::NOT_FOUND
+                && get_or_head
+                && wants_html
+            {
+                rendered =
+                    Some(on_render_pool(move || pages.not_found_page(&request_id, None)).await);
+            }
+        } else if out.render.is_some() {
+            // A page result without templates cannot happen after V15; fail
+            // closed with the default page.
+            out.response = crate::render::default_page(
+                500,
+                "Internal error. Quote the request id when reporting it.",
+                &ctx.request_id,
+            );
+            out.meter.status = RuntimeStatus::Error;
+        }
+        let (mut render_fuel, mut render_ms, mut render_limit) = (0, None, false);
+        if let Some(r) = rendered {
+            if let Some((message, fields)) = &r.log {
+                cell.isolate
+                    .log("error", Some(&ctx.request_id), message, fields.clone());
+            }
+            render_fuel = r.fuel;
+            render_ms = r.ms;
+            render_limit = r.limit;
+            if r.response.status().is_server_error() && out.meter.status == RuntimeStatus::Ok {
+                out.meter.status = RuntimeStatus::Error;
+            }
+            out.response = r.response;
+        }
+        if is_head {
+            *out.response.body_mut() = Bytes::new();
+        }
         // 404 and 405 answered by route matching produce no record
         // (`meter.md` section 1).
         if let Some(route) = out.meter.route.clone() {
@@ -544,14 +612,59 @@ impl CellManager {
                 fetch_blocked: m.fetch_blocked,
                 db_ms: m.db_ms,
                 db_rows: m.db_rows,
-                render_fuel: 0,
+                render_fuel,
+                render_ms,
                 logs_dropped: m.logs_dropped,
                 http_status: out.response.status().as_u16(),
-                status: meter_status(m.status),
+                status: if render_limit {
+                    MeterStatus::RenderLimit
+                } else {
+                    meter_status(m.status)
+                },
             });
         }
         to_body(out.response)
     }
+}
+
+/// Runs a render on Tokio's blocking pool: off the isolate thread and off
+/// the async workers (`ops.md` section 14, "Rendering").
+async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Rendered {
+    match tokio::task::spawn_blocking(f).await {
+        Ok(r) => r,
+        Err(_) => Rendered {
+            response: crate::render::default_page(
+                500,
+                "Internal error. Quote the request id when reporting it.",
+                "",
+            ),
+            fuel: 0,
+            ms: None,
+            limit: false,
+            log: None,
+        },
+    }
+}
+
+/// The deployment's page renderer, from `manifest.json` and `templates/`.
+async fn load_pages(artifact_dir: &Path) -> Result<Option<SharedPages>, CellError> {
+    let dir = artifact_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let raw = std::fs::read(dir.join("manifest.json"))
+            .map_err(|_| "V3: manifest.json cannot be read".to_string())?;
+        let manifest: renox_runtime::manifest::Manifest =
+            serde_json::from_slice(&raw).map_err(|e| format!("V3: manifest.json: {e}"))?;
+        PageRenderer::load(&dir, &manifest).map(|p| p.map(Arc::new))
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r)
+    .map_err(|reason| {
+        CellError::Artifact(ArtifactError::Invalid {
+            rule: "V14",
+            reason,
+        })
+    })
 }
 
 fn to_body(r: Response<Bytes>) -> Response<Body> {

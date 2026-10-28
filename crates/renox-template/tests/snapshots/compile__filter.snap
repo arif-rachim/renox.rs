@@ -1,0 +1,8 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== pages/index (Page)
+<p dir="auto">{{ p.price | money }} · {{ p.created_at | date("short") }} · {{ p.name | truncate(20) | upper }} · {{ ((user.nickname) if (user.nickname) is defined and (user.nickname) is not none else (user.name)) }}</p>
+
+-- fragments: {}

@@ -62,7 +62,7 @@ export function build(
   return {
     id: "B6-first-cut",
     scenario:
-      "B6 first cut (render stage only): shop-products.html via template-proto + minijinja, products already minijinja::Value; criterion median, median of runs",
+      "B6 first cut (render stage only): shop page (crates/renox-template fixture `shop`) compiled by renox-template + minijinja, products already minijinja::Value; criterion median, median of runs",
     notes:
       `derived check render + marshal p50 = ${page} + ${marshal} = ${predicted} µs vs ≤ ${BUDGET_US} µs → ${verdict}; ` +
       `marshal_us from ${b9Path}; fuel overhead ${round(((pageFuel - page) / page) * 100)}%`,
