@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| Version | **0** (F3). HTTP paths are under `/v1`; every worker message carries `schema_version: 0`. Adding an endpoint, an optional request field, or an error row is minor. Removing or renaming a field, a path, or a state, or changing a status code, is breaking: `/v2` and `schema_version: 1` |
+| Version | **0.1** (F3, #184). HTTP paths are under `/v1`; every worker message carries `schema_version: 0`. Adding an endpoint, an optional request field, a rule id, or an error row is minor. Removing or renaming a field, a path, or a state, or changing a status code, is breaking: `/v2` and `schema_version: 1`. History: "Changelog" at the bottom |
 | Producers | `control/api` (P12) |
-| Consumers | `cli/` (P11): `renox deploy`, `logs`, `secrets`, `domains`, `tokens` (#58, #113); `crates/renox-cell` (P5): the controlled-mode worker (#55, #96, #97, #98, #162); the dashboard (P13, #57); the remote MCP (#62) |
+| Consumers | `cli/` (P11): `renox deploy`, `logs`, `secrets`, `domains`, `tokens` (#58, #113); `crates/renox-cell` (P5): the controlled-mode worker (#55, #96, #97, #98, #162); the dashboard (P13, #57, including the usage screen of section 11); the remote MCP (#62) |
 | Machine-readable | [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml) (OpenAPI 3.1, every endpoint with request and response examples); [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) (JSON Schema 2020-12: worker registration, heartbeat, route table, activation, bundles, log batches); meter batches are [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json) |
 | Examples | [`examples/deploy-api/`](examples/deploy-api/): one or more valid and invalid examples per worker message; HTTP bodies have their examples inside the OpenAPI file (`examples` and `x-renox-invalid-examples`) |
 | Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules R1–R3, the state machines below against `x-renox-state-machines`, error codes against `errors.md`) |
@@ -40,8 +40,9 @@ node ──► POST /v1/nodes/register, /heartbeat ; GET /v1/nodes/{id}/stream (
 
 | Caller | Header | Token format | Stored as | Issued by |
 | --- | --- | --- | --- | --- |
-| Tenant (CLI, dashboard, CI, MCP) | `Authorization: Bearer renox_pat_…` | `renox_pat_` + 32 characters of base32 (`[a-z2-7]`, 160 random bits) | SHA-256 hex, plus id, name, scopes, `expires_at`, `last_used_at`, `revoked_at` | `POST /v1/tokens` (a token with `tokens:write`), or the bootstrap token of `POST /v1/admin/tenants`. #113 adds accounts and sessions |
+| Tenant (CLI, dashboard, CI, MCP) | `Authorization: Bearer renox_pat_…` | `renox_pat_` + 32 characters of base32 (`[a-z2-7]`, 160 random bits) | SHA-256 hex, plus id, name, scopes, `expires_at`, `last_used_at`, `revoked_at` | `POST /v1/tokens` (a token with `tokens:write`), the `renox login` device flow, the dashboard, or the bootstrap token of `POST /v1/admin/tenants` |
 | Node (`renox-worker`) | `Authorization: Bearer renox_node_…` | `renox_node_` + 32 base32 characters | SHA-256 hex, bound to one `node_id` | `POST /v1/admin/nodes` |
+| Tenant user (dashboard) | `__Host-renox_session` cookie, plus `X-Renox-CSRF` on `POST`, `PUT`, `PATCH`, `DELETE` | Random session value | SHA-256 hex, bound to one user and one current tenant; absolute expiry 30 days, idle expiry 24 hours | `POST /v1/account/login` (#113; the account endpoints are listed in `control/api/README.md`, "Account endpoints", and join this contract in a later minor version) |
 | Operator | `Authorization: Bearer renox_op_…` | `renox_op_` + 32 base32 characters | SHA-256 hex in the API's environment (`CONTROL_OPERATOR_TOKEN_SHA256`); never in Postgres | Out of band |
 
 Rules:
@@ -50,9 +51,62 @@ Rules:
 - **401 `RENOX_UNAUTHENTICATED`** with `WWW-Authenticate: Bearer realm="renox"`: no `Authorization` header, a malformed or unknown token, an expired or revoked token, or a token of the wrong kind for the endpoint (a node token on a tenant endpoint and the reverse). The body does not say which.
 - **403 `RENOX_TOKEN_SCOPE`**: a valid token without the operation's scope (`x-renox-scope` in the OpenAPI file), or a node token whose `node_id` differs from the `{node_id}` in the path or a `node_id` in the body.
 - **404 `RENOX_NOT_FOUND`** for any resource outside the caller's tenant, never 403, so ids of other tenants cannot be enumerated (`docs/24-threat-model.md` E, IDOR row). The tenant id always comes from the token, never from a path, query, header or body.
-- **Scopes** (tenant tokens): `apps:read`, `apps:write`, `deploy`, `logs:read`, `secrets:read` (names only), `secrets:write`, `domains:write`, `tokens:write`; each either alone (every app of the tenant) or as `<scope>:<app>` (one app); `*` holds all of them. A token creates only tokens whose every scope it holds itself (400 `RENOX_VALIDATION` otherwise), so no token can mint a stronger one. Expiry: 1 to 365 days, default 90. #113 adds roles and the permission matrix on top of the same scope names.
+- **Scopes** (tenant tokens): `apps:read`, `apps:write`, `deploy`, `logs:read`, `secrets:read` (names only), `secrets:write`, `domains:write`, `tokens:write`; each either alone (every app of the tenant) or as `<scope>:<app>` (one app); `*` holds all of them. A token creates only tokens whose every scope it holds itself (400 `RENOX_VALIDATION` otherwise), so no token can mint a stronger one. Expiry: 1 to 365 days, default 90. Roles and the operation table: section 2.1.
 - **Rate limits** (*proposed*): per tenant token 20 requests/s with a burst of 100, and 10 uploads per minute; per source IP for unauthenticated requests 5/s. Over the limit: 429 `RENOX_RATE_LIMITED` with `Retry-After` in seconds. Node tokens are not rate limited in version 0.
 - **Audit.** Every mutating request (`POST`, `PUT`, `DELETE`), whatever its outcome, writes one audit row: time, tenant, actor (`token:<id>`, `node:<id>`, or `operator`), action (the `operationId`), target (app, hash, secret name, hostname, token id), HTTP status, request id. Audit rows never contain a request body, a secret value, or a token value. Audit rows are append-only.
+
+### 2.1 Roles, permissions, and the operation table (#113)
+
+A tenant principal is a token or a session, always bound to one tenant (`docs/24-threat-model.md` E, "Teammate with too much power"). Each tenant member has one **role**: `owner` (exactly one per tenant), `admin`, `developer`, `viewer`. A **permission** is either one of the token scopes of section 2 or one of five session-only permissions that no token ever holds: `team:read`, `team:write`, `billing`, `apps:delete`, `tenant:delete`.
+
+The request is allowed when:
+
+- **Session**: the user's current role in the session's tenant holds the operation's permission (matrix below). Otherwise 403 `RENOX_TOKEN_SCOPE` with `details: [{ field: "role", reason: "<role>" }]`.
+- **Token**: the token's scopes hold the permission (for `{app}` operations, unscoped or `<scope>:<app>`), **and**, for a token a user created, that user's *current* role holds it too. A token without a user (the operator's bootstrap token) acts with its scopes alone. When its user leaves the tenant the token answers 401. A token never holds a session-only permission.
+- **Deploy** additionally needs a verified email address of the acting user (403, `details: [{ field: "email", … }]`).
+- Ownership changes only by an owner transfer that the owner proposes and the proposed user accepts; `owner` cannot be granted, changed, or removed directly.
+
+Matrix (`yes` = the role holds the permission). Source of truth in code: `MATRIX` in `control/api/src/tenancy/roles.ts`; `control/api/tests/tenancy.test.ts` ("the role table") checks this table, the README's copy, and the rows below against it.
+
+<!-- role-matrix -->
+| Permission | owner | admin | developer | viewer |
+| --- | --- | --- | --- | --- |
+| `apps:read` | yes | yes | yes | yes |
+| `apps:write` | yes | yes | yes | — |
+| `deploy` | yes | yes | yes | — |
+| `logs:read` | yes | yes | yes | yes |
+| `secrets:read` | yes | yes | yes | yes |
+| `secrets:write` | yes | yes | — | — |
+| `domains:write` | yes | yes | — | — |
+| `tokens:write` | yes | yes | yes | — |
+| `team:read` | yes | yes | yes | yes |
+| `team:write` | yes | yes | — | — |
+| `billing` | yes | — | — | — |
+| `apps:delete` | yes | yes | — | — |
+| `tenant:delete` | yes | — | — | — |
+
+A developer's `tokens:write` lists and revokes only the tokens that developer created; owners and admins see and revoke all of the tenant's tokens.
+
+Which permission each operation of this contract needs (`x-renox-scope` in the OpenAPI file; the same test checks every operation against `ROUTE_PERMISSIONS` in `roles.ts`):
+
+<!-- operation-table -->
+| Permission | Operations |
+| --- | --- |
+| `apps:read` | `listApps`, `getApp`, `listDeployments`, `getDeployment`, `listDomains`, `getDomain`, `getUsage` |
+| `apps:write` | `createApp` |
+| `deploy` | `uploadDeployment`, `putSourcemaps`, `activateDeployment`, `rollbackDeployment` |
+| `logs:read` | `streamLogs` |
+| `secrets:read` | `listSecrets` (names only) |
+| `secrets:write` | `putSecret`, `deleteSecret`, `bumpSecrets` |
+| `domains:write` | `addDomain`, `removeDomain` |
+| `tokens:write` | `createToken`, `listTokens`, `revokeToken` |
+| node token | `registerNode`, `heartbeat`, `nodeStream`, `routeSnapshot`, `prepareResult`, `fetchArtifact`, `fetchSecrets`, `fetchCertificate`, `ingestMeters`, `ingestLogs` |
+| operator token | `createTenant`, `suspendTenant`, `reinstateTenant`, `createNodeToken` |
+| none | `getHealth` |
+
+The session-only permissions guard the account and team endpoints of #113 (`team:read`, `team:write`) and the billing and delete operations that arrive with #57 and F7; they appear in this contract when those endpoints do.
+
+Tests per row: the matrix and the operation table above, `control/api/tests/tenancy.test.ts` ("the role table"); a viewer refused `deploy` and a wrong scope refused, `accounts.test.ts` ("expired → 401, revoked → 401, wrong scope → 403, viewer deploying → 403; each audited"); a token capped by its user's current role, "a user's token acts with at most the user's current role, and stops when the user leaves"; `tokens:write` per role, "developers see and revoke only their own tokens; owners see all"; `secrets:write` and `team:write`, "viewer and developer cannot write secrets or manage the team; admin can; tokens never manage the team"; ownership, "role changes are audited; the owner's role and removal go only through a transfer"; app-scoped tokens, `auth.test.ts` ("missing scope → 403 RENOX_TOKEN_SCOPE; app-scoped token works on its app only"); another tenant's ids → 404, `control/api/test/idor/`.
 
 ## 3. Apps
 
@@ -79,7 +133,16 @@ Extraction streams the tar and stops at the **first** violation of the upload ru
 | T7 | The same path appears twice, or a path appears as both a file and a directory | — |
 | T8 | Wall-clock time for receiving and extracting the body | 30 s |
 
-After extraction the shared validation package (`packages/artifact-validate`, the same code `renox check` runs, #52) applies V1–V12 and V14–V16 to the tree (artifact versions 0 and 1) and V10 against the tenant's tier. The secret and bundle-hygiene rules of #115 join the same package and report under their own rule ids in a minor version.
+After extraction the shared validation package (`packages/artifact-validate`, the same code `renox check` runs, #52) applies V1–V12 and V14–V16 to the tree (artifact versions 0 and 1) and V10 against the tenant's tier, then the bundle-hygiene rules of #115 (the same rule set `renox build` applies):
+
+| # | Rule | Applies to |
+| --- | --- | --- |
+| H1 | Forbidden file: environment files (`.env`, `.env.*`), SSH keys (`id_rsa`, …), key and certificate files (`.pem`, `.key`, `.p12`, `.pfx`, `.jks`, `.keystore`), database files (`.sqlite`, `.sqlite3`, `.db` and their `-wal`, `-shm`, `-journal`), `.log` files, any `node_modules` segment, `.git`, any other dotfile or dot-directory except `public/.well-known/`, and a `public/` file over 5 MiB | Every path of the tree |
+| H2 | A secret in a text file stored as it is: a high-confidence pattern (private-key blocks, AWS, GitHub, Stripe live, Slack and Google API keys, Slack webhook URLs, unsigned `alg: none` JWTs; the list is `PATTERNS` in `packages/artifact-validate/src/secrets.ts`) or a high-entropy string assigned to a secret-like name, unless the line, or a comment line just above it, carries `renox-allow-secret: <reason>` | Text files under `public/`, `migrations/`, `templates/`, except the generated `manifest.json`, `public/manifest.json` and `migrations/checksums.json` |
+
+An H violation is a `details` entry `{ rule: "H1" | "H2", path, reason }` of 422 `RENOX_DEPLOY_REJECTED` and part of the `rejected` deployment's `violations`, like a V violation. An H2 `reason` gives the line, the pattern's description and a masked prefix (`sk_live_… (32 chars)`), **never the matched text**.
+
+**Who scans `code/` for secrets.** The CLI is the only secret scanner for `code/`: `renox build` and `renox check --secrets` scan the **sources** before bundling and refuse to build on a finding. The control plane does not apply H2 to `code/`, for three reasons: bundling strips the comments that carry `renox-allow-secret`, so an allowed line would be refused at upload; vendored SDKs inside the bundle produce false positives no tenant can mark; and `code/` is executed by the worker, never served to a browser, so a secret there is not published (the public surface, `public/` and rendered `templates/`, is scanned at upload). The cost is accepted: a `code/` built by hand, without the CLI, can carry a secret in the artifact store (`docs/24-threat-model.md` B, "Secrets in logs, errors, bundle, responses"). The CLI prints its report locally; the dashboard (#57) shows the H violations of a rejected upload from `violations`, and does not receive the CLI's source report.
 
 Outcomes:
 
@@ -209,19 +272,20 @@ Draining: activation publishes the new deployment `active` and the previous one 
 
 - **Meters.** `POST /v1/ingest/meters` is the HTTP sink reserved in `meter.md` section 5: the body is one batch envelope (`meter-record.schema.json`); `node_id` must equal the token's node (403 otherwise); records are de-duplicated on `request_id` (`meter.md` section 4); 202 `{ accepted, duplicates }` means persisted. A batch with an unknown `schema_version` gets 400 and the node keeps it for replay.
 - **Logs.** The node's `HttpLogSink` (#55) sends `log_batch` messages (1–1,000 lines, each already redacted on the node, with `source`: `server`, or `client` for browser events from #126) to `POST /v1/ingest/logs`; 202 `{ accepted, duplicates }`. Lines are de-duplicated on `(node_id, ts, request_id, message)` within one batch only; at-least-once delivery may show a line twice.
+- **Usage.** `GET /v1/apps/{app}/usage` (`apps:read`, #56) reads the hourly rollup of the app's meter records (`meter.md` section 7) in `[from, to)`: `from` defaults to the start of the current calendar month (UTC), `to` to the start of the next; `to` must be after `from` and at most 366 days later (400 `RENOX_VALIDATION` otherwise). The answer is `{ app, from, to, hours, total, quota }`: `hours` lists one row per hour that has records (`hour_start` plus the sums of `requests`, `cpu_ms`, `wall_ms`, `egress_bytes`, `fetch_sent_bytes`, `db_ms`, `db_rows`, `render_fuel`), oldest first; `total` sums them; `quota` is the **tenant's** state for the current month over all its apps (`tier`, `period_start`, `period_end`, `used` and `limits` in the billing dimensions `requests`, `cpu_ms` = `cpu_ms + render_ms`, `egress_bytes` = `egress_bytes + fetch_sent_bytes`, and `over`, the dimensions above their limit). A non-empty `over` is the **over-quota signal**; in F3 nothing is suspended or throttled on it (suspension is F7). The rollup runs in the billing job (`control/billing`), so the last hour may lag by one job interval. The tier limits are proposals until F7 (`control/billing/src/quota.ts`).
 - **Reading logs.** `GET /v1/apps/{app}/logs` (`logs:read`) is a Server-Sent Events response: `event: log`, `id: <ts>-<n>`, `data:` one `log_line`. Without `follow` it returns the last 100 lines (or the lines since `since`) and closes; with `follow=true` it stays open, with `: keep-alive` every 15 s, and resumes from `Last-Event-ID` after a reconnect. Filters: `source` (`all`, `server`, `client`), `deployment`. Retention is 7 days (*proposed*).
 
 ## 12. Error codes
 
 | Code | HTTP | Where | `details` |
 | --- | --- | --- | --- |
-| `RENOX_VALIDATION` | 400 (422 for a sourcemap tar) | Malformed JSON, unknown field, a value outside its pattern or range, a secret value under 8 bytes, a non-`.map` file in a sourcemap tar | `{ field, reason }` |
+| `RENOX_VALIDATION` | 400 (422 for a sourcemap tar) | Malformed JSON, unknown field, a value outside its pattern or range, a secret value under 8 bytes, a non-`.map` file in a sourcemap tar, a usage range that is empty or longer than 366 days | `{ field, reason }` |
 | `RENOX_UNAUTHENTICATED` | 401 | Section 2 | — |
 | `RENOX_TOKEN_SCOPE` | 403 | Section 2 | — |
 | `RENOX_NOT_FOUND` | 404 | Unknown resource, or one of another tenant | — |
 | `RENOX_CONFLICT` | 409 | A transition not allowed by section 5 or 10; a name or hostname taken; another activation in progress; a tenant suspended; an unknown node heartbeating; a late `prepare_result` | `{ field, reason }` |
 | `RENOX_BODY_TOO_LARGE` | 413 | A body over its limit (sections 1 and 4) | — |
-| `RENOX_DEPLOY_REJECTED` | 422 | Upload validation, V1–V16 and T1–T8 (section 4) | `{ rule, path or field, reason }`, at most 50 |
+| `RENOX_DEPLOY_REJECTED` | 422 | Upload validation, V1–V16, T1–T8 and H1–H2 (section 4) | `{ rule, path or field, reason }`, at most 50 |
 | `RENOX_ACTIVATION_FAILED` | 422 | The node reported a failure or timed out (section 6) | one activation error |
 | `RENOX_RATE_LIMITED` | 429, `Retry-After` | Section 2 | — |
 | `RENOX_INTERNAL` | 500 | A bug; the request id finds the operator log | — |
@@ -244,3 +308,10 @@ The rows, with fixed messages and guidance, are in [`errors.md`](errors.md) ("Co
 6. **Rate-limit numbers** in section 2 are proposals for #113.
 7. **Probe pass rule.** "Any status below 500" (section 6) differs from #96's "non-2xx fails". If tenants want a stricter check, a manifest `healthcheck` route (reserved) can require 2xx.
 8. **Log retention and volume** (7 days, the per-tenant volume limit of `ops.md` section 4) are proposals for #56 and #57.
+
+## Changelog
+
+| Version | Issue | Changes |
+| --- | --- | --- |
+| 0 | #50 | First version (F3): authentication and scopes, apps, upload and T1–T8, deployment states, activation and rollback, nodes and the route-table messages, secrets, domains and certificates, logs and meters, error codes |
+| 0.1 | #184 | `GET /v1/apps/{app}/usage` (section 11, #56); bundle-hygiene rule ids H1 and H2 in `violations` (section 4, #115); `code/` is scanned for secrets by the CLI only (section 4); session callers, roles, the permission matrix and the operation table (section 2.1, #113) |

@@ -1,4 +1,4 @@
-# Renox deploy API, contract version 0 (F3).
+# Renox deploy API, contract version 0.1 (F3).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renox deploy API
-  version: 0.0.0
+  version: 0.1.0
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -34,6 +34,8 @@ tags:
     description: "Secret names and values (section 9)"
   - name: logs
     description: "Tenant log stream"
+  - name: usage
+    description: "Metered usage and the quota signal (section 11)"
   - name: domains
     description: "Custom domains (section 10)"
   - name: tokens
@@ -220,7 +222,8 @@ paths:
         "422":
           description: >-
             Validation failed; the deployment is recorded in state rejected. details lists
-            every violation found (V1-V16, T1-T8), at most 50.
+            every violation found (V1-V16, H1, H2), at most 50, or the one T1-T8 violation
+            that stopped extraction.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -243,6 +246,26 @@ paths:
                       deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
                       details:
                         - { rule: T4, path: "code/../../etc/passwd", reason: "path escapes the artifact root" }
+                bundle-hygiene:
+                  value:
+                    error:
+                      code: RENOX_DEPLOY_REJECTED
+                      message: The artifact failed validation.
+                      request_id: 01JBQ3Z7MA0000000000000004
+                      deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                      details:
+                        - { rule: H1, path: "public/.env", reason: "an environment file (.env)" }
+                        - { rule: H2, path: "public/app.js", reason: "line 3: Stripe live secret key (sk_live_… (32 chars)); store it with the secrets API instead" }
+              x-renox-invalid-examples:
+                unknown-hygiene-rule:
+                  x-expect: no branch matches
+                  value:
+                    error:
+                      code: RENOX_DEPLOY_REJECTED
+                      message: The artifact failed validation.
+                      request_id: 01JBQ3Z7MA0000000000000005
+                      details:
+                        - { rule: H3, path: "code/app.js", reason: "a rule that does not exist" }
         "429": { $ref: "#/components/responses/RateLimited" }
     get:
       operationId: listDeployments
@@ -478,6 +501,108 @@ paths:
               examples:
                 two-lines:
                   value: "event: log\nid: 1793318400200-0\ndata: {\"ts\":1793318400200,\"tenant_id\":\"t_hello\",\"deployment_hash\":\"802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a\",\"request_id\":\"01JBQ3Z7M8K5V6W9X2Y4A1B3C5\",\"module\":\"functions/api/hello\",\"level\":\"info\",\"message\":\"hello key=[redacted]\",\"fields\":null,\"source\":\"server\"}\n\n: keep-alive\n\n"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/usage:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    get:
+      operationId: getUsage
+      tags: [usage]
+      summary: Hourly metered usage of one app, and the tenant's quota signal
+      description: >-
+        Reads the hourly rollup of meter records (meter.md section 7) for the app's
+        deployments in [from, to), oldest hour first; hours without records are absent.
+        `total` sums the returned hours. `quota` is the tenant's state for the current
+        calendar month (UTC) over all its apps; a non-empty `quota.over` is the over-quota
+        signal. In F3 it is a signal only: nothing is suspended or throttled on it.
+      x-renox-scope: apps:read
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Unix time in milliseconds, inclusive. Default the start of the current month (UTC).
+          schema: { type: integer, minimum: 0 }
+        - name: to
+          in: query
+          required: false
+          description: Unix time in milliseconds, exclusive. Default the start of next month (UTC). After `from`, at most 366 days later.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: The app's hours, their total, and the tenant's quota state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppUsage" }
+              examples:
+                one-hour:
+                  value:
+                    app: hello
+                    from: 1790812800000
+                    to: 1793491200000
+                    hours:
+                      - { hour_start: 1793318400000, requests: 1200, cpu_ms: 2834.512, wall_ms: 9120.25, egress_bytes: 5242880, fetch_sent_bytes: 40960, db_ms: 310.5, db_rows: 4800, render_fuel: 0 }
+                    total: { requests: 1200, cpu_ms: 2834.512, wall_ms: 9120.25, egress_bytes: 5242880, fetch_sent_bytes: 40960, db_ms: 310.5, db_rows: 4800, render_fuel: 0 }
+                    quota:
+                      tenant_id: t_hello
+                      tier: free
+                      period_start: 1790812800000
+                      period_end: 1793491200000
+                      used: { requests: 1200, cpu_ms: 2834.512, egress_bytes: 5283840 }
+                      limits: { requests: 3000000, cpu_ms: 30000000, egress_bytes: 10737418240 }
+                      over: []
+                over-quota:
+                  value:
+                    app: hello
+                    from: 1793318400000
+                    to: 1793322000000
+                    hours: []
+                    total: { requests: 0, cpu_ms: 0, wall_ms: 0, egress_bytes: 0, fetch_sent_bytes: 0, db_ms: 0, db_rows: 0, render_fuel: 0 }
+                    quota:
+                      tenant_id: t_hello
+                      tier: free
+                      period_start: 1790812800000
+                      period_end: 1793491200000
+                      used: { requests: 3000001, cpu_ms: 12000000, egress_bytes: 2147483648 }
+                      limits: { requests: 3000000, cpu_ms: 30000000, egress_bytes: 10737418240 }
+                      over: [requests]
+              x-renox-invalid-examples:
+                unknown-dimension:
+                  x-expect: over
+                  value:
+                    app: hello
+                    from: 1793318400000
+                    to: 1793322000000
+                    hours: []
+                    total: { requests: 0, cpu_ms: 0, wall_ms: 0, egress_bytes: 0, fetch_sent_bytes: 0, db_ms: 0, db_rows: 0, render_fuel: 0 }
+                    quota:
+                      tenant_id: t_hello
+                      tier: free
+                      period_start: 1790812800000
+                      period_end: 1793491200000
+                      used: { requests: 0, cpu_ms: 0, egress_bytes: 0 }
+                      limits: { requests: 3000000, cpu_ms: 30000000, egress_bytes: 10737418240 }
+                      over: [wall_ms]
+                hour-without-start:
+                  x-expect: hour_start
+                  value:
+                    app: hello
+                    from: 1793318400000
+                    to: 1793322000000
+                    hours:
+                      - { requests: 1, cpu_ms: 1, wall_ms: 1, egress_bytes: 0, fetch_sent_bytes: 0, db_ms: 0, db_rows: 0, render_fuel: 0 }
+                    total: { requests: 1, cpu_ms: 1, wall_ms: 1, egress_bytes: 0, fetch_sent_bytes: 0, db_ms: 0, db_rows: 0, render_fuel: 0 }
+                    quota:
+                      tenant_id: t_hello
+                      tier: free
+                      period_start: 1790812800000
+                      period_end: 1793491200000
+                      used: { requests: 1, cpu_ms: 1, egress_bytes: 0 }
+                      limits: { requests: 3000000, cpu_ms: 30000000, egress_bytes: 10737418240 }
+                      over: []
+        "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1251,9 +1376,12 @@ components:
       type: object
       additionalProperties: false
       required: [rule, reason]
-      description: One broken artifact rule (artifact.md section 6) or upload rule (deploy-api.md section 4). Never a filesystem path of the server.
+      description: >-
+        One broken artifact rule (artifact.md section 6), upload rule (T1-T8) or bundle-hygiene
+        rule (H1, H2) of deploy-api.md section 4. Never a filesystem path of the server, never
+        the text of a secret an H2 violation found (only its pattern and a masked prefix).
       properties:
-        rule: { type: string, pattern: "^(V([1-9]|1[0-6])|T[1-8])$" }
+        rule: { type: string, pattern: "^(V([1-9]|1[0-6])|T[1-8]|H[12])$" }
         path: { type: string, maxLength: 1024 }
         field: { type: string, maxLength: 256 }
         reason: { type: string, minLength: 1, maxLength: 512 }
@@ -1323,6 +1451,78 @@ components:
           maxItems: 50
           items: { $ref: "#/components/schemas/Violation" }
           description: Set when state is rejected.
+
+    Usage:
+      type: object
+      additionalProperties: false
+      required: [requests, cpu_ms, wall_ms, egress_bytes, fetch_sent_bytes, db_ms, db_rows, render_fuel]
+      description: Sums of the meter record fields of the same names (meter.md section 2); the *_ms sums are rounded to 3 decimals.
+      properties:
+        requests: { type: integer, minimum: 0 }
+        cpu_ms: { type: number, minimum: 0 }
+        wall_ms: { type: number, minimum: 0 }
+        egress_bytes: { type: integer, minimum: 0 }
+        fetch_sent_bytes: { type: integer, minimum: 0 }
+        db_ms: { type: number, minimum: 0 }
+        db_rows: { type: integer, minimum: 0 }
+        render_fuel: { type: integer, minimum: 0 }
+
+    UsageHour:
+      type: object
+      additionalProperties: false
+      required: [hour_start, requests, cpu_ms, wall_ms, egress_bytes, fetch_sent_bytes, db_ms, db_rows, render_fuel]
+      description: One hour of the rollup; hour_start is a multiple of 3,600,000.
+      properties:
+        hour_start: { $ref: "#/components/schemas/UnixMs" }
+        requests: { type: integer, minimum: 0 }
+        cpu_ms: { type: number, minimum: 0 }
+        wall_ms: { type: number, minimum: 0 }
+        egress_bytes: { type: integer, minimum: 0 }
+        fetch_sent_bytes: { type: integer, minimum: 0 }
+        db_ms: { type: number, minimum: 0 }
+        db_rows: { type: integer, minimum: 0 }
+        render_fuel: { type: integer, minimum: 0 }
+
+    QuotaAmounts:
+      type: object
+      additionalProperties: false
+      required: [requests, cpu_ms, egress_bytes]
+      description: >-
+        The billing dimensions (meter.md section 7): charged requests, billed CPU
+        (cpu_ms + render_ms), billed egress (egress_bytes + fetch_sent_bytes).
+      properties:
+        requests: { type: integer, minimum: 0 }
+        cpu_ms: { type: number, minimum: 0 }
+        egress_bytes: { type: integer, minimum: 0 }
+
+    QuotaState:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, tier, period_start, period_end, used, limits, over]
+      description: The tenant's monthly quota state (all apps); `over` lists the dimensions above their limit.
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        tier: { $ref: "#/components/schemas/Tier" }
+        period_start: { $ref: "#/components/schemas/UnixMs" }
+        period_end: { $ref: "#/components/schemas/UnixMs" }
+        used: { $ref: "#/components/schemas/QuotaAmounts" }
+        limits: { $ref: "#/components/schemas/QuotaAmounts" }
+        over:
+          type: array
+          maxItems: 3
+          items: { enum: [requests, cpu_ms, egress_bytes] }
+
+    AppUsage:
+      type: object
+      additionalProperties: false
+      required: [app, from, to, hours, total, quota]
+      properties:
+        app: { $ref: "#/components/schemas/AppName" }
+        from: { $ref: "#/components/schemas/UnixMs" }
+        to: { $ref: "#/components/schemas/UnixMs" }
+        hours: { type: array, items: { $ref: "#/components/schemas/UsageHour" } }
+        total: { $ref: "#/components/schemas/Usage" }
+        quota: { $ref: "#/components/schemas/QuotaState" }
 
     ActivateRequest:
       type: object
