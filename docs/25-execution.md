@@ -98,8 +98,6 @@ Run the gate review issue #37 of arif-rachim/renox.rs. Follow docs/25-execution.
 
 Ran on 2026-10-28: GO to F2 and F3 with conditions (report on #37). The conditions are applied: issues #152 to #164 created, blockers of the F2/F3 issues edited, #36, #92, #110 and #146 closed, docs and status updated.
 
-The F1 gate ran on 2026-10-28 (#37): GO to F2 and F3 with conditions. Its issue edits, the new issues #152 to #164, and the batch changes below are applied; #36, #92, #110 and #146 are closed.
-
 ## F2 (11 sessions + gate)
 
 Start after the F1 gate (#37) is closed. The gate report split the F1 follow-ups into #152 to #161 and moved every F2 contract edit into #152 and #153, so two contract-only batches go first. F3 runs at the same time as F2 (see below).
