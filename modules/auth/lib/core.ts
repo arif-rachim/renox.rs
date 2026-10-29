@@ -207,7 +207,7 @@ export async function register(ctx: AuthCtx, input: { email?: unknown; password?
   const t = now();
   const user: User = { id: randomHex(16), email, display_name: displayName, created_at: t };
   await ctx.db.execute("insert into auth__users (id, email, display_name, password_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?)", [user.id, email, displayName, hash, t, t]);
-  await ctx.events.emit("auth.user_registered", { user_id: user.id, at: t });
+  await ctx.events.emit("auth.user_registered", { user_id: user.id, at: t, source: "password" });
   const session = await startSession(ctx, user.id);
   return { ok: true, user, cookie: session.cookie };
 }

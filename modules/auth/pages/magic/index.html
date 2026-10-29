@@ -1,0 +1,10 @@
+<r-layout use="auth">
+  <r-group slot="title">Sign in with a link</r-group>
+  <h1>Sign in with a link</h1>
+  <p class="notice" id="notice" r-if="message">{{ message }}</p>
+  <x-form action="default">
+    <label>Email <input type="email" name="email" autocomplete="username" :value="email" required></label>
+    <button type="submit">Send me a link</button>
+  </x-form>
+  <p><a href="login">Sign in with a password</a></p>
+</r-layout>

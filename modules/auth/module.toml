@@ -8,10 +8,16 @@ session_idle_hours = { type = "int", min = 1, max = 720, default = 24, descripti
 session_absolute_days = { type = "int", min = 1, max = 365, default = 30, description = "A session ends this many days after sign-in, whatever its use" }
 password_min_length = { type = "int", min = 8, max = 128, default = 12, description = "Shortest password accepted at register and password change" }
 login_path = { type = "string", max_length = 200, default = "/auth/login", description = "The login page as the app mounts it (requireUser and loginUrl point there)" }
+google_client_id = { type = "string", max_length = 200, default = "", description = "Google sign-in: the OAuth client id (the secret is AUTH_GOOGLE_CLIENT_SECRET); empty = off" }
+github_client_id = { type = "string", max_length = 200, default = "", description = "GitHub sign-in: the OAuth app's client id (secret AUTH_GITHUB_CLIENT_SECRET); empty = off" }
+microsoft_client_id = { type = "string", max_length = 200, default = "", description = "Microsoft sign-in: the application id (secret AUTH_MICROSOFT_CLIENT_SECRET); empty = off" }
 
 [permissions]
 tables = "auth__*"
 slots = ["app.header"]
+# OAuth/OIDC providers (#240): token endpoints, signing keys, the GitHub API.
+network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com"]
+secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"]
 
 [exports]
 views = ["auth__public_users_v1"]
@@ -23,14 +29,25 @@ logout = "End the current session (server side) -> { cookie }"
 currentUser = "The signed-in user of this request, or null"
 requireUser = "The signed-in user; throws AUTH_REQUIRED when there is none"
 loginUrl = "The module's login page with a safe `next`"
+sendMagicLink = "Mail a one-time sign-in link: { email } -> the same message whether or not the account exists"
+requestPasswordReset = "Mail a one-time password reset link: { email } -> the same message in every case"
+confirmPasswordReset = "Set a new password with a reset token: { token, password } -> { cookie } or { error }"
 
 [exports.events."auth.user_registered"]
-payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" }, source = { enum = ["password", "oauth"] } } }
 description = "A user registered"
 
 [exports.events."auth.login"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
 description = "A user signed in"
+
+[exports.events."auth.password_changed"]
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+description = "A password was set through a reset link"
+
+[exports.hooks."auth.send_mail"]
+args = { type = "object", required = ["to", "template", "args"], properties = { to = { type = "string" }, template = { enum = ["magic_link", "password_reset"] }, args = { type = "object" } } }
+description = "Send one mail (auth sends none itself before the email module, F7): fill it to deliver magic and reset links"
 
 [exports.hooks."auth.after_login"]
 args = { type = "object", required = ["user_id"], properties = { user_id = { type = "string" }, next = { type = "string" } } }

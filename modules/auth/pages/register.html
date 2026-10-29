@@ -9,5 +9,8 @@
     <label>Password <input type="password" name="password" autocomplete="new-password" required></label>
     <button type="submit">Create account</button>
   </x-form>
+  <ul class="providers" r-if="providers | length > 0">
+    <li r-for="p in providers"><a :href="p.href">Continue with {{ p.label }}</a></li>
+  </ul>
   <p><a href="login">Sign in instead</a></p>
 </r-layout>

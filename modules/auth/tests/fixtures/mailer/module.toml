@@ -1,0 +1,8 @@
+[module]
+name = "mailer"
+version = "1.0.0"
+description = "Test fixture: fills auth.send_mail with a recorder (the email module is F7)"
+
+[permissions]
+tables = "mailer__*"
+hooks = ["auth.send_mail"]

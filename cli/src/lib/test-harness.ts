@@ -163,7 +163,16 @@ export async function startTestWorker(spec: TestSpec): Promise<TestWorker> {
   const state = mkdtempSync(join(tmpdir(), "renox-test-"));
   for (const d of ["data", "meters", "logs"]) mkdirSync(join(state, d), { recursive: true });
   mkdirSync(join(state, "data", TEST_TENANT), { recursive: true });
-  writeFileSync(join(state, "data", TEST_TENANT, "secrets.json"), "{}", { mode: 0o600 });
+  // Test secrets: `.env.test` of the app (KEY=value lines), never the real `.env`.
+  const envTest = join(spec.project, ".env.test");
+  const secrets: Record<string, string> = {};
+  if (existsSync(envTest)) {
+    for (const line of readFileSync(envTest, "utf8").split("\n")) {
+      const m = /^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$/u.exec(line);
+      if (m) secrets[m[1] as string] = (m[2] as string).replace(/^(["'])(.*)\1$/u, "$2");
+    }
+  }
+  writeFileSync(join(state, "data", TEST_TENANT, "secrets.json"), JSON.stringify(secrets), { mode: 0o600 });
   writeFileSync(
     join(state, "routes.json"),
     JSON.stringify({ version: 0, entries: [{ hostname: TEST_HOST, tenant_id: TEST_TENANT, deployment_hash: spec.hash, status: "active", updated_at: Date.now() }] }),

@@ -84,6 +84,15 @@ describe.skipIf(!worker)("renox build with modules", () => {
   });
 });
 
+test("a module whose permissions are not the approved ones does not build (MF12, V22)", async () => {
+  const dir = await shopWithAuth();
+  // auth now asks for a host the app never approved.
+  const toml = join(dir, "modules/auth/module.toml");
+  writeFileSync(toml, readFileSync(toml, "utf8").replace('tables = "auth__*"', 'tables = "auth__*"\nnetwork = ["accounts.google.com"]'));
+  const e = await buildFiles(dir).catch((x: Error) => x);
+  expect((e as Error).message).toContain("MF12: auth/module.toml: its [permissions] differ from what renox.lock approved");
+});
+
 test("db.d.ts has the module tables, grouped by prefix", async () => {
   const dir = await shopWithAuth();
   const dts = dbDts(dir);

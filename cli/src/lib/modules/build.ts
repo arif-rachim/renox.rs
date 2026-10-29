@@ -13,7 +13,7 @@ import { sha256Hex } from "../hash.ts";
 import { type Json, type JsonObject } from "../schema.ts";
 import { discoverFunctions, discoverPages, type Route } from "../routes.ts";
 import { type LockEntry, readLock } from "./lock.ts";
-import { type Manifest as ModuleManifest, obj, readManifest, strings } from "./manifest.ts";
+import { type Manifest as ModuleManifest, obj, readManifest, samePermissions, strings } from "./manifest.ts";
 import { fetchTree } from "./resolve.ts";
 
 /** One installed module, ready to build. */
@@ -141,7 +141,12 @@ export function installedModules(project: string): { modules: BuiltModule[]; pro
     const { tree } = fetchTree(project, lock.name, lock.source === "official" ? undefined : lock.source);
     const { manifest, problems: mp } = readManifest(tree, `${lock.name}/module.toml`);
     for (const p of mp) msgs.push(`${p.rule}: ${p.file}: ${p.message}`);
-    if (manifest !== null) out.push({ lock, manifest, tree });
+    if (manifest === null) continue;
+    // MF12 / V22: the artifact runs the manifest's permissions, so they must be the approved ones.
+    if (!samePermissions(manifest.permissions, lock.approved)) {
+      msgs.push(`MF12: ${lock.name}/module.toml: its [permissions] differ from what renox.lock approved; run \`renox add ${lock.name}\` to review and approve them`);
+    }
+    out.push({ lock, manifest, tree });
   }
   return { modules: out, problems: msgs };
 }

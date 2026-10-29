@@ -1,0 +1,10 @@
+<r-layout use="auth">
+  <r-group slot="title">Choose a new password</r-group>
+  <h1>Choose a new password</h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <x-form action="default">
+    <input type="hidden" name="token" :value="token">
+    <label>New password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Set password</button>
+  </x-form>
+</r-layout>
