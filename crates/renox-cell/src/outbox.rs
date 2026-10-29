@@ -185,6 +185,8 @@ async fn pass(d: &Delivery) -> Option<Option<i64>> {
                 // ops.md 1.5.0 section 17: authz.roles_changed, auth.login
                 // and auth.logout drop the user's cached principal.
                 crate::authz::on_event(&cell.isolate.authz_slot(), &row.name, &row.payload);
+                // #285: a revoked agent token leaves the MCP cache.
+                cell.mcp.on_event(&row.name, &row.payload);
                 let targets = cell.isolate.event_handlers(&row.name);
                 let id = row.id.clone();
                 d.db.call(move |db| outbox::fan_out(db, &id, &targets, now))

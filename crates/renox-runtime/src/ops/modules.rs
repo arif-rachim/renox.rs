@@ -214,6 +214,12 @@ impl ModuleRegistry {
         self.modules.is_empty()
     }
 
+    /// Whether module `module` is installed and exports the service `name`.
+    pub fn exports_service(&self, module: &str, name: &str) -> bool {
+        self.get(module)
+            .is_some_and(|m| m.exports.services.iter().any(|s| s == name))
+    }
+
     pub fn get(&self, name: &str) -> Option<&ModuleInfo> {
         self.modules.iter().find(|m| m.name == name)
     }

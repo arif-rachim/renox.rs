@@ -446,15 +446,16 @@ function checkScope(scope) {
  * `transaction(fn)` is IMMEDIATE, or a savepoint when a transaction is
  * current (ops.md 1.3.0 section 1, "Savepoints").
  */
-function makeDb(module, scope = null) {
+function makeDb(module, scope = null, fixedTx = null) {
   return ObjectFreeze({
-    ...statements(module === "app" ? 0 : "current", module, scope),
+    ...statements(fixedTx ?? (module === "app" ? 0 : "current"), module, scope),
     scoped(s) {
-      return makeDb(module, checkScope(s));
+      return makeDb(module, checkScope(s), fixedTx);
     },
     async transaction(fn) {
       const token = currentToken();
-      const outer = txVar.get();
+      // A tool preview's Db (#285): everything nests inside its transaction.
+      const outer = fixedTx ?? txVar.get();
       if (outer !== undefined && outer !== 0) {
         let sp;
         try {
@@ -1134,6 +1135,11 @@ const KIND_MODULE_EVAL = 6;
 const KIND_FORBIDDEN = 7;
 // A realtime run ended (ops.md 1.5.0 section 18): `result` is `ok` or `no_handler`.
 const KIND_REALTIME = 8;
+// A service or tool invocation ended (#285): `result` is `ok` (with
+// `data_json`), `no_handler`, or `output_too_large`.
+const KIND_INVOKE = 9;
+/** ops.md 1.5.0 section 19: a tool's output is at most 256 KB of JSON. */
+const MAX_TOOL_OUTPUT = 256 * 1024;
 
 /** `ctx.deadline`: the request's own (ops.md section 5). */
 const requestDeadline = ObjectFreeze({
@@ -1536,6 +1542,80 @@ function dispatchRealtime(handler, token, url, headers, body, params, owner, rt)
   }
 }
 
+/**
+ * Called by Rust for a call into module code that is not a request (#285):
+ * `{ kind: "service", module, name, args }` (a service the platform needs,
+ * through the broker, as the app) or `{ kind: "tool", name, input, client,
+ * preview }` (ops.md 1.5.0 section 19: the tool's `run` with the owning
+ * module's ctx without a request, the token's user as principal, and
+ * `ctx.tool`; a preview runs inside a transaction that is always rolled
+ * back). Resolves with `{ kind: KIND_INVOKE, result, data_json }`, or the
+ * description of a throw.
+ */
+function invoke(token, env, handler, owner) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(env.kind === "tool" ? owner : "app");
+    const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
+    const st = newRequestState({ deadline: requestDeadline, principal });
+    stateVar.enter(st);
+    const go = async () => {
+      if (env.kind === "service") {
+        const fn = serviceModules.get(env.module)?.[env.name];
+        if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+        const value = await within([[stateVar, st]], () => callService(env.module, env.name, JSONParse(env.args)));
+        return { kind: KIND_INVOKE, result: "ok", data_json: JSONStringify(value ?? null, dataReplacer) };
+      }
+      let def = handler;
+      if (def !== null && typeof def === "object" && typeof def.lazy === "string") {
+        let p = lazyModules.get(def.lazy);
+        if (p === undefined) {
+          p = import(def.lazy);
+          lazyModules.set(def.lazy, p);
+        }
+        def = (await p)[def.export];
+      }
+      if (def === null || typeof def !== "object" || typeof def.run !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+      // The tool's Cedar action as the token's user, before run (audited when sensitive).
+      try {
+        await op_authz_check(token, env.action, null, null, moduleArg(owner), true);
+      } catch {
+        return { kind: KIND_INVOKE, result: "forbidden" };
+      }
+      const tool = ObjectFreeze({ name: env.name, input: JSONParse(env.input), client: ObjectFreeze(JSONParse(env.client)), preview: env.preview === true });
+      let output;
+      if (env.preview === true) {
+        let tx;
+        try {
+          tx = await op_db_tx_begin(token, "immediate");
+        } catch (e) {
+          throw toRenoxError(e);
+        }
+        const ctx = ObjectFreeze({ ...st.ctxOf(owner), db: makeDb(owner, null, tx), tool });
+        try {
+          output = await within([[txVar, tx], [stateVar, st]], () => def.run(ctx));
+        } finally {
+          try {
+            await op_db_tx_rollback(token, tx);
+          } catch {
+            // Gone already (a callee rolled it back); Rust rolls back at the end anyway.
+          }
+        }
+      } else {
+        const ctx = ObjectFreeze({ ...st.ctxOf(owner), tool });
+        output = await within([[stateVar, st]], () => def.run(ctx));
+      }
+      const json = JSONStringify(output === undefined ? null : output, dataReplacer);
+      if (typeof json !== "string") return { kind: KIND_INVOKE, result: "ok", data_json: "null" };
+      if (json.length > MAX_TOOL_OUTPUT) return { kind: KIND_INVOKE, result: "output_too_large" };
+      return { kind: KIND_INVOKE, result: "ok", data_json: json };
+    };
+    return PromisePrototypeThen(go(), undefined, describeThrow);
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
 /** Code entry specifier -> the promise of its namespace: one evaluation per isolate; a rejection stays cached until the isolate is replaced. */
 const lazyModules = new SafeMap();
 /** Module ids whose failure was reported already (logged once per isolate). */
@@ -1750,7 +1830,7 @@ function harden(modulesJson) {
 }
 
 ObjectDefineProperty(globalThis, "__renoxInternal", {
-  value: ObjectFreeze({ dispatch, deliver, harden, register }),
+  value: ObjectFreeze({ dispatch, deliver, invoke, harden, register }),
   writable: false,
   enumerable: false,
   configurable: true,

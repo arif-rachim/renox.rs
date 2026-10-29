@@ -225,6 +225,24 @@ Tests: `tests/authz.rs`; the ops themselves: `renox-runtime` `tests/authz_ops.rs
 
 Tests: `tests/realtime.rs`; the gateway handshake: `renox-gateway` `tests/upgrade.rs`.
 
+## App MCP (#285)
+
+`/mcp` and `/.well-known/oauth-protected-resource/mcp` are reserved on every app (`src/mcp/`; `ops.md` 1.5.0 section 19). They answer 404 unless the `auth` module is installed and exports `verifyAgentToken`. The endpoint speaks JSON-RPC 2.0 over Streamable HTTP, statelessly: `POST /mcp` takes one request (a batch is `-32600`), and `GET /mcp` is 405. Methods: `initialize` (`2025-06-18`, the app name, the deployment hash's first 12 hex), `notifications/initialized` (202), `tools/list`, `tools/call`.
+
+A `tools/call` goes through these steps in order:
+
+1. **Token.** `Authorization: Bearer` is checked by the service `auth.verifyAgentToken(token)` (called with `IsolateHandle::invoke`, as the platform). The answer is cached per token SHA-256 for 60 s and dropped when the outbox delivers `auth.agent_token_revoked` (`{ token_hash }` or `{ user_id }`). No token or `null` is 401 with `WWW-Authenticate: Bearer resource_metadata="…"`.
+2. **Scope.** `tools:*`, `tools:<name>` or the bare name; otherwise 403 `RENOX_TOOL_SCOPE`. `tools/list` shows only the covered tools.
+3. **Rate limit.** 60 calls per minute per token (*proposed*, Open 16); over it, 429 with `Retry-After` and no body.
+4. **Input.** Validated against the tool's JSON Schema (`jsonschema`); otherwise 400 `RENOX_TOOL_INPUT` with `details: [{ field, reason }]`.
+5. **Confirmation.** A `confirm` tool's first call runs a preview: `ctx.tool.preview` is true and the app's `Db` sits in a transaction that is always rolled back. The answer carries `{ preview, confirmation: { token, expires_at } }`. The token is an HMAC (cell key) over the tool, the arguments' SHA-256, the agent token's hash and the expiry, valid 10 minutes and usable once. A missing, expired, replayed or mismatched token is 409 `RENOX_TOOL_CONFIRM`.
+6. **Authorization and `run`.** The tool's Cedar action is checked with the token's user as principal, inside the isolate before `run` (`op_authz_check` with `enforce`, so a sensitive action writes the audit row). A deny is 403 `RENOX_FORBIDDEN`, and `run` never starts.
+7. **Output.** At most 256 KB of JSON, else `isError` "The tool output is too large.". Secret values are redacted. Every result carries `_meta.untrusted` and its text and `structuredContent`. A throw or a limit gives `isError` with a fixed text, never the error's message.
+
+**Metering and audit.** Every call that reached `run`, the preview included, writes one record: `kind: "tool"`, route `TOOL <name>`, `http_status` 200, its own status. A throw is logged as `invocation threw`, with secret values redacted. The audit row of a sensitive action names the user.
+
+Tests: `tests/mcp.rs`.
+
 ## Outbox delivery (#229)
 
 Each cell runs one delivery task (`src/outbox.rs`) for the durable events of `docs/contracts/ops.md` 1.3.0 section 15.4 (ADR D14):

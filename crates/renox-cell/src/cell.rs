@@ -61,6 +61,8 @@ pub struct Cell {
     /// The deployment's realtime hub (#281), also the runtime's
     /// `RealtimeHost`.
     pub(crate) realtime: Option<std::sync::Arc<crate::realtime::CellRealtime>>,
+    /// App MCP (#285): agent token cache, per-token buckets, confirmations.
+    pub(crate) mcp: crate::mcp::Mcp,
 }
 
 impl Cell {
@@ -70,6 +72,7 @@ impl Cell {
             isolate,
             web,
             realtime: None,
+            mcp: crate::mcp::Mcp::default(),
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
             draining: AtomicBool::new(false),

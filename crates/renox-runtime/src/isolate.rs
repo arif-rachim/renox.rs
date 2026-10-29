@@ -178,6 +178,63 @@ impl InvocationMeter {
     }
 }
 
+/// A call into tenant code that is not an HTTP request (#285): a module
+/// service the cell needs (`auth.verifyAgentToken`), or a tool's `run`
+/// (ops.md 1.5.0 section 19, the tool envelope).
+#[derive(Debug, Clone)]
+pub enum Invoke {
+    /// `<module>.<name>(...args)` through the broker, as the platform
+    /// (`Renox::System::"renox"`); `args_json` is a JSON array.
+    Service {
+        module: String,
+        name: String,
+        args_json: String,
+    },
+    /// The tool named `name`'s `run` with the token's user as principal.
+    /// `preview`: inside a transaction that is always rolled back.
+    Tool {
+        name: String,
+        input_json: String,
+        client_json: String,
+        preview: bool,
+        principal: Arc<renox_authz::Principal>,
+    },
+}
+
+impl Invoke {
+    /// The meter route: `TOOL <name>` or `SERVICE <module>.<name>`.
+    pub fn route(&self) -> String {
+        match self {
+            Invoke::Service { module, name, .. } => format!("SERVICE {module}.{name}"),
+            Invoke::Tool { name, .. } => format!("TOOL {name}"),
+        }
+    }
+}
+
+/// How an [`Invoke`] ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvokeOutcome {
+    /// The value as JSON text.
+    Ok(String),
+    /// The code threw; its `code` when it was a `RenoxError`.
+    Threw { code: Option<String> },
+    /// The tool's output is over 256 KB of JSON (ops.md section 19).
+    OutputTooLarge,
+    /// No such tool or service.
+    NoHandler,
+    /// The tool's Cedar action denied the token's user before `run`.
+    Forbidden,
+    /// A platform error before or around the code (busy, deadline, a limit).
+    Failed(ErrorCode),
+}
+
+/// The result of [`IsolateHandle::invoke`].
+#[derive(Debug)]
+pub struct Invoked {
+    pub outcome: InvokeOutcome,
+    pub meter: InvocationMeter,
+}
+
 /// A `ws` or `sse` route (ops.md 1.5.0 section 18), for the cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RealtimeRoute {
@@ -521,6 +578,8 @@ struct DispatchJob {
     guarded: bool,
     /// A `ws` / `sse` handler run (ops.md 1.5.0 section 18).
     realtime: Option<crate::ops::realtime::RealtimeCall>,
+    /// A service or tool invocation (#285).
+    invoke: Option<Invoke>,
     ctx: RequestCtx,
     reply: oneshot::Sender<ThreadReply>,
 }
@@ -591,6 +650,11 @@ enum ThreadReply {
         dir: Option<String>,
         /// The request's principal, for `r-can` in the cell's render.
         principal: Option<Arc<renox_authz::Principal>>,
+        meter: InvocationMeter,
+    },
+    /// An invocation ended (#285).
+    Invoked {
+        outcome: InvokeOutcome,
         meter: InvocationMeter,
     },
     /// A realtime run ended (ops.md 1.5.0 section 18).
@@ -849,6 +913,33 @@ impl IsolateHandle {
     /// [`EventEnvelope::request_id`].
     pub async fn deliver_event(&self, ctx: RequestCtx, ev: EventEnvelope) -> EventDelivered {
         self.inner.deliver_event(ctx, ev).await
+    }
+
+    /// Runs a module service or a tool's `run` (#285) under the tier's
+    /// limits and a concurrency slot, like an event delivery.
+    pub async fn invoke(&self, ctx: RequestCtx, inv: Invoke) -> Invoked {
+        self.inner.invoke(ctx, inv).await
+    }
+
+    /// The deployment's manifest.
+    pub fn manifest(&self) -> &crate::manifest::Manifest {
+        &self.inner.artifact.manifest
+    }
+
+    /// The `tool` routes of the deployment (ops.md 1.5.0 section 19).
+    pub fn tools(&self) -> Vec<crate::manifest::ToolRoute> {
+        self.inner
+            .artifact
+            .manifest
+            .routes
+            .iter()
+            .filter_map(|r| r.tool.clone())
+            .collect()
+    }
+
+    /// Whether an installed module exports the service `module.name`.
+    pub fn has_service(&self, module: &str, name: &str) -> bool {
+        self.inner.modules.exports_service(module, name)
     }
 
     /// The modules whose `hooks.ts` has an `on` handler for `event`, by
@@ -1393,6 +1484,7 @@ impl Pool {
                 event: None,
                 guarded: route_def.guard.is_some(),
                 realtime: realtime.clone(),
+                invoke: None,
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1592,7 +1684,7 @@ impl Pool {
             }
             // Refused twice: both members died before the request started.
             // (`Event` never answers a request.)
-            ThreadReply::Refused | ThreadReply::Event { .. } => {
+            ThreadReply::Refused | ThreadReply::Event { .. } | ThreadReply::Invoked { .. } => {
                 fail(ErrorCode::Internal, MeterStatus::Error)
             }
         }
@@ -1645,6 +1737,7 @@ impl Pool {
                 event: Some(ev.clone()),
                 guarded: false,
                 realtime: None,
+                invoke: None,
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1684,6 +1777,118 @@ impl Pool {
                 meter.route = Some(route);
                 EventDelivered {
                     outcome: EventOutcome::Failed(ErrorCode::Deadline),
+                    meter,
+                }
+            }
+        }
+    }
+}
+
+impl Pool {
+    async fn invoke(self: &Arc<Self>, ctx: RequestCtx, inv: Invoke) -> Invoked {
+        let admitted = Instant::now();
+        let route_name = inv.route();
+        let failed = |code: ErrorCode, status: MeterStatus| Invoked {
+            outcome: InvokeOutcome::Failed(code),
+            meter: InvocationMeter::new(Some(route_name.clone()), status),
+        };
+        // A tool runs as its route (handler, owner); a service has none.
+        let route = match &inv {
+            Invoke::Tool { name, .. } => match self
+                .artifact
+                .manifest
+                .routes
+                .iter()
+                .position(|r| r.tool.as_ref().is_some_and(|t| &t.name == name))
+            {
+                Some(i) => i,
+                None => {
+                    return Invoked {
+                        outcome: InvokeOutcome::NoHandler,
+                        meter: InvocationMeter::new(Some(route_name), MeterStatus::Ok),
+                    };
+                }
+            },
+            Invoke::Service { .. } => usize::MAX,
+        };
+        let deadline = effective_deadline(ctx.deadline, self.limits.wall_ms, admitted);
+        let ctx = RequestCtx {
+            request_id: ctx.request_id,
+            deadline,
+        };
+        let Ok(_permit) = self.concurrency.acquire(deadline).await else {
+            return failed(ErrorCode::Busy, MeterStatus::Busy);
+        };
+        let mut attempts = 0;
+        let (member, seq, waited) = loop {
+            attempts += 1;
+            let member = match self.live_thread().await {
+                Ok(t) => t,
+                Err(e) => {
+                    let status = match e.code() {
+                        ErrorCode::CpuLimit => MeterStatus::CpuLimit,
+                        ErrorCode::Oom => MeterStatus::Oom,
+                        ErrorCode::Deadline => MeterStatus::Timeout,
+                        _ => MeterStatus::Error,
+                    };
+                    return failed(e.code(), status);
+                }
+            };
+            let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+            let (reply_tx, reply_rx) = oneshot::channel();
+            let job = DispatchJob {
+                seq,
+                route,
+                params: Arc::new(BTreeMap::new()),
+                method: String::new(),
+                url: String::new(),
+                headers: Arc::new(Vec::new()),
+                body: Bytes::new(),
+                want_body: false,
+                page: None,
+                event: None,
+                guarded: false,
+                realtime: None,
+                invoke: Some(inv.clone()),
+                ctx: ctx.clone(),
+                reply: reply_tx,
+            };
+            let _ = member.0.tx.send(Command::Dispatch(Box::new(job)));
+            let waited = tokio::time::timeout_at(deadline.into(), reply_rx).await;
+            match waited {
+                Ok(Ok(ThreadReply::Refused)) | Ok(Err(_)) if attempts < 2 => continue,
+                waited => break (member, seq, waited),
+            }
+        };
+        match waited {
+            Ok(Ok(ThreadReply::Invoked { outcome, mut meter })) => {
+                meter.route = Some(route_name);
+                Invoked { outcome, meter }
+            }
+            Ok(Ok(ThreadReply::Failed { code, mut meter })) => {
+                meter.route = Some(route_name);
+                Invoked {
+                    outcome: InvokeOutcome::Failed(code),
+                    meter,
+                }
+            }
+            Ok(_) => failed(ErrorCode::Internal, MeterStatus::Error),
+            Err(_elapsed) => {
+                let (meter_tx, meter_rx) = oneshot::channel();
+                let _ = member.0.tx.send(Command::Cancel {
+                    seq,
+                    meter: meter_tx,
+                    reason: CancelReason::Deadline,
+                });
+                let mut meter = tokio::time::timeout(Duration::from_millis(100), meter_rx)
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or_else(|| InvocationMeter::new(None, MeterStatus::Timeout));
+                meter.status = MeterStatus::Timeout;
+                meter.route = Some(route_name);
+                Invoked {
+                    outcome: InvokeOutcome::Failed(ErrorCode::Deadline),
                     meter,
                 }
             }
@@ -1733,6 +1938,8 @@ struct Platform {
     dispatch: v8::Global<v8::Function>,
     /// The bootstrap's event entry (ops.md 1.3.0 section 15.4).
     deliver: v8::Global<v8::Function>,
+    /// The bootstrap's service and tool entry (#285).
+    invoke: v8::Global<v8::Function>,
     /// One handler per `manifest.routes[]` entry; `None` for a page route
     /// without `load` (it never enters the isolate).
     /// The route's handler: a function, or the `ws` / `sse` object of a
@@ -1744,6 +1951,8 @@ struct Platform {
     /// Per route: the module that owns it (`app` or an installed module;
     /// `artifact.md` section 3, "Route merge").
     owners: Vec<String>,
+    /// Per route: a tool route's Cedar action (#285), empty otherwise.
+    tool_actions: Vec<String>,
     /// Per route: `Some` when its module is evaluated on first use (ops.md
     /// 1.4.0 section 11, step 4); `handlers` and `actions` are then empty
     /// and the bootstrap resolves them inside the request.
@@ -1986,7 +2195,7 @@ async fn create_worker(
     };
 
     // Step 2: take the bootstrap's functions, remove the handle, harden.
-    let (dispatch, deliver, harden, register) = {
+    let (dispatch, deliver, invoke, harden, register) = {
         let internal = worker
             .js_runtime
             .execute_script(
@@ -2013,6 +2222,7 @@ async fn create_worker(
         (
             get(scope, "dispatch")?,
             get(scope, "deliver")?,
+            get(scope, "invoke")?,
             get(scope, "harden")?,
             get(scope, "register")?,
         )
@@ -2177,7 +2387,7 @@ async fn create_worker(
             let v = ns.get(scope, key.into());
             // ops.md 1.5.0 section 18: `export const ws` / `sse` is an
             // object of handlers; every other route exports a function.
-            let realtime = matches!(r.kind, RouteKind::Ws | RouteKind::Sse);
+            let realtime = matches!(r.kind, RouteKind::Ws | RouteKind::Sse | RouteKind::Tool);
             let f = v
                 .filter(|v| {
                     if realtime {
@@ -2210,8 +2420,19 @@ async fn create_worker(
         Platform {
             dispatch,
             deliver,
+            invoke,
             handlers,
             actions,
+            tool_actions: manifest
+                .routes
+                .iter()
+                .map(|r| {
+                    r.tool
+                        .as_ref()
+                        .map(|t| t.action.clone())
+                        .unwrap_or_default()
+                })
+                .collect(),
             owners,
             lazy,
         },
@@ -2312,6 +2533,9 @@ const KIND_FORBIDDEN: u8 = 7;
 /// A realtime run ended (ops.md 1.5.0 section 18): `result` is `ok` or
 /// `no_handler`.
 const KIND_REALTIME: u8 = 8;
+/// A service or tool invocation ended (#285): `result` is `ok` (with
+/// `data_json`), `no_handler`, or `output_too_large`.
+const KIND_INVOKE: u8 = 9;
 
 type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
 type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
@@ -2327,6 +2551,8 @@ struct InFlight {
     event: Option<String>,
     /// A realtime run: its phase, for the log line of a throw.
     realtime_phase: Option<&'static str>,
+    /// An invocation (#285): its meter route.
+    invoke: Option<String>,
     /// Thread CPU charged to the request (ns); set from the CPU ledger when
     /// the request ends.
     cpu_ns: u64,
@@ -2344,9 +2570,10 @@ struct InFlight {
 
 impl InFlight {
     fn meter(&self, ctx: &ThreadContext, status: MeterStatus) -> InvocationMeter {
-        let route = match &self.event {
-            Some(e) => e.clone(),
-            None => {
+        let route = match (&self.event, &self.invoke) {
+            (Some(e), _) => e.clone(),
+            (None, Some(i)) => i.clone(),
+            (None, None) => {
                 let r = &ctx.artifact.manifest.routes[self.route];
                 format!("{} {}", r.method.as_str(), r.path)
             }
@@ -2964,6 +3191,23 @@ fn request_authz(job: &DispatchJob) -> crate::ops::authz::RequestAuthz {
             ..RequestAuthz::default()
         };
     }
+    match &job.invoke {
+        // ops.md 1.5.0 section 19: a tool runs as the token's user.
+        Some(Invoke::Tool { principal, .. }) => {
+            return RequestAuthz {
+                principal: Some(principal.clone()),
+                ..RequestAuthz::default()
+            };
+        }
+        // A service the platform calls (`auth.verifyAgentToken`).
+        Some(Invoke::Service { .. }) => {
+            return RequestAuthz {
+                principal: Some(Arc::new(renox_authz::Principal::system("renox"))),
+                ..RequestAuthz::default()
+            };
+        }
+        None => {}
+    }
     let cookie = job
         .headers
         .iter()
@@ -3030,9 +3274,10 @@ fn start_dispatch(
     };
     let args = {
         deno_core::scope!(scope, &mut worker.js_runtime);
-        match &job.event {
-            Some(ev) => build_event_args(scope, token, ev),
-            None => build_args(scope, platform, token, &job),
+        match (&job.event, &job.invoke) {
+            (Some(ev), _) => build_event_args(scope, token, ev),
+            (None, Some(inv)) => build_invoke_args(scope, platform, token, job.route, inv),
+            (None, None) => build_args(scope, platform, token, &job),
         }
     };
     let args = match args {
@@ -3052,6 +3297,8 @@ fn start_dispatch(
     attribute(|l, now| l.switch(Some(token), now));
     let entry = if job.event.is_some() {
         &platform.deliver
+    } else if job.invoke.is_some() {
+        &platform.invoke
     } else {
         &platform.dispatch
     };
@@ -3066,6 +3313,7 @@ fn start_dispatch(
             route: job.route,
             event: job.event.as_ref().map(EventEnvelope::route),
             realtime_phase: job.realtime.as_ref().map(|r| r.phase.as_str()),
+            invoke: job.invoke.as_ref().map(Invoke::route),
             cpu_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
@@ -3191,6 +3439,131 @@ fn build_args(
     .into_iter()
     .map(|l| v8::Global::new(scope, l))
     .collect())
+}
+
+/// `invoke(token, envelope, handler, owner)` (#285): the envelope as JSON
+/// (`{ kind: "service", module, name, args }` or `{ kind: "tool", name,
+/// input, client, preview }`), the tool's handler object or lazy
+/// descriptor (null for a service), and the owning module.
+fn build_invoke_args(
+    scope: &mut v8::PinScope,
+    platform: &Platform,
+    token: u32,
+    route: usize,
+    inv: &Invoke,
+) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
+    let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
+    let (envelope, handler, owner): (serde_json::Value, v8::Local<v8::Value>, String) = match inv {
+        Invoke::Service {
+            module,
+            name,
+            args_json,
+        } => (
+            serde_json::json!({ "kind": "service", "module": module, "name": name, "args": args_json }),
+            v8::null(scope).into(),
+            module.clone(),
+        ),
+        Invoke::Tool {
+            name,
+            input_json,
+            client_json,
+            preview,
+            ..
+        } => {
+            let handler: v8::Local<v8::Value> = match (
+                &platform.handlers[route],
+                platform.lazy[route].as_ref(),
+            ) {
+                (_, Some(l)) => serde_v8::to_v8(
+                    scope,
+                    serde_json::json!({ "lazy": l.lazy, "module": l.module, "export": l.export, "action": null }),
+                )?,
+                (Some(h), None) => v8::Local::new(scope, h),
+                (None, None) => v8::null(scope).into(),
+            };
+            let action = platform.tool_actions[route].clone();
+            (
+                serde_json::json!({ "kind": "tool", "name": name, "input": input_json, "client": client_json, "preview": preview, "action": action }),
+                handler,
+                platform.owners[route].clone(),
+            )
+        }
+    };
+    let envelope: v8::Local<v8::Value> = serde_v8::to_v8(scope, &envelope)?;
+    let owner: v8::Local<v8::Value> = serde_v8::to_v8(scope, &owner)?;
+    Ok([token_v, envelope, handler, owner]
+        .into_iter()
+        .map(|l| v8::Global::new(scope, l))
+        .collect())
+}
+
+/// An invocation's outcome (#285); a throw is logged with its route.
+fn finish_invoke(
+    ctx: &ThreadContext,
+    flight: &InFlight,
+    outcome: Result<JsOutcome, String>,
+) -> ThreadReply {
+    let route = flight.invoke.clone().unwrap_or_default();
+    let (result, status) = match &outcome {
+        Ok(o) if o.kind == KIND_INVOKE => match o.result.as_deref() {
+            Some("ok") => {
+                // ops.md 1.5.0 section 19: secret values never leave the cell.
+                let json = o.data_json.clone().unwrap_or_else(|| "null".into());
+                let redactor = crate::ops::secrets::Redactor::new(ctx.spec.secrets.values());
+                (
+                    InvokeOutcome::Ok(redactor.redact(&json).into_owned()),
+                    MeterStatus::Ok,
+                )
+            }
+            Some("output_too_large") => (InvokeOutcome::OutputTooLarge, MeterStatus::Error),
+            Some("forbidden") => (InvokeOutcome::Forbidden, MeterStatus::Forbidden),
+            _ => (InvokeOutcome::NoHandler, MeterStatus::Ok),
+        },
+        Ok(o) => (
+            InvokeOutcome::Threw {
+                code: o.code.clone(),
+            },
+            MeterStatus::Error,
+        ),
+        Err(_) => (InvokeOutcome::Threw { code: None }, MeterStatus::Error),
+    };
+    if matches!(result, InvokeOutcome::Threw { .. }) {
+        let mut f = serde_json::Map::new();
+        f.insert("code".into(), "RENOX_INTERNAL".into());
+        f.insert("route".into(), route.clone().into());
+        match &outcome {
+            Ok(o) => {
+                if let Some(code) = &o.code {
+                    f.insert("cause_code".into(), code.clone().into());
+                }
+                f.insert(
+                    "cause_name".into(),
+                    o.name.clone().unwrap_or_default().into(),
+                );
+                f.insert(
+                    "cause_message".into(),
+                    o.message.clone().unwrap_or_default().into(),
+                );
+                f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+            }
+            Err(e) => {
+                f.insert("cause_message".into(), e.clone().into());
+            }
+        }
+        log_line(
+            ctx,
+            "error",
+            Some(&flight.ctx.request_id),
+            "invocation threw",
+            f,
+        );
+    }
+    let mut meter = flight.meter(ctx, status);
+    meter.route = Some(route);
+    ThreadReply::Invoked {
+        outcome: result,
+        meter,
+    }
 }
 
 /// `deliver(token, id, name, payloadJson, attempt, module)`.
@@ -3359,6 +3732,9 @@ fn finish_dispatch(
 ) -> ThreadReply {
     if flight.event.is_some() {
         return finish_event(ctx, flight, outcome);
+    }
+    if flight.invoke.is_some() {
+        return finish_invoke(ctx, flight, outcome);
     }
     let route = &ctx.artifact.manifest.routes[flight.route];
     if matches!(route.kind, RouteKind::Ws | RouteKind::Sse) {

@@ -67,6 +67,31 @@ pub enum RouteKind {
     Ws,
     /// Version 1.3: `functions/sse/**`, `export const sse`.
     Sse,
+    /// Version 1.3: an App MCP tool (`ops.md` 1.5.0 section 19); no path,
+    /// reached through `/mcp`. The module default-exports `tool(...)`.
+    Tool,
+    /// Version 1.3: a scheduled job (`ops.md` section 20); no path. Run by
+    /// the F6 scheduler (#297).
+    Job,
+}
+
+/// The fields of a `tool` route (`artifact.md` 1.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolRoute {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema of the input (the keyword subset of the SDK's `tool()`).
+    pub input: serde_json::Value,
+    pub action: String,
+    pub confirm: bool,
+}
+
+/// The fields of a `job` route (`artifact.md` 1.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobRoute {
+    pub name: String,
+    pub schedule: String,
+    pub tz: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -94,6 +119,10 @@ pub struct RouteDef {
     /// Artifact 1.3: the module's `export const guard`, as `renox build`
     /// recorded it (`ops.md` 1.5.0 section 17, "`guard`").
     pub guard: Option<crate::ops::authz::Guard>,
+    /// A `tool` route's fields.
+    pub tool: Option<ToolRoute>,
+    /// A `job` route's fields.
+    pub job: Option<JobRoute>,
 }
 
 /// The page fields of a version 1 page route.
@@ -133,6 +162,22 @@ enum WireRoute {
         module: String,
         #[serde(default)]
         guard: Option<crate::ops::authz::Guard>,
+    },
+    Tool {
+        name: String,
+        module: String,
+        description: String,
+        input: serde_json::Value,
+        action: String,
+        #[serde(default)]
+        confirm: bool,
+    },
+    Job {
+        name: String,
+        module: String,
+        schedule: String,
+        #[serde(default)]
+        tz: Option<String>,
     },
     Sse {
         path: String,
@@ -174,6 +219,8 @@ impl TryFrom<WireRoute> for RouteDef {
                 export,
                 page: None,
                 guard,
+                tool: None,
+                job: None,
             },
             WireRoute::Ws {
                 path,
@@ -187,6 +234,8 @@ impl TryFrom<WireRoute> for RouteDef {
                 export: "ws".into(),
                 page: None,
                 guard,
+                tool: None,
+                job: None,
             },
             WireRoute::Sse {
                 path,
@@ -200,6 +249,48 @@ impl TryFrom<WireRoute> for RouteDef {
                 export: "sse".into(),
                 page: None,
                 guard,
+                tool: None,
+                job: None,
+            },
+            WireRoute::Tool {
+                name,
+                module,
+                description,
+                input,
+                action,
+                confirm,
+            } => RouteDef {
+                kind: RouteKind::Tool,
+                method: Method::Post,
+                path: String::new(),
+                module,
+                export: "default".into(),
+                page: None,
+                guard: None,
+                tool: Some(ToolRoute {
+                    name,
+                    description,
+                    input,
+                    action,
+                    confirm,
+                }),
+                job: None,
+            },
+            WireRoute::Job {
+                name,
+                module,
+                schedule,
+                tz,
+            } => RouteDef {
+                kind: RouteKind::Job,
+                method: Method::Post,
+                path: String::new(),
+                module,
+                export: "run".into(),
+                page: None,
+                guard: None,
+                tool: None,
+                job: Some(JobRoute { name, schedule, tz }),
             },
             WireRoute::Page {
                 path,
@@ -221,6 +312,8 @@ impl TryFrom<WireRoute> for RouteDef {
                     template,
                 }),
                 guard,
+                tool: None,
+                job: None,
             },
         })
     }

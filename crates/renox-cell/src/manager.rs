@@ -998,6 +998,16 @@ impl CellManager {
         };
         let _guard = InFlightGuard(&cell);
         let (mut parts, body) = req.into_parts();
+        // #285: the App MCP endpoint and its metadata, on every app.
+        if crate::mcp::handles(parts.uri.path()) {
+            // The gateway has applied its body limit already.
+            let body = body
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            return to_body(crate::mcp::serve(self, &cell, ctx, &parts, body).await);
+        }
         // #281: `ws` and `sse` routes are served by the realtime layer.
         if let Some(route) = cell.isolate.realtime_route(parts.uri.path()) {
             let session = cell
@@ -1822,7 +1832,7 @@ fn to_body(r: Response<Bytes>) -> Response<Body> {
     r.map(Body::from)
 }
 
-fn meter_status(s: RuntimeStatus) -> MeterStatus {
+pub(crate) fn meter_status(s: RuntimeStatus) -> MeterStatus {
     match s {
         RuntimeStatus::Ok => MeterStatus::Ok,
         RuntimeStatus::Error => MeterStatus::Error,

@@ -13,6 +13,7 @@ pub mod config;
 pub mod control;
 pub mod health_probe;
 pub mod manager;
+pub mod mcp;
 pub mod outbox;
 pub mod pages;
 pub mod ratelimit;
