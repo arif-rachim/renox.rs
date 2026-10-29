@@ -39,8 +39,8 @@ test.skipIf(!worker)("build carries [authz], the policies and the guard into the
       entities: { Doc: { table: "app__docs", attrs: ["owner"] } },
       default_roles: { editor: ["doc.edit"] },
     });
-    const route = built.manifest.routes.find((r) => r.path === "/docs/:id");
-    expect(route?.guard).toEqual({ action: "doc.read", resource: { type: "Doc", id: ":id" } });
+    const route = built.manifest.routes.find((r) => "path" in r && r.path === "/docs/:id");
+    expect(route && "guard" in route ? route.guard : undefined).toEqual({ action: "doc.read", resource: { type: "Doc", id: ":id" } });
     expect(readFileSync(join(built.dir, "policies/app/docs.cedar"), "utf8")).toBe(POLICY);
   } finally {
     rmSync(dir, { recursive: true, force: true });

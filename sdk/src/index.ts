@@ -65,6 +65,13 @@ export type {
 export { defineHandlers } from "./ctx.ts";
 export type { ActionName, ScopedDb } from "./authz.ts";
 export { defineGuard, isForbidden, resource, userScope } from "./authz.ts";
+export { defineSse, defineWs, isTopic, MAX_TOPIC_LENGTH, topic } from "./realtime.ts";
+export { INPUT_KEYWORDS, tool, toolInputSchema } from "./tools.ts";
+export { defineJob, isTimeZone, parseSchedule } from "./jobs.ts";
+export type { TotpAlgorithm, TotpOptions, VerifyOptions } from "./totp.ts";
+export { base32Decode, base32Encode, generateTotpSecret, totp, totpUri, verifyTotp } from "./totp.ts";
+export type { Binary, RegisteredCredential } from "./webauthn.ts";
+export { base64url, COSE_ES256, COSE_RS256, decodeCbor, fromBase64url, verifyAssertion, verifyRegistration, WebAuthnError, webauthnChallenge } from "./webauthn.ts";
 export type { Action, ActionContext, ActionResult, Loader, LoaderContext, PageData, PageModule, Session, TextDirection } from "./pages.ts";
 export { definePage } from "./pages.ts";
 export type {

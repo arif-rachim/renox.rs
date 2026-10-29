@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { sha256Hex } from "../hash.ts";
 import { type Json, type JsonObject } from "../schema.ts";
-import { discoverFunctions, discoverPages, type Route } from "../routes.ts";
+import { discoverFunctions, discoverPages, discoverRealtime, type Route } from "../routes.ts";
 import { type LockEntry, readLock } from "./lock.ts";
 import { type Manifest as ModuleManifest, obj, readManifest, samePermissions, strings } from "./manifest.ts";
 import { fetchTree } from "./resolve.ts";
@@ -58,6 +58,30 @@ export interface ModuleParts {
   /** Override drift: one warning per file, with a unified diff. */
   drift: OverrideDrift[];
   problems: string[];
+  /** Artifact 1.3 (#284): each module's `[[tools]]`, with the file to evaluate for its input schema. */
+  tools: ModuleTool[];
+  /** Artifact 1.3 (#284): each module's `jobs/*.ts`. */
+  jobs: ModuleJob[];
+}
+
+/** One `[[tools]]` entry of a module and its code entry. */
+export interface ModuleTool {
+  module: string;
+  id: string;
+  /** Absolute path of the tool's file. */
+  file: string;
+  name: string;
+  description: string;
+  action: string;
+  confirm: boolean;
+}
+
+/** One `jobs/*.ts` of a module. */
+export interface ModuleJob {
+  module: string;
+  id: string;
+  file: string;
+  name: string;
 }
 
 export interface OverrideDrift {
@@ -155,7 +179,7 @@ export function installedModules(project: string): { modules: BuiltModule[]; pro
 export function moduleParts(project: string): ModuleParts {
   const enc = new TextEncoder();
   const { modules, problems } = installedModules(project);
-  const parts: ModuleParts = { modules, entries: [], routes: [], files: new Map(), checksums: {}, templates: {}, slots: {}, field: [], drift: [], problems };
+  const parts: ModuleParts = { modules, entries: [], routes: [], files: new Map(), checksums: {}, templates: {}, slots: {}, field: [], drift: [], problems, tools: [], jobs: [] };
   const fillers: (SlotEntry & { slot: string; priority: number })[] = [];
   for (const { lock, manifest, tree } of modules) {
     const name = lock.name;
@@ -177,6 +201,28 @@ export function moduleParts(project: string): ModuleParts {
         ...(p.actions.length ? { actions: p.actions } : {}),
         ...(p.html ? { template: id } : {}),
       });
+    }
+    // Realtime routes (#284): functions/ws/ and functions/sse/ under the mount.
+    for (const rt of discoverRealtime(tree)) {
+      const id = `${prefix}/${rt.id}`;
+      parts.entries.push({ module: name, tree, id, source: rt.source });
+      parts.routes.push({ kind: rt.kind, path: mounted(lock.mount, rt.pattern), module: id });
+    }
+    // Tools ([[tools]], carried as tool routes from manifest 1.1) and jobs (#284).
+    for (const t of Array.isArray(manifest.doc.tools) ? (manifest.doc.tools as JsonObject[]) : []) {
+      const file = typeof t.file === "string" ? t.file : "";
+      if (!/^tools\/[A-Za-z0-9_.-]+\.(ts|js|mjs)$/u.test(file) || !existsSync(join(tree, file))) {
+        parts.problems.push(`MF14: ${name}: [[tools]] ${String(t.name)} names ${JSON.stringify(file)}, which is not a file under tools/`);
+        continue;
+      }
+      const id = `${prefix}/${file.replace(/\.(ts|js|mjs)$/u, "")}`;
+      parts.entries.push({ module: name, tree, id, source: file });
+      parts.tools.push({ module: name, id, file: join(tree, file), name: String(t.name), description: String(t.description ?? ""), action: String(t.action ?? ""), confirm: t.confirm === true });
+    }
+    for (const f of files(join(tree, "jobs"), "", (n) => /\.(ts|js|mjs)$/u.test(n) && !n.includes("/"))) {
+      const id = `${prefix}/jobs/${f.replace(/\.(ts|js|mjs)$/u, "")}`;
+      parts.entries.push({ module: name, tree, id, source: `jobs/${f}` });
+      parts.jobs.push({ module: name, id, file: join(tree, "jobs", f), name: f.replace(/\.(ts|js|mjs)$/u, "") });
     }
     for (const base of ["services", "hooks"]) {
       const source = sourceFile(tree, base);
@@ -236,6 +282,9 @@ export function moduleParts(project: string): ModuleParts {
         hooks: Object.keys(obj(exportsDoc.hooks)),
         views: strings(exportsDoc.views),
       },
+      // Artifact 1.3: the module's [authz] and [realtime] (#283, #284).
+      ...(manifest.doc.authz !== undefined ? { authz: manifest.doc.authz as Json } : {}),
+      ...(manifest.doc.realtime !== undefined ? { realtime: manifest.doc.realtime as Json } : {}),
     });
   }
   fillers.sort((a, b) => a.priority - b.priority || a.module.localeCompare(b.module, "en"));

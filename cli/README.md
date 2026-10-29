@@ -28,7 +28,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | --- | --- |
 | `renox new <name> [--template blank\|hello]` | Creates `<name>/` with `renox.toml`, `package.json` (depends on `renox`), `tsconfig.json`, `.gitignore`, and the template's files (`cli/templates/<template>/`; `hello` mirrors `examples/hello`, `blank` has `GET /api/health`). Refuses a non-empty folder |
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`, version 1) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Leaves forbidden files out of `public/` and fails on a secret in what it ships (step 5 and the secret scan below). Prints the hash. An app with templates needs the `renox-worker` binary (see "Templates") |
-| `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact |
+| `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact. WebSocket and SSE routes are proxied unbuffered (below, "Realtime, tools and jobs") |
 | `renox dev --worker <path>` | Runs another `renox-worker` binary: it must have the pinned release's sha256 or carry a sigstore signature (`<path>.sigstore.json`) and the release's provenance bundle beside it that `cosign` verifies; otherwise `RENOX_CLI_WORKER_UNVERIFIED`, exit code 3 (#129) |
 | `renox check [--secrets] [--security] [--json] [--strict]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
 | `renox add <module> [--version <range>] [--source …] [--mount <path>] [--yes]` | Installs a module after showing and approving its permissions; writes `renox.toml` and `renox.lock` (below) |
@@ -160,6 +160,29 @@ In a test file, `await app()` starts the worker on a temporary tenant file. The 
 `installModule(name, "path:…")` runs `renox add` + `renox check` + `renox build` + `renox migrate` on a scratch copy of the app and a scratch tenant file. `.upgrade("path:…")` does it again on the same copy, with the range `^<version>` of the new tree. Each returns the check report (drift, broken contracts) and the migration report.
 
 Without `renox test` (plain `bun test` in CI), `app()` builds the project itself when `RENOX_WORKER_PATH` is set: `examples/shop/tests/shop.e2e.test.ts` runs that way.
+
+### Realtime, tools and jobs (#284)
+
+`docs/contracts/artifact.md` 1.3; `ops.md` 1.5.0 sections 18 to 20. `renox build` discovers:
+
+| Source | Route entry |
+| --- | --- |
+| `functions/ws/**` (exports `ws`) | `{ kind: "ws", path: "/ws/<path>", module, guard? }` |
+| `functions/sse/**` (exports `sse`) | `{ kind: "sse", path: "/sse/<path>", module, guard? }` |
+| `functions/tools/*.ts` (default-exports `tool(…)`) | `{ kind: "tool", name, module, description, input, action, confirm? }` |
+| a module's `[[tools]]` (`tools/*.ts`) | the same, with `module` = `modules/<name>/tools/<file>`; the manifest's `name`, `description`, `action`, `confirm` must equal the file's |
+| `jobs/*.ts` and a module's `jobs/*.ts` (export `schedule`, `tz?`, `run`) | `{ kind: "job", name: <file stem>, module, schedule, tz? }` |
+
+- **Tools.** A tool module is imported at build time to read its `tool(…)`, so it must evaluate without the runtime: `renox` and `zod` resolve from the project's `node_modules`, and `renox:modules` cannot be imported at the top level. `input` is the input schema's JSON Schema (`toolInputSchema` of the SDK) restricted to the platform's keywords.
+- **Jobs.** `schedule` and `tz` are read from the source as string literals.
+- `renox.toml [realtime]` (`feeds`) goes on the manifest, and a module's `[realtime]` and `[authz]` on its `modules` entry.
+- Build and `renox check` refuse:
+  - V21: a route on `/mcp` or `/.well-known/oauth-protected-resource/mcp`.
+  - V25: a tool action outside the merged action set, or a tool name used twice.
+  - V26: a feed or owned table that is not under the owner's prefix or not created by the owner's migrations, or a feed topic that is not a topic with `{column}` placeholders.
+  - V27: a schedule that is not five valid cron fields, or an unknown `tz`.
+  - A `functions/ws/` or `functions/sse/` file without its export.
+- **`renox dev`** proxies WebSocket upgrades (the browser's socket is relayed frame by frame to one the proxy opens on the worker) and SSE responses (passed through as a stream, unbuffered). It prints `ws open` / `ws close <code>` and `sse open` / `sse close` lines.
 
 ### Authorization (#283)
 
