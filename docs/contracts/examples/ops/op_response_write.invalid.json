@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: a chunk is bytes, never a string",
+  "op": "op_response_write",
+  "args": [
+    "hi"
+  ],
+  "result": null
+}

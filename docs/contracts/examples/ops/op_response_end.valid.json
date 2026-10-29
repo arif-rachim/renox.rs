@@ -1,0 +1,8 @@
+{
+  "$comment": "The normal end of a streamed body (ops.md section 6, 1.2.0)",
+  "op": "op_response_end",
+  "args": [
+    null
+  ],
+  "result": null
+}

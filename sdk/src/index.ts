@@ -1,5 +1,5 @@
 // The `renox` package: types and helpers for tenant code.
-// Contract: docs/contracts/ops.md (version 1.1.0) and docs/contracts/ctx.d.ts.
+// Contract: docs/contracts/ops.md (version 1.2.0) and docs/contracts/ctx.d.ts.
 
 export type { Ctx, Deadline, Fetch, FunctionModule, Handler, HttpMethod, JsonValue, Log, LogFields, LogLevel, Params, Secrets } from "./ctx.ts";
 export { defineHandlers } from "./ctx.ts";

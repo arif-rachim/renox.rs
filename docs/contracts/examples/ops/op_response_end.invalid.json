@@ -1,0 +1,12 @@
+{
+  "$comment": "invalid: op_response_end is synchronous and never rejects",
+  "op": "op_response_end",
+  "args": [
+    null
+  ],
+  "error": {
+    "name": "RenoxError",
+    "code": "RENOX_NO_REQUEST",
+    "message": "No request is in progress for this call."
+  }
+}

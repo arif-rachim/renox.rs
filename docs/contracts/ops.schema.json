@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/ops/v1.schema.json",
-  "title": "Renox runtime ops, contract version 1.1.0",
+  "title": "Renox runtime ops, contract version 1.2.0",
   "description": "One op call as JSON: {op, args, result} or {op, args, error}; or one page dispatch (ops.md section 14): {dispatch: \"page\", invocation, result}. bigint and Uint8Array use the $bigint and $bytes encodings. Source of truth for prose: ops.md.",
   "oneOf": [
     {
@@ -39,6 +39,12 @@
     },
     {
       "$ref": "#/$defs/call_op_deadline_remaining_ms"
+    },
+    {
+      "$ref": "#/$defs/call_op_response_write"
+    },
+    {
+      "$ref": "#/$defs/call_op_response_end"
     },
     {
       "$ref": "#/$defs/page_dispatch"
@@ -950,6 +956,83 @@
           "result",
           "error"
         ]
+      }
+    },
+    "call_op_response_write": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 6, \"Response body\" (1.2.0): one chunk of a streamed body; rejects with RENOX_NO_REQUEST once the stream was stopped",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_response_write"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/bytes"
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_response_end": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args",
+        "result"
+      ],
+      "description": "ops.md section 6, \"Response body\" (1.2.0): the end of a streamed body; null is the normal end, a string the message of the stream's failure; sync, never has an error",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_response_end"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "result": {
+          "type": "null"
+        }
       }
     },
     "fragmentName": {

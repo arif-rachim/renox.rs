@@ -1,0 +1,14 @@
+{
+  "$comment": "The stream was stopped (egress limit, deadline, client gone): the write rejects (ops.md section 6, \"Stops\")",
+  "op": "op_response_write",
+  "args": [
+    {
+      "$bytes": "aGk="
+    }
+  ],
+  "error": {
+    "name": "RenoxError",
+    "code": "RENOX_NO_REQUEST",
+    "message": "No request is in progress for this call."
+  }
+}
