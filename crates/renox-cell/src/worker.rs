@@ -163,6 +163,10 @@ pub struct Worker {
     pub http_addr: Option<SocketAddr>,
     /// The operator listener of `[control] health_listen` (`GET /healthz`).
     pub health_addr: Option<SocketAddr>,
+    /// The node listener of `[control] node_listen` (deploy-api.md 0.3).
+    pub node_addr: Option<SocketAddr>,
+    /// Litestream per tenant file (#255), with `[replication] enabled`.
+    pub replication: Option<crate::replication::Replication>,
     pub manager: CellManager,
     pub routes: Arc<RouteTable>,
     routes_file: PathBuf,
@@ -311,6 +315,18 @@ impl Worker {
                 platform_key,
             },
         );
+        // Litestream per tenant file (#255).
+        let replication = config.replication.enabled.then(|| {
+            let r = crate::replication::Replication::start(
+                config.replication.clone(),
+                config.mode,
+                &config.node_id,
+                &config.data_dir,
+                &config.process.run_dir,
+            );
+            manager.set_db_lifecycle(Arc::new(r.clone()));
+            r
+        });
         if let Some(state) = &route_state {
             state.set_manager(manager.clone());
             // The last table this node applied: served until the control
@@ -401,6 +417,8 @@ impl Worker {
             _ => tokio::spawn(async move { gateway.serve(listener, dispatcher).await }),
         };
         let mut health_addr = None;
+        let mut node_addr = None;
+        let extra_blocked = ExtraBlocked(config.fetch_blocked_addresses.clone());
         let controller = match (control, route_state, &config.control) {
             (Some(client), Some(state), Some(section)) => {
                 if let Some(listen) = section.health_listen {
@@ -423,6 +441,36 @@ impl Worker {
                     &section.region,
                     section.max_cells,
                 );
+                // The node listener (deploy-api.md 0.3 section 15), on an
+                // address tenant fetch cannot reach (#218 rule).
+                if let Some(listen) = section.node_listen {
+                    if blocked_reason(listen.ip()).is_none()
+                        && !extra_blocked.contains(listen.ip())
+                        && !listen.ip().is_unspecified()
+                    {
+                        return Err(WorkerError::Control(format!(
+                            "control.node_listen {listen} is an address tenant fetch can reach; use a private address or add it to fetch_blocked_addresses"
+                        )));
+                    }
+                    let token = Arc::new(crate::control::node_listener::CallbackToken::default());
+                    let listener = Arc::new(crate::control::node_listener::NodeListener {
+                        node_id: config.node_id.clone(),
+                        token: token.clone(),
+                        replication: replication.clone(),
+                        manager: manager.clone(),
+                    });
+                    let (bound, task) = listener
+                        .serve(listen)
+                        .await
+                        .map_err(io("bind control.node_listen"))?;
+                    node_addr = Some(bound);
+                    tasks.push(task);
+                    let url = section
+                        .node_listen_url
+                        .clone()
+                        .unwrap_or_else(|| format!("http://{bound}"));
+                    controller.set_node_listener(url, token);
+                }
                 // `prepare` (#96) from the stream.
                 if let Some(store) = &s3_for_prepare {
                     let preparer = Arc::new(Preparer {
@@ -468,6 +516,8 @@ impl Worker {
             addr,
             http_addr,
             health_addr,
+            node_addr,
+            replication,
             manager,
             routes,
             routes_file: config.routes_file.clone(),

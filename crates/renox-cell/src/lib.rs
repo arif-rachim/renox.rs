@@ -15,6 +15,7 @@ pub mod manager;
 pub mod pages;
 pub mod ratelimit;
 pub mod render;
+pub mod replication;
 pub mod sandbox;
 pub mod spool;
 pub mod supervisor;

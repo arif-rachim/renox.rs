@@ -203,6 +203,16 @@ pub async fn serve(
             platform_key,
         },
     );
+    if config.replication.enabled {
+        let r = crate::replication::Replication::start(
+            config.replication.clone(),
+            config.mode,
+            &config.node_id,
+            &config.data_dir,
+            &config.process.run_dir,
+        );
+        manager.set_db_lifecycle(Arc::new(r));
+    }
     let _ = std::fs::remove_file(&socket);
     let listener = UnixListener::bind(&socket).map_err(err("bind the child socket"))?;
     super::set_mode(&socket, 0o600);

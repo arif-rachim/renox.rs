@@ -1,0 +1,379 @@
+//! The node listener (`docs/contracts/deploy-api.md` section 15,
+//! `schemas/node-listener.yaml`): the HTTP surface a controlled worker
+//! serves to the control plane only, on `[control] node_listen`, a private
+//! address. Every request carries `Authorization: Bearer renox_cb_…`, the
+//! callback token of the node's current registration (`node_registered`),
+//! compared in constant time; anything else is 401.
+//!
+//! | Path | Issue |
+//! | --- | --- |
+//! | `POST /nodes/{node}/tenants/{tenant}/restore` | #255 |
+//! | `GET /nodes/{node}/tenants/{tenant}/replication` | #255 |
+//! | `DELETE /nodes/{node}/tenants/{tenant}` | #257 |
+//! | `POST /nodes/{node}/tenants/{tenant}/snapshot`, `PUT …/import` | #258 |
+//! | `POST /nodes/{node}/tenants/{tenant}/move` | #259 |
+
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use bytes::Bytes;
+use http::{Method, Request, Response, StatusCode, header};
+use http_body_util::{BodyExt, Full, Limited};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use subtle::ConstantTimeEq;
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
+
+use crate::cell::valid_tenant_id;
+use crate::manager::CellManager;
+use crate::replication::{Replication, restore::RestoreError, status};
+
+/// JSON bodies on the node listener are at most 1 MiB (section 1).
+const JSON_LIMIT: usize = 1 << 20;
+
+/// The callback token of the current registration. Set by the controller
+/// when `node_registered` answers; never logged.
+#[derive(Default)]
+pub struct CallbackToken(Mutex<Option<String>>);
+
+impl CallbackToken {
+    pub fn set(&self, token: Option<String>) {
+        *self.0.lock().expect("token lock") = token;
+    }
+
+    /// `Authorization: Bearer <token>` matches, in constant time.
+    pub fn verify(&self, authorization: Option<&str>) -> bool {
+        let Some(presented) = authorization.and_then(|a| a.strip_prefix("Bearer ")) else {
+            return false;
+        };
+        match &*self.0.lock().expect("token lock") {
+            Some(t) => {
+                t.len() == presented.len() && bool::from(t.as_bytes().ct_eq(presented.as_bytes()))
+            }
+            None => false,
+        }
+    }
+}
+
+/// What the listener serves from.
+pub struct NodeListener {
+    pub node_id: String,
+    pub token: Arc<CallbackToken>,
+    pub replication: Option<Replication>,
+    pub manager: CellManager,
+}
+
+type Resp = Response<Full<Bytes>>;
+
+fn json_response(status: StatusCode, body: Value) -> Resp {
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Full::new(Bytes::from(body.to_string())))
+        .expect("static response")
+}
+
+/// An error body of `deploy-api.md` section 1.
+pub fn error(status: StatusCode, code: &str, message: &str, details: Option<Value>) -> Resp {
+    let mut id = [0u8; 13];
+    let _ = getrandom::fill(&mut id);
+    let request_id: String = id.iter().map(|b| format!("{b:02x}")).collect();
+    let mut e = json!({ "code": code, "message": message, "request_id": request_id });
+    if let Some(d) = details {
+        e["details"] = d;
+    }
+    json_response(status, json!({ "error": e }))
+}
+
+fn validation(field: &str, reason: &str) -> Resp {
+    error(
+        StatusCode::BAD_REQUEST,
+        "RENOX_VALIDATION",
+        "The request is not valid.",
+        Some(json!([{ "field": field, "reason": reason }])),
+    )
+}
+
+fn backup_unavailable(field: &str, reason: &str) -> Resp {
+    let mut r = error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "RENOX_BACKUP_UNAVAILABLE",
+        "No backup is available for this database right now.",
+        Some(json!([{ "field": field, "reason": reason }])),
+    );
+    r.headers_mut()
+        .insert(header::RETRY_AFTER, http::HeaderValue::from_static("30"));
+    r
+}
+
+fn not_found() -> Resp {
+    error(StatusCode::NOT_FOUND, "RENOX_NOT_FOUND", "Not found.", None)
+}
+
+/// A database id of `tenant`: the tenant id or `<tenant_id>.<app>`.
+pub fn database_of(tenant: &str, database: &str) -> bool {
+    if database == tenant {
+        return true;
+    }
+    match database
+        .strip_prefix(tenant)
+        .and_then(|r| r.strip_prefix('.'))
+    {
+        Some(app) => {
+            !app.is_empty()
+                && app.len() <= 50
+                && app.as_bytes()[0].is_ascii_lowercase()
+                && app
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        }
+        None => false,
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RestoreRequest {
+    #[serde(rename = "type")]
+    kind: String,
+    schema_version: u32,
+    tenant_id: String,
+    database: String,
+    #[serde(default)]
+    source_database: Option<String>,
+    timestamp: Option<u64>,
+    reason: String,
+    deadline_ms: u64,
+}
+
+impl NodeListener {
+    /// Serves on `addr` until the task is aborted.
+    pub async fn serve(
+        self: Arc<Self>,
+        addr: SocketAddr,
+    ) -> std::io::Result<(SocketAddr, JoinHandle<()>)> {
+        let listener = TcpListener::bind(addr).await?;
+        let local = listener.local_addr()?;
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    continue;
+                };
+                let me = self.clone();
+                tokio::spawn(async move {
+                    let service = hyper::service::service_fn(move |req| {
+                        let me = me.clone();
+                        async move { Ok::<_, std::convert::Infallible>(me.handle(req).await) }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                        .await;
+                });
+            }
+        });
+        Ok((local, task))
+    }
+
+    /// One request.
+    pub async fn handle(&self, req: Request<hyper::body::Incoming>) -> Resp {
+        let auth = req
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok());
+        if !self.token.verify(auth) {
+            return error(
+                StatusCode::UNAUTHORIZED,
+                "RENOX_UNAUTHENTICATED",
+                "Authentication is required.",
+                None,
+            );
+        }
+        let path = req.uri().path().to_string();
+        let segs: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+        let (node, tenant, action) = match segs.as_slice() {
+            ["nodes", node, "tenants", tenant] => (*node, *tenant, ""),
+            ["nodes", node, "tenants", tenant, action] => (*node, *tenant, *action),
+            _ => return not_found(),
+        };
+        if node != self.node_id || !valid_tenant_id(tenant) {
+            return not_found();
+        }
+        let (tenant, method) = (tenant.to_string(), req.method().clone());
+        let query = req.uri().query().unwrap_or("").to_string();
+        match (method, action) {
+            (Method::POST, "restore") => match read_json(req).await {
+                Ok(body) => self.restore(&tenant, body).await,
+                Err(r) => *r,
+            },
+            (Method::GET, "replication") => {
+                let database = query_param(&query, "database").unwrap_or_else(|| tenant.clone());
+                if !database_of(&tenant, &database) {
+                    return validation("database", "not a database of this tenant");
+                }
+                self.replication_status(&tenant, &database)
+            }
+            _ => not_found(),
+        }
+    }
+
+    fn replication_status(&self, tenant: &str, database: &str) -> Resp {
+        match &self.replication {
+            Some(r) => {
+                if !r.file_of(database).exists()
+                    && r.state(database) == crate::replication::State::Off
+                {
+                    let s = r.status(tenant, database);
+                    if s["generations"].as_array().is_none_or(Vec::is_empty) {
+                        return not_found();
+                    }
+                    return json_response(StatusCode::OK, s);
+                }
+                json_response(StatusCode::OK, r.status(tenant, database))
+            }
+            None => {
+                let file = self.manager.config().data_dir.join(database).join("app.db");
+                if !file.exists() {
+                    return not_found();
+                }
+                json_response(
+                    StatusCode::OK,
+                    status::off(&self.node_id, tenant, database, &file),
+                )
+            }
+        }
+    }
+
+    async fn restore(&self, tenant: &str, body: Value) -> Resp {
+        let req: RestoreRequest = match serde_json::from_value(body) {
+            Ok(r) => r,
+            Err(e) => return validation("body", &e.to_string()),
+        };
+        if req.kind != "restore_request" || req.schema_version != 0 {
+            return validation("type", "expected restore_request, schema_version 0");
+        }
+        if req.tenant_id != tenant {
+            return validation("tenant_id", "differs from the path");
+        }
+        if !database_of(tenant, &req.database)
+            || req
+                .source_database
+                .as_deref()
+                .is_some_and(|s| !database_of(tenant, s))
+        {
+            return validation("database", "not a database of this tenant");
+        }
+        if !["failover", "restore", "move"].contains(&req.reason.as_str())
+            || !(1_000..=120_000).contains(&req.deadline_ms)
+        {
+            return validation("reason", "reason or deadline_ms out of range");
+        }
+        let Some(replication) = self.replication.clone() else {
+            return backup_unavailable("replication", "none");
+        };
+        // The file is replaced only while no cell of this process holds it.
+        let deadline = Instant::now() + Duration::from_millis(req.deadline_ms);
+        if req.database == tenant && self.manager.db_open(tenant) {
+            self.manager.drain_tenant(tenant);
+            while self.manager.db_open(tenant) {
+                if Instant::now() >= deadline {
+                    return backup_unavailable("database", "still open");
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+        let database = req.database.clone();
+        let source = req.source_database.clone();
+        let timestamp = req.timestamp;
+        let job = tokio::task::spawn_blocking(move || {
+            replication.restore_blocking(&database, source.as_deref(), timestamp)
+        });
+        let result = match tokio::time::timeout_at(deadline.into(), job).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => return backup_unavailable("restore", &e.to_string()),
+            Err(_) => return backup_unavailable("restore", "deadline passed"),
+        };
+        match result {
+            Ok(r) => {
+                tracing::info!(tenant_id = tenant, database = %req.database, reason = %req.reason, source = r.source, generation = ?r.generation, elapsed_ms = r.elapsed_ms, "restored on request of the control plane");
+                json_response(
+                    StatusCode::OK,
+                    json!({
+                        "type": "restore_result",
+                        "schema_version": 0,
+                        "node_id": self.node_id,
+                        "tenant_id": tenant,
+                        "database": req.database,
+                        "source": r.source,
+                        "generation": r.generation,
+                        "file_sha256": r.file_sha256,
+                        "restored_to": r.restored_to,
+                        "elapsed_ms": r.elapsed_ms,
+                    }),
+                )
+            }
+            Err(RestoreError::PointUnknown(why)) => error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "RENOX_RESTORE_POINT_UNKNOWN",
+                "No backup covers the requested time.",
+                Some(json!([{ "field": "timestamp", "reason": why }])),
+            ),
+            Err(RestoreError::Unavailable(why)) => {
+                tracing::error!(tenant_id = tenant, database = %req.database, reason = %why, "restore failed");
+                backup_unavailable("replica", "unreachable or empty")
+            }
+        }
+    }
+}
+
+fn query_param(query: &str, name: &str) -> Option<String> {
+    form_urlencoded::parse(query.as_bytes())
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.into_owned())
+}
+
+async fn read_json(req: Request<hyper::body::Incoming>) -> Result<Value, Box<Resp>> {
+    let body = Limited::new(req.into_body(), JSON_LIMIT)
+        .collect()
+        .await
+        .map_err(|_| {
+            Box::new(error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "RENOX_BODY_TOO_LARGE",
+                "The request body is too large.",
+                None,
+            ))
+        })?
+        .to_bytes();
+    serde_json::from_slice(&body).map_err(|_| Box::new(validation("body", "not JSON")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn databases_belong_to_their_tenant() {
+        assert!(database_of("t_a", "t_a"));
+        assert!(database_of("t_a", "t_a.hello-restored"));
+        assert!(!database_of("t_a", "t_b"));
+        assert!(!database_of("t_a", "t_a."));
+        assert!(!database_of("t_a", "t_a./x"));
+        assert!(!database_of("t_a", "../t_a"));
+        assert!(!database_of("t_a", "t_ab"));
+    }
+
+    #[test]
+    fn the_callback_token_must_match_exactly() {
+        let t = CallbackToken::default();
+        assert!(!t.verify(Some("Bearer anything")));
+        t.set(Some("renox_cb_abcdefghijklmnopqrstuvwxyz234567".into()));
+        assert!(t.verify(Some("Bearer renox_cb_abcdefghijklmnopqrstuvwxyz234567")));
+        assert!(!t.verify(Some("Bearer renox_cb_abcdefghijklmnopqrstuvwxyz23456")));
+        assert!(!t.verify(Some("renox_cb_abcdefghijklmnopqrstuvwxyz234567")));
+        assert!(!t.verify(None));
+    }
+}

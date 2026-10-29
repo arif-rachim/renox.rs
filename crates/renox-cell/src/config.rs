@@ -83,6 +83,9 @@ pub struct WorkerConfig {
     /// processes of their own.
     #[serde(default)]
     pub process: ProcessSection,
+    /// Litestream per tenant file (#255, `src/replication/`).
+    #[serde(default)]
+    pub replication: ReplicationSection,
     /// The file this config was loaded from ([`WorkerConfig::load`]); the
     /// supervisor passes it to its children. Not a key.
     #[serde(skip)]
@@ -128,6 +131,69 @@ pub struct ProcessSection {
     /// `ops/scripts/move-to-microvm.sh`), with the tenant id and the file
     /// path. Absent: such a move answers exit code 75.
     pub microvm_hook: Option<PathBuf>,
+}
+
+/// `[replication]` (#255): one `litestream replicate` per active tenant
+/// file (`docs/06-data.md` "Replication and backup tiers").
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ReplicationSection {
+    pub enabled: bool,
+    /// `file` (a directory: tests, the dev container, one-node setups) or
+    /// `s3` (production, a UAE region).
+    pub replica: ReplicaKind,
+    /// `file`: the replica root; each database under `<path>/<database>`.
+    pub path: Option<PathBuf>,
+    /// `s3`: bucket, key prefix (each database under `<prefix>/<database>`),
+    /// region, an endpoint for S3-compatible stores, and the KMS key id the
+    /// bucket encrypts with (#120). Credentials come from the node's
+    /// environment, never from tenant secrets.
+    pub bucket: Option<String>,
+    pub prefix: String,
+    pub region: Option<String>,
+    pub endpoint: Option<String>,
+    pub sse_kms_key_id: Option<String>,
+    /// Regions an `s3` replica may use in controlled mode (`docs/21`:
+    /// backups stay in the UAE).
+    pub allowed_regions: Vec<String>,
+    pub sync_interval_ms: u64,
+    pub retention_hours: u64,
+    pub snapshot_interval_secs: u64,
+    /// After the last cell of a database closes, the sidecar keeps running
+    /// this long so the last WAL frames ship.
+    pub stop_grace_ms: u64,
+    /// The Litestream binary (`ops/litestream.lock`). Default: on `PATH`.
+    pub litestream_bin: PathBuf,
+}
+
+/// `[replication] replica`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReplicaKind {
+    #[default]
+    File,
+    S3,
+}
+
+impl Default for ReplicationSection {
+    fn default() -> Self {
+        ReplicationSection {
+            enabled: false,
+            replica: ReplicaKind::File,
+            path: None,
+            bucket: None,
+            prefix: String::new(),
+            region: None,
+            endpoint: None,
+            sse_kms_key_id: None,
+            allowed_regions: vec!["me-central-1".into()],
+            sync_interval_ms: 1_000,
+            retention_hours: 24,
+            snapshot_interval_secs: 3_600,
+            stop_grace_ms: 3_000,
+            litestream_bin: PathBuf::from("litestream"),
+        }
+    }
 }
 
 /// `[process] launcher`.
@@ -226,6 +292,14 @@ pub struct ControlSection {
     /// address). Absent: none.
     #[serde(default)]
     pub health_listen: Option<SocketAddr>,
+    /// The node listener (deploy-api.md 0.3 section 15: restore,
+    /// replication status, drop, snapshot, import, move), on an address
+    /// only the control plane reaches. Absent: none.
+    #[serde(default)]
+    pub node_listen: Option<SocketAddr>,
+    /// The URL announced as `listen_url` (default `http://<node_listen>`).
+    #[serde(default)]
+    pub node_listen_url: Option<String>,
 }
 
 fn default_region() -> String {
@@ -396,6 +470,48 @@ impl WorkerConfig {
         {
             if p.is_relative() {
                 *p = base.join(&*p);
+            }
+        }
+        if let Some(p) = &mut c.replication.path
+            && p.is_relative()
+        {
+            *p = base.join(&*p);
+        }
+        if c.replication.enabled {
+            let r = &c.replication;
+            match r.replica {
+                ReplicaKind::File if r.path.is_none() => {
+                    return Err(ConfigError::Invalid(
+                        "replication.path is required with replica = \"file\"".into(),
+                    ));
+                }
+                ReplicaKind::S3 if r.bucket.is_none() => {
+                    return Err(ConfigError::Invalid(
+                        "replication.bucket is required with replica = \"s3\"".into(),
+                    ));
+                }
+                _ => {}
+            }
+            if r.sync_interval_ms == 0 {
+                return Err(ConfigError::Invalid(
+                    "replication.sync_interval_ms must be positive".into(),
+                ));
+            }
+            // docs/21-uae-gcc-strategy.md: tenant data and its backups stay
+            // in the UAE; a controlled node does not start otherwise.
+            if c.mode == Mode::Controlled && r.replica == ReplicaKind::S3 {
+                let region = r.region.as_deref().unwrap_or("");
+                if !r.allowed_regions.iter().any(|a| a == region) {
+                    return Err(ConfigError::Invalid(format!(
+                        "replication.region {region:?} is not in replication.allowed_regions ({}); backups stay in the UAE",
+                        r.allowed_regions.join(", ")
+                    )));
+                }
+                if r.sse_kms_key_id.is_none() {
+                    return Err(ConfigError::Invalid(
+                        "replication.sse_kms_key_id is required for an s3 replica in controlled mode".into(),
+                    ));
+                }
             }
         }
         if !(c.process.child_idle_secs.is_finite() && c.process.child_idle_secs > 0.0) {
@@ -648,6 +764,59 @@ mod tests {
         assert_eq!(p.microvm_hook.as_deref(), Some(Path::new("/srv/hook.sh")));
         let bad = format!("{base}[process]\nchild_idle_secs = 0\n");
         assert!(WorkerConfig::parse(&bad, Path::new("/")).is_err());
+    }
+
+    /// #255, `docs/21-uae-gcc-strategy.md`: a controlled node with an s3
+    /// replica outside the allowed regions refuses to start.
+    #[test]
+    fn replication_section() {
+        let base = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+        let r = WorkerConfig::parse(base, Path::new("/srv"))
+            .unwrap()
+            .replication;
+        assert!(!r.enabled);
+        assert_eq!(
+            (
+                r.sync_interval_ms,
+                r.retention_hours,
+                r.snapshot_interval_secs
+            ),
+            (1000, 24, 3600)
+        );
+        let file = format!(
+            "{base}[replication]\nenabled = true\nreplica = \"file\"\npath = \"replica\"\n"
+        );
+        let r = WorkerConfig::parse(&file, Path::new("/srv"))
+            .unwrap()
+            .replication;
+        assert_eq!(r.path.as_deref(), Some(Path::new("/srv/replica")));
+        let no_path = format!("{base}[replication]\nenabled = true\n");
+        assert!(WorkerConfig::parse(&no_path, Path::new("/")).is_err());
+
+        let controlled = "mode = \"controlled\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\nlisten = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n[control]\nurl = \"https://c.renox.test\"\nnode_token_file = \"t\"\n[sandbox]\nenabled = true\n";
+        let s3 = |region: &str, kms: &str| {
+            format!(
+                "{controlled}[replication]\nenabled = true\nreplica = \"s3\"\nbucket = \"b\"\nregion = \"{region}\"\n{kms}"
+            )
+        };
+        let e = WorkerConfig::parse(
+            &s3("eu-west-1", "sse_kms_key_id = \"k\"\n"),
+            Path::new("/srv"),
+        )
+        .unwrap_err();
+        assert!(
+            e.to_string().contains("eu-west-1") && e.to_string().contains("UAE"),
+            "{e}"
+        );
+        let e = WorkerConfig::parse(&s3("me-central-1", ""), Path::new("/srv")).unwrap_err();
+        assert!(e.to_string().contains("sse_kms_key_id"), "{e}");
+        assert!(
+            WorkerConfig::parse(
+                &s3("me-central-1", "sse_kms_key_id = \"k\"\n"),
+                Path::new("/srv")
+            )
+            .is_ok()
+        );
     }
 
     #[test]

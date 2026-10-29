@@ -70,3 +70,18 @@ enabled = false
 # child_cpu_quota_us = 200000        # cpu.max per 100 ms period
 # child_memory_bytes = 1073741824
 # child_pids = 512
+
+# Litestream per tenant file (#255, README "Replication").
+[replication]
+enabled = false
+# replica = "file"                 # or "s3"
+# path = "replica"                 # file: <path>/<database>/
+# bucket = "renox-replica"         # s3
+# prefix = "tenants"
+# region = "me-central-1"          # controlled mode: one of allowed_regions
+# sse_kms_key_id = "…"             # controlled mode, s3: required
+# sync_interval_ms = 1000
+# retention_hours = 24
+# snapshot_interval_secs = 3600
+# stop_grace_ms = 3000
+# litestream_bin = "litestream"

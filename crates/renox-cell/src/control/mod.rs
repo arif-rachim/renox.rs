@@ -25,6 +25,7 @@ pub mod degraded;
 pub mod health;
 pub mod http;
 pub mod log_sink;
+pub mod node_listener;
 pub mod prepare;
 pub mod routes;
 pub mod secrets;
@@ -62,6 +63,9 @@ pub struct Registered {
     pub unhealthy_after_ms: u64,
     pub resync_interval_ms: u64,
     pub route_version: u64,
+    /// 0.3: the bearer the control plane presents on the node listener.
+    #[serde(default)]
+    pub callback_token: Option<String>,
 }
 
 /// What the stream delivered that is not a route message: `prepare` (#96)
@@ -109,6 +113,9 @@ pub struct Controller {
     resync_every: AtomicU64,
     others: std::sync::Mutex<Option<MessageHandler>>,
     tasks: std::sync::Mutex<Vec<JoinHandle<()>>>,
+    /// The node listener's URL announced at registration and the callback
+    /// token it accepts (deploy-api.md 0.3 section 15).
+    node_listener: std::sync::Mutex<Option<(String, Arc<node_listener::CallbackToken>)>>,
 }
 
 impl Controller {
@@ -133,7 +140,14 @@ impl Controller {
             resync_every: AtomicU64::new(60_000),
             others: std::sync::Mutex::new(None),
             tasks: std::sync::Mutex::new(Vec::new()),
+            node_listener: std::sync::Mutex::new(None),
         })
+    }
+
+    /// Announce the node listener at `url` at every registration and keep
+    /// the callback token the answer carries in `token`.
+    pub fn set_node_listener(&self, url: String, token: Arc<node_listener::CallbackToken>) {
+        *self.node_listener.lock().expect("controller lock") = Some((url, token));
     }
 
     /// Where `prepare` and certificate messages go.
@@ -162,7 +176,8 @@ impl Controller {
 
     /// `POST /v1/nodes/register`.
     pub async fn register(&self) -> Result<Registered, ControlError> {
-        let body = json!({
+        let listener = self.node_listener.lock().expect("controller lock").clone();
+        let mut body = json!({
             "type": "node_register",
             "schema_version": 0,
             "node_id": self.client.node_id(),
@@ -170,11 +185,18 @@ impl Controller {
             "region": self.region,
             "max_cells": self.max_cells,
         });
+        if let Some((url, _)) = &listener {
+            body["listen_url"] = json!(url);
+        }
         let a = self.client.post_json("/v1/nodes/register", &body).await?;
         if a.status != StatusCode::OK {
             return Err(ControlError::Status(a.status.as_u16()));
         }
-        a.json().await
+        let reg: Registered = a.json().await?;
+        if let Some((_, token)) = &listener {
+            token.set(reg.callback_token.clone());
+        }
+        Ok(reg)
     }
 
     /// `GET /v1/nodes/{node_id}/routes`, applied. `conditional` sends

@@ -180,10 +180,23 @@ struct Inner {
     /// Told about every route sync (#254: the supervisor places tenants
     /// in children from the same entries).
     sync_observer: std::sync::OnceLock<SyncObserver>,
+    db_lifecycle: std::sync::OnceLock<Arc<dyn DbLifecycle>>,
 }
 
 /// Called with the entries of every [`CellManager::sync_routes`].
 pub type SyncObserver = Arc<dyn Fn(&[RouteEntry]) + Send + Sync>;
+
+/// What happens around a tenant file's life in this process (#255: the
+/// Litestream sidecar, `crate::replication`).
+pub trait DbLifecycle: Send + Sync + 'static {
+    /// Before the file is opened, on the database thread (blocking is fine):
+    /// restore a missing or corrupt file. An error refuses the open.
+    fn before_open(&self, tenant_id: &str, file: &Path) -> Result<(), String>;
+    /// The file is open (the first cell of the tenant).
+    fn opened(&self, tenant_id: &str, file: &Path);
+    /// The last cell closed the file (eviction).
+    fn closed(&self, tenant_id: &str);
+}
 
 /// Quiet time after the last eviction before freed memory is trimmed: one
 /// trim per burst of evictions, after the isolates are disposed.
@@ -214,6 +227,7 @@ impl CellManager {
                 #[cfg(feature = "test-support")]
                 idle_override_us: std::sync::atomic::AtomicU64::new(u64::MAX),
                 sync_observer: std::sync::OnceLock::new(),
+                db_lifecycle: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -272,9 +286,24 @@ impl CellManager {
         &self.inner.config
     }
 
+    /// Registers the tenant-file lifecycle hooks (once, before any cell).
+    pub fn set_db_lifecycle(&self, hooks: Arc<dyn DbLifecycle>) {
+        let _ = self.inner.db_lifecycle.set(hooks);
+    }
+
     /// Registers the observer of [`Self::sync_routes`] (once).
     pub fn set_sync_observer(&self, observer: SyncObserver) {
         let _ = self.inner.sync_observer.set(observer);
+    }
+
+    /// The tenant's file is open in this process.
+    pub fn db_open(&self, tenant_id: &str) -> bool {
+        self.inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .is_some_and(|s| s.try_lock().map_or(true, |g| g.handle.is_some()))
     }
 
     /// Drain every cell of `tenant_id` (#254: the tenant moved to a child
@@ -540,15 +569,25 @@ impl CellManager {
             return Ok(h);
         }
         let dir = self.tenant_dir(tenant_id);
+        let hooks = self.inner.db_lifecycle.get().cloned();
+        let tenant = tenant_id.to_string();
         // The open runs on the DB thread; the handle is usable at once and
         // `DbHandle::ready` reports an open failure (#157).
         let handle = DbHandle::open_in_background(move || {
             std::fs::create_dir_all(&dir).map_err(|e| DbError::Open(e.kind().to_string()))?;
+            let file = dir.join("app.db");
+            if let Some(h) = &hooks {
+                h.before_open(&tenant, &file).map_err(DbError::Open)?;
+            }
             let options = DbOptions {
                 module_prefix: Some("app".into()),
                 ..DbOptions::with_quota_bytes(quota)
             };
-            TenantDb::open(dir.join("app.db"), options)
+            let db = TenantDb::open(&file, options)?;
+            if let Some(h) = &hooks {
+                h.opened(&tenant, &file);
+            }
+            Ok(db)
         })
         .map_err(|e| CellError::Db(DbError::Open(e.kind().to_string())))?;
         slot.handle = Some(handle.clone());
@@ -577,6 +616,9 @@ impl CellManager {
             // `TenantDb::close` checkpoints with the platform policy (#147).
             if let Err(e) = h.close().await {
                 tracing::error!(tenant_id, error = %e, "closing the tenant database failed")
+            }
+            if let Some(hooks) = self.inner.db_lifecycle.get() {
+                hooks.closed(tenant_id);
             }
         }
     }
