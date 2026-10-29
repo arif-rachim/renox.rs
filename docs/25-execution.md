@@ -14,10 +14,10 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | Y5 (#170, #182) now; O3 after the owner's two bench hosts (#158); P after Y5 and O3; gate #49. #212 (macOS CPU clock) needs a Mac and blocks no gate |
-| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only) | — | V2 (#57, #128) and T3 (#218) now; U3 (#219) after the owner tags `worker-v0.2.0`; W after V2 and P; gate #61 |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | Y5 (#170, #182) and P (#94, #112) now; O3 after the owner's two bench hosts (#158); gate #49 after P and O3. #212 (macOS CPU clock) needs a Mac and blocks no gate |
+| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221 | — | V3 (#222, #223, #128) now; U3 (#219) after the owner tags `worker-v0.2.0`; W after P and V3; gate #61 after W and O3 |
 
-Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), all placed in the batches below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
+Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), #222 and #223 (the contract and the `streamLogs` endpoint that #128 and the dashboard's Logs screen need), all placed in the batches below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
 ## F0 (done: 2 sessions + gate)
 
@@ -184,21 +184,21 @@ Work on batch O2 of arif-rachim/renox.rs: issues #186, #189 in that order. Follo
 
 Done: PR #195. Both edit `.github/workflows/ci.yml`. #186 makes the CLI template and shop build tests run with a worker binary in CI (today they skip); #189 folds the small jobs and takes `release-worker.yml` off pull requests.
 
-### Batch P — after N, Y2, Y5 and O3 — the two checklists (2 issues)
+### Batch P — after N and Y2 — the two checklists (2 issues)
 
 ```
 Work on batch P of arif-rachim/renox.rs: issues #94, #112 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions.
 ```
 
-Next: N, Y2, Y3 and Y4 are in; waits for Y5 (#170 blocks #112) and O3 (#158 needs the owner's bench hosts).
+Runs now. Every issue in the Blocked-by lists of #94 and #112 is closed; the plan had put P behind O3 for ordering, not for a dependency. The checklists verify controls, not benchmark numbers, so they do not wait for #158. One item of #112 (the blocked ranges of `ops.md` section 2) is #170 in Y5: if Y5 is not in when P runs, the checklist records that item as open and #170 closes it.
 
-### Gate F2 — after P
+### Gate F2 — after P and O3
 
 ```
 Run the gate review issue #49 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
-## F3 (14 sessions + gate), in parallel with F2
+## F3 (15 sessions + gate), in parallel with F2
 
 F3 depends on F1's contracts (artifact format, route table, meter), not on F2, so batch Q started at the same time as J0. Most of F3 lives under `control/**`, `packages/**`, and `crates/renox-cell/src/control/**`. The F2 batches that F3 files overlapped with (K, L, M, H3) are all merged, so the remaining F3 batches rebase on `main` as usual; the one live overlap is #159 (batch Y) with #162 in `crates/renox-gateway`, which T resolves by rebasing after Y.
 
@@ -298,6 +298,16 @@ Work on batch V2 of arif-rachim/renox.rs: issues #57, #128 in that order. Follow
 
 Runs now, alongside T3. #57 owns `control/dashboard/**`; per D23 the browser signs in against the API directly and the dashboard tenant uses a scoped token from `ctx.secrets`. #128 owns `control/api/src/logs/**`, `src/sourcemaps/**`, one migration, `control/dashboard/src/logs/client/**` and two CLI files. #57 is #61's "dashboard deployed through the real pipeline".
 
+Done: PR #220, #57 only. Every F3 wireframe has a page; the signed-in user's own token is forwarded per request (no shared service token, which would show one tenant's data to every visitor). #57 stays open for one thing: `GET /v1/apps/{app}/logs` (`streamLogs`) is in the contract but `control/api` never served it, so the Logs screen gets 404 against the real API; that endpoint is #223. #128 was skipped by rule 6 and rule 7: it needs `ingest/logs.ts`, `app.ts`, `roles.ts` and contract endpoints that do not exist. The split is V3.
+
+### Batch V3 — after V2 and T3 — client error groups: contract, `streamLogs`, the dashboard screen (3 issues)
+
+```
+Work on batch V3 of arif-rachim/renox.rs: issues #222, #223, #128 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Runs now. #222 first (special case `type:contract`: the client-errors endpoints, the symbolicated frame shape, the quota field, and Open item 5 pointing at D23). #223 serves `streamLogs` from the store `ingest/logs.ts` already fills and takes client lines out of the per-minute cap; it closes #57's last item. #128 then owns `ingest/logs.ts`, `app.ts` and `roles.ts` as well (same batch, in order). No overlap with Y5, P or U3.
+
 ### Batch T3 — after V — D23 follow-ups: node-facing endpoints off the public edge, worker start-up check (1 issue)
 
 ```
@@ -305,6 +315,8 @@ Work on batch T3 of arif-rachim/renox.rs: issues #218 in that order. Follow docs
 ```
 
 Runs now, alongside V2: #218 owns `control/api/src/{app,main}.ts`, `crates/renox-cell/src/{worker,config}.rs`, `control/fetch_connector.rs` (wording) and one threat-model row; no overlap with #57 or #128. It blocks #116 (security checklist F3).
+
+Done: PR #221. Node-facing routes are on their own listener (`CONTROL_NODE_LISTEN_HOST`/`PORT`); a controlled worker refuses a `[control] url` that tenant `fetch` could reach; three test harnesses and the B15 script point the worker at the node listener.
 
 ### Batch U3 — after the owner tags `worker-v0.2.0` — pin the CLI to the signed worker (1 issue)
 
@@ -314,15 +326,15 @@ Work on batch U3 of arif-rachim/renox.rs: issues #219 in that order. Follow docs
 
 The owner tags `worker-v0.2.0` from `main` (after #210 and #215: `release-worker.yml` builds both Linux targets and signs each asset). #219 then bumps `WORKER_VERSION` and `PINNED_WORKER` from the release's `.sha256` assets; `release-cli.yml` stops warning.
 
-### Batch W — after V2, T3 and batch P of F2 — the two checklists (2 issues)
+### Batch W — after P and V3 — the two checklists (2 issues)
 
 ```
 Work on batch W of arif-rachim/renox.rs: issues #99, #116 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions.
 ```
 
-P waits for O3, which waits for the owner's bench hosts (#158). W is therefore behind the same prerequisite; #116 also needs #218 (T3), and #99 needs #128 (V2).
+#116 needs #112 (P); #99 needs #128 (V3). Neither needs the bench hosts, so W can run as soon as P and V3 are in, before gate F2.
 
-### Gate F3 — after W
+### Gate F3 — after W, O3 and gate F2
 
 ```
 Run the gate review issue #61 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
