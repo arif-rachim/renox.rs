@@ -32,9 +32,13 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "time", "fs"
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
 tower = { version = "0.5.3", features = ["util"] }
+# Operator log lines (#207: tenant cookie rewrites); renox-cell installs the subscriber.
+tracing = "0.1"
 ulid = "3.0.0"
 
 [dev-dependencies]
+# Captures the #207 log line in tests/cookies.rs.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 bytes = "1.12.1"
 futures-util = { version = "0.3.34", default-features = false }
 h2 = "0.4.20"

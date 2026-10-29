@@ -181,7 +181,7 @@ The Rust job caches `target/` (`Swatinem/rust-cache`) and compiler outputs (`scc
 
 ### Prebuilt `renox-worker`
 
-`renox dev` and `renox test` run a prebuilt worker, so tenant developers never build Rust (`docs/12-developer-experience.md`, rule 5). `.github/workflows/release-worker.yml` builds it on a `worker-v*` tag (or by hand from the Actions tab) and attaches `renox-worker-<version>-x86_64-unknown-linux-gnu` and its `.sha256` to the GitHub Release `worker-v<version>`. Linux x86_64 only for now; aarch64 and macOS builds are follow-ups.
+`renox dev` and `renox test` run a prebuilt worker, so tenant developers never build Rust (`docs/12-developer-experience.md`, rule 5). `.github/workflows/release-worker.yml` builds it on a `worker-v*` tag (or by hand from the Actions tab) and attaches `renox-worker-<version>-<target>` and its `.sha256` to the GitHub Release `worker-v<version>` for `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. Each build runs natively on its own runner and links a V8 archive checked against `ops/v8-checksums.txt`. Releases up to `worker-v0.1.0` carry the Linux x86_64 binary only. macOS builds are open (#139): the per-request CPU limit is not yet within its ± 5 ms bound there.
 
 ```
 gh release download worker-v0.1.0 --pattern 'renox-worker-0.1.0-x86_64-unknown-linux-gnu*'

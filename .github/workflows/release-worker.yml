@@ -17,9 +17,9 @@ name: Release worker
 # them (feature renox-runtime/packaged).
 #
 # Never on a pull request (#189: 28 minutes a run). A merge to main that
-# changes this packaging (Rust or this file only, rule 6) builds and
-# smoke-tests the binary once, without publishing it; the path filter does
-# not apply to the tag push.
+# changes this packaging or the per-OS CPU clock (Rust or this file only,
+# rule 6) builds and smoke-tests the binary on every target once, without
+# publishing it; the path filter does not apply to the tag push.
 on:
   push:
     tags:
@@ -29,6 +29,7 @@ on:
     paths:
       - ".github/workflows/release-worker.yml"
       - "crates/renox-runtime/build.rs"
+      - "crates/renox-runtime/src/limits/cpu.rs"
       - "crates/renox-runtime/src/runtime.rs"
       - "crates/renox-runtime/tests/packaged.rs"
   workflow_dispatch:
@@ -55,15 +56,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # aarch64: no arm64 runner is configured for this repository yet;
-          # add `{ target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }`
-          # when one is (issue #36, Out).
+          # Every target builds natively: step 1 below runs a test binary
+          # that writes the snapshot, which a cross build cannot (#139).
           # smoke: native = the binary runs on this runner, so the
           # fetch-worker + renox dev test runs; docker = that plus the
           # clean-container test (Linux).
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
             smoke: docker
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            smoke: docker
+          # macOS (aarch64-apple-darwin on macos-14, x86_64-apple-darwin on
+          # macos-15-intel) is not released yet (#139): renox-runtime builds
+          # there, but on the macOS runner the CPU limit landed 3-11 ms past a
+          # 50 ms limit, outside the ops.md section 10 bound of ± 5 ms.
     runs-on: ${{ matrix.runner }}
     env:
       RUSTC_WRAPPER: sccache
@@ -86,6 +93,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Free disk space
+        if: runner.os == 'Linux'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /

@@ -67,6 +67,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | Path traversal or dotfiles under `public/` | Static files served only from the artifact's `public/manifest.json`, never from a filesystem path built from the request | CLI excludes dotfiles and symlinks at build | #22; #115 | F1/F3 |
 | Custom domain takeover (dangling CNAME, re-claimed hostname) | Ownership record persists after removal; another tenant cannot claim a hostname while it is owned; periodic re-verification | Deleted `*.renox.app` slugs quarantined before reuse | `TODO` → #114 | F3 |
 | Shared-domain reputation (one phishing tenant gets `*.renox.app` blocked) | `renox.app` registered on the Public Suffix List; cookies and Safe Browsing scoped per subdomain | Abuse takedown SLA | #114; #123 | F3/F7 |
+| Cookie tossing between tenants: a tenant `Set-Cookie` with `Domain=renox.app` (or a parent, or another tenant's host) planted on every other tenant's host | Gateway removes any `Domain=` that is not the request host, so the cookie is host-only; malformed `Set-Cookie` dropped; log names the cookie, never the value | `renox.app` on the Public Suffix List (`ops/psl/README.md`); platform cookies are `__Host-` | `crates/renox-gateway/tests/cookies.rs` (#207) | F2 |
 | Noisy neighbour | Per-tenant quotas enforced in Rust | Scheduler avoids busy workers | B12 | F1 |
 
 ## D. Module publisher → tenant
