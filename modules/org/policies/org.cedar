@@ -20,3 +20,8 @@ permit (
   resource is Org::Org
 )
   when { resource.id == principal.org };
+
+// The invite_member tool (#286): the check is resource-less (the tool's
+// action, as the token's user); the org services then require the user to
+// be an admin or owner of the organisation named in the input.
+permit (principal is Renox::User, action == Renox::Action::"org.invite", resource == Renox::Action::"org.invite");

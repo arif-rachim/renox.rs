@@ -2,6 +2,7 @@
 // sessions with revoke, sign out everywhere. Signed out: a 303 to the
 // login page with `next` back here.
 import { type AuthCtx, changePassword, clearCookie, currentSession, logout, redirectWith, revokeAll, revokeSession, sessions } from "../lib/core.ts";
+import { list as agentTokens, revoke as revokeAgent } from "../lib/agents.ts";
 import { localized } from "../lib/locale.ts";
 
 type Page = AuthCtx & { url: URL; form: FormData };
@@ -15,7 +16,7 @@ const toLogin = (ctx: Page): Response => {
 async function view(ctx: Page, notice: string | null, error: string | null) {
   const s = await currentSession(ctx);
   if (s === null) return toLogin(ctx);
-  return { user: s.user, sessions: await sessions(ctx, s.user.id, s.id), notice, error };
+  return { user: s.user, sessions: await sessions(ctx, s.user.id, s.id), agents: await agentTokens(ctx, s.user.id), notice, error };
 }
 
 export const load = localized(async (ctx: Page) => {
@@ -34,6 +35,13 @@ export const actions = {
     if (s === null) return toLogin(ctx);
     await revokeSession(ctx, s.user.id, String(ctx.form.get("session") ?? ""));
     return view(ctx, "Session signed out.", null);
+  }),
+  // #286: disconnect an agent; the cell drops its token on the event.
+  agent: localized(async (ctx: Page) => {
+    const s = await currentSession(ctx);
+    if (s === null) return toLogin(ctx);
+    await revokeAgent(ctx, s.user.id, String(ctx.form.get("agent") ?? ""));
+    return view(ctx, "Agent disconnected.", null);
   }),
   everywhere: localized(async (ctx: Page) => {
     const s = await currentSession(ctx);

@@ -18,6 +18,14 @@
       <x-form action="revoke" r-if="!s.current"><input type="hidden" name="session" :value="s.id"><button type="submit"><r-t key="auth.account.sign_out" /></button></x-form>
     </li>
   </ul>
+  <h2><r-t key="auth.account.agents" /></h2>
+  <ul id="agents">
+    <li r-for="a in agents">
+      <strong>{{ a.client_name }}</strong> · <code>{{ a.scopes | join(" ") }}</code> · <r-t key="auth.account.since" /> {{ a.created_at }}<r-group r-if="a.last_used_at"> · <r-t key="auth.account.last_used" /> {{ a.last_used_at }}</r-group>
+      <x-form action="agent"><input type="hidden" name="agent" :value="a.id"><button type="submit"><r-t key="auth.account.revoke_agent" /></button></x-form>
+    </li>
+    <li r-empty="agents"><r-t key="auth.account.no_agents" /></li>
+  </ul>
   <x-form action="everywhere"><button type="submit"><r-t key="auth.account.everywhere" /></button></x-form>
   <x-form action="logout"><button type="submit"><r-t key="auth.account.sign_out" /></button></x-form>
 </r-layout>

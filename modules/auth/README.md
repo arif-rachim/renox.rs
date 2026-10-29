@@ -55,6 +55,9 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `logout()` | `{ cookie }` (clears it); the session is revoked server side |
 | `sendMagicLink({ email })`, `requestPasswordReset({ email })` | `{ message }`: the same in every case |
 | `confirmPasswordReset({ token, password })` | `{ cookie }` or `{ error }` |
+| `verifyAgentToken(token)` | `{ principal, scopes, client: { name } }` for a live agent token, or `null`. The cell calls it for `/mcp` |
+| `oauthMetadata(issuer)` | The RFC 8414 document the cell serves at `/.well-known/oauth-authorization-server<mount>/oauth` |
+| `listAgentTokens()`, `revokeAgentToken(id)` | The signed-in user's connected agents; revoke one of them |
 
 A page that needs a user:
 
@@ -76,6 +79,7 @@ export async function load(ctx) {
 | `auth.user_registered` | `{ user_id, at, source: "password" \| "oauth" }` |
 | `auth.login` | `{ user_id, at }` |
 | `auth.password_changed` | `{ user_id, at }` (a reset) |
+| `auth.agent_token_revoked` | `{ token_hash, user_id, at }`: the cell drops the token from its `/mcp` cache |
 
 All durable: written in the transaction of the request, delivered after it commits.
 
@@ -85,6 +89,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
 | `auth.after_login` | After the password, magic link, or OAuth check, before any session starts (`{ user_id, next? }`) | Halt with its own response: a second factor (F5); no session is started |
+| `auth.agent_audit` | An agent was connected or disconnected (`{ action: "connect" \| "revoke", user_id, client_name, scopes, at }`) | Write an audit row (the `audit` library, #288). Never carries the token |
 | `auth.send_mail` | A mail must go out (`{ to, template: "magic_link" \| "password_reset" \| "verify_email" \| "account_exists", args: { url, expires_minutes, display_name } }`) | Send it. auth sends no mail itself until the email module (F7). Fill it from a small module of the app (`modules/mailer`, `permissions.hooks = ["auth.send_mail"]`) |
 
 ## Slots
@@ -104,13 +109,37 @@ Override a template, never the code: put a copy at `overrides/auth/pages/login.h
 - Failure buckets: 10 per account and 30 per IP address per 15 minutes; past either, the same generic message. Magic and reset links: 5 per email per 15 minutes, single use, 15 minutes, bound to the user agent family that asked.
 - OAuth: `state` in a 10-minute `__Host-renox_oauth` cookie, compared in constant time; PKCE S256 for Google and Microsoft; ID tokens verified (RS256 against the provider's keys, issuer, audience, expiry, nonce). An existing account is linked only when the provider verified the email.
 
+## Agents (App MCP)
+
+auth is the OAuth 2.1 authorization server for the app's `/mcp` (`docs/20-ai-agents-mcp.md` section 2). An agent connects as a user and can do only what the user can.
+
+- Discovery: `/.well-known/oauth-protected-resource/mcp` names `https://<host><mount>/oauth`. The cell serves its metadata (RFC 8414) from `oauthMetadata`.
+- Registration: `POST <mount>/oauth/register` (RFC 7591). Public clients only (`token_endpoint_auth_method: "none"`). Redirect URIs must be `https`, or `http` on loopback.
+- Authorization: `GET <mount>/oauth/authorize`. PKCE S256 is required. A signed-out user goes to the login page first.
+- Consent: `<mount>/oauth/consent` lists the client, the user, where it returns, and each scope (`tools:*` or `tools:<name>`), with Allow and Deny. It runs no script of its own and cannot be framed.
+- Codes: one minute, single use, stored hashed. A failed exchange also burns the code.
+- Token: `POST <mount>/oauth/token` returns `renox_agt_<64 hex>`, valid one hour, with no refresh token. Only its SHA-256 is stored (`auth__agent_tokens`).
+- Revoking: the account page's "Connected agents" lists each live token with its client, scopes and last use. "Disconnect" revokes one and emits `auth.agent_token_revoked`, and the cell refuses the token from then on.
+
+Proof: `tests/oauth.test.ts`:
+
+- the full flow;
+- a wrong verifier and a reused code;
+- a narrowed scope;
+- deny;
+- no PKCE and an unregistered redirect;
+- revoke from the account page;
+- a consent page that cannot be framed and sets no cookie.
+
+These keep the `docs/24-threat-model.md` row "Account takeover of a tenant developer" whole: agent tokens are hashed, last one hour, are listed, and can be revoked.
+
 ## Policies
 
 `policies/auth.cedar` (a user reads and updates only their own account and revokes only their own sessions) and `policies/tests/auth.json` hold the default policy and its cases. They are files only until the policy engine (F5); `renox test` lists the cases as pending.
 
 ## Tests
 
-`renox test` in this folder runs `tests/*.test.ts` in `tests/app/`, with the `reader` and `mailer` fixture modules: register, login, logout, rotation, expiry, buckets, the public view, magic links, reset, OAuth (a fake provider), install and upgrade into the shop, and per-role snapshots (`tests/__snapshots__/`).
+`renox test` in this folder runs `tests/*.test.ts` in `tests/app/`, with the `reader` and `mailer` fixture modules: register, login, logout, rotation, expiry, buckets, the public view, magic links, reset, OAuth (a fake provider), agents (OAuth 2.1 for `/mcp`), install and upgrade into the shop, and per-role snapshots (`tests/__snapshots__/`).
 
 ## Security tests
 

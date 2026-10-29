@@ -40,6 +40,10 @@ loginUrl = "The module's login page with a safe `next`"
 sendMagicLink = "Mail a one-time sign-in link: { email } -> the same message whether or not the account exists"
 requestPasswordReset = "Mail a one-time password reset link: { email } -> the same message in every case"
 confirmPasswordReset = "Set a new password with a reset token: { token, password } -> { cookie } or { error }"
+verifyAgentToken = "The cell's check of an agent token on /mcp (#286): token -> { principal, scopes, client } or null"
+oauthMetadata = "RFC 8414 metadata of the authorization server for agents: issuer -> the metadata object (the cell serves it, #286)"
+listAgentTokens = "The signed-in user's connected agents (live tokens), newest first"
+revokeAgentToken = "Disconnect one of the signed-in user's agents: id -> true when a token was revoked"
 
 [exports.events."auth.user_registered"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" }, source = { enum = ["password", "oauth"] } } }
@@ -48,6 +52,10 @@ description = "A user registered"
 [exports.events."auth.login"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
 description = "A user signed in"
+
+[exports.events."auth.agent_token_revoked"]
+payload = { type = "object", required = ["token_hash", "user_id", "at"], additionalProperties = false, properties = { token_hash = { type = "string" }, user_id = { type = "string" }, at = { type = "integer" } } }
+description = "An agent token was revoked; the cell drops it from its /mcp cache (#286)"
 
 [exports.events."auth.password_changed"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
@@ -60,6 +68,10 @@ description = "Send one mail (auth sends none itself before the email module, F7
 [exports.hooks."auth.after_login"]
 args = { type = "object", required = ["user_id"], properties = { user_id = { type = "string" }, next = { type = "string" } } }
 description = "After the password check, before the session cookie is sent; a filler may halt with its own response (2fa)"
+
+[exports.hooks."auth.agent_audit"]
+args = { type = "object", required = ["action", "user_id", "client_name", "scopes", "at"], properties = { action = { enum = ["connect", "revoke"] }, user_id = { type = "string" }, client_name = { type = "string" }, scopes = { type = "array", items = { type = "string" } }, at = { type = "integer" } } }
+description = "An agent was connected or disconnected; the audit library fills it to write an audit row (#288); never the token"
 
 [exports.hooks."auth.before_register"]
 args = { type = "object", required = ["email"], properties = { email = { type = "string" }, display_name = { type = "string" } } }

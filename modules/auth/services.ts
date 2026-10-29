@@ -5,6 +5,7 @@
 import * as core from "./lib/core.ts";
 import type { AuthCtx, User } from "./lib/core.ts";
 import * as tokens from "./lib/tokens.ts";
+import * as agents from "./lib/agents.ts";
 
 /** Register: the account and a confirmation link by mail (auth.send_mail); `message` is the same whether or not the email was taken. */
 export async function register(ctx: AuthCtx & { url: URL }, input: { email: string; password: string; display_name?: string }): Promise<{ message: string } | { error: string }> {
@@ -57,6 +58,37 @@ export async function sendMagicLink(ctx: AuthCtx & { url: URL }, input: { email:
 /** Mail a password reset link, same rules as `sendMagicLink`. */
 export async function requestPasswordReset(ctx: AuthCtx & { url: URL }, input: { email: string }): Promise<{ message: string }> {
   return { message: await tokens.sendLink(ctx, "reset", String(input?.email ?? "")) };
+}
+
+/**
+ * The cell's check of an agent token on `/mcp` (#286; ops.md 1.5.0 section
+ * 19): `{ principal, scopes, client }` for a live `renox_agt_` token, else
+ * null (unknown, expired, revoked).
+ */
+export async function verifyAgentToken(ctx: AuthCtx, token: string): Promise<agents.VerifiedAgent | null> {
+  return agents.verify(ctx, String(token ?? ""));
+}
+
+/**
+ * RFC 8414 metadata of the app's authorization server for agents (#286):
+ * the cell answers `/.well-known/oauth-authorization-server<mount>/oauth`
+ * and `<mount>/oauth/.well-known/oauth-authorization-server` with it
+ * (ops.md 1.5.0 section 19, "Discovery"). `issuer` is `https://<host><mount>/oauth`.
+ */
+export async function oauthMetadata(_ctx: AuthCtx, issuer: string): Promise<Record<string, unknown>> {
+  return agents.metadata(String(issuer ?? ""));
+}
+
+/** The signed-in user's connected agents (live tokens), newest first. */
+export async function listAgentTokens(ctx: AuthCtx): Promise<agents.AgentTokenRow[]> {
+  const u = await core.currentUser(ctx);
+  return u === null ? [] : agents.list(ctx, u.id);
+}
+
+/** Disconnect one of the signed-in user's agents; true when a token was revoked. */
+export async function revokeAgentToken(ctx: AuthCtx, id: string): Promise<boolean> {
+  const u = await core.currentUser(ctx);
+  return u === null ? false : agents.revoke(ctx, u.id, String(id ?? ""));
 }
 
 /** Set a new password with a reset token (once); every session is signed out and a new one starts. */

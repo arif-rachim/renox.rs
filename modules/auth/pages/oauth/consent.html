@@ -1,0 +1,23 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.consent.title" /></r-group>
+  <r-group r-if="error">
+    <h1><r-t key="auth.consent.title" /></h1>
+    <p class="error" id="error">{{ error }}</p>
+  </r-group>
+  <r-group r-else>
+    <h1 id="client">{{ client_name }}</h1>
+    <p><r-t key="auth.consent.asks" /> <strong>{{ user.email }}</strong>.</p>
+    <p id="redirect"><r-t key="auth.consent.returns_to" /> {{ redirect_host }}</p>
+    <ul id="scopes">
+      <li r-for="s in scopes"><code>{{ s.scope }}</code>: {{ s.text }}</li>
+    </ul>
+    <x-form action="allow">
+      <input r-for="f in fields" type="hidden" :name="f.name" :value="f.value">
+      <button type="submit" id="allow"><r-t key="auth.consent.allow" /></button>
+    </x-form>
+    <x-form action="deny">
+      <input r-for="f in fields" type="hidden" :name="f.name" :value="f.value">
+      <button type="submit" id="deny"><r-t key="auth.consent.deny" /></button>
+    </x-form>
+  </r-group>
+</r-layout>

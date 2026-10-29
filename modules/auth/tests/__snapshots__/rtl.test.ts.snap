@@ -83,6 +83,10 @@ exports[`auth in Arabic account: the user's stored choice follows them to anothe
       
     </li>
   </ul>
+  <h2>الوكلاء المتصلون</h2>
+  <ul id="agents">
+    <li>لا يوجد وكيل متصل.</li>
+  </ul>
   <form method="post" action="?/everywhere" hx-post="?/everywhere"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج من كل الأجهزة</button></form>
   <form method="post" action="?/logout" hx-post="?/logout"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
 </main>

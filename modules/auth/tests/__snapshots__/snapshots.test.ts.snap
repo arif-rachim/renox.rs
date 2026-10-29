@@ -90,6 +90,10 @@ exports[`snapshots per role user: the account page and the header: role: user ac
       
     </li>
   </ul>
+  <h2>Connected agents</h2>
+  <ul id="agents">
+    <li>No agent is connected.</li>
+  </ul>
   <form method="post" action="?/everywhere" hx-post="?/everywhere"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out everywhere</button></form>
   <form method="post" action="?/logout" hx-post="?/logout"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
 </main>

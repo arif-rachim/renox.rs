@@ -96,6 +96,16 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
 | `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by } }` | hook: fill it to deliver invitations until the email module (F7) |
 
+## App MCP tool
+
+`invite_member` (`tools/invite-member.ts`, `[[tools]]` in `module.toml`) lets a user's agent invite someone to one of the user's organisations through the app's `/mcp`.
+
+- The agent runs as the user. The Cedar action is `org.invite`, and the org services still require an admin or owner.
+- The input is `{ org, email, role? }`.
+- `confirm = true`: the first call is a preview, rolled back, that returns a confirmation token. The agent repeats the call with that token to send the invitation.
+
+`tests/tools.test.ts` drives it end to end with an agent token from auth's OAuth flow.
+
 ## Tables and views
 
 - `org__orgs`
@@ -113,5 +123,6 @@ Other modules read memberships through `org__public_members_v1` (`org_id`, `user
 - invitations: single use, expiry, withdrawal, the invited email, and the hook;
 - the last owner;
 - the events;
+- the `invite_member` tool through `/mcp` (`tests/tools.test.ts`);
 - snapshots of the switcher and the members page for an owner, an admin, a member and a non-member;
 - install and upgrade into the shop.

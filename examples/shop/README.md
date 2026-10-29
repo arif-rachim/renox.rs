@@ -47,6 +47,18 @@ curl -X POST localhost:8787/api/checkout -H 'content-type: application/json' -d 
 
 `bun test` runs the functions against a fake `ctx` (bun:sqlite with the real migration and seed) and `renox build` + `renox check`; with `RENOX_WORKER_PATH` set it also runs every flow above through `renox dev` and the worker (`tests/shop.e2e.test.ts`).
 
+### Connect an agent
+
+The shop installs `auth`, so every tool of the shop and its modules (org's `invite_member`) is on `/mcp` for a signed-in user's agent:
+
+```
+# 1. Point the agent (Claude, an MCP client) at https://<shop host>/mcp
+# 2. It gets a 401 naming /.well-known/oauth-protected-resource/mcp and finds auth's OAuth server
+# 3. It registers itself and sends you to /auth/oauth/consent: sign in, read the scopes, Allow
+# 4. It calls tools as you, for one hour; a destructive tool asks it to confirm
+# 5. Disconnect it on /auth/account under "Connected agents"
+```
+
 ## Used by
 
 | Benchmark | Use |

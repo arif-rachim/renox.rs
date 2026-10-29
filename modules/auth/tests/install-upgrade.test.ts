@@ -21,7 +21,7 @@ function nextVersion(): string {
   const dir = join(mkdtempSync(join(tmpdir(), "renox-auth-next-")), "auth");
   cpSync(MODULE, dir, { recursive: true, filter: (p) => !p.slice(MODULE.length).startsWith("/tests") });
   writeFileSync(join(dir, "module.toml"), readFileSync(join(dir, "module.toml"), "utf8").replace('version = "1.0.0"', 'version = "1.1.0"'));
-  writeFileSync(join(dir, "migrations/003_users_locale.sql"), "-- 1.1.0: expand only (D17).\nalter table auth__users add column locale text;\n");
+  writeFileSync(join(dir, "migrations/004_users_locale.sql"), "-- 1.1.0: expand only (D17).\nalter table auth__users add column locale text;\n");
   writeFileSync(join(dir, "pages/login.html"), readFileSync(join(dir, "pages/login.html"), "utf8").replace("<h1><r-t key=\"auth.login.title\" /></h1>", "<h1><r-t key=\"auth.login.title\" /></h1>\n  <p class=\"lede\">Welcome back.</p>"));
   return dir;
 }
@@ -35,14 +35,14 @@ describe.skipIf(!worker)("install and upgrade", () => {
     expect(v1.check.errors).toEqual([]);
     expect(v1.migrate?.modules.map((m) => [m.module, m.applied])).toEqual([
       ["i18n", ["001_prefs.sql", "002_prefs_digits.sql"]],
-      ["auth", ["001_init.sql", "002_tokens_user_agent.sql"]],
+      ["auth", ["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql"]],
       ["org", ["001_init.sql", "002_orgs_locale.sql"]],
       ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql"]],
     ]);
     const v2 = await v1.upgrade(source(SHOP, next));
     expect(v2.check.errors).toEqual([]);
     expect(v2.check.findings.filter((f) => f.rule === "override-drift")).toEqual([]);
-    expect(v2.migrate?.modules.find((m) => m.module === "auth")).toEqual({ module: "auth", applied: ["003_users_locale.sql"], skipped: ["001_init.sql", "002_tokens_user_agent.sql"] });
+    expect(v2.migrate?.modules.find((m) => m.module === "auth")).toEqual({ module: "auth", applied: ["004_users_locale.sql"], skipped: ["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql"] });
     const db = new Database(join(v2.project, ".renox", "test", "module.db"), { readonly: true });
     try {
       expect(db.query("select name from pragma_table_info('auth__public_users_v1')").all().map((c) => (c as { name: string }).name)).toEqual(["id", "email", "display_name", "created_at"]);

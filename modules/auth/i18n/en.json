@@ -40,10 +40,21 @@
       "since": "since",
       "this_browser": "(this browser)",
       "sign_out": "Sign out",
-      "everywhere": "Sign out everywhere"
+      "everywhere": "Sign out everywhere",
+      "agents": "Connected agents",
+      "no_agents": "No agent is connected.",
+      "revoke_agent": "Disconnect",
+      "last_used": "last used"
     },
     "menu": {
       "sign_in": "Sign in"
+    },
+    "consent": {
+      "title": "Connect an agent",
+      "asks": "This agent asks to act in this app for",
+      "returns_to": "After you answer you return to",
+      "allow": "Allow",
+      "deny": "Deny"
     }
   }
 }

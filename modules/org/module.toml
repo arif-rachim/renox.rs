@@ -66,6 +66,14 @@ name = "admin.sidebar"
 template = "partials/admin-nav.html"
 requires = "org.manage_members"
 
+# The App MCP tool (#286; manifest.md [[tools]], carried as a tool route).
+[[tools]]
+name = "invite_member"
+file = "tools/invite-member.ts"
+action = "org.invite"
+confirm = true
+description = "Invite someone by email to one of your organisations (you must be an admin or owner)"
+
 [authz]
 actions = ["org.read", "org.invite", "org.manage_members"]
 
