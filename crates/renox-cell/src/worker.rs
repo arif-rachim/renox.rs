@@ -435,6 +435,12 @@ impl Worker {
             config.gateway.h2_max_resets_per_ip_per_second;
         gw_config.protocol.h2_max_control_frames_per_second =
             config.gateway.h2_max_control_frames_per_second;
+        // The platform's security.txt on `renox.app` (#121); production only.
+        if config.mode == Mode::Controlled {
+            gw_config.security_txt = Some(Arc::new(
+                renox_gateway::well_known::SecurityTxt::platform(std::time::SystemTime::now()),
+            ));
+        }
         let gateway = Gateway::new(gw_config, routes.clone());
         // `/__renox/events` lines go to the same tenant log (#126).
         gateway.set_client_event_sink(Arc::new(ClientLogSink::new(log_sink, &config.data_dir)));
