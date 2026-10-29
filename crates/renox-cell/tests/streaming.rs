@@ -348,10 +348,7 @@ async fn timed_get(addr: SocketAddr, path: &str, extra: &str) -> Timed {
     let mut complete = false;
     if chunked {
         let mut pos = body_start;
-        loop {
-            let Some(eol) = raw[pos..].windows(2).position(|w| w == b"\r\n") else {
-                break;
-            };
+        while let Some(eol) = raw[pos..].windows(2).position(|w| w == b"\r\n") {
             let size_line = String::from_utf8_lossy(&raw[pos..pos + eol]).to_string();
             let Ok(size) = usize::from_str_radix(size_line.trim(), 16) else {
                 break;
