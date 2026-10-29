@@ -1,5 +1,8 @@
 // The control API (docs/contracts/deploy-api.md): one Hono app, with the
 // request id, access log and error handling shared by every route module.
+// main.ts serves it twice, as two surfaces on two listeners (ADR D23, #218):
+// the public one never routes the node-facing paths, the node one serves
+// only them.
 
 import { Hono } from "hono";
 import { ApiError, errorBody } from "./errors.ts";
@@ -25,7 +28,33 @@ import { registerMcp } from "./mcp/server.ts";
 
 export type RouteModule = (app: Hono<Env>, deps: Deps) => void;
 
-export function createApp(deps: Deps, modules: RouteModule[] = []): Hono<Env> {
+/**
+ * Which requests an app answers. `public`: everything except the node-facing
+ * paths, for the internet and the public edge. `node`: the node-facing paths
+ * and `/v1/healthz`, for the listener only nodes reach (the address in their
+ * `[control] url` and `fetch_blocked_addresses`). `combined`: both, for
+ * in-process tests only; main.ts never serves it.
+ */
+export type Surface = "public" | "node" | "combined";
+
+/**
+ * The node-facing paths (`renox_node_` tokens: route tables, secret bundles,
+ * artifacts, certificates, meter and log ingestion). Compared on the path the
+ * router matches, lower-cased and with repeated slashes collapsed, so no
+ * spelling of a node path reaches a handler on the public surface.
+ */
+export function isNodePath(path: string): boolean {
+  const p = path.toLowerCase().replace(/\/{2,}/gu, "/");
+  return ["/v1/nodes", "/v1/ingest"].some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+}
+
+function served(surface: Surface, path: string): boolean {
+  if (surface === "combined") return true;
+  if (surface === "public") return !isNodePath(path);
+  return isNodePath(path) || path === "/v1/healthz";
+}
+
+export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surface = "combined"): Hono<Env> {
   const app = new Hono<Env>();
 
   app.use(async (c, next) => {
@@ -59,6 +88,14 @@ export function createApp(deps: Deps, modules: RouteModule[] = []): Hono<Env> {
   });
 
   app.notFound((c) => c.json(errorBody("RENOX_NOT_FOUND", c.get("requestId")), 404));
+
+  // Registered before every route, so a path of the other surface is 404
+  // before any handler or auth middleware runs (docs/24-threat-model.md B,
+  // node-facing control-plane endpoints).
+  app.use(async (c, next) => {
+    if (!served(surface, c.req.path)) return c.json(errorBody("RENOX_NOT_FOUND", c.get("requestId")), 404);
+    await next();
+  });
 
   for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerTeam, registerDomains, registerMcp, ...modules]) register(app, deps);
   return app;

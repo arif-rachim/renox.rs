@@ -43,9 +43,12 @@ pub struct WorkerConfig {
     /// Overrides of the tier table.
     #[serde(default)]
     pub tiers: BTreeMap<TierName, TierOverride>,
-    /// The node's own public addresses and the control plane's: tenant
-    /// `fetch` is refused to them on top of the private ranges
-    /// (`crates/renox-runtime` README, "Outbound fetch").
+    /// The node's own public addresses and the control plane's node-facing
+    /// ones (where `[control] url` resolves; never the public API address,
+    /// ADR D23): tenant `fetch` is refused to them on top of the private
+    /// ranges (`crates/renox-runtime` README, "Outbound fetch"). A
+    /// controlled worker refuses to start when `[control] url` resolves to
+    /// an address that is neither listed here nor in a private range.
     #[serde(default)]
     pub fetch_blocked_addresses: Vec<IpAddr>,
     /// Meter batches are written at least this often (contract: 5 s).
@@ -88,8 +91,11 @@ pub enum Mode {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ControlSection {
-    /// Base URL of the control API: `https://…` in production; plain
-    /// `http://` only for a loopback address (local stack, tests).
+    /// Base URL of the control API's node-facing listener: `https://…` in
+    /// production; plain `http://` only for a loopback address (local
+    /// stack, tests). It must resolve only to addresses tenant `fetch`
+    /// refuses (a private range or `fetch_blocked_addresses`), or the
+    /// worker does not start.
     pub url: String,
     /// File holding the node token (`renox_node_…`), mode 0600.
     pub node_token_file: PathBuf,
@@ -283,11 +289,13 @@ impl WorkerConfig {
                 };
                 check_control_url(&control.url)?;
                 // Gate F1 notes on #55: a controlled worker never runs tenant
-                // code without the node's and the control plane's addresses
-                // on the fetch blocklist (docs/24-threat-model.md B, SSRF).
+                // code without the node's and the control plane's node-facing
+                // addresses on the fetch blocklist (docs/24-threat-model.md B,
+                // SSRF). `Worker::start` also checks that `url` resolves only
+                // to refused addresses (#218).
                 if c.fetch_blocked_addresses.is_empty() {
                     return Err(ConfigError::Invalid(
-                        "fetch_blocked_addresses must list the node's and the control plane's addresses in controlled mode".into(),
+                        "fetch_blocked_addresses must list the node's own addresses and the control plane's node-facing ones in controlled mode".into(),
                     ));
                 }
             }

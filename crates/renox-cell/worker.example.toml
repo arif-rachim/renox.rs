@@ -14,8 +14,11 @@ logs_dir = "logs"            # <logs_dir>/tenant.ndjson
 node_id = "node-local"
 idle_timeout_secs = 600      # scale to zero after 10 minutes without a request
 meter_flush_ms = 5000        # meter batches written at least this often
-# The node's own public addresses and the control plane's: tenant fetch is
-# refused to them on top of the private ranges. Set this in production.
+# The node's own public addresses and the control plane's node-facing ones
+# (where [control] url resolves; not the public API address, ADR D23): tenant
+# fetch is refused to them on top of the private ranges. Set this in
+# production; a controlled worker does not start when [control] url resolves
+# to an address that is neither listed here nor private.
 fetch_blocked_addresses = []
 
 default_tier = "free"

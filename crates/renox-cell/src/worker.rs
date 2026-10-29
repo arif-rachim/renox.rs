@@ -11,7 +11,10 @@
 //! With `mode = "controlled"` (#55) routes, tiers, artifacts and secrets
 //! come from the control plane of `[control]` (`crate::control`), meters
 //! and logs go to it over HTTP, and `[control] health_listen` serves
-//! `GET /healthz`.
+//! `GET /healthz`. A controlled worker refuses to start when `[control] url`
+//! resolves to an address tenant `fetch` could reach (ADR D23 follow-up,
+//! #218): the node-facing listener must sit on an address that the private
+//! ranges or `fetch_blocked_addresses` already refuse.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -27,7 +30,7 @@ use renox_gateway::{
 use renox_meter::{HttpMeterSink, Meter, MeterConfig, NdjsonFileSink};
 use renox_runtime::ops::fetch::FetchConfig;
 use renox_runtime::ops::log::NdjsonLogSink;
-use renox_runtime::ops::net_policy::ExtraBlocked;
+use renox_runtime::ops::net_policy::{ExtraBlocked, blocked_reason};
 use renox_runtime::{Runtime, RuntimeConfig};
 use serde::Deserialize;
 use tokio::net::TcpListener;
@@ -76,6 +79,50 @@ impl std::fmt::Display for WorkerError {
 }
 
 impl std::error::Error for WorkerError {}
+
+/// Refuses a `[control] url` that tenant code could reach: every address
+/// the host resolves to must be in a blocked range or listed in
+/// `fetch_blocked_addresses`, otherwise a tenant `fetch` to the same address
+/// would reach the node-facing endpoints (ADR D23, #218;
+/// `docs/24-threat-model.md` B, node-facing endpoints). Fails closed: a host
+/// that does not resolve is refused too. Checked once at start; when the
+/// control plane moves, the operator updates the list and restarts.
+async fn check_control_unreachable(url: &str, extra: &ExtraBlocked) -> Result<(), WorkerError> {
+    let refuse = |why: String| WorkerError::Control(format!("control.url: {why}"));
+    // `WorkerConfig::parse` already checked the form (`check_control_url`).
+    let uri: http::Uri = url.parse().map_err(|_| refuse("not a URL".into()))?;
+    let host = uri
+        .host()
+        .ok_or_else(|| refuse("no host".into()))?
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
+    let port = uri
+        .port_u16()
+        .unwrap_or(if uri.scheme_str() == Some("http") {
+            80
+        } else {
+            443
+        });
+    let addrs: Vec<_> = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|e| refuse(format!("{host} does not resolve ({e}); refusing to start")))?
+        .map(|a| a.ip())
+        .collect();
+    if addrs.is_empty() {
+        return Err(refuse(format!(
+            "{host} does not resolve; refusing to start"
+        )));
+    }
+    for ip in addrs {
+        if blocked_reason(ip).is_none() && !extra.contains(ip) {
+            return Err(refuse(format!(
+                "{host} resolves to {ip}, which tenant fetch can reach; add {ip} to fetch_blocked_addresses or serve the node-facing control API on a private address"
+            )));
+        }
+    }
+    Ok(())
+}
 
 /// The route table file, read for the manager's drain decisions; the
 /// gateway validates it (V13) on its own.
@@ -126,12 +173,13 @@ impl Worker {
         // `WorkerConfig::parse` refuses an empty list in controlled mode.
         if config.fetch_blocked_addresses.is_empty() {
             tracing::warn!(
-                "fetch_blocked_addresses is empty: set the node's and the control plane's addresses in production"
+                "fetch_blocked_addresses is empty: set the node's own addresses and the control plane's node-facing ones in production"
             );
         }
         fetch.extra_blocked = ExtraBlocked(config.fetch_blocked_addresses.clone());
         let control = match (&config.mode, &config.control) {
             (Mode::Controlled, Some(section)) => {
+                check_control_unreachable(&section.url, &fetch.extra_blocked).await?;
                 let token =
                     read_node_token(&section.node_token_file).map_err(WorkerError::Control)?;
                 Some(
