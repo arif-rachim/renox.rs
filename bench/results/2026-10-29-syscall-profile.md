@@ -23,7 +23,7 @@
 | `bench/run.sh B8` and every load-generator scenario (B1, B2, B3, B4, B6, B9, B11, B12) | `oha` / `wrk` are not installed on the dev container (`bench/scenarios/README.md`: installed by hand) | O3 (#158) on `node-small`: run `ops/scripts/trace-syscalls.sh` there and diff |
 | `bun test cli/tests/dev.e2e.test.ts`, `bench/run.sh B16` | Failed under `strace`: the template-edit step races the slowed-down worker (fragment still shows v1); the same tests are not affected by the sandbox itself, which only `renox-worker` with `[sandbox] enabled` applies | Re-trace with a longer reload wait |
 | aarch64 | No arm64 host; the list is derived from x86_64 by the mapping in the script | The first arm64 node (#139 builds) |
-| Litestream sidecars | `litestream` cannot run in this session; a sidecar started by the worker inherits the filter | #255 on CI (Litestream on `PATH`), or the systemd launcher |
+| Litestream sidecars | Not traced in the first run (running the binary was not allowed then); traced in the amendment below | — |
 
 ## Result
 
@@ -33,6 +33,13 @@
 | aarch64 | 92 | derived | — |
 
 Amended for #259 (the `[process] microvm_hook`): CI's `RENOX_TEST_SANDBOX=enforce` run showed a hook started by the worker is killed, because it inherits the filter. `sh` reads its identity at start. `baseline.txt` gained `getuid`, `getgid`, `getegid`, `getppid` and `getpgrp`, all read-only, and both lists were updated the way `--from-traces` would update them. x86_64 now has 96 calls and aarch64 97 (`getpgrp` is `getpgid` there; the script's mapping table has the pair). Fork (`clone` without thread flags, `fork`, `vfork`) stays out, so a hook must use shell builtins or `exec` its launcher. `ops/scripts/move-to-microvm.sh` and the hook of `crates/renox-cell/tests/move_hook.rs` were traced: nothing outside the list.
+
+Amended for the Litestream sidecars (#255). In CI's `enforce` run, a sidecar started by the worker was killed by the filter, and replication silently did nothing. The pinned Litestream 0.3.13, verified against `ops/litestream.lock`, was then traced with `strace -f` through `replicate` (with writes, a checkpoint and `SIGTERM`), `snapshots`, `wal` and `restore` (with and without `-timestamp`). A Go program built here was also run under the filter. What they need beyond the worker's own list:
+
+- `clone` with `CLONE_THREAD` (Go's threads). It is added in `src/sandbox/seccomp.rs` as an argument rule, not as a list entry, so `clone` without that flag (a fork) is still killed.
+- `epoll_pwait`, `mkdirat`, `renameat`, `readlinkat`, `fchownat`, `statfs`, `getrlimit`, added to `baseline.txt` with their reasons.
+
+x86_64 now has 103 calls and aarch64 100. Under `RENOX_TEST_SANDBOX=enforce` with Litestream on `PATH`: `cargo test -p renox-cell` passed 126, failed 0, including all 6 tests of `tests/replication.rs`.
 
 Never in either list (a unit test enforces it): `ptrace`, `process_vm_readv`/`writev`, `bpf`, `mount`, `umount2`, `init_module`, `finit_module`, `kexec_load`, `setns`, `unshare`, `pivot_root`, `chroot`, `keyctl`, `add_key`, `perf_event_open`, `userfaultfd`, `open_by_handle_at`, and `seccomp` itself (a second filter cannot be loaded once the first is in place).
 

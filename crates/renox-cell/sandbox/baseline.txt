@@ -21,3 +21,10 @@ getgid          same
 getegid         same
 getppid         same
 getpgrp         same
+epoll_pwait     Go's network poller in the Litestream sidecars (#255), which inherit the filter
+mkdirat         the Litestream sidecars and `litestream restore` (#255), which inherit the filter: replica directories
+renameat        same: replica files and the restored file moved into place
+readlinkat      same: Go's runtime reads /proc/self/exe
+fchownat        same: replica files take the owner of the database file (the worker's own user; no CAP_CHOWN)
+statfs          same: the file system of the database
+getrlimit       same: Go's runtime reads RLIMIT_NOFILE

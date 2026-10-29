@@ -38,6 +38,9 @@ pub fn names(list: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// `CLONE_THREAD` (linux/sched.h), the same value on x86_64 and aarch64.
+const CLONE_THREAD: u64 = 0x0001_0000;
+
 /// Compiles `names` into a BPF program for `arch`. An unknown name is an
 /// error that names it.
 pub fn compile(
@@ -45,10 +48,21 @@ pub fn compile(
     mode: SandboxMode,
     arch: TargetArch,
 ) -> Result<BpfProgram, SandboxError> {
-    let filter: Vec<_> = names
+    let mut filter: Vec<_> = names
         .iter()
         .map(|n| serde_json::json!({ "syscall": n }))
         .collect();
+    // `clone` only for a new thread (flags with CLONE_THREAD), never a new
+    // process. Go programs the worker starts (the Litestream sidecars, #255)
+    // inherit this filter and create their threads with `clone`; `clone3`
+    // is already allowed whole (seccomp cannot read its flags), so this adds
+    // no way to fork.
+    if !names.contains("clone") {
+        filter.push(serde_json::json!({
+            "syscall": "clone",
+            "args": [{ "index": 0, "type": "qword", "op": { "masked_eq": CLONE_THREAD }, "val": CLONE_THREAD }],
+        }));
+    }
     let json = serde_json::json!({
         "worker": {
             "mismatch_action": match mode {
