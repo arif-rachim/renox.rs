@@ -4,7 +4,7 @@
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
 //     hash, manifest, migrations, public files, templates, pages, security,
-//     modules: rules V1-V22, versions 0, 1 and 1.1);
+//     modules: rules V1-V23, versions 0, 1, 1.1 and 1.2);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - client-event batches and raw CSP report bodies follow
 //     docs/contracts/client-events.md (schema plus rules CE1 and CE2), and
@@ -581,6 +581,47 @@ function manifestRules(manifest: JsonObject): string[] {
     }
   }
   errors.push(...artifactModuleRules(manifest));
+  errors.push(...entriesRules(manifest));
+  return errors;
+}
+
+/**
+ * V23 (version 1.2): `entries` names exactly the `code.entry` ids; each
+ * route's handler is among its module's recorded exports (`export` of a
+ * function route, `load` and `actions` of a page route); a module's
+ * `services` entry exports every service of `exports.services`, and the
+ * `services` and `hooks` entries stay eager (ops.md 1.4.0 section 11).
+ */
+function entriesRules(manifest: JsonObject): string[] {
+  if (!isObject(manifest.entries)) return [];
+  const errors: string[] = [];
+  const version = (manifest.artifact as JsonObject).version;
+  if (version !== 1) errors.push(`V23: entries needs artifact.version 1 (version 1.2), got ${version}`);
+  const entries = manifest.entries as Record<string, JsonObject>;
+  const code = (manifest.code as JsonObject).entry as JsonObject;
+  for (const id of Object.keys(code)) if (!(id in entries)) errors.push(`V23: code.entry "${id}" has no entries record`);
+  for (const id of Object.keys(entries)) if (!(id in code)) errors.push(`V23: entries "${id}" is not a key of code.entry`);
+  const exportsOf = (id: string): string[] => (Array.isArray(entries[id]?.exports) ? (entries[id]?.exports as string[]) : []);
+  for (const [i, route] of (manifest.routes as JsonObject[]).entries()) {
+    const id = route.module as string | undefined;
+    if (id === undefined || !(id in entries)) continue;
+    const need: string[] = [];
+    if (route.kind === "function" && typeof route.export === "string") need.push(route.export);
+    if (route.kind === "page") {
+      if (route.load === true) need.push("load");
+      if (Array.isArray(route.actions) && route.actions.length > 0) need.push("actions");
+    }
+    for (const name of need) if (!exportsOf(id).includes(name)) errors.push(`V23: routes[${i}]: module "${id}" does not export "${name}"`);
+  }
+  for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) {
+    for (const part of ["services", "hooks"]) {
+      const id = `modules/${m.name}/${part}`;
+      if (entries[id]?.eager === false) errors.push(`V23: entries "${id}" must be eager (hooks and services are checked at isolate creation)`);
+    }
+    const services = isObject(m.exports) && Array.isArray(m.exports.services) ? (m.exports.services as string[]) : [];
+    const id = `modules/${m.name}/services`;
+    if (id in entries) for (const s of services) if (!exportsOf(id).includes(s)) errors.push(`V23: "${id}" does not export service "${s}"`);
+  }
   return errors;
 }
 
@@ -1081,7 +1122,7 @@ function checkMessage(kind: string, doc: Json): string[] {
   return errors;
 }
 
-/** Walks an artifact directory and applies V1-V22. Returns one line per violation. */
+/** Walks an artifact directory and applies V1-V23. Returns one line per violation. */
 function checkArtifact(dir: string): string[] {
   const errors: string[] = [];
   const files = new Map<string, Uint8Array>();
@@ -1398,7 +1439,7 @@ for (const file of listDir(`${root}/examples/client-events`).filter((f) => f.sta
 const kindsWithout = clientKinds.filter((k) => !exampleKinds.has(k)).map((k) => `${k} has no valid example`);
 report(kindsWithout.length === 0, `every client event kind has a valid example (${clientKinds.length} kinds)`, kindsWithout);
 
-// 4. artifact.md directories: valid artifacts pass V1-V22; broken ones fail for the named rule.
+// 4. artifact.md directories: valid artifacts pass V1-V23; broken ones fail for the named rule.
 const artifacts: { dir: string; expect?: string }[] = [
   { dir: "examples/hello-artifact" },
   { dir: "examples/artifact/notes-artifact" },

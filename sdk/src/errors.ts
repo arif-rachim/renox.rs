@@ -36,6 +36,8 @@ export const RESPONSE_ERROR_CODES = [
   "RENOX_BODY_TOO_LARGE",
   "RENOX_CSRF",
   "RENOX_RENDER_LIMIT",
+  // ops 1.4.0: a lazy route module failed its first evaluation.
+  "RENOX_MODULE_EVAL",
 ] as const;
 
 export type DbErrorCode =

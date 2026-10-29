@@ -10,8 +10,8 @@ Rules:
 
 | Contract | Between | File | Issue | Status |
 | --- | --- | --- | --- | --- |
-| Runtime ops and `ctx` | `renox-runtime` (P1) ↔ SDK (P10), cell (P5) | [`ops.md`](ops.md), [`ctx.d.ts`](ctx.d.ts), [`ops.schema.json`](ops.schema.json) | #12 (v0), #17, #153, #201, #206, #226 | 1.3.0 |
-| Artifact format and route table | cell (P5), gateway (P3), CLI (P11) ↔ control plane (P12) | [`artifact.md`](artifact.md), [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json) | #15 (v0), #152, #227 | 1.1 (v0 accepted) |
+| Runtime ops and `ctx` | `renox-runtime` (P1) ↔ SDK (P10), cell (P5) | [`ops.md`](ops.md), [`ctx.d.ts`](ctx.d.ts), [`ops.schema.json`](ops.schema.json) | #12 (v0), #17, #153, #201, #206, #226, #263 | 1.4.0 |
+| Artifact format and route table | cell (P5), gateway (P3), CLI (P11) ↔ control plane (P12) | [`artifact.md`](artifact.md), [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json) | #15 (v0), #152, #227, #263 | 1.2 (v0 accepted) |
 | Meter record | `renox-meter` (P4) ↔ billing (P14) | [`meter.md`](meter.md), [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json) | #16 (v0), #152, #226 | 0.2 |
 | Client events | client script (P10) ↔ gateway (P3) ↔ dashboard (P13) | [`client-events.md`](client-events.md), [`schemas/client-event.schema.json`](schemas/client-event.schema.json) | #125 | v0 |
 | Error codes | every component ↔ tenants | [`errors.md`](errors.md) | #91 (v0), #152 | 0.1 |
@@ -22,7 +22,7 @@ Rules:
 
 ```
 bunx tsc --noEmit -p docs/contracts      # ctx.d.ts and the type-level examples in ctx.usage.ts
-bun run docs/contracts/validate.ts       # JSON examples vs schemas, artifact rules V1-V22, meter rule M1 (and the event-record route form in the meter schema), client-event rules CE1-CE2, route rules R1-R3,
+bun run docs/contracts/validate.ts       # JSON examples vs schemas, artifact rules V1-V23, meter rule M1 (and the event-record route form in the meter schema), client-event rules CE1-CE2, route rules R1-R3,
                                          # module manifest rules MF1-MF12 (TOML examples and example projects),
                                          # deploy-api.yaml examples and state machines, error catalogue vs ops.md/ctx.d.ts/deploy-api/23-failure-modes.md
 ```

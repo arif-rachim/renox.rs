@@ -1,0 +1,22 @@
+{
+  "$comment": "valid (1.4.0): Latin digits asked for explicitly on an English page",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/auth/login",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "auth"
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": [],
+    "locale": "en-u-nu-latn",
+    "dir": "ltr"
+  }
+}

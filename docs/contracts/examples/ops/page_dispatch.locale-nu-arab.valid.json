@@ -1,0 +1,22 @@
+{
+  "$comment": "valid (1.4.0): Arabic with Eastern Arabic digits, setLocale(\"ar-AE-u-nu-arab\") (ops.md section 14, \"Locale\")",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/auth/login",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "auth"
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": [],
+    "locale": "ar-AE-u-nu-arab",
+    "dir": "rtl"
+  }
+}

@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1.1** (F4, #227: modules). The major number is written into every manifest as `artifact.version`; 1.1 is additive and keeps `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
+| Version | **1.2** (F4, #263: `entries`, the export names and `eager` flag of each code entry, for the lazy route modules of `ops.md` 1.4.0). 1.1 (#227) added modules. The major number is written into every manifest as `artifact.version`; 1.1 and 1.2 are additive and keep `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
 | Producers | `cli/` (P11): `renox build` writes an artifact directory; examples are also written by hand |
 | Consumers | `crates/renox-cell` (P5) and `crates/renox-runtime` (P1): load and verify an artifact; `crates/renox-gateway` (P3): reads the route table, the public index, and the `security` object; `control/api` (P12, F3): validates, stores, and routes artifacts |
 | Machine-readable | [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json), [`schemas/migrations-checksums.schema.json`](schemas/migrations-checksums.schema.json), [`schemas/public-manifest.schema.json`](schemas/public-manifest.schema.json) (JSON Schema draft 2020-12) |
@@ -123,6 +123,7 @@ Version 1, abridged from [`examples/artifact/shop-artifact/`](examples/artifact/
 | `app.timezone` | string, IANA zone name | yes | Tenant-local time zone (`docs/07-app-model.md`, scheduled jobs from F6). Must be a zone known to `Intl` |
 | `code.format` | `"esm-dir"` \| `"eszip"` | yes | How `code/` is laid out (section 1) |
 | `code.entry` | object: module id → module path | yes, at least one entry | One entry per route module. The path is relative to `code/` for `esm-dir`, and the specifier `file:///<path>` inside `bundle.eszip` for `eszip`. Ends in `.js` or `.mjs`. A module id is the source path without extension: `functions/...` for function routes, `pages/...` for page routes (version 1) |
+| `entries` | object: module id → `{ exports, eager? }` | version 1.2, optional | What `renox build` recorded for each `code.entry` module: its static export names and whether the runtime evaluates it at isolate creation (below, "Entries"). Absent: every entry is eager, as in 1.1 |
 | `routes[]` | array of route objects | yes, at least one | The deployment's route table (below) |
 | `templates` | object: template id → template entry | version 1, optional | Every template in `templates/` (below). Absent or empty when the app has no templates. Not allowed in version 0 |
 | `permissions.network[]` | array of allowlist entries | yes (may be empty) | Outbound hosts for `fetch`, entry syntax as in `ops.md` section 2 ("Allowlist"). Empty = no outbound network |
@@ -300,6 +301,24 @@ A module's template `kind` follows from the id without its prefix (V14), so `mod
 - `original_sha256` is the SHA-256 of the module's original file **at the installed version**. On the next build against a new module version, the CLI compares it with the new original: a difference is the "Template override drifted" case of `docs/23-failure-modes.md`. The build goes on with the override and warns with the diff; the dashboard flags the override by comparing the active deployment's `overrides.json` with the new one.
 
 
+### Entries (version 1.2)
+
+`ops.md` 1.4.0 lets the runtime evaluate a route module on its first request instead of at isolate creation, so an isolate does not pay for code only one route needs (a payment SDK in `checkout`, #157). The fail-closed check that every route's export is a function then cannot run at isolate creation for that module. `entries` moves that check before any isolate:
+
+```json
+"entries": {
+  "functions/api/checkout": { "exports": ["POST"], "eager": false },
+  "pages/_error": { "exports": ["load"] },
+  "pages/products/[id]": { "exports": ["actions", "load"], "eager": false },
+  "modules/auth/services": { "exports": ["currentUser", "login"] }
+}
+```
+
+- **Keys** are exactly the keys of `code.entry` (V23).
+- **`exports`** lists the module's static export names, sorted, as the bundler saw them (`export function POST`, `export const actions`, `export { x as y }` gives `y`; `export *` is resolved). Every route's handler must be in its module's list: `export` for a function route, `load` for a page route with `load: true`, and `actions` for one with actions. A module's `services` entry lists every name of its `exports.services` (V23).
+- **The worker re-checks at prepare,** before any isolate: it reads each module's static exports from the code (`code/` or `bundle.eszip`) and refuses the artifact when they differ from the recorded list. A tampered or stale `entries` cannot hide a missing export until a request finds it.
+- **`eager`** defaults to `true`. `false` lets the runtime evaluate the module on its first request, once per isolate (`ops.md` 1.4.0, section 11, step 4). A module's `services` and `hooks` entries must stay eager (V23): the broker needs them before any request. `renox build` writes `eager: false` for route modules and keeps `pages/_error` eager (`ops.md` Open 11).
+
 ### Limits overrides
 
 An app may lower a limit below its tier's default, never raise it. The worker applies `min(override, tier default)`, and a value above the tier default is a validation error at deploy time (F3) and in `renox check`. The schema bounds are the paid-tier values from `docs/04-isolation-security.md`:
@@ -401,6 +420,7 @@ One set of rules, applied by `renox check` and `renox build` (P11), by the worke
 | V20 | **Overrides** (version 1.1): `overrides.json` exists when `overrides/` does and lists exactly its files; each is `<module>/(pages\|partials)/….html` of a listed module (templates only: logic cannot be overridden) and names the template `modules/<module>/<path without .html>`, which is a key of `manifest.templates`. With the module tree at hand (`renox build`), each `original_sha256` equals the original file at the installed version | check, *load*; the original hash in `renox build` |
 | V21 | **Routes after mounting** (version 1.1): a module's route path is its `mount` or under it; no two routes of different owners (the app, a module) answer the same method with the same shape (V8's rule, reported as V21 when the owners differ) | check, *load* |
 | V22 | **Approved permissions** (version 1.1): each module's `permissions` are a subset of its `approved` (tables equal when present; `network`, `secrets`, `slots`, `hooks` contained); a `slots` filler fills only a slot in its module's `permissions.slots` | check, *load* |
+| V23 | **Entries** (version 1.2): when `entries` is present, `artifact.version` is 1; its keys are exactly the keys of `code.entry`; every route's handler (`export` of a function route, `load` and `actions` of a page route that has them) is in its module's `exports`; every name of a module's `exports.services` is in the exports of its `modules/<name>/services` entry; the `services` and `hooks` entries of a module are not `eager: false`. At prepare, the recorded exports equal the module's static exports | check, *load* |
 
 Every rejection names the rule (`V1`–`V22`), the path or field, and a one-line reason; it never contains a filesystem path of the machine doing the check. In F3, a rejected upload sets the deployment state `rejected` with `RENOX_DEPLOY_REJECTED` (`errors.md`).
 
@@ -423,6 +443,7 @@ Every rejection names the rule (`V1`–`V22`), the path or field, and a one-line
 - The consumers are changed by the issues that implement version 1 (pages: #40, #41; templates: #38, #43; security: #47; error pages: #93). Until they land, a consumer that refuses `artifact.version: 1` with V3 is correct, not a bug.
 - `renox build` writes version 1 from F2 on, also for apps with no pages, so the public index is always `public.json` in new artifacts.
 - **Version 1.1** (#227) keeps `artifact.version: 1`: an artifact without modules is byte-for-byte a version 1 artifact, and one with modules carries the new `modules` array, `slots`, and top-level entries. The consumers learn them in #232 (`crates/renox-cell` loads module code, migrations in `modules` order, the slot registry, and the module list for the bootstrap) and #235 (the CLI writes them). Until then a consumer that refuses a manifest whose `modules` is a non-empty array, with V3, is correct, not a bug. `packages/artifact-validate`, and so `control/api` uploads, accept 1.1 from this version on.
+- **Version 1.2** (#263) keeps `artifact.version: 1`: `entries` is optional, and without it everything behaves as in 1.1. The consumers learn it in #265: the CLI writes it, the cell checks it at prepare, and the runtime evaluates `eager: false` entries on first use. Until then a consumer that ignores `entries` and evaluates every entry eagerly is correct, not a bug: that is the 1.1 behaviour.
 - A future breaking change bumps the version again. A field added under an existing object, with a default that keeps old behaviour, is a minor change and does not bump the version.
 
 ## Open
@@ -437,6 +458,7 @@ Every rejection names the rule (`V1`–`V22`), the path or field, and a one-line
 8. **Event and hook exports.** `exports` copies the module's public API for the broker (ops 1.3.0, #226, not merged yet: blocked on the SDK type sync). If #226 lands with different names, `exports` follows it as a minor change before #232 reads it.
 
 Settled in version 1: the `public/manifest.json` name clash (version 0 Open 1, now section 4: the index moved to `public.json`) and trailing slashes (version 0 Open 4, now section 3, "Trailing slashes"). Settled in version 1.1: module templates and overrides (version 1 Open 5): a module's ids are prefixed with `modules/<name>/` instead of a `<module>:` namespace, so an id stays a path and the template file stays `templates/<id>.jinja`.
+9. **Static exports (version 1.2).** The worker's prepare-time check (V23) reads a module's static exports from its code. For `esm-dir` that is the ES module's export list after the CLI bundled it; for `eszip` the same list inside the bundle. A module whose exports are only known at run time (`export default` of a computed object used as a handler table) is not a route module the CLI produces, so the rule does not try to support it.
 
 ## Changelog
 
@@ -445,3 +467,4 @@ Settled in version 1: the `public/manifest.json` name clash (version 0 Open 1, n
 | 0 | #15 | First version (F1): layout, content hash, manifest with function routes, migrations, public index, route table, rules V1–V13 |
 | 1 | #152 | **Pages:** `kind: "page"` routes with `module`, `load`, `actions`, `template`; methods and action selection (`?/name`); page and function routes share V8. **Templates:** `templates/<id>.jinja`, `manifest.templates` with `kind` and the per-page fragment map; fragment selection by `HX-Target`. **Security:** optional `security` object from `renox.toml [security]` (CSP, CORS, headers, rate-limit buckets). **Public index** moved to `public.json`, so `public/manifest.json` is an ordinary file (Open 1). **Trailing slash:** 308 redirect for page routes only (Open 4). **Rules:** V14–V16 added; V1, V3, V7, V8, V12 extended. Consumers accept versions 0 and 1 (section 8) |
 | 1.1 | #227 | Minor (additive), `artifact.version` stays `1`. **Modules:** the `modules` array copied from `renox.lock` in topological (migration) order, each entry with `name`, `version`, `hash`, `source`, `mount`, `isolation`, `dependencies`, `config`, `permissions`, `approved`, `exports`; module code under `code/modules/<name>/`, code ids and template ids under `modules/<name>/`, the `services` and `hooks` entries; `migrations/<name>/`; `policies/<name>/*.cedar` (carried, F5); `overrides/<name>/…` with `overrides.json`; module routes under their `mount`; the `slots` registry. **Rules:** V17–V22 added; V1, V7, V14 extended. Open 5 settled |
+| 1.2 | #263 | Minor (additive), `artifact.version` stays `1`. **Entries:** optional `entries`, code entry id → `{ exports, eager? }`, written by `renox build`: each module's static export names and whether the runtime evaluates it at isolate creation (`ops.md` 1.4.0, lazy route modules). **Rule:** V23 (keys match `code.entry`, route handlers and services are among the recorded exports, `services` and `hooks` stay eager, the worker re-checks the exports at prepare). Without `entries` an artifact behaves as in 1.1 |
