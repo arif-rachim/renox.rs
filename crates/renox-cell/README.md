@@ -184,6 +184,31 @@ With `[sandbox] enabled = true` (#253, ADR D6, `docs/04-isolation-security.md` "
 - `renox-worker --sandbox-selftest --config worker.toml` applies the profile, then tries `open("/etc/passwd")`, `connect(169.254.169.254:80)` and `connect` to the control plane's port, lists the artifacts dir and writes in the data dir; it prints a table and exits non-zero if either of the first two got through. Run it on every new node.
 - Tests: `tests/sandbox.rs` (the self-test, and a tenant with a database served by the real binary under `enforce`); `RENOX_TEST_SANDBOX=enforce cargo test -p renox-cell` loads the allowlist into the test process (seccomp only; the `test-support` feature) so the whole suite runs under it, as CI's rust job does.
 
+## Modules (#232)
+
+An artifact 1.1 with installed modules (`docs/contracts/artifact.md`, "Modules") needs nothing special to render: the build has compiled module templates into `templates/modules/<name>/…`, with any tenant override compiled into the module's id, and the slot registry into the layouts' `<r-slot>` includes. The cell:
+
+- runs the migrations in `modules` order (each module under its own prefix, `renox_data::migrate_all`), then the app's, which may read every module's public views;
+- dispatches module routes like the app's: their paths already carry the `mount`, and the route's owner gives the loader its module ctx (`renox-runtime`);
+- gives the renderer the request's **action set** for `r-can` and slot fillers' `requires`. The set is empty until the policy engine (F5), unless the page loader's data has an `actions` array of action names (`src/render.rs`, `action_set`).
+
+Override drift is detected by `renox build` (#235), not here: the artifact carries the original's hash (`overrides.json`), but not the original file.
+
+Tests: `tests/modules_pages.rs`.
+
+## Outbox delivery (#229)
+
+Each cell runs one delivery task (`src/outbox.rs`) for the durable events of `docs/contracts/ops.md` 1.3.0 section 15.4 (ADR D14):
+
+- **Woken, not polling.** `TenantDb::on_outbox_commit` (renox-data) fires after a commit that inserted into `renox__outbox`: SQLite's update hook marks the insert, the WAL hook runs after the commit, and the rollback hook forgets it. The task otherwise sleeps until the earliest `next_at`, or for good when the outbox is empty. When the cell starts, the task scans the rows already due, so events written before a restart or an eviction are delivered by the tenant's next cell.
+- **Fan-out.** A new event (`target` empty) becomes one delivery per module whose `hooks.ts` has an `on` handler for it, ordered by module name (`IsolateHandle::event_handlers`). Each delivery has its own attempts.
+- **Attempt.** `IsolateHandle::deliver_event` runs the handler under the tier's CPU, heap and wall-clock limits. The handler's transaction deletes the row together with its writes (the ack). A delivery is admitted like a request, under the manager's map lock, so a cell is never evicted while one is in flight; eviction stops the task.
+- **Retries.** A failed attempt (throw, limit, busy) is due again after `base × 2^(n−1)` (10 s), capped at 1 h, ± 20 %. After the 8th it moves to `renox__outbox_dead` with the error code or `threw` as its last error, never the handler's message or the payload, and one `event_dead` line goes to the tenant log. A delivery whose module has no handler any more is dropped. `CellManager::set_outbox_config` changes these numbers.
+- **Meter.** Every attempt that ran tenant code is one record with `kind: "event"`, route `EVENT <module> <name>`, request id `<event id>_<module>_<attempt>`, `http_status` 200 or 500, and `ingress_bytes`/`egress_bytes` 0 (`meter.md` 0.2).
+- **Gauge.** `CellManager::outbox_stats(tenant)` returns the pending deliveries and dead letters of a tenant whose file is open on the node.
+
+Tests: `tests/outbox.rs`.
+
 ## Not here yet
 
 Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).

@@ -1,0 +1,35 @@
+{
+  "$comment": "invalid: \"app\" is never in the module list",
+  "dispatch": "init",
+  "modules": [
+    {
+      "name": "app",
+      "isolation": "shared",
+      "dependencies": [
+        "auth"
+      ],
+      "config": {},
+      "permissions": {
+        "tables": "org__*",
+        "network": [],
+        "secrets": [],
+        "slots": [
+          "app.header"
+        ],
+        "hooks": [
+          "auth.after_login"
+        ]
+      },
+      "exports": {
+        "services": [
+          "currentOrg"
+        ],
+        "events": {},
+        "hooks": [],
+        "views": [
+          "org__public_members_v1"
+        ]
+      }
+    }
+  ]
+}

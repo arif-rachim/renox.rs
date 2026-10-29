@@ -27,6 +27,11 @@ pub struct PageRender {
     /// Out-of-band fragments to render after the main output (an action's
     /// `{ fragments }`, #41); empty after `load`.
     pub oob_fragments: Vec<String>,
+    /// The page's locale from `setLocale` (`ops.md` 1.3.0 section 14,
+    /// "Locale"); `None` = `en`.
+    pub locale: Option<String>,
+    /// `"ltr"` or `"rtl"` from `setLocale`; `None` = the locale's default.
+    pub dir: Option<String>,
 }
 
 /// The session of a page request (`ops.md` section 14, "Session"). The cell

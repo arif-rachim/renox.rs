@@ -12,10 +12,17 @@ import {
   op_db_execute,
   op_db_query,
   op_db_query_one,
+  op_db_savepoint_begin,
+  op_db_savepoint_release,
+  op_db_savepoint_rollback,
   op_db_tx_begin,
   op_db_tx_commit,
   op_db_tx_rollback,
   op_deadline_remaining_ms,
+  op_events_ack,
+  op_events_emit,
+  op_password_hash,
+  op_password_verify,
   op_renox_fetch,
   op_fetch_body_close,
   op_fetch_body_read,
@@ -27,7 +34,15 @@ import {
 
 const {
   ArrayIsArray,
+  ArrayPrototypeIncludes,
   ArrayPrototypeJoin,
+  ArrayPrototypeSort,
+  JSONParse,
+  ObjectEntries,
+  RangeError,
+  RegExpPrototypeTest,
+  SafeMap,
+  SafeSet,
   ArrayPrototypeMap,
   ArrayPrototypeSome,
   ArrayPrototypePush,
@@ -86,6 +101,36 @@ function currentToken() {
   return requestVar.get() ?? 0;
 }
 
+// ops.md 1.3.0 section 15.1: the async context also carries the module
+// whose code runs (attribution of console, fetch, and renox:modules calls),
+// the request's module state (its ctx objects), the current transaction
+// (section 1, "Module argument"), and the service call depth.
+const moduleVar = new core.AsyncVariable();
+const stateVar = new core.AsyncVariable();
+const txVar = new core.AsyncVariable();
+const depthVar = new core.AsyncVariable();
+
+/** The module whose code runs now: "app" unless the broker entered one. */
+function currentModule() {
+  return moduleVar.get() ?? "app";
+}
+
+/** The op's module argument: null for the app (ops.md section 0, "Module"). */
+function moduleArg(module) {
+  return module === "app" ? null : module;
+}
+
+/** Runs `fn` with `vars` entered ([variable, value] pairs), restoring the context after. */
+function within(vars, fn) {
+  const previous = vars[0][0].enter(vars[0][1]);
+  try {
+    for (let i = 1; i < vars.length; i++) vars[i][0].enter(vars[i][1]);
+    return fn();
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Errors thrown into tenant code (ops.md section 0, "Errors").
 
@@ -95,6 +140,22 @@ class RenoxError extends Error {
     this.name = "RenoxError";
     this.code = code;
     if (details !== undefined) this.details = ObjectFreeze(details);
+  }
+}
+
+class ModuleUndeclaredError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_MODULE_UNDECLARED", message, details);
+    this.name = "ModuleUndeclaredError";
+  }
+}
+
+class ModuleServiceError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_MODULE_SERVICE", message, details);
+    this.name = "ModuleServiceError";
+    this.module = details.module;
+    this.service = details.service ?? null;
   }
 }
 
@@ -118,7 +179,13 @@ function toRenoxError(e) {
 // ---------------------------------------------------------------------------
 // fetch (ops.md section 2). Replaces the global `fetch`; also `ctx.fetch`.
 
-async function renoxFetch(input, init = undefined) {
+/** The global `fetch`: checked against the list of the module whose code runs. */
+function renoxFetch(input, init = undefined) {
+  return moduleFetch(currentModule(), input, init);
+}
+
+/** `fetch` for `module`'s own allowlist (ops.md 1.3.0 section 2, `FetchRequest.module`). */
+async function moduleFetch(module, input, init = undefined) {
   const token = currentToken();
   // Normalise everything through the standard Request so headers, methods,
   // and bodies follow the Fetch spec; then hand plain values to Rust.
@@ -140,6 +207,7 @@ async function renoxFetch(input, init = undefined) {
       headers,
       body,
       redirect: req.redirect,
+      module: moduleArg(module),
     });
   } catch (e) {
     throw toRenoxError(e);
@@ -263,63 +331,105 @@ function toRows(out) {
   });
 }
 
-async function dbCall(op, sql, params, tx) {
+async function dbCall(op, sql, params, tx, module) {
   const token = currentToken();
   if (typeof sql !== "string") throw new RenoxError("RENOX_DB_PARAM", "sql must be a string");
   const [wire, bytes] = encodeParams(params);
   try {
-    return await op(token, sql, wire, bytes, tx);
+    return await op(token, sql, wire, bytes, tx, moduleArg(module));
   } catch (e) {
     throw toRenoxError(e);
   }
 }
 
-function statements(tx) {
+/**
+ * Statements under `module`'s authorizer. `tx` is a transaction handle, 0
+ * for none, or "current": the request's current transaction at call time
+ * (ops.md 1.3.0 section 1), which is how a service called from an action
+ * writes in the action's transaction.
+ */
+function statements(tx, module = "app") {
+  const handle = () => (tx === "current" ? (txVar.get() ?? 0) : tx);
   return ObjectFreeze({
     async query(sql, params) {
-      return toRows(await dbCall(op_db_query, sql, params, tx));
+      return toRows(await dbCall(op_db_query, sql, params, handle(), module));
     },
     async queryOne(sql, params) {
-      const rows = toRows(await dbCall(op_db_query_one, sql, params, tx));
+      const rows = toRows(await dbCall(op_db_query_one, sql, params, handle(), module));
       return rows.length === 0 ? null : rows[0];
     },
     async execute(sql, params) {
-      const r = await dbCall(op_db_execute, sql, params, tx);
+      const r = await dbCall(op_db_execute, sql, params, handle(), module);
       return { changes: r.changes, lastInsertRowid: decodeCell(r.lastInsertRowid) };
     },
   });
 }
 
-const db = ObjectFreeze({
-  ...statements(0),
-  /** IMMEDIATE transaction: commit when fn resolves, rollback when it throws. */
-  async transaction(fn) {
-    const token = currentToken();
-    let tx;
-    try {
-      tx = await op_db_tx_begin(token, "immediate");
-    } catch (e) {
-      throw toRenoxError(e);
-    }
-    let result;
-    try {
-      result = await fn(statements(tx));
-    } catch (e) {
-      try {
-        await op_db_tx_rollback(token, tx);
-      } catch {
-        // The request may have ended; Rust rolls back in that case.
+/**
+ * `ctx.db` of `module`. The app's statements keep the 1.2 rule (no
+ * transaction unless through `tx`); a module's run in the current one.
+ * `transaction(fn)` is IMMEDIATE, or a savepoint when a transaction is
+ * current (ops.md 1.3.0 section 1, "Savepoints").
+ */
+function makeDb(module) {
+  return ObjectFreeze({
+    ...statements(module === "app" ? 0 : "current", module),
+    async transaction(fn) {
+      const token = currentToken();
+      const outer = txVar.get();
+      if (outer !== undefined && outer !== 0) {
+        let sp;
+        try {
+          sp = await op_db_savepoint_begin(token, outer);
+        } catch (e) {
+          throw toRenoxError(e);
+        }
+        let result;
+        try {
+          result = await within([[txVar, outer]], () => fn(statements(outer, module)));
+        } catch (e) {
+          try {
+            await op_db_savepoint_rollback(token, outer, sp);
+          } catch {
+            // The transaction itself may be gone (rolled back by the broker).
+          }
+          throw e;
+        }
+        try {
+          await op_db_savepoint_release(token, outer, sp);
+        } catch (e) {
+          throw toRenoxError(e);
+        }
+        return result;
       }
-      throw e;
-    }
-    try {
-      await op_db_tx_commit(token, tx);
-    } catch (e) {
-      throw toRenoxError(e);
-    }
-    return result;
-  },
-});
+      let tx;
+      try {
+        tx = await op_db_tx_begin(token, "immediate");
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      let result;
+      try {
+        result = await within([[txVar, tx]], () => fn(statements(tx, module)));
+      } catch (e) {
+        try {
+          await op_db_tx_rollback(token, tx);
+        } catch {
+          // The request may have ended; Rust rolls back in that case.
+        }
+        throw e;
+      }
+      try {
+        await op_db_tx_commit(token, tx);
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      return result;
+    },
+  });
+}
+
+const db = makeDb("app");
 
 // ---------------------------------------------------------------------------
 // Logging (ops.md section 4): ctx.log and console. Rust adds tenant,
@@ -372,18 +482,19 @@ function writeLog(level, message, fields) {
       f = toJson(fields, new SafeWeakSet());
       if (typeof f !== "object" || f === null || ArrayIsArray(f)) f = { value: f };
     }
-    op_log(currentToken(), level, safeString(message), f);
+    op_log(currentToken(), level, safeString(message), f, moduleArg(currentModule()));
   } catch {
     // Logging never throws into tenant code.
   }
 }
 
-const log = ObjectFreeze({
-  debug: (message, fields) => writeLog("debug", message, fields),
-  info: (message, fields) => writeLog("info", message, fields),
-  warn: (message, fields) => writeLog("warn", message, fields),
-  error: (message, fields) => writeLog("error", message, fields),
-});
+/** `ctx.log` of `module`: its lines carry `module` (ops.md 1.3.0 section 4). */
+function makeLog(module) {
+  const w = (level) => (message, fields) => within([[moduleVar, module]], () => writeLog(level, message, fields));
+  return ObjectFreeze({ debug: w("debug"), info: w("info"), warn: w("warn"), error: w("error") });
+}
+
+const log = makeLog("app");
 
 /** console arguments to one message: strings as is, the rest as JSON. */
 function formatArgs(args) {
@@ -422,9 +533,310 @@ function makeConsole(original) {
 }
 
 // ---------------------------------------------------------------------------
-// Secrets (ops.md section 3): taken once by harden(), before tenant code.
+// Secrets (ops.md section 3): taken once per module by harden(), before
+// tenant code.
 
 let secrets = ObjectFreeze({});
+/** Module name -> its frozen secrets (ops.md 1.3.0 section 15.1). */
+const moduleSecrets = new SafeMap();
+
+// ---------------------------------------------------------------------------
+// The module broker (ops.md 1.3.0 section 15, shared mode).
+
+/** Module name -> its info from the artifact (`$defs/moduleInfo`), in lock order. */
+const modules = new SafeMap();
+/** Module name -> `services.ts` namespace. */
+const serviceModules = new SafeMap();
+/** Hook name -> [{ module, priority, handle }], in run order. */
+const hookFillers = new SafeMap();
+/** Module name -> the `on` map of its `hooks.ts` (events, #231). */
+const eventHandlers = new SafeMap();
+/** Installed module name -> frozen proxies of its services (renox:modules, ctx.services). */
+let serviceProxies = ObjectFreeze({});
+const MAX_CALL_DEPTH = 16;
+
+function requestState() {
+  const st = stateVar.get();
+  if (st === undefined || currentToken() === 0) {
+    throw new RenoxError("RENOX_NO_REQUEST", "module services, hooks and events need a request");
+  }
+  return st;
+}
+
+function infoOf(module) {
+  return modules.get(module);
+}
+
+/**
+ * A callee threw: roll the current transaction back at once (ops.md 1.3.0
+ * section 15.2, "Errors"), log the callee's error with its module, and
+ * hand the caller a ModuleServiceError.
+ */
+async function calleeFailed(e, details, label) {
+  const st = stateVar.get();
+  const tx = txVar.get();
+  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx)) {
+    st.rolledBack.add(tx);
+    try {
+      await op_db_tx_rollback(currentToken(), tx);
+    } catch {
+      // Already gone.
+    }
+  }
+  const cause = typeof e?.code === "string" && StringPrototypeStartsWith(e.code, "RENOX_") ? e.code : null;
+  within([[moduleVar, details.module]], () =>
+    writeLog("error", `${label} threw`, { error: describeThrow(e), code: "RENOX_MODULE_SERVICE" }),
+  );
+  return new ModuleServiceError(`${label} failed: ${safeString(e?.message ?? e)}`, { ...details, cause_code: cause });
+}
+
+/** `<target>.<service>(...args)` from the module whose code runs. */
+async function callService(target, service, args) {
+  const st = requestState();
+  const caller = currentModule();
+  const callerInfo = infoOf(caller);
+  if (caller !== "app" && !ArrayPrototypeIncludes(callerInfo?.dependencies ?? [], target)) {
+    throw new ModuleUndeclaredError(`module ${caller} does not declare a dependency on ${target}`, { module: caller, target });
+  }
+  const depth = (depthVar.get() ?? 0) + 1;
+  if (depth > MAX_CALL_DEPTH) {
+    throw new ModuleServiceError(`${target}.${service} failed: call depth`, { module: target, service, cause_code: null });
+  }
+  const fn = serviceModules.get(target)?.[service];
+  const calleeCtx = st.ctxOf(target);
+  try {
+    return await within(
+      [
+        [moduleVar, target],
+        [depthVar, depth],
+      ],
+      () => fn(calleeCtx, ...args),
+    );
+  } catch (e) {
+    throw await calleeFailed(e, { module: target, service }, `${target}.${service}`);
+  }
+}
+
+/** `ctx.hooks` of `module` (ops.md 1.3.0 section 15.3). */
+function makeHooks(module) {
+  return ObjectFreeze({
+    async run(name, args) {
+      const st = requestState();
+      if (!ArrayPrototypeIncludes(infoOf(module)?.exports?.hooks ?? [], name)) {
+        throw new ModuleUndeclaredError(`module ${module} does not export hook ${name}`, { module, target: name });
+      }
+      for (const f of new SafeArrayIterator(hookFillers.get(name) ?? [])) {
+        const fillerCtx = st.ctxOf(f.module);
+        let r;
+        try {
+          r = await within([[moduleVar, f.module]], () => f.handle(fillerCtx, args));
+          if (r !== undefined && !(r !== null && typeof r === "object" && r.halt === true && isResponse(r.response))) {
+            throw new TypeError("a hook filler returns undefined or { halt: true, response }");
+          }
+        } catch (e) {
+          throw await calleeFailed(e, { module: f.module, hook: name }, `${f.module} filler of ${name}`);
+        }
+        if (r !== undefined) return ObjectFreeze({ halt: true, response: r.response, module: f.module });
+      }
+      return ObjectFreeze({ halt: false });
+    },
+  });
+}
+
+/** Called by Rust after the tenant modules loaded (ops.md 1.3.0 section 11, step 5). */
+function register(namespaces) {
+  for (const [name, info] of new SafeArrayIterator([...modules])) {
+    const ns = namespaces[name] ?? {};
+    const services = ns.services;
+    for (const svc of new SafeArrayIterator(info.exports?.services ?? [])) {
+      if (typeof services?.[svc] !== "function") {
+        throw new TypeError(`module ${name}: service ${svc} is not a function export of services.ts`);
+      }
+    }
+    if (services !== undefined) serviceModules.set(name, services);
+    const hooksNs = ns.hooks;
+    const fills = hooksNs?.hooks;
+    if (fills !== undefined && fills !== null) {
+      for (const hook of new SafeArrayIterator(ObjectKeys(fills))) {
+        if (!ArrayPrototypeIncludes(info.permissions?.hooks ?? [], hook)) {
+          throw new TypeError(`module ${name}: hooks.ts fills ${hook}, which its manifest does not declare`);
+        }
+        const filler = fills[hook];
+        if (typeof filler?.handle !== "function") throw new TypeError(`module ${name}: hooks.${hook}.handle is not a function`);
+        const priority = filler.priority ?? 100;
+        if (typeof priority !== "number" || priority < 0 || priority > 1000) throw new TypeError(`module ${name}: hooks.${hook}.priority must be 0-1000`);
+        const list = hookFillers.get(hook) ?? [];
+        ArrayPrototypePush(list, { module: name, priority, handle: filler.handle });
+        hookFillers.set(hook, list);
+      }
+    }
+    const on = hooksNs?.on;
+    if (on !== undefined && on !== null) {
+      for (const [ev, h] of new SafeArrayIterator(ObjectEntries(on))) {
+        if (typeof h !== "function") throw new TypeError(`module ${name}: on["${ev}"] is not a function`);
+      }
+      eventHandlers.set(name, on);
+    }
+  }
+  for (const list of new SafeArrayIterator([...hookFillers.values()])) {
+    ArrayPrototypeSort(list, (a, b) => a.priority - b.priority || (a.module < b.module ? -1 : a.module > b.module ? 1 : 0));
+  }
+  // Module -> the events it handles: the cell fans durable events out to them.
+  const handled = {};
+  for (const [name, on] of new SafeArrayIterator([...eventHandlers])) handled[name] = ObjectKeys(on);
+  return handled;
+}
+
+/**
+ * Runs the in-memory handlers of `name` (ops.md 1.3.0 section 15.4): each
+ * installed module's `on[name]`, in the modules order, with its own ctx and
+ * the emitter's current transaction. A throw rolls the transaction back and
+ * fails the emit.
+ */
+async function runInMemory(st, id, name, payload) {
+  for (const [m, on] of new SafeArrayIterator([...eventHandlers])) {
+    const h = on[name];
+    if (typeof h !== "function") continue;
+    const e = ObjectFreeze({ id, name, payload, attempt: 1 });
+    const hctx = eventCtx(st.ctxOf(m), m, statements("current", m), e);
+    try {
+      await within([[moduleVar, m]], () => h(hctx, e));
+    } catch (err) {
+      throw await calleeFailed(err, { module: m, event: name }, `${m} handler of ${name}`);
+    }
+  }
+}
+
+/** An EventContext: the module's ctx without the request, `db` given. */
+function eventCtx(base, module, statementsOf, e) {
+  const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }) };
+  delete c.req;
+  delete c.url;
+  delete c.params;
+  delete c.headers;
+  delete c.setLocale;
+  delete c.session;
+  delete c.fragment;
+  return ObjectFreeze(c);
+}
+
+/** `ctx.events` of `module`. */
+function makeEvents(module) {
+  return ObjectFreeze({
+    async emit(name, payload, options = undefined) {
+      const st = requestState();
+      if (typeof name !== "string") throw new TypeError("events.emit: name must be a string");
+      const durable = options?.durable ?? true;
+      if (typeof durable !== "boolean") throw new TypeError("events.emit: durable must be a boolean");
+      let json;
+      try {
+        json = JSONStringify(payload);
+      } catch {
+        json = undefined;
+      }
+      // Not JSON-serialisable: Rust answers RENOX_EVENT_PAYLOAD, reason "not_json".
+      if (typeof json !== "string") json = "";
+      const tx = txVar.get() ?? 0;
+      let id;
+      try {
+        id = await op_events_emit(currentToken(), name, json, durable, moduleArg(module), tx);
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      if (!durable) await runInMemory(st, id, name, JSONParse(json));
+      return id;
+    },
+  });
+}
+
+/** `ctx.password` (ops.md 1.3.0 section 16): argon2id in Rust, off this thread. */
+const password = ObjectFreeze({
+  async hash(pw) {
+    if (typeof pw !== "string") throw new TypeError("password.hash: a string");
+    try {
+      return await op_password_hash(currentToken(), pw);
+    } catch (e) {
+      throw e instanceof RangeError ? e : toRenoxError(e);
+    }
+  },
+  async verify(pw, hash) {
+    if (typeof pw !== "string" || typeof hash !== "string") throw new TypeError("password.verify: two strings");
+    try {
+      return await op_password_verify(currentToken(), pw, hash);
+    } catch (e) {
+      throw e instanceof RangeError ? e : toRenoxError(e);
+    }
+  },
+});
+
+/** One frozen object of service proxies per installed module. */
+function buildProxies() {
+  const out = {};
+  for (const [name, info] of new SafeArrayIterator([...modules])) {
+    const p = {};
+    for (const svc of new SafeArrayIterator(info.exports?.services ?? [])) {
+      p[svc] = (...args) => callService(name, svc, args);
+    }
+    out[name] = ObjectFreeze(p);
+  }
+  return ObjectFreeze(out);
+}
+
+// Locale of the page (ops.md 1.3.0 section 14, "Locale").
+const LOCALE_TAG = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+const RTL_LANGS = ["ar", "fa", "he", "ur", "ps", "sd", "ug", "yi", "dv", "ckb"];
+
+function makeSetLocale(st) {
+  return (locale, dir = undefined) => {
+    if (typeof locale !== "string" || locale.length > 35 || !RegExpPrototypeTest(LOCALE_TAG, locale)) {
+      throw new RangeError("setLocale: a BCP 47 tag such as \"ar-AE\"");
+    }
+    if (dir !== undefined && dir !== "ltr" && dir !== "rtl") throw new RangeError('setLocale: dir is "ltr" or "rtl"');
+    st.locale = locale;
+    st.dir = dir ?? (ArrayPrototypeIncludes(RTL_LANGS, StringPrototypeToLowerCase(locale.split("-")[0])) ? "rtl" : "ltr");
+  };
+}
+
+/**
+ * The per-request module state: `base` holds the request fields every
+ * module's ctx shares (req, url, params, headers, deadline, session,
+ * fragment, setLocale); `ctxOf(m)` builds module `m`'s frozen ctx once.
+ */
+function newRequestState(base) {
+  const cache = new SafeMap();
+  const st = {
+    base,
+    locale: undefined,
+    dir: undefined,
+    rolledBack: new SafeSet(),
+    ctxOf(m) {
+      let c = cache.get(m);
+      if (c === undefined) {
+        c = ObjectFreeze({ ...st.base, ...moduleFields(m) });
+        cache.set(m, c);
+      }
+      return c;
+    },
+  };
+  return st;
+}
+
+/** What is bound to one module in its ctx (ops.md 1.3.0 section 15.1). */
+function moduleFields(m) {
+  const info = infoOf(m);
+  return {
+    db: m === "app" ? db : makeDb(m),
+    fetch: m === "app" ? renoxFetch : (input, init) => moduleFetch(m, input, init),
+    secrets: m === "app" ? secrets : (moduleSecrets.get(m) ?? ObjectFreeze({})),
+    log: m === "app" ? log : makeLog(m),
+    config: info === undefined ? ObjectFreeze({}) : ObjectFreeze({ ...info.config }),
+    module: m,
+    services: serviceProxies,
+    hooks: makeHooks(m),
+    events: makeEvents(m),
+    password,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Request dispatch (ops.md section 11, step 6).
@@ -435,6 +847,8 @@ const KIND_NOT_RESPONSE = 2;
 // Page loaders (ops.md section 14): an object becomes template data.
 const KIND_RENDER = 3;
 const KIND_PAGE_INTERNAL = 4;
+// An event delivery ended (ops.md 1.3.0 section 15.4).
+const KIND_EVENT = 5;
 
 function safeString(v) {
   try {
@@ -575,7 +989,14 @@ function pageResult(res) {
   } catch (e) {
     return { kind: KIND_PAGE_INTERNAL, reason: "data_not_serialisable", name: safeString(e?.message) };
   }
-  return { kind: KIND_RENDER, data_json: json };
+  const out = { kind: KIND_RENDER, data_json: json };
+  // ops.md 1.3.0 section 14, "Locale": platform values beside the data.
+  const st = stateVar.get();
+  if (st?.locale !== undefined) {
+    out.locale = st.locale;
+    out.dir = st.dir;
+  }
+  return out;
 }
 
 /** The content types an action's `ctx.form` is parsed from (ops.md section 14). */
@@ -595,7 +1016,7 @@ function isFormBody(req) {
  * runs again (outside the transaction) and the data is
  * `{ ...loadResult, ...actionObject }` without `fragments`.
  */
-async function runAction(action, load, base, page, req, wantBody) {
+async function runAction(action, load, st, owner, page, req, wantBody) {
   const token = currentToken();
   // The CSRF field was checked by the cell; tenant code never sees it.
   let form;
@@ -620,8 +1041,9 @@ async function runAction(action, load, base, page, req, wantBody) {
   };
   let res;
   try {
-    const ctx = ObjectFreeze({ ...base, db: statements(tx), form, action: page.action, fragment: page.fragment ?? null });
-    res = await action(ctx);
+    const ctx = ObjectFreeze({ ...st.ctxOf(owner), db: statements(tx, owner), form, action: page.action, fragment: page.fragment ?? null });
+    // The action's transaction is current for the services it calls (ops.md 1.3.0 section 1).
+    res = await within([[txVar, tx]], () => action(ctx));
   } catch (e) {
     await rollback();
     throw e;
@@ -647,17 +1069,21 @@ async function runAction(action, load, base, page, req, wantBody) {
     }
     fragments = ArrayPrototypeMap(list, (f) => f);
   }
-  try {
-    await op_db_tx_commit(token, tx);
-  } catch (e) {
-    throw toRenoxError(e);
+  // A callee that threw rolled the transaction back (ops.md 1.3.0 section
+  // 15.2): the action may still answer, but nothing of it is kept.
+  if (!st.rolledBack.has(tx)) {
+    try {
+      await op_db_tx_commit(token, tx);
+    } catch (e) {
+      throw toRenoxError(e);
+    }
   }
   if (response) return serializeResponse(res, wantBody);
   const actionData = { ...res };
   delete actionData.fragments;
   let data = actionData;
   if (load !== null) {
-    const loaded = await load(ObjectFreeze({ ...base, db, fragment: page.fragment ?? null }));
+    const loaded = await load(st.ctxOf(owner));
     if (isResponse(loaded)) return serializeResponse(loaded, wantBody);
     if (loaded === null || typeof loaded !== "object" || ArrayIsArray(loaded)) return pageResult(loaded);
     data = { ...loaded, ...actionData };
@@ -676,9 +1102,10 @@ async function runAction(action, load, base, page, req, wantBody) {
  * template }`; for an action, `action` is the action function and
  * `handler` the page's `load` (or null).
  */
-function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action) {
+function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app") {
   const previous = requestVar.enter(token);
   try {
+    moduleVar.enter(owner);
     let p;
     try {
       const init = { method, headers };
@@ -693,26 +1120,25 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
           }
         },
       });
-      const fields = {
+      const base = {
         req,
         url: new (urlMod().URL)(url),
         params: ObjectFreeze(params),
         headers: req.headers,
-        db,
-        fetch: renoxFetch,
-        secrets,
-        log,
         deadline,
       };
+      const st = newRequestState(base);
+      stateVar.enter(st);
       if (page !== null) {
         // LoaderContext / ActionContext (ops.md section 14).
-        fields.session = ObjectFreeze({ id: page.session });
+        base.session = ObjectFreeze({ id: page.session });
+        base.fragment = page.fragment ?? null;
+        base.setLocale = makeSetLocale(st);
         if (action !== null) {
-          return PromisePrototypeThen(runAction(action, handler, fields, page, req, wantBody), undefined, describeThrow);
+          return PromisePrototypeThen(runAction(action, handler, st, owner, page, req, wantBody), undefined, describeThrow);
         }
-        fields.fragment = page.fragment ?? null;
       }
-      const ctx = ObjectFreeze(fields);
+      const ctx = st.ctxOf(owner);
       p = PromiseResolve(handler(ctx));
     } catch (e) {
       p = PromiseReject(e);
@@ -725,6 +1151,62 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
       },
       describeThrow,
     );
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
+/**
+ * Called by Rust for one delivery attempt of a durable event (ops.md 1.3.0
+ * section 15.4, "Delivery"): `module`'s `on[name]` runs with a fresh ctx of
+ * that module, `db` its own IMMEDIATE transaction; when it resolves, the
+ * delivery is acknowledged in that transaction and it commits. Never rejects.
+ */
+function deliver(token, id, name, payloadJson, attempt, module) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(module);
+    const h = eventHandlers.get(module)?.[name];
+    if (typeof h !== "function") return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
+    const st = newRequestState({
+      deadline: ObjectFreeze({
+        remainingMs() {
+          try {
+            return op_deadline_remaining_ms(currentToken());
+          } catch (e) {
+            throw toRenoxError(e);
+          }
+        },
+      }),
+    });
+    stateVar.enter(st);
+    const run = async () => {
+      let tx;
+      try {
+        tx = await op_db_tx_begin(token, "immediate");
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      const e = ObjectFreeze({ id, name, payload: JSONParse(payloadJson), attempt });
+      const hctx = eventCtx(st.ctxOf(module), module, statements(tx, module), e);
+      try {
+        await within([[txVar, tx]], () => h(hctx, e));
+        if (st.rolledBack.has(tx)) throw new ModuleServiceError(`${module} handler of ${name}: a callee failed`, { module, event: name, cause_code: null });
+        await op_events_ack(token, tx, id, module);
+        await op_db_tx_commit(token, tx);
+      } catch (err) {
+        if (!st.rolledBack.has(tx)) {
+          try {
+            await op_db_tx_rollback(token, tx);
+          } catch {
+            // The request may have ended; Rust rolls back in that case.
+          }
+        }
+        throw err;
+      }
+      return { kind: KIND_EVENT, result: "ok" };
+    };
+    return PromisePrototypeThen(run(), undefined, (err) => ({ ...describeThrow(err), kind: KIND_EVENT, result: "threw" }));
   } finally {
     core.setAsyncContext(previous);
   }
@@ -772,12 +1254,23 @@ const REMOVED_GLOBALS = [
   "Storage",
 ];
 
-function harden() {
-  // Step 3: the secrets, once (a second call is RENOX_SECRETS_CONSUMED).
-  const s = op_secrets_get_all();
+function takeSecrets(module) {
+  const s = op_secrets_get_all(moduleArg(module));
   const own = {};
   for (const k of new SafeArrayIterator(ObjectKeys(s))) own[k] = s[k];
-  secrets = ObjectFreeze(own);
+  return ObjectFreeze(own);
+}
+
+function harden(modulesJson) {
+  // Step 3: the module list, then the secrets, once per module (a second
+  // call is RENOX_SECRETS_CONSUMED).
+  for (const info of new SafeArrayIterator(JSONParse(modulesJson ?? "[]"))) modules.set(info.name, ObjectFreeze(info));
+  secrets = takeSecrets("app");
+  for (const name of new SafeArrayIterator([...modules.keys()])) moduleSecrets.set(name, takeSecrets(name));
+  serviceProxies = buildProxies();
+  // `import { auth } from "renox:modules"` (loader.rs): the same proxies as
+  // ctx.services; the caller is the module whose code runs.
+  ObjectDefineProperty(globalThis, "__renoxModules", { value: serviceProxies, writable: false, enumerable: false, configurable: false });
   for (const name of new SafeArrayIterator(REMOVED_GLOBALS)) {
     ReflectDeleteProperty(globalThis, name);
     if (ObjectGetOwnPropertyDescriptor(globalThis, name) !== undefined) {
@@ -831,7 +1324,7 @@ function harden() {
 }
 
 ObjectDefineProperty(globalThis, "__renoxInternal", {
-  value: ObjectFreeze({ dispatch, harden }),
+  value: ObjectFreeze({ dispatch, deliver, harden, register }),
   writable: false,
   enumerable: false,
   configurable: true,

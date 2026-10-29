@@ -1,0 +1,8 @@
+{
+  "op": "op_db_savepoint_release",
+  "args": [
+    7,
+    1
+  ],
+  "result": null
+}

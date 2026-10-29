@@ -4,6 +4,8 @@
 // up to 20 matches (B7).
 import type { LoaderContext } from "renox";
 
+import { auth, i18n, org } from "renox:modules";
+
 import type { Product } from "../../lib/http.ts";
 
 /** What a card shows: the price in AED, not fils. */
@@ -23,8 +25,13 @@ export const likePattern = (q: string): string => `%${q.replace(/[\\%_]/gu, (c) 
 const SEARCH = `select id, name, description, price_fils, stock, category, image from app__products
   where (name like ?1 escape '\\' or description like ?1 escape '\\') order by id limit ?2`;
 
-export async function load({ db, url, fragment, session }: LoaderContext) {
+export async function load({ db, url, fragment, session, setLocale }: LoaderContext) {
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
+  // The page's locale (i18n, #244): the user's and the organisation's choice.
+  const user = await auth.currentUser();
+  const header = await org.switcher(url.pathname);
+  const locale = await i18n.detectLocale({ user_id: user?.id ?? null, org_locale: header?.current?.locale ?? null });
+  setLocale(locale.locale, locale.dir);
   if (fragment === "product_list") {
     // B7: one block, one query, 20 items.
     const products = await db.query<Product>(SEARCH, [likePattern(q), 20]);
@@ -51,5 +58,10 @@ export async function load({ db, url, fragment, session }: LoaderContext) {
     price_min: (prices?.lo ?? 0) / 100,
     price_max: (prices?.hi ?? 0) / 100,
     cart_count: cart?.n ?? 0,
+    // The header: auth's user menu and org's switcher (the app.header
+    // slot), the language links (i18n).
+    auth_user: user,
+    org_switcher: header,
+    i18n_links: locale.alternates,
   };
 }

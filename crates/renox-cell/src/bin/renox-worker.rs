@@ -21,6 +21,14 @@
 //! before the async runtime starts any thread (Landlock reaches only the
 //! threads created after it); the seccomp allowlist follows in
 //! `Worker::start` once the listeners are bound.
+//!
+//! `renox-worker migrate <artifact dir> <db file>`: the artifact's migration
+//! plan against a local tenant file for `renox migrate` (#235): each
+//! installed module in the manifest's order under its own prefix, then the
+//! app's (`renox_data::migrate_all`), every file checked against
+//! `migrations/checksums.json`. Prints one JSON object on stdout: `{ "ok":
+//! true, "modules": [{ "module", "applied", "skipped" }] }` or `{ "ok":
+//! false, "module", "error", "modules" }` (exit 2). No V8.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -29,7 +37,7 @@ use renox_cell::{Worker, WorkerConfig};
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker --config <worker.toml> --child <tenant> --socket <path> | renox-worker transpile"
+        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker --config <worker.toml> --child <tenant> --socket <path> | renox-worker transpile | renox-worker migrate <artifact dir> <db file>"
     );
     ExitCode::from(2)
 }
@@ -53,11 +61,118 @@ fn transpile() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// The `.sql` files of one module's migration folder, by name.
+fn migration_files(dir: &std::path::Path) -> std::io::Result<Vec<renox_data::MigrationFile>> {
+    let mut files = Vec::new();
+    if dir.is_dir() {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".sql") {
+                let sql = std::fs::read_to_string(entry.path())?;
+                files.push(renox_data::MigrationFile { name, sql });
+            }
+        }
+    }
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(files)
+}
+
+fn migrate(artifact: &str, db_file: &str) -> ExitCode {
+    let fail = |msg: String| {
+        println!(
+            "{}",
+            serde_json::json!({ "ok": false, "error": msg, "modules": [] })
+        );
+        ExitCode::from(2)
+    };
+    let dir = std::path::Path::new(artifact);
+    let manifest: serde_json::Value = match std::fs::read(dir.join("manifest.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+    {
+        Some(m) => m,
+        None => return fail("manifest.json cannot be read".into()),
+    };
+    let mut plan = Vec::new();
+    let mut names = Vec::new();
+    for m in manifest["modules"].as_array().into_iter().flatten() {
+        let Some(name) = m["name"].as_str() else {
+            return fail("a modules entry has no name".into());
+        };
+        let dependencies = m["dependencies"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|d| d.as_str().map(str::to_string))
+            .collect();
+        let files = match migration_files(&dir.join("migrations").join(name)) {
+            Ok(f) => f,
+            Err(e) => return fail(format!("migrations/{name}: {e}")),
+        };
+        names.push(name.to_string());
+        plan.push(renox_data::ModuleMigrations {
+            module: name.to_string(),
+            dependencies,
+            files,
+        });
+    }
+    let files = match migration_files(&dir.join("migrations").join("app")) {
+        Ok(f) => f,
+        Err(e) => return fail(format!("migrations/app: {e}")),
+    };
+    plan.push(renox_data::ModuleMigrations {
+        module: "app".into(),
+        dependencies: names,
+        files,
+    });
+    let checksums: Option<std::collections::BTreeMap<String, String>> =
+        std::fs::read(dir.join("migrations/checksums.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| serde_json::from_value(v["files"].clone()).ok());
+    if plan.iter().any(|m| !m.files.is_empty()) && checksums.is_none() {
+        return fail("migrations/checksums.json is missing or invalid".into());
+    }
+    if let Some(parent) = std::path::Path::new(db_file).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let db = match renox_data::TenantDb::open(db_file, renox_data::DbOptions::default()) {
+        Ok(d) => d,
+        Err(e) => return fail(format!("open {db_file}: {e}")),
+    };
+    let report = |r: &renox_data::PlanReport| -> Vec<serde_json::Value> {
+        r.modules
+            .iter()
+            .map(|(m, r)| serde_json::json!({ "module": m, "applied": r.applied, "skipped": r.skipped }))
+            .collect()
+    };
+    let result = renox_data::migrate_all(&db, &plan, checksums.as_ref());
+    let _ = db.close();
+    match result {
+        Ok(r) => {
+            println!(
+                "{}",
+                serde_json::json!({ "ok": true, "modules": report(&r) })
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!(
+                "{}",
+                serde_json::json!({ "ok": false, "module": e.module, "error": e.error.to_string(), "modules": report(&e.done) })
+            );
+            ExitCode::from(2)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
         ["transpile"] => transpile(),
+        ["migrate", artifact, db_file] => migrate(artifact, db_file),
         ["--sandbox-selftest", "--config", p] | ["--config", p, "--sandbox-selftest"] => {
             sandbox_selftest(PathBuf::from(p))
         }

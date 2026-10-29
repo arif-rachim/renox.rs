@@ -200,6 +200,35 @@ Issue #28; contract `ops.md` sections 1, 3, 4, 5. Code: `src/ops/db.rs`, `src/op
 
 `src/request_resources.rs`: each request's `RequestResources` registers its open transaction and its open fetch bodies. `drain` runs on every path that ends a request (handler returned or threw, deadline, CPU limit, heap limit, event-loop error, isolate disposal), on the isolate thread, before the reply is sent and before a poisoned isolate is dropped: the rollback reaches the DB thread ahead of anything the next request sends. Fetches still waiting for headers are futures cancelled by the request's `CancelHandle` and dropped with the isolate, which closes their connections. The DB thread adds a second net: it rolls a transaction back by itself at its request's deadline. Tests: `tests/termination.rs`.
 
+## Modules and the broker (`ops.md` 1.3.0 section 15, #230)
+
+The artifact's `modules` array (artifact 1.1) becomes a `ModuleRegistry` (`src/ops/modules.rs`) at isolate creation; a bad entry (wrong prefix, unprefixed secret, a dependency listed after its dependant, `isolate` mode) fails the deployment. Each resource has one enforcement point in Rust:
+
+| Resource | Enforced by |
+| --- | --- |
+| Tables | the `module` argument of `op_db_*`: each statement runs under `module(m).with_read_deps(deps)` (`TenantDb::with_policy`); the app's under `app` plus every installed module's public views. An unknown module is `RENOX_DB_PARAM` (`reason: "module"`); a refused statement names the module in `details.module` |
+| Secrets | `op_secrets_get_all(module)`, once per module: only the module's approved names |
+| Network | `FetchRequest.module`: the module's own approved list, never the app's |
+
+The broker is JavaScript in `src/js/bootstrap.js`, in `shared` mode (one context):
+
+- `harden(modules)` takes the module list and each module's secrets; `register(namespaces)` (after the tenant modules loaded) checks that every exported service is a function of `services.ts` and that every filler in `hooks.ts` is declared in the module's `permissions.hooks` (fail closed), then orders the fillers by priority, then module name.
+- Per request, each module that runs gets a frozen ctx: its own `db`, `fetch`, `secrets`, `log`, `config`, `module`, plus the shared request fields and `services` / `hooks`. The async context carries the module whose code runs (attribution of `console`, global `fetch`, and `renox:modules` calls), the current transaction, and the call depth.
+- `renox:modules` is a virtual module (`src/loader.rs`) whose exports are the service proxies. A call checks the caller's dependencies (`RENOX_MODULE_UNDECLARED`), runs the service with the callee's ctx in the caller's current transaction, and turns a throw into `RENOX_MODULE_SERVICE` (`module`, `service`, `details.cause_code`). The throw also rolls the enclosing transaction back at once. Calls nest at most 16 deep.
+- `ctx.hooks.run(name, args)` is allowed only for the module that exports the hook. Fillers run in order with their own ctx, and `{ halt: true, response }` stops the chain.
+- A nested `db.transaction` while a transaction is current is a savepoint (`op_db_savepoint_*`).
+- `setLocale(locale, dir?)` on page contexts; the page result carries `locale` and `dir` to the renderer.
+
+Tests: `tests/modules.rs`. Not yet: slot fillers with the provider's ctx (#232), `isolate` mode.
+
+### Events and password ops (#231)
+
+- `ctx.events.emit(name, payload, { durable })` (`src/ops/events.rs`, `op_events_emit`): the name must be one the emitting module exports, and the payload is checked in Rust against the exported schema, a keyword subset (`type`, `properties`, `required`, `additionalProperties`, `items`, `enum`, `const`, the length and range bounds, `oneOf`, `anyOf`); a mismatch, a value `JSON.stringify` refuses, or more than 64 KiB is `RENOX_EVENT_PAYLOAD`. A durable event is a `renox__outbox` row written through `DbHandle::call_tx` on the request's current transaction (a savepoint included), or as its own autocommit write outside one, so a rollback drops it. An in-memory event runs each installed module's `on[name]` before `emit` resolves, with that module's ctx and the emitter's transaction; a throw is `RENOX_MODULE_SERVICE` and rolls the transaction back.
+- Delivery: `IsolateHandle::deliver_event(ctx, EventEnvelope)` runs the bootstrap's `deliver` like a request (concurrency slot, CPU, heap and wall-clock limits, its own token). The handler gets a ctx without the request, `db` in its own `IMMEDIATE` transaction; when it resolves, `op_events_ack` deletes the delivery's outbox row in that transaction and it commits. The answer is `EventOutcome::{Ok, Threw, NoHandler, Failed(code)}` with an `EVENT <module> <name>` meter route. Retries, fan-out and dead letters are the cell's (#229).
+- `ctx.password.hash` / `verify` (`src/ops/password.rs`): argon2id, m = 64 MiB, t = 3, p = 1, 16-byte salt, PHC string out. The work runs on tokio's blocking pool behind a per-process semaphore (`PasswordPool`, default 4, `PasswordPool::configure`); each call adds 1 ms to the request's CPU (`CpuLedger::add`), and its wall time counts against the deadline. `verify` refuses a PHC string above the platform's parameters and compares the digest in constant time. A password over 1,024 bytes is a `RangeError`; neither the password nor the hash is logged.
+
+Tests: `tests/events.rs`, `tests/password.rs`.
+
 ## Thread model
 
 One OS thread per isolate (`renox-isolate-<hash>`), each with a single-threaded Tokio runtime that owns the `MainWorker`, plus its CPU watchdog thread (`renox-cpu-watchdog`). `IsolateHandle` is the deployment's handle: it owns the pool's members and talks to each over an unbounded channel; a dispatch is a message with a `oneshot` reply. The thread's loop polls the channel, the `deno_core` event loop, and the in-flight dispatch futures together, so many requests can be in flight on one isolate at once.

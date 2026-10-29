@@ -1,0 +1,9 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.reset.title" /></r-group>
+  <h1><r-t key="auth.reset.title" /></h1>
+  <p class="notice" id="notice" r-if="message">{{ message }}</p>
+  <x-form action="default">
+    <label><r-t key="auth.field.email" /> <input type="email" name="email" autocomplete="username" :value="email" required></label>
+    <button type="submit"><r-t key="auth.reset.submit" /></button>
+  </x-form>
+</r-layout>

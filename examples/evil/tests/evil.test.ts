@@ -25,6 +25,12 @@ function ctx(path: string, over: Partial<Ctx> = {}): Ctx {
     secrets: Object.freeze({}),
     log: { debug: log, info: log, warn: log, error: log },
     deadline: { remainingMs: () => 30_000 },
+    module: "app",
+    config: Object.freeze({}),
+    services: Object.freeze({}),
+    events: { emit: () => Promise.reject(new Error("no events in unit tests")) },
+    hooks: { run: () => Promise.resolve({ halt: false }) },
+    password: { hash: () => Promise.reject(new Error("no password op in unit tests")), verify: () => Promise.resolve(false) },
     ...over,
   };
 }

@@ -1,0 +1,23 @@
+[module]
+name = "gcc"
+version = "1.0.0"
+description = "UAE data and checks: emirates and areas, +971 phones, Emirates ID, TRN, trade licence, Makani, P.O. Box"
+
+[permissions]
+tables = "gcc__*"
+
+[exports]
+views = ["gcc__public_areas_v1"]
+
+[exports.services]
+validatePhone = "A UAE phone number to E.164 (+971...), or the reason it is not one"
+validateEmiratesId = "An Emirates ID: format, 784, year, and the Luhn check digit"
+validateTrn = "A tax registration number: 15 digits"
+validateTradeLicence = "A trade licence number for an issuing emirate (format only)"
+validateMakani = "A Makani number: 10 digits"
+validatePoBox = "A P.O. Box number"
+listAreas = "The areas of an emirate (ISO 3166-2:AE code), by English name"
+findAreas = "Areas whose English or Arabic name starts with a text, at most 20"
+
+[authz]
+actions = ["gcc.read"]

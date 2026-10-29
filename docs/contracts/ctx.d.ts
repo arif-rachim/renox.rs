@@ -1,4 +1,4 @@
-// TypeScript view of docs/contracts/ops.md, contract version 1.2.0.
+// TypeScript view of docs/contracts/ops.md, contract version 1.3.0.
 // Plain declarations, no implementation: the SDK package (#31) implements and
 // re-exports these types. Section numbers refer to ops.md.
 
@@ -29,7 +29,11 @@ export type RenoxErrorCode =
   | FetchErrorCode
   | "RENOX_DEADLINE"
   | "RENOX_NO_REQUEST"
-  | "RENOX_SECRETS_CONSUMED";
+  | "RENOX_SECRETS_CONSUMED"
+  | ModuleErrorCode;
+
+/** Codes of the module broker (section 15, 1.3.0). */
+export type ModuleErrorCode = "RENOX_MODULE_UNDECLARED" | "RENOX_MODULE_SERVICE" | "RENOX_EVENT_PAYLOAD";
 
 /**
  * Codes the platform answers with when a request ends ("response" in ops.md
@@ -118,6 +122,37 @@ export declare class DeadlineError extends RenoxError {
   readonly code: "RENOX_DEADLINE";
 }
 
+// Modules (section 15, 1.3.0)
+/** A service call, hook run, or event emit the caller's manifest does not allow (15.2–15.4). */
+export declare class ModuleUndeclaredError extends RenoxError {
+  readonly code: "RENOX_MODULE_UNDECLARED";
+  readonly details: { readonly module: string; readonly target: string };
+}
+/**
+ * A service, hook filler, or in-memory event handler of another module threw
+ * (15.2). `module` names the callee; `service` the service, or null for a hook
+ * filler or event handler (then `details.hook` or `details.event` names it).
+ * The enclosing transaction has been rolled back.
+ */
+export declare class ModuleServiceError extends RenoxError {
+  readonly code: "RENOX_MODULE_SERVICE";
+  readonly module: string;
+  readonly service: string | null;
+  readonly details: {
+    readonly module: string;
+    readonly service?: string;
+    readonly hook?: string;
+    readonly event?: string;
+    readonly cause_code: string | null;
+  };
+}
+export type EventPayloadReason = "schema" | "not_json" | "too_large";
+/** `ctx.events.emit` got a payload its exported schema refuses (15.4). The payload is never in the error. */
+export declare class EventPayloadError extends RenoxError {
+  readonly code: "RENOX_EVENT_PAYLOAD";
+  readonly details: { readonly event: string; readonly reason: EventPayloadReason };
+}
+
 // ---------------------------------------------------------------------------
 // Database (section 1)
 // ---------------------------------------------------------------------------
@@ -146,7 +181,9 @@ export interface DbStatements {
 export interface Db extends DbStatements {
   /**
    * Runs `fn` in an IMMEDIATE transaction: commit when it resolves, rollback
-   * when it throws. Rust also rolls back if the request ends first.
+   * when it throws. Rust also rolls back if the request ends first. Called
+   * while a transaction is current (a service called from an action), it is a
+   * savepoint instead (section 1, "Savepoints", 1.3.0).
    */
   transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T>;
 }
@@ -211,9 +248,126 @@ export interface Ctx {
   readonly secrets: Secrets;
   readonly log: Log;
   readonly deadline: Deadline;
-  // Reserved (section 8): render, webhook, kv (F2); auth, session data,
-  // config, events, hooks (F4); authz, realtime (F5); datasource (F6–F7);
-  // ai, domains (F7); offload. Pages get more fields (section 14, below).
+  /** The module this ctx is bound to (section 15.1, 1.3.0); "app" for the app. */
+  readonly module: string;
+  /** The module's resolved `[config]` (section 15.5); `{}` for the app. */
+  readonly config: ModuleConfig;
+  /** Service proxies of the installed modules, as `renox:modules` (section 15.2). */
+  readonly services: Services;
+  readonly events: Events;
+  readonly hooks: Hooks;
+  /** Argon2id off the isolate thread (section 16). */
+  readonly password: Password;
+  // Reserved (section 8): render, webhook, kv (F2); authz, realtime (F5);
+  // datasource (F6–F7); ai, domains (F7); offload. `auth` is a service of the
+  // `auth` module, not a ctx field. Pages get more fields (section 14, below).
+}
+
+// ---------------------------------------------------------------------------
+// Modules (section 15, 1.3.0). Untyped here: `renox:modules` types generated
+// from the installed manifests narrow these (#236).
+// ---------------------------------------------------------------------------
+
+export type ConfigValue = string | number | boolean;
+export type ModuleConfig = Readonly<Record<string, ConfigValue>>;
+
+/** One service as the caller sees it: the broker supplies the callee's ctx. */
+export type ServiceFunction = (...args: readonly unknown[]) => Promise<unknown>;
+export type ModuleServices = Readonly<Record<string, ServiceFunction>>;
+/** Installed module name → its exported services. */
+export type Services = Readonly<Record<string, ModuleServices>>;
+
+export interface EmitOptions {
+  /** Default true: into `renox__outbox` in the current transaction. false: handlers run now, in this request. */
+  durable?: boolean;
+}
+
+export interface Events {
+  /** Resolves with the event id (a ULID). Only events the module exports (section 15.4). */
+  emit(name: string, payload: Readonly<Record<string, unknown>>, options?: EmitOptions): Promise<string>;
+}
+
+export type HookRunResult = { readonly halt: false } | { readonly halt: true; readonly response: Response; readonly module: string };
+
+export interface Hooks {
+  /** Runs the fillers of a hook point this module exports, in priority order (section 15.3). */
+  run(name: string, args?: unknown): Promise<HookRunResult>;
+}
+
+export interface Password {
+  /** A PHC string `$argon2id$v=19$m=65536,t=3,p=1$<salt>$<hash>`. */
+  hash(password: string): Promise<string>;
+  /** Constant-time; false for a malformed hash or one above the platform's parameters. */
+  verify(password: string, hash: string): Promise<boolean>;
+}
+
+/** What a module's `services.ts` exports: each service gets the callee's ctx first. */
+export type ServiceImplementation = (ctx: Ctx, ...args: never[]) => unknown;
+export type ServicesModule = Readonly<Record<string, ServiceImplementation>>;
+
+/** A filler continues with `undefined`, or stops the run with a response. */
+export type HookFillerResult = void | { readonly halt: true; readonly response: Response };
+
+export interface HookFiller {
+  /** 0–1000, default 100; lower runs first, ties by module name. */
+  readonly priority?: number;
+  handle(ctx: Ctx, args: never): HookFillerResult | Promise<HookFillerResult>;
+}
+
+/** The event as a handler receives it (section 15.4). */
+export interface EventInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly attempt: number;
+}
+export interface DeliveredEvent<P = unknown> extends EventInfo {
+  readonly payload: P;
+}
+
+/**
+ * The ctx of an event handler: the module's ctx without the request. A
+ * durable delivery's `db` is its own transaction; an in-memory handler's runs
+ * in the emitter's current transaction.
+ */
+export interface EventContext extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
+  readonly db: DbStatements;
+  readonly event: EventInfo;
+}
+
+export type EventHandler = (ctx: EventContext, e: DeliveredEvent<never>) => void | Promise<void>;
+
+/** What a module's `hooks.ts` exports. */
+export interface HooksModule {
+  hooks?: Readonly<Record<string, HookFiller>>;
+  on?: Readonly<Record<string, EventHandler>>;
+}
+
+/** Cell → bootstrap, one delivery attempt (ops.schema.json `$defs/eventEnvelope`). */
+export interface EventEnvelope {
+  kind: "event";
+  id: string;
+  name: string;
+  payload: JsonValue;
+  attempt: number;
+  module: string;
+}
+
+/** Bootstrap → cell (ops.schema.json `$defs/eventResult`). */
+export type EventResult = { type: "ok" } | { type: "failed"; reason: "threw" | "no_handler" };
+
+/** One module as the bootstrap's init receives it (ops.schema.json `$defs/moduleInfo`). */
+export interface ModuleInfo {
+  name: string;
+  isolation: "shared" | "isolate";
+  dependencies: string[];
+  config: Record<string, ConfigValue>;
+  permissions: { tables?: string; network: string[]; secrets: string[]; slots: string[]; hooks: string[] };
+  exports: {
+    services?: string[];
+    events?: Record<string, Record<string, unknown>>;
+    hooks?: string[];
+    views?: string[];
+  };
 }
 
 export type Handler = (ctx: Ctx) => Response | Promise<Response>;
@@ -233,10 +387,14 @@ export interface Session {
   readonly id: string;
 }
 
+export type TextDirection = "ltr" | "rtl";
+
 export interface LoaderContext extends Ctx {
   /** The fragment the cell will render for this request, or null for the full page. */
   readonly fragment: string | null;
   readonly session: Session;
+  /** Sets the page's locale and direction (section 14, "Locale", 1.3.0); `dir` defaults from the language. */
+  setLocale(locale: string, dir?: TextDirection): void;
 }
 
 /** The template data a loader returns: a plain object (section 14, "Loader"). */
@@ -253,6 +411,8 @@ export interface ActionContext extends Omit<Ctx, "db"> {
   readonly form: FormData;
   readonly fragment: string | null;
   readonly session: Session;
+  /** As for the loader. */
+  setLocale(locale: string, dir?: TextDirection): void;
 }
 
 /**
@@ -278,12 +438,14 @@ export interface PageInvocation {
   fragment: string | null;
   params: Params;
   session: { id: string };
+  /** 1.3.0: the installed module whose page it is; absent for the app's pages. */
+  module?: string;
 }
 
 /** Bootstrap → Rust (ops.schema.json `$defs/pageResult`). */
 export type PageResult =
   | { type: "response" }
-  | { type: "render"; data_json: string; fragments: string[] }
+  | { type: "render"; data_json: string; fragments: string[]; locale?: string; dir?: TextDirection }
   | { type: "internal"; reason: PageInternalReason };
 
 export type PageInternalReason =
@@ -299,6 +461,7 @@ export type PageInternalReason =
 // ---------------------------------------------------------------------------
 
 export type TxHandle = number;
+export type SavepointHandle = number;
 
 export interface FetchRequest {
   method: string;
@@ -306,6 +469,8 @@ export interface FetchRequest {
   headers: [string, string][];
   body: Uint8Array | null;
   redirect: "follow" | "manual" | "error";
+  /** 1.3.0: whose allowlist applies; null or absent = the app. */
+  module?: string | null;
 }
 
 export interface FetchResponseHead {
@@ -318,20 +483,28 @@ export interface FetchResponseHead {
 }
 
 export interface Ops {
-  op_db_query(sql: string, params: Param[], tx: TxHandle | null): Promise<Row[]>;
-  op_db_query_one(sql: string, params: Param[], tx: TxHandle | null): Promise<Row | null>;
-  op_db_execute(sql: string, params: Param[], tx: TxHandle | null): Promise<ExecuteResult>;
+  op_db_query(sql: string, params: Param[], tx: TxHandle | null, module?: string | null): Promise<Row[]>;
+  op_db_query_one(sql: string, params: Param[], tx: TxHandle | null, module?: string | null): Promise<Row | null>;
+  op_db_execute(sql: string, params: Param[], tx: TxHandle | null, module?: string | null): Promise<ExecuteResult>;
   op_db_tx_begin(mode: "deferred" | "immediate"): Promise<TxHandle>;
   op_db_tx_commit(tx: TxHandle): Promise<void>;
   op_db_tx_rollback(tx: TxHandle): Promise<void>;
+  op_db_savepoint_begin(tx: TxHandle): Promise<SavepointHandle>;
+  op_db_savepoint_release(tx: TxHandle, sp: SavepointHandle): Promise<void>;
+  op_db_savepoint_rollback(tx: TxHandle, sp: SavepointHandle): Promise<void>;
 
   op_fetch(request: FetchRequest): Promise<FetchResponseHead>;
   op_fetch_body_read(body: number): Promise<Uint8Array | null>;
   op_fetch_body_close(body: number): Promise<void>;
 
-  op_secrets_get_all(): Secrets;
+  op_secrets_get_all(module?: string | null): Secrets;
 
-  op_log(level: LogLevel, message: string, fields: LogFields | null): void;
+  op_log(level: LogLevel, message: string, fields: LogFields | null, module?: string | null): void;
+
+  op_events_emit(name: string, payloadJson: string, durable: boolean, module: string | null, tx: TxHandle | null): Promise<string>;
+
+  op_password_hash(password: string): Promise<string>;
+  op_password_verify(password: string, hash: string): Promise<boolean>;
 
   op_deadline_remaining_ms(): number;
 }

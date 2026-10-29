@@ -8,11 +8,14 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use deno_core::{OpDecl, OpState, op2};
 
 use crate::ops::db::{
-    op_db_execute, op_db_query, op_db_query_one, op_db_tx_begin, op_db_tx_commit, op_db_tx_rollback,
+    op_db_execute, op_db_query, op_db_query_one, op_db_savepoint_begin, op_db_savepoint_release,
+    op_db_savepoint_rollback, op_db_tx_begin, op_db_tx_commit, op_db_tx_rollback,
 };
 use crate::ops::deadline::op_deadline_remaining_ms;
+use crate::ops::events::{op_events_ack, op_events_emit};
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
 use crate::ops::log::op_log;
+use crate::ops::password::{op_password_hash, op_password_verify};
 use crate::ops::request::RequestTable;
 use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_response_write};
 use crate::ops::secrets::op_secrets_get_all;
@@ -76,7 +79,14 @@ deno_core::extension!(
         op_db_tx_begin,
         op_db_tx_commit,
         op_db_tx_rollback,
+        op_db_savepoint_begin,
+        op_db_savepoint_release,
+        op_db_savepoint_rollback,
         op_secrets_get_all,
+        op_events_emit,
+        op_events_ack,
+        op_password_hash,
+        op_password_verify,
         op_log,
         op_deadline_remaining_ms,
         op_renox_fetch,

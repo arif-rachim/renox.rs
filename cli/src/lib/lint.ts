@@ -14,7 +14,7 @@ export interface Finding {
   line: number;
   column: number;
   /** `secret` and `forbidden-file` come from the bundle-hygiene rules (#115, secrets.ts and build.ts); `public-sourcemap` from check/no-public-sourcemaps.ts (#128). */
-  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "no-unsafe-redirect" | "secret" | "forbidden-file" | "public-sourcemap";
+  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "no-unsafe-redirect" | "secret" | "forbidden-file" | "public-sourcemap" | "override-drift";
   severity: "error" | "warning";
   message: string;
 }

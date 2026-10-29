@@ -14,9 +14,9 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211, Y5 #246, P (checklists #94 full, #112 19 of 23), X #250 (#166) | — | #260 (worker.toml knobs of #166) in F6-ALL; O3 after the owner's two bench hosts (#158); gate #49 after O3 and the four open rows of #112. #212 (macOS CPU clock) needs a Mac and blocks no gate |
-| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221, V3 #245 (#128 except two criteria), W (checklists #99 13 of 17, #116 17 of 27; the rest moved to #101 and #117), X #250 (#128 rest) | — | #261 (server stack symbolication) in F6-ALL; U3 (#219) after the owner tags `worker-v0.2.0`; gate #61 after O3 (#57's two open criteria and the #99/#116 moves are operator steps for that gate) |
-| F4 | F4-0 #247 (#225, #227) | F4-ALL (#226 first, then the 18 tasks in order) | P4 after F4-ALL; gate #68 after P4 (needs the booking product repo). If F4-ALL stops after two failed attempts on one issue (rule 13), the rest runs as a second F4-ALL from `main`. Epics #63–#67 are split into #225–#244 (2026-10-29) |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211, Y5 #246, P (checklists #94 full, #112 19 of 23), X #250 (#166) | — | #265 (lazy route modules, #157's last lever) and #268 in F4-X; #260 in F6-ALL; O3 after the owner's two bench hosts (#158); gate #49 after O3 and the four open rows of #112. #212 (macOS CPU clock) needs a Mac and blocks no gate |
+| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221, V3 #245 (#128 except two criteria), W (checklists #99 13 of 17, #116 17 of 27; the rest moved to #101 and #117), X #250 (#128 rest) | — | #267 (`renox dev` proxy) in F4-X; #261 in F6-ALL; U3 (#219) after the owner tags `worker-v0.2.0`; gate #61 after O3 (#57's two open criteria and the #99/#116 moves are operator steps for that gate) |
+| F4 | F4-0 #247 (#225, #227), F4-ALL #262 (the 19 tasks; epics #63–#67 closed) | — | P4 (#101, #117) and F4-X (#263–#268: ops 1.4.0, authorizer DDL fix, lazy route modules, Arabic digits, two red tests on `main`) now, alongside F6-ALL; gate #68 after P4 and #266 (needs the booking product repo). Epics #63–#67 are split into #225–#244 (2026-10-29) |
 | F6 | — | F6-ALL (#251–#261, one session, alongside F4-ALL) | #103, #104, #120, #121, #122 and #77 (observability, after F4-ALL: it touches the F4 crates) after F6-ALL; gate #79 after #74. Epics #75 and #76 are split into #251–#259 (2026-10-29) |
 
 Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), #222 and #223 (the contract and the `streamLogs` endpoint that #128 and the dashboard's Logs screen need), all placed in the batches below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
@@ -354,7 +354,9 @@ Done: PR #250. #166: `H2FloodBudget` with a sliding window per connection, a per
 Run the gate review issue #61 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
-## F4 (10 sessions + gate, or 2 + gate with F4-ALL)
+## F4 (F4-0, F4-ALL, P4, F4-X + gate)
+
+F4-ALL ran as one session and took every task, so batches R1, R2, T1, T2, M1, M2, M3 below never ran; they stay as the record of the split.
 
 The gate reviews of F2 and F3 are still open, but the split of the F4 epics is planning work and was done on 2026-10-29 so F4 can start the day the gates close, and so the contract batch, which is documentation only, runs now. Every F4 task issue carries the full Files list it needs (the lesson of #139 and #161). Batches are longer than in F2 and F3 on purpose: one session takes a whole crate's worth of work. Each epic (#63 to #67) stays open as the index of its tasks and closes with its last task.
 
@@ -377,6 +379,16 @@ Work on batch F4-ALL of arif-rachim/renox.rs: issues #226, #228, #233, #234, #23
 ```
 
 The owner's choice on 2026-10-29: one long session instead of the parallel batches R1 to M3 below, which stay as the fallback and as the file-ownership map. The order is topological over the issues' Blocked-by lists (checked against the live tracker); every blocker is closed or earlier in the batch. #226 first, since everything else depends on it. Rule 13 applies as usual: a skipped issue takes its dependants with it (rule 3), and the PR's "Skipped" list says where the chain stopped; the remaining issues then run as a second F4-ALL batch from `main`. Not in this batch: #101 and #117 (checklists run without code, batch P4) and #68 (gate, needs the booking product repository).
+
+Done: PR #262, all 19 issues, 21 commits, merged 2026-10-29; epics #63–#67 closed. Every Rust and module suite green; two `cli`/`sdk` tests were already red on `main` (#267, #268). Findings carried out as issues: Arabic digits need a wider `locale` tag (#263 contract, #266 task); `ALTER TABLE … ADD COLUMN` on a STRICT table fails under the authorizer on migration connections (#264); B6 with `auth` costs 5–15 % more p50 on a debug worker and must be re-measured on a release build and `node-small` (O3, #158); the org membership fence is a service check until F5 `db.scoped` (#69); `auth` and `org` depend on `i18n`, so every app with `auth` installs `i18n`; the outbox gauge is not on the metrics endpoint yet (#77).
+
+### Batch F4-X — after F4-ALL, alongside F6-ALL and P4 — ops 1.4.0, authorizer DDL fix, lazy route modules, Arabic digits, two red tests (6 issues)
+
+```
+Work on batch F4-X of arif-rachim/renox.rs: issues #263, #264, #265, #266, #267, #268 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for type:contract issues. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+#263 first (special case `type:contract`: ops 1.4.0 and artifact 1.2: the `locale` tag with `-u-nu-`/`-u-ca-` extensions, route modules evaluated on first use, `entries` export list and `eager` flag). Then #264 (renox-data: SQLite's own pragma reads during DDL on an allowed table), #265 (runtime, cell and CLI side of lazy routes; re-runs B1 `shop` and closes #157), #266 (`i18n` Arabic digits, #244's last criterion), #267 and #268 (the two tests red on `main`). No file overlap with F6-ALL (#251–#261): F4-X is in renox-runtime, renox-data, renox-template filters, `cli/src/{lib/build.ts,check,commands/dev.ts}`, `sdk/client`, `modules/i18n` and the contracts; F6-ALL is in renox-cell, `ops/`, `control/`, `cli/src/commands/db.ts`.
 
 ### Batch R1 — after F4-0, alongside R2 and T1 — i18n filters, slots and overrides, module pages (2 issues)
 
@@ -442,7 +454,9 @@ Work on batch P4 of arif-rachim/renox.rs: issues #101, #117 in that order. Follo
 
 Checklist special case. #117 also carries whatever #116 (F3) moved here.
 
-### Gate F4 — after P4
+Runs now: F4-ALL is in (PR #262) and every blocker of #101 and #117 is closed; #116 was removed from #117's list on 2026-10-29 (its moved rows are already on #117; #116 waits only for the owner). Checklist special case: no code, no PR.
+
+### Gate F4 — after P4 and #266
 
 ```
 Run the gate review issue #68 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.

@@ -55,6 +55,7 @@ use crate::manifest::{Artifact, CodeFormat, LoadError, RouteKind};
 use crate::ops::db::{DbEnv, DbHandle};
 use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
+use crate::ops::modules::ModuleRegistry;
 use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
 use crate::ops::response::{ResponseSinks, StreamEvent, StreamEvents};
@@ -425,6 +426,59 @@ pub struct CreateStats {
 }
 
 // ---------------------------------------------------------------------------
+// Event delivery (ops.md 1.3.0 section 15.4, "Delivery").
+
+/// One delivery attempt of a durable event to one module's `on[name]`
+/// handler (`ops.schema.json` `$defs/eventEnvelope`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventEnvelope {
+    /// The event's ULID.
+    pub id: String,
+    /// `<module>.<event>`.
+    pub name: String,
+    /// The payload as JSON text, as the outbox keeps it.
+    pub payload_json: String,
+    /// 1 for the first attempt.
+    pub attempt: u32,
+    /// The handling module.
+    pub module: String,
+}
+
+impl EventEnvelope {
+    /// The meter route: `EVENT <module> <name>` (`meter.md` 0.2).
+    pub fn route(&self) -> String {
+        format!("EVENT {} {}", self.module, self.name)
+    }
+
+    /// The meter request id: `<event id>_<module>_<attempt>`.
+    pub fn request_id(&self) -> String {
+        format!("{}_{}_{}", self.id, self.module, self.attempt)
+    }
+}
+
+/// How one delivery attempt ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventOutcome {
+    /// The handler resolved; its transaction and the ack committed.
+    Ok,
+    /// The handler threw: a failed attempt, nothing of it kept.
+    Threw,
+    /// The active deployment has no handler for it: dropped, not retried.
+    NoHandler,
+    /// A platform failure: a limit (CPU, heap, deadline), the concurrency
+    /// queue, or isolate creation. A failed attempt.
+    Failed(ErrorCode),
+}
+
+/// What [`IsolateHandle::deliver_event`] answers.
+#[derive(Debug)]
+pub struct EventDelivered {
+    pub outcome: EventOutcome,
+    /// The attempt's meter values; `route` is `EVENT <module> <name>`.
+    pub meter: InvocationMeter,
+}
+
+// ---------------------------------------------------------------------------
 // Channel protocol between handles and the isolate thread.
 
 struct DispatchJob {
@@ -439,6 +493,8 @@ struct DispatchJob {
     /// Page routes: what the bootstrap needs for `LoaderContext` and
     /// `ActionContext` (`ops.md` section 14).
     page: Option<PageJob>,
+    /// An event delivery instead of a request (`route` is unused).
+    event: Option<EventEnvelope>,
     ctx: RequestCtx,
     reply: oneshot::Sender<ThreadReply>,
 }
@@ -504,6 +560,9 @@ enum ThreadReply {
     Render {
         data_json: String,
         fragments: Vec<String>,
+        /// `setLocale` (ops.md 1.3.0 section 14, "Locale").
+        locale: Option<String>,
+        dir: Option<String>,
         meter: InvocationMeter,
     },
     /// The request ended with a platform error.
@@ -514,6 +573,11 @@ enum ThreadReply {
     /// The member was already terminated: nothing of the request ran, and
     /// the handle sends it to another member.
     Refused,
+    /// An event delivery ended in the bootstrap (ok, threw, no handler).
+    Event {
+        outcome: EventOutcome,
+        meter: InvocationMeter,
+    },
 }
 
 /// Shared state between a handle and its isolate thread.
@@ -592,8 +656,14 @@ pub struct Pool {
     artifact: Arc<Artifact>,
     router: Arc<Router>,
     allowlist: Arc<Allowlist>,
-    /// The declared secrets (`IsolateSpec::secrets` filtered).
-    secrets: Arc<BTreeMap<String, String>>,
+    /// The declared secrets (`IsolateSpec::secrets` filtered), per module
+    /// (`app` for the app; ops.md 1.3.0 section 3).
+    secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
+    /// The installed modules (ops.md 1.3.0 section 15).
+    modules: Arc<ModuleRegistry>,
+    /// Event name -> the modules with an `on` handler for it, by name
+    /// (filled when a member registers the modules).
+    event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
@@ -633,8 +703,27 @@ impl IsolateHandle {
         let limits = spec
             .limits
             .with_overrides(artifact.manifest.limits.as_ref());
-        // ops.md section 3: only declared secrets; short values refused by name.
-        let declared = secrets::select(&artifact.manifest.permissions.secrets, &spec.secrets);
+        // ops.md 1.3.0 section 15: the installed modules (fail closed).
+        let modules = ModuleRegistry::from_manifest(artifact.manifest.modules.as_ref())
+            .map_err(CreateError::Manifest)?;
+        // ops.md section 3: only declared secrets, per module; short values
+        // refused by name.
+        let mut by_module = BTreeMap::new();
+        by_module.insert(
+            crate::ops::modules::APP.to_string(),
+            secrets::select(&artifact.manifest.permissions.secrets, &spec.secrets),
+        );
+        for m in modules.modules() {
+            by_module.insert(
+                m.name.clone(),
+                secrets::select(&m.permissions.secrets, &spec.secrets),
+            );
+        }
+        let declared: BTreeMap<String, String> = by_module
+            .values()
+            .flatten()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         let redactor = Arc::new(Redactor::new(spec.secrets.values()));
         let sink: Arc<dyn LogSink> = Arc::new(RedactingSink {
             inner: runtime.inner.config.log_sink.clone(),
@@ -665,7 +754,9 @@ impl IsolateHandle {
             artifact,
             router: Arc::new(router),
             allowlist: Arc::new(allowlist),
-            secrets: Arc::new(declared),
+            secrets: Arc::new(by_module),
+            modules: Arc::new(modules),
+            event_handlers: Arc::default(),
             sink,
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
@@ -698,6 +789,28 @@ impl IsolateHandle {
     /// whatever the handler does after.
     pub async fn dispatch(&self, ctx: RequestCtx, req: http::Request<Bytes>) -> Dispatched {
         self.inner.dispatch(ctx, req).await
+    }
+
+    /// Run one delivery attempt of a durable event (ops.md 1.3.0 section
+    /// 15.4): the handler of `ev.module` gets a fresh ctx with its own
+    /// transaction, under the tier's CPU, heap and wall-clock limits, and
+    /// a concurrency slot like a request. `ctx.request_id` should be
+    /// [`EventEnvelope::request_id`].
+    pub async fn deliver_event(&self, ctx: RequestCtx, ev: EventEnvelope) -> EventDelivered {
+        self.inner.deliver_event(ctx, ev).await
+    }
+
+    /// The modules whose `hooks.ts` has an `on` handler for `event`, by
+    /// module name: the targets of a durable event's fan-out (ops.md 1.3.0
+    /// section 15.4, "Delivery").
+    pub fn event_handlers(&self, event: &str) -> Vec<String> {
+        self.inner
+            .event_handlers
+            .lock()
+            .expect("handlers lock")
+            .get(event)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -786,6 +899,8 @@ impl Pool {
             limits: self.limits,
             allowlist: self.allowlist.clone(),
             secrets: self.secrets.clone(),
+            modules: self.modules.clone(),
+            event_handlers: self.event_handlers.clone(),
             sink: self.sink.clone(),
             shared: shared.clone(),
         };
@@ -1083,6 +1198,8 @@ impl Pool {
                     fragment,
                     data_json: "{}".into(),
                     oob_fragments: Vec::new(),
+                    locale: None,
+                    dir: None,
                 }),
                 page: true,
                 body: None,
@@ -1169,6 +1286,7 @@ impl Pool {
                 url: url.clone(),
                 headers: headers.clone(),
                 body: body.clone(),
+                event: None,
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1288,6 +1406,8 @@ impl Pool {
             ThreadReply::Render {
                 data_json,
                 fragments,
+                locale,
+                dir,
                 mut meter,
             } => {
                 meter.route = Some(route_name.clone());
@@ -1330,6 +1450,8 @@ impl Pool {
                         fragment,
                         data_json,
                         oob_fragments: if htmx { fragments } else { Vec::new() },
+                        locale,
+                        dir,
                     }),
                     page: true,
                     body: None,
@@ -1344,7 +1466,100 @@ impl Pool {
                 )
             }
             // Refused twice: both members died before the request started.
-            ThreadReply::Refused => fail(ErrorCode::Internal, MeterStatus::Error),
+            // (`Event` never answers a request.)
+            ThreadReply::Refused | ThreadReply::Event { .. } => {
+                fail(ErrorCode::Internal, MeterStatus::Error)
+            }
+        }
+    }
+}
+
+impl Pool {
+    async fn deliver_event(self: &Arc<Self>, ctx: RequestCtx, ev: EventEnvelope) -> EventDelivered {
+        let admitted = Instant::now();
+        let route = ev.route();
+        let failed = |code: ErrorCode, status: MeterStatus| EventDelivered {
+            outcome: EventOutcome::Failed(code),
+            meter: InvocationMeter::new(Some(route.clone()), status),
+        };
+        let deadline = effective_deadline(ctx.deadline, self.limits.wall_ms, admitted);
+        let ctx = RequestCtx {
+            request_id: ctx.request_id,
+            deadline,
+        };
+        let Ok(_permit) = self.concurrency.acquire(deadline).await else {
+            return failed(ErrorCode::Busy, MeterStatus::Busy);
+        };
+        let mut attempts = 0;
+        let (member, seq, waited) = loop {
+            attempts += 1;
+            let member = match self.live_thread().await {
+                Ok(t) => t,
+                Err(e) => {
+                    let status = match e.code() {
+                        ErrorCode::CpuLimit => MeterStatus::CpuLimit,
+                        ErrorCode::Oom => MeterStatus::Oom,
+                        ErrorCode::Deadline => MeterStatus::Timeout,
+                        _ => MeterStatus::Error,
+                    };
+                    return failed(e.code(), status);
+                }
+            };
+            let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+            let (reply_tx, reply_rx) = oneshot::channel();
+            let job = DispatchJob {
+                seq,
+                route: usize::MAX,
+                params: Arc::new(BTreeMap::new()),
+                method: String::new(),
+                url: String::new(),
+                headers: Arc::new(Vec::new()),
+                body: Bytes::new(),
+                want_body: false,
+                page: None,
+                event: Some(ev.clone()),
+                ctx: ctx.clone(),
+                reply: reply_tx,
+            };
+            let _ = member.0.tx.send(Command::Dispatch(Box::new(job)));
+            let waited = tokio::time::timeout_at(deadline.into(), reply_rx).await;
+            match waited {
+                Ok(Ok(ThreadReply::Refused)) | Ok(Err(_)) if attempts < 2 => continue,
+                waited => break (member, seq, waited),
+            }
+        };
+        match waited {
+            Ok(Ok(ThreadReply::Event { outcome, mut meter })) => {
+                meter.route = Some(route);
+                EventDelivered { outcome, meter }
+            }
+            Ok(Ok(ThreadReply::Failed { code, mut meter })) => {
+                meter.route = Some(route);
+                EventDelivered {
+                    outcome: EventOutcome::Failed(code),
+                    meter,
+                }
+            }
+            Ok(_) => failed(ErrorCode::Internal, MeterStatus::Error),
+            Err(_elapsed) => {
+                let (meter_tx, meter_rx) = oneshot::channel();
+                let _ = member.0.tx.send(Command::Cancel {
+                    seq,
+                    meter: meter_tx,
+                    reason: CancelReason::Deadline,
+                });
+                let mut meter = tokio::time::timeout(Duration::from_millis(100), meter_rx)
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or_else(|| InvocationMeter::new(None, MeterStatus::Timeout));
+                meter.status = MeterStatus::Timeout;
+                meter.route = Some(route);
+                EventDelivered {
+                    outcome: EventOutcome::Failed(ErrorCode::Deadline),
+                    meter,
+                }
+            }
         }
     }
 }
@@ -1375,7 +1590,9 @@ struct ThreadContext {
     artifact: Arc<Artifact>,
     limits: Limits,
     allowlist: Arc<Allowlist>,
-    secrets: Arc<BTreeMap<String, String>>,
+    secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
+    modules: Arc<ModuleRegistry>,
+    event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
     sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
 }
@@ -1385,12 +1602,17 @@ type ReadyResult = Result<(v8::IsolateHandle, CreateStats), CreateError>;
 /// The JavaScript functions the bootstrap hands to Rust.
 struct Platform {
     dispatch: v8::Global<v8::Function>,
+    /// The bootstrap's event entry (ops.md 1.3.0 section 15.4).
+    deliver: v8::Global<v8::Function>,
     /// One handler per `manifest.routes[]` entry; `None` for a page route
     /// without `load` (it never enters the isolate).
     handlers: Vec<Option<v8::Global<v8::Function>>>,
     /// Per route: action name -> function, from the page module's
     /// `export const actions` (empty for every other route).
     actions: Vec<BTreeMap<String, v8::Global<v8::Function>>>,
+    /// Per route: the module that owns it (`app` or an installed module;
+    /// `artifact.md` section 3, "Route merge").
+    owners: Vec<String>,
 }
 
 /// The limit machinery of one isolate thread.
@@ -1482,7 +1704,14 @@ async fn create_worker(
                     .map_err(|e| CreateError::ModuleLoad(e.to_string()))?,
             ),
         }
-        .with_code_cache(&ctx.spec.tenant_id, &ctx.spec.deployment_hash),
+        .with_code_cache(&ctx.spec.tenant_id, &ctx.spec.deployment_hash)
+        .with_modules(
+            ctx.modules
+                .modules()
+                .iter()
+                .map(|m| m.name.clone())
+                .collect(),
+        ),
     );
     let fs: Arc<dyn deno_fs::FileSystem> = Arc::new(deno_fs::RealFs);
     // Step 1: every Deno permission denied, without prompting.
@@ -1544,10 +1773,12 @@ async fn create_worker(
             ctx.spec.tenant_id.clone(),
             ctx.spec.deployment_hash.clone(),
             ctx.sink.clone(),
+            ctx.modules.clone(),
         )));
         state.put(Rc::new(DbEnv {
             db: ctx.spec.db.clone(),
             redactor: Arc::new(Redactor::new(ctx.spec.secrets.values())),
+            modules: ctx.modules.clone(),
         }));
         state.put(LogEnv {
             sink: ctx.sink.clone(),
@@ -1556,8 +1787,13 @@ async fn create_worker(
             deployment_hash: ctx.spec.deployment_hash.clone(),
             lines_per_min: ctx.limits.log_lines_per_min,
         });
-        // Step 3: consumed once by `harden` (op_secrets_get_all).
-        state.put(SecretsState(Some((*ctx.secrets).clone())));
+        // Step 3: consumed once per module by `harden` (op_secrets_get_all).
+        state.put(SecretsState(
+            ctx.secrets
+                .iter()
+                .map(|(m, s)| (m.clone(), Some(s.clone())))
+                .collect(),
+        ));
     }
     let guards = Guards {
         watchdog,
@@ -1565,7 +1801,7 @@ async fn create_worker(
     };
 
     // Step 2: take the bootstrap's functions, remove the handle, harden.
-    let (dispatch, harden) = {
+    let (dispatch, deliver, harden, register) = {
         let internal = worker
             .js_runtime
             .execute_script(
@@ -1589,9 +1825,21 @@ async fn create_worker(
             })?;
             Ok(v8::Global::new(scope, f))
         };
-        (get(scope, "dispatch")?, get(scope, "harden")?)
+        (
+            get(scope, "dispatch")?,
+            get(scope, "deliver")?,
+            get(scope, "harden")?,
+            get(scope, "register")?,
+        )
     };
-    let harden_call = worker.js_runtime.call_with_args(&harden, &[]);
+    // Step 3: the module list (ops.md 1.3.0 section 11) goes to `harden`.
+    let modules_json = {
+        deno_core::scope!(scope, &mut worker.js_runtime);
+        let s = v8::String::new(scope, &ctx.modules.to_json())
+            .ok_or_else(|| CreateError::Internal("module list".into()))?;
+        v8::Global::new(scope, v8::Local::<v8::Value>::from(s))
+    };
+    let harden_call = worker.js_runtime.call_with_args(&harden, &[modules_json]);
     worker
         .js_runtime
         .with_event_loop_promise(harden_call, PollEventLoopOptions::default())
@@ -1622,6 +1870,51 @@ async fn create_worker(
         Ok(r) => r?,
     };
     let module_time = module_start.elapsed();
+
+    // Step 5 for modules (ops.md 1.3.0 section 11): the bootstrap checks each
+    // module's services and hooks against its manifest (fail closed).
+    if !ctx.modules.is_empty() {
+        let arg = {
+            deno_core::scope!(scope, &mut worker.js_runtime);
+            let obj = v8::Object::new(scope);
+            for m in ctx.modules.modules() {
+                let entry = v8::Object::new(scope);
+                for part in ["services", "hooks"] {
+                    if let Some(ns) = namespaces.get(&format!("modules/{}/{part}", m.name)) {
+                        let k = v8::String::new(scope, part).expect("short ASCII string");
+                        let v = v8::Local::new(scope, ns);
+                        entry.set(scope, k.into(), v.into());
+                    }
+                }
+                let k = v8::String::new(scope, &m.name)
+                    .ok_or_else(|| CreateError::Manifest("module name".into()))?;
+                obj.set(scope, k.into(), entry.into());
+            }
+            v8::Global::new(scope, v8::Local::<v8::Value>::from(obj))
+        };
+        let call = worker.js_runtime.call_with_args(&register, &[arg]);
+        let handled = worker
+            .js_runtime
+            .with_event_loop_promise(call, PollEventLoopOptions::default())
+            .await
+            .map_err(|e| CreateError::ModuleLoad(format!("modules: {}", tenant_safe(&e))))?;
+        // `register` answers module -> the event names of its `on` map.
+        let handled: BTreeMap<String, Vec<String>> = {
+            deno_core::scope!(scope, &mut worker.js_runtime);
+            let local = v8::Local::new(scope, handled);
+            serde_v8::from_v8(scope, local).unwrap_or_default()
+        };
+        let mut by_event: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (module, events) in handled {
+            for e in events {
+                by_event.entry(e).or_default().push(module.clone());
+            }
+        }
+        for list in by_event.values_mut() {
+            list.sort();
+        }
+        *ctx.event_handlers.lock().expect("handlers lock") = by_event;
+    }
 
     // Step 5: every route's export must be a function, and every declared
     // action a function of `export const actions` (fail closed).
@@ -1698,16 +1991,35 @@ async fn create_worker(
         }
         (handlers, actions)
     };
+    let owners = manifest.routes.iter().map(route_owner).collect();
     Ok((
         worker,
         Platform {
             dispatch,
+            deliver,
             handlers,
             actions,
+            owners,
         },
         guards,
         module_time,
     ))
+}
+
+/// The owner of a route: the module of its `module` id, or of its template
+/// id for an `.html`-only page; else the app.
+fn route_owner(r: &crate::manifest::RouteDef) -> String {
+    let id = if r.module.is_empty() {
+        r.page()
+            .and_then(|p| p.template.clone())
+            .unwrap_or_default()
+    } else {
+        r.module.clone()
+    };
+    id.strip_prefix("modules/")
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or(crate::ops::modules::APP)
+        .to_string()
 }
 
 async fn load_modules(
@@ -1756,9 +2068,14 @@ struct JsOutcome {
     reason: Option<String>,
     /// `KIND_RENDER` after an action: the out-of-band fragment names.
     fragments: Option<Vec<String>>,
+    /// `KIND_RENDER`: `setLocale` (ops.md 1.3.0 section 14, "Locale").
+    locale: Option<String>,
+    dir: Option<String>,
     /// `KIND_OK`: the body streams through `op_response_write` (`ops.md`
     /// section 6).
     stream: Option<bool>,
+    /// `KIND_EVENT`: `ok`, `threw`, or `no_handler`.
+    result: Option<String>,
 }
 
 const KIND_OK: u8 = 0;
@@ -1768,6 +2085,8 @@ const KIND_RENDER: u8 = 3;
 /// A page loader's result broke a rule (`load_result`, `data_not_serialisable`,
 /// `data_too_large`).
 const KIND_PAGE_INTERNAL: u8 = 4;
+/// An event delivery ended (`result`: ok, threw, no_handler).
+const KIND_EVENT: u8 = 5;
 
 type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
 type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
@@ -1779,6 +2098,8 @@ struct InFlight {
     token: u32,
     ctx: RequestCtx,
     route: usize,
+    /// An event delivery: its `EVENT <module> <name>` route.
+    event: Option<String>,
     /// Thread CPU charged to the request (ns); set from the CPU ledger when
     /// the request ends.
     cpu_ns: u64,
@@ -1796,9 +2117,15 @@ struct InFlight {
 
 impl InFlight {
     fn meter(&self, ctx: &ThreadContext, status: MeterStatus) -> InvocationMeter {
-        let r = &ctx.artifact.manifest.routes[self.route];
+        let route = match &self.event {
+            Some(e) => e.clone(),
+            None => {
+                let r = &ctx.artifact.manifest.routes[self.route];
+                format!("{} {}", r.method.as_str(), r.path)
+            }
+        };
         InvocationMeter {
-            route: Some(format!("{} {}", r.method.as_str(), r.path)),
+            route: Some(route),
             status,
             cpu_ms: (self.cpu_ns as f64 / 1_000.0).round() / 1_000.0,
             peak_heap_bytes: self.peak_heap,
@@ -1845,6 +2172,17 @@ fn attribute(change: impl FnOnce(&mut CpuLedger, u64) -> bool) {
         }
         let now = a.watch.now_ns();
         if change(&mut a.ledger, now) {
+            a.watch.rebase(now, a.ledger.budget());
+        }
+    });
+}
+
+/// Charge `ns` of CPU used for the request off the isolate thread.
+pub(crate) fn charge_cpu(token: u32, ns: u64) {
+    with_attribution(|a| {
+        a.ledger.add(token, ns);
+        if a.in_slice {
+            let now = a.watch.now_ns();
             a.watch.rebase(now, a.ledger.budget());
         }
     });
@@ -2399,7 +2737,10 @@ fn start_dispatch(
     };
     let args = {
         deno_core::scope!(scope, &mut worker.js_runtime);
-        build_args(scope, platform, token, &job)
+        match &job.event {
+            Some(ev) => build_event_args(scope, token, ev),
+            None => build_args(scope, platform, token, &job),
+        }
     };
     let args = match args {
         Ok(a) => a,
@@ -2416,7 +2757,12 @@ fn start_dispatch(
     });
     set_async_context(worker, Some(token));
     attribute(|l, now| l.switch(Some(token), now));
-    let fut = worker.js_runtime.call_with_args(&platform.dispatch, &args);
+    let entry = if job.event.is_some() {
+        &platform.deliver
+    } else {
+        &platform.dispatch
+    };
+    let fut = worker.js_runtime.call_with_args(entry, &args);
     attribute(|l, now| l.switch(None, now));
     set_async_context(worker, None);
     Ok((
@@ -2425,6 +2771,7 @@ fn start_dispatch(
             token,
             ctx: job.ctx,
             route: job.route,
+            event: job.event.as_ref().map(EventEnvelope::route),
             cpu_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
@@ -2494,12 +2841,87 @@ fn build_args(
         )?,
         None => v8::null(scope).into(),
     };
+    let owner: v8::Local<v8::Value> = serde_v8::to_v8(scope, &platform.owners[job.route])?;
     Ok([
-        handler, token_v, method, url, headers, body, params, want, page, action,
+        handler, token_v, method, url, headers, body, params, want, page, action, owner,
     ]
     .into_iter()
     .map(|l| v8::Global::new(scope, l))
     .collect())
+}
+
+/// `deliver(token, id, name, payloadJson, attempt, module)`.
+fn build_event_args(
+    scope: &mut v8::PinScope,
+    token: u32,
+    ev: &EventEnvelope,
+) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
+    let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
+    let attempt: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, ev.attempt).into();
+    let id = serde_v8::to_v8(scope, &ev.id)?;
+    let name = serde_v8::to_v8(scope, &ev.name)?;
+    let payload = serde_v8::to_v8(scope, &ev.payload_json)?;
+    let module = serde_v8::to_v8(scope, &ev.module)?;
+    Ok([token_v, id, name, payload, attempt, module]
+        .into_iter()
+        .map(|l| v8::Global::new(scope, l))
+        .collect())
+}
+
+/// An event delivery's outcome; the cause of a throw goes to the tenant
+/// log with the event's fields (ops.md 1.3.0 section 15.4).
+fn finish_event(
+    ctx: &ThreadContext,
+    flight: &InFlight,
+    outcome: Result<JsOutcome, String>,
+) -> ThreadReply {
+    let route = flight.event.clone().unwrap_or_default();
+    let (result, status) = match &outcome {
+        Ok(o) if o.kind == KIND_EVENT => match o.result.as_deref() {
+            Some("ok") => (EventOutcome::Ok, MeterStatus::Ok),
+            Some("no_handler") => (EventOutcome::NoHandler, MeterStatus::Ok),
+            _ => (EventOutcome::Threw, MeterStatus::Error),
+        },
+        _ => (EventOutcome::Threw, MeterStatus::Error),
+    };
+    if result != EventOutcome::Ok {
+        let mut f = serde_json::Map::new();
+        f.insert("route".into(), route.into());
+        let message = match (&outcome, result) {
+            (_, EventOutcome::NoHandler) => "event has no handler; dropped",
+            (Ok(o), _) => {
+                f.insert("code".into(), "RENOX_INTERNAL".into());
+                if let Some(code) = &o.code {
+                    f.insert("cause_code".into(), code.clone().into());
+                }
+                f.insert(
+                    "cause_name".into(),
+                    o.name.clone().unwrap_or_default().into(),
+                );
+                f.insert(
+                    "cause_message".into(),
+                    o.message.clone().unwrap_or_default().into(),
+                );
+                f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+                "event handler threw"
+            }
+            (Err(e), _) => {
+                f.insert("code".into(), "RENOX_INTERNAL".into());
+                f.insert("cause_message".into(), e.clone().into());
+                "event delivery failed"
+            }
+        };
+        let level = if result == EventOutcome::NoHandler {
+            "warn"
+        } else {
+            "error"
+        };
+        log_line(ctx, level, Some(&flight.ctx.request_id), message, f);
+    }
+    ThreadReply::Event {
+        outcome: result,
+        meter: flight.meter(ctx, status),
+    }
 }
 
 /// What the bootstrap's `dispatch` resolved to.
@@ -2522,6 +2944,9 @@ fn finish_dispatch(
     flight: &InFlight,
     outcome: Result<JsOutcome, String>,
 ) -> ThreadReply {
+    if flight.event.is_some() {
+        return finish_event(ctx, flight, outcome);
+    }
     let route = &ctx.artifact.manifest.routes[flight.route];
     let route_name = format!("{} {}", route.method.as_str(), route.path);
     let no_template = route.page().is_some_and(|p| p.template.is_none());
@@ -2560,6 +2985,8 @@ fn finish_dispatch(
             Some(data_json) => ThreadReply::Render {
                 data_json,
                 fragments: o.fragments.unwrap_or_default(),
+                locale: o.locale,
+                dir: o.dir,
                 meter: flight.meter(ctx, MeterStatus::Ok),
             },
             None => page_internal("data_not_serialisable", None),

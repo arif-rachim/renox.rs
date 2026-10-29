@@ -47,9 +47,10 @@ Every row of the syntax table in `docs/08-template-engine.md` has a fixture unde
 | `<x-name :prop="e" flag>`, `<slot />`, `<slot name="x">fallback</slot>`, `slot="x"` on a child | inlined: props bound with `{% with %}`; slot content runs in the caller's scope (shadowed names restored) | `component` |
 | `<r-props product="Product" compact="bool = false" />` | validated at the call site: unknown prop, missing required prop, a static value that is not a `bool`/`number`; a component that declares props may read only its props | `component` |
 | `<r-layout use="main">` | `{% extends "pages/_layouts/main" %}`; children in `{% block content %}`, `slot="x"` children in `{% block x %}`; a layout's `<slot />` / `<slot name="x">` are those blocks (also inside `<title>`) | `layout` |
-| `<r-slot name="admin.sidebar" />` | one `{% include %}` per provider in `CompileOptions::slots`, in order | `cross-module-slot` |
+| `<r-slot name="admin.sidebar" />` | one `{% include %}` per filler in `CompileOptions::slots`, in order; a filler with `requires` is wrapped in `{% if can("<action>", none) %}` (#232) | `cross-module-slot`, `modules` |
 | `r-can="action" :resource="x"`, `r-cannot` | `{% if can("action", x) %}` / `{% if not can(...) %}`; actions checked against `CompileOptions::actions` when given | `permission` |
 | `<billing:plan-badge>` | the module partial, or its `overrides/billing/...` replacement | `module-component` |
+| `modules/<m>/(pages\|partials)/….html` (#232, artifact 1.1) | template id `modules/<m>/…`, kind from the id without the prefix; `overrides/<m>/…` is compiled into that id instead; a module template's `<r-layout use="x">` finds `modules/<m>/pages/_layouts/x` before the app's | `modules` |
 | `<script>` / `<style>` | content literal (`{% raw %}` when it has delimiters); `nonce="{{ __renox.csp_nonce }}"` added | `script-style` |
 | `<x-form action="add">` | `<form method="post" action="?/add" hx-post="?/add" ...>` plus `<input type="hidden" name="_csrf" value="{{ __renox.csrf_token }}">`; other attributes kept (#41) | `render.rs::platform_components_carry_csrf_and_nonce` |
 | `<x-csrf />` | the hidden `_csrf` input alone, for hand-written forms | same |
@@ -99,13 +100,27 @@ Locales `en-AE` and `ar-AE`, Eastern Arabic digits with `ar-AE-u-nu-arab` (`Loca
 | `truncate(n, end="…")` | by characters | same |
 | `json` | HTML-safe JSON (`<`, `>`, `&`, `'` as `\u00XX`) | same |
 | `upper`, `lower` | case mapping | Arabic passes through |
+| `t`, `t(count=n)`, `t({"count": n})` | the catalog message of the page's locale | same, with the Arabic plural categories |
+| `phone_ae` | `+971 50 123 4567`, `+971 4 123 4567` | same, inside U+2066…U+2069 so it stays left to right |
+| `emirates_id` | `784-1980-1234567-1` | same, isolated |
+| `trn` | `100 2345 6789 0003` | same, isolated |
 
-The CLDR patterns for the two platform locales are written out in `src/filters/` instead of linking ICU (`icu`/`fixed_decimal`): two locales do not need the ICU data size or build time. `date` applies `RenderContext::utc_offset_minutes` (the app's zone; Asia/Dubai has no DST) to date-times, not to date-only values. Hijri display and `t` (translations) are not here yet.
+The GCC formatters only format: input they do not recognise is shown as given, and validation is the `gcc` module's TypeScript (#243).
+
+### Translations (#233)
+
+- **Catalogs**: `Catalogs::add(module, locale, json)` per `<locale>.json`; nested objects become dotted keys and a top-level `_meta` object is skipped (review marks). The app's catalogs override the modules'. `Renderer::with_catalogs` attaches them to a deployment's renderer. The cell reads `code/i18n/<locale>.json` (the app) and `code/modules/<name>/i18n/<locale>.json` (`crates/renox-cell/src/render.rs`).
+- **Lookup**: the exact tag (`ar-AE`), then its language (`ar`), then `en`. A missing key renders the key itself and is reported once per deployment and `(locale, key)` through `Catalogs::on_missing` (the cell logs `i18n_missing`).
+- **Messages**: an ICU MessageFormat subset: `{name}`, `{n, number}`, `{n, plural, =0 {…} one {# item} other {# items}}` (`zero`, `one`, `two`, `few`, `many`, `other`; CLDR rules of `en` and `ar`), `{g, select, a {…} other {…}}`, `''` and `'{…}'` quoting. A malformed message renders as written. Messages are text: the output is escaped like any value.
+- **`<r-t key="cart.items" :count="cart.count" />`** compiles to `{{ "cart.items" | t({"count": (cart.count)}) }}`; plain attributes are text arguments.
+- **`<html lang dir>`**: a template's `<html>` without `lang` or `dir` gets both from the render (`RenderContext::lang` and `dir`, from the page's `setLocale`, `ops.md` 1.3.0 section 14; defaults `en`, `ltr`, and `rtl` for `ar`, `fa`, `he`, `ur`, …). `dir="auto"` on user text is the compiler's (above).
+- **Fuel**: a lookup is a filter call and costs fuel like any other (`tests/i18n.rs`).
+
+The CLDR patterns for the two platform locales are written out in `src/filters/` instead of linking ICU (`icu`/`fixed_decimal`): two locales do not need the ICU data size or build time. `date` applies `RenderContext::utc_offset_minutes` (the app's zone; Asia/Dubai has no DST) to date-times, not to date-only values. Hijri display is not here.
 
 ## Not covered yet
 
 - Built-in component `<x-image>` (storage module); module filters are accepted by name (`CompileOptions::filters`) but implemented by F4.
-- Module template ids and overrides of module pages and layouts (`artifact.md` Open 5, F4); slot providers from modules.
 - `<slot>` inside `<head>` other than in `<title>` (the HTML parser moves unknown elements out of `<head>`).
 - A layout using another layout.
 - The fragment cache.

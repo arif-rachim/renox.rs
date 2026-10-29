@@ -1,0 +1,9 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`brute force buckets 10 failures per account: locked with the generic message: role: generic login message 1`] = `"The email or password is incorrect, or there were too many attempts. Try again later."`;
+
+exports[`brute force buckets the generic messages of register, reset and magic links: role: generic register message 1`] = `"Check your inbox: we sent a link to finish signing up."`;
+
+exports[`brute force buckets the generic messages of register, reset and magic links: role: generic reset message 1`] = `"If an account exists for that email, a link is on its way. It works once, for 15 minutes."`;
+
+exports[`brute force buckets the generic messages of register, reset and magic links: role: generic magic link message 1`] = `"If an account exists for that email, a link is on its way. It works once, for 15 minutes."`;

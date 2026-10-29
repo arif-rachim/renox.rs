@@ -1,0 +1,7 @@
+# The app the gcc module's tests run in (renox test, #238).
+[app]
+name = "gcctest"
+timezone = "Asia/Dubai"
+
+[modules]
+gcc = { version = "^1.0", source = "path:../.." }

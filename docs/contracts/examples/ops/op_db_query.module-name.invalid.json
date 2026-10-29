@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: a module name has no hyphen and no upper case (manifest.md MF1)",
+  "op": "op_db_query",
+  "args": [
+    "select 1",
+    [],
+    null,
+    "Gcc-Data"
+  ]
+}

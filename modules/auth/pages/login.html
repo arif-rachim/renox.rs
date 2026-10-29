@@ -1,0 +1,15 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.login.title" /></r-group>
+  <h1><r-t key="auth.login.title" /></h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <x-form action="default">
+    <input type="hidden" name="next" :value="next">
+    <label><r-t key="auth.field.email" /> <input type="email" name="email" autocomplete="username" :value="email" required></label>
+    <label><r-t key="auth.field.password" /> <input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit"><r-t key="auth.login.submit" /></button>
+  </x-form>
+  <ul class="providers" r-if="providers | length > 0">
+    <li r-for="p in providers"><a :href="p.href"><r-t key="auth.login.continue_with" :provider="p.label" /></a></li>
+  </ul>
+  <p><a href="register"><r-t key="auth.login.create" /></a></p>
+</r-layout>

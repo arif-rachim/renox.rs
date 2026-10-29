@@ -29,6 +29,8 @@ mod request_resources;
 pub mod runtime;
 
 #[cfg(feature = "v8")]
-pub use isolate::{Dispatched, IsolateHandle, IsolateSpec, RequestCtx};
+pub use isolate::{
+    Dispatched, EventDelivered, EventEnvelope, EventOutcome, IsolateHandle, IsolateSpec, RequestCtx,
+};
 #[cfg(feature = "v8")]
 pub use runtime::{LogLine, LogSink, Runtime, RuntimeConfig};

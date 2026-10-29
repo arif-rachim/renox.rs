@@ -111,22 +111,32 @@ mod v8_ops {
     use crate::ops::request::op_error;
 
     /// The isolate's secrets until the bootstrap takes them.
-    pub(crate) struct SecretsState(pub Option<BTreeMap<String, String>>);
+    /// Module (`app` for the app) → its secrets, until `op_secrets_get_all`
+    /// takes them (ops.md 1.3.0 section 3: once per module).
+    pub(crate) struct SecretsState(pub BTreeMap<String, Option<BTreeMap<String, String>>>);
 
-    /// `op_secrets_get_all`: called once by the bootstrap before any tenant
-    /// module runs; a second call rejects with `RENOX_SECRETS_CONSUMED`.
+    /// Called once per module by the bootstrap before any tenant module
+    /// runs; a second call for the same module, or a call for a module that
+    /// is not installed, rejects with `RENOX_SECRETS_CONSUMED`.
     #[op2]
     #[serde]
     pub(crate) fn op_secrets_get_all(
         state: &mut OpState,
+        #[string] module: Option<String>,
     ) -> Result<BTreeMap<String, String>, JsErrorBox> {
-        state.borrow_mut::<SecretsState>().0.take().ok_or_else(|| {
-            op_error(
-                "RENOX_SECRETS_CONSUMED",
-                serde_json::Value::Null,
-                "Secrets were already handed out for this isolate.",
-            )
-        })
+        let key = module.unwrap_or_else(|| "app".into());
+        state
+            .borrow_mut::<SecretsState>()
+            .0
+            .get_mut(&key)
+            .and_then(Option::take)
+            .ok_or_else(|| {
+                op_error(
+                    "RENOX_SECRETS_CONSUMED",
+                    serde_json::Value::Null,
+                    "Secrets were already handed out for this isolate.",
+                )
+            })
     }
 }
 

@@ -16,8 +16,26 @@ use minijinja::Environment;
 /// Platform filters (`docs/08-template-engine.md`) plus the safe builtins
 /// the renderer registers. `safe` is not here: raw HTML is `r-html`.
 pub const FILTERS: &[&str] = &[
-    "money", "date", "ago", "number", "truncate", "json", "upper", "lower", "default", "length",
-    "first", "last", "join", "trim", "round", "abs",
+    "money",
+    "date",
+    "ago",
+    "number",
+    "truncate",
+    "json",
+    "upper",
+    "lower",
+    "default",
+    "length",
+    "first",
+    "last",
+    "join",
+    "trim",
+    "round",
+    "abs",
+    "t",
+    "phone_ae",
+    "emirates_id",
+    "trn",
 ];
 
 /// Tests usable after `is` / `is not`.

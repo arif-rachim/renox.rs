@@ -1,0 +1,10 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.confirm.title" /></r-group>
+  <h1><r-t key="auth.confirm.title" /></h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <x-form action="default">
+    <input type="hidden" name="token" :value="token">
+    <label><r-t key="auth.field.new_password" /> <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit"><r-t key="auth.confirm.submit" /></button>
+  </x-form>
+</r-layout>

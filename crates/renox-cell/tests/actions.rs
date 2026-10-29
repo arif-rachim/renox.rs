@@ -344,7 +344,11 @@ meter_flush_ms = 50
     // the action's data on top.
     let r = http(addr, "POST", "/cart?/add", &[("cookie", &jar), FORM], &body).await;
     assert_eq!(r.status, 200, "{}", r.body);
-    assert!(r.body.contains("<html>"), "full page: {}", r.body);
+    assert!(
+        r.body.contains("<html lang=\"en\" dir=\"ltr\">"),
+        "full page: {}",
+        r.body
+    );
     assert!(!r.body.contains("hx-swap-oob"), "{}", r.body);
     assert_eq!(count(&r.body), "1");
     assert!(
@@ -384,7 +388,7 @@ meter_flush_ms = 50
         "{}",
         r.body
     );
-    assert!(!r.body.contains("<html>"));
+    assert!(!r.body.contains("<html"));
     // htmx POST without a matching target: only the out-of-band blocks.
     let r = http(
         addr,

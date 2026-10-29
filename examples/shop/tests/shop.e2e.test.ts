@@ -1,4 +1,5 @@
-// The shop under `renox dev` on the real worker: seed, list 100, search,
+// The shop on the real worker through `renox/test` (#238; was `renox dev`
+// by hand): seed, list 100, search,
 // detail, add to cart, checkout, through the API and through the pages
 // (#45: B6 page 20-30 KB with 100 items and five queries, the search
 // fragment, the addToCart action with the out-of-band cart badge). Runs
@@ -6,14 +7,14 @@
 // renox-worker): the shop has templates, which `renox-worker transpile`
 // compiles (#43).
 import { expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { check } from "../../../cli/src/commands/check.ts";
-import { startDev } from "../../../cli/src/commands/dev.ts";
 import { buildArtifact } from "../../../cli/src/lib/build.ts";
 import { hashDir } from "../../../cli/src/lib/hash.ts";
+import { app as harness } from "renox/test";
 
 const worker = process.env.RENOX_WORKER_PATH;
 const app = join(import.meta.dir, "..");
@@ -22,11 +23,30 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   const out = mkdtempSync(join(tmpdir(), "renox-shop-build-"));
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
-  expect(readdirSync(join(r.dir, "migrations/app"))).toEqual(["001_init.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql", "003_orders_org.sql"]);
+  // auth (#241): its migrations before the app's, its pages under /auth.
+  expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql"]);
+  // org (#242): after auth, its dependency; its pages under /org.
+  expect(readdirSync(join(r.dir, "migrations/org")).sort()).toEqual(["001_init.sql", "002_orgs_locale.sql"]);
+  // i18n (#244): first, auth and org depend on it; the shop's catalogs under code/i18n/.
+  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["i18n", "auth", "org"]);
+  expect(readdirSync(join(r.dir, "code/i18n")).sort()).toEqual(["ar.json", "en.json"]);
   expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${x.path}`).sort()).toEqual([
     "GET /api/products",
     "GET /api/products/:id",
+    "GET /auth/oauth/:provider/callback",
+    "GET /auth/oauth/:provider/start",
     "PAGE /",
+    "PAGE /auth/account",
+    "PAGE /auth/login",
+    "PAGE /auth/magic",
+    "PAGE /auth/magic/:token",
+    "PAGE /auth/register",
+    "PAGE /auth/reset",
+    "PAGE /auth/reset/confirm",
+    "PAGE /org",
+    "PAGE /org/accept/:token",
+    "PAGE /org/members",
     "PAGE /products",
     "PAGE /products/:id",
     "POST /api/cart",
@@ -41,108 +61,106 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
 });
 
 test.skipIf(!worker)(
-  "under renox dev: seed, list 100, search, detail, add to cart, checkout",
+  "under renox test (#238): seed, list 100, search, detail, add to cart, checkout",
   async () => {
-    const dir = mkdtempSync(join(tmpdir(), "renox-shop-dev-"));
-    cpSync(app, dir, { recursive: true, filter: (p) => !/\/(node_modules|\.renox|tests)(\/|$)/u.test(p.slice(app.length)) });
-    // Bare imports (zod, stripe) resolve from the workspace's node_modules.
-    cpSync(join(app, "node_modules"), join(dir, "node_modules"), { recursive: true, dereference: true });
-    const port = 20000 + Math.floor(Math.random() * 20000);
-    const dev = await startDev({ project: dir, port, log: () => {} });
-    const base = `http://localhost:${port}`;
-    const post = (path: string, body?: unknown) =>
-      fetch(`${base}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-    try {
-      expect(await (await post("/api/dev/seed")).json()).toEqual({ products: 100 });
-      const all = await (await fetch(`${base}/api/products`)).json();
-      expect(all.count).toBe(100);
-      expect((await (await fetch(`${base}/api/products?q=saffron`)).json()).count).toBe(8);
-      const one = await (await fetch(`${base}/api/products/42`)).json();
-      expect(one.id).toBe(42);
-      expect((await fetch(`${base}/api/products/4242`)).status).toBe(404);
-      const added = await post("/api/cart", { cart_id: "c_e2e", product_id: 42, quantity: 3 });
-      expect(added.status).toBe(201);
-      expect((await added.json()).cart.total_fils).toBe(3 * one.price_fils);
-      expect((await post("/api/cart", { cart_id: "c_e2e", product_id: "42", quantity: 3 })).status).toBe(400);
-      const co = await (await post("/api/checkout", { cart_id: "c_e2e" })).json();
-      expect(co.amount).toBe(3 * one.price_fils);
-      expect(co.currency).toBe("aed");
+    // The same prebuilt worker as `renox dev`, on a temporary tenant file.
+    const t = await harness({ project: app });
+    const post = (path: string, body?: unknown) => t.request("POST", path, body === undefined ? {} : { body: body as Record<string, unknown> });
+    const get = (path: string, headers: Record<string, string> = {}) => t.request("GET", path, { headers });
+    expect((await post("/api/dev/seed")).json()).toEqual({ products: 100 });
+    const all = (await get("/api/products")).json<{ count: number }>();
+    expect(all.count).toBe(100);
+    expect((await get("/api/products?q=saffron")).json<{ count: number }>().count).toBe(8);
+    const one = (await get("/api/products/42")).json<{ id: number; name: string; price_fils: number }>();
+    expect(one.id).toBe(42);
+    expect((await get("/api/products/4242")).status).toBe(404);
+    const added = await post("/api/cart", { cart_id: "c_e2e", product_id: 42, quantity: 3 });
+    expect(added.status).toBe(201);
+    expect(added.json<{ cart: { total_fils: number } }>().cart.total_fils).toBe(3 * one.price_fils);
+    expect((await post("/api/cart", { cart_id: "c_e2e", product_id: "42", quantity: 3 })).status).toBe(400);
+    // Checkout needs a user (auth, #241): 401, then sign up through auth's page and check out.
+    expect((await post("/api/checkout", { cart_id: "c_e2e" })).status).toBe(401);
+    const buyer = t.as("buyer");
+    expect((await buyer.action("/auth/register", "default", { email: "buyer@example.com", password: "correct horse battery", display_name: "Buyer" })).status).toBe(200);
+    expect((await buyer.action("/auth/login", "default", { email: "buyer@example.com", password: "correct horse battery" })).status).toBe(303);
+    const co = (await buyer.request("POST", "/api/checkout", { body: { cart_id: "c_e2e" } })).json<{ amount: number; currency: string; order_id: number }>();
+    expect(co.amount).toBe(3 * one.price_fils);
+    expect(co.currency).toBe("aed");
+    const order = t.db.query<{ user_id: string }>("select user_id from app__orders where id = ?", [co.order_id])[0];
+    expect(order?.user_id).toBe(t.db.query<{ id: string }>("select id from auth__public_users_v1 where email = 'buyer@example.com'")[0]?.id as string);
+    expect(t.db.query<{ org_id: string | null }>("select org_id from app__orders where id = ?", [co.order_id])[0]?.org_id).toBeNull();
+    // The header's user menu, through the app.header slot.
+    expect((await buyer.page("/products/42")).html).toContain('<a href="/auth/account" dir="auto">Buyer</a>');
+    // With an organisation (org, #242): the order carries the active one; the header shows the switcher.
+    expect((await buyer.action("/org", "create", { name: "Buyer Trading LLC", slug: "" })).status).toBe(303);
+    const orgId = t.db.query<{ org_id: string }>("select org_id from org__public_members_v1")[0]?.org_id as string;
+    const co2 = (await buyer.request("POST", "/api/checkout", { body: { cart_id: "c_e2e" } })).json<{ order_id: number }>();
+    expect(t.db.query<{ org_id: string }>("select org_id from app__orders where id = ?", [co2.order_id])[0]?.org_id).toBe(orgId);
+    const header = (await buyer.page("/products/42")).html;
+    expect(header).toContain('action="/org?/switch"');
+    expect(header).toContain("Buyer Trading LLC · owner");
 
-      // Pages (#45). B6: the list page, 100 items, 20-30 KB.
-      const page = await fetch(`${base}/products`);
-      expect(page.status).toBe(200);
-      const html = await page.text();
-      expect(html.match(/<article class="card">/gu)?.length).toBe(100);
-      const kb = new TextEncoder().encode(html).length / 1024;
-      expect(kb).toBeGreaterThanOrEqual(20);
-      expect(kb).toBeLessThanOrEqual(30);
-      const cookies = page.headers.getSetCookie().map((c) => c.split(";")[0] as string);
-      const jar = cookies.join("; ");
-      const token = (cookies.find((c) => c.startsWith("__Host-renox_csrf=")) ?? "").split("=")[1] ?? "";
-      expect(token.length).toBeGreaterThan(20);
+    // Pages (#45). B6: the list page, 100 items, 20-30 KB. `page` keeps the session's cookies.
+    const page = await t.page("/products");
+    expect(page.status).toBe(200);
+    const html = page.html;
+    expect(html.match(/<article class="card">/gu)?.length).toBe(100);
+    const kb = new TextEncoder().encode(html).length / 1024;
+    expect(kb).toBeGreaterThanOrEqual(20);
+    expect(kb).toBeLessThanOrEqual(30);
+    const token = (page.headers.getSetCookie().map((c) => c.split(";")[0] as string).find((c) => c.startsWith("__Host-renox_csrf=")) ?? "").split("=")[1] ?? "";
+    expect(token.length).toBeGreaterThan(20);
 
-      // B7: the search box's fragment request, one block.
-      const frag = await (await fetch(`${base}/products?q=saffron`, { headers: { "hx-request": "true", "hx-target": "product-list", cookie: jar } })).text();
-      expect(frag.startsWith('<ul id="product-list" class="grid">')).toBe(true);
-      expect(frag.match(/<article class="card">/gu)?.length).toBe(8);
-      expect(frag).not.toContain("<html");
+    // Arabic (i18n, #244): the list page with ?lang=ar is rtl, from the
+    // shop's catalog, and stays Arabic for this session without ?lang=.
+    const ar = t.as("arabic");
+    const arPage = await ar.page("/products?lang=ar");
+    expect(arPage.html).toContain('<html lang="ar" dir="rtl">');
+    expect(arPage.html).toContain("<h1>المنتجات</h1>");
+    expect(arPage.html).toContain('<a href="/products?lang=en" lang="en">English</a>');
+    // Digits: latin (the config default); money in Arabic order with the dirham sign.
+    expect(arPage.html).toMatch(/<span class="price" dir="auto">[0-9.,]+\sد\.إ\.<\/span>/u);
+    expect((await ar.page("/products/42")).html).toContain('<html lang="ar" dir="rtl">');
+    expect((await t.as("english").page("/products")).html).toContain('<html lang="en" dir="ltr">');
 
-      // Detail.
-      const detail = await (await fetch(`${base}/products/42`, { headers: { cookie: jar } })).text();
-      expect(detail).toContain(`>${one.name}</h1>`);
-      // The form carries the token masked for this response (BREACH, #111),
-      // never the cookie's bytes; the masked value is what a browser posts.
-      const rendered = /name="_csrf" value="([^"]+)"/u.exec(detail)?.[1] ?? "";
-      expect(rendered.length).toBe(86);
-      expect(detail).not.toContain(token);
-      expect((await fetch(`${base}/products/4242`)).status).toBe(404);
+    // B7: the search box's fragment request, one block.
+    const frag = (await get("/products?q=saffron", { "hx-request": "true", "hx-target": "product-list" })).html;
+    expect(frag.startsWith('<ul id="product-list" class="grid">')).toBe(true);
+    expect(frag.match(/<article class="card">/gu)?.length).toBe(8);
+    expect(frag).not.toContain("<html");
 
-      // addToCart through htmx: the product fragment, then the badge out of band.
-      const add = await fetch(`${base}/products/42?/addToCart`, {
-        method: "POST",
-        headers: { cookie: jar, "content-type": "application/x-www-form-urlencoded", "hx-request": "true", "hx-target": "product" },
-        body: `_csrf=${rendered}&quantity=2`,
-      });
-      expect(add.status).toBe(200);
-      const swapped = await add.text();
-      expect(swapped.startsWith('<article id="product">')).toBe(true);
-      expect(swapped).toContain("Added 2 to your cart.");
-      expect(swapped).toContain('<span hx-swap-oob="true" id="cart-badge" dir="auto">2</span>');
-      // Without the token: 403, nothing added.
-      const forged = await fetch(`${base}/products/42?/addToCart`, {
-        method: "POST",
-        headers: { cookie: jar, "content-type": "application/x-www-form-urlencoded" },
-        body: "quantity=5",
-      });
-      expect(forged.status).toBe(403);
-      // A plain form POST gets the full page; the badge counts the session's cart.
-      const plain = await (await fetch(`${base}/products/42?/addToCart`, {
-        method: "POST",
-        headers: { cookie: jar, "content-type": "application/x-www-form-urlencoded" },
-        body: `_csrf=${token}&quantity=1`,
-      })).text();
-      expect(plain).toContain("<!DOCTYPE html>");
-      expect(plain).toContain('<span id="cart-badge" dir="auto">3</span>');
+    // Detail.
+    const detail = (await t.page("/products/42")).html;
+    expect(detail).toContain(`>${one.name}</h1>`);
+    // The form carries the token masked for this response (BREACH, #111),
+    // never the cookie's bytes; the masked value is what a browser posts.
+    const rendered = /name="_csrf" value="([^"]+)"/u.exec(detail)?.[1] ?? "";
+    expect(rendered.length).toBe(86);
+    expect(detail).not.toContain(token);
+    expect((await get("/products/4242")).status).toBe(404);
 
-      // The meter: the B6 page read 108 rows (100 products, 5 categories, 3 single rows).
-      const meters = join(dir, ".renox/meters");
-      let rec: { db_rows: number; render_fuel: number } | undefined;
-      for (let i = 0; i < 100 && !rec; i++) {
-        await Bun.sleep(50);
-        for (const f of readdirSync(meters).filter((n) => n.endsWith(".ndjson")))
-          for (const line of (await Bun.file(join(meters, f)).text()).split("\n").filter(Boolean))
-            for (const r of (JSON.parse(line) as { records: { route: string; http_status: number; db_rows: number; render_fuel: number }[] }).records)
-              if (r.route === "GET /products" && r.db_rows > 100 && r.http_status === 200) rec = r;
-      }
-      expect(rec?.db_rows).toBe(108);
-      expect(rec?.render_fuel).toBeGreaterThan(0);
-    } finally {
-      await dev.stop();
+    // addToCart through htmx: the product fragment, then the badge out of band.
+    const form = { "content-type": "application/x-www-form-urlencoded" };
+    const add = await t.request("POST", "/products/42?/addToCart", { headers: { ...form, "hx-request": "true", "hx-target": "product" }, body: `_csrf=${rendered}&quantity=2` });
+    expect(add.status).toBe(200);
+    expect(add.html.startsWith('<article id="product">')).toBe(true);
+    expect(add.html).toContain("Added 2 to your cart.");
+    expect(add.html).toContain('<span hx-swap-oob="true" id="cart-badge" dir="auto">2</span>');
+    // Without the token: 403, nothing added.
+    expect((await t.request("POST", "/products/42?/addToCart", { headers: form, body: "quantity=5" })).status).toBe(403);
+    // A plain form POST gets the full page; the badge counts the session's cart.
+    const plain = (await t.action("/products/42", "addToCart", { quantity: "1" })).html;
+    expect(plain).toContain("<!DOCTYPE html>");
+    expect(plain).toContain('<span id="cart-badge" dir="auto">3</span>');
+
+    // The meter: the B6 page read 108 rows (100 products, 5 categories, 3 single rows).
+    let rec: Record<string, unknown> | undefined;
+    for (let i = 0; i < 100 && !rec; i++) {
+      await Bun.sleep(50);
+      rec = t.meters().find((r) => r.route === "GET /products" && (r.db_rows as number) > 100 && r.http_status === 200);
     }
+    expect(rec?.db_rows).toBe(108);
+    expect(rec?.render_fuel as number).toBeGreaterThan(0);
   },
   120_000,
 );

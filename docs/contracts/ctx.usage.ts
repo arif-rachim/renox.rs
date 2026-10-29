@@ -4,7 +4,11 @@ import type {
   Action,
   ActionContext,
   Ctx,
+  EventHandler,
   FetchBlockedError,
+  HookFiller,
+  HooksModule,
+  ModuleServiceError,
   FunctionModule,
   Handler,
   Loader,
@@ -13,6 +17,7 @@ import type {
   PageModule,
   PageResult,
   Row,
+  ServicesModule,
 } from "./ctx.d.ts";
 
 interface Product extends Row {
@@ -107,4 +112,66 @@ export async function negatives(ctx: Ctx, ops: Ops): Promise<void> {
   await ops.op_db_tx_commit("tx1");
   // @ts-expect-error only deferred and immediate transactions exist
   await ops.op_db_tx_begin("exclusive");
+}
+
+// Modules (ops.md section 15, 1.3.0).
+export const services: ServicesModule = {
+  async currentUser(ctx: Ctx) {
+    const sid = ctx.req.headers.get("cookie") ?? "";
+    return ctx.db.queryOne("select id, email from auth__users where session = ?", [sid]);
+  },
+};
+
+export async function useModules(ctx: Ctx): Promise<Response> {
+  const user = await ctx.services.auth?.currentUser?.();
+  const minLength = ctx.config.password_min_length;
+  const hash = await ctx.password.hash("correct horse battery staple");
+  const ok: boolean = await ctx.password.verify("correct horse battery staple", hash);
+  const id: string = await ctx.events.emit("auth.user_registered", { user_id: "u_1" });
+  await ctx.events.emit("auth.cart_changed", { cart_id: "c1" }, { durable: false });
+  const r = await ctx.hooks.run("auth.after_login", { user_id: "u_1" });
+  if (r.halt) return r.response;
+  try {
+    await ctx.db.transaction(async () => ctx.services.billing?.charge?.("u_1", 4200));
+  } catch (e) {
+    const err = e as ModuleServiceError;
+    ctx.log.warn("charge failed", { module: err.module, service: err.service, cause: err.details.cause_code });
+  }
+  return Response.json({ user: user ?? null, minLength: minLength ?? null, ok, id, module: ctx.module });
+}
+
+const afterLogin: HookFiller = {
+  priority: 10,
+  handle: (_ctx, _args: { user_id: string }) => ({ halt: true, response: Response.redirect("/2fa", 303) }),
+};
+const onPaid: EventHandler = async (ctx, e: { id: string; name: string; attempt: number; payload: { invoice_id: string } }) => {
+  await ctx.db.execute("insert into email__sent (event_id, invoice_id) values (?, ?)", [e.id, e.payload.invoice_id]);
+  ctx.log.info("sent", { attempt: ctx.event.attempt });
+};
+export const hooksModule: HooksModule = { hooks: { "auth.after_login": afterLogin }, on: { "billing.invoice_paid": onPaid } };
+
+export const localized: Loader = ({ setLocale }) => {
+  setLocale("ar-AE");
+  setLocale("ar", "rtl");
+  return {};
+};
+
+export async function moduleNegatives(ctx: Ctx, lctx: LoaderContext, ops: Ops): Promise<void> {
+  // @ts-expect-error config is frozen
+  ctx.config.password_min_length = 8;
+  // @ts-expect-error an event payload is an object
+  await ctx.events.emit("auth.login", "u_1");
+  // @ts-expect-error durable is a boolean
+  await ctx.events.emit("auth.login", {}, { durable: "yes" });
+  // @ts-expect-error dir is ltr or rtl
+  lctx.setLocale("ar", "auto");
+  // @ts-expect-error function handlers have no page locale
+  ctx.setLocale("ar");
+  // @ts-expect-error verify needs the stored hash
+  await ctx.password.verify("x");
+  // @ts-expect-error a hook filler returns undefined or a halt with a response
+  const badFiller: HookFiller = { handle: () => ({ halt: true }) };
+  void badFiller;
+  // @ts-expect-error savepoint handles are numbers
+  await ops.op_db_savepoint_release(1, "renox_sp_1");
 }

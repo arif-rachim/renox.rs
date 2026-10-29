@@ -1,0 +1,8 @@
+{
+  "_meta": { "status": "Machine translated; not yet reviewed by a native speaker (owner task, #244)" },
+  "gcc": {
+    "address": { "legend": "العنوان", "emirate": "الإمارة", "area": "المنطقة", "po_box": "صندوق البريد", "makani": "رقم مكاني" },
+    "phone": { "label": "رقم الهاتف المتحرك" },
+    "emirate": { "AE-AZ": "أبوظبي", "AE-DU": "دبي", "AE-SH": "الشارقة", "AE-AJ": "عجمان", "AE-UQ": "أم القيوين", "AE-RK": "رأس الخيمة", "AE-FU": "الفجيرة" }
+  }
+}

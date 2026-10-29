@@ -1,0 +1,357 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: switcher owner 1`] = `
+"<header><span class="renox-user-menu"><a href="/auth/login">Sign in</a></span><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <select name="org" aria-label="Organisation">
+      <option value="<id>" selected dir="auto">Acme Trading · owner</option><option value="<id>" dir="auto">Bob&#39;s Bakery · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span></header>"
+`;
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: members owner 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · Members</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">Your role: owner</p>
+  
+  
+  <h2>Members</h2>
+  <ul id="members">
+    <li dir="auto">
+      Olive &lt;olive@example.com&gt; · owner
+      <strong>(you)</strong>
+      
+    </li><li dir="auto">
+      Ann &lt;ann@example.com&gt; · admin
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="Role">
+            <option value="owner">owner</option>
+            <option value="admin" selected>admin</option>
+            <option value="member">member</option>
+          </select>
+          <button type="submit">Change role</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">Remove</button></form>
+      
+    </li><li dir="auto">
+      Mo &lt;mo@example.com&gt; · member
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="Role">
+            <option value="owner">owner</option>
+            <option value="admin">admin</option>
+            <option value="member" selected>member</option>
+          </select>
+          <button type="submit">Change role</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">Remove</button></form>
+      
+    </li>
+  </ul>
+  
+    <h2>Invitations</h2>
+    <ul id="invites">
+      <li dir="auto">
+        carl@example.com · member
+        <form method="post" action="?/revoke" hx-post="?/revoke"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="invite" value="<id>"><button type="submit">Withdraw</button></form>
+      </li>
+    </ul>
+    <form method="post" action="?/invite" hx-post="?/invite"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Email <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" aria-label="Role">
+        <option value="member">member</option>
+        <option value="admin">admin</option>
+        <option value="owner">owner</option>
+      </select>
+      <button type="submit">Invite</button>
+    </form>
+    <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Default language
+        <select name="locale">
+          <option value="" selected>None (each member&#39;s own)</option>
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar">العربية</option>
+        </select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Leave Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: switcher admin 1`] = `
+"<header><span class="renox-user-menu"><a href="/auth/login">Sign in</a></span><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <select name="org" aria-label="Organisation">
+      <option value="<id>" selected dir="auto">Acme Trading · admin</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span></header>"
+`;
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: members admin 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · Members</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">Your role: admin</p>
+  
+  
+  <h2>Members</h2>
+  <ul id="members">
+    <li dir="auto">
+      Olive &lt;olive@example.com&gt; · owner
+      
+      
+    </li><li dir="auto">
+      Ann &lt;ann@example.com&gt; · admin
+      <strong>(you)</strong>
+      
+    </li><li dir="auto">
+      Mo &lt;mo@example.com&gt; · member
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="Role">
+            
+            <option value="admin">admin</option>
+            <option value="member" selected>member</option>
+          </select>
+          <button type="submit">Change role</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">Remove</button></form>
+      
+    </li>
+  </ul>
+  
+    <h2>Invitations</h2>
+    <ul id="invites">
+      <li dir="auto">
+        carl@example.com · member
+        <form method="post" action="?/revoke" hx-post="?/revoke"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="invite" value="<id>"><button type="submit">Withdraw</button></form>
+      </li>
+    </ul>
+    <form method="post" action="?/invite" hx-post="?/invite"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Email <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" aria-label="Role">
+        <option value="member">member</option>
+        <option value="admin">admin</option>
+        
+      </select>
+      <button type="submit">Invite</button>
+    </form>
+    <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Default language
+        <select name="locale">
+          <option value="" selected>None (each member&#39;s own)</option>
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar">العربية</option>
+        </select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Leave Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: switcher member 1`] = `
+"<header><span class="renox-user-menu"><a href="/auth/login">Sign in</a></span><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <select name="org" aria-label="Organisation">
+      <option value="<id>" selected dir="auto">Acme Trading · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span></header>"
+`;
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: members member 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · Members</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">Your role: member</p>
+  
+  
+  <h2>Members</h2>
+  <ul id="members">
+    <li dir="auto">
+      Olive &lt;olive@example.com&gt; · owner
+      
+      
+    </li><li dir="auto">
+      Ann &lt;ann@example.com&gt; · admin
+      
+      
+    </li><li dir="auto">
+      Mo &lt;mo@example.com&gt; · member
+      <strong>(you)</strong>
+      
+    </li>
+  </ul>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Leave Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: switcher non-member 1`] = `
+"<header><span class="renox-user-menu"><a href="/auth/login">Sign in</a></span><span class="renox-org-switcher">
+  <a href="/org">Create an organisation</a>
+</span></header>"
+`;
+
+exports[`org switcher and members page per role: owner, admin, member, non-member: role: orgs non-member 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your organisations</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1>Your organisations</h1>
+  
+  <p>You are not a member of an organisation yet.</p>
+  <h2>Create an organisation</h2>
+  <form method="post" action="?/create" hx-post="?/create"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Name <input name="name" value="" maxlength="100" required dir="auto"></label>
+    <label>Address (optional) <input name="slug" maxlength="50" pattern="[a-z0-9-]+" dir="ltr"></label>
+    <button type="submit">Create</button>
+  </form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org Arabic (#244): the members page is rtl; the organisation's default applies until a member chooses: role: members owner ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · الأعضاء</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">دورك: مالك</p>
+  
+  
+  <h2>الأعضاء</h2>
+  <ul id="members">
+    <li dir="auto">
+      Olive &lt;olive@example.com&gt; · مالك
+      <strong>(أنت)</strong>
+      
+    </li><li dir="auto">
+      Ann &lt;ann@example.com&gt; · مشرف
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="الدور">
+            <option value="owner">مالك</option>
+            <option value="admin" selected>مشرف</option>
+            <option value="member">عضو</option>
+          </select>
+          <button type="submit">تغيير الدور</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">إزالة</button></form>
+      
+    </li><li dir="auto">
+      Mo &lt;mo@example.com&gt; · عضو
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="الدور">
+            <option value="owner">مالك</option>
+            <option value="admin">مشرف</option>
+            <option value="member" selected>عضو</option>
+          </select>
+          <button type="submit">تغيير الدور</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">إزالة</button></form>
+      
+    </li>
+  </ul>
+  
+    <h2>الدعوات</h2>
+    <ul id="invites">
+      <li dir="auto">
+        carl@example.com · عضو
+        <form method="post" action="?/revoke" hx-post="?/revoke"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="invite" value="<id>"><button type="submit">سحب</button></form>
+      </li>
+    </ul>
+    <form method="post" action="?/invite" hx-post="?/invite"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>البريد الإلكتروني <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" aria-label="الدور">
+        <option value="member">عضو</option>
+        <option value="admin">مشرف</option>
+        <option value="owner">مالك</option>
+      </select>
+      <button type="submit">دعوة</button>
+    </form>
+    <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اللغة الافتراضية
+        <select name="locale">
+          <option value="" selected>بدون (لغة كل عضو)</option>
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar">العربية</option>
+        </select>
+      </label>
+      <button type="submit">حفظ</button>
+    </form>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">مغادرة Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;

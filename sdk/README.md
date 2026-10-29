@@ -83,6 +83,44 @@ export const POST: Handler = async ({ req }) => {
 
 The op-level types (`Ops`, `FetchRequest`, `FetchResponseHead`, `TxHandle`) are not exported: tenant code never sees ops, and the glue that calls them lives in `crates/renox-runtime/js`.
 
+## Modules (`ops.md` 1.3.0, #226, #236)
+
+`Ctx` carries `module`, `config`, `services`, `events`, `hooks`, and `password` (types identical to `docs/contracts/ctx.d.ts`). They are untyped there; the CLI generates the precise types of the installed modules from `renox.lock` and the manifests:
+
+- `.renox/types/modules.d.ts`: `Modules` (per module: `services`, `events` with payload types from the manifest's JSON schemas, `hooks` with argument types, `config`) and `ModuleCtx<M>`, the ctx of module `M` (`"app"` by default).
+- `.renox/types/renox-modules.d.ts`: `declare module "renox:modules"` with one export per module.
+
+Service signatures are the module's own `services.ts`, inferred by the type checker (`ServicesOf<typeof import(".../services.ts")>`): the leading `ctx` is dropped and the result becomes a promise, so a call with a wrong argument is a type error. Helpers that only add types: `defineServices({...})`, `defineHooks({ hooks, on })`, `on<Payload>(handler)`. Errors: `ModuleUndeclaredError`, `ModuleServiceError` (`module`, `service`, `details.cause_code`), `EventPayloadError`.
+
+```ts
+import { defineServices } from "renox";
+import type { ModuleCtx } from "../../.renox/types/modules";
+
+export const { chargeUser } = defineServices({
+  async chargeUser(ctx: ModuleCtx<"billing">, userId: string, amount: number) {
+    const user = await ctx.services.auth.getUser(userId); // typed from auth's services.ts
+    return ctx.events.emit("billing.invoice_paid", { invoice_id: "inv_1", user_id: userId, amount }); // payload checked
+  },
+});
+```
+
+## Query builders: `renox/kysely`, `renox/drizzle` (#237)
+
+Thin drivers over `ctx.db` (`docs/06-data.md`, "API layers"): every statement goes to `db.query` or `db.execute` with its `?` parameters in order, so the limits and the module authorizer apply as to raw SQL; there is no second execution path. Both libraries are optional peer dependencies (`kysely` 0.29, `drizzle-orm` 0.45): an app that does not import the subpath does not need them.
+
+```ts
+import { kysely } from "renox/kysely";
+import type { Tables } from "../.renox/types/db";
+const rows = await kysely<Tables>(ctx).selectFrom("app__products").selectAll().where("id", "=", id).execute();
+await kysely<Tables>(ctx).transaction().execute(async (tx) => { /* one IMMEDIATE transaction, a savepoint when nested */ });
+
+import { drizzle } from "renox/drizzle";
+await drizzle(ctx).select().from(products).where(eq(products.id, id));
+await ctx.db.transaction(async (tx) => drizzle({ db: tx }).insert(orders).values(row));
+```
+
+Drizzle's own `db.transaction()` sends `BEGIN` as SQL and is refused; use `ctx.db.transaction` with `drizzle({ db: tx })`. Drizzle wraps a failed statement in `DrizzleQueryError`; the platform's `RenoxError` is its `cause`. Kysely's error is the `RenoxError` itself. No streaming. Tests: `tests/{kysely,drizzle}.test.ts` (unit over bun:sqlite; on the worker with `RENOX_WORKER_PATH`, including the refusal of a table outside the app's prefix with the same error as raw SQL).
+
 ## Reserved, not yet available
 
 Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a type error until its phase ships.
@@ -90,7 +128,7 @@ Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a
 | Phase | `ctx` fields and exports |
 | --- | --- |
 | F2 | `render`, `webhook`, `kv`; streamed `fetch` request bodies; the page export `guard`; `cors` and `frame` options |
-| F4 | `auth`, session data beyond `session.id`, `config`, `events`, `hooks`; savepoints in `db`; query builders |
+| F4 | query builders (`renox/kysely`, `renox/drizzle`, #237); `auth` and session data come from the `auth` module as services, not ctx fields |
 | F5 | `authz`, `realtime`, `db.scoped()`; `ws` and `sse` exports |
 | F6 | `schedule` export for jobs; `datasource(name)` (F6–F7) |
 | F7 | `ai`, `domains` |

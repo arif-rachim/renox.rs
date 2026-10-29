@@ -65,3 +65,18 @@ pub(crate) enum Outcome {
     Timeout,
     Failed,
 }
+
+/// Gauges of the durable event outbox (`outbox::stats`), exposed by the
+/// worker per tenant (`docs/23-failure-modes.md`, "Outbox or logs grow
+/// unbounded").
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OutboxStats {
+    /// Rows of `renox__outbox`: deliveries (and fan-outs) not done yet.
+    pub pending: u64,
+    /// Rows of `renox__outbox_dead`.
+    pub dead: u64,
+    /// Payload and error bytes of the dead letters (the cap's byte bound).
+    pub dead_bytes: u64,
+    /// Dead letters deleted by the cap since the file was created.
+    pub dead_pruned: u64,
+}

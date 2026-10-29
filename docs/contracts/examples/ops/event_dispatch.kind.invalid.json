@@ -1,0 +1,19 @@
+{
+  "$comment": "invalid: the event envelope's kind is event",
+  "dispatch": "event",
+  "envelope": {
+    "kind": "request",
+    "id": "01JBQ3Z7MA0000000000000001",
+    "name": "billing.invoice_paid",
+    "payload": {
+      "invoice_id": "inv_1",
+      "user_id": "u_1",
+      "amount": 4200
+    },
+    "attempt": 1,
+    "module": "email"
+  },
+  "result": {
+    "type": "ok"
+  }
+}

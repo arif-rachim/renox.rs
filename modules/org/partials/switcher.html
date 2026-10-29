@@ -1,0 +1,12 @@
+<span class="renox-org-switcher" r-if="org_switcher">
+  <form method="post" :action="org_switcher.action" r-if="org_switcher.has_orgs">
+    <x-csrf />
+    <input type="hidden" name="next" :value="org_switcher.next">
+    <select name="org" :aria-label="'org.switcher.label' | t">
+      <option r-for="o in org_switcher.orgs" :value="o.id" :selected="o.current">{{ o.name }} · <r-t key="org.role" :role="o.role" /></option>
+    </select>
+    <button type="submit"><r-t key="org.switcher.switch" /></button>
+    <a r-if="org_switcher.can_manage" :href="org_switcher.members_url"><r-t key="org.switcher.members" /></a>
+  </form>
+  <a r-else :href="org_switcher.base"><r-t key="org.switcher.create" /></a>
+</span>

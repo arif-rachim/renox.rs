@@ -1,0 +1,23 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.account.title" /></r-group>
+  <h1>{{ user.display_name }}</h1>
+  <p id="email">{{ user.email }}</p>
+  <p class="notice" r-if="notice">{{ notice }}</p>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <h2><r-t key="auth.account.password" /></h2>
+  <x-form action="password">
+    <label><r-t key="auth.field.current_password" /> <input type="password" name="current" autocomplete="current-password" required></label>
+    <label><r-t key="auth.field.new_password" /> <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit"><r-t key="auth.account.change" /></button>
+  </x-form>
+  <h2><r-t key="auth.account.sessions" /></h2>
+  <ul id="sessions">
+    <li r-for="s in sessions">
+      <r-group r-if="s.user_agent">{{ s.user_agent }}</r-group><r-group r-else><r-t key="auth.account.unknown" /></r-group> · <r-t key="auth.account.since" /> {{ s.created_at }}
+      <strong r-if="s.current"><r-t key="auth.account.this_browser" /></strong>
+      <x-form action="revoke" r-if="!s.current"><input type="hidden" name="session" :value="s.id"><button type="submit"><r-t key="auth.account.sign_out" /></button></x-form>
+    </li>
+  </ul>
+  <x-form action="everywhere"><button type="submit"><r-t key="auth.account.everywhere" /></button></x-form>
+  <x-form action="logout"><button type="submit"><r-t key="auth.account.sign_out" /></button></x-form>
+</r-layout>

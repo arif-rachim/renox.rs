@@ -340,7 +340,17 @@ impl<'c, 'p> Emitter<'c, 'p> {
     /// `{% block content %}` and `slot="x"` children in `{% block x %}`.
     fn emit_layout_use(&mut self, ctx: &Ctx, node: &Handle) {
         let name = attr(node, "use").unwrap_or_default();
-        let id = format!("pages/_layouts/{name}");
+        // A module template uses its module's layout of that name, else the app's.
+        let module = self
+            .file
+            .strip_prefix("modules/")
+            .or_else(|| self.file.strip_prefix("overrides/"))
+            .and_then(|r| r.split_once('/'))
+            .map(|(m, _)| m.to_string());
+        let own = module
+            .map(|m| format!("modules/{m}/pages/_layouts/{name}"))
+            .filter(|id| self.cx.layouts.borrow().contains_key(id));
+        let id = own.unwrap_or_else(|| format!("pages/_layouts/{name}"));
         let valid = !name.is_empty()
             && name
                 .chars()
@@ -820,6 +830,10 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 self.emit_registry_slot(ctx, node);
                 return;
             }
+            "r-t" => {
+                self.emit_translation(ctx, node, &children);
+                return;
+            }
             "slot" => {
                 self.emit_slot(ctx, node, &children);
                 return;
@@ -855,6 +869,17 @@ impl<'c, 'p> Emitter<'c, 'p> {
         self.out.push('<');
         self.out.push_str(tag);
         self.emit_attrs(ctx, node, tag, &list);
+        if tag == "html"
+            && !list
+                .iter()
+                .any(|(n, _)| matches!(n.trim_start_matches(':'), "lang" | "dir"))
+        {
+            // The page's locale and direction from the render (`ops.md`
+            // section 14, "Locale"), unless the template sets either.
+            self.out.push_str(&format!(
+                " lang=\"{{{{ {PLATFORM_VAR}.lang }}}}\" dir=\"{{{{ {PLATFORM_VAR}.dir }}}}\""
+            ));
+        }
         if RAW_TEXT_ELEMENTS.contains(&tag) {
             self.out.push_str(&format!(
                 "{{% if {PLATFORM_VAR}.csp_nonce %}} nonce=\"{{{{ {PLATFORM_VAR}.csp_nonce }}}}\"{{% endif %}}"
@@ -1142,6 +1167,56 @@ impl<'c, 'p> Emitter<'c, 'p> {
         self.out.push('"');
     }
 
+    /// `<r-t key="cart.items" :count="cart.count" />`: the translated message
+    /// (`t` filter, render/i18n.rs). Plain attributes are text arguments,
+    /// `:name` attributes expressions.
+    fn emit_translation(&mut self, ctx: &Ctx, node: &Handle, children: &[Handle]) {
+        if children.iter().any(|c| !is_blank_text(c)) {
+            self.error(ctx, node, None, "`<r-t>` takes no content; use `key`");
+        }
+        let Some(key) = attr(node, "key").filter(|k| is_message_key(k)) else {
+            self.error(
+                ctx,
+                node,
+                Some("key"),
+                "`<r-t>` needs `key` naming a catalog message, such as `cart.items`",
+            );
+            return;
+        };
+        let mut args = Vec::new();
+        for (name, raw) in attr_list(node) {
+            if name == "key" {
+                continue;
+            }
+            let (bound, plain) = match name.strip_prefix(':') {
+                Some(n) => (true, n.to_string()),
+                None => (false, name.clone()),
+            };
+            if !is_arg_name(&plain) {
+                self.error(
+                    ctx,
+                    node,
+                    Some(&name),
+                    format!("`<r-t>` argument `{plain}` must match [a-z_][a-z0-9_]*"),
+                );
+                return;
+            }
+            let value = if bound {
+                format!("({})", self.expr(ctx, node, &name, &raw))
+            } else {
+                attrs::string_literal(&raw)
+            };
+            args.push(format!("{}: {value}", attrs::string_literal(&plain)));
+        }
+        let key = attrs::string_literal(&key);
+        if args.is_empty() {
+            self.out.push_str(&format!("{{{{ {key} | t }}}}"));
+        } else {
+            self.out
+                .push_str(&format!("{{{{ {key} | t({{{}}}) }}}}", args.join(", ")));
+        }
+    }
+
     /// `<r-slot name="admin.sidebar" />`: one `{% include %}` per provider
     /// in the slot registry, in order; nothing when no module fills it.
     fn emit_registry_slot(&mut self, ctx: &Ctx, node: &Handle) {
@@ -1173,9 +1248,18 @@ impl<'c, 'p> Emitter<'c, 'p> {
             .get(&name)
             .cloned()
             .unwrap_or_default();
-        for id in providers {
-            self.out
-                .push_str(&format!("{{% include {} %}}", attrs::string_literal(&id)));
+        for f in providers {
+            // A filler with `requires` renders only when the request may do
+            // that action (`r-can`'s check; false until F5 unless the
+            // renderer is given an action set).
+            let include = format!("{{% include {} %}}", attrs::string_literal(&f.template));
+            match &f.requires {
+                Some(action) => self.out.push_str(&format!(
+                    "{{% if {CAN_FN}({}, none) %}}{include}{{% endif %}}",
+                    attrs::string_literal(action)
+                )),
+                None => self.out.push_str(&include),
+            }
         }
     }
 
@@ -1573,4 +1657,24 @@ fn emit_raw(text: &str, out: &mut String) {
         out.push_str(part);
     }
     out.push_str("{% endraw %}");
+}
+
+/// A catalog key: dotted segments of `[A-Za-z0-9_-]`.
+fn is_message_key(k: &str) -> bool {
+    !k.is_empty()
+        && k.len() <= 128
+        && k.split('.').all(|seg| {
+            !seg.is_empty()
+                && seg
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+}
+
+fn is_arg_name(n: &str) -> bool {
+    let b = n.as_bytes();
+    !b.is_empty()
+        && (b[0].is_ascii_lowercase() || b[0] == b'_')
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
 }

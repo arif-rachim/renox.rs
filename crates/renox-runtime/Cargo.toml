@@ -22,6 +22,7 @@ packaged = ["v8"]
 test-hooks = []
 
 [dependencies]
+argon2 = "0.6"
 # deno_runtime 0.268 (latest release, 2026-10-21) with its deno_core and
 # prebuilt V8 (never built from source). See README, "Upstream consumption mode".
 deno_runtime = { version = "=0.268.0", features = ["snapshot"], optional = true }

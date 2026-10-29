@@ -1,0 +1,22 @@
+{
+  "$comment": "valid (1.3.0): a page of the auth module; the loader called setLocale(\"ar\") (ops.md section 14, \"Locale\")",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/auth/login",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "auth"
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": [],
+    "locale": "ar-AE",
+    "dir": "rtl"
+  }
+}

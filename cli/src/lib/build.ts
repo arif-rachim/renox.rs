@@ -35,6 +35,8 @@ import { checkSecurity, type SecurityConfig } from "../check/security.ts";
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
+import { moduleParts, type ModuleParts, type OverrideDrift, storedOverrides } from "./modules/build.ts";
+import { readLock } from "./modules/lock.ts";
 import { readProject, type ProjectConfig } from "./project.ts";
 import { discoverFunctions, discoverPages, routeConflicts, routesOf, type Route } from "./routes.ts";
 import { type CompiledTemplate, TemplateCache, templateFiles, templatesKey, transpile } from "./templates-compile.ts";
@@ -72,7 +74,12 @@ export interface Manifest {
   permissions: { network: string[]; secrets: string[] };
   limits?: ProjectConfig["limits"];
   security?: SecurityConfig;
+  /** Artifact 1.1: the installed modules (`artifact.md` section 3, "Modules"). */
+  modules?: JsonObjectLike[];
+  slots?: ModuleParts["slots"];
 }
+
+type JsonObjectLike = Record<string, Json>;
 
 /** A file of public/ that the build left out, and why. */
 export interface Skipped {
@@ -98,6 +105,8 @@ export interface BuildResult {
   skipped: Skipped[];
   /** Secrets allowed by a `renox-allow-secret` marker (only with `secrets`). */
   allowedSecrets: ProjectSecret[];
+  /** Overrides whose module original changed since they were made (warnings). */
+  drift: OverrideDrift[];
 }
 
 /** Bundled code: `code/`-relative path → source, and the source maps the same way. */
@@ -207,7 +216,8 @@ async function bundle(project: string, functions: Entry[]): Promise<Bundle> {
       sourcemap: "external",
       naming: { entry: "[dir]/[name].[ext]", chunk: "chunks/chunk-[hash].[ext]" },
       // node: built-ins stay imports; the runtime offers the compute-only ones.
-      external: ["node:*"],
+      // `renox:modules` is resolved by the runtime's loader (ops.md 1.3.0 section 15).
+      external: ["node:*", "renox:*"],
       throw: false,
     });
     if (!r.success) {
@@ -251,19 +261,24 @@ export async function buildFiles(
   rebuilt: number;
   cached: number;
   skipped: Skipped[];
+  drift: OverrideDrift[];
 }> {
   const config = readProject(project);
+  // Installed modules (renox.lock), in lock order; none without a lock.
+  const lock = readLock(project).entries;
+  const mods: ModuleParts | null = lock && lock.length ? moduleParts(project) : null;
+  if (mods?.problems.length) throw new BuildError("installed modules do not build", mods.problems);
   const fns = discoverFunctions(project);
   const pages = discoverPages(project);
-  if (fns.length === 0 && pages.length === 0)
+  if (fns.length === 0 && pages.length === 0 && !mods?.routes.length)
     throw new BuildError("no routes: functions/ has no module exporting GET, POST, ... and pages/ has no page");
-  const routes = routesOf(fns, pages);
+  const routes = [...routesOf(fns, pages), ...(mods?.routes ?? [])];
   const functions: Entry[] = [...fns, ...pages.flatMap((p) => (p.source ? [{ id: p.id, source: p.source }] : []))];
-  if (functions.length === 0)
+  if (functions.length === 0 && !mods?.entries.length)
     throw new BuildError("no code: an artifact needs at least one module (artifact.md, code.entry)", [], {
       hint: "add a pages/*.ts loader or a functions/ module",
     });
-  const conflicts = routeConflicts(routes);
+  const conflicts = routeConflicts(routes).map(ownersOf);
   if (conflicts.length) throw new BuildError("route conflicts", conflicts);
   if (config.security) checkSecurity(config.security, routes);
   const enc = new TextEncoder();
@@ -274,19 +289,40 @@ export async function buildFiles(
   const rebuilt = bundled ? 0 : functions.length;
   const cached = functions.length - rebuilt;
   if (!bundled) {
-    bundled = await bundle(project, functions);
+    bundled = functions.length ? await bundle(project, functions) : { code: new Map(), maps: new Map() };
     cache?.set(key, bundled);
   }
   if (cache) cache.invalidateAll = false;
   for (const f of functions) entry[f.id] = `${f.id}.js`;
+  // Module code: one bundle per module tree, under code/modules/<name>/.
+  for (const m of mods?.modules ?? []) {
+    const own = (mods?.entries ?? []).filter((e) => e.module === m.lock.name);
+    if (own.length === 0) continue;
+    const local = own.map((e) => ({ id: e.id.slice(`modules/${m.lock.name}/`.length), source: e.source }));
+    const b = await bundle(m.tree, local);
+    for (const [p, code] of b.code) bundled.code.set(`modules/${m.lock.name}/${p}`, code);
+    for (const [p, map] of b.maps) bundled.maps.set(`modules/${m.lock.name}/${p}`, map);
+    for (const e of own) entry[e.id] = `${e.id}.js`;
+  }
 
   // Templates: transpiled by the worker, only when the app has any.
-  const sources = templateFiles(project);
+  let sources = templateFiles(project);
+  if (mods) {
+    // With a lock, module templates come from the installed trees, not from
+    // the app's modules/ folder (which may hold path: sources).
+    sources = Object.fromEntries(Object.entries(sources).filter(([p]) => !p.startsWith("modules/")));
+    Object.assign(sources, mods.templates);
+  }
+  const compilerSlots = mods
+    ? Object.fromEntries(
+        Object.entries(mods.slots).map(([k, v]) => [k, v.map((f) => ({ template: f.template, ...(f.requires ? { requires: f.requires } : {}) }))]),
+      )
+    : undefined;
   let templates: Record<string, CompiledTemplate> = {};
   if (Object.keys(sources).length) {
-    const tkey = templatesKey(sources);
+    const tkey = templatesKey({ ...sources, "\0slots": JSON.stringify(compilerSlots ?? {}) });
     const hit = cache?.templates.get(tkey);
-    templates = hit ?? (await transpile(sources));
+    templates = hit ?? (await transpile(sources, undefined, compilerSlots));
     if (!hit) cache?.templates.set(tkey, templates);
   }
   const missing = pages.filter((p) => p.html && !templates[p.id]);
@@ -297,11 +333,17 @@ export async function buildFiles(
   for (const [p, b] of files) if (p.startsWith("code/")) size += b.length;
   if (size > MAX_CODE_BYTES) throw new BuildError(`V5: code/ is ${size} bytes, over the ${MAX_CODE_BYTES}-byte bundle limit`);
 
-  // Migrations: the app's own, module `app`.
+  // Migrations: each module's under migrations/<name>/, the app's own as module `app`.
   const migDir = join(project, "migrations");
   const migs = listFiles(migDir);
-  if (migs.length) {
-    const sums: Record<string, string> = {};
+  for (const [p, b] of mods?.files ?? []) files.set(p, b);
+  // The app's translation catalogs (`i18n/<locale>.json`, #233, #244):
+  // `code/i18n/`, where the cell reads them; they override the modules'.
+  for (const c of listFiles(join(project, "i18n")).filter((n) => /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*\.json$/u.test(n))) {
+    files.set(`code/i18n/${c}`, new Uint8Array(readFileSync(join(project, "i18n", c))));
+  }
+  if (migs.length || Object.keys(mods?.checksums ?? {}).length) {
+    const sums: Record<string, string> = { ...(mods?.checksums ?? {}) };
     const numbers: number[] = [];
     for (const m of migs) {
       const match = MIGRATION.exec(m);
@@ -313,6 +355,11 @@ export async function buildFiles(
     }
     numbers.sort((a, b) => a - b);
     if (numbers.some((n, i) => n !== i + 1)) throw new BuildError("V11: migrations must be numbered 001, 002, ... without gaps");
+    for (const k of Object.keys(sums).sort()) {
+      const v = sums[k] as string;
+      delete sums[k];
+      sums[k] = v;
+    }
     const checksums = { version: 0, files: sums };
     const errs = validate(schemas.migrationsChecksums, checksums as Json);
     if (errs.length) throw new BuildError("migrations/checksums.json", errs);
@@ -349,11 +396,22 @@ export async function buildFiles(
     permissions: config.permissions,
     ...(config.limits ? { limits: config.limits } : {}),
     ...(config.security ? { security: config.security } : {}),
+    ...(mods ? { modules: mods.field } : {}),
+    ...(mods && Object.keys(mods.slots).length ? { slots: mods.slots } : {}),
   };
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);
   files.set("manifest.json", enc.encode(`${JSON.stringify(manifest, null, 2)}\n`));
-  return { files, maps: bundled.maps, manifest, templates, rebuilt, cached, skipped };
+  return { files, maps: bundled.maps, manifest, templates, rebuilt, cached, skipped, drift: mods?.drift ?? [] };
+}
+
+/** A route conflict naming the owners when a module is involved (V21: after mounting). */
+function ownersOf(conflict: string): string {
+  const ids = [...conflict.matchAll(/\(([^)]+)\)/gu)].map((m) => m[1] as string);
+  const owner = (id: string): string => /^modules\/([a-z][a-z0-9_]*)\//u.exec(id)?.[1] ?? "app";
+  const owners = ids.map(owner);
+  if (!owners.some((o) => o !== "app")) return conflict;
+  return `${conflict.replace(/^V8:/u, "V21:")} (${owners.map((o) => (o === "app" ? "the app" : `module ${o}`)).join(" and ")})`;
 }
 
 /** Fails with every unallowed secret of the bundle (file, line, pattern); returns the allowed ones. */
@@ -372,7 +430,7 @@ export function assertNoSecrets(maps: ReadonlyMap<string, string>, files: Readon
 /** `renox build`: write `<out>/<hash>/` and return its hash. */
 export async function buildArtifact(project: string, out: string, cache?: BuildCache, options: { secrets?: boolean } = {}): Promise<BuildResult> {
   const t0 = performance.now();
-  const { files, maps, manifest, templates, rebuilt, cached, skipped } = await buildFiles(project, cache);
+  const { files, maps, manifest, templates, rebuilt, cached, skipped, drift } = await buildFiles(project, cache);
   const allowedSecrets = options.secrets === true ? assertNoSecrets(maps, files) : [];
   const hash = hashFiles(files);
   const rest = new Map([...files].filter(([p]) => !p.startsWith("templates/") && p !== "manifest.json"));
@@ -401,7 +459,13 @@ export async function buildArtifact(project: string, out: string, cache?: BuildC
     }
     renameSync(tmp, dir);
   }
-  return { hash, dir, mapsDir, manifest, templates, codeHash, rebuilt, cached, ms: performance.now() - t0, skipped, allowedSecrets };
+  // The override originals the app was made against (drift detection on the next upgrade).
+  const stored = storedOverrides(project, files);
+  if (stored !== null) {
+    const path = join(project, "overrides.json");
+    if (!existsSync(path) || readFileSync(path, "utf8") !== stored) writeFileSync(path, stored);
+  }
+  return { hash, dir, mapsDir, manifest, templates, codeHash, rebuilt, cached, ms: performance.now() - t0, skipped, allowedSecrets, drift };
 }
 
 /** The default artifact folder of a project. */

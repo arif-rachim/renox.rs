@@ -17,8 +17,10 @@ pub fn options(dir: &Path) -> CompileOptions {
     };
     let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
     if let Some(slots) = v.get("slots") {
-        opts.slots =
-            serde_json::from_value::<BTreeMap<String, Vec<String>>>(slots.clone()).unwrap();
+        opts.slots = serde_json::from_value::<BTreeMap<String, Vec<renox_template::SlotFiller>>>(
+            slots.clone(),
+        )
+        .unwrap();
     }
     if let Some(actions) = v.get("actions") {
         opts.actions = Some(serde_json::from_value::<BTreeSet<String>>(actions.clone()).unwrap());

@@ -1,0 +1,24 @@
+{
+  "shop": {
+    "brand": "Renox Shop",
+    "nav": {
+      "products": "Products",
+      "cart": "Cart:"
+    },
+    "footer": "Prices in AED, VAT included.",
+    "list": {
+      "title": "Products",
+      "search": "Search products",
+      "submit": "Search",
+      "empty": "No products match \"{q}\"."
+    },
+    "card": {
+      "out": "Out of stock",
+      "in_stock": "{n} in stock"
+    },
+    "lang": {
+      "en": "English",
+      "ar": "العربية"
+    }
+  }
+}

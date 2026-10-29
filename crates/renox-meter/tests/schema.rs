@@ -6,7 +6,7 @@ mod common;
 use std::path::PathBuf;
 
 use common::record;
-use renox_meter::{MeterBatch, MeterRecord, MeterStatus, SCHEMA_VERSION};
+use renox_meter::{MeterBatch, MeterKind, MeterRecord, MeterStatus, SCHEMA_VERSION};
 use serde_json::Value;
 
 fn contracts() -> PathBuf {
@@ -94,6 +94,43 @@ fn render_fields_validate_and_render_ms_is_optional() {
     assert!(value["records"][1].get("render_ms").is_none());
     let back: MeterRecord = serde_json::from_value(value["records"][1].clone()).unwrap();
     assert_eq!(back.render_ms, None);
+}
+
+/// Contract 0.2 (#231): an event delivery record carries `kind: "event"`
+/// and the `EVENT <module> <name>` route; a request record may not use that
+/// route form, and an event record may not use a `<METHOD>` route.
+#[test]
+fn event_records_validate_and_route_form_follows_kind() {
+    let v = validator();
+    let event = MeterRecord {
+        kind: Some(MeterKind::Event),
+        route: "EVENT email billing.invoice_paid".into(),
+        request_id: "01JBQ3Z7MA0000000000000001_email_1".into(),
+        ingress_bytes: 0,
+        egress_bytes: 0,
+        ..record(1)
+    };
+    let value = serde_json::to_value(batch(vec![event.clone()])).unwrap();
+    assert_eq!(errors(&v, &value), Vec::<String>::new());
+    assert_eq!(value["records"][0]["kind"], "event");
+    assert!(
+        serde_json::to_value(record(2))
+            .unwrap()
+            .get("kind")
+            .is_none()
+    );
+    let wrong_route = MeterRecord {
+        route: "GET /x".into(),
+        ..event.clone()
+    };
+    let as_request = MeterRecord {
+        kind: None,
+        ..event
+    };
+    for r in [wrong_route, as_request] {
+        let value = serde_json::to_value(batch(vec![r])).unwrap();
+        assert!(!errors(&v, &value).is_empty());
+    }
 }
 
 #[test]

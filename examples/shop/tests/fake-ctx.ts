@@ -12,7 +12,7 @@ const root = join(import.meta.dir, "..");
 export function shopDb(seed = true): Database {
   const sqlite = new Database(":memory:", { strict: false });
   sqlite.exec("pragma foreign_keys = on");
-  sqlite.exec(readFileSync(join(root, "migrations/001_init.sql"), "utf8"));
+  for (const m of ["001_init.sql", "002_orders.sql", "003_orders_org.sql"]) sqlite.exec(readFileSync(join(root, "migrations", m), "utf8"));
   if (seed) sqlite.exec(readFileSync(join(root, "seeds/products.sql"), "utf8"));
   return sqlite;
 }
@@ -75,5 +75,11 @@ export function ctx(sqlite: Database, method: string, url: string, init: { body?
     secrets: Object.freeze({}),
     log: { debug: noop, info: noop, warn: noop, error: noop },
     deadline: { remainingMs: () => 30_000 },
+    module: "app",
+    config: Object.freeze({}),
+    services: Object.freeze({}),
+    events: { emit: () => Promise.reject(new Error("no events in unit tests")) },
+    hooks: { run: () => Promise.resolve({ halt: false }) },
+    password: { hash: () => Promise.reject(new Error("no password op in unit tests")), verify: () => Promise.resolve(false) },
   };
 }
