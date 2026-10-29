@@ -15,6 +15,10 @@
     "card": {
       "out": "Out of stock",
       "in_stock": "{n} in stock"
+    },
+    "lang": {
+      "en": "English",
+      "ar": "العربية"
     }
   }
 }
