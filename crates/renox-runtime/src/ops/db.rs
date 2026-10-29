@@ -87,6 +87,8 @@ enum Job {
     },
     Call(Box<dyn FnOnce(&TenantDb) + Send>),
     Close(Reply<Result<(), DbError>>),
+    /// Answered once the file is open ([`DbHandle::ready`]).
+    Ready(Reply<Result<(), DbError>>),
 }
 
 /// A job waiting for the writer, with the time it gives up.
@@ -120,6 +122,31 @@ impl DbHandle {
             .name("renox-db".into())
             .spawn(move || db_thread(db, rx))?;
         Ok(DbHandle { tx })
+    }
+
+    /// Open the file on its DB thread and return the handle at once (#157:
+    /// the cell opens the tenant file while the isolate is created). Jobs
+    /// sent before the open finishes wait for it; if `open` fails, every
+    /// job is answered with that error (a [`DbHandle::call`] with
+    /// "the database is closed") until the last handle is dropped.
+    pub fn open_in_background(
+        open: impl FnOnce() -> Result<TenantDb, DbError> + Send + 'static,
+    ) -> std::io::Result<DbHandle> {
+        let (tx, rx) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("renox-db".into())
+            .spawn(move || match open() {
+                Ok(db) => db_thread(db, rx),
+                Err(e) => failed_thread(e, rx),
+            })?;
+        Ok(DbHandle { tx })
+    }
+
+    /// Wait until the file is open: `Err` with the open error if it failed.
+    pub async fn ready(&self) -> Result<(), DbError> {
+        let (reply, rx) = oneshot::channel();
+        self.tx.send(Job::Ready(reply)).map_err(|_| closed())?;
+        rx.await.unwrap_or_else(|_| Err(closed()))
     }
 
     /// Run one statement.
@@ -425,6 +452,9 @@ impl DbLoop {
                         self.close = Some(r);
                         return Err(TxEnd::Rollback);
                     }
+                    Job::Ready(r) => {
+                        let _ = r.send(Ok(()));
+                    }
                 }
             }
         });
@@ -442,6 +472,34 @@ impl DbLoop {
                 Ok(()) | Err(TxEnd::Rollback) => Ok(()),
                 Err(TxEnd::Db(e)) => Err(e),
             });
+        }
+    }
+}
+
+/// The DB thread of a file that failed to open: every job gets the open
+/// error, and a `call` is dropped (its caller sees a closed database).
+fn failed_thread(e: DbError, rx: mpsc::Receiver<Job>) {
+    while let Ok(job) = rx.recv() {
+        match job {
+            Job::Stmt { reply, .. } => {
+                let _ = reply.send(Measured {
+                    value: Err(e.clone()),
+                    ms: 0.0,
+                    rows: 0,
+                });
+            }
+            Job::Begin { reply, .. } => {
+                let _ = reply.send(Err(e.clone()));
+            }
+            Job::End { reply, .. } => {
+                if let Some(r) = reply {
+                    let _ = r.send(Err(e.clone()));
+                }
+            }
+            Job::Call(_) => {}
+            Job::Close(reply) | Job::Ready(reply) => {
+                let _ = reply.send(Err(e.clone()));
+            }
         }
     }
 }
@@ -491,6 +549,9 @@ fn db_thread(db: TenantDb, rx: mpsc::Receiver<Job>) {
             }
             Job::Call(f) => f(&db),
             Job::Close(reply) => lp.close = Some(reply),
+            Job::Ready(reply) => {
+                let _ = reply.send(Ok(()));
+            }
         }
     }
 }
@@ -1040,6 +1101,74 @@ mod tests {
             convert_params("select 1", many).unwrap_err().code,
             "RENOX_DB_PARAM"
         );
+    }
+
+    fn block_on<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    fn scratch_file(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "renox-db-bg-{name}-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("app.db")
+    }
+
+    /// #157: the handle exists before the file is open; jobs sent early
+    /// wait for the open and then run.
+    #[test]
+    fn background_open_queues_jobs_until_the_file_is_open() {
+        let path = scratch_file("ok");
+        let (gate_tx, gate_rx) = mpsc::channel::<()>();
+        let p = path.clone();
+        let db = DbHandle::open_in_background(move || {
+            gate_rx.recv().unwrap();
+            TenantDb::open(p, renox_data::DbOptions::default())
+        })
+        .unwrap();
+        let early = db.clone();
+        let call = std::thread::spawn(move || {
+            block_on(early.call(|db| db.query_one("select 41 + 1 as n", &[])))
+        });
+        gate_tx.send(()).unwrap();
+        block_on(db.ready()).unwrap();
+        let row = call.join().unwrap().unwrap().unwrap().unwrap();
+        assert_eq!(row.get("n"), Some(&Value::Integer(42)));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let m = block_on(db.statement(
+            StmtKind::QueryOne,
+            "select 1".into(),
+            vec![],
+            None,
+            deadline,
+        ));
+        assert!(m.value.is_ok());
+        block_on(db.close()).unwrap();
+    }
+
+    /// `docs/23-failure-modes.md`, "SQLite file corrupted, WAL unreadable"
+    /// (#157, the open fails):
+    /// a failed background open is reported by `ready` and by every later
+    /// job, never as a hang.
+    #[test]
+    fn failed_background_open_answers_every_job_with_the_error() {
+        let db = DbHandle::open_in_background(|| Err(DbError::Open("disk full".into()))).unwrap();
+        let e = block_on(db.ready()).unwrap_err();
+        assert_eq!(e, DbError::Open("disk full".into()));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let m = block_on(db.statement(StmtKind::Query, "select 1".into(), vec![], None, deadline));
+        assert_eq!(m.value.unwrap_err(), DbError::Open("disk full".into()));
+        assert_eq!(
+            block_on(db.begin(deadline)).unwrap_err(),
+            DbError::Open("disk full".into())
+        );
+        assert!(block_on(db.call(|_| ())).is_err());
     }
 
     #[test]

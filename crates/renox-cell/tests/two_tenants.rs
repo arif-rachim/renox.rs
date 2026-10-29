@@ -353,6 +353,38 @@ async fn world_readable_secrets_are_refused() {
     let _ = std::fs::remove_dir_all(&e.root);
 }
 
+/// `docs/23-failure-modes.md`, "SQLite file corrupted, WAL unreadable"
+/// (#157): the tenant file opens on its DB thread while the isolate is
+/// created. When the open fails, the cell is not created, the isolate that
+/// was being built is dropped, no database stays open, the answer shows no
+/// path, and the next request after the file is repaired succeeds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tenant_file_that_cannot_open_fails_the_cell_not_the_worker() {
+    let e = env(60.0);
+    let v1 = versioned_artifact(&e.config.artifacts_dir, 1);
+    // A directory where the file should be: SQLite cannot open it.
+    let bad = e.config.data_dir.join("t_e").join("app.db");
+    std::fs::create_dir_all(&bad).unwrap();
+    write_routes(
+        &e.config.routes_file,
+        vec![route("e.test", "t_e", &v1, "active")],
+    );
+    let worker = Worker::start(e.config.clone()).await.unwrap();
+    let (status, body) = http(worker.addr, "e.test", "/api/v").await;
+    assert!(status >= 500, "{status} {body}");
+    assert!(!body.contains(&*e.root.to_string_lossy()), "{body}");
+    assert!(!body.contains("app.db"), "{body}");
+    assert_eq!(worker.manager.cell_count(), 0);
+    assert_eq!(worker.manager.open_databases(), 0);
+
+    std::fs::remove_dir_all(&bad).unwrap();
+    let (status, body) = http(worker.addr, "e.test", "/api/v").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(worker.manager.cell_count(), 1);
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&e.root);
+}
+
 /// `renox-worker --config worker.toml` from the command line against
 /// `examples/hello`, including a SIGHUP route reload.
 #[cfg(unix)]

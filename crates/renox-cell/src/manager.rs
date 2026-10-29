@@ -264,26 +264,34 @@ impl CellManager {
         let started = Instant::now();
         let tier_name = self.inner.config.tier_of(&key.tenant_id);
         let tier = *self.inner.config.tiers.get(tier_name);
+        // #157: the tenant file opens on its DB thread while the artifact is
+        // verified and the isolate is created; migrations run alongside the
+        // isolate's creation. Tenant code cannot reach the DB before the
+        // cell is ready: module evaluation runs outside any request, where
+        // `ctx.db` rejects with `RENOX_NO_REQUEST` (ops.md section 11).
+        let db = self.acquire_db(&key.tenant_id, tier.db_quota_bytes).await?;
         let store = self.inner.config.artifacts.clone();
         let hash = key.deployment_hash.clone();
-        let artifact_dir = tokio::task::spawn_blocking(move || store.get(&hash))
+        let verified = tokio::task::spawn_blocking(move || store.get(&hash))
             .await
             .map_err(|e| {
                 CellError::Artifact(ArtifactError::Invalid {
                     rule: "V2",
                     reason: format!("verification task failed: {e}"),
                 })
-            })?
-            .map_err(CellError::Artifact)?
-            .path;
+            })
+            .and_then(|r| r.map_err(CellError::Artifact));
+        let artifact_dir = match verified {
+            Ok(a) => a.path,
+            Err(e) => {
+                self.release_db(&key.tenant_id).await;
+                return Err(e);
+            }
+        };
         let artifact_ms = started.elapsed().as_millis() as u64;
-        let db = self.acquire_db(&key.tenant_id, tier.db_quota_bytes).await?;
-        let db_ms = started.elapsed().as_millis() as u64 - artifact_ms;
+        let mut db_ms = 0;
         let mut migrate_ms = 0;
         let result = async {
-            let t = Instant::now();
-            run_migrations(&db, &artifact_dir).await?;
-            migrate_ms = t.elapsed().as_millis() as u64;
             let secrets_path = self.tenant_dir(&key.tenant_id).join("secrets.json");
             let secrets = load_secrets(&secrets_path).map_err(CellError::Secrets)?;
             let base = match tier_name {
@@ -299,11 +307,28 @@ impl CellManager {
                 db: Some(db.clone()),
                 max_isolates: max_isolates(tier_name),
             };
-            self.inner
-                .runtime
-                .create_isolate(spec)
-                .await
-                .map_err(CellError::Isolate)
+            let prepare_db = async {
+                db.ready().await.map_err(CellError::Db)?;
+                let opened = started.elapsed().as_millis() as u64;
+                let t = Instant::now();
+                run_migrations(&db, &artifact_dir).await?;
+                Ok::<_, CellError>((opened, t.elapsed().as_millis() as u64))
+            };
+            let (prepared, created) =
+                tokio::join!(prepare_db, self.inner.runtime.create_isolate(spec));
+            match (prepared, created) {
+                (Ok((opened, migrated)), Ok(isolate)) => {
+                    db_ms = opened.saturating_sub(artifact_ms);
+                    migrate_ms = migrated;
+                    Ok(isolate)
+                }
+                (Err(e), Ok(isolate)) => {
+                    isolate.terminate();
+                    Err(e)
+                }
+                (Err(e), Err(_)) => Err(e),
+                (Ok(_), Err(e)) => Err(CellError::Isolate(e)),
+            }
         }
         .await;
         let isolate = match result {
@@ -347,7 +372,7 @@ impl CellManager {
         self.inner.config.data_dir.join(tenant_id)
     }
 
-    /// Open the tenant's file (first cell) or share the open handle.
+    /// Start opening the tenant's file (first cell) or share its handle.
     async fn acquire_db(&self, tenant_id: &str, quota: u64) -> Result<DbHandle, CellError> {
         let slot = self
             .inner
@@ -363,18 +388,17 @@ impl CellManager {
             return Ok(h);
         }
         let dir = self.tenant_dir(tenant_id);
-        let handle = tokio::task::spawn_blocking(move || -> Result<DbHandle, DbError> {
+        // The open runs on the DB thread; the handle is usable at once and
+        // `DbHandle::ready` reports an open failure (#157).
+        let handle = DbHandle::open_in_background(move || {
             std::fs::create_dir_all(&dir).map_err(|e| DbError::Open(e.kind().to_string()))?;
             let options = DbOptions {
                 module_prefix: Some("app".into()),
                 ..DbOptions::with_quota_bytes(quota)
             };
-            let db = TenantDb::open(dir.join("app.db"), options)?;
-            DbHandle::spawn(db).map_err(|e| DbError::Open(e.kind().to_string()))
+            TenantDb::open(dir.join("app.db"), options)
         })
-        .await
-        .map_err(|e| CellError::Db(DbError::Open(e.to_string())))?
-        .map_err(CellError::Db)?;
+        .map_err(|e| CellError::Db(DbError::Open(e.kind().to_string())))?;
         slot.handle = Some(handle.clone());
         slot.cells = 1;
         Ok(handle)

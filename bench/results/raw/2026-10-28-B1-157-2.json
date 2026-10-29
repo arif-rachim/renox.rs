@@ -1,0 +1,18 @@
+{
+  "id": "B1",
+  "scenario": "renox-worker (release), N tenants per app each with one warm isolate after one request; shop at N = 100; esm-dir artifacts from the CLI; median of 3 runs; judged: shop at N = 100",
+  "notes": "shop N=100: RSS 10.68 MB, PSS 10.68 MB, V8 heap 6.65 MB per isolate",
+  "samples": {
+    "shop_n100_rss_delta_mb": [
+      10.68,
+      10.63,
+      10.68
+    ]
+  },
+  "summary": {
+    "rss_delta_mb": 10.68,
+    "shop_n100_rss_delta_mb": 10.68,
+    "shop_n100_pss_delta_mb": 10.68,
+    "shop_n100_v8_heap_mb": 6.65
+  }
+}

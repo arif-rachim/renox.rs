@@ -7,6 +7,9 @@ export type { Action, ActionContext, ActionResult, Loader, LoaderContext, PageDa
 export { definePage } from "./pages.ts";
 export type { StandardSchemaV1, ValidateInput, ValidationIssue } from "./validate.ts";
 export { formToObject, validate, ValidationError } from "./validate.ts";
+export { timingSafeEqual } from "./crypto.ts";
+export type { RedirectStatus, SafeRedirectOptions } from "./redirect.ts";
+export { redirect, safeRedirectTarget } from "./redirect.ts";
 export type { Db, DbStatements, ExecuteResult, Param, Row, Value } from "./db.ts";
 export type {
   DbErrorCode,
