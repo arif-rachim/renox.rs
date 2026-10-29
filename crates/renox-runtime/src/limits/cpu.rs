@@ -86,9 +86,6 @@ mod imp {
             (rc == 0).then(|| Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
         }
     }
-
-    /// Nothing to do: the watchdog's 1 ms sleep is precise enough on Linux.
-    pub fn watchdog_thread_started() {}
 }
 
 #[cfg(target_os = "macos")]
@@ -167,17 +164,6 @@ mod imp {
             };
             Some(t(info.user_time) + t(info.system_time))
         }
-    }
-
-    /// The watchdog asks for the user-interactive QoS class. macOS coalesces
-    /// timers of lower classes, which stretched the watchdog's 1 ms sleep
-    /// past the ± 5 ms termination bound (`ops.md` section 10) on the macOS
-    /// CI runner. Best effort: on failure the thread keeps its class.
-    pub fn watchdog_thread_started() {
-        // SAFETY: changes only the calling thread's scheduling class.
-        unsafe {
-            libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
-        };
     }
 }
 
@@ -260,7 +246,6 @@ impl Watchdog {
         let thread = thread::Builder::new()
             .name("renox-cpu-watchdog".into())
             .spawn(move || {
-                imp::watchdog_thread_started();
                 while !w.stop.load(Ordering::SeqCst) {
                     let Some((start, budget)) = w.sample() else {
                         thread::yield_now();
