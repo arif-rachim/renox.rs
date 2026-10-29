@@ -370,6 +370,11 @@ impl Worker {
         gw_config.rate_limit.requests_per_second = config.gateway.rate_limit_per_ip;
         gw_config.rate_limit.burst = config.gateway.rate_limit_burst;
         gw_config.limits.max_connections_per_ip = config.gateway.max_connections_per_ip;
+        gw_config.protocol.h2_max_resets_per_second = config.gateway.h2_max_resets_per_second;
+        gw_config.protocol.h2_max_resets_per_ip_per_second =
+            config.gateway.h2_max_resets_per_ip_per_second;
+        gw_config.protocol.h2_max_control_frames_per_second =
+            config.gateway.h2_max_control_frames_per_second;
         let gateway = Gateway::new(gw_config, routes.clone());
         // `/__renox/events` lines go to the same tenant log (#126).
         gateway.set_client_event_sink(Arc::new(ClientLogSink::new(log_sink, &config.data_dir)));

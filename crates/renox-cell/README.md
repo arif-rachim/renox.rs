@@ -28,6 +28,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `default_tier` | `free` | Tier of tenants not listed in `tenant_tiers` |
 | `platform_key_file` | — | The node's platform key (mode 0600, ≥ 32 bytes); page session and CSRF keys are derived from it per tenant ("Sessions and CSRF"). Unset: a random key per process |
 | `[gateway]` | 100 / 200 / 100 | `rate_limit_per_ip` (req/s), `rate_limit_burst`, `max_connections_per_ip`: the gateway's per-client limits (`renox-gateway` README). Benchmarks that send all load from one address raise them |
+| `[gateway]` HTTP/2 | 100 / 200 / 2,000 | `h2_max_resets_per_second` (resets per connection in any one second), `h2_max_resets_per_ip_per_second` (the same over all of a client IP's connections, IPv6 by /64), `h2_max_control_frames_per_second` (`PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY` per connection): the HTTP/2 flood budgets of #166 (`renox-gateway` README, "Protocol limits"). Over a budget the connection is closed. `0` is refused with the key's name (#260) |
 | `[tenant_tiers]` | — | `tenant_id = "free" \| "paid"` (F1 stand-in for the control plane) |
 | `[tiers.free]`, `[tiers.paid]` | see "Tiers" | Overrides of single tier fields |
 | `[replication]` | off | `enabled`, `replica` (`file` \| `s3`), `path` (file), `bucket`, `prefix`, `region`, `endpoint`, `sse_kms_key_id` (s3), `allowed_regions` (`["me-central-1"]`), `sync_interval_ms` (1000), `retention_hours` (24), `snapshot_interval_secs` (3600), `stop_grace_ms` (3000), `litestream_bin` (`litestream` on `PATH`): "Replication" |

@@ -348,15 +348,25 @@ pub struct GatewaySection {
     pub rate_limit_burst: u32,
     /// Open connections per client IP.
     pub max_connections_per_ip: usize,
+    /// HTTP/2 resets per connection in any one second (#166, #260).
+    pub h2_max_resets_per_second: u32,
+    /// HTTP/2 resets per client IP (IPv6 by /64) in any one second.
+    pub h2_max_resets_per_ip_per_second: u32,
+    /// HTTP/2 control frames per connection per second (token bucket).
+    pub h2_max_control_frames_per_second: u32,
 }
 
 impl Default for GatewaySection {
     fn default() -> Self {
         let rate = renox_gateway::RateLimitConfig::default();
+        let protocol = renox_gateway::ProtocolLimits::default();
         GatewaySection {
             rate_limit_per_ip: rate.requests_per_second,
             rate_limit_burst: rate.burst,
             max_connections_per_ip: renox_gateway::GatewayLimits::default().max_connections_per_ip,
+            h2_max_resets_per_second: protocol.h2_max_resets_per_second,
+            h2_max_resets_per_ip_per_second: protocol.h2_max_resets_per_ip_per_second,
+            h2_max_control_frames_per_second: protocol.h2_max_control_frames_per_second,
         }
     }
 }
@@ -470,6 +480,27 @@ impl WorkerConfig {
         {
             if p.is_relative() {
                 *p = base.join(&*p);
+            }
+        }
+        // A zero budget would close every HTTP/2 connection at its first reset or PING.
+        for (key, value) in [
+            (
+                "h2_max_resets_per_second",
+                c.gateway.h2_max_resets_per_second,
+            ),
+            (
+                "h2_max_resets_per_ip_per_second",
+                c.gateway.h2_max_resets_per_ip_per_second,
+            ),
+            (
+                "h2_max_control_frames_per_second",
+                c.gateway.h2_max_control_frames_per_second,
+            ),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::Invalid(format!(
+                    "gateway.{key} must be at least 1"
+                )));
             }
         }
         if let Some(p) = &mut c.replication.path
@@ -624,6 +655,53 @@ mod tests {
         assert_eq!(c.tier_table().free.cpu_ms, 50);
         assert_eq!(c.gateway.rate_limit_per_ip, 100.0);
         assert_eq!(c.gateway.max_connections_per_ip, 100);
+        assert_eq!(c.gateway.h2_max_resets_per_second, 100);
+        assert_eq!(c.gateway.h2_max_resets_per_ip_per_second, 200);
+        assert_eq!(c.gateway.h2_max_control_frames_per_second, 2000);
+    }
+
+    /// #260: the three HTTP/2 flood knobs of #166 parse, default to the
+    /// gateway's `ProtocolLimits`, and refuse 0 with the key's name.
+    #[test]
+    fn gateway_h2_flood_keys() {
+        let base = Path::new("/srv/renox");
+        let min = "listen = \"127.0.0.1:0\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nroutes_file = \"r.json\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\n";
+        let with = |extra: &str| format!("{min}{extra}");
+        let d = WorkerConfig::parse(min, base).unwrap();
+        assert_eq!(
+            (
+                d.gateway.h2_max_resets_per_second,
+                d.gateway.h2_max_resets_per_ip_per_second,
+                d.gateway.h2_max_control_frames_per_second
+            ),
+            (100, 200, 2000)
+        );
+        let c = WorkerConfig::parse(
+            &with("[gateway]\nh2_max_resets_per_second = 50\nh2_max_resets_per_ip_per_second = 80\nh2_max_control_frames_per_second = 500\n"),
+            base,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                c.gateway.h2_max_resets_per_second,
+                c.gateway.h2_max_resets_per_ip_per_second,
+                c.gateway.h2_max_control_frames_per_second
+            ),
+            (50, 80, 500)
+        );
+        for key in [
+            "h2_max_resets_per_second",
+            "h2_max_resets_per_ip_per_second",
+            "h2_max_control_frames_per_second",
+        ] {
+            let err = WorkerConfig::parse(&with(&format!("[gateway]\n{key} = 0\n")), base)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(&format!("gateway.{key}")), "{err}");
+        }
+        assert!(
+            WorkerConfig::parse(&with("[gateway]\nh2_max_resets_per_second = -1\n"), base).is_err()
+        );
     }
 
     #[test]

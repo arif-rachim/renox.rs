@@ -28,6 +28,10 @@ default_tier = "free"
 rate_limit_per_ip = 100.0
 rate_limit_burst = 200
 max_connections_per_ip = 100
+# HTTP/2 flood budgets (renox-gateway README, "Protocol limits"); 0 is refused.
+h2_max_resets_per_second = 100
+h2_max_resets_per_ip_per_second = 200
+h2_max_control_frames_per_second = 2000
 
 [tenant_tiers]
 t_paid_example = "paid"

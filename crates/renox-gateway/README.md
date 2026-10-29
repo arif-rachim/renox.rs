@@ -135,7 +135,7 @@ hyper's own reset limits are not rates: `max_pending_accept_reset_streams` only 
 
 **Static assets.** `StaticFiles` keys a static response by `(deployment_hash, path)`. The deployment hash is the content hash of the artifact, chosen by the hostname's route entry, so the key implies the tenant and hostname. No request header other than `If-None-Match` (which only turns a 200 into a 304) changes the response. The gateway never sets `Vary`. `public/manifest.json` has no precompressed variants, so there is no `Accept-Encoding` negotiation until a contract adds variants.
 
-Every knob, its default, and where it is set. `GatewayConfig.protocol` is `ProtocolLimits`. The other HTTP/1 knobs come from `GatewayConfig.limits` (see "Input limits"). None of them is in `worker.toml` yet; the worker uses the defaults.
+Every knob, its default, and where it is set. `GatewayConfig.protocol` is `ProtocolLimits`. The other HTTP/1 knobs come from `GatewayConfig.limits` (see "Input limits"). Only the three HTTP/2 flood budgets are in `worker.toml` (`[gateway]`, #260); the worker uses the defaults for the rest.
 
 | Knob | Default | Config key | Mechanism |
 | --- | --- | --- | --- |
@@ -150,9 +150,9 @@ Every knob, its default, and where it is set. `GatewayConfig.protocol` is `Proto
 | h2c / cleartext upgrade | refused | fixed | plain listener is HTTP/1 only; `Upgrade: h2c` refused by the guard; `Upgrade` stripped before dispatch |
 | HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` | 128 | `protocol.h2_max_concurrent_streams` | hyper `http2::Builder::max_concurrent_streams` |
 | HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` | 16 KiB | `limits.max_header_bytes` | hyper `max_header_list_size` |
-| HTTP/2 resets per connection, any one second | 100 | `protocol.h2_max_resets_per_second` | `H2FloodBudget`, sliding window over client `RST_STREAM` and provoked server resets: over it, the connection is closed |
-| HTTP/2 resets per client IP, any one second | 200 | `protocol.h2_max_resets_per_ip_per_second` | `H2FloodBudget` with `IpResetLimiter`, same count over all connections of the IP (IPv6 /64): over it, the connection is closed |
-| HTTP/2 control frames per connection | 2,000 burst, 2,000 per second | `protocol.h2_max_control_frames_per_second` | `H2FloodBudget`, token bucket over `PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY`: over it, the connection is closed |
+| HTTP/2 resets per connection, any one second | 100 | `protocol.h2_max_resets_per_second`; `worker.toml` `[gateway] h2_max_resets_per_second` | `H2FloodBudget`, sliding window over client `RST_STREAM` and provoked server resets: over it, the connection is closed |
+| HTTP/2 resets per client IP, any one second | 200 | `protocol.h2_max_resets_per_ip_per_second`; `worker.toml` `[gateway] h2_max_resets_per_ip_per_second` | `H2FloodBudget` with `IpResetLimiter`, same count over all connections of the IP (IPv6 /64): over it, the connection is closed |
+| HTTP/2 control frames per connection | 2,000 burst, 2,000 per second | `protocol.h2_max_control_frames_per_second`; `worker.toml` `[gateway] h2_max_control_frames_per_second` | `H2FloodBudget`, token bucket over `PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY`: over it, the connection is closed |
 | HTTP/2 `CONTINUATION` frames per header block | `max(5, 1.25 × header list size / frame size)` (5 with the defaults) | not exposed | h2 0.4.20: over it, `GOAWAY ENHANCE_YOUR_CALM` |
 | HTTP/2 empty non-final `DATA` frames per connection | 100 | not exposed | h2 0.4.20 (`MAX_RECV_EMPTY_DATA_FRAMES`): over it, `GOAWAY ENHANCE_YOUR_CALM` |
 | HTTP/2 resets before accept | 20 | `protocol.h2_max_pending_accept_reset_streams` | hyper / `h2`: over it, `GOAWAY ENHANCE_YOUR_CALM` |
