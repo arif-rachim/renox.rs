@@ -52,6 +52,27 @@ use crate::control::{self, Controller, MeterPoster};
 use crate::manager::{CellManager, ManagerConfig, StaticTiers};
 use crate::pages::PlatformKey;
 use crate::spool::{self, Queue};
+use crate::supervisor::{ProcessLookup, StaticProcesses, Supervisor};
+
+/// The gateway's dispatcher: the shared process alone, or the supervisor
+/// of the process tiers in front of it (#254).
+enum NodeDispatcher {
+    Shared(Arc<GuardedDispatcher>),
+    Tiers(Supervisor<GuardedDispatcher>),
+}
+
+impl renox_gateway::CellDispatcher for NodeDispatcher {
+    async fn dispatch(
+        &self,
+        ctx: renox_gateway::RequestCtx,
+        req: Request<axum::body::Body>,
+    ) -> Response<axum::body::Body> {
+        match self {
+            NodeDispatcher::Shared(d) => d.dispatch(ctx, req).await,
+            NodeDispatcher::Tiers(s) => s.dispatch(ctx, req).await,
+        }
+    }
+}
 
 /// Why the worker did not start. No file contents, no secrets.
 #[derive(Debug)]
@@ -147,6 +168,8 @@ pub struct Worker {
     routes_file: PathBuf,
     /// The control-plane side of controlled mode (#55).
     pub controller: Option<Arc<Controller>>,
+    /// The process tiers (#254), with `[process] enabled`.
+    pub supervisor: Option<Supervisor<GuardedDispatcher>>,
     certs: Option<Arc<CertStore>>,
     server: JoinHandle<std::io::Result<()>>,
     /// The plain listener and the SIGHUP certificate reloader.
@@ -321,9 +344,40 @@ impl Worker {
             .local_addr()
             .map_err(io("read the listen address"))?;
         let s3_for_prepare = s3.clone();
-        let dispatcher = Arc::new(GuardedDispatcher {
+        let guarded = Arc::new(GuardedDispatcher {
             manager: manager.clone(),
             guard: s3.map(|store| Guard::new(store, health.clone(), config.artifacts_dir.clone())),
+        });
+        // Process tiers (#254): tenants placed in a child process of their own.
+        let supervisor = if config.process.enabled {
+            let lookup: Arc<dyn ProcessLookup> = match &route_state {
+                Some(state) => state.clone(),
+                None => Arc::new(StaticProcesses(
+                    config.process.own_tenants.iter().cloned().collect(),
+                )),
+            };
+            let config_path = config.config_path.clone().ok_or_else(|| {
+                WorkerError::Control("[process] needs the worker started from a config file".into())
+            })?;
+            let require_cgroup =
+                config.mode == Mode::Controlled && !config.sandbox.allow_unsandboxed;
+            Some(
+                Supervisor::start(
+                    guarded.clone(),
+                    manager.clone(),
+                    lookup,
+                    config.process.clone(),
+                    config_path,
+                    require_cgroup,
+                )
+                .map_err(|e| WorkerError::Sandbox(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let dispatcher = Arc::new(match &supervisor {
+            Some(s) => NodeDispatcher::Tiers(s.clone()),
+            None => NodeDispatcher::Shared(guarded),
         });
         let mut tasks = Vec::new();
         let mut http_addr = None;
@@ -418,6 +472,7 @@ impl Worker {
             routes,
             routes_file: config.routes_file.clone(),
             controller,
+            supervisor,
             certs,
             server,
             tasks,
@@ -458,6 +513,9 @@ impl Worker {
     pub async fn shutdown(self) {
         if let Some(c) = &self.controller {
             c.stop();
+        }
+        if let Some(s) = &self.supervisor {
+            s.shutdown().await;
         }
         self.server.abort();
         for t in &self.tasks {

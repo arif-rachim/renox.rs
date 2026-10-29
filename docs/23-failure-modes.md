@@ -73,6 +73,7 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | --- | --- | --- | --- | --- | --- |
 | Isolate evicted while a request arrives | Cell state machine | Nothing (slightly slower) | Request waits for the fresh cell | cell test | F1 |
 | Deployment switch while requests in flight | Draining state | Nothing | Old cell finishes in-flight, then evicted | cell test | F1 |
+| Worker process crashes (a paid tenant's child process, #254) | The supervisor reaps the child (exit status) | 503 `RENOX_UNAVAILABLE` (`Retry-After: 1`) for requests in flight in that child; the next request waits for the restart. Other tenants see nothing: the shared process and other children are separate processes | Restart on the next request after an exponential backoff (200 ms doubling to 30 s, reset after 60 s alive); logged with the exit status | `crates/renox-cell/tests/supervisor.rs` `own_tenant_runs_in_a_child_that_restarts_refuses_others_and_drains` (SIGKILL, served again within the backoff) | F6 |
 | SQLite file corrupted, WAL unreadable | `PRAGMA quick_check` on open; SQLite error codes | 503 `RENOX_DB_UNAVAILABLE` until restored | Cell marked unhealthy; restore from Litestream; alert | `TODO` → #103 | F6 |
 | Disk full on node | Write errors, disk watermark | Writes fail `RENOX_DB_QUOTA`-like code | Node marked not schedulable; outbox and log pruning; alert | same issue | F6 |
 | Outbox or logs grow unbounded | Size watermarks | Nothing | Pruning, dead-letter cap, per-tenant log volume limit | same issue | F4/F6 |

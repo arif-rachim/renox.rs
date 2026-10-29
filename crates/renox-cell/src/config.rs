@@ -79,6 +79,84 @@ pub struct WorkerConfig {
     /// `allow_unsandboxed`.
     #[serde(default)]
     pub sandbox: SandboxSection,
+    /// Process tiers (#254, `src/supervisor/`): paid tenants in child
+    /// processes of their own.
+    #[serde(default)]
+    pub process: ProcessSection,
+    /// The file this config was loaded from ([`WorkerConfig::load`]); the
+    /// supervisor passes it to its children. Not a key.
+    #[serde(skip)]
+    pub config_path: Option<PathBuf>,
+}
+
+/// `[process]` (#254): the supervisor and its child workers.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ProcessSection {
+    /// Run tenants whose route entry says `process = "own"` (controlled
+    /// mode) or that `own_tenants` lists (local mode) in a child process.
+    /// Default false: every tenant in this process.
+    pub enabled: bool,
+    /// Children at most; a tenant over the limit is served in this process
+    /// (logged).
+    pub max_children: usize,
+    /// A child without a request for this long is stopped.
+    pub child_idle_secs: f64,
+    /// First wait before a crashed child is started again; doubles per
+    /// crash up to 30 s, reset after a child lived 60 s.
+    pub restart_backoff_ms: u64,
+    /// The children's Unix sockets (`<run_dir>/children/<tenant>.sock`).
+    pub run_dir: PathBuf,
+    /// `direct` (the supervisor spawns the child and creates its cgroup
+    /// under its own delegated one) or `systemd` (`renox-child@<tenant>`,
+    /// `ops/systemd`).
+    pub launcher: Launcher,
+    /// The binary the children run. Default: this process's own.
+    pub worker_bin: Option<PathBuf>,
+    /// Local mode: tenants that get a child (F1 stand-in for the route
+    /// entry's `process`).
+    pub own_tenants: Vec<String>,
+    /// The cgroup v2 directory children are created under (`direct`).
+    /// Default: this process's own cgroup (`Delegate=yes`).
+    pub cgroup_root: Option<PathBuf>,
+    /// Limits of a child's cgroup: `cpu.max` quota per 100 ms period,
+    /// `memory.max`, `pids.max`.
+    pub child_cpu_quota_us: u64,
+    pub child_memory_bytes: u64,
+    pub child_pids: u64,
+    /// The operator hook a move to a microVM runs (#259,
+    /// `ops/scripts/move-to-microvm.sh`), with the tenant id and the file
+    /// path. Absent: such a move answers exit code 75.
+    pub microvm_hook: Option<PathBuf>,
+}
+
+/// `[process] launcher`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Launcher {
+    #[default]
+    Direct,
+    Systemd,
+}
+
+impl Default for ProcessSection {
+    fn default() -> Self {
+        ProcessSection {
+            enabled: false,
+            max_children: 64,
+            child_idle_secs: 600.0,
+            restart_backoff_ms: 200,
+            run_dir: PathBuf::from("run"),
+            launcher: Launcher::Direct,
+            worker_bin: None,
+            own_tenants: Vec::new(),
+            cgroup_root: None,
+            child_cpu_quota_us: 200_000,
+            child_memory_bytes: 1 << 30,
+            child_pids: 512,
+            microvm_hook: None,
+        }
+    }
 }
 
 /// `[sandbox]` (#253): what the worker may do after start. Linux only; on
@@ -312,6 +390,19 @@ impl WorkerConfig {
                 *p = base.join(&*p);
             }
         }
+        for p in std::iter::once(&mut c.process.run_dir)
+            .chain(c.process.worker_bin.as_mut())
+            .chain(c.process.microvm_hook.as_mut())
+        {
+            if p.is_relative() {
+                *p = base.join(&*p);
+            }
+        }
+        if !(c.process.child_idle_secs.is_finite() && c.process.child_idle_secs > 0.0) {
+            return Err(ConfigError::Invalid(
+                "process.child_idle_secs must be positive".into(),
+            ));
+        }
         match c.mode {
             Mode::Local => {
                 if c.control.is_some() {
@@ -381,7 +472,9 @@ impl WorkerConfig {
     pub fn load(path: &Path) -> Result<WorkerConfig, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(ConfigError::Read)?;
         let base = path.parent().unwrap_or(Path::new("."));
-        WorkerConfig::parse(&text, base)
+        let mut c = WorkerConfig::parse(&text, base)?;
+        c.config_path = Some(path.to_path_buf());
+        Ok(c)
     }
 
     pub fn idle_timeout(&self) -> Duration {
@@ -528,6 +621,33 @@ mod tests {
                 "{extra}"
             );
         }
+    }
+
+    #[test]
+    fn process_section() {
+        let base = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+        let p = WorkerConfig::parse(base, Path::new("/srv"))
+            .unwrap()
+            .process;
+        assert!(!p.enabled);
+        assert_eq!(p.run_dir, Path::new("/srv/run"));
+        assert_eq!(
+            (p.max_children, p.restart_backoff_ms, p.launcher),
+            (64, 200, Launcher::Direct)
+        );
+        let text = format!(
+            "{base}[process]\nenabled = true\nmax_children = 2\nchild_idle_secs = 5\nrestart_backoff_ms = 50\nrun_dir = \"/run/renox\"\nlauncher = \"systemd\"\nown_tenants = [\"t_a\"]\nmicrovm_hook = \"hook.sh\"\n"
+        );
+        let p = WorkerConfig::parse(&text, Path::new("/srv"))
+            .unwrap()
+            .process;
+        assert!(p.enabled);
+        assert_eq!(p.own_tenants, ["t_a"]);
+        assert_eq!(p.launcher, Launcher::Systemd);
+        assert_eq!(p.run_dir, Path::new("/run/renox"));
+        assert_eq!(p.microvm_hook.as_deref(), Some(Path::new("/srv/hook.sh")));
+        let bad = format!("{base}[process]\nchild_idle_secs = 0\n");
+        assert!(WorkerConfig::parse(&bad, Path::new("/")).is_err());
     }
 
     #[test]

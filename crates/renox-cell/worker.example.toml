@@ -56,3 +56,17 @@ enabled = false
 # extra_read_paths = []
 # extra_connect_ports = [80]  # fetch allowlist entries with http:// or an explicit port
 # allow_unsandboxed = false
+
+# Process tiers (#254, README "Process tiers"): tenants in a child process
+# of their own. Controlled mode places them by the route entry's process.
+[process]
+enabled = false
+# own_tenants = ["t_paid_example"]   # local mode
+# launcher = "direct"                # or "systemd" (ops/systemd/renox-child@.service)
+# run_dir = "run"
+# max_children = 64
+# child_idle_secs = 600
+# restart_backoff_ms = 200
+# child_cpu_quota_us = 200000        # cpu.max per 100 ms period
+# child_memory_bytes = 1073741824
+# child_pids = 512

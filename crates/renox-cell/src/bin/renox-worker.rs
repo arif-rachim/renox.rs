@@ -14,6 +14,9 @@
 //! plane's port; prints a table and exits non-zero if either of the first
 //! two got through.
 //!
+//! `renox-worker --config worker.toml --child <tenant> --socket <path>`:
+//! one tenant's own worker process behind the supervisor (#254).
+//!
 //! With `[sandbox] enabled = true` the Landlock rules are applied here,
 //! before the async runtime starts any thread (Landlock reaches only the
 //! threads created after it); the seccomp allowlist follows in
@@ -26,7 +29,7 @@ use renox_cell::{Worker, WorkerConfig};
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker transpile"
+        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker --config <worker.toml> --child <tenant> --socket <path> | renox-worker transpile"
     );
     ExitCode::from(2)
 }
@@ -59,6 +62,9 @@ fn main() -> ExitCode {
             sandbox_selftest(PathBuf::from(p))
         }
         ["--config", p] => serve(PathBuf::from(p)),
+        ["--config", p, "--child", tenant, "--socket", socket] => {
+            child(PathBuf::from(p), tenant.to_string(), PathBuf::from(socket))
+        }
         _ => usage(),
     }
 }
@@ -124,6 +130,44 @@ fn sandbox_selftest(config_path: PathBuf) -> ExitCode {
 fn sandbox_selftest(_config_path: PathBuf) -> ExitCode {
     eprintln!("renox-worker --sandbox-selftest: the sandbox needs Linux");
     ExitCode::FAILURE
+}
+
+/// `--child <tenant> --socket <path>` (#254): one paid tenant's own worker,
+/// started by the supervisor (`renox_cell::supervisor::child`).
+fn child(config_path: PathBuf, tenant: String, socket: PathBuf) -> ExitCode {
+    init_tracing();
+    let Some(config) = load(&config_path) else {
+        return ExitCode::FAILURE;
+    };
+    if config.sandbox.enabled {
+        let exe = std::env::current_exe().ok();
+        let profile = renox_cell::supervisor::child::child_profile(
+            &config,
+            &tenant,
+            exe.as_deref().and_then(std::path::Path::parent),
+        );
+        if let Err(e) = renox_cell::sandbox::restrict_paths_and_ports(&profile) {
+            tracing::error!(error = %e, "child start");
+            return ExitCode::FAILURE;
+        }
+    }
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "start the async runtime");
+            return ExitCode::FAILURE;
+        }
+    };
+    match runtime.block_on(renox_cell::supervisor::child::serve(config, tenant, socket)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            tracing::error!(error = %e, "child");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn serve(config_path: PathBuf) -> ExitCode {

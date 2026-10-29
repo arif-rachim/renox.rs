@@ -30,6 +30,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[gateway]` | 100 / 200 / 100 | `rate_limit_per_ip` (req/s), `rate_limit_burst`, `max_connections_per_ip`: the gateway's per-client limits (`renox-gateway` README). Benchmarks that send all load from one address raise them |
 | `[tenant_tiers]` | — | `tenant_id = "free" \| "paid"` (F1 stand-in for the control plane) |
 | `[tiers.free]`, `[tiers.paid]` | see "Tiers" | Overrides of single tier fields |
+| `[process]` | off | `enabled`, `max_children` (64), `child_idle_secs` (600), `restart_backoff_ms` (200), `run_dir` (`run`), `launcher` (`direct` \| `systemd`), `worker_bin`, `own_tenants` (local mode), `cgroup_root`, `child_cpu_quota_us` (200,000), `child_memory_bytes` (1 GiB), `child_pids` (512), `microvm_hook`: the process tiers of "Process tiers" |
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 
 Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`). They name tenants, hashes, and request ids, never secret values or request content.
@@ -123,6 +124,30 @@ Since #161 the cell implements `docs/contracts/ops.md` 1.2.0 (`src/manager.rs`, 
 - **Egress per chunk** (section 10, "Response egress"): the runtime counts each chunk against the tier's response egress limit as `op_response_write` takes it; the chunk that would pass it is refused, and the body is truncated (section 10, "Mid-stream"; `BodySender::truncate` ends it with an error, not a clean end), so a client can tell it from a complete body.
 - **Meter at the end of the stream** (section 7, "When"): the record is written when the stream ends, whatever ended it. `wall_ms` runs to the end, `egress_bytes` counts the bytes handed to the connection after compression up to the stop, `http_status` is the status sent in the head, `status` the cause of the end.
 - **Shell before the loader resolves** (section 14, "Streaming the shell"): a full-page `GET` whose `load` is slower than `SHELL_DELAY` (50 ms, proposed) gets status 200, the page headers, and the shell (`PageRenderer::shell_of`: the output up to the template's first data read, cut back to the last complete tag) at once; the rest of the page follows when `load` returns. An error after the shell is rendered inside the stream (`error page rendered inside the stream`, `streamed: true`); a `Response` from `load` after the shell is `RENOX_INTERNAL` with `reason: "response_after_shell"`. Fragments, actions, `HEAD`, and loaders that finish within the delay are sent in one piece as before.
+
+## Process tiers
+
+With `[process] enabled = true` (#254, `docs/04-isolation-security.md` "Isolation hierarchy") the worker is a **supervisor**: the free tier shares its process, and each tenant whose route entry says `process = "own"` (controlled mode; the control plane writes it for every `paid` tenant, `docs/contracts/deploy-api.md` section 8) or that `own_tenants` lists (local mode) runs in a child `renox-worker --config <worker.toml> --child <tenant> --socket <run_dir>/children/<tenant>.sock` of its own.
+
+```
+                       ┌──────────────── renox-worker (supervisor) ─────────────────┐
+client ── TLS ──► gateway ──► Supervisor ──► shared CellManager: free tenants       │
+                       │           │                                                │
+                       └───────────┼────────────────────────────────────────────────┘
+                                   │ HTTP/1 over <run_dir>/children/<tenant>.sock
+                                   ▼
+                       renox-worker --child t_paid   (own cells, own SQLite handle,
+                                                      own sandbox, own cgroup)
+```
+
+- **Start.** On the tenant's first request. The supervisor hands the child each deployment's tier, app, secret version and secrets (`prepare`, in memory only) before its first request, after making sure the artifact is on disk; the child reads artifacts from the same `artifacts_dir`. No gateway listener and no control-plane client in the child.
+- **Requests.** Forwarded with the gateway's request id, deadline (as remaining ms), client IP and CSP nonce in `x-renox-ipc-*` headers, which no client can set (the gateway strips client `x-renox-*` headers). A request for another tenant id on a child's socket is 403 `RENOX_TENANT_MISMATCH` (internal to the node, never sent to a tenant).
+- **Crash.** A child that exits is started again on the next request after an exponential backoff (`restart_backoff_ms` doubling to 30 s, reset after 60 s alive); requests in flight get 503 `RENOX_UNAVAILABLE`.
+- **Drain.** A route sync that leaves the tenant without an active entry, or moves it back to `shared`, drains the child (it finishes in-flight requests and exits) and reaps it. A move from `shared` to `own` drains the tenant's cells in the supervisor. A child without a request for `child_idle_secs` is stopped.
+- **cgroups.** `launcher = "direct"`: the supervisor moves itself into `<cgroup_root>/supervisor` and creates `<cgroup_root>/renox-<tenant>.scope` per child with `cpu.max`, `memory.max`, `pids.max` (`cgroup_root` defaults to its own, delegated by `Delegate=yes` in `ops/systemd/renox-worker.service`). When the tree is not writable it logs once and runs without; a controlled node refuses that unless `[sandbox] allow_unsandboxed`. `launcher = "systemd"`: `systemctl start renox-child@<tenant>` (`ops/systemd/renox-child@.service` in `renox-paid.slice`, allowed by `ops/polkit/50-renox.rules`).
+- **Sandbox.** With `[sandbox] enabled` the child applies the profile of "Sandbox" with `data_dir/<tenant>` instead of the whole `data_dir`.
+- **Meters and logs.** The child writes meter batches and log lines with the node's `node_id`: to `meters_dir` and `logs_dir/tenant.ndjson` in local mode, to the spool (`<data_dir>/spool/`) in controlled mode, which the supervisor's replayer ships.
+- Tests: `tests/supervisor.rs`. B12 with the noisy tenant in its own child needs a load generator; `bench/results/2026-10-29-B12-process-tier-dev-container.md` records why it is open.
 
 ## Sandbox
 

@@ -177,7 +177,13 @@ struct Inner {
     /// instead of racing a short one (#182).
     #[cfg(feature = "test-support")]
     idle_override_us: std::sync::atomic::AtomicU64,
+    /// Told about every route sync (#254: the supervisor places tenants
+    /// in children from the same entries).
+    sync_observer: std::sync::OnceLock<SyncObserver>,
 }
+
+/// Called with the entries of every [`CellManager::sync_routes`].
+pub type SyncObserver = Arc<dyn Fn(&[RouteEntry]) + Send + Sync>;
 
 /// Quiet time after the last eviction before freed memory is trimmed: one
 /// trim per burst of evictions, after the isolates are disposed.
@@ -207,6 +213,7 @@ impl CellManager {
                 trims: Default::default(),
                 #[cfg(feature = "test-support")]
                 idle_override_us: std::sync::atomic::AtomicU64::new(u64::MAX),
+                sync_observer: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -256,6 +263,35 @@ impl CellManager {
 
     pub fn runtime(&self) -> &Runtime {
         &self.inner.runtime
+    }
+
+    /// The configuration the manager was built with (#254: the supervisor
+    /// hands the same deployment metadata, secrets and artifacts to the
+    /// children).
+    pub fn config(&self) -> &ManagerConfig {
+        &self.inner.config
+    }
+
+    /// Registers the observer of [`Self::sync_routes`] (once).
+    pub fn set_sync_observer(&self, observer: SyncObserver) {
+        let _ = self.inner.sync_observer.set(observer);
+    }
+
+    /// Drain every cell of `tenant_id` (#254: the tenant moved to a child
+    /// process of its own).
+    pub fn drain_tenant(&self, tenant_id: &str) -> usize {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        let mut n = 0;
+        for (key, slot) in cells.iter() {
+            if key.tenant_id == tenant_id
+                && let Some(cell) = slot.get()
+            {
+                tracing::info!(tenant_id, deployment_hash = %key.deployment_hash, "cell draining: tenant moved to a child process");
+                cell.start_draining();
+                n += 1;
+            }
+        }
+        n
     }
 
     pub fn meter(&self) -> &Meter {
@@ -322,14 +358,19 @@ impl CellManager {
             .filter(|e| e.status == RouteStatus::Active)
             .map(|e| (e.tenant_id.clone(), e.deployment_hash.clone()))
             .collect();
-        let cells = self.inner.cells.lock().expect("cells lock");
-        for (key, slot) in cells.iter() {
-            if !active.contains(&(key.tenant_id.clone(), key.deployment_hash.clone()))
-                && let Some(cell) = slot.get()
-            {
-                tracing::info!(tenant_id = %key.tenant_id, deployment_hash = %key.deployment_hash, "cell draining");
-                cell.start_draining();
+        {
+            let cells = self.inner.cells.lock().expect("cells lock");
+            for (key, slot) in cells.iter() {
+                if !active.contains(&(key.tenant_id.clone(), key.deployment_hash.clone()))
+                    && let Some(cell) = slot.get()
+                {
+                    tracing::info!(tenant_id = %key.tenant_id, deployment_hash = %key.deployment_hash, "cell draining");
+                    cell.start_draining();
+                }
             }
+        }
+        if let Some(observer) = self.inner.sync_observer.get() {
+            observer(entries);
         }
     }
 
