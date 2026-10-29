@@ -45,7 +45,8 @@ pub use error_page::ErrorPage;
 pub use minijinja;
 #[cfg(feature = "render")]
 pub use render::{
-    CanFn, Locale, RenderContext, RenderError, RenderLimits, RenderOutput, RenderTarget, Renderer,
+    CanFn, Catalogs, Dir, Locale, RenderContext, RenderError, RenderLimits, RenderOutput,
+    RenderTarget, Renderer,
 };
 pub use shell::Shell;
 

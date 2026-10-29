@@ -563,13 +563,19 @@ function include(T, id, s, o) {
   o.depth -= 1 + c.depth;
 }
 
+/** src/render/i18n.rs Dir::of_locale. */
+const RTL_LANGS = ["ar", "fa", "he", "ur", "ps", "sd", "ug", "yi", "dv", "ckb"];
+
 /** The root scope: the platform value `__renox` over the tenant's data. */
 function rootScope(data, cx) {
   const s = Object.create(null);
   if (data !== null && typeof data === "object" && !Array.isArray(data)) {
     for (const k of Object.keys(data)) s[k] = data[k];
   }
-  s.__renox = { csp_nonce: cx.csp_nonce ?? null, csrf_token: cx.csrf_token ?? null };
+  // src/render/mod.rs Scope: the page's locale tag and direction for `<html lang dir>`.
+  const lang = cx.lang ?? (parseLocale(cx.locale).ar ? "ar" : "en");
+  const dir = cx.dir ?? (RTL_LANGS.includes(lang.split("-")[0].toLowerCase()) ? "rtl" : "ltr");
+  s.__renox = { csp_nonce: cx.csp_nonce ?? null, csrf_token: cx.csrf_token ?? null, lang, dir };
   return s;
 }
 

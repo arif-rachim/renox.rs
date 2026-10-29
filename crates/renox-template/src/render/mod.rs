@@ -28,6 +28,10 @@ use minijinja::{AutoEscape, Environment, Error, ErrorKind, State, UndefinedBehav
 use crate::PLATFORM_VAR;
 use crate::filters;
 
+pub mod i18n;
+
+pub use i18n::{Catalogs, Dir};
+
 /// The render limits. Not overridable per app (`artifact.md`, "Limits
 /// overrides"); the error page has its own fixed budget
 /// ([`RenderLimits::ERROR_PAGE`], `docs/contracts/errors.md` section 1).
@@ -125,6 +129,12 @@ pub type CanFn = dyn Fn(&str, &Value) -> bool + Send + Sync;
 #[derive(Clone, Default)]
 pub struct RenderContext {
     pub locale: Locale,
+    /// The page's BCP 47 tag from `setLocale` (`ops.md` section 14,
+    /// "Locale"); `None` = `en`, or `ar` when `locale` is Arabic. It picks
+    /// the catalog and sets `<html lang>`; `locale` follows it.
+    pub lang: Option<String>,
+    /// The page's direction; `None` = the default of `lang`.
+    pub dir: Option<Dir>,
     /// The per-request CSP nonce, added to every `<script>` and `<style>`.
     pub csp_nonce: Option<String>,
     /// The request's CSRF token for `<x-form>` and `<x-csrf>` (#41).
@@ -141,6 +151,8 @@ impl fmt::Debug for RenderContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RenderContext")
             .field("locale", &self.locale)
+            .field("lang", &self.lang)
+            .field("dir", &self.dir)
             .field("csp_nonce", &self.csp_nonce.as_ref().map(|_| "<set>"))
             .field("csrf_token", &self.csrf_token.as_ref().map(|_| "<set>"))
             .field("now_ms", &self.now_ms)
@@ -243,6 +255,10 @@ enum Stop {
 /// filters read. Lives outside tenant data.
 pub struct Scope {
     pub locale: Locale,
+    /// The page's locale tag (`<html lang>`, catalog lookup).
+    pub lang: String,
+    pub dir: Dir,
+    pub catalogs: Option<Arc<Catalogs>>,
     pub csp_nonce: Option<String>,
     pub csrf_token: Option<String>,
     pub now_ms: i64,
@@ -276,12 +292,14 @@ impl Object for Scope {
         match key.as_str()? {
             "csp_nonce" => Some(Value::from(self.csp_nonce.clone())),
             "csrf_token" => Some(Value::from(self.csrf_token.clone())),
+            "lang" => Some(Value::from(self.lang.clone())),
+            "dir" => Some(Value::from(self.dir.as_str())),
             _ => None,
         }
     }
 
     fn enumerate(self: &Arc<Self>) -> Enumerator {
-        Enumerator::Str(&["csp_nonce", "csrf_token"])
+        Enumerator::Str(&["csp_nonce", "csrf_token", "lang", "dir"])
     }
 }
 
@@ -391,6 +409,8 @@ pub struct Renderer {
     base: Environment<'static>,
     /// Longest extends/include chain per template; `usize::MAX` for a cycle.
     depth: BTreeMap<String, usize>,
+    /// The deployment's translation catalogs (`t`, `<r-t>`).
+    catalogs: Option<Arc<Catalogs>>,
 }
 
 impl fmt::Debug for Renderer {
@@ -472,6 +492,10 @@ fn base_env() -> Environment<'static> {
     env.add_filter("json", filters::json);
     env.add_filter("upper", filters::upper);
     env.add_filter("lower", filters::lower);
+    env.add_filter("t", i18n::t);
+    env.add_filter("phone_ae", filters::phone_ae);
+    env.add_filter("emirates_id", filters::emirates_id);
+    env.add_filter("trn", filters::trn);
     env.add_filter("default", f::default);
     env.add_filter("length", f::length);
     env.add_filter("first", f::first);
@@ -550,7 +574,14 @@ impl Renderer {
             envs: Mutex::new(HashMap::new()),
             base,
             depth,
+            catalogs: None,
         })
+    }
+
+    /// Uses `catalogs` for `t` and `<r-t>` in every render.
+    pub fn with_catalogs(mut self, catalogs: Arc<Catalogs>) -> Renderer {
+        self.catalogs = Some(catalogs);
+        self
     }
 
     pub fn has_template(&self, id: &str) -> bool {
@@ -695,8 +726,28 @@ impl Renderer {
             });
         }
         let deadline = started + limits.timeout;
+        let lang = cx.lang.clone().unwrap_or_else(|| {
+            match cx.locale.lang {
+                Lang::En => "en",
+                Lang::Ar => "ar",
+            }
+            .to_string()
+        });
+        let locale = match &cx.lang {
+            Some(tag) => {
+                let parsed = Locale::parse(tag);
+                Locale {
+                    lang: parsed.lang,
+                    arabic_digits: parsed.arabic_digits || cx.locale.arabic_digits,
+                }
+            }
+            None => cx.locale,
+        };
         let scope = Arc::new(Scope {
-            locale: cx.locale,
+            dir: cx.dir.unwrap_or_else(|| Dir::of_locale(&lang)),
+            lang,
+            catalogs: self.catalogs.clone(),
+            locale,
             csp_nonce: cx.csp_nonce.clone(),
             csrf_token: cx.csrf_token.clone(),
             now_ms: cx.now_ms,

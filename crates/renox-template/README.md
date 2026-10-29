@@ -99,8 +99,23 @@ Locales `en-AE` and `ar-AE`, Eastern Arabic digits with `ar-AE-u-nu-arab` (`Loca
 | `truncate(n, end="…")` | by characters | same |
 | `json` | HTML-safe JSON (`<`, `>`, `&`, `'` as `\u00XX`) | same |
 | `upper`, `lower` | case mapping | Arabic passes through |
+| `t`, `t(count=n)`, `t({"count": n})` | the catalog message of the page's locale | same, with the Arabic plural categories |
+| `phone_ae` | `+971 50 123 4567`, `+971 4 123 4567` | same, inside U+2066…U+2069 so it stays left to right |
+| `emirates_id` | `784-1980-1234567-1` | same, isolated |
+| `trn` | `100 2345 6789 0003` | same, isolated |
 
-The CLDR patterns for the two platform locales are written out in `src/filters/` instead of linking ICU (`icu`/`fixed_decimal`): two locales do not need the ICU data size or build time. `date` applies `RenderContext::utc_offset_minutes` (the app's zone; Asia/Dubai has no DST) to date-times, not to date-only values. Hijri display and `t` (translations) are not here yet.
+The GCC formatters only format: input they do not recognise is shown as given, and validation is the `gcc` module's TypeScript (#243).
+
+### Translations (#233)
+
+- **Catalogs**: `Catalogs::add(module, locale, json)` per `<locale>.json`; nested objects become dotted keys and a top-level `_meta` object is skipped (review marks). The app's catalogs override the modules'. `Renderer::with_catalogs` attaches them to a deployment's renderer. The cell reads `code/i18n/<locale>.json` (the app) and `code/modules/<name>/i18n/<locale>.json` (`crates/renox-cell/src/render.rs`).
+- **Lookup**: the exact tag (`ar-AE`), then its language (`ar`), then `en`. A missing key renders the key itself and is reported once per deployment and `(locale, key)` through `Catalogs::on_missing` (the cell logs `i18n_missing`).
+- **Messages**: an ICU MessageFormat subset: `{name}`, `{n, number}`, `{n, plural, =0 {…} one {# item} other {# items}}` (`zero`, `one`, `two`, `few`, `many`, `other`; CLDR rules of `en` and `ar`), `{g, select, a {…} other {…}}`, `''` and `'{…}'` quoting. A malformed message renders as written. Messages are text: the output is escaped like any value.
+- **`<r-t key="cart.items" :count="cart.count" />`** compiles to `{{ "cart.items" | t({"count": (cart.count)}) }}`; plain attributes are text arguments.
+- **`<html lang dir>`**: a template's `<html>` without `lang` or `dir` gets both from the render (`RenderContext::lang` and `dir`, from the page's `setLocale`, `ops.md` 1.3.0 section 14; defaults `en`, `ltr`, and `rtl` for `ar`, `fa`, `he`, `ur`, …). `dir="auto"` on user text is the compiler's (above).
+- **Fuel**: a lookup is a filter call and costs fuel like any other (`tests/i18n.rs`).
+
+The CLDR patterns for the two platform locales are written out in `src/filters/` instead of linking ICU (`icu`/`fixed_decimal`): two locales do not need the ICU data size or build time. `date` applies `RenderContext::utc_offset_minutes` (the app's zone; Asia/Dubai has no DST) to date-times, not to date-only values. Hijri display is not here.
 
 ## Not covered yet
 

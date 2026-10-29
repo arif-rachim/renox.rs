@@ -17,8 +17,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
@@ -28,7 +28,8 @@ use renox_runtime::pages::PageRender;
 use renox_template::minijinja::Value;
 use renox_template::minijinja::value::{Enumerator, Object, ObjectRepr};
 use renox_template::{
-    ErrorPage, RenderContext, RenderError, RenderLimits, RenderTarget, Renderer, Shell,
+    Catalogs, Dir, ErrorPage, RenderContext, RenderError, RenderLimits, RenderTarget, Renderer,
+    Shell,
 };
 
 /// `RENOX_RENDER_LIMIT` (`errors.md` section 3).
@@ -52,6 +53,9 @@ pub struct PageRenderer {
     deployment: String,
     /// The client script's `src`; `None` when client events are off.
     client_script: Option<String>,
+    /// `(locale, key)` of catalog keys no catalog has, reported once per
+    /// deployment by the renderer; drained into [`Rendered::i18n_missing`].
+    missing: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 impl std::fmt::Debug for PageRenderer {
@@ -137,6 +141,9 @@ pub struct Rendered {
     pub limit: bool,
     /// For the tenant log: `(message, fields)` of a failure.
     pub log: Option<(String, serde_json::Map<String, serde_json::Value>)>,
+    /// `(locale, key)` of translation keys first found missing in this
+    /// deployment: one `i18n_missing` log line each.
+    pub i18n_missing: Vec<(String, String)>,
 }
 
 impl PageRenderer {
@@ -178,9 +185,20 @@ impl PageRenderer {
         if sources.is_empty() {
             return Ok(None);
         }
-        let renderer = Renderer::new(sources.iter().map(|(i, s)| (i.as_str(), s.as_str())))
+        let mut renderer = Renderer::new(sources.iter().map(|(i, s)| (i.as_str(), s.as_str())))
             .map_err(|e| format!("V14: {e}"))?;
+        let missing = Arc::new(Mutex::new(Vec::new()));
+        if let Some(catalogs) = load_catalogs(artifact_dir)? {
+            let sink = missing.clone();
+            let catalogs = catalogs.on_missing(Arc::new(move |locale: &str, key: &str| {
+                if let Ok(mut m) = sink.lock() {
+                    m.push((locale.to_string(), key.to_string()));
+                }
+            }));
+            renderer = renderer.with_catalogs(Arc::new(catalogs));
+        }
         Ok(Some(PageRenderer {
+            missing,
             renderer,
             fragments,
             error_template,
@@ -205,6 +223,30 @@ impl PageRenderer {
             script_src: self.client_script.as_deref(),
             error_code,
         }
+    }
+
+    /// Keys found missing since the last call (once per deployment each).
+    fn take_missing(&self) -> Vec<(String, String)> {
+        self.missing
+            .lock()
+            .map(|mut m| std::mem::take(&mut *m))
+            .unwrap_or_default()
+    }
+
+    /// The page's locale and direction from `setLocale` (`ops.md` section
+    /// 14, "Locale"); invalid values were refused by the bootstrap and are
+    /// ignored here.
+    fn with_locale(mut cx: RenderContext, page: &PageRender) -> RenderContext {
+        if let Some(tag) = page
+            .locale
+            .as_deref()
+            .filter(|t| renox_template::render::i18n::valid_locale(t))
+        {
+            cx.locale = renox_template::Locale::parse(tag);
+            cx.lang = Some(tag.to_string());
+        }
+        cx.dir = page.dir.as_deref().and_then(Dir::parse);
+        cx
     }
 
     fn context(&self, csp_nonce: Option<&str>) -> RenderContext {
@@ -309,10 +351,13 @@ impl PageRenderer {
                 None,
             );
         }
-        let mut cx = RenderContext {
-            csrf_token: csrf_token.map(str::to_string),
-            ..self.context(csp_nonce)
-        };
+        let mut cx = Self::with_locale(
+            RenderContext {
+                csrf_token: csrf_token.map(str::to_string),
+                ..self.context(csp_nonce)
+            },
+            page,
+        );
         if let Some(now) = now_ms {
             cx.now_ms = now;
         }
@@ -371,6 +416,7 @@ impl PageRenderer {
                 ms: Some(ms),
                 limit: false,
                 log: None,
+                i18n_missing: self.take_missing(),
             },
             Err(e) => {
                 let stats = e.stats();
@@ -479,6 +525,7 @@ impl PageRenderer {
                 ms: None,
                 limit: false,
                 log: None,
+                i18n_missing: Vec::new(),
             };
         };
         // Exactly the four fields (errors.md section 1).
@@ -499,6 +546,7 @@ impl PageRenderer {
                 ms: Some(out.ms),
                 limit: false,
                 log: None,
+                i18n_missing: Vec::new(),
             },
             Err(e) => {
                 let stats = e.stats();
@@ -516,10 +564,57 @@ impl PageRenderer {
                     ms: Some(stats.ms),
                     limit: false,
                     log: Some(("error page could not be rendered".into(), fields)),
+                    i18n_missing: Vec::new(),
                 }
             }
         }
     }
+}
+
+/// The deployment's translation catalogs (#233): `code/i18n/<locale>.json`
+/// for the app and `code/modules/<name>/i18n/<locale>.json` for each
+/// installed module, JSON files `code/` may hold (`artifact.md` section 1).
+/// `Ok(None)` when there is none. A malformed catalog fails the deployment
+/// like a malformed template.
+fn load_catalogs(artifact_dir: &Path) -> Result<Option<Catalogs>, String> {
+    let code = artifact_dir.join("code");
+    let mut sets: Vec<(String, std::path::PathBuf)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(code.join("modules")) {
+        let mut names: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        names.sort();
+        for n in names {
+            sets.push((n.clone(), code.join("modules").join(&n).join("i18n")));
+        }
+    }
+    sets.push(("app".into(), code.join("i18n")));
+    let mut catalogs = Catalogs::new();
+    for (module, dir) in sets {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut files: Vec<std::path::PathBuf> = entries
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect();
+        files.sort();
+        for f in files {
+            let locale = f
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            let json = std::fs::read_to_string(&f)
+                .map_err(|_| format!("i18n: {module}/{locale}.json cannot be read as UTF-8"))?;
+            catalogs
+                .add(&module, &locale, &json)
+                .map_err(|e| format!("i18n: {e}"))?;
+        }
+    }
+    Ok((!catalogs.is_empty()).then_some(catalogs))
 }
 
 /// Why a page render failed.

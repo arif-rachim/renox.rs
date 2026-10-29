@@ -820,6 +820,10 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 self.emit_registry_slot(ctx, node);
                 return;
             }
+            "r-t" => {
+                self.emit_translation(ctx, node, &children);
+                return;
+            }
             "slot" => {
                 self.emit_slot(ctx, node, &children);
                 return;
@@ -855,6 +859,17 @@ impl<'c, 'p> Emitter<'c, 'p> {
         self.out.push('<');
         self.out.push_str(tag);
         self.emit_attrs(ctx, node, tag, &list);
+        if tag == "html"
+            && !list
+                .iter()
+                .any(|(n, _)| matches!(n.trim_start_matches(':'), "lang" | "dir"))
+        {
+            // The page's locale and direction from the render (`ops.md`
+            // section 14, "Locale"), unless the template sets either.
+            self.out.push_str(&format!(
+                " lang=\"{{{{ {PLATFORM_VAR}.lang }}}}\" dir=\"{{{{ {PLATFORM_VAR}.dir }}}}\""
+            ));
+        }
         if RAW_TEXT_ELEMENTS.contains(&tag) {
             self.out.push_str(&format!(
                 "{{% if {PLATFORM_VAR}.csp_nonce %}} nonce=\"{{{{ {PLATFORM_VAR}.csp_nonce }}}}\"{{% endif %}}"
@@ -1140,6 +1155,56 @@ impl<'c, 'p> Emitter<'c, 'p> {
         self.out.push_str(" class=\"");
         self.out.push_str(&value);
         self.out.push('"');
+    }
+
+    /// `<r-t key="cart.items" :count="cart.count" />`: the translated message
+    /// (`t` filter, render/i18n.rs). Plain attributes are text arguments,
+    /// `:name` attributes expressions.
+    fn emit_translation(&mut self, ctx: &Ctx, node: &Handle, children: &[Handle]) {
+        if children.iter().any(|c| !is_blank_text(c)) {
+            self.error(ctx, node, None, "`<r-t>` takes no content; use `key`");
+        }
+        let Some(key) = attr(node, "key").filter(|k| is_message_key(k)) else {
+            self.error(
+                ctx,
+                node,
+                Some("key"),
+                "`<r-t>` needs `key` naming a catalog message, such as `cart.items`",
+            );
+            return;
+        };
+        let mut args = Vec::new();
+        for (name, raw) in attr_list(node) {
+            if name == "key" {
+                continue;
+            }
+            let (bound, plain) = match name.strip_prefix(':') {
+                Some(n) => (true, n.to_string()),
+                None => (false, name.clone()),
+            };
+            if !is_arg_name(&plain) {
+                self.error(
+                    ctx,
+                    node,
+                    Some(&name),
+                    format!("`<r-t>` argument `{plain}` must match [a-z_][a-z0-9_]*"),
+                );
+                return;
+            }
+            let value = if bound {
+                format!("({})", self.expr(ctx, node, &name, &raw))
+            } else {
+                attrs::string_literal(&raw)
+            };
+            args.push(format!("{}: {value}", attrs::string_literal(&plain)));
+        }
+        let key = attrs::string_literal(&key);
+        if args.is_empty() {
+            self.out.push_str(&format!("{{{{ {key} | t }}}}"));
+        } else {
+            self.out
+                .push_str(&format!("{{{{ {key} | t({{{}}}) }}}}", args.join(", ")));
+        }
     }
 
     /// `<r-slot name="admin.sidebar" />`: one `{% include %}` per provider
@@ -1573,4 +1638,24 @@ fn emit_raw(text: &str, out: &mut String) {
         out.push_str(part);
     }
     out.push_str("{% endraw %}");
+}
+
+/// A catalog key: dotted segments of `[A-Za-z0-9_-]`.
+fn is_message_key(k: &str) -> bool {
+    !k.is_empty()
+        && k.len() <= 128
+        && k.split('.').all(|seg| {
+            !seg.is_empty()
+                && seg
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+}
+
+fn is_arg_name(n: &str) -> bool {
+    let b = n.as_bytes();
+    !b.is_empty()
+        && (b[0].is_ascii_lowercase() || b[0] == b'_')
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
 }

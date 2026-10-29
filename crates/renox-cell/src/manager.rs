@@ -880,6 +880,7 @@ impl CellManager {
                 cell.isolate
                     .log("error", Some(&ctx.request_id), message, fields.clone());
             }
+            log_i18n_missing(&cell.isolate, &ctx.request_id, &r.i18n_missing);
             render_fuel = r.fuel;
             render_ms = r.ms;
             render_limit = r.limit;
@@ -1041,6 +1042,7 @@ impl CellManager {
                             .isolate
                             .log("error", Some(&request_id), &message, fields);
                     }
+                    log_i18n_missing(&isolate.isolate, &request_id, &rendered.i18n_missing);
                     let body = rendered.response.body().clone();
                     if rendered.response.status() != http::StatusCode::OK {
                         // The page failed: its error page is the response.
@@ -1157,6 +1159,22 @@ struct RenderUse {
     fuel: u64,
     ms: Option<f64>,
     limit: bool,
+}
+
+/// One `i18n_missing` line per translation key first found missing in this
+/// deployment (#233; `renox_template` reports each once).
+fn log_i18n_missing(
+    isolate: &renox_runtime::isolate::IsolateHandle,
+    request_id: &str,
+    missing: &[(String, String)],
+) {
+    for (locale, key) in missing {
+        let mut fields = serde_json::Map::new();
+        fields.insert("event".into(), "i18n_missing".into());
+        fields.insert("locale".into(), locale.as_str().into());
+        fields.insert("key".into(), key.as_str().into());
+        isolate.log("warn", Some(request_id), "i18n_missing", fields);
+    }
 }
 
 fn add_ms(a: Option<f64>, b: Option<f64>) -> Option<f64> {
@@ -1335,6 +1353,7 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
             ms: None,
             limit: false,
             log: None,
+            i18n_missing: Vec::new(),
         },
     }
 }

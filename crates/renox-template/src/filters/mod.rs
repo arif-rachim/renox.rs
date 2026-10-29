@@ -211,6 +211,101 @@ pub fn ago(state: &State, value: &Value) -> Result<String, Error> {
     Ok(date::format_ago(now, ts.ms, locale))
 }
 
+fn digits_of(value: &Value) -> String {
+    value
+        .to_string()
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect()
+}
+
+/// Keeps a left-to-right run (a phone number, an id) in place inside
+/// Arabic text: wrapped in U+2066 LEFT-TO-RIGHT ISOLATE ... U+2069.
+fn ltr_run(s: String, state: &State) -> String {
+    match locale(state).lang {
+        Lang::Ar => format!("\u{2066}{s}\u{2069}"),
+        Lang::En => s,
+    }
+}
+
+/// `{{ phone | phone_ae }}`: a UAE number (`0501234567`, `+971501234567`,
+/// `00971 4 123 4567`) displayed as E.164 groups, `+971 50 123 4567` or
+/// `+971 4 123 4567`. Anything else is shown as given; validation is the
+/// `gcc` module's (#243).
+pub fn phone_ae(state: &State, value: &Value) -> String {
+    if is_missing(value) {
+        return String::new();
+    }
+    let raw = value.to_string();
+    let d = digits_of(value);
+    let national = d
+        .strip_prefix("00971")
+        .or_else(|| d.strip_prefix("971"))
+        .or_else(|| d.strip_prefix('0'))
+        .unwrap_or(&d);
+    let grouped = match national.len() {
+        // Mobile: 5X XXX XXXX.
+        9 if national.starts_with('5') => Some(format!(
+            "+971 {} {} {}",
+            &national[..2],
+            &national[2..5],
+            &national[5..]
+        )),
+        // Landline: A XXX XXXX (area codes 2, 3, 4, 6, 7, 9).
+        8 if matches!(
+            national.as_bytes()[0],
+            b'2' | b'3' | b'4' | b'6' | b'7' | b'9'
+        ) =>
+        {
+            Some(format!(
+                "+971 {} {} {}",
+                &national[..1],
+                &national[1..4],
+                &national[4..]
+            ))
+        }
+        _ => None,
+    };
+    match grouped {
+        Some(g) => ltr_run(g, state),
+        None => raw,
+    }
+}
+
+/// `{{ id | emirates_id }}`: 15 digits starting `784` grouped as
+/// `784-YYYY-NNNNNNN-C`; anything else as given.
+pub fn emirates_id(state: &State, value: &Value) -> String {
+    if is_missing(value) {
+        return String::new();
+    }
+    let d = digits_of(value);
+    if d.len() == 15 && d.starts_with("784") {
+        ltr_run(
+            format!("{}-{}-{}-{}", &d[..3], &d[3..7], &d[7..14], &d[14..]),
+            state,
+        )
+    } else {
+        value.to_string()
+    }
+}
+
+/// `{{ trn | trn }}`: a 15-digit Tax Registration Number grouped
+/// `XXX XXXX XXXX XXXX`; anything else as given.
+pub fn trn(state: &State, value: &Value) -> String {
+    if is_missing(value) {
+        return String::new();
+    }
+    let d = digits_of(value);
+    if d.len() == 15 {
+        ltr_run(
+            format!("{} {} {} {}", &d[..3], &d[3..7], &d[7..11], &d[11..]),
+            state,
+        )
+    } else {
+        value.to_string()
+    }
+}
+
 /// Internal: bound URL attributes. Anything but a relative URL or an
 /// `http`, `https`, `mailto`, or `tel` URL becomes a harmless placeholder,
 /// so `:href="user.website"` cannot carry `javascript:`.
