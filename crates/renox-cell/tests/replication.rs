@@ -425,6 +425,61 @@ async fn replication_off_never_spawns_litestream() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// #258: a point-in-time restore into a new database holds the rows written
+/// before the chosen time and none written after it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn point_in_time_restore_into_a_new_database() {
+    if no_litestream() {
+        return;
+    }
+    let root = scratch("pitr");
+    let worker = Worker::start(worker_config(&root, true)).await.unwrap();
+    let repl = worker.replication.clone().unwrap();
+    for n in 1..=3 {
+        assert_eq!(hits(worker.addr, true).await, n);
+    }
+    eventually("frames shipped", Duration::from_secs(10), || {
+        has_files(&root.join("replica/t_repl"))
+    })
+    .await;
+    // Past two sync intervals, so the three rows are in the replica before `at`.
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    for n in 4..=5 {
+        assert_eq!(hits(worker.addr, true).await, n);
+    }
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+
+    let r2 = repl.clone();
+    let restored = tokio::task::spawn_blocking(move || {
+        r2.restore_blocking("t_repl.pitr", Some("t_repl"), Some(at))
+    })
+    .await
+    .unwrap();
+    assert!(restored.is_ok(), "{:?}", restored.err());
+    let file = repl.file_of("t_repl.pitr");
+    let db = renox_data::TenantDb::open(&file, renox_data::DbOptions::default()).unwrap();
+    let n = db
+        .query_one("select count(*) as n from app__hits", &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        n.get("n"),
+        Some(&renox_data::Value::Integer(3)),
+        "the rows before `at`, none after"
+    );
+    let _ = db.close();
+    // The source database is untouched.
+    assert_eq!(hits(worker.addr, false).await, 5);
+
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// #258: the node listener's snapshot (a consistent copy with its SHA-256)
 /// and import (checks before the swap) work without Litestream.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
