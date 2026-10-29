@@ -1,0 +1,9 @@
+{
+  "version": 0,
+  "files": {
+    "auth/pages/login.html": {
+      "template": "modules/auth/pages/login",
+      "original_sha256": "6582b0499b51c0f18c3ed4c52f824e288c711d2e9eb5f506493eb0cff49f40fd"
+    }
+  }
+}

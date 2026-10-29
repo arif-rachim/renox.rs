@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renox.dev/contracts/manifest/v1/module-manifest.schema.json",
+  "title": "Renox module manifest (module.toml) and renox.toml [modules], manifest contract version 1",
+  "description": "The root validates a parsed module.toml. $defs/renoxToml validates a parsed renox.toml, of which this contract owns only [modules]. Prose: docs/contracts/manifest.md. Rules the schema cannot express (reserved names, own prefix, dependency graph, imports, config types, the lock) are MF1-MF12 in section 6.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["module"],
+  "properties": {
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "$ref": "#/$defs/moduleName" },
+        "version": { "$ref": "#/$defs/version" },
+        "isolation": { "$ref": "#/$defs/isolation" },
+        "description": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "Module name -> semver range. Required for service calls and public views (docs/10-modules.md, rule 1).",
+      "maxProperties": 64,
+      "propertyNames": { "$ref": "#/$defs/moduleName" },
+      "additionalProperties": { "$ref": "#/$defs/range" }
+    },
+    "config": {
+      "type": "object",
+      "description": "Typed configuration keys; renox.toml [modules.<name>].config sets them (MF10).",
+      "maxProperties": 64,
+      "propertyNames": { "$ref": "#/$defs/configKey" },
+      "additionalProperties": { "$ref": "#/$defs/configDecl" }
+    },
+    "permissions": { "$ref": "#/$defs/permissions" },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "views": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/viewName" }
+        },
+        "services": {
+          "type": "object",
+          "description": "Exported name of services.ts -> one-line doc.",
+          "maxProperties": 256,
+          "propertyNames": { "$ref": "#/$defs/serviceName" },
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "events": {
+          "type": "object",
+          "description": "Event name -> payload schema (JSON Schema, the keyword subset of validate.ts; MF6).",
+          "maxProperties": 256,
+          "propertyNames": { "$ref": "#/$defs/dottedName" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["payload"],
+            "properties": {
+              "description": { "type": "string", "maxLength": 200 },
+              "payload": { "type": "object" }
+            }
+          }
+        },
+        "hooks": {
+          "type": "object",
+          "description": "Hook point this module runs with ctx.hooks.run -> argument and result shape.",
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "#/$defs/dottedName" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["args"],
+            "properties": {
+              "description": { "type": "string", "maxLength": 200 },
+              "args": { "type": "object" },
+              "result": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    "imports": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What this module uses from its dependencies (MF7). renox check compares it with the code.",
+      "properties": {
+        "services": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}\\.[A-Za-z_][A-Za-z0-9_]{0,63}$" }
+        },
+        "views": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/viewName" }
+        }
+      }
+    },
+    "slots": {
+      "type": "array",
+      "description": "Slots this module fills, with the partial it inserts.",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "template"],
+        "properties": {
+          "name": { "$ref": "#/$defs/dottedName" },
+          "template": { "type": "string", "maxLength": 256, "pattern": "^partials(/(?!\\.\\.?(/|$))[A-Za-z0-9_.-]+)+\\.html$" },
+          "requires": { "$ref": "#/$defs/actionName" },
+          "priority": { "type": "integer", "minimum": 0, "maximum": 1000 }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "description": "Reserved for F5 (docs/20-ai-agents-mcp.md); validated now, not carried in the artifact.",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "file", "action"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "file": { "type": "string", "maxLength": 256, "pattern": "^tools(/(?!\\.\\.?(/|$))[A-Za-z0-9_.-]+)+\\.ts$" },
+          "action": { "$ref": "#/$defs/actionName" },
+          "confirm": { "type": "boolean" },
+          "description": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "authz": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Actions this module defines. Files only in F4; enforcement is F5.",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/actionName" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "moduleName": {
+      "type": "string",
+      "description": "MF1 adds: no \"__\", no trailing \"_\", not app or renox.",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version without build metadata.",
+      "maxLength": 64,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "range": {
+      "type": "string",
+      "description": "^X[.Y[.Z]], ~X[.Y[.Z]], an exact X.Y.Z (optionally =X.Y.Z), or >=A <B with full versions (manifest.md section 2).",
+      "maxLength": 140,
+      "pattern": "^([~^](0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,2}|=?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?|>=(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)? <(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?)$"
+    },
+    "isolation": { "enum": ["shared", "isolate"] },
+    "configKey": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "configValue": { "type": ["string", "integer", "boolean"] },
+    "configDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["string", "enum", "int", "bool"] },
+        "values": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
+        "default": { "$ref": "#/$defs/configValue" },
+        "required": { "type": "boolean" },
+        "min": { "type": "integer" },
+        "max": { "type": "integer" },
+        "max_length": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "description": { "type": "string", "maxLength": 200 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "enum" } } },
+          "then": { "required": ["values"] },
+          "else": { "properties": { "values": false } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "int" } } },
+          "else": { "properties": { "min": false, "max": false } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "string" } } },
+          "else": { "properties": { "max_length": false } }
+        }
+      ]
+    },
+    "networkEntry": {
+      "type": "string",
+      "description": "Allowlist entry, ops.md section 2: [http://](*.)host[:port], lower case, or an IP literal. Same as manifest.schema.json.",
+      "maxLength": 270,
+      "pattern": "^(http://)?((\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+|[0-9]{1,3}(\\.[0-9]{1,3}){3}|\\[[0-9a-f:.]+\\])(:[0-9]{1,5})?$"
+    },
+    "secretName": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+    "dottedName": {
+      "type": "string",
+      "description": "<module>.<name>: events and hook points of the module that exports them; slot names.",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]{0,31}(\\.[a-z][a-z0-9_]{0,63})+$"
+    },
+    "actionName": {
+      "type": "string",
+      "description": "Authorization action, <resource>.<verb> (docs/11-authorization.md).",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63})+$"
+    },
+    "serviceName": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
+    "viewName": {
+      "type": "string",
+      "description": "MF6: <module>__public_<name>_v<n>, the module being the exporter.",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the module asks the tenant to approve at install (manifest.md section 3). Unknown keys are rejected.",
+      "properties": {
+        "tables": { "type": "string", "description": "Exactly \"<name>__*\" (MF4).", "maxLength": 40 },
+        "network": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/networkEntry" } },
+        "secrets": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/secretName" } },
+        "slots": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/dottedName" } },
+        "hooks": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/dottedName" } }
+      }
+    },
+    "mount": {
+      "type": "string",
+      "description": "\"/\" or static segments; module routes are prefixed with it (artifact.md section 3).",
+      "maxLength": 256,
+      "pattern": "^(/|(/[A-Za-z0-9._~-]+)+)$"
+    },
+    "installSource": {
+      "type": "string",
+      "description": "path:<relative dir> or git:https://<repo>#<tag or 40-hex commit>. Absent = an official module. registry: is F7 and rejected now.",
+      "maxLength": 512,
+      "pattern": "^(path:(?![/\\\\])(?![A-Za-z]:)[^\\u0000-\\u001f\\\\:]+|git:https://[A-Za-z0-9._~%/-]+(:[0-9]{1,5})?[A-Za-z0-9._~%/-]*#[A-Za-z0-9._/-]{1,128})$"
+    },
+    "renoxModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": { "$ref": "#/$defs/range" },
+        "source": { "$ref": "#/$defs/installSource" },
+        "mount": { "$ref": "#/$defs/mount" },
+        "config": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "#/$defs/configKey" },
+          "additionalProperties": { "$ref": "#/$defs/configValue" }
+        },
+        "isolation": { "$ref": "#/$defs/isolation" }
+      }
+    },
+    "renoxToml": {
+      "type": "object",
+      "description": "A parsed renox.toml. This contract owns [modules] only; other sections belong to the CLI and the artifact contract.",
+      "properties": {
+        "modules": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "#/$defs/moduleName" },
+          "additionalProperties": { "$ref": "#/$defs/renoxModule" }
+        }
+      }
+    }
+  }
+}

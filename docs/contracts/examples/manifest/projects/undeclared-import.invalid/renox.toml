@@ -1,0 +1,4 @@
+# [expect: MF7] reports calls billing.getActivePlan without depending on billing
+[modules]
+billing = { version = "^1.0", source = "path:modules/billing" }
+reports = { version = "^0.1", source = "path:modules/reports" }

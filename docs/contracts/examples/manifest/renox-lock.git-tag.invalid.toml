@@ -1,0 +1,13 @@
+# [expect: pattern] the lock pins a git source to a 40-hex commit, never a tag
+version = 1
+
+[[module]]
+name = "acme"
+version = "0.4.1"
+source = "git:https://github.com/acme/renox-acme#v0.4.1"
+hash = "3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4"
+isolation = "isolate"
+mount = "/acme"
+dependencies = []
+config = {}
+approved = { network = [], secrets = [], slots = [], hooks = [] }

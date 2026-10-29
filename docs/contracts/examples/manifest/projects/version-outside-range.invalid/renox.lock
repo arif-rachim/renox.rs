@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "notes"
+version = "2.0.0"
+source = "path:modules/notes"
+hash = "ced5218525f3eeb7f70da0393244ccaf5ddbc3df15f79c6c6e88729ef5a54b12"
+isolation = "shared"
+mount = "/notes"
+dependencies = []
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

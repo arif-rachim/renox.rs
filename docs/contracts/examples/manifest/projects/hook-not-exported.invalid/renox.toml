@@ -1,0 +1,4 @@
+# [expect: MF8] twofa fills auth.after_login, but the installed auth does not export it
+[modules]
+auth = { version = "^1.0", source = "path:modules/auth" }
+twofa = { version = "^1.0", source = "path:modules/twofa" }

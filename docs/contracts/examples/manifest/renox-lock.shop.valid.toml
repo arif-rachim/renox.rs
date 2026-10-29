@@ -1,0 +1,24 @@
+# A lock for auth and org, in topological order.
+version = 1
+
+[[module]]
+name = "auth"
+version = "1.0.0"
+source = "official"
+hash = "3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4"
+isolation = "shared"
+mount = "/auth"
+dependencies = []
+config = { registration = "invite", session_days = 30, magic_links = true }
+approved = { tables = "auth__*", network = ["accounts.google.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET"], slots = [], hooks = [] }
+
+[[module]]
+name = "org"
+version = "1.0.3"
+source = "git:https://github.com/renox-modules/org#0123456789abcdef0123456789abcdef01234567"
+hash = "a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+isolation = "shared"
+mount = "/org"
+dependencies = ["auth"]
+config = { max_members = 50, invitations = true }
+approved = { tables = "org__*", network = [], secrets = [], slots = ["auth.account_menu"], hooks = ["auth.after_login"] }

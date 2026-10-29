@@ -1,0 +1,145 @@
+{
+  "$comment": "invalid: an auth route outside auth's mount /auth [expect: V21]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "Asia/Dubai"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "functions/api/health": "functions/api/health.js",
+      "modules/auth/pages/login": "modules/auth/pages/login.js",
+      "modules/auth/functions/logout": "modules/auth/functions/logout.js",
+      "modules/auth/services": "modules/auth/services.js",
+      "modules/auth/hooks": "modules/auth/hooks.js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/",
+      "template": "pages/index"
+    },
+    {
+      "kind": "function",
+      "method": "GET",
+      "path": "/api/health",
+      "module": "functions/api/health",
+      "export": "GET"
+    },
+    {
+      "kind": "page",
+      "path": "/auth/login",
+      "module": "modules/auth/pages/login",
+      "load": true,
+      "actions": [
+        "default"
+      ],
+      "template": "modules/auth/pages/login"
+    },
+    {
+      "kind": "function",
+      "method": "POST",
+      "path": "/logout",
+      "module": "modules/auth/functions/logout",
+      "export": "POST"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/index": {
+      "kind": "page",
+      "fragments": {}
+    },
+    "modules/auth/pages/login": {
+      "kind": "page",
+      "fragments": {}
+    },
+    "modules/auth/partials/account-menu": {
+      "kind": "partial"
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  },
+  "modules": [
+    {
+      "name": "auth",
+      "version": "1.0.0",
+      "hash": "fa3592e56fd711e714d675532bb8414b23f9585d0e0c905d830e3362e0ac60aa",
+      "source": "path:modules/auth",
+      "mount": "/auth",
+      "isolation": "shared",
+      "dependencies": [],
+      "config": {
+        "registration": "invite",
+        "session_days": 30,
+        "magic_links": true
+      },
+      "permissions": {
+        "tables": "auth__*",
+        "network": [],
+        "secrets": [],
+        "slots": [
+          "app.header"
+        ],
+        "hooks": []
+      },
+      "approved": {
+        "tables": "auth__*",
+        "network": [],
+        "secrets": [],
+        "slots": [
+          "app.header"
+        ],
+        "hooks": []
+      },
+      "exports": {
+        "services": [
+          "currentUser",
+          "requireUser",
+          "getUser",
+          "signOut"
+        ],
+        "events": {
+          "auth.user_registered": {
+            "type": "object",
+            "required": [
+              "user_id",
+              "at"
+            ],
+            "properties": {
+              "user_id": {
+                "type": "string"
+              },
+              "at": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "hooks": [
+          "auth.after_login",
+          "auth.before_register"
+        ],
+        "views": [
+          "auth__public_users_v1"
+        ]
+      }
+    }
+  ],
+  "slots": {
+    "app.header": [
+      {
+        "module": "auth",
+        "template": "modules/auth/partials/account-menu"
+      }
+    ]
+  }
+}

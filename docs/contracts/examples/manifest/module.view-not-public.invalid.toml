@@ -1,0 +1,10 @@
+# [expect: MF6] an exported view must be <name>__public_<id>_v<n>
+[module]
+name = "billing"
+version = "1.0.0"
+
+[permissions]
+tables = "billing__*"
+
+[exports]
+views = ["billing__subscriptions"]

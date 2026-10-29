@@ -1,0 +1,4 @@
+# [expect: MF3] "accounts" installs the module named auth a second time
+[modules]
+auth = { version = "^1.0", source = "path:modules/auth" }
+accounts = { version = "^1.0", source = "path:modules/auth" }

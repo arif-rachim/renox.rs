@@ -3,8 +3,8 @@
 //   - every *.valid.json example validates and every *.invalid.json fails, for
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
-//     hash, manifest, migrations, public files, templates, pages, security:
-//     rules V1-V16, versions 0 and 1);
+//     hash, manifest, migrations, public files, templates, pages, security,
+//     modules: rules V1-V22, versions 0, 1 and 1.1);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - client-event batches and raw CSP report bodies follow
 //     docs/contracts/client-events.md (schema plus rules CE1 and CE2), and
@@ -13,6 +13,9 @@
 //     every code used in ops.md, deploy-api.md, schemas/deploy-api.yaml and
 //     docs/23-failure-modes.md, and ctx.d.ts uses exactly the codes of ops.md
 //     section 13;
+//   - module manifests, renox.toml [modules] and renox.lock follow
+//     docs/contracts/manifest.md (schemas plus rules MF1-MF12, single files
+//     and whole example projects);
 //   - control-plane <-> worker messages follow docs/contracts/deploy-api.md
 //     (schemas/control-messages.schema.json plus rules R1-R3);
 //   - schemas/deploy-api.yaml (OpenAPI 3.1): every operation has request and
@@ -50,7 +53,7 @@ interface Crypto {
   createHash(algorithm: "sha256"): Hash;
 }
 declare const process: { exitCode: number | undefined };
-declare const Bun: { YAML: { parse(text: string): unknown } };
+declare const Bun: { YAML: { parse(text: string): unknown }; TOML: { parse(text: string): unknown } };
 
 const nodeModule = (name: string): Promise<unknown> => import(`node:${name}`);
 const fs = (await nodeModule("fs")) as Fs;
@@ -354,8 +357,82 @@ function routeMethods(route: JsonObject): string[] {
   return actions.length > 0 ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
 }
 
-/** V14 (template kind matches its id) on manifest.templates. */
-function templateKindProblem(id: string, kind: string): string | null {
+/** Version 1.1: ids of an installed module start with modules/<name>/; every other id is the app's. */
+const MODULE_PREFIX = /^modules\/([a-z][a-z0-9_]{0,31})\//u;
+const ownerOf = (id: string | undefined): string => (id === undefined ? null : MODULE_PREFIX.exec(id))?.[1] ?? "app";
+const localId = (id: string): string => id.replace(MODULE_PREFIX, "");
+const listOf = (v: Json | undefined): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+const installedModules = (manifest: JsonObject): Map<string, JsonObject> =>
+  new Map((Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []).map((m) => [m.name as string, m]));
+
+/** V17, V18, V21 (mounts), V22 on the modules, slots, and module-owned ids of a manifest that passed the schema. */
+function artifactModuleRules(manifest: JsonObject): string[] {
+  const errors: string[] = [];
+  const listed = new Map<string, JsonObject>();
+  (Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []).forEach((m, i) => {
+    const name = m.name as string;
+    const where = `modules[${i}] ${name}`;
+    for (const problem of [name.includes("__") ? 'contains "__"' : null, name.endsWith("_") ? 'ends with "_"' : null, name === "app" || name === "renox" ? "is reserved" : null]) {
+      if (problem !== null) errors.push(`V17: ${where}: name ${problem}`);
+    }
+    if (listed.has(name)) errors.push(`V17: ${where}: listed twice`);
+    for (const dep of listOf(m.dependencies)) if (!listed.has(dep)) errors.push(`V17: ${where}: depends on ${dep}, which is not listed before it`);
+    for (const which of ["permissions", "approved"]) {
+      const p = m[which] as JsonObject;
+      if (p.tables !== undefined && p.tables !== `${name}__*`) errors.push(`V17: ${where}: ${which}.tables "${p.tables}" is not "${name}__*"`);
+      for (const secret of listOf(p.secrets)) if (!secret.startsWith(`${name.toUpperCase()}_`)) errors.push(`V17: ${where}: ${which}.secrets "${secret}" does not start with ${name.toUpperCase()}_`);
+    }
+    const permissions = m.permissions as JsonObject;
+    const approved = m.approved as JsonObject;
+    if (permissions.tables !== undefined && permissions.tables !== approved.tables) errors.push(`V22: ${where}: tables "${permissions.tables}" were not approved`);
+    for (const key of ["network", "secrets", "slots", "hooks"]) {
+      for (const v of listOf(permissions[key])) if (!listOf(approved[key]).includes(v)) errors.push(`V22: ${where}: ${key} "${v}" was not approved`);
+    }
+    listed.set(name, m);
+  });
+
+  const entry = (manifest.code as JsonObject).entry as JsonObject;
+  for (const [id, path] of Object.entries(entry)) {
+    const owner = ownerOf(id);
+    if (owner === "app") {
+      if ((path as string).startsWith("modules/")) errors.push(`V18: code.entry "${id}": an app module may not live under code/modules/`);
+    } else if (!listed.has(owner)) errors.push(`V18: code.entry "${id}": module "${owner}" is not in modules`);
+    else if (!(path as string).startsWith(`modules/${owner}/`)) errors.push(`V18: code.entry "${id}": code/${path} is not under code/modules/${owner}/`);
+  }
+  for (const [name, m] of listed) {
+    if (listOf((m.exports as JsonObject).services).length > 0 && !(`modules/${name}/services` in entry)) errors.push(`V18: ${name} exports services but has no modules/${name}/services entry`);
+  }
+  const templates = (isObject(manifest.templates) ? manifest.templates : {}) as Record<string, JsonObject>;
+  for (const id of Object.keys(templates)) {
+    const owner = ownerOf(id);
+    if (owner !== "app" && !listed.has(owner)) errors.push(`V18: templates "${id}": module "${owner}" is not in modules`);
+  }
+  for (const [slot, fills] of Object.entries(isObject(manifest.slots) ? manifest.slots : {})) {
+    (fills as JsonObject[]).forEach((f, i) => {
+      const where = `slots.${slot}[${i}]`;
+      const m = listed.get(f.module as string);
+      if (m === undefined) return void errors.push(`V18: ${where}: module "${f.module}" is not in modules`);
+      const template = f.template as string;
+      if (ownerOf(template) !== f.module) errors.push(`V18: ${where}: template "${template}" is not under modules/${f.module}/`);
+      else if (templates[template]?.kind !== "partial") errors.push(`V18: ${where}: template "${template}" is not a partial of templates`);
+      if (!listOf((m.permissions as JsonObject).slots).includes(slot)) errors.push(`V22: ${where}: ${f.module} does not have the slot "${slot}" in its permissions`);
+    });
+  }
+  (manifest.routes as JsonObject[]).forEach((route, i) => {
+    const owner = ownerOf((route.module ?? route.template) as string | undefined);
+    if (owner === "app") return;
+    const m = listed.get(owner);
+    if (m === undefined) return void errors.push(`V18: routes[${i}]: module "${owner}" is not in modules`);
+    const mount = m.mount as string;
+    const path = route.path as string;
+    if (mount !== "/" && path !== mount && !path.startsWith(`${mount}/`)) errors.push(`V21: routes[${i}] ${path} is not under ${owner}'s mount ${mount}`);
+  });
+  return errors;
+}
+
+/** V14 (template kind matches its id) on manifest.templates; a module's ids are read without modules/<name>/. */
+function templateKindProblem(fullId: string, kind: string): string | null {
+  const id = localId(fullId);
   const last = id.split("/").pop() as string;
   const expected = id.startsWith("partials/")
     ? "partial"
@@ -368,11 +445,11 @@ function templateKindProblem(id: string, kind: string): string | null {
           : last.startsWith("_")
             ? null
             : "page";
-  if (expected === null) return `"${id}" is not a page, layout, partial, error, or 404 template`;
-  return kind === expected ? null : `"${id}" must have kind "${expected}", not "${kind}"`;
+  if (expected === null) return `"${fullId}" is not a page, layout, partial, error, or 404 template`;
+  return kind === expected ? null : `"${fullId}" must have kind "${expected}", not "${kind}"`;
 }
 
-/** V4, V7, V8, V9, V14 (kinds), V15, V16 on a manifest that already passed the schema. */
+/** V4, V7, V8, V9, V14 (kinds), V15, V16, V17, V18, V21, V22 on a manifest that already passed the schema. */
 function manifestRules(manifest: JsonObject): string[] {
   const errors: string[] = [];
   const app = manifest.app as JsonObject;
@@ -400,7 +477,7 @@ function manifestRules(manifest: JsonObject): string[] {
       used.add(module);
       if (!(module in entry)) errors.push(`V7: ${where}: module "${module}" is not a key of code.entry`);
       const prefix = page ? "pages/" : "functions/";
-      if (!module.startsWith(prefix)) errors.push(`V7: ${where}: module "${module}" must be under ${prefix}`);
+      if (!localId(module).startsWith(prefix)) errors.push(`V7: ${where}: module "${module}" must be under ${prefix}`);
     }
     if (!page && route.export !== route.method) {
       errors.push(`V7: ${where}: export "${route.export}" must equal the method`);
@@ -436,14 +513,18 @@ function manifestRules(manifest: JsonObject): string[] {
       const shape = `${method} ${pattern}`;
       const previous = shapes.get(shape);
       if (previous !== undefined) {
-        errors.push(`V8: ${where}: conflicts with routes[${previous}] for ${method}`);
+        // Routes of different owners (the app, installed modules) collide after mounting: V21.
+        const other = routes[previous] as JsonObject;
+        const same = ownerOf((other.module ?? other.template) as string | undefined) === ownerOf(module ?? (route.template as string | undefined));
+        errors.push(`${same ? "V8" : "V21"}: ${where}: conflicts with routes[${previous}] for ${method}`);
         break;
       }
       shapes.set(shape, i);
     }
   });
   for (const key of Object.keys(entry)) {
-    if (!used.has(key)) errors.push(`V7: code.entry "${key}" is not used by any route`);
+    // A module's services and hooks entries are loaded by the bootstrap, not by a route.
+    if (!used.has(key) && !/^modules\/[a-z][a-z0-9_]{0,31}\/(services|hooks)$/u.test(key)) errors.push(`V7: code.entry "${key}" is not used by any route`);
   }
 
   for (const [id, t] of Object.entries(templates)) {
@@ -499,6 +580,7 @@ function manifestRules(manifest: JsonObject): string[] {
       errors.push(`V9: permissions.network "${host}": port out of range`);
     }
   }
+  errors.push(...artifactModuleRules(manifest));
   return errors;
 }
 
@@ -590,6 +672,357 @@ function clientEventRules(batch: JsonObject): string[] {
   return errors;
 }
 
+// ---------------------------------------------------------------------------
+// manifest.md: module.toml, renox.toml [modules], renox.lock (MF1-MF12)
+// ---------------------------------------------------------------------------
+
+const obj = (v: Json | undefined): JsonObject => (isObject(v) ? v : {});
+const strings = (v: Json | undefined): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+type Semver = [number, number, number, string[]];
+function parseVersion(v: string): Semver | null {
+  const m = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?$/u.exec(v);
+  if (m === null) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? [] : m[4].split(".")];
+}
+/** Semver precedence: a release is above its pre-releases; numeric identifiers compare as numbers. */
+function compareVersions(a: Semver, b: Semver): number {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return (a[i] as number) - (b[i] as number);
+  const [pa, pb] = [a[3], b[3]];
+  if (pa.length === 0 || pb.length === 0) return pb.length - pa.length;
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    const [x, y] = [pa[i] as string, pb[i] as string];
+    if (x === y) continue;
+    const [nx, ny] = [/^[0-9]+$/u.test(x), /^[0-9]+$/u.test(y)];
+    if (nx && ny) return Number(x) - Number(y);
+    if (nx !== ny) return nx ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return pa.length - pb.length;
+}
+/** manifest.md section 2: does `version` satisfy `range`? A pre-release satisfies only an exact range. */
+function satisfies(version: string, range: string): boolean {
+  const v = parseVersion(version);
+  if (v === null) return false;
+  const interval = /^>=(\S+) <(\S+)$/u.exec(range);
+  if (interval !== null) {
+    const [lo, hi] = [parseVersion(interval[1] as string), parseVersion(interval[2] as string)];
+    return lo !== null && hi !== null && v[3].length === 0 && compareVersions(v, lo) >= 0 && compareVersions(v, hi) < 0;
+  }
+  const loose = /^([~^])(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?(?:\.(0|[1-9][0-9]*))?$/u.exec(range);
+  if (loose !== null) {
+    if (v[3].length > 0) return false;
+    const parts = [loose[2], loose[3], loose[4]].filter((p) => p !== undefined).map(Number);
+    const lo: Semver = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, []];
+    const hi: Semver = [0, 0, 0, []];
+    // ~: the next minor (the next major for ~X); ^: the next change of the left-most non-zero part given.
+    const nonZero = parts.findIndex((p) => p !== 0);
+    const at = loose[1] === "~" ? Math.min(parts.length - 1, 1) : nonZero === -1 ? parts.length - 1 : nonZero;
+    for (let i = 0; i < at; i++) hi[i] = lo[i] as number;
+    hi[at] = (lo[at] as number) + 1;
+    return compareVersions(v, lo) >= 0 && compareVersions(v, hi) < 0;
+  }
+  const exact = parseVersion(range.replace(/^=/u, ""));
+  return exact !== null && compareVersions(v, exact) === 0;
+}
+
+/** MF1. Returns the reason, or null when `name` may be a module name. */
+function moduleNameProblem(name: string): string | null {
+  if (!/^[a-z][a-z0-9_]{0,31}$/u.test(name)) return "does not match ^[a-z][a-z0-9_]{0,31}$";
+  if (name.includes("__")) return 'contains "__"';
+  if (name.endsWith("_")) return 'ends with "_"';
+  if (name === "app" || name === "renox") return "is reserved";
+  return null;
+}
+
+/** MF4 on a [permissions] table or a lock entry's `approved`. */
+function permissionRules(name: string, permissions: JsonObject, where: string): string[] {
+  const errors: string[] = [];
+  if (permissions.tables !== undefined && permissions.tables !== `${name}__*`) {
+    errors.push(`MF4: ${where}.tables "${permissions.tables}" is not "${name}__*"`);
+  }
+  for (const secret of strings(permissions.secrets)) {
+    if (!secret.startsWith(`${name.toUpperCase()}_`)) errors.push(`MF4: ${where}.secrets "${secret}" does not start with ${name.toUpperCase()}_`);
+  }
+  return errors;
+}
+
+/** MF10: the reason a config value does not fit its declaration, or null. */
+function configValueProblem(decl: JsonObject, value: Json): string | null {
+  switch (decl.type) {
+    case "string":
+      if (typeof value !== "string") return "is not a string";
+      return [...value].length > ((decl.max_length as number | undefined) ?? 4096) ? "is longer than max_length" : null;
+    case "enum":
+      return typeof value === "string" && strings(decl.values).includes(value) ? null : `is not one of ${JSON.stringify(decl.values)}`;
+    case "int":
+      if (typeof value !== "number" || !Number.isSafeInteger(value)) return "is not an int";
+      if (typeof decl.min === "number" && value < decl.min) return `is below min ${decl.min}`;
+      if (typeof decl.max === "number" && value > decl.max) return `is above max ${decl.max}`;
+      return null;
+    case "bool":
+      return typeof value === "boolean" ? null : "is not a bool";
+    default:
+      return "has an unknown type";
+  }
+}
+
+/** MF1, MF4, MF5 (self), MF6, MF8, MF9, MF10 on a module.toml that passed the schema. */
+function moduleRules(doc: JsonObject): string[] {
+  const errors: string[] = [];
+  const name = (doc.module as JsonObject).name as string;
+  const problem = moduleNameProblem(name);
+  if (problem !== null) errors.push(`MF1: [module].name "${name}" ${problem}`);
+  for (const dep of Object.keys(obj(doc.dependencies))) {
+    const p = moduleNameProblem(dep);
+    if (p !== null) errors.push(`MF1: [dependencies] "${dep}" ${p}`);
+    if (dep === name) errors.push(`MF5: ${name} depends on itself`);
+  }
+  const permissions = obj(doc.permissions);
+  errors.push(...permissionRules(name, permissions, "[permissions]"));
+
+  const exports = obj(doc.exports);
+  const view = new RegExp(`^${name}__public_[a-z0-9_]+_v[1-9][0-9]*$`, "u");
+  for (const v of strings(exports.views)) if (!view.test(v)) errors.push(`MF6: view "${v}" is not ${name}__public_<id>_v<n>`);
+  for (const [kind, entries] of [["event", obj(exports.events)], ["hook", obj(exports.hooks)]] as const) {
+    for (const [n, entry] of Object.entries(entries)) {
+      if (!n.startsWith(`${name}.`)) errors.push(`MF6: ${kind} "${n}" does not start with "${name}."`);
+      for (const key of ["payload", "args", "result"]) {
+        const schema = obj(entry)[key];
+        if (schema !== undefined) for (const p of unsupportedKeywords(schema)) errors.push(`MF6: ${kind} "${n}" ${key} ${p}`);
+      }
+    }
+  }
+
+  const slots = (doc.slots as JsonObject[] | undefined) ?? [];
+  const filled = new Set(slots.map((s) => s.name as string));
+  const asked = new Set(strings(permissions.slots));
+  for (const s of filled) if (!asked.has(s)) errors.push(`MF8: [[slots]] fills "${s}" but permissions.slots does not list it`);
+  for (const s of asked) if (!filled.has(s)) errors.push(`MF8: permissions.slots lists "${s}" but no [[slots]] fills it`);
+  for (const h of strings(permissions.hooks)) if (h.startsWith(`${name}.`)) errors.push(`MF8: permissions.hooks "${h}" is a hook of ${name} itself`);
+
+  const actions = new Set(strings(obj(doc.authz).actions));
+  slots.forEach((s, i) => {
+    if (typeof s.requires === "string" && !actions.has(s.requires)) errors.push(`MF9: slots[${i}].requires "${s.requires}" is not in [authz].actions`);
+  });
+  ((doc.tools as JsonObject[] | undefined) ?? []).forEach((t, i) => {
+    if (!actions.has(t.action as string)) errors.push(`MF9: tools[${i}].action "${t.action}" is not in [authz].actions`);
+  });
+
+  for (const [key, raw] of Object.entries(obj(doc.config))) {
+    const decl = obj(raw);
+    if (typeof decl.min === "number" && typeof decl.max === "number" && decl.min > decl.max) errors.push(`MF10: config.${key}: min is above max`);
+    if (decl.default === undefined) continue;
+    const p = configValueProblem(decl, decl.default);
+    if (p !== null) errors.push(`MF10: config.${key}: default ${JSON.stringify(decl.default)} ${p}`);
+    if (decl.required === true) errors.push(`MF10: config.${key}: required = true with a default`);
+  }
+  return errors;
+}
+
+/** MF1 on a renox.toml that passed the schema. */
+function renoxRules(doc: JsonObject): string[] {
+  const errors: string[] = [];
+  for (const key of Object.keys(obj(doc.modules))) {
+    const p = moduleNameProblem(key);
+    if (p !== null) errors.push(`MF1: [modules] "${key}" ${p}`);
+  }
+  return errors;
+}
+
+/** MF1, MF3 (unique names), MF4 (approved), MF5 (order) on a renox.lock that passed the schema. */
+function lockRules(doc: JsonObject): string[] {
+  const errors: string[] = [];
+  const seen = new Set<string>();
+  for (const e of doc.module as JsonObject[]) {
+    const name = e.name as string;
+    const p = moduleNameProblem(name);
+    if (p !== null) errors.push(`MF1: lock entry "${name}" ${p}`);
+    if (seen.has(name)) errors.push(`MF3: "${name}" has more than one lock entry`);
+    for (const dep of strings(e.dependencies)) if (!seen.has(dep)) errors.push(`MF5: ${name} is listed before its dependency ${dep} (or ${dep} is not installed)`);
+    seen.add(name);
+    errors.push(...permissionRules(name, obj(e.approved), `${name}.approved`));
+  }
+  return errors;
+}
+
+/** Every regular file under `dir`, keyed by its path relative to `dir`. */
+function readTreeFiles(dir: string, prefix = ""): Map<string, Uint8Array> {
+  const out = new Map<string, Uint8Array>();
+  for (const d of fs.readdirSync(prefix === "" ? dir : `${dir}/${prefix}`, { withFileTypes: true })) {
+    const path = prefix === "" ? d.name : `${prefix}/${d.name}`;
+    if (d.isDirectory()) for (const [k, v] of readTreeFiles(dir, path)) out.set(k, v);
+    else if (d.isFile()) out.set(path, fs.readFileSync(`${dir}/${path}`));
+  }
+  return out;
+}
+
+const normalisedPermissions = (p: JsonObject): string =>
+  canonical({
+    tables: (p.tables as Json | undefined) ?? null,
+    network: strings(p.network).sort(),
+    secrets: strings(p.secrets).sort(),
+    slots: strings(p.slots).sort(),
+    hooks: strings(p.hooks).sort(),
+  });
+
+/** The project rules (MF2, MF3, MF5, MF7-MF12) on an example app: renox.toml, renox.lock, path: module trees. */
+function checkProject(dir: string): string[] {
+  const errors: string[] = [];
+  const toml = (path: string): Json => Bun.TOML.parse(fs.readFileSync(path, "utf8")) as Json;
+  const renox = toml(`${dir}/renox.toml`);
+  const lock = toml(`${dir}/renox.lock`);
+  errors.push(...checkMessage("renox", renox).map((e) => `renox.toml ${e}`));
+  errors.push(...checkMessage("renox-lock", lock).map((e) => `renox.lock ${e}`));
+  if (errors.some((e) => e.includes(" schema ")) || !isObject(renox) || !isObject(lock)) return errors;
+
+  const installed = obj(renox.modules) as Record<string, JsonObject>;
+  const entries = new Map((lock.module as JsonObject[]).map((e) => [e.name as string, e]));
+  const manifests = new Map<string, JsonObject>();
+  const trees = new Map<string, string>();
+  for (const [key, m] of Object.entries(installed)) {
+    const source = m.source as string | undefined;
+    if (source === undefined || !source.startsWith("path:")) continue; // official and git trees are not in the examples
+    const tree = `${dir}/${source.slice("path:".length)}`;
+    if (!fs.existsSync(`${tree}/module.toml`)) {
+      errors.push(`MF12: ${key}: ${source}/module.toml is missing`);
+      continue;
+    }
+    const manifest = toml(`${tree}/module.toml`);
+    const manifestErrors = checkMessage("module", manifest);
+    errors.push(...manifestErrors.map((e) => `${source.slice("path:".length)}/module.toml ${e}`));
+    if (isObject(manifest) && !manifestErrors.some((e) => e.startsWith("schema"))) {
+      manifests.set(key, manifest);
+      trees.set(key, tree);
+    }
+  }
+  const manifestOf = (name: string): JsonObject => manifests.get(name) ?? {};
+
+  // MF3: one install per name and prefix; renox.toml and the lock list the same modules.
+  const byName = new Map<string, string>();
+  for (const [key, manifest] of manifests) {
+    const name = (manifest.module as JsonObject).name as string;
+    if (name !== key) errors.push(`MF3: renox.toml key "${key}" installs the module named "${name}"`);
+    const other = byName.get(name);
+    if (other !== undefined) errors.push(`MF3: module "${name}" is installed as "${other}" and as "${key}"`);
+    byName.set(name, key);
+  }
+  for (const a of Object.keys(installed)) {
+    for (const b of Object.keys(installed)) if (a !== b && b.startsWith(`${a}__`)) errors.push(`MF3: the prefix ${a}__ is a prefix of ${b}__`);
+    if (!entries.has(a)) errors.push(`MF3: renox.toml module "${a}" has no renox.lock entry`);
+  }
+  for (const name of entries.keys()) if (!(name in installed)) errors.push(`MF3: renox.lock entry "${name}" is not in renox.toml`);
+
+  // MF5: every dependency is installed; no cycle.
+  for (const [key, manifest] of manifests) {
+    for (const dep of Object.keys(obj(manifest.dependencies))) if (!(dep in installed)) errors.push(`MF5: ${key} depends on ${dep}, which is not installed`);
+  }
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (name: string, path: string[]): void => {
+    if (state.get(name) === "done") return;
+    if (state.get(name) === "visiting") {
+      errors.push(`MF5: dependency cycle ${[...path.slice(path.indexOf(name)), name].join(" -> ")}`);
+      return;
+    }
+    state.set(name, "visiting");
+    for (const dep of Object.keys(obj(manifestOf(name).dependencies))) if (manifests.has(dep)) visit(dep, [...path, name]);
+    state.set(name, "done");
+  };
+  for (const name of manifests.keys()) visit(name, []);
+
+  // MF2: the locked version satisfies the tenant's range and every dependant's range.
+  for (const [key, m] of Object.entries(installed)) {
+    const e = entries.get(key);
+    if (e !== undefined && !satisfies(e.version as string, m.version as string)) errors.push(`MF2: ${key} ${e.version} does not satisfy renox.toml "${m.version}"`);
+  }
+  for (const [key, manifest] of manifests) {
+    for (const [dep, range] of Object.entries(obj(manifest.dependencies))) {
+      const e = entries.get(dep);
+      if (e !== undefined && !satisfies(e.version as string, range as string)) errors.push(`MF2: ${dep} ${e.version} does not satisfy ${key}'s range "${range}"`);
+    }
+  }
+
+  // MF7: imports come from declared dependencies that export them.
+  for (const [key, manifest] of manifests) {
+    const deps = obj(manifest.dependencies);
+    const imports = obj(manifest.imports);
+    const uses: [string, string, (dep: JsonObject) => boolean][] = [
+      ...strings(imports.services).map((s): [string, string, (d: JsonObject) => boolean] => {
+        const [dep, service] = s.split(".") as [string, string];
+        return [s, dep, (d) => service in obj(obj(d.exports).services)];
+      }),
+      ...strings(imports.views).map((v): [string, string, (d: JsonObject) => boolean] => [v, v.split("__")[0] as string, (d) => strings(obj(d.exports).views).includes(v)]),
+    ];
+    for (const [what, dep, exported] of uses) {
+      if (!(dep in deps)) errors.push(`MF7: ${key} imports ${what}, but ${dep} is not in its [dependencies]`);
+      else if (manifests.has(dep) && !exported(manifestOf(dep))) {
+        errors.push(`MF7: ${key} imports ${what}, which ${dep} ${(manifestOf(dep).module as JsonObject).version} does not export`);
+      }
+    }
+  }
+
+  // MF8: filled hooks are exported by another installed module. MF9: slot templates exist.
+  const hookOwners = new Map<string, string>();
+  for (const [key, manifest] of manifests) for (const h of Object.keys(obj(obj(manifest.exports).hooks))) hookOwners.set(h, key);
+  for (const [key, manifest] of manifests) {
+    for (const h of strings(obj(manifest.permissions).hooks)) {
+      const owner = hookOwners.get(h);
+      if (owner === undefined || owner === key) errors.push(`MF8: ${key} fills hook "${h}", which no other installed module exports`);
+    }
+    for (const s of (manifest.slots as JsonObject[] | undefined) ?? []) {
+      if (!fs.existsSync(`${trees.get(key)}/${s.template}`)) errors.push(`MF9: ${key}: slot template ${s.template} is not in the module tree`);
+    }
+  }
+
+  for (const [key, m] of Object.entries(installed)) {
+    const manifest = manifests.get(key);
+    if (manifest === undefined) continue;
+    const module = manifest.module as JsonObject;
+
+    // MF10: renox.toml config values against the declarations; the resolved config.
+    const decls = obj(manifest.config);
+    const values = obj(m.config);
+    const resolved: JsonObject = {};
+    for (const [k, v] of Object.entries(values)) {
+      if (!(k in decls)) errors.push(`MF10: ${key}.config.${k} is not declared in its [config]`);
+      else {
+        const p = configValueProblem(obj(decls[k]), v);
+        if (p !== null) errors.push(`MF10: ${key}.config.${k} = ${JSON.stringify(v)} ${p}`);
+      }
+    }
+    for (const [k, raw] of Object.entries(decls)) {
+      const decl = obj(raw);
+      const value = k in values ? values[k] : decl.default;
+      if (value !== undefined) resolved[k] = value as Json;
+      else if ((decl.required as boolean | undefined) ?? true) errors.push(`MF10: ${key}.config.${k} is required and has no value`);
+    }
+
+    // MF11: isolation is raised, never lowered.
+    const rank = (i: Json | undefined): number => (i === "isolate" ? 1 : 0);
+    const declared = (module.isolation as string | undefined) ?? "shared";
+    const effective = (m.isolation as string | undefined) ?? declared;
+    if (rank(effective) < rank(declared)) errors.push(`MF11: ${key}: renox.toml lowers isolation from ${declared} to ${effective}`);
+
+    // MF12: the lock entry matches the manifest, the tree, and renox.toml.
+    const e = entries.get(key);
+    if (e === undefined) continue;
+    const mismatch = (field: string, locked: Json | undefined, actual: Json | undefined): void => {
+      if (canonical(locked ?? null) !== canonical(actual ?? null)) errors.push(`MF12: ${key}.${field} in renox.lock is ${JSON.stringify(locked)}, expected ${JSON.stringify(actual)}`);
+    };
+    mismatch("version", e.version, module.version);
+    mismatch("hash", e.hash, contentHash(readTreeFiles(trees.get(key) as string)));
+    mismatch("dependencies", e.dependencies, Object.keys(obj(manifest.dependencies)).sort());
+    mismatch("config", e.config, resolved);
+    mismatch("mount", e.mount, (m.mount as string | undefined) ?? `/${key}`);
+    mismatch("source", e.source, (m.source as string | undefined) ?? "official");
+    mismatch("isolation", e.isolation, effective);
+    if (normalisedPermissions(obj(e.approved)) !== normalisedPermissions(obj(manifest.permissions))) {
+      errors.push(`MF12: ${key}: [permissions] differ from the approved permissions in renox.lock; run renox approve ${key}`);
+    }
+  }
+  return errors;
+}
+
 const schemaFile = (name: string): string => `${root}/schemas/${name}.schema.json`;
 
 /**
@@ -607,11 +1040,15 @@ const messages: Record<string, Message> = {
   manifest: { schema: schemaFile("manifest"), rules: manifestRules },
   "route-table": { schema: schemaFile("route-table"), rules: routeTableRules },
   "migrations-checksums": { schema: schemaFile("migrations-checksums") },
+  "overrides-index": { schema: schemaFile("manifest"), def: "overridesIndex" },
   "public-manifest": { schema: schemaFile("public-manifest") },
   "meter-batch": { schema: schemaFile("meter-record"), rules: meterBatchRules },
   "client-events": { schema: schemaFile("client-event"), rules: clientEventRules },
   "csp-report": { schema: schemaFile("client-event"), def: "cspReport", wrapped: true },
   "reports-json": { schema: schemaFile("client-event"), def: "reportsJson", wrapped: true },
+  module: { schema: schemaFile("module-manifest"), rules: moduleRules },
+  renox: { schema: schemaFile("module-manifest"), def: "renoxToml", rules: renoxRules },
+  "renox-lock": { schema: schemaFile("renox-lock"), rules: lockRules },
 };
 const controlMessages: Record<string, Omit<Message, "schema">> = {
   node_register: {},
@@ -644,7 +1081,7 @@ function checkMessage(kind: string, doc: Json): string[] {
   return errors;
 }
 
-/** Walks an artifact directory and applies V1-V12. Returns one line per violation. */
+/** Walks an artifact directory and applies V1-V22. Returns one line per violation. */
 function checkArtifact(dir: string): string[] {
   const errors: string[] = [];
   const files = new Map<string, Uint8Array>();
@@ -677,6 +1114,8 @@ function checkArtifact(dir: string): string[] {
     isObject(manifest) && isObject(manifest.artifact) && typeof manifest.artifact.version === "number"
       ? manifest.artifact.version
       : 0;
+  // Version 1.1: policies/, overrides/ and overrides.json belong to installed modules.
+  const withModules = version >= 1 && isObject(manifest) && Array.isArray(manifest.modules) && manifest.modules.length > 0;
 
   const folded = new Map<string, string>();
   for (const path of files.keys()) {
@@ -685,6 +1124,7 @@ function checkArtifact(dir: string): string[] {
     if (other !== undefined) errors.push(`V1: ${path} and ${other} differ only in case`);
     folded.set(key, path);
     const top = path.split("/")[0] as string;
+    if (withModules && (top === "policies" || top === "overrides" || path === "overrides.json")) continue;
     if (top === "policies") errors.push("V1: policies/ is reserved and must be absent");
     else if (version === 0 && (top === "templates" || path === "public.json")) {
       errors.push(`V1: ${top === "templates" ? "templates/" : "public.json"} must be absent in version 0`);
@@ -786,6 +1226,45 @@ function checkArtifact(dir: string): string[] {
   for (const id of templateIds) {
     if (!files.has(`templates/${id}.jinja`)) errors.push(`V14: templates/${id}.jinja is missing`);
   }
+  if (!withModules) return errors;
+
+  // V18: policies/<module>/<name>.cedar of installed modules (carried, evaluated from F5).
+  const listed = installedModules(manifest);
+  const paths = [...files.keys()];
+  for (const p of paths.filter((f) => f.startsWith("policies/"))) {
+    const m = /^policies\/([a-z][a-z0-9_]{0,31})\/[A-Za-z0-9_.-]+\.cedar$/u.exec(p);
+    if (m === null) errors.push(`V18: ${p}: not policies/<module>/<name>.cedar`);
+    else if (!listed.has(m[1] as string)) errors.push(`V18: ${p}: module "${m[1]}" is not in modules`);
+  }
+  // V19: migrations for every module that has tables, and none for a module that is not installed with tables.
+  const migrated = new Set(paths.filter((p) => /^migrations\/[^/]+\/.+\.sql$/u.test(p)).map((p) => p.split("/")[1] as string));
+  for (const [name, m] of listed) {
+    if ((m.permissions as JsonObject).tables !== undefined && !migrated.has(name)) errors.push(`V19: ${name} declares tables but has no migrations/${name}/`);
+  }
+  for (const name of migrated) {
+    if (name !== "app" && (listed.get(name)?.permissions as JsonObject | undefined)?.tables === undefined) errors.push(`V19: migrations/${name}/: ${name} is not an installed module with tables`);
+  }
+  // V20: overrides.json lists exactly the files under overrides/, each replacing a template of its module.
+  const overrideFiles = paths.filter((p) => p.startsWith("overrides/")).map((p) => p.slice("overrides/".length));
+  if (overrideFiles.length > 0 || files.has("overrides.json")) {
+    if (!files.has("overrides.json")) errors.push("V20: overrides.json is missing");
+    else {
+      const index = JSON.parse(text("overrides.json")) as Json;
+      errors.push(...checkMessage("overrides-index", index).map((e) => `V20: overrides.json ${e}`));
+      const listedFiles = isObject(index) && isObject(index.files) ? index.files : {};
+      const templates = isObject(manifest.templates) ? manifest.templates : {};
+      for (const f of overrideFiles) if (!(f in listedFiles)) errors.push(`V20: overrides/${f} is not in overrides.json`);
+      for (const [f, raw] of Object.entries(listedFiles)) {
+        const owner = f.split("/")[0] as string;
+        const expected = `modules/${f.replace(/\.html$/u, "")}`;
+        const template = isObject(raw) ? raw.template : undefined;
+        if (!overrideFiles.includes(f)) errors.push(`V20: overrides.json lists missing overrides/${f}`);
+        if (!listed.has(owner)) errors.push(`V20: overrides/${f}: module "${owner}" is not in modules`);
+        if (template !== expected) errors.push(`V20: overrides/${f}: template must be "${expected}"`);
+        else if (!(expected in templates)) errors.push(`V20: overrides/${f}: template "${expected}" is not in manifest.templates`);
+      }
+    }
+  }
   return errors;
 }
 
@@ -856,6 +1335,47 @@ for (const contract of ["artifact", "meter", "client-events", "deploy-api"]) {
     checkExample(`${root}/examples/${contract}/${file}`, (doc) => checkMessage(kind, doc));
   }
 }
+// 3b. manifest.md examples: single TOML files (examples/manifest/<kind>.<case>.(valid|invalid).toml)
+//     and whole projects (examples/manifest/projects/<case>.(valid|invalid)/). The reason of an
+//     invalid one is "[expect: ...]" in a TOML comment (for a project, in its renox.toml).
+const manifestDir = `${root}/examples/manifest`;
+const manifestExpects = new Set<string>();
+const judge = (label: string, valid: boolean, errors: string[], text: string): void => {
+  if (valid) return report(errors.length === 0, `${label} validates`, errors);
+  const expect = /\[expect: ([^\]]+)\]/u.exec(text)?.[1];
+  if (expect !== undefined) manifestExpects.add(expect);
+  const ok = errors.length > 0 && (expect === undefined || errors.some((e) => e.includes(expect)));
+  report(ok, `${label} is rejected${expect === undefined ? "" : ` (${expect})`}`, errors.length > 0 ? errors : ["no error"]);
+};
+const manifestCounts: Record<string, { valid: number; invalid: number }> = { module: { valid: 0, invalid: 0 }, renox: { valid: 0, invalid: 0 }, "renox-lock": { valid: 0, invalid: 0 } };
+for (const file of listDir(manifestDir).filter((f) => f.endsWith(".toml"))) {
+  const kind = ["renox-lock", "renox", "module"].find((k) => file.startsWith(`${k}.`));
+  const valid = file.endsWith(".valid.toml");
+  if (kind === undefined || (!valid && !file.endsWith(".invalid.toml"))) {
+    report(false, `examples/manifest/${file}: not <module|renox|renox-lock>.<case>.(valid|invalid).toml`);
+    continue;
+  }
+  (manifestCounts[kind] as { valid: number; invalid: number })[valid ? "valid" : "invalid"]++;
+  const text = fs.readFileSync(`${manifestDir}/${file}`, "utf8");
+  let errors: string[];
+  try {
+    errors = checkMessage(kind, Bun.TOML.parse(text) as Json);
+  } catch (e) {
+    errors = [`not TOML: ${String(e)}`];
+  }
+  judge(`examples/manifest/${file}`, valid, errors, text);
+}
+for (const name of listDir(`${manifestDir}/projects`)) {
+  const valid = name.endsWith(".valid");
+  const dir = `${manifestDir}/projects/${name}`;
+  judge(`examples/manifest/projects/${name}`, valid, checkProject(dir), fs.readFileSync(`${dir}/renox.toml`, "utf8"));
+}
+for (const [kind, { valid, invalid }] of Object.entries(manifestCounts)) {
+  report(valid >= 1 && invalid >= 3, `manifest ${kind}: ${valid} valid and ${invalid} invalid examples (at least 1 and 3)`);
+}
+const mfMissing = Array.from({ length: 12 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
+report(mfMissing.length === 0, "every rule MF1-MF12 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
+
 const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
 report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);
 
@@ -878,13 +1398,16 @@ for (const file of listDir(`${root}/examples/client-events`).filter((f) => f.sta
 const kindsWithout = clientKinds.filter((k) => !exampleKinds.has(k)).map((k) => `${k} has no valid example`);
 report(kindsWithout.length === 0, `every client event kind has a valid example (${clientKinds.length} kinds)`, kindsWithout);
 
-// 4. artifact.md directories: valid artifacts pass V1-V12; broken ones fail for the named rule.
+// 4. artifact.md directories: valid artifacts pass V1-V22; broken ones fail for the named rule.
 const artifacts: { dir: string; expect?: string }[] = [
   { dir: "examples/hello-artifact" },
   { dir: "examples/artifact/notes-artifact" },
   { dir: "examples/artifact/shop-artifact" },
   { dir: "examples/artifact/broken-artifact", expect: "V2" }, // a file changed after hashing
   { dir: "examples/artifact/broken-templates-artifact", expect: "V14" }, // a template file not in the manifest
+  { dir: "examples/artifact/modules-artifact" }, // version 1.1: the auth module mounted at /auth
+  { dir: "examples/artifact/broken-module-migrations-artifact", expect: "V19" }, // auth has tables but no migrations
+  { dir: "examples/artifact/broken-override-artifact", expect: "V20" }, // an override not in overrides.json
 ];
 for (const { dir, expect } of artifacts) {
   for (const name of listDir(`${root}/${dir}`).filter((n) => /^[0-9a-f]{64}$/u.test(n))) {

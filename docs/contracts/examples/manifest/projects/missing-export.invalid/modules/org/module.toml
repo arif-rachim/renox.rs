@@ -1,0 +1,9 @@
+[module]
+name = "org"
+version = "1.0.0"
+
+[dependencies]
+auth = ">=1.0.0 <3.0.0"
+
+[imports]
+services = ["auth.getUser"]

@@ -1,0 +1,7 @@
+# [expect: MF6] payload schemas use the validate.ts keyword subset; dependentRequired is not in it
+[module]
+name = "email"
+version = "0.1.0"
+
+[exports.events."email.sent"]
+payload = { type = "object", dependentRequired = { a = ["b"] } }

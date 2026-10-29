@@ -1,0 +1,4 @@
+# [expect: MF1] "a__b" contains "__", so its prefix would read as module "a"
+[module]
+name = "a__b"
+version = "1.0.0"

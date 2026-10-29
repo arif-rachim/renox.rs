@@ -1,0 +1,21 @@
+# M23 gcc-data (docs/18-build-plan.md), installed as "gcc": its tables are gcc__*,
+# and a module name is its table prefix (manifest.md section 2, MF1).
+[module]
+name = "gcc"
+version = "0.1.0"
+description = "Emirates and areas, +971 validation, Emirates ID and TRN checks, address component"
+
+[config]
+default_emirate = { type = "enum", values = ["abu_dhabi", "dubai", "sharjah", "ajman", "umm_al_quwain", "ras_al_khaimah", "fujairah"], default = "dubai" }
+
+[permissions]
+tables = "gcc__*"
+
+[exports]
+views = ["gcc__public_areas_v1"]
+
+[exports.services]
+validatePhone = "Normalises a +971 number, or returns null when it is not valid"
+validateEmiratesId = "Checks the format and check digit of an Emirates ID"
+validateTrn = "Checks the format of a 15-digit tax registration number"
+listAreas = "The areas of an emirate, in English and Arabic"

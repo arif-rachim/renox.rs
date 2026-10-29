@@ -1,0 +1,10 @@
+# The F4 catalog modules installed from path: sources (manifest.md section 8).
+[app]
+name = "shop"
+timezone = "Asia/Dubai"
+
+[modules]
+auth = { version = "^1.0", source = "path:modules/auth", config = { registration = "invite" } }
+org = { version = "^1.0", source = "path:modules/org" }
+gcc = { version = "~0.1", source = "path:modules/gcc" }
+i18n = { version = ">=0.1.0 <0.3.0", source = "path:modules/i18n", mount = "/", config = { locales = "en,ar" } }

@@ -1,0 +1,3 @@
+# [expect: MF12] billing now asks for api.stripe.com; the lock approved only secure.telr.com
+[modules]
+billing = { version = "^1.2", source = "path:modules/billing" }

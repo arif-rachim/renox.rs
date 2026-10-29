@@ -1,0 +1,7 @@
+# [expect: MF6] a module exports only events named after itself
+[module]
+name = "email"
+version = "0.1.0"
+
+[exports.events."billing.invoice_paid"]
+payload = { type = "object" }

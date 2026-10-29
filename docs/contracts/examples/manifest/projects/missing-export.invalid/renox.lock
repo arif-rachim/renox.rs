@@ -1,0 +1,23 @@
+version = 1
+
+[[module]]
+name = "auth"
+version = "2.0.0"
+source = "path:modules/auth"
+hash = "8a1a48fdd08f1bbbd96854f5de659d8848616d807bdf4715593aad539f84e1ef"
+isolation = "shared"
+mount = "/auth"
+dependencies = []
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "org"
+version = "1.0.0"
+source = "path:modules/org"
+hash = "c88a3d3716b6a829279d2a274d77d5221e79300324d32cc5a43e1fab4258fc99"
+isolation = "shared"
+mount = "/org"
+dependencies = ["auth"]
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

@@ -1,0 +1,7 @@
+# [expect: MF10] required = true together with a default cannot both hold
+[module]
+name = "storage"
+version = "0.1.0"
+
+[config]
+bucket = { type = "string", required = true, default = "files" }

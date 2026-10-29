@@ -1,0 +1,4 @@
+# [expect: MF7] auth 2.0.0 no longer exports getUser, which org imports
+[modules]
+auth = { version = "^2.0", source = "path:modules/auth" }
+org = { version = "^1.0", source = "path:modules/org" }

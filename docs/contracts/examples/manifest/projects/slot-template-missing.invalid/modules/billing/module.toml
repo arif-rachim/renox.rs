@@ -1,0 +1,10 @@
+[module]
+name = "billing"
+version = "1.0.0"
+
+[permissions]
+slots = ["admin.sidebar"]
+
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-menu.html"

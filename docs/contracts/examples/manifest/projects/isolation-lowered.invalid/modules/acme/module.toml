@@ -1,0 +1,4 @@
+[module]
+name = "acme"
+version = "0.4.0"
+isolation = "isolate"

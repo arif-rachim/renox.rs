@@ -1,0 +1,7 @@
+# [expect: MF4] a module asks for another module's tables
+[module]
+name = "reports"
+version = "0.1.0"
+
+[permissions]
+tables = "billing__*"

@@ -1,0 +1,45 @@
+version = 1
+
+[[module]]
+name = "auth"
+version = "1.0.0"
+source = "path:modules/auth"
+hash = "fa3592e56fd711e714d675532bb8414b23f9585d0e0c905d830e3362e0ac60aa"
+isolation = "shared"
+mount = "/auth"
+dependencies = []
+config = { registration = "invite", session_days = 30, magic_links = true }
+approved = { network = ["accounts.google.com", "oauth2.googleapis.com", "openidconnect.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"], slots = [], hooks = [], tables = "auth__*" }
+
+[[module]]
+name = "gcc"
+version = "0.1.0"
+source = "path:modules/gcc"
+hash = "3fdab875c224b36b5c08242f078d06219321ea85c9b834cd89a7bb5372d39e09"
+isolation = "shared"
+mount = "/gcc"
+dependencies = []
+config = { default_emirate = "dubai" }
+approved = { network = [], secrets = [], slots = [], hooks = [], tables = "gcc__*" }
+
+[[module]]
+name = "i18n"
+version = "0.1.0"
+source = "path:modules/i18n"
+hash = "0f25c379debbe04f11e70e1a27c90fdf931a5a5bf7f80cc89f1185800698ba4b"
+isolation = "shared"
+mount = "/"
+dependencies = []
+config = { default_locale = "en", locales = "en,ar", digits = "latin", calendar = "gregorian" }
+approved = { network = [], secrets = [], slots = [], hooks = [], tables = "i18n__*" }
+
+[[module]]
+name = "org"
+version = "1.0.0"
+source = "path:modules/org"
+hash = "db28d2ca23504f8528079904cbfa11fb6e6e13f820de325269642a8417da71d7"
+isolation = "shared"
+mount = "/org"
+dependencies = ["auth"]
+config = { max_members = 50, invitations = true }
+approved = { network = [], secrets = [], slots = ["auth.account_menu"], hooks = ["auth.after_login"], tables = "org__*" }

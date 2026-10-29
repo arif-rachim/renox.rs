@@ -1,0 +1,7 @@
+# [expect: additionalProperties] an unknown permission key is rejected, never ignored
+[module]
+name = "storage"
+version = "0.1.0"
+
+[permissions]
+filesystem = ["/tmp"]

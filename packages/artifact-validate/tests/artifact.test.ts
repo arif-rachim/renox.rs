@@ -25,7 +25,7 @@ const artifactDir = (group: string): string => {
 };
 
 describe("contract example artifacts", () => {
-  for (const group of ["hello-artifact", "artifact/notes-artifact", "artifact/shop-artifact"]) {
+  for (const group of ["hello-artifact", "artifact/notes-artifact", "artifact/shop-artifact", "artifact/modules-artifact"]) {
     test(`${group} is valid and its directory name is its hash`, () => {
       const dir = artifactDir(group);
       const result = checkArtifactFiles(readTree(dir), { expectedHash: dir.split("/").pop() as string, tier: TIERS.free });
@@ -45,6 +45,18 @@ describe("contract example artifacts", () => {
     const result = checkArtifactFiles(readTree(dir), { expectedHash: dir.split("/").pop() as string });
     expect(result.violations.map((v) => v.rule)).toContain("V14");
   });
+
+  // Artifact 1.1 (#227): rules on the files of an artifact with modules.
+  for (const [group, rule] of [
+    ["artifact/broken-module-migrations-artifact", "V19"],
+    ["artifact/broken-override-artifact", "V20"],
+  ] as const) {
+    test(`${group} is rejected for ${rule}`, () => {
+      const dir = artifactDir(group);
+      const result = checkArtifactFiles(readTree(dir), { expectedHash: dir.split("/").pop() as string });
+      expect(result.violations.map((v) => v.rule)).toEqual([rule]);
+    });
+  }
 
   test("hash vectors", () => {
     const vectors = JSON.parse(readFileSync(join(EXAMPLES, "hash-vectors.json"), "utf8")) as {
@@ -76,6 +88,31 @@ describe("single-file examples", () => {
   test("the worked route table passes V13", () => {
     const table = JSON.parse(readFileSync(join(EXAMPLES, "hello-artifact/route-table.json"), "utf8")) as Json;
     expect(checkRouteTable(table)).toEqual([]);
+  });
+});
+
+describe("modules (artifact 1.1)", () => {
+  const modules = (): Map<string, Uint8Array> => readTree(artifactDir("artifact/modules-artifact"));
+
+  test("V1: policies/ and overrides/ stay reserved in an artifact without modules", () => {
+    const files = readTree(artifactDir("artifact/shop-artifact"));
+    files.set("policies/auth/default.cedar", new Uint8Array(1));
+    files.set("overrides.json", new TextEncoder().encode("{}"));
+    const v1 = checkArtifactFiles(files).violations.filter((v) => v.rule === "V1").map((v) => v.path);
+    expect(v1).toEqual(["policies/auth/default.cedar", "overrides.json"]);
+  });
+
+  test("V18: a policy file of a module that is not installed", () => {
+    const files = modules();
+    files.set("policies/billing/default.cedar", new Uint8Array(1));
+    expect(checkArtifactFiles(files).violations.map(formatViolation)).toEqual(['V18: policies/billing/default.cedar: module "billing" is not in modules']);
+  });
+
+  test("V19: migrations of a module that is not installed", () => {
+    const files = modules();
+    files.set("migrations/billing/001_init.sql", new TextEncoder().encode("select 1;\n"));
+    const rules = checkArtifactFiles(files).violations.map((v) => v.rule);
+    expect(rules).toContain("V19");
   });
 });
 

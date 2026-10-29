@@ -1,0 +1,6 @@
+[module]
+name = "billing"
+version = "1.0.0"
+
+[dependencies]
+auth = "^1.0"

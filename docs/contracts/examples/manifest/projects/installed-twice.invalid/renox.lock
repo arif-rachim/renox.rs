@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "auth"
+version = "1.0.0"
+source = "path:modules/auth"
+hash = "913609f186c9d0d2223d120f28d1cf41543223882b062278c7ba0828be517eb5"
+isolation = "shared"
+mount = "/auth"
+dependencies = []
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

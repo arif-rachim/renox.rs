@@ -133,7 +133,7 @@ Extraction streams the tar and stops at the **first** violation of the upload ru
 | T7 | The same path appears twice, or a path appears as both a file and a directory | — |
 | T8 | Wall-clock time for receiving and extracting the body | 30 s |
 
-After extraction the shared validation package (`packages/artifact-validate`, the same code `renox check` runs, #52) applies V1–V12 and V14–V16 to the tree (artifact versions 0 and 1) and V10 against the tenant's tier, then the bundle-hygiene rules of #115 (the same rule set `renox build` applies):
+After extraction the shared validation package (`packages/artifact-validate`, the same code `renox check` runs, #52) applies V1–V12 and V14–V22 to the tree (artifact versions 0, 1, and 1.1; V17–V22 are the module rules of `artifact.md` 1.1, #227, without V17's lock match and V20's original hashes, which need `renox.lock` and the module trees that only `renox build` has) and V10 against the tenant's tier, then the bundle-hygiene rules of #115 (the same rule set `renox build` applies):
 
 | # | Rule | Applies to |
 | --- | --- | --- |
@@ -150,7 +150,7 @@ Outcomes:
 | --- | --- | --- | --- |
 | New hash, valid | 201 | `Deployment`, state `validated` | Created: `uploaded` → `validated`; permissions from the manifest recorded as approved; the tar stored at `artifacts/<hash>.tar` |
 | Hash already has a deployment in this app that is not `rejected` (any state up to `pruned`) | 200 | The existing `Deployment`, unchanged | None. A `pruned` deployment is revived to `uploaded` → `validated` and its object re-stored |
-| Invalid | 422 `RENOX_DEPLOY_REJECTED` | `details`: every V violation found (at most 50), or the one T violation that stopped extraction | Created or replaced in state `rejected` with `violations`; no object stored |
+| Invalid | 422 `RENOX_DEPLOY_REJECTED` | `details`: every V violation found (V1–V22, at most 50), or the one T violation that stopped extraction | Created or replaced in state `rejected` with `violations`; no object stored |
 | Re-upload of a `rejected` hash | as above | — | `rejected` → `uploaded`, validated again (a tier change can make V10 pass) |
 
 Storage: the object key is `artifacts/<hash>.tar` (the uncompressed tar, so a node does not need gzip), written once with a conditional put and never overwritten. The same bytes uploaded by two tenants are one object; nothing in a response tells a tenant whether another tenant already stored a hash. Objects are deleted only when no deployment of any tenant in a state other than `pruned` refers to the hash.

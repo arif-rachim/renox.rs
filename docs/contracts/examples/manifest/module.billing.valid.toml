@@ -1,0 +1,47 @@
+# The billing manifest of docs/10-modules.md, with permissions.slots (MF8) and
+# imports (MF7) added.
+[module]
+name = "billing"
+version = "1.2.0"
+
+[dependencies]
+auth = "^1.0"
+org = "^1.0"
+
+[config]
+provider = { type = "enum", values = ["stripe", "checkout", "telr", "paytabs", "ngenius"] }
+currency = { type = "string", default = "AED", max_length = 3 }
+
+[permissions]
+network = ["api.stripe.com", "api.checkout.com", "secure.telr.com", "secure.paytabs.com", "api-gateway.ngenius-payments.com"]
+tables = "billing__*"
+secrets = ["BILLING_PROVIDER_KEY"]
+slots = ["admin.sidebar"]
+
+[exports]
+views = ["billing__public_user_plans_v1"]
+
+[exports.services]
+getActivePlan = "The user's active plan, or null"
+createInvoice = "Creates an invoice for an order in the current transaction"
+
+[exports.events."billing.invoice_paid"]
+payload = { type = "object", required = ["invoice_id", "user_id", "amount"], properties = { invoice_id = { type = "string" }, user_id = { type = "string" }, amount = { type = "integer", minimum = 0 } } }
+
+[imports]
+services = ["auth.currentUser", "org.currentOrg"]
+views = ["auth__public_users_v1"]
+
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-menu.html"
+requires = "invoice.read"
+
+[[tools]]
+name = "create_invoice"
+file = "tools/create-invoice.ts"
+action = "invoice.create"
+confirm = false
+
+[authz]
+actions = ["invoice.read", "invoice.create"]

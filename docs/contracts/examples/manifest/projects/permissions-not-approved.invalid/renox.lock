@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "billing"
+version = "1.2.0"
+source = "path:modules/billing"
+hash = "d63919c5b9485ac031eed966f5f326af3be636ea6193217e7ddc9f38a0ecb96a"
+isolation = "shared"
+mount = "/billing"
+dependencies = []
+config = {  }
+approved = { network = ["secure.telr.com"], secrets = [], slots = [], hooks = [] }

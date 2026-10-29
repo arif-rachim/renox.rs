@@ -1,0 +1,15 @@
+# [expect: MF9] requires names an action the module does not define in [authz]
+[module]
+name = "storage"
+version = "0.1.0"
+
+[permissions]
+slots = ["admin.sidebar"]
+
+[[slots]]
+name = "admin.sidebar"
+template = "partials/menu.html"
+requires = "file.read"
+
+[authz]
+actions = ["file.upload"]

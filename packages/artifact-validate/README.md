@@ -4,7 +4,7 @@ One implementation of the artifact rules, shared by the CLI (`renox check`, `ren
 
 | Rules | Source | Code |
 | --- | --- | --- |
-| V1–V16 (the artifact tree) | [`docs/contracts/artifact.md`](../../docs/contracts/artifact.md) section 6 | `src/artifact.ts`, `src/schema.ts`, `src/paths.ts` |
+| V1–V22 (the artifact tree; V17–V22 are the modules of artifact 1.1, #227) | [`docs/contracts/artifact.md`](../../docs/contracts/artifact.md) section 6 | `src/artifact.ts`, `src/schema.ts`, `src/paths.ts` |
 | T1–T8 (the upload tarball) | [`docs/contracts/deploy-api.md`](../../docs/contracts/deploy-api.md) section 4 | `src/tar.ts` |
 | H1 forbidden files, H2 secrets (bundle hygiene, #115) | `docs/05-tenant-lifecycle.md` "Bundle hygiene"; `docs/24-threat-model.md` sections B and C | `src/hygiene.ts`, `src/secrets.ts` |
 
