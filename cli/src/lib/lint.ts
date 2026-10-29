@@ -1,7 +1,9 @@
 // `renox check` source lints (docs/12-developer-experience.md, "renox
 // check"): SQL built by interpolation or concatenation, literal fetch URLs
 // whose host is not declared in permissions.network, and handlers that write
-// to global scope (docs/16-risks.md, "Global state leaking between requests").
+// to global scope (docs/16-risks.md, "Global state leaking between requests"),
+// and redirects to a target taken from the request (docs/24-threat-model.md,
+// "Open redirect via `next`/`return_to`").
 //
 // A small tokenizer, not a parser: it understands comments, strings, and
 // template literals (with nested `${}`), which is what the rules need. The
@@ -12,7 +14,7 @@ export interface Finding {
   line: number;
   column: number;
   /** `secret` and `forbidden-file` come from the bundle-hygiene rules (#115, secrets.ts and build.ts). */
-  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "secret" | "forbidden-file";
+  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "no-unsafe-redirect" | "secret" | "forbidden-file";
   severity: "error" | "warning";
   message: string;
 }
@@ -451,6 +453,113 @@ export function lintGlobalState(src: string, file: string): Finding[] {
     if (!topLevel.has(t.text) || shadowed(t.text)) continue;
     const prefix = prev?.type === "punct" && (prev.text === "+" || prev.text === "-") && tokens[k - 2]?.text === prev.text && adjacent(tokens, k - 2, k - 1);
     if (writeOp(tokens, k + 1) || prefix) report(t, `module-level binding ${t.text} assigned inside a function: ${advice}`);
+  }
+  return out;
+}
+
+/** Names whose value comes from the request: query, form, route params, headers, body. */
+const REQUEST_INPUT = new Set(["searchParams", "form", "formData", "params", "query", "headers", "body", "json", "cookies", "referer", "referrer"]);
+/** Calls that make a redirect target safe (`renox` SDK, sdk/src/redirect.ts). */
+const REDIRECT_SANITIZERS = new Set(["safeRedirectTarget"]);
+
+/** Tokens of the expression starting at `a`: up to `,` `;` or a closing bracket at depth 0, or a line break that ends the statement. */
+function expressionAt(src: string, tokens: Token[], a: number, stopAtComma: boolean): Token[] {
+  const out: Token[] = [];
+  let depth = 0;
+  for (let j = a; j < tokens.length; j++) {
+    const t = tokens[j] as Token;
+    const prev = tokens[j - 1];
+    if (depth === 0 && j > a && prev && src.slice(prev.start + prev.text.length, t.start).includes("\n")) {
+      const cont = t.type === "punct" && ".?:+-*/|&".includes(t.text);
+      const prevCont = prev.type === "punct" && "=(,?:+-*/|&".includes(prev.text);
+      if (!cont && !prevCont) break;
+    }
+    if (t.type === "punct") {
+      if ("([{".includes(t.text)) depth++;
+      else if (")]}".includes(t.text)) {
+        if (depth === 0) break;
+        depth--;
+      } else if (depth === 0 && (t.text === ";" || (stopAtComma && t.text === ","))) break;
+    }
+    out.push(t);
+  }
+  return out;
+}
+
+const sanitized = (expr: Token[]): boolean =>
+  expr.some((t, i) => t.type === "ident" && (REDIRECT_SANITIZERS.has(t.text) || (t.text === "safe" && expr[i - 1]?.text === "." && expr[i - 2]?.text === "redirect")));
+
+/**
+ * `no-unsafe-redirect` (error): a redirect whose target comes from the
+ * request (`url.searchParams`, `form`, `params`, `headers`, the body, or a
+ * variable assigned from one of them) without `redirect.safe()` or
+ * `safeRedirectTarget()`: `Response.redirect(next)`, a `location` header in
+ * a `Response` init, and `headers.set("location", next)`. Taint is followed
+ * through `const`/`let`/`var` declarations in the same file, not through
+ * function calls or object properties.
+ */
+export function lintRedirect(src: string, file: string): Finding[] {
+  const tokens = tokenize(src);
+  const tainted = new Set<string>();
+  const taintedName = (name: string): boolean => REQUEST_INPUT.has(name) || tainted.has(name);
+  // A template is tainted when an interpolation reads request input, unless
+  // it starts with a fixed path of the app (`/items/${id}` stays on the app).
+  const taintedTemplate = (text: string): boolean =>
+    !/^`\/[^/\\$]/u.test(text) && [...text.matchAll(/\$\{([^}]*)\}/gu)].some((m) => (m[1] ?? "").match(/[A-Za-z_$][\w$]*/gu)?.some(taintedName));
+  const isTainted = (expr: Token[]): boolean =>
+    !sanitized(expr) &&
+    expr.some(
+      (t, i) =>
+        (t.type === "ident" && (REQUEST_INPUT.has(t.text) || (tainted.has(t.text) && expr[i - 1]?.text !== "."))) ||
+        (t.type === "template" && taintedTemplate(t.text)),
+    );
+  // Declarations, in source order: `const next = url.searchParams.get("next")`.
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k] as Token;
+    if (t.type !== "ident" || !DECL.has(t.text) || tokens[k - 1]?.text === ".") continue;
+    let eq = k + 1;
+    let depth = 0;
+    for (; eq < tokens.length; eq++) {
+      const x = tokens[eq]?.text ?? "";
+      if ("([{".includes(x)) depth++;
+      else if (")]}".includes(x)) depth--;
+      else if (depth === 0 && (x === ";" || x === "=")) break;
+    }
+    if (tokens[eq]?.text !== "=" || tokens[eq + 1]?.text === "=" || tokens[eq + 1]?.text === ">") continue;
+    if (isTainted(expressionAt(src, tokens, eq + 1, false))) for (const n of declaredNames(src, tokens, k)) tainted.add(n);
+  }
+  const out: Finding[] = [];
+  const report = (at: Token, what: string): void => {
+    const { line, column } = position(src, at.start);
+    out.push({
+      file,
+      line,
+      column,
+      rule: "no-unsafe-redirect",
+      severity: "error",
+      message: `${what} with a target taken from the request: an open redirect; use redirect.safe(target, { allow }) from "renox"`,
+    });
+  };
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k] as Token;
+    // Response.redirect(<target>)
+    if (t.text === "Response" && tokens[k + 1]?.text === "." && tokens[k + 2]?.text === "redirect" && tokens[k + 3]?.text === "(") {
+      if (isTainted(firstArgument(tokens, k + 3))) report(t, "Response.redirect()");
+      continue;
+    }
+    // { location: <target> } / { "Location": <target> }
+    const key = t.type === "string" ? t.text.slice(1, -1) : t.type === "ident" ? t.text : "";
+    if (key.toLowerCase() === "location" && tokens[k + 1]?.text === ":" && (tokens[k - 1]?.text === "{" || tokens[k - 1]?.text === ",")) {
+      if (isTainted(expressionAt(src, tokens, k + 2, true))) report(t, "a Location header");
+      continue;
+    }
+    // headers.set("location", <target>) / .append(...)
+    if ((t.text === "set" || t.text === "append") && tokens[k - 1]?.text === "." && tokens[k + 1]?.text === "(") {
+      const name = tokens[k + 2];
+      if (name?.type === "string" && name.text.slice(1, -1).toLowerCase() === "location" && tokens[k + 3]?.text === ",") {
+        if (isTainted(expressionAt(src, tokens, k + 4, true))) report(t, `${t.text}("location")`);
+      }
+    }
   }
   return out;
 }

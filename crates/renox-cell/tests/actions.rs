@@ -229,6 +229,14 @@ async fn http(
 
 const FORM: (&str, &str) = ("content-type", "application/x-www-form-urlencoded");
 
+/// The `_csrf` value of the first form in `body`.
+fn rendered_token(body: &str) -> String {
+    let needle = "name=\"_csrf\" value=\"";
+    let start = body.find(needle).expect("csrf field") + needle.len();
+    let len = body[start..].find('"').unwrap();
+    body[start..start + len].to_string()
+}
+
 fn count(body: &str) -> String {
     let start = body.find("id=\"cart-badge\"").expect("badge") + "id=\"cart-badge\"".len();
     let rest = &body[start..];
@@ -261,7 +269,7 @@ meter_flush_ms = 50
     let addr = worker.addr;
 
     // GET: a fresh session and the double-submit cookie; the form carries
-    // the same token.
+    // the same token, masked for this response (BREACH, #111).
     let first = http(addr, "GET", "/cart", &[], "").await;
     assert_eq!(first.status, 200, "{}", first.body);
     let cookies = first.set_cookies();
@@ -272,12 +280,12 @@ meter_flush_ms = 50
     assert!(cookies[0].contains("SameSite=Lax") && cookies[0].contains("Path=/"));
     let csrf = cookies[1].split(';').next().unwrap().to_string();
     let token = csrf.strip_prefix("__Host-renox_csrf=").unwrap().to_string();
-    assert!(
-        first
-            .body
-            .contains(&format!("name=\"_csrf\" value=\"{token}\"")),
-        "{}",
-        first.body
+    let rendered = rendered_token(&first.body);
+    assert_ne!(rendered, token, "the body never carries the cookie's bytes");
+    assert!(!first.body.contains(&token), "{}", first.body);
+    assert_eq!(
+        renox_cell::pages::session::unmask_token(&rendered).as_deref(),
+        Some(token.as_str())
     );
     assert!(first.body.contains("action=\"?/add\" hx-post=\"?/add\""));
     assert_eq!(count(&first.body), "0");
@@ -319,7 +327,8 @@ meter_flush_ms = 50
     )
     .await;
     assert_eq!(r.status, 403);
-    let body = format!("sku=a&_csrf={token}");
+    // What a browser submits: the masked token of the rendered form.
+    let body = format!("sku=a&_csrf={rendered}");
     let r = http(addr, "POST", "/cart?/add", &[("cookie", &sid), FORM], &body).await;
     assert_eq!(r.status, 403);
     assert_eq!(

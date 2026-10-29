@@ -94,14 +94,18 @@ test.skipIf(!worker)(
       // Detail.
       const detail = await (await fetch(`${base}/products/42`, { headers: { cookie: jar } })).text();
       expect(detail).toContain(`>${one.name}</h1>`);
-      expect(detail).toContain(`name="_csrf" value="${token}"`);
+      // The form carries the token masked for this response (BREACH, #111),
+      // never the cookie's bytes; the masked value is what a browser posts.
+      const rendered = /name="_csrf" value="([^"]+)"/u.exec(detail)?.[1] ?? "";
+      expect(rendered.length).toBe(86);
+      expect(detail).not.toContain(token);
       expect((await fetch(`${base}/products/4242`)).status).toBe(404);
 
       // addToCart through htmx: the product fragment, then the badge out of band.
       const add = await fetch(`${base}/products/42?/addToCart`, {
         method: "POST",
         headers: { cookie: jar, "content-type": "application/x-www-form-urlencoded", "hx-request": "true", "hx-target": "product" },
-        body: `_csrf=${token}&quantity=2`,
+        body: `_csrf=${rendered}&quantity=2`,
       });
       expect(add.status).toBe(200);
       const swapped = await add.text();

@@ -1,7 +1,7 @@
 // renox check [--secrets] [--security]: renox.toml schema, route conflicts,
 // template diagnostics, manifest schema (by building in memory), SQL
 // interpolation lint, undeclared fetch hosts, handlers that write to global
-// scope, and the bundle-hygiene rules (#115): secrets in what the build
+// scope, redirects to a target from the request (#111), and the bundle-hygiene rules (#115): secrets in what the build
 // ships, forbidden files in public/. `--secrets` runs only the secret scan;
 // `--security` also prints the effective headers per route (#47).
 // `--target <hash | artifact dir>` (#96) warns about the columns and tables
@@ -16,7 +16,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CliError, EXIT, location, UserError } from "../errors.ts";
 import { artifactsDir, buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
-import { type Finding, lintFetch, lintGlobalState, lintSql } from "../lib/lint.ts";
+import { type Finding, lintFetch, lintGlobalState, lintRedirect, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
 import { securityReport } from "../check/security.ts";
 import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
@@ -76,7 +76,7 @@ export async function check(project: string, options: CheckOptions = {}): Promis
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");
-    findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f));
+    findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f), ...lintRedirect(src, f));
   }
   return { errors, findings };
 }
