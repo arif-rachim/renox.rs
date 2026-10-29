@@ -1,0 +1,7 @@
+[
+  { "description": "a signed-in user enters", "principal": { "type": "User", "id": "u_lina" }, "action": "room.enter", "expected": "allow" },
+  { "description": "an anonymous visitor does not", "principal": { "type": "Anonymous", "id": "anonymous" }, "action": "room.enter", "expected": "deny" },
+  { "description": "a public room", "principal": { "type": "User", "id": "u_lina" }, "action": "room.join", "resource": { "type": "Room", "id": "general", "private": 0, "member": "no" }, "expected": "allow" },
+  { "description": "a private room, not a member", "principal": { "type": "User", "id": "u_lina" }, "action": "room.join", "resource": { "type": "Room", "id": "team", "private": 1, "member": "no" }, "expected": "deny" },
+  { "description": "a private room, a member", "principal": { "type": "User", "id": "u_sara" }, "action": "room.join", "resource": { "type": "Room", "id": "team", "private": 1, "member": "yes" }, "expected": "allow" }
+]

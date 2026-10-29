@@ -108,6 +108,8 @@ export interface TestApp {
   as(user: string): TestApp;
   /** Read a cookie of this user's jar, or plant one (an attacker's token, a forged state). */
   cookie(name: string, value?: string): string | undefined;
+  /** Open a WebSocket route as this user (its cookies, the app's origin); read messages with `next`. */
+  ws(path: string, options?: { headers?: Record<string, string> }): Promise<WsStream>;
   /** Open an SSE route (`GET`, `Accept: text/event-stream`) as this user; read its events with `next`. */
   sse(path: string, options?: { headers?: Record<string, string> }): Promise<SseStream>;
   /** Tenant log lines so far. */
@@ -205,6 +207,62 @@ function sseStream(res: Response, abort: AbortController): SseStream {
   };
 }
 
+/** An open WebSocket of a test. */
+export interface WsStream {
+  /** The next text message, or null when none arrives within `ms` (default 2000) or the socket closed. */
+  next(ms?: number): Promise<string | null>;
+  send(text: string): void;
+  /** Resolves with the close code (1008 for a refused subscribe, 1011 for a throwing `open`). */
+  closed: Promise<number>;
+  close(): void;
+}
+
+function wsStream(socket: WebSocket): Promise<WsStream> {
+  const queue: string[] = [];
+  const waiters: ((m: string | null) => void)[] = [];
+  let ended = false;
+  let resolveClosed: (code: number) => void = () => {};
+  const closed = new Promise<number>((r) => (resolveClosed = r));
+  socket.addEventListener("message", (e) => {
+    const text = typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data as ArrayBuffer);
+    const w = waiters.shift();
+    if (w) w(text);
+    else queue.push(text);
+  });
+  socket.addEventListener("close", (e) => {
+    ended = true;
+    while (waiters.length) (waiters.shift() as (m: string | null) => void)(null);
+    resolveClosed(e.code);
+  });
+  const stream: WsStream = {
+    next(ms = 2000) {
+      const m = queue.shift();
+      if (m !== undefined) return Promise.resolve(m);
+      if (ended) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        const w = (x: string | null) => {
+          clearTimeout(timer);
+          resolve(x);
+        };
+        const timer = setTimeout(() => {
+          const i = waiters.indexOf(w);
+          if (i >= 0) waiters.splice(i, 1);
+          resolve(null);
+        }, ms);
+        waiters.push(w);
+      });
+    },
+    send: (text) => socket.send(text),
+    closed,
+    close: () => socket.close(),
+  };
+  return new Promise((resolve) => {
+    if (socket.readyState === WebSocket.OPEN) resolve(stream);
+    socket.addEventListener("open", () => resolve(stream));
+    socket.addEventListener("close", () => resolve(stream));
+  });
+}
+
 type Jar = Map<string, string>;
 
 function remember(jar: Jar, res: Response): void {
@@ -254,6 +312,15 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
     };
     const self: TestApp = {
       request: send,
+      async ws(path, o = {}) {
+        const jar = jarOf(user);
+        const headers: Record<string, string> = { host: w.host, origin: `https://${w.host}`, ...o.headers };
+        if (jar.size && o.headers?.cookie === undefined) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+        // Bun's WebSocket takes request headers (the cookie, the Host the cell routes by).
+        const socket = new WebSocket(`${w.base.replace(/^http/u, "ws")}${path}`, { headers } as unknown as string[]);
+        afterAll(() => socket.close());
+        return wsStream(socket);
+      },
       async sse(path, o = {}) {
         const jar = jarOf(user);
         const headers: Record<string, string> = { host: w.host, accept: "text/event-stream", ...o.headers };

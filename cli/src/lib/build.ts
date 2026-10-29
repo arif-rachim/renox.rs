@@ -237,22 +237,31 @@ function listFiles(dir: string, rel = "", skipped?: Skipped[]): string[] {
  * module's tree lives outside the app (a git cache, or `path:` elsewhere)
  * and has no node_modules of its own, so its code uses the app's SDK (#291:
  * auth's passkeys import `verifyAssertion`). Not installed in the app: the
- * bundler's own resolution, and its error.
+ * SDK next to this CLI; neither: the bundler's own resolution and error.
  */
 function appSdk(appRoot: string): BunPlugin {
   return {
     name: "renox-app-sdk",
     setup(build) {
       build.onResolve({ filter: /^renox(\/[A-Za-z0-9_-]+)?$/u }, (args) => {
-        try {
-          return { path: Bun.resolveSync(args.path, appRoot) };
-        } catch {
-          return undefined;
+        for (const from of [appRoot, CLI_SDK]) {
+          try {
+            return { path: Bun.resolveSync(args.path, from) };
+          } catch {
+            // Not installed there: the next place.
+          }
         }
+        return undefined;
       });
     },
   };
 }
+
+/**
+ * The SDK next to this CLI: an app that does not install `renox` itself
+ * (examples/chat) still builds modules that import its helpers.
+ */
+const CLI_SDK = resolve(import.meta.dir, "../../../sdk/src");
 
 /** A module to bundle: its id (`functions/...`, `pages/...`) and source file. */
 interface Entry {
