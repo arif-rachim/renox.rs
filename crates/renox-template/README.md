@@ -47,9 +47,10 @@ Every row of the syntax table in `docs/08-template-engine.md` has a fixture unde
 | `<x-name :prop="e" flag>`, `<slot />`, `<slot name="x">fallback</slot>`, `slot="x"` on a child | inlined: props bound with `{% with %}`; slot content runs in the caller's scope (shadowed names restored) | `component` |
 | `<r-props product="Product" compact="bool = false" />` | validated at the call site: unknown prop, missing required prop, a static value that is not a `bool`/`number`; a component that declares props may read only its props | `component` |
 | `<r-layout use="main">` | `{% extends "pages/_layouts/main" %}`; children in `{% block content %}`, `slot="x"` children in `{% block x %}`; a layout's `<slot />` / `<slot name="x">` are those blocks (also inside `<title>`) | `layout` |
-| `<r-slot name="admin.sidebar" />` | one `{% include %}` per provider in `CompileOptions::slots`, in order | `cross-module-slot` |
+| `<r-slot name="admin.sidebar" />` | one `{% include %}` per filler in `CompileOptions::slots`, in order; a filler with `requires` is wrapped in `{% if can("<action>", none) %}` (#232) | `cross-module-slot`, `modules` |
 | `r-can="action" :resource="x"`, `r-cannot` | `{% if can("action", x) %}` / `{% if not can(...) %}`; actions checked against `CompileOptions::actions` when given | `permission` |
 | `<billing:plan-badge>` | the module partial, or its `overrides/billing/...` replacement | `module-component` |
+| `modules/<m>/(pages\|partials)/….html` (#232, artifact 1.1) | template id `modules/<m>/…`, kind from the id without the prefix; `overrides/<m>/…` is compiled into that id instead; a module template's `<r-layout use="x">` finds `modules/<m>/pages/_layouts/x` before the app's | `modules` |
 | `<script>` / `<style>` | content literal (`{% raw %}` when it has delimiters); `nonce="{{ __renox.csp_nonce }}"` added | `script-style` |
 | `<x-form action="add">` | `<form method="post" action="?/add" hx-post="?/add" ...>` plus `<input type="hidden" name="_csrf" value="{{ __renox.csrf_token }}">`; other attributes kept (#41) | `render.rs::platform_components_carry_csrf_and_nonce` |
 | `<x-csrf />` | the hidden `_csrf` input alone, for hand-written forms | same |
@@ -120,7 +121,6 @@ The CLDR patterns for the two platform locales are written out in `src/filters/`
 ## Not covered yet
 
 - Built-in component `<x-image>` (storage module); module filters are accepted by name (`CompileOptions::filters`) but implemented by F4.
-- Module template ids and overrides of module pages and layouts (`artifact.md` Open 5, F4); slot providers from modules.
 - `<slot>` inside `<head>` other than in `<title>` (the HTML parser moves unknown elements out of `<head>`).
 - A layout using another layout.
 - The fragment cache.

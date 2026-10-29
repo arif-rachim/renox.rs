@@ -1,7 +1,16 @@
 ---
 source: crates/renox-template/tests/compile.rs
+assertion_line: 36
 expression: text
 ---
+== modules/billing/partials/invoice-link (Partial)
+
+<a class="mine" href="/billing/invoices/{{ id }}">Your invoice</a>
+
+== modules/billing/partials/plan-badge (Partial)
+
+<span class="plan" dir="auto">{{ user.plan }}</span>
+
 == pages/index (Page)
 <p>{% with __a1_0 = (user) %}{% with user = __a1_0 %}
 <span class="plan" dir="auto">{{ user.plan }}</span>

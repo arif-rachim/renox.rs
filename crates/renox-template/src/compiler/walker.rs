@@ -340,7 +340,17 @@ impl<'c, 'p> Emitter<'c, 'p> {
     /// `{% block content %}` and `slot="x"` children in `{% block x %}`.
     fn emit_layout_use(&mut self, ctx: &Ctx, node: &Handle) {
         let name = attr(node, "use").unwrap_or_default();
-        let id = format!("pages/_layouts/{name}");
+        // A module template uses its module's layout of that name, else the app's.
+        let module = self
+            .file
+            .strip_prefix("modules/")
+            .or_else(|| self.file.strip_prefix("overrides/"))
+            .and_then(|r| r.split_once('/'))
+            .map(|(m, _)| m.to_string());
+        let own = module
+            .map(|m| format!("modules/{m}/pages/_layouts/{name}"))
+            .filter(|id| self.cx.layouts.borrow().contains_key(id));
+        let id = own.unwrap_or_else(|| format!("pages/_layouts/{name}"));
         let valid = !name.is_empty()
             && name
                 .chars()
@@ -1238,9 +1248,18 @@ impl<'c, 'p> Emitter<'c, 'p> {
             .get(&name)
             .cloned()
             .unwrap_or_default();
-        for id in providers {
-            self.out
-                .push_str(&format!("{{% include {} %}}", attrs::string_literal(&id)));
+        for f in providers {
+            // A filler with `requires` renders only when the request may do
+            // that action (`r-can`'s check; false until F5 unless the
+            // renderer is given an action set).
+            let include = format!("{{% include {} %}}", attrs::string_literal(&f.template));
+            match &f.requires {
+                Some(action) => self.out.push_str(&format!(
+                    "{{% if {CAN_FN}({}, none) %}}{include}{{% endif %}}",
+                    attrs::string_literal(action)
+                )),
+                None => self.out.push_str(&include),
+            }
         }
     }
 

@@ -123,6 +123,18 @@ Since #161 the cell implements `docs/contracts/ops.md` 1.2.0 (`src/manager.rs`, 
 - **Meter at the end of the stream** (section 7, "When"): the record is written when the stream ends, whatever ended it. `wall_ms` runs to the end, `egress_bytes` counts the bytes handed to the connection after compression up to the stop, `http_status` is the status sent in the head, `status` the cause of the end.
 - **Shell before the loader resolves** (section 14, "Streaming the shell"): a full-page `GET` whose `load` is slower than `SHELL_DELAY` (50 ms, proposed) gets status 200, the page headers, and the shell (`PageRenderer::shell_of`: the output up to the template's first data read, cut back to the last complete tag) at once; the rest of the page follows when `load` returns. An error after the shell is rendered inside the stream (`error page rendered inside the stream`, `streamed: true`); a `Response` from `load` after the shell is `RENOX_INTERNAL` with `reason: "response_after_shell"`. Fragments, actions, `HEAD`, and loaders that finish within the delay are sent in one piece as before.
 
+## Modules (#232)
+
+An artifact 1.1 with installed modules (`docs/contracts/artifact.md`, "Modules") needs nothing special to render: the build has compiled module templates into `templates/modules/<name>/…`, with any tenant override compiled into the module's id, and the slot registry into the layouts' `<r-slot>` includes. The cell:
+
+- runs the migrations in `modules` order (each module under its own prefix, `renox_data::migrate_all`), then the app's, which may read every module's public views;
+- dispatches module routes like the app's: their paths already carry the `mount`, and the route's owner gives the loader its module ctx (`renox-runtime`);
+- gives the renderer the request's **action set** for `r-can` and slot fillers' `requires`. The set is empty until the policy engine (F5), unless the page loader's data has an `actions` array of action names (`src/render.rs`, `action_set`).
+
+Override drift is detected by `renox build` (#235), not here: the artifact carries the original's hash (`overrides.json`), but not the original file.
+
+Tests: `tests/modules_pages.rs`.
+
 ## Outbox delivery (#229)
 
 Each cell runs one delivery task (`src/outbox.rs`) for the durable events of `docs/contracts/ops.md` 1.3.0 section 15.4 (ADR D14):

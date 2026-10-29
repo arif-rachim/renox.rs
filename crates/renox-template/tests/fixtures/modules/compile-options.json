@@ -1,0 +1,1 @@
+{ "slots": { "app.header": ["modules/auth/partials/account-menu", { "template": "modules/billing/partials/plan", "requires": "billing.view" }] } }

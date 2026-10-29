@@ -10,8 +10,11 @@
 //! | --- | --- |
 //! | `pages/**/*.html` | template id `pages/...` (page, `_layouts/*` layout, `_error`, `_404`) |
 //! | `partials/<name>.html` | template id `partials/<name>`, and the component `<x-<name>>` |
-//! | `modules/<m>/partials/<name>.html` | the namespaced component `<m:<name>>` (inlined only; module template ids are F4) |
-//! | `overrides/<m>/partials/<name>.html` | replaces `modules/<m>/partials/<name>.html` |
+//! | `modules/<m>/(pages\|partials)/**/*.html` | template id `modules/<m>/...` (artifact 1.1; its kind follows from the id without the prefix), and for partials the namespaced component `<m:<name>>` |
+//! | `overrides/<m>/(pages\|partials)/**/*.html` | compiled instead of `modules/<m>/...` into that module's id (`artifact.md` 1.1, "Overrides") |
+//!
+//! A module template's `<r-layout use="x">` finds the module's own
+//! `modules/<m>/pages/_layouts/x` first, then the app's `pages/_layouts/x`.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -88,12 +91,58 @@ fn read_html(dir: &Path, rel: &str, project: &mut TemplateProject) -> std::io::R
     Ok(())
 }
 
+/// One filler of a slot (`artifact.md` 1.1, "Slots"): a partial, and the
+/// action a user needs to see it. Deserialises from a bare template id too.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(from = "FillerForm")]
+pub struct SlotFiller {
+    pub template: String,
+    /// Rendered only when `can(requires)` holds for the request (`r-can`'s
+    /// check); `None` always renders.
+    pub requires: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum FillerForm {
+    Id(String),
+    Full {
+        template: String,
+        #[serde(default)]
+        requires: Option<String>,
+    },
+}
+
+impl From<FillerForm> for SlotFiller {
+    fn from(f: FillerForm) -> SlotFiller {
+        match f {
+            FillerForm::Id(template) => SlotFiller::from(template),
+            FillerForm::Full { template, requires } => SlotFiller { template, requires },
+        }
+    }
+}
+
+impl From<String> for SlotFiller {
+    fn from(template: String) -> SlotFiller {
+        SlotFiller {
+            template,
+            requires: None,
+        }
+    }
+}
+
+impl From<&str> for SlotFiller {
+    fn from(template: &str) -> SlotFiller {
+        SlotFiller::from(template.to_string())
+    }
+}
+
 /// What the compiler knows beyond the template files.
 #[derive(Debug, Clone, Default)]
 pub struct CompileOptions {
-    /// Cross-module slot registry: slot name -> template ids of the partials
-    /// that fill it, in order (`<r-slot name="admin.sidebar" />`).
-    pub slots: BTreeMap<String, Vec<String>>,
+    /// Cross-module slot registry: slot name -> the partials that fill it,
+    /// in order (`<r-slot name="admin.sidebar" />`).
+    pub slots: BTreeMap<String, Vec<SlotFiller>>,
     /// The permission actions `r-can` may name. `None` skips the check
     /// (no policy set yet, F5).
     pub actions: Option<BTreeSet<String>>,
@@ -204,8 +253,21 @@ fn diag(file: &str, message: impl Into<String>) -> Diagnostic {
     }
 }
 
-/// `^(pages|partials)(/[A-Za-z0-9_.\[\]-]+)+$` (`artifact.md`, "Templates").
+/// `modules/<m>/<rest>` -> `(m, rest)`.
+pub(crate) fn module_of(id: &str) -> Option<(&str, &str)> {
+    let rest = id.strip_prefix("modules/")?;
+    let (m, rest) = rest.split_once('/')?;
+    let valid = !m.is_empty()
+        && m.len() <= 32
+        && m.starts_with(|c: char| c.is_ascii_lowercase())
+        && m.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    valid.then_some((m, rest))
+}
+
+/// `^(modules/<m>/)?(pages|partials)(/[A-Za-z0-9_.\[\]-]+)+$` (`artifact.md`, "Templates").
 fn is_template_id(id: &str) -> bool {
+    let id = module_of(id).map_or(id, |(_, rest)| rest);
     let mut segs = id.split('/');
     matches!(segs.next(), Some("pages" | "partials"))
         && id.contains('/')
@@ -228,47 +290,65 @@ impl Compiler {
     pub fn compile(&self, project: &TemplateProject) -> Result<CompiledTemplates, Vec<Diagnostic>> {
         let mut diags = Vec::new();
         let mut ids = BTreeMap::new();
+        // Template id -> the file it is compiled from (an override for a
+        // module template the tenant overrides).
+        let mut files: BTreeMap<String, String> = BTreeMap::new();
         for (path, _) in project.files() {
-            if let Some(id) = path.strip_suffix(".html")
-                && (path.starts_with("pages/") || path.starts_with("partials/"))
-            {
-                if !is_template_id(id) {
-                    diags.push(diag(path, format!("`{id}` is not a valid template id")));
-                    continue;
-                }
-                match TemplateKind::of_id(id) {
-                    Some(kind) => {
-                        ids.insert(id.to_string(), kind);
-                    }
-                    None => diags.push(diag(
-                        path,
-                        "files under pages/ starting with `_` are not routes: only _layouts/, _error.html and _404.html are known",
-                    )),
-                }
-            } else if let Some(rest) = path.strip_prefix("overrides/") {
-                let original = format!("modules/{rest}");
-                if project.get(&original).is_none() {
-                    diags.push(diag(
-                        path,
-                        format!("overrides `{original}`, which does not exist"),
-                    ));
-                }
-            } else if path.starts_with("modules/") {
-                if !path.contains("/partials/") {
-                    diags.push(diag(
-                        path,
-                        "module templates other than partials are not supported before F4",
-                    ));
-                }
-            } else {
+            let Some(id) = path.strip_suffix(".html") else {
                 diags.push(diag(
                     path,
                     "not a template path (pages/, partials/, modules/, overrides/)",
                 ));
+                continue;
+            };
+            let (id, file) = if let Some(rest) = id.strip_prefix("overrides/") {
+                let original = format!("modules/{rest}");
+                if project.get(&format!("{original}.html")).is_none() {
+                    diags.push(diag(
+                        path,
+                        format!("overrides `{original}.html`, which does not exist"),
+                    ));
+                    continue;
+                }
+                (original, path.to_string())
+            } else {
+                if project
+                    .get(&format!(
+                        "overrides/{}",
+                        path.strip_prefix("modules/").unwrap_or("")
+                    ))
+                    .is_some()
+                {
+                    // The override is compiled into this id instead.
+                    continue;
+                }
+                (id.to_string(), path.to_string())
+            };
+            let bare = module_of(&id).map_or(id.as_str(), |(_, rest)| rest);
+            if !(bare.starts_with("pages/") || bare.starts_with("partials/")) {
+                diags.push(diag(
+                    path,
+                    "not a template path (pages/, partials/, modules/<m>/pages|partials/, overrides/)",
+                ));
+                continue;
+            }
+            if !is_template_id(&id) {
+                diags.push(diag(path, format!("`{id}` is not a valid template id")));
+                continue;
+            }
+            match TemplateKind::of_id(&id) {
+                Some(kind) => {
+                    ids.insert(id.clone(), kind);
+                    files.insert(id, file);
+                }
+                None => diags.push(diag(
+                    path,
+                    "files under pages/ starting with `_` are not routes: only _layouts/, _error.html and _404.html are known",
+                )),
             }
         }
         for (name, providers) in &self.options.slots {
-            for id in providers {
+            for SlotFiller { template: id, .. } in providers {
                 if ids.get(id) != Some(&TemplateKind::Partial) {
                     diags.push(diag(
                         &format!("{id}.html"),
@@ -295,7 +375,7 @@ impl Compiler {
             .filter(|(_, k)| **k == TemplateKind::Layout)
             .chain(ids.iter().filter(|(_, k)| **k != TemplateKind::Layout));
         for (id, kind) in order {
-            let file = format!("{id}.html");
+            let file = files[id].clone();
             let doc = cx.doc(&file).expect("listed file exists");
             let mode = if *kind == TemplateKind::Layout {
                 Mode::Layout

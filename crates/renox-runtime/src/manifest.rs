@@ -596,6 +596,28 @@ fn check_templates(manifest: &Manifest, files: &[(String, PathBuf)]) -> Result<(
                 format!("template {id:?} has no file templates/{id}.jinja"),
             ));
         }
+        // artifact.md 1.1: a module's template ids are the app's rules
+        // under `modules/<name>/` (V14), for a listed module only (V18).
+        let id = match id.strip_prefix("modules/").and_then(|r| r.split_once('/')) {
+            Some((m, rest)) => {
+                let listed = manifest
+                    .modules
+                    .as_ref()
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|a| {
+                        a.iter()
+                            .any(|e| e.get("name").and_then(|n| n.as_str()) == Some(m))
+                    });
+                if !listed {
+                    return Err(load_err(
+                        "V18",
+                        format!("template {id:?} belongs to module {m:?}, which is not installed"),
+                    ));
+                }
+                rest
+            }
+            None => id.as_str(),
+        };
         let last = id.rsplit('/').next().unwrap_or("");
         let expected = if id.starts_with("partials/") {
             Some(TemplateKind::Partial)
@@ -631,7 +653,12 @@ fn check_page_route(manifest: &Manifest, r: &RouteDef) -> Result<(), LoadError> 
     let page = r.page().expect("page route");
     let name = format!("page {}", r.path);
     if let Some(module) = &page.module {
-        if !module.starts_with("pages/") || !manifest.code.entry.contains_key(module) {
+        // artifact.md 1.1: a module's page code is `modules/<name>/pages/...`.
+        let bare = module
+            .strip_prefix("modules/")
+            .and_then(|r| r.split_once('/'))
+            .map_or(module.as_str(), |(_, rest)| rest);
+        if !bare.starts_with("pages/") || !manifest.code.entry.contains_key(module) {
             return Err(load_err(
                 "V7",
                 format!("{name} names unknown page module {module:?}"),

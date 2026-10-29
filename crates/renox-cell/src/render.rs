@@ -146,6 +146,27 @@ pub struct Rendered {
     pub i18n_missing: Vec<(String, String)>,
 }
 
+/// The request's action set for `r-can` and slot fillers' `requires`
+/// (`artifact.md` 1.1, "Slots"). The policy engine is F5; until then the set
+/// is empty, so `can()` is false, unless the page loader's data carries an
+/// `actions` array of action names, which is then the set.
+fn action_set(data_json: &str) -> Option<Arc<renox_template::render::CanFn>> {
+    #[derive(serde::Deserialize)]
+    struct WithActions {
+        #[serde(default)]
+        actions: Option<Vec<String>>,
+    }
+    let actions: std::collections::BTreeSet<String> =
+        serde_json::from_str::<WithActions>(data_json)
+            .ok()
+            .and_then(|d| d.actions)?
+            .into_iter()
+            .collect();
+    Some(Arc::new(move |action: &str, _resource: &Value| {
+        actions.contains(action)
+    }))
+}
+
 impl PageRenderer {
     /// Loads `templates/<id>.jinja` for every `manifest.templates` key (the
     /// runtime has checked V14). `Ok(None)` when there are no templates.
@@ -361,6 +382,7 @@ impl PageRenderer {
         if let Some(now) = now_ms {
             cx.now_ms = now;
         }
+        cx.can = action_set(&page.data_json);
         let limits = RenderLimits::DEFAULT;
         let main: Vec<&str> = page.fragment.as_deref().into_iter().collect();
         let result = if page.oob_fragments.is_empty() {

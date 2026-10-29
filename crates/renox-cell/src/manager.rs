@@ -23,7 +23,8 @@ use bytes::Bytes;
 use http::{Request, Response};
 use http_body_util::BodyExt;
 use renox_data::{
-    DbError, DbOptions, MigrationError, MigrationFile, TenantDb, migrate_with_checksums,
+    DbError, DbOptions, MigrationError, MigrationFile, ModuleMigrations, TenantDb, migrate_all,
+    migrate_with_checksums,
 };
 use renox_gateway::compress::StreamEncoder;
 use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus, compress};
@@ -1483,18 +1484,13 @@ fn meter_status(s: RuntimeStatus) -> MeterStatus {
 
 /// Apply the artifact's app migrations (`migrations/app/*.sql`, checked
 /// against `migrations/checksums.json`) on the DB thread.
-async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellError> {
-    let dir = artifact_dir.join("migrations");
-    let app = dir.join("app");
-    if !app.is_dir() {
-        return Ok(());
-    }
-    let sums_text = std::fs::read(dir.join("checksums.json"))
-        .map_err(|_| artifact_err("migrations/checksums.json missing"))?;
-    let sums: ChecksumsFile = serde_json::from_slice(&sums_text)
-        .map_err(|_| artifact_err("migrations/checksums.json invalid"))?;
+/// The `.sql` files of `migrations/<module>/`; none when it is absent.
+fn migration_files(dir: &Path) -> Result<Vec<MigrationFile>, CellError> {
     let mut files = Vec::new();
-    let entries = std::fs::read_dir(&app).map_err(|e| artifact_err(format!("migrations: {e}")))?;
+    if !dir.is_dir() {
+        return Ok(files);
+    }
+    let entries = std::fs::read_dir(dir).map_err(|e| artifact_err(format!("migrations: {e}")))?;
     for entry in entries {
         let entry = entry.map_err(|e| artifact_err(format!("migrations: {e}")))?;
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -1505,14 +1501,97 @@ async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellEr
             .map_err(|e| artifact_err(format!("migration {name}: {e}")))?;
         files.push(MigrationFile { name, sql });
     }
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(files)
+}
+
+/// The installed modules of the artifact, `(name, dependencies)` in the
+/// manifest's (topological) order (`artifact.md` 1.1, "The `modules` field").
+fn installed_modules(artifact_dir: &Path) -> Result<Vec<(String, Vec<String>)>, CellError> {
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        name: String,
+        #[serde(default)]
+        dependencies: Vec<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Modules {
+        #[serde(default)]
+        modules: Option<serde_json::Value>,
+    }
+    let raw = std::fs::read(artifact_dir.join("manifest.json"))
+        .map_err(|_| artifact_err("manifest.json cannot be read"))?;
+    let m: Modules =
+        serde_json::from_slice(&raw).map_err(|_| artifact_err("manifest.json invalid"))?;
+    match m.modules {
+        Some(serde_json::Value::Array(list)) => list
+            .into_iter()
+            .map(|v| {
+                serde_json::from_value::<Entry>(v)
+                    .map(|e| (e.name, e.dependencies))
+                    .map_err(|_| artifact_err("manifest.json: invalid modules entry"))
+            })
+            .collect(),
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// Run the artifact's migration plan (`artifact.md` 1.1): each installed
+/// module in the manifest's order under its own prefix, then the app's
+/// (`renox_data::migrate_all`, #228). Without modules, the app's alone.
+async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellError> {
+    let dir = artifact_dir.join("migrations");
+    let modules = installed_modules(artifact_dir)?;
+    let app = dir.join("app");
+    if !app.is_dir() && modules.is_empty() {
+        return Ok(());
+    }
+    let mut plan = Vec::new();
+    for (name, deps) in &modules {
+        plan.push(ModuleMigrations {
+            module: name.clone(),
+            dependencies: deps.clone(),
+            files: migration_files(&dir.join(name))?,
+        });
+    }
+    if plan.iter().all(|m| m.files.is_empty()) && !app.is_dir() {
+        return Ok(());
+    }
+    let sums_text = std::fs::read(dir.join("checksums.json"))
+        .map_err(|_| artifact_err("migrations/checksums.json missing"))?;
+    let sums: ChecksumsFile = serde_json::from_slice(&sums_text)
+        .map_err(|_| artifact_err("migrations/checksums.json invalid"))?;
     let checksums = sums.files;
+    let files = migration_files(&app)?;
+    if modules.is_empty() {
+        let report = db
+            .call(move |db| migrate_with_checksums(db, "app", &files, &checksums))
+            .await
+            .map_err(CellError::Db)?
+            .map_err(CellError::Migration)?;
+        if !report.applied.is_empty() {
+            tracing::info!(applied = ?report.applied, "migrations applied");
+        }
+        return Ok(());
+    }
+    // The app's migrations run last and may read every module's public views.
+    plan.push(ModuleMigrations {
+        module: "app".into(),
+        dependencies: modules.iter().map(|(n, _)| n.clone()).collect(),
+        files,
+    });
     let report = db
-        .call(move |db| migrate_with_checksums(db, "app", &files, &checksums))
+        .call(move |db| migrate_all(db, &plan, Some(&checksums)))
         .await
         .map_err(CellError::Db)?
-        .map_err(CellError::Migration)?;
-    if !report.applied.is_empty() {
-        tracing::info!(applied = ?report.applied, "migrations applied");
+        .map_err(|e| {
+            tracing::error!(module = %e.module, "module migration failed");
+            CellError::Migration(e.error)
+        })?;
+    for (module, r) in &report.modules {
+        if !r.applied.is_empty() {
+            tracing::info!(module = %module, applied = ?r.applied, "migrations applied");
+        }
     }
     Ok(())
 }

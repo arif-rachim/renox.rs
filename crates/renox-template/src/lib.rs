@@ -38,7 +38,7 @@ pub mod transpile;
 pub mod wasm;
 
 #[cfg(feature = "compiler")]
-pub use compiler::{CompileOptions, Compiler, TemplateProject};
+pub use compiler::{CompileOptions, Compiler, SlotFiller, TemplateProject};
 pub use error_page::ErrorPage;
 /// The minijinja version the renderer is built on (for `Value`).
 #[cfg(feature = "render")]
@@ -95,6 +95,8 @@ impl TemplateKind {
     /// The kind a template id must have (V14), or `None` for an id that is
     /// no template (`pages/_other`).
     pub fn of_id(id: &str) -> Option<TemplateKind> {
+        // A module's ids are the app's rules under `modules/<name>/`.
+        let id = compiler::module_of(id).map_or(id, |(_, rest)| rest);
         let last = id.rsplit('/').next().unwrap_or("");
         if id.starts_with("partials/") {
             Some(TemplateKind::Partial)
