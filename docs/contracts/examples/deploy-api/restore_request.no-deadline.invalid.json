@@ -1,0 +1,1 @@
+{ "$comment": "invalid: a restore always carries the deadline the control plane waits for [expect: deadline_ms]", "type": "restore_request", "schema_version": 0, "tenant_id": "t_hello", "database": "t_hello", "timestamp": null, "reason": "failover" }

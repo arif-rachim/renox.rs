@@ -1,0 +1,1 @@
+{ "type": "move_result", "schema_version": 0, "node_id": "node-dxb-01", "tenant_id": "t_hello", "target": "microvm", "state": "failed", "hook_exit_code": 75 }

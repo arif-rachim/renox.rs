@@ -1,0 +1,1 @@
+{ "$comment": "invalid: moved means the hook exited 0 [expect: const]", "type": "move_result", "schema_version": 0, "node_id": "node-dxb-01", "tenant_id": "t_hello", "target": "microvm", "state": "moved", "hook_exit_code": 75 }

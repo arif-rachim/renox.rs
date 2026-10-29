@@ -1,0 +1,1 @@
+{ "type": "replication_status", "schema_version": 0, "node_id": "node-dxb-01", "tenant_id": "t_hello", "database": "t_hello", "replication": "none", "state": "off", "replica": null, "last_sync_at": null, "lag_seconds": null, "retention_hours": 0, "snapshot_interval_seconds": 0, "generations": [], "db": { "size_bytes": 4096, "quota_bytes": 104857600, "wal_bytes": 0 } }

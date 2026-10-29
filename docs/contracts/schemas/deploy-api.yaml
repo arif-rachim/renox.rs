@@ -1,4 +1,4 @@
-# Renox deploy API, contract version 0.2 (F3).
+# Renox deploy API, contract version 0.3 (F6).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renox deploy API
-  version: 0.2.0
+  version: 0.3.0
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -48,6 +48,10 @@ tags:
     description: "Meter and log ingestion from nodes"
   - name: admin
     description: "Operator endpoints"
+  - name: backups
+    description: "Replication status, export, point-in-time restore, import (section 14, 0.3)"
+  - name: ops
+    description: "Operator actions on tenants: tier, move (section 17, 0.3)"
 
 x-renox-state-machines:
   deployment:
@@ -108,6 +112,7 @@ paths:
             schema: { $ref: "#/components/schemas/CreateAppRequest" }
             examples:
               hello: { value: { name: hello } }
+              staging: { value: { name: hello-staging, staging: true } }
             x-renox-invalid-examples:
               uppercase: { value: { name: Hello }, x-expect: pattern }
               too-long: { value: { name: "a234567890123456789012345678901234567890123456789012" }, x-expect: pattern }
@@ -1497,6 +1502,300 @@ paths:
         "403": { $ref: "#/components/responses/TokenScope" }
         "413": { $ref: "#/components/responses/BodyTooLarge" }
 
+  /v1/apps/{app}/backups:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    get:
+      operationId: getBackups
+      tags: [backups]
+      summary: Replication status, retention and restore points of the app's database (deploy-api.md section 14)
+      description: >-
+        Served from the owning node's replication status (node listener, section 15) plus the
+        control plane's record of the last failover. When the node does not answer within 2 s
+        the answer is the last status the control plane saw, with `stale: true`.
+      x-renox-scope: apps:read
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: Status of the app's database.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupStatus" }
+              examples:
+                litestream: { $ref: "#/components/examples/BackupStatusLitestream" }
+                none:
+                  value:
+                    app: hello
+                    database: t_hello
+                    replication: none
+                    state: "off"
+                    replica: null
+                    last_sync_at: null
+                    lag_seconds: null
+                    retention_hours: 0
+                    generations: []
+                    db: { size_bytes: 4096, quota_bytes: 104857600, wal_bytes: 0 }
+                    last_failover: null
+                    stale: false
+              x-renox-invalid-examples:
+                lag-negative:
+                  x-expect: minimum
+                  value:
+                    app: hello
+                    database: t_hello
+                    replication: litestream
+                    state: replicating
+                    replica: { kind: s3, region: me-central-1 }
+                    last_sync_at: 1793318406000
+                    lag_seconds: -1
+                    retention_hours: 24
+                    generations: []
+                    db: { size_bytes: 4096, quota_bytes: 104857600, wal_bytes: 0 }
+                    last_failover: null
+                    stale: false
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/backups/export:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: exportBackup
+      tags: [backups]
+      summary: A signed URL to a consistent snapshot of the app's database (section 14)
+      description: >-
+        The control plane asks the owning node for a consistent snapshot (node listener,
+        `POST /nodes/{node_id}/tenants/{tenant_id}/snapshot`), stores it under the private
+        prefix `exports/<tenant_id>/<database>/<created_at>.db`, and answers a signed URL that
+        expires after at most 15 minutes. Column masking is not part of 0.3 (F7); the file
+        is the whole database.
+      x-renox-scope: apps:write
+      x-renox-audit: exportBackup (app, size_bytes, sha256; never the URL)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_TENANT_MOVING, RENOX_BACKUP_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportRequest" }
+            examples:
+              now: { value: {} }
+              short: { value: { expires_in_seconds: 300 } }
+            x-renox-invalid-examples:
+              too-long: { value: { expires_in_seconds: 86400 }, x-expect: maximum }
+      responses:
+        "201":
+          description: The snapshot is stored; the URL is the only way to read it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportCreated" }
+              examples:
+                created:
+                  value:
+                    url: "https://backups.renox.app/exports/t_hello/t_hello/1793318500000.db?X-Amz-Expires=900&X-Amz-Signature=0a1b2c3d4e5f"
+                    expires_at: 1793319400000
+                    created_at: 1793318500000
+                    size_bytes: 39845888
+                    sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                    masking: none
+              x-renox-invalid-examples:
+                http-url:
+                  x-expect: pattern
+                  value:
+                    url: "http://backups.renox.app/exports/t_hello/t_hello/1793318500000.db"
+                    expires_at: 1793319400000
+                    created_at: 1793318500000
+                    size_bytes: 39845888
+                    sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                    masking: none
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/BackupUnavailable" }
+
+  /v1/apps/{app}/backups/restore:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: restoreBackup
+      tags: [backups]
+      summary: Restore the app's database as of a time into a new app (section 14)
+      description: >-
+        0.3 restores into a new app only. The control plane creates the app `name` in the
+        caller's tenant with a database of its own (`<tenant_id>.<name>`), asks the owning
+        node to restore the source database's replica as of `timestamp` into it (node
+        listener, `restore_request` with `source_database`), creates the new app's first
+        deployment from the source app's active artifact and activates it (section 6). The
+        source app is not touched.
+      x-renox-scope: apps:write
+      x-renox-audit: restoreBackup (source app, new app, timestamp, generation)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT, RENOX_RESTORE_POINT_UNKNOWN, RENOX_ACTIVATION_FAILED, RENOX_BACKUP_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RestoreRequest" }
+            examples:
+              yesterday: { value: { timestamp: 1793318400000, target: new_app, name: hello-restored } }
+            x-renox-invalid-examples:
+              in-place: { value: { timestamp: 1793318400000, target: in_place, name: hello }, x-expect: const }
+              no-name: { value: { timestamp: 1793318400000, target: new_app }, x-expect: name }
+      responses:
+        "201":
+          description: The new app exists, holds the database as of `restored_to`, and serves its first deployment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RestoreCreated" }
+              examples:
+                restored:
+                  value:
+                    app: { name: hello-restored, tenant_id: t_hello, created_at: 1793318600000, active_deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", hostnames: [hello-restored.renox.app] }
+                    deployment:
+                      app: hello-restored
+                      hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
+                      state: active
+                      created_at: 1793318600000
+                      updated_at: 1793318600000
+                      size_bytes: 2048
+                      permissions: { network: ["api.stripe.com"], secrets: [STRIPE_KEY] }
+                      secrets_version: 0
+                      activated_at: 1793318600000
+                      last_error: null
+                      violations: null
+                    source_app: hello
+                    database: t_hello.hello-restored
+                    generation: a1b2c3d4e5f60718
+                    restored_to: 1793318399000
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/RestorePointUnknown" }
+        "503": { $ref: "#/components/responses/BackupUnavailable" }
+
+  /v1/apps/{app}/db/import:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: importDatabase
+      tags: [backups]
+      summary: Replace a staging app's database with an uploaded SQLite file (section 14)
+      description: >-
+        Only an app created with `staging: true` (it has a database of its own) accepts an
+        import; any other app answers 422 RENOX_IMPORT_REJECTED, so a production file can
+        never be overwritten this way. The body is at most the tier's database quota
+        (`db_quota_bytes`, 100 MB free and 10 GB paid). The owning node checks the file
+        (`PRAGMA quick_check`; every table, view, index and trigger name follows the
+        authorizer's rules: `<module>__<name>`, nothing under `sqlite_` but the internal
+        tables) before it swaps it in (node listener `PUT …/import`); the staging app's
+        cells are recycled.
+      x-renox-scope: apps:write
+      x-renox-audit: importDatabase (app, size_bytes, sha256)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_BODY_TOO_LARGE, RENOX_IMPORT_REJECTED, RENOX_TENANT_MOVING, RENOX_BACKUP_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/vnd.sqlite3:
+            schema: { type: string, format: binary, maxLength: 10737418240 }
+            examples:
+              staging: { summary: "A SQLite file with app__ and auth__ tables", value: "<bytes of staging.db>" }
+      responses:
+        "200":
+          description: The staging app now serves the imported file.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportResult" }
+              examples:
+                imported:
+                  value: { app: hello-staging, database: t_hello.hello-staging, size_bytes: 81920, sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", tables: [app__notes, auth__users] }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/BodyTooLarge" }
+        "422": { $ref: "#/components/responses/ImportRejected" }
+        "503": { $ref: "#/components/responses/TenantMoving" }
+
+  /v1/ops/tenants/{tenant_id}/tier:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: setTenantTier
+      tags: [ops]
+      summary: Change a tenant's tier; its route entries are republished with the tier and process (section 17)
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:write
+      x-renox-audit: setTenantTier (operator, tenant, from, to, reason, result)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_TENANT_MOVING]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetTierRequest" }
+            examples:
+              upgrade: { value: { tier: paid, reason: "upgrade paid by invoice INV-2026-0042" } }
+            x-renox-invalid-examples:
+              short-reason: { value: { tier: paid, reason: upgrade }, x-expect: minLength }
+              gold: { value: { tier: gold, reason: "upgrade paid by invoice INV-2026-0042" }, x-expect: enum }
+      responses:
+        "200":
+          description: "Changed and republished (`route_version` is the delta that carries it); an unchanged tier answers 200 with `changed` false."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperatorActionResult" }
+              examples:
+                paid: { value: { tenant_id: t_hello, action: setTenantTier, changed: true, tier: paid, process: own, node_id: node-dxb-01, route_version: 45, audit_id: aud_01JBQ40000000000AA } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/TenantMoving" }
+
+  /v1/ops/tenants/{tenant_id}/move:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: moveTenant
+      tags: [ops]
+      summary: Move a tenant to a named node (restore before route, FO3) or to a microVM through the node's hook (section 17)
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:write
+      x-renox-audit: moveTenant (operator, tenant, target, from node, to node, reason, result)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT, RENOX_TENANT_MOVING, RENOX_BACKUP_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MoveRequest" }
+            examples:
+              node: { value: { target: node, node_id: node-dxb-02, reason: "drain node-dxb-01 for kernel upgrade" } }
+              microvm: { value: { target: microvm, reason: "abuse report 2026-118: isolate before investigation" } }
+            x-renox-invalid-examples:
+              node-without-id: { value: { target: node, reason: "drain node-dxb-01 for kernel upgrade" }, x-expect: node_id }
+              microvm-with-node: { value: { target: microvm, node_id: node-dxb-02, reason: "abuse report 2026-118: isolate" }, x-expect: not }
+      responses:
+        "200":
+          description: >-
+            Moved. For `node` the tenant's file was restored on the target before the route entry
+            changed (FO3) and the old node was told to drop it (FO4). For `microvm`, `hook_exit_code`
+            is the node hook's exit code; anything but 0 leaves the tenant where it was.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperatorActionResult" }
+              examples:
+                node: { value: { tenant_id: t_hello, action: moveTenant, changed: true, tier: paid, process: own, node_id: node-dxb-02, route_version: 46, audit_id: aud_01JBQ40000000000AB } }
+                microvm-stub: { value: { tenant_id: t_hello, action: moveTenant, changed: false, tier: paid, process: own, node_id: node-dxb-01, route_version: 46, audit_id: aud_01JBQ40000000000AC, hook_exit_code: 75 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/TenantMoving" }
+
 components:
   securitySchemes:
     tenantToken:
@@ -1510,7 +1809,7 @@ components:
     operatorToken:
       type: http
       scheme: bearer
-      description: "`renox_op_<32 base32>`; its sha256 is configured in the API's environment."
+      description: "`renox_op_<32 base32>`: the bootstrap token, whose sha256 is configured in the API's environment and which holds every operator scope, or (0.3) a token an account flagged `operator` created with the `ops:write` scope (section 17)."
 
   parameters:
     App:
@@ -1562,8 +1861,8 @@ components:
     Tier: { enum: [free, paid] }
     Scope:
       type: string
-      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?)$"
-      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all."
+      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?|ops:write)$"
+      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those. `ops:write` (0.3, section 17) only on tokens an operator account creates; `*` never includes it."
 
     Health:
       type: object
@@ -1625,6 +1924,7 @@ components:
       required: [name]
       properties:
         name: { $ref: "#/components/schemas/AppName" }
+        staging: { type: boolean, description: "0.3: a staging app has a database of its own (`<tenant_id>.<name>`) and accepts importDatabase (section 14). Set at creation only; default false." }
 
     App:
       type: object
@@ -1639,6 +1939,8 @@ components:
             - { $ref: "#/components/schemas/Sha256" }
             - { type: "null" }
         hostnames: { type: array, items: { $ref: "#/components/schemas/Hostname" } }
+        staging: { type: boolean, description: "0.3: see CreateAppRequest." }
+        database: { $ref: "#/components/schemas/DatabaseId", description: "0.3: the tenant file the app's cells open; missing means the tenant's shared file." }
 
     DeploymentState:
       enum: [uploaded, validated, rejected, activating, active, superseded, suspended, pruned]
@@ -2041,6 +2343,148 @@ components:
         accepted: { type: integer, minimum: 0 }
         duplicates: { type: integer, minimum: 0 }
 
+
+    GenerationId: { type: string, pattern: "^[0-9a-f]{16}$" }
+    DatabaseId:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9_-]{0,62}(\\.[a-z][a-z0-9-]{0,49})?$"
+      description: "The tenant id (the tenant's shared file) or <tenant_id>.<app> (an app with a database of its own, section 14)."
+
+    BackupStatus:
+      type: object
+      additionalProperties: false
+      required: [app, database, replication, state, replica, last_sync_at, lag_seconds, retention_hours, generations, db, last_failover, stale]
+      properties:
+        app: { $ref: "#/components/schemas/AppName" }
+        database: { $ref: "#/components/schemas/DatabaseId" }
+        replication: { enum: [none, litestream] }
+        state: { enum: ["off", starting, replicating, stopped] }
+        replica:
+          anyOf:
+            - { $ref: "control-messages.schema.json#/$defs/replica" }
+            - { type: "null" }
+        last_sync_at:
+          anyOf:
+            - { $ref: "#/components/schemas/UnixMs" }
+            - { type: "null" }
+        lag_seconds: { type: [number, "null"], minimum: 0 }
+        retention_hours: { type: integer, minimum: 0 }
+        generations:
+          type: array
+          maxItems: 100
+          description: Restore points, newest first; a restore can reach any time inside one generation's range.
+          items: { $ref: "control-messages.schema.json#/$defs/generation" }
+        db: { $ref: "control-messages.schema.json#/$defs/database_size" }
+        last_failover:
+          anyOf:
+            - { $ref: "#/components/schemas/FailoverRecord" }
+            - { type: "null" }
+        stale: { type: boolean, description: "true: the owning node did not answer; the fields are the last status the control plane saw." }
+
+    FailoverRecord:
+      type: object
+      additionalProperties: false
+      required: [at, from_node, to_node, generation, elapsed_ms]
+      properties:
+        at: { $ref: "#/components/schemas/UnixMs" }
+        from_node: { $ref: "#/components/schemas/NodeId" }
+        to_node: { $ref: "#/components/schemas/NodeId" }
+        generation:
+          anyOf:
+            - { $ref: "#/components/schemas/GenerationId" }
+            - { type: "null" }
+        elapsed_ms: { type: integer, minimum: 0 }
+
+    ExportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expires_in_seconds: { type: integer, minimum: 60, maximum: 900, description: "Lifetime of the signed URL; default and maximum 900." }
+
+    ExportCreated:
+      type: object
+      additionalProperties: false
+      required: [url, expires_at, created_at, size_bytes, sha256, masking]
+      properties:
+        url: { type: string, maxLength: 2048, pattern: "^https://", description: "Signed, expiring; the object is not readable without the signature." }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        size_bytes: { type: integer, minimum: 1 }
+        sha256: { $ref: "#/components/schemas/Sha256" }
+        masking: { const: none, description: "Column masking arrives in F7 (Open 12)." }
+
+    RestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [timestamp, target, name]
+      properties:
+        timestamp: { $ref: "#/components/schemas/UnixMs" }
+        target: { const: new_app, description: "0.3 restores into a new app only (Open 11)." }
+        name: { $ref: "#/components/schemas/AppName" }
+
+    RestoreCreated:
+      type: object
+      additionalProperties: false
+      required: [app, deployment, source_app, database, generation, restored_to]
+      properties:
+        app: { $ref: "#/components/schemas/App" }
+        deployment: { $ref: "#/components/schemas/Deployment" }
+        source_app: { $ref: "#/components/schemas/AppName" }
+        database: { $ref: "#/components/schemas/DatabaseId" }
+        generation: { $ref: "#/components/schemas/GenerationId" }
+        restored_to:
+          anyOf:
+            - { $ref: "#/components/schemas/UnixMs" }
+            - { type: "null" }
+
+    ImportResult:
+      type: object
+      additionalProperties: false
+      required: [app, database, size_bytes, sha256, tables]
+      properties:
+        app: { $ref: "#/components/schemas/AppName" }
+        database: { $ref: "#/components/schemas/DatabaseId" }
+        size_bytes: { type: integer, minimum: 1 }
+        sha256: { $ref: "#/components/schemas/Sha256" }
+        tables: { type: array, maxItems: 1000, items: { type: string, pattern: "^[a-z][a-z0-9]*__[a-z0-9_]+$" } }
+
+    OperatorReason: { type: string, minLength: 10, maxLength: 500, description: "Why the operator acts; required on every operator action and kept in the audit row." }
+
+    SetTierRequest:
+      type: object
+      additionalProperties: false
+      required: [tier, reason]
+      properties:
+        tier: { $ref: "#/components/schemas/Tier" }
+        reason: { $ref: "#/components/schemas/OperatorReason" }
+
+    MoveRequest:
+      type: object
+      additionalProperties: false
+      required: [target, reason]
+      if: { properties: { target: { const: node } } }
+      then: { required: [node_id] }
+      else: { not: { required: [node_id] } }
+      properties:
+        target: { enum: [node, microvm] }
+        node_id: { $ref: "#/components/schemas/NodeId" }
+        reason: { $ref: "#/components/schemas/OperatorReason" }
+
+    OperatorActionResult:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, action, changed, tier, process, node_id, route_version, audit_id]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        action: { enum: [setTenantTier, moveTenant] }
+        changed: { type: boolean }
+        tier: { $ref: "#/components/schemas/Tier" }
+        process: { enum: [shared, own] }
+        node_id: { $ref: "#/components/schemas/NodeId" }
+        route_version: { type: integer, minimum: 0 }
+        audit_id: { type: string, pattern: "^aud_[0-9A-Za-z]{16,32}$" }
+        hook_exit_code: { type: integer, minimum: 0, maximum: 255, description: "microvm moves only: the exit code of the node's [process] microvm_hook." }
+
   examples:
     AppNew:
       value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renox.app] }
@@ -2132,6 +2576,20 @@ components:
         verified_at: 1793318760000
         last_checked_at: 1793318800000
 
+    BackupStatusLitestream:
+      value:
+        app: hello
+        database: t_hello
+        replication: litestream
+        state: replicating
+        replica: { kind: s3, region: me-central-1 }
+        last_sync_at: 1793318406000
+        lag_seconds: 0.8
+        retention_hours: 24
+        generations: [{ id: a1b2c3d4e5f60718, start: 1793232000000, end: 1793318406000 }]
+        db: { size_bytes: 39845888, quota_bytes: 104857600, wal_bytes: 4120000 }
+        last_failover: { at: 1793300000000, from_node: node-dxb-01, to_node: node-dxb-02, generation: a1b2c3d4e5f60718, elapsed_ms: 41200 }
+        stale: false
   responses:
     Validation:
       description: The request body, a parameter, or a header is malformed.
@@ -2207,3 +2665,40 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           examples:
             no-worker: { value: { error: { code: RENOX_UNAVAILABLE, message: The service is temporarily unavailable., request_id: 01JBQ3Z7MA0000000000000017 } } }
+    BackupUnavailable:
+      description: Replication is off for the database, the replica or the owning node is unreachable, or no generation exists yet. `Retry-After` in seconds.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+          example: 30
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            replication-off: { value: { error: { code: RENOX_BACKUP_UNAVAILABLE, message: No backup is available for this database right now., request_id: 01JBQ3Z7MA0000000000000020, details: [{ field: replication, reason: none }] } } }
+    RestorePointUnknown:
+      description: No generation covers `timestamp` (in the future, before the oldest generation, outside retention, or in a gap between generations).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            too-old: { value: { error: { code: RENOX_RESTORE_POINT_UNKNOWN, message: No backup covers the requested time., request_id: 01JBQ3Z7MA0000000000000021, details: [{ field: timestamp, reason: "oldest restore point is 1793232000000" }] } } }
+    ImportRejected:
+      description: The app is not a staging app, or the file is not a SQLite database, fails `PRAGMA quick_check`, or has a name the authorizer would refuse.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            production: { value: { error: { code: RENOX_IMPORT_REJECTED, message: The database file cannot be imported., request_id: 01JBQ3Z7MA0000000000000022, details: [{ field: app, reason: "not a staging app" }] } } }
+            table: { value: { error: { code: RENOX_IMPORT_REJECTED, message: The database file cannot be imported., request_id: 01JBQ3Z7MA0000000000000023, details: [{ field: table, reason: "notes has no <module>__ prefix" }] } } }
+    TenantMoving:
+      description: The tenant is being moved (an operator move to a microVM is in progress). `Retry-After` in seconds.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+          example: 30
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            moving: { value: { error: { code: RENOX_TENANT_MOVING, message: The service is being moved. Try again shortly., request_id: 01JBQ3Z7MA0000000000000024 } } }

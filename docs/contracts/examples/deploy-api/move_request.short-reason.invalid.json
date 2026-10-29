@@ -1,0 +1,1 @@
+{ "$comment": "invalid: an operator action carries a reason of at least 10 characters [expect: minLength]", "type": "move_request", "schema_version": 0, "tenant_id": "t_hello", "target": "microvm", "reason": "abuse", "operator": "operator" }

@@ -1,0 +1,11 @@
+{
+  "$comment": "0.3: an operator raised t_hello to paid (POST /v1/ops/tenants/t_hello/tier); the entry is republished with process own, so the node's supervisor moves the tenant into a child process (#254).",
+  "type": "route_delta",
+  "schema_version": 0,
+  "prev_version": 44,
+  "version": 45,
+  "upserts": [
+    { "hostname": "hello.renox.app", "tenant_id": "t_hello", "app": "hello", "deployment_hash": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", "status": "active", "updated_at": 1793319000000, "version": 45, "tier": "paid", "node_id": "node-dxb-01", "secrets_version": 2, "process": "own" }
+  ],
+  "removals": []
+}

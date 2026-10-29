@@ -149,10 +149,11 @@ function typeOf(v: Json): string {
 const schemaDocs = new Map<string, Json>();
 /** Another file under schemas/, for a `$ref` of the form `<file>.schema.json#<pointer>`. */
 function schemaDoc(file: string): Json {
-  if (!/^[a-z-]+\.schema\.json$/u.test(file)) throw new Error(`only $ref to schemas/<name>.schema.json is supported: ${file}`);
+  // node-listener.yaml borrows the Error schema of deploy-api.yaml.
+  if (!/^[a-z-]+\.schema\.json$/u.test(file) && file !== "deploy-api.yaml") throw new Error(`only $ref to schemas/<name>.schema.json or deploy-api.yaml is supported: ${file}`);
   let doc = schemaDocs.get(file);
   if (doc === undefined) {
-    doc = readJson(`${root}/schemas/${file}`);
+    doc = file.endsWith(".yaml") ? (Bun.YAML.parse(fs.readFileSync(`${root}/schemas/${file}`, "utf8")) as Json) : readJson(`${root}/schemas/${file}`);
     schemaDocs.set(file, doc);
   }
   return doc;
@@ -1065,6 +1066,14 @@ const controlMessages: Record<string, Omit<Message, "schema">> = {
   certificate_remove: {},
   certificate_bundle: {},
   log_batch: {},
+  // Node listener (deploy-api.md section 15, 0.3).
+  restore_request: {},
+  restore_result: {},
+  replication_status: {},
+  tenant_dropped: {},
+  import_result: {},
+  move_request: {},
+  move_result: {},
 };
 for (const [def, m] of Object.entries(controlMessages)) {
   messages[def] = { schema: schemaFile("control-messages"), def, ...m };
@@ -1430,8 +1439,14 @@ if (isObject(helloTable) && Array.isArray(helloTable.entries)) {
 }
 report(tableErrors.length === 0, "examples/hello-artifact/route-table.json validates and routes to the artifact", tableErrors);
 
-// 6a. schemas/deploy-api.yaml: OpenAPI 3.1 with examples for every operation.
-const api = Bun.YAML.parse(fs.readFileSync(`${root}/schemas/deploy-api.yaml`, "utf8")) as Json;
+// 6a. schemas/deploy-api.yaml and schemas/node-listener.yaml: OpenAPI 3.1 with examples
+//     for every operation. The operations of 0.3 (tags backups, ops, node-listener) also
+//     name their caller (x-renox-scope, x-renox-operator-scope or x-renox-caller), their
+//     audit row (x-renox-audit) and their error codes (x-renox-errors), and every code in
+//     their response examples is one of those (deploy-api.md 0.3 acceptance, #251).
+const AUDITED_TAGS = ["backups", "ops", "node-listener"];
+function checkOpenApi(file: string): Json {
+const api = Bun.YAML.parse(fs.readFileSync(`${root}/schemas/${file}`, "utf8")) as Json;
 const apiErrors: string[] = [];
 const local = (node: Json): Json => {
   // Follows a local `$ref` (components.responses, .examples, .parameters) to its target.
@@ -1483,7 +1498,7 @@ function checkMedia(where: string, type: string, media: Json): void {
     const errors = validate(schema, ex.value as Json, api);
     const expect = typeof ex["x-expect"] === "string" ? ex["x-expect"] : undefined;
     const ok = errors.length > 0 && (expect === undefined || errors.some((e) => e.includes(expect)));
-    report(ok, `deploy-api.yaml ${where} invalid example ${name} is rejected${expect === undefined ? "" : ` (${expect})`}`, errors.length > 0 ? errors : ["no error"]);
+    report(ok, `${file} ${where} invalid example ${name} is rejected${expect === undefined ? "" : ` (${expect})`}`, errors.length > 0 ? errors : ["no error"]);
   }
 }
 if (!isObject(api) || typeof api.openapi !== "string" || !api.openapi.startsWith("3.1.")) apiErrors.push("openapi is not 3.1.x");
@@ -1521,13 +1536,27 @@ for (const [path, item] of Object.entries(isObject(api) && isObject(api.paths) ?
       for (const [type, media] of Object.entries(response.content)) checkMedia(`${where} ${status}`, type, media);
     }
     if (withExample === 0) apiErrors.push(`${where}: no response with a body example`);
+    const tags = Array.isArray(op.tags) ? (op.tags as string[]) : [];
+    if (tags.some((t) => AUDITED_TAGS.includes(t))) {
+      const caller = ["x-renox-scope", "x-renox-operator-scope", "x-renox-caller"].filter((k) => typeof op[k] === "string");
+      if (caller.length !== 1) apiErrors.push(`${where}: names its caller once (x-renox-scope, x-renox-operator-scope or x-renox-caller), found ${caller.length}`);
+      if (typeof op["x-renox-audit"] !== "string") apiErrors.push(`${where}: no x-renox-audit`);
+      const declared = Array.isArray(op["x-renox-errors"]) ? (op["x-renox-errors"] as string[]) : [];
+      if (declared.length === 0) apiErrors.push(`${where}: no x-renox-errors`);
+      const shown = new Set(JSON.stringify(responses.map(([, r]) => local(r))).match(/RENOX_[A-Z0-9_]+/gu) ?? []);
+      for (const code of shown) if (!declared.includes(code)) apiErrors.push(`${where}: response example uses ${code}, not in x-renox-errors`);
+    }
   }
 }
 const componentSchemas = isObject(api) && isObject(api.components) && isObject(api.components.schemas) ? api.components.schemas : {};
 for (const [name, schema] of Object.entries(componentSchemas)) {
   for (const p of unsupportedKeywords(schema)) apiErrors.push(`components.schemas.${name} ${p}`);
 }
-report(apiErrors.length === 0, `deploy-api.yaml: ${operations} operations, all with request and response examples that validate`, apiErrors);
+report(apiErrors.length === 0, `${file}: ${operations} operations, all with request and response examples that validate`, apiErrors);
+return api;
+}
+const api = checkOpenApi("deploy-api.yaml");
+checkOpenApi("node-listener.yaml");
 
 // 6b. x-renox-state-machines equals the transition tables of deploy-api.md.
 const deployText = fs.readFileSync(`${root}/deploy-api.md`, "utf8");
@@ -1552,6 +1581,14 @@ for (const [name, machine] of Object.entries(machines)) {
   report(diff.length === 0, `deploy-api ${name} state machine: deploy-api.md table = deploy-api.yaml (${Object.keys(fromYaml).length} states)`, diff);
 }
 
+// 6c. deploy-api.md section 16: the failover rules FO1-FO6, each citing the B18 target it serves.
+const foRows = [...deployText.matchAll(/^\| (FO[0-9]+) \|(.*)\|$/gmu)].map((m) => [m[1] as string, m[2] as string] as const);
+const foProblems = [
+  ...Array.from({ length: 6 }, (_, i) => `FO${i + 1}`).filter((id) => !foRows.some(([r]) => r === id)).map((id) => `${id} has no row`),
+  ...foRows.filter(([, text]) => !text.includes("B18")).map(([id]) => `${id} does not cite B18`),
+];
+report(foRows.length === 6 && foProblems.length === 0, `deploy-api.md failover rules FO1-FO6 each cite B18 (${foRows.length} rows)`, foProblems);
+
 // 6. errors.md: one row per code; covers ops.md and docs/23-failure-modes.md;
 //    ctx.d.ts matches ops.md section 13.
 const CODE = /RENOX_[A-Z0-9]+(?:_[A-Z0-9]+)*/gu;
@@ -1573,6 +1610,7 @@ const sources: [string, Set<string>][] = [
   ["docs/23-failure-modes.md", codesIn(docText(`${root}/../23-failure-modes.md`))],
   ["deploy-api.md", codesIn(deployText)],
   ["schemas/deploy-api.yaml", codesIn(docText(`${root}/schemas/deploy-api.yaml`))],
+  ["schemas/node-listener.yaml", codesIn(docText(`${root}/schemas/node-listener.yaml`))],
 ];
 for (const [name, codes] of sources) {
   const missing = [...codes].filter((c) => !catalogue.has(c)).map((c) => `${c} is used in ${name} but has no row`);

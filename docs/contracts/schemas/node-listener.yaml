@@ -1,0 +1,315 @@
+# Renox node listener, deploy API contract version 0.3 (F6).
+# The HTTP surface a renox-worker in `mode = "controlled"` serves to the control
+# plane only (docs/contracts/deploy-api.md section 15): restore before serving,
+# replication status, drop, snapshot, import, move. Message bodies are $defs of
+# control-messages.schema.json. Checked by `bun run docs/contracts/validate.ts`
+# exactly like schemas/deploy-api.yaml (examples validate, invalid examples fail,
+# every RENOX_* code has a row in errors.md, every operation names its caller,
+# audit row and error codes).
+openapi: 3.1.0
+info:
+  title: Renox node listener
+  version: 0.3.0
+  description: >-
+    Served by each controlled worker on `[control] node_listen`, an address only the
+    control plane's private network reaches (ADR D23). Never reachable from tenant code:
+    the worker refuses to start when the address is outside the blocked ranges and
+    `fetch_blocked_addresses`, the same rule as `[control] url` (#218).
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Renox-Proprietary
+servers:
+  - url: https://10.0.1.11:8790
+    description: One node's listener (the `listen_url` it registered with)
+tags:
+  - name: node-listener
+    description: "Calls from the control plane to one node (section 15)"
+
+security:
+  - callbackToken: []
+
+paths:
+  /nodes/{node_id}/tenants/{tenant_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: nodeRestoreTenant
+      tags: [node-listener]
+      summary: Restore a tenant file from its replica before any route points here (FO3); idempotent
+      description: >-
+        The node accepts it for a tenant that is not (yet) routed to it. It drains any cell of
+        `database`, quarantines a local file that fails `PRAGMA quick_check` as
+        `<file>.corrupt-<ts>`, runs `litestream restore` (with `-timestamp` when given) into a
+        temporary file, checks it, and renames it into place. A repeated request whose file is
+        already present and passes the check answers 200 with `source: local` and changes
+        nothing. Until a restore has answered, the node never opens a missing file of a tenant
+        whose replication is on (FO4).
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: failover / restoreBackup / moveTenant on the control plane (the caller's row); the node logs one platform line
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_VALIDATION, RENOX_BACKUP_UNAVAILABLE, RENOX_RESTORE_POINT_UNKNOWN, RENOX_TENANT_MOVING]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "control-messages.schema.json#/$defs/restore_request" }
+            examples:
+              failover: { value: { type: restore_request, schema_version: 0, tenant_id: t_hello, database: t_hello, timestamp: null, reason: failover, deadline_ms: 25000 } }
+            x-renox-invalid-examples:
+              path: { value: { type: restore_request, schema_version: 0, tenant_id: t_hello, database: "../t_other", timestamp: null, reason: failover, deadline_ms: 25000 }, x-expect: pattern }
+      responses:
+        "200":
+          description: Restored (or already present); the node may now open the file.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/restore_result" }
+              examples:
+                restored: { value: { type: restore_result, schema_version: 0, node_id: node-dxb-02, tenant_id: t_hello, database: t_hello, source: replica, generation: a1b2c3d4e5f60718, file_sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", restored_to: 1793318409000, elapsed_ms: 1840 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "422":
+          description: No generation covers `timestamp`.
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                too-old: { value: { error: { code: RENOX_RESTORE_POINT_UNKNOWN, message: No backup covers the requested time., request_id: 01JBQ3Z7MA0000000000000031 } } }
+        "503":
+          description: Replication off for the database, the replica unreachable, no generation, or the tenant is moving.
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                no-replica: { value: { error: { code: RENOX_BACKUP_UNAVAILABLE, message: No backup is available for this database right now., request_id: 01JBQ3Z7MA0000000000000032, details: [{ field: replica, reason: unreachable }] } } }
+                moving: { value: { error: { code: RENOX_TENANT_MOVING, message: The service is being moved. Try again shortly., request_id: 01JBQ3Z7MA0000000000000033 } } }
+
+  /nodes/{node_id}/tenants/{tenant_id}/replication:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: nodeReplicationStatus
+      tags: [node-listener]
+      summary: Replication status of one tenant file (feeds getBackups)
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_NOT_FOUND]
+      parameters:
+        - name: database
+          in: query
+          required: false
+          description: The tenant file; default the tenant's own (`database = tenant_id`).
+          schema: { $ref: "control-messages.schema.json#/$defs/database_id" }
+      responses:
+        "200":
+          description: The node's view of the file and its sidecar.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/replication_status" }
+              examples:
+                replicating: { value: { type: replication_status, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, database: t_hello, replication: litestream, state: replicating, replica: { kind: s3, region: me-central-1 }, last_sync_at: 1793318406000, lag_seconds: 0.8, retention_hours: 24, snapshot_interval_seconds: 3600, generations: [{ id: a1b2c3d4e5f60718, start: 1793232000000, end: 1793318406000 }], db: { size_bytes: 39845888, quota_bytes: 104857600, wal_bytes: 4120000 } } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /nodes/{node_id}/tenants/{tenant_id}:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+    delete:
+      operationId: nodeDropTenant
+      tags: [node-listener]
+      summary: Drain and refuse a tenant that moved away while this node was unhealthy (FO4)
+      description: >-
+        The node finishes in-flight requests, evicts every cell of the tenant, stops its
+        sidecar after the last frames ship, and from then on answers the tenant's hostnames
+        like unknown hosts until a route entry for this node names it again. The local file is
+        removed only when the replica confirmed the last frames; otherwise it is kept, never
+        served, and reported as `kept`. Idempotent: an unknown tenant answers 200 with
+        `cells_drained: 0`.
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: failover on the control plane; the node logs one platform line
+      x-renox-errors: [RENOX_UNAUTHENTICATED]
+      responses:
+        "200":
+          description: Dropped.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/tenant_dropped" }
+              examples:
+                dropped: { value: { type: tenant_dropped, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, cells_drained: 2, file: kept } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /nodes/{node_id}/tenants/{tenant_id}/snapshot:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: nodeSnapshotTenant
+      tags: [node-listener]
+      summary: A consistent copy of a tenant file, streamed back (exportBackup)
+      description: >-
+        `VACUUM INTO` a temporary file next to the tenant file (the cell keeps serving), then
+        stream it with `x-renox-sha256` and `Content-Length`; the temporary file is deleted
+        when the stream ends. The control plane stores the bytes under its private prefix.
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: exportBackup on the control plane
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_NOT_FOUND, RENOX_TENANT_MOVING]
+      parameters:
+        - name: database
+          in: query
+          required: false
+          schema: { $ref: "control-messages.schema.json#/$defs/database_id" }
+      responses:
+        "200":
+          description: The snapshot bytes.
+          headers:
+            x-renox-sha256:
+              schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+          content:
+            application/vnd.sqlite3:
+              schema: { type: string, format: binary }
+              examples:
+                file: { value: "<bytes of a VACUUM INTO copy>" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /nodes/{node_id}/tenants/{tenant_id}/import:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+    put:
+      operationId: nodeImportTenant
+      tags: [node-listener]
+      summary: Check an uploaded file and swap it in for a staging app's database (importDatabase)
+      description: >-
+        The control plane has already refused a production app; the node refuses a `database`
+        that equals `tenant_id` (the shared file) as well. The file is written to a temporary
+        path, opened read-only, checked with `PRAGMA quick_check` and the authorizer's naming
+        rules (`sqlite_master` names), then renamed over the staging file after its cells are
+        drained.
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: importDatabase on the control plane
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_BODY_TOO_LARGE, RENOX_IMPORT_REJECTED, RENOX_TENANT_MOVING]
+      parameters:
+        - name: database
+          in: query
+          required: true
+          schema: { $ref: "control-messages.schema.json#/$defs/database_id" }
+      requestBody:
+        required: true
+        content:
+          application/vnd.sqlite3:
+            schema: { type: string, format: binary }
+            examples:
+              staging: { value: "<bytes of staging.db>" }
+      responses:
+        "200":
+          description: Swapped in.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/import_result" }
+              examples:
+                imported: { value: { type: import_result, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, database: t_hello.hello-staging, size_bytes: 81920, sha256: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", tables: [app__notes, auth__users] } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "413":
+          description: Over the tier's database quota.
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                quota: { value: { error: { code: RENOX_BODY_TOO_LARGE, message: The request body is too large., request_id: 01JBQ3Z7MA0000000000000034 } } }
+        "422":
+          description: The file fails a check.
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                integrity: { value: { error: { code: RENOX_IMPORT_REJECTED, message: The database file cannot be imported., request_id: 01JBQ3Z7MA0000000000000035, details: [{ field: integrity, reason: "quick_check: row 4 missing from index" }] } } }
+
+  /nodes/{node_id}/tenants/{tenant_id}/move:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: nodeMoveTenant
+      tags: [node-listener]
+      summary: Run the node's microVM hook for a tenant (moveTenant with target microvm)
+      description: >-
+        The node marks the tenant `moving` (its requests answer 503 RENOX_TENANT_MOVING), runs
+        `[process] microvm_hook` with the tenant id and the absolute path of its file as
+        arguments and a 10-minute timeout, and answers the exit code. Exit 0: `moved` (the hook
+        has pointed the tenant elsewhere; the control plane republishes its route). Any other
+        code or the timeout: `failed`, the tenant stops being `moving` and serves here again.
+        No hook configured: exit code 75 (`EX_TEMPFAIL`) without running anything.
+      x-renox-caller: control plane (callback token)
+      x-renox-audit: moveTenant on the control plane (operator, reason)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_VALIDATION, RENOX_TENANT_MOVING]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "control-messages.schema.json#/$defs/move_request" }
+            examples:
+              microvm: { value: { type: move_request, schema_version: 0, tenant_id: t_hello, target: microvm, reason: "abuse report 2026-118: isolate before investigation", operator: acct_01JBQ40000000000OP } }
+            x-renox-invalid-examples:
+              no-reason: { value: { type: move_request, schema_version: 0, tenant_id: t_hello, target: microvm, operator: operator }, x-expect: reason }
+      responses:
+        "200":
+          description: The hook ran (or no hook is configured); `hook_exit_code` says how it ended.
+          content:
+            application/json:
+              schema: { $ref: "control-messages.schema.json#/$defs/move_result" }
+              examples:
+                stub: { value: { type: move_result, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, target: microvm, state: failed, hook_exit_code: 75 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "503":
+          description: Another move of the tenant is running.
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                moving: { value: { error: { code: RENOX_TENANT_MOVING, message: The service is being moved. Try again shortly., request_id: 01JBQ3Z7MA0000000000000036 } } }
+
+components:
+  securitySchemes:
+    callbackToken:
+      type: http
+      scheme: bearer
+      description: "`renox_cb_<32 base32>`: the callback token the control plane gave this node in `node_registered` (section 15). One per registration; the node keeps it in memory and compares in constant time."
+
+  parameters:
+    NodeId:
+      name: node_id
+      in: path
+      required: true
+      description: Must equal the node's own id; any other answers 404.
+      schema: { $ref: "control-messages.schema.json#/$defs/node_id" }
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      schema: { $ref: "control-messages.schema.json#/$defs/tenant_id" }
+
+  responses:
+    Validation:
+      description: The body is not the message the path expects.
+      content:
+        application/json:
+          schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+          examples:
+            body: { value: { error: { code: RENOX_VALIDATION, message: The request is not valid., request_id: 01JBQ3Z7MA0000000000000037, details: [{ field: type, reason: "expected restore_request" }] } } }
+    Unauthenticated:
+      description: No callback token, or not the one of the node's current registration.
+      content:
+        application/json:
+          schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+          examples:
+            missing: { value: { error: { code: RENOX_UNAUTHENTICATED, message: Authentication is required., request_id: 01JBQ3Z7MA0000000000000038 } } }
+    NotFound:
+      description: The node has no file for the tenant (or `node_id` is not this node).
+      content:
+        application/json:
+          schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+          examples:
+            tenant: { value: { error: { code: RENOX_NOT_FOUND, message: Not found., request_id: 01JBQ3Z7MA0000000000000039 } } }

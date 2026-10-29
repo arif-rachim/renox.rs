@@ -1,0 +1,1 @@
+{ "type": "move_request", "schema_version": 0, "tenant_id": "t_hello", "target": "microvm", "reason": "abuse report 2026-118: isolate before investigation", "operator": "acct_01JBQ40000000000OP" }

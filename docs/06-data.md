@@ -141,7 +141,7 @@ What will not exist: connection strings in tenant code, heavy ORMs, and `down` m
 | Paid | libSQL / LiteFS synchronous replica on a second node | Near zero; automatic failover | 2x memory and disk |
 | Large | Postgres | Standard Postgres HA | Per Postgres |
 
-Failover: the control plane marks the node unhealthy, reassigns the tenant's cell to another node, which restores the file from the replica or from S3, then updates the route table.
+Failover: the control plane marks the node unhealthy, reassigns the tenant's cell to another node, which restores the file from the replica or from S3, then updates the route table. The rules, with the B18 target each serves, are FO1–FO6 in [`contracts/deploy-api.md`](contracts/deploy-api.md) section 16.
 
 ## What is lost compared with Postgres, and the replacement
 
