@@ -1,0 +1,5 @@
+<r-props name="string = 'phone'" value="string = ''" />
+<label class="gcc-phone"><r-t key="gcc.phone.label" />
+  <input type="tel" :name="name" :value="value" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="+971 50 123 4567" pattern="[+0-9 ()-]{9,20}">
+  <small class="gcc-phone-display" r-if="value">{{ value | phone_ae }}</small>
+</label>

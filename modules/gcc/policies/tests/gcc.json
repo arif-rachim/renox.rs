@@ -1,0 +1,3 @@
+[
+  { "description": "anyone reads the areas", "principal": { "type": "Anonymous", "id": "visitor" }, "action": "gcc.read", "resource": { "type": "Area" }, "expected": "allow" }
+]

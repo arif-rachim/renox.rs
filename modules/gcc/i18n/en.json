@@ -1,0 +1,7 @@
+{
+  "gcc": {
+    "address": { "legend": "Address", "emirate": "Emirate", "area": "Area", "po_box": "P.O. Box", "makani": "Makani number" },
+    "phone": { "label": "Mobile number" },
+    "emirate": { "AE-AZ": "Abu Dhabi", "AE-DU": "Dubai", "AE-SH": "Sharjah", "AE-AJ": "Ajman", "AE-UQ": "Umm Al Quwain", "AE-RK": "Ras Al Khaimah", "AE-FU": "Fujairah" }
+  }
+}

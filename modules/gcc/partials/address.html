@@ -1,0 +1,21 @@
+<r-props emirate="string = ''" area="string = ''" po_box="string = ''" makani="string = ''" areas_url="string = '/gcc/areas'" />
+<fieldset class="gcc-address">
+  <legend><r-t key="gcc.address.legend" /></legend>
+  <label><r-t key="gcc.address.emirate" />
+    <select name="emirate">
+      <option value="AE-AZ" :selected="emirate == 'AE-AZ'"><r-t key="gcc.emirate.AE-AZ" /></option>
+      <option value="AE-DU" :selected="emirate == 'AE-DU'"><r-t key="gcc.emirate.AE-DU" /></option>
+      <option value="AE-SH" :selected="emirate == 'AE-SH'"><r-t key="gcc.emirate.AE-SH" /></option>
+      <option value="AE-AJ" :selected="emirate == 'AE-AJ'"><r-t key="gcc.emirate.AE-AJ" /></option>
+      <option value="AE-UQ" :selected="emirate == 'AE-UQ'"><r-t key="gcc.emirate.AE-UQ" /></option>
+      <option value="AE-RK" :selected="emirate == 'AE-RK'"><r-t key="gcc.emirate.AE-RK" /></option>
+      <option value="AE-FU" :selected="emirate == 'AE-FU'"><r-t key="gcc.emirate.AE-FU" /></option>
+    </select>
+  </label>
+  <label><r-t key="gcc.address.area" />
+    <input name="area" :value="area" autocomplete="off" :hx-get="areas_url" hx-trigger="input changed delay:200ms" hx-target="#gcc-area-list" hx-include="closest fieldset">
+  </label>
+  <ul id="gcc-area-list" class="gcc-areas"></ul>
+  <label><r-t key="gcc.address.po_box" /> <input name="po_box" :value="po_box" inputmode="numeric" maxlength="6"></label>
+  <label><r-t key="gcc.address.makani" /> <input name="makani" :value="makani" inputmode="numeric" pattern="[0-9]{10}" maxlength="10"></label>
+</fieldset>

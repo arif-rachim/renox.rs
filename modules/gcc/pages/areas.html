@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Areas</title></head>
+<body>
+  <ul id="gcc-area-list" class="gcc-areas" r-fragment="area_list">
+    <li r-for="a in areas" :data-emirate="a.emirate"><button type="button" class="gcc-area" :value="a.name_en">{{ a.name_en }} · <span lang="ar" dir="rtl">{{ a.name_ar }}</span></button></li>
+  </ul>
+</body>
+</html>
