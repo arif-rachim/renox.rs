@@ -178,6 +178,9 @@ const CASES: [(&str, u16, Option<&str>); 6] = [
     ("/nowhere", 404, None),
 ];
 
+/// The cases whose loader outlasts the shell delay.
+const SLOW: [&str; 3] = ["/loop", "/alloc", "/hang"];
+
 /// What no error page may show (`errors.md` section 1): causes, limit
 /// names, template ids, and the dev overlay.
 const NEVER: [&str; 9] = [
@@ -239,9 +242,15 @@ heap_mb = 32
     let addr = worker.addr;
 
     for (path, status, code) in CASES {
-        // shop: its own _error / _404 templates inside its layout.
+        // shop: its own _error / _404 templates inside its layout. A loader
+        // slower than the shell delay gets the shell first, so its error
+        // page comes inside the stream, with the status 200 already sent
+        // (ops.md section 14, "Errors after the shell"; #161).
         let r = get(addr, "shop.test", path).await;
-        assert_eq!(r.status, status, "shop {path}: {}", r.body);
+        let streamed = |r: &Reply| r.head.contains("transfer-encoding: chunked");
+        let sent = |r: &Reply| if streamed(r) { 200 } else { status };
+        assert!(!streamed(&r) || SLOW.contains(&path), "{path} streamed");
+        assert_eq!(r.status, sent(&r), "shop {path}: {}", r.body);
         assert!(r.head.contains("content-type: text/html"), "{path}");
         let id = r
             .head
@@ -255,16 +264,21 @@ heap_mb = 32
             Some(code) => {
                 assert!(r.body.contains(&format!("Something went wrong ({status})")));
                 assert!(r.body.contains(code), "{path}: {}", r.body);
-                assert!(r.body.contains(&format!(
-                    "<meta name=\"renox-error-code\" content=\"{code}\">"
-                )));
+                // The shell's <head> was sent before the error was known.
+                assert!(
+                    streamed(&r)
+                        || r.body.contains(&format!(
+                            "<meta name=\"renox-error-code\" content=\"{code}\">"
+                        ))
+                );
             }
             None => assert!(r.body.contains("Page not found"), "{}", r.body),
         }
 
         // evil: the hostile template gets the four fields, nothing else.
         let e = get(addr, "evil.test", path).await;
-        assert_eq!(e.status, status, "evil {path}: {}", e.body);
+        assert!(!streamed(&e) || SLOW.contains(&path), "{path} streamed");
+        assert_eq!(e.status, sent(&e), "evil {path}: {}", e.body);
         let id = e
             .head
             .lines()
@@ -287,7 +301,8 @@ heap_mb = 32
 
         // bare: no template at all, the platform default page.
         let b = get(addr, "bare.test", path).await;
-        assert_eq!(b.status, status, "bare {path}: {}", b.body);
+        assert!(!streamed(&b) || SLOW.contains(&path), "{path} streamed");
+        assert_eq!(b.status, sent(&b), "bare {path}: {}", b.body);
         assert!(b.body.contains(&format!("<h1>{status}</h1>")), "{}", b.body);
 
         for body in [&r.body, &e.body, &b.body] {

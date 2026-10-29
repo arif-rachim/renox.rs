@@ -20,6 +20,8 @@ import {
   op_fetch_body_close,
   op_fetch_body_read,
   op_log,
+  op_response_end,
+  op_response_write,
   op_secrets_get_all,
 } from "ext:core/ops";
 
@@ -463,6 +465,12 @@ function describeThrow(err) {
   return { kind: KIND_THROW, name, message, stack, code };
 }
 
+/**
+ * A Response to Rust, head first (ops.md section 6, "Response body"): a
+ * static body crosses with the head in one piece; a body backed by a
+ * ReadableStream crosses as `stream: true`, and `pumpBody` writes it chunk
+ * by chunk after the head.
+ */
 async function serializeResponse(res, wantBody) {
   if (!ObjectPrototypeIsPrototypeOf(responseMod().ResponsePrototype, res)) {
     return { kind: KIND_NOT_RESPONSE, name: typeof res };
@@ -471,12 +479,71 @@ async function serializeResponse(res, wantBody) {
   for (const pair of new SafeArrayIterator([...res.headers])) {
     ArrayPrototypePush(headers, [pair[0], pair[1]]);
   }
+  // The inner body, read without the `body` getter, which would turn a
+  // static body into a stream.
+  const inner = responseMod().toInnerResponse(res)?.body ?? null;
+  if (
+    inner !== null &&
+    ObjectPrototypeIsPrototypeOf(streamsMod().ReadableStreamPrototype, inner.streamOrStatic)
+  ) {
+    const stream = res.body;
+    if (!wantBody) {
+      // HEAD: the head only; the stream is never read.
+      PromisePrototypeThen(stream.cancel(), undefined, () => {});
+      return { kind: KIND_OK, status: res.status, headers, body: null };
+    }
+    pumpBody(currentToken(), stream);
+    return { kind: KIND_OK, status: res.status, headers, body: null, stream: true };
+  }
   let body = null;
-  if (res.body !== null) {
+  if (inner !== null) {
     const buf = await res.arrayBuffer();
     if (wantBody) body = new Uint8Array(buf);
   }
   return { kind: KIND_OK, status: res.status, headers, body };
+}
+
+/**
+ * Writes a streamed body to Rust (ops.md section 6): each chunk through
+ * op_response_write, which waits while Rust's buffer is full, then
+ * op_response_end. Runs in the request's async context, so its CPU is the
+ * request's and the stream's own ops keep working until it ends. When Rust
+ * stops the stream (egress limit, deadline, client gone), the write rejects
+ * and the handler's stream is cancelled.
+ */
+async function pumpBody(token, stream) {
+  let reader;
+  try {
+    reader = stream.getReader();
+  } catch (e) {
+    op_response_end(token, safeString(e?.message ?? e));
+    return;
+  }
+  for (;;) {
+    let next;
+    try {
+      next = await reader.read();
+    } catch (e) {
+      op_response_end(token, describeThrow(e).message);
+      return;
+    }
+    if (next.done) break;
+    const chunk = next.value;
+    if (!isUint8Array(chunk)) {
+      const message = "TypeError: a response body chunk must be a Uint8Array";
+      PromisePrototypeThen(reader.cancel(new TypeError(message)), undefined, () => {});
+      op_response_end(token, message);
+      return;
+    }
+    if (chunk.length === 0) continue;
+    try {
+      await op_response_write(token, chunk);
+    } catch (e) {
+      PromisePrototypeThen(reader.cancel(toRenoxError(e)), undefined, () => {});
+      return;
+    }
+  }
+  op_response_end(token, null);
 }
 
 function isResponse(v) {

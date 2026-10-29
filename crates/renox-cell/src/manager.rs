@@ -3,10 +3,19 @@
 //! to its isolate, completes the meter record, and evicts idle and draining
 //! cells (`docs/05-tenant-lifecycle.md`, "Cold start", "Deployment switch",
 //! scale to zero).
+//!
+//! Streamed bodies (`docs/contracts/ops.md` section 6, #161): the head is
+//! answered at once and a task moves the chunks to the connection,
+//! compressing each one, and writes the meter record at the end of the
+//! stream. A page whose loader is slower than [`SHELL_DELAY`] gets its
+//! shell first the same way (section 14, "Streaming the shell").
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
@@ -16,10 +25,13 @@ use http_body_util::BodyExt;
 use renox_data::{
     DbError, DbOptions, MigrationError, MigrationFile, TenantDb, migrate_with_checksums,
 };
+use renox_gateway::compress::StreamEncoder;
 use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus, compress};
 use renox_meter::{Meter, MeterRecord, MeterStatus};
 use renox_runtime::error::{ErrorCode, PlatformResponse};
-use renox_runtime::isolate::{CreateError, MeterStatus as RuntimeStatus};
+use renox_runtime::isolate::{
+    CreateError, Dispatched, InvocationMeter, MeterStatus as RuntimeStatus, ResponseStream,
+};
 use renox_runtime::limits::Limits;
 use renox_runtime::ops::db::DbHandle;
 use renox_runtime::{IsolateSpec, Runtime};
@@ -32,7 +44,9 @@ use crate::cell::{
 };
 use crate::pages::{CSRF_CODE, CSRF_MESSAGE, Gate, PageGuard, PlatformKey, SessionKeys};
 use crate::ratelimit::RouteBuckets;
-use crate::render::{PageRenderer, Rendered, platform_error, prefers_html};
+use crate::render::{
+    PageRenderer, PageShell, Rendered, from_body_tag, html_response, platform_error, prefers_html,
+};
 use crate::tiers::{TierName, Tiers};
 use renox_gateway::security::{DeploymentInfo, SecurityConfig};
 
@@ -697,10 +711,59 @@ impl CellManager {
             request_id: ctx.request_id.clone(),
             deadline: ctx.deadline,
         };
-        let mut out = cell
-            .isolate
-            .dispatch(rt_ctx, Request::from_parts(parts, body))
-            .await;
+        let rc = RecordCtx {
+            request_id: ctx.request_id.clone(),
+            tenant_id: ctx.tenant_id.clone(),
+            deployment_hash: ctx.deployment_hash.clone(),
+            started_at,
+            t0,
+            ingress,
+        };
+        // ops.md section 14, "Streaming the shell": only a full-page GET of
+        // a page with `load` and a template can get its shell first.
+        let shell_template = cell
+            .web
+            .pages
+            .as_ref()
+            .and_then(|_| cell.isolate.shell_template(&parts));
+        let dispatching = cell.clone();
+        let mut dispatch: DispatchFuture = Box::pin(async move {
+            dispatching
+                .isolate
+                .dispatch(rt_ctx, Request::from_parts(parts, body))
+                .await
+        });
+        let mut out = match (shell_template, cell.web.pages.clone()) {
+            (Some(template), Some(pages)) => {
+                tokio::select! {
+                    out = &mut dispatch => out,
+                    _ = tokio::time::sleep(SHELL_DELAY) => {
+                        let request_id = ctx.request_id.clone();
+                        let (probe_nonce, token) = (nonce.clone(), csrf_token.clone());
+                        let probe = pages.clone();
+                        let shell = tokio::task::spawn_blocking(move || {
+                            probe.shell_of(&template, &request_id, probe_nonce.as_deref(), token.as_deref())
+                        })
+                        .await
+                        .ok()
+                        .flatten();
+                        match shell {
+                            Some(shell) => {
+                                let sent = ShellSent {
+                                    shell,
+                                    pages,
+                                    nonce: nonce.clone(),
+                                    csrf_token: csrf_token.clone(),
+                                };
+                                return self.stream_shell(&cell, dispatch, sent, rc, encoding, set_cookie);
+                            }
+                            None => dispatch.await,
+                        }
+                    }
+                }
+            }
+            _ => dispatch.await,
+        };
         // Pages (ops.md section 14): render off the isolate thread; platform
         // errors on page routes and HTML 404s get the error pages
         // (errors.md section 1).
@@ -718,6 +781,7 @@ impl CellManager {
                             nonce.as_deref(),
                             token.as_deref(),
                             is_head,
+                            None,
                         )
                     })
                     .await,
@@ -774,13 +838,6 @@ impl CellManager {
             }
             out.response = r.response;
         }
-        // Compress before the meter record, so `egress_bytes` counts the
-        // bytes sent (#159; gateway README, "Compression"). HEAD gets the
-        // headers of the GET it stands for.
-        out.response = compress::apply(out.response, encoding);
-        if is_head {
-            *out.response.body_mut() = Bytes::new();
-        }
         if out.page {
             for c in &set_cookie {
                 if let Ok(v) = http::HeaderValue::from_str(c) {
@@ -790,38 +847,426 @@ impl CellManager {
                 }
             }
         }
-        // 404 and 405 answered by route matching produce no record
-        // (`meter.md` section 1).
-        if let Some(route) = out.meter.route.clone() {
-            let m = &out.meter;
-            self.inner.meter.record(MeterRecord {
-                request_id: ctx.request_id.clone(),
-                tenant_id: ctx.tenant_id.clone(),
-                deployment_hash: ctx.deployment_hash.clone(),
-                route,
-                started_at,
-                cpu_ms: m.cpu_ms,
-                wall_ms: t0.elapsed().as_secs_f64() * 1000.0,
-                peak_heap_bytes: m.peak_heap_bytes,
-                ingress_bytes: ingress,
-                egress_bytes: out.response.body().len() as u64,
-                fetch_sent_bytes: m.fetch_sent_bytes,
-                fetch_received_bytes: m.fetch_received_bytes,
-                fetch_blocked: m.fetch_blocked,
-                db_ms: m.db_ms,
-                db_rows: m.db_rows,
-                render_fuel,
-                render_ms,
-                logs_dropped: m.logs_dropped,
-                http_status: out.response.status().as_u16(),
-                status: if render_limit {
-                    MeterStatus::RenderLimit
-                } else {
-                    meter_status(m.status)
-                },
+        if let Some(stream) = out.body.take() {
+            // ops.md section 6: the head now, the body from the stream.
+            let encoder = compress::apply_streamed(&mut out.response, encoding);
+            let (sender, body) = BodySender::new(encoder);
+            let status = out.response.status().as_u16();
+            let held = OwnedInFlight::take(&cell);
+            let this = self.clone();
+            tokio::spawn(async move {
+                let _held = held;
+                let (end, egress) = sender.relay(stream).await;
+                let used = RenderUse::default();
+                this.record(&rc, &end.meter, egress, status, &used);
             });
+            return out.response.map(|_| Body::new(body));
         }
+        // Compress before the meter record, so `egress_bytes` counts the
+        // bytes sent (#159; gateway README, "Compression"). HEAD gets the
+        // headers of the GET it stands for.
+        out.response = compress::apply(out.response, encoding);
+        if is_head {
+            *out.response.body_mut() = Bytes::new();
+        }
+        let used = RenderUse {
+            fuel: render_fuel,
+            ms: render_ms,
+            limit: render_limit,
+        };
+        self.record(
+            &rc,
+            &out.meter,
+            out.response.body().len() as u64,
+            out.response.status().as_u16(),
+            &used,
+        );
         to_body(out.response)
+    }
+
+    /// One meter record (`ops.md` section 7). 404 and 405 answered by
+    /// route matching produce none (`meter.md` section 1).
+    fn record(
+        &self,
+        rc: &RecordCtx,
+        m: &InvocationMeter,
+        egress_bytes: u64,
+        http_status: u16,
+        render: &RenderUse,
+    ) {
+        let Some(route) = m.route.clone() else {
+            return;
+        };
+        self.inner.meter.record(MeterRecord {
+            request_id: rc.request_id.clone(),
+            tenant_id: rc.tenant_id.clone(),
+            deployment_hash: rc.deployment_hash.clone(),
+            route,
+            started_at: rc.started_at,
+            cpu_ms: m.cpu_ms,
+            wall_ms: rc.t0.elapsed().as_secs_f64() * 1000.0,
+            peak_heap_bytes: m.peak_heap_bytes,
+            ingress_bytes: rc.ingress,
+            egress_bytes,
+            fetch_sent_bytes: m.fetch_sent_bytes,
+            fetch_received_bytes: m.fetch_received_bytes,
+            fetch_blocked: m.fetch_blocked,
+            db_ms: m.db_ms,
+            db_rows: m.db_rows,
+            render_fuel: render.fuel,
+            render_ms: render.ms,
+            logs_dropped: m.logs_dropped,
+            http_status,
+            status: if render.limit {
+                MeterStatus::RenderLimit
+            } else {
+                meter_status(m.status)
+            },
+        });
+    }
+
+    /// The loader is slower than [`SHELL_DELAY`] and the page has a shell
+    /// (`ops.md` section 14, "Streaming the shell"): 200 and the shell now;
+    /// the rest of the page, or the error page inside the stream, when the
+    /// dispatch ends.
+    fn stream_shell(
+        &self,
+        cell: &Arc<Cell>,
+        dispatch: DispatchFuture,
+        sent: ShellSent,
+        rc: RecordCtx,
+        encoding: Option<compress::Encoding>,
+        set_cookie: Vec<String>,
+    ) -> Response<Body> {
+        let mut head = html_response(200, &rc.request_id, Bytes::new());
+        for c in &set_cookie {
+            if let Ok(v) = http::HeaderValue::from_str(c) {
+                head.headers_mut().append(http::header::SET_COOKIE, v);
+            }
+        }
+        let encoder = compress::apply_streamed(&mut head, encoding);
+        let (mut sender, body) = BodySender::new(encoder);
+        let held = OwnedInFlight::take(cell);
+        let this = self.clone();
+        let isolate = cell.clone();
+        tokio::spawn(async move {
+            let _held = held;
+            let ShellSent {
+                shell,
+                pages,
+                nonce,
+                csrf_token,
+            } = sent;
+            let mut used = RenderUse {
+                fuel: shell.fuel,
+                ms: Some(shell.ms),
+                limit: false,
+            };
+            let mut live = sender.send(shell.html.as_bytes()).await;
+            let mut out = dispatch.await;
+            let request_id = rc.request_id.clone();
+            // What goes after the shell: the rest of the page, or an error
+            // page's markup (errors.md section 1) with what to log.
+            let mut error: Option<(u16, String, String, &'static str)> = None;
+            let mut rest: Option<Bytes> = None;
+            if let Some(page) = out.render.take() {
+                if live {
+                    let (p, r, n, t) = (
+                        pages.clone(),
+                        request_id.clone(),
+                        nonce.clone(),
+                        csrf_token.clone(),
+                    );
+                    let now = shell.now_ms;
+                    let rendered = on_render_pool(move || {
+                        p.render_page(&page, &r, n.as_deref(), t.as_deref(), false, Some(now))
+                    })
+                    .await;
+                    used.fuel += rendered.fuel;
+                    used.ms = add_ms(used.ms, rendered.ms);
+                    used.limit = rendered.limit;
+                    if let Some((message, mut fields)) = rendered.log {
+                        fields.insert("streamed".into(), true.into());
+                        isolate
+                            .isolate
+                            .log("error", Some(&request_id), &message, fields);
+                    }
+                    let body = rendered.response.body().clone();
+                    if rendered.response.status() != http::StatusCode::OK {
+                        // The page failed: its error page is the response.
+                        if out.meter.status == RuntimeStatus::Ok {
+                            out.meter.status = RuntimeStatus::Error;
+                        }
+                        rest = Some(Bytes::copy_from_slice(from_body_tag(&body)));
+                    } else if body.starts_with(shell.html.as_bytes()) {
+                        rest = Some(body.slice(shell.html.len()..));
+                    } else {
+                        error = Some((
+                            500,
+                            "RENOX_INTERNAL".into(),
+                            INTERNAL_MESSAGE.into(),
+                            "shell_mismatch",
+                        ));
+                    }
+                }
+            } else if let Some(stream) = out.body.take() {
+                // A `Response` from `load`, streamed: it cannot be sent.
+                let end = stream.client_gone().await;
+                out.meter = end.meter;
+                error = Some((
+                    500,
+                    "RENOX_INTERNAL".into(),
+                    INTERNAL_MESSAGE.into(),
+                    "response_after_shell",
+                ));
+            } else if out.meter.status != RuntimeStatus::Ok {
+                if let Some((status, code, message)) = platform_error(&out.response) {
+                    error = Some((status, code, message, "error_after_shell"));
+                } else {
+                    error = Some((
+                        500,
+                        "RENOX_INTERNAL".into(),
+                        INTERNAL_MESSAGE.into(),
+                        "error_after_shell",
+                    ));
+                }
+            } else {
+                error = Some((
+                    500,
+                    "RENOX_INTERNAL".into(),
+                    INTERNAL_MESSAGE.into(),
+                    "response_after_shell",
+                ));
+            }
+            if let Some((status, code, message, reason)) = error {
+                if out.meter.status == RuntimeStatus::Ok {
+                    out.meter.status = RuntimeStatus::Error;
+                }
+                let mut f = serde_json::Map::new();
+                f.insert("code".into(), code.clone().into());
+                f.insert(
+                    "route".into(),
+                    out.meter.route.clone().unwrap_or_default().into(),
+                );
+                f.insert("reason".into(), reason.into());
+                f.insert("streamed".into(), true.into());
+                isolate.isolate.log(
+                    "error",
+                    Some(&request_id),
+                    "error page rendered inside the stream",
+                    f,
+                );
+                if live {
+                    let (p, r, n) = (pages.clone(), request_id.clone(), nonce.clone());
+                    let page = on_render_pool(move || {
+                        p.error_page(status, Some(&code), &message, &r, n.as_deref())
+                    })
+                    .await;
+                    used.fuel += page.fuel;
+                    used.ms = add_ms(used.ms, page.ms);
+                    rest = Some(Bytes::copy_from_slice(from_body_tag(page.response.body())));
+                }
+            }
+            if let Some(rest) = rest
+                && live
+            {
+                live = sender.send(&rest).await;
+            }
+            let egress = if live {
+                sender.finish().await
+            } else {
+                sender.egress
+            };
+            this.record(&rc, &out.meter, egress, 200, &used);
+        });
+        head.map(|_| Body::new(body))
+    }
+}
+
+/// The shell delay (`ops.md` section 14, "Streaming the shell"): 50 ms
+/// *proposed*.
+pub const SHELL_DELAY: Duration = Duration::from_millis(50);
+
+const INTERNAL_MESSAGE: &str = "Internal error. Quote the request id when reporting it.";
+
+type DispatchFuture = Pin<Box<dyn Future<Output = Dispatched> + Send>>;
+
+/// What the meter record needs from the request.
+struct RecordCtx {
+    request_id: String,
+    tenant_id: String,
+    deployment_hash: String,
+    started_at: u64,
+    t0: Instant,
+    ingress: u64,
+}
+
+/// What rendering used (`meter.md`: `render_fuel`, `render_ms`).
+#[derive(Debug, Default)]
+struct RenderUse {
+    fuel: u64,
+    ms: Option<f64>,
+    limit: bool,
+}
+
+fn add_ms(a: Option<f64>, b: Option<f64>) -> Option<f64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a + b),
+        (a, b) => a.or(b),
+    }
+}
+
+/// A page's shell, sent; what the rest of the page needs.
+struct ShellSent {
+    shell: PageShell,
+    pages: Arc<PageRenderer>,
+    nonce: Option<String>,
+    csrf_token: Option<String>,
+}
+
+/// Keeps a cell counted as in flight while a streamed body is sent after
+/// `handle` returned, so a draining cell is not evicted mid-stream.
+struct OwnedInFlight(Option<Arc<Cell>>);
+
+impl OwnedInFlight {
+    fn take(cell: &Arc<Cell>) -> OwnedInFlight {
+        // The request is in flight already, so the cell is not evicted.
+        OwnedInFlight(cell.try_admit().then(|| cell.clone()))
+    }
+}
+
+impl Drop for OwnedInFlight {
+    fn drop(&mut self) {
+        if let Some(cell) = &self.0 {
+            cell.finish();
+        }
+    }
+}
+
+/// Chunks between the relay task and the connection.
+const BODY_CHANNEL: usize = 4;
+
+/// The task's end of a streamed body: compresses each chunk and counts the
+/// bytes sent (`meter.md`, `egress_bytes`: after compression).
+struct BodySender {
+    tx: tokio::sync::mpsc::Sender<Result<Bytes, std::io::Error>>,
+    encoder: Option<StreamEncoder>,
+    egress: u64,
+}
+
+impl BodySender {
+    fn new(encoder: Option<StreamEncoder>) -> (BodySender, ChannelBody) {
+        let (tx, rx) = tokio::sync::mpsc::channel(BODY_CHANNEL);
+        (
+            BodySender {
+                tx,
+                encoder,
+                egress: 0,
+            },
+            ChannelBody { rx, error: None },
+        )
+    }
+
+    /// Send one chunk; `false` when the client went away.
+    async fn send(&mut self, chunk: &[u8]) -> bool {
+        if chunk.is_empty() {
+            return !self.tx.is_closed();
+        }
+        let out = match &mut self.encoder {
+            Some(e) => e.encode(chunk),
+            None => Bytes::copy_from_slice(chunk),
+        };
+        if out.is_empty() {
+            return !self.tx.is_closed();
+        }
+        self.egress += out.len() as u64;
+        self.tx.send(Ok(out)).await.is_ok()
+    }
+
+    /// The normal end: the encoder's tail, then the end of the body.
+    async fn finish(mut self) -> u64 {
+        if let Some(e) = self.encoder.take() {
+            let tail = e.finish();
+            if !tail.is_empty() {
+                self.egress += tail.len() as u64;
+                let _ = self.tx.send(Ok(tail)).await;
+            }
+        }
+        self.egress
+    }
+
+    /// A stopped stream (ops.md section 6, "Explicit end"): the body ends
+    /// with an error, so the client can tell it is incomplete.
+    async fn truncate(self) -> u64 {
+        let _ = self
+            .tx
+            .send(Err(std::io::Error::other("response truncated")))
+            .await;
+        self.egress
+    }
+
+    /// Move a runtime stream to the client; its end and the bytes sent.
+    async fn relay(
+        mut self,
+        mut stream: ResponseStream,
+    ) -> (renox_runtime::isolate::StreamEnd, u64) {
+        loop {
+            let chunk = tokio::select! {
+                biased;
+                chunk = stream.next_chunk() => chunk,
+                // The client went away while the handler had nothing to send.
+                _ = self.tx.closed() => None,
+            };
+            let Some(chunk) = chunk else {
+                if stream.end().is_none() {
+                    return (stream.client_gone().await, self.egress);
+                }
+                break;
+            };
+            if !self.send(&chunk).await {
+                let end = stream.client_gone().await;
+                return (end, self.egress);
+            }
+        }
+        let end = stream.take_end();
+        let egress = if end.complete {
+            self.finish().await
+        } else {
+            self.truncate().await
+        };
+        (end, egress)
+    }
+}
+
+/// The connection's end of a streamed body. A truncation is held back for
+/// one poll: hyper drops the bytes it has buffered when a body fails, so it
+/// gets one round to flush the last chunk before the error.
+struct ChannelBody {
+    rx: tokio::sync::mpsc::Receiver<Result<Bytes, std::io::Error>>,
+    error: Option<std::io::Error>,
+}
+
+impl hyper::body::Body for ChannelBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<Bytes>, std::io::Error>>> {
+        if let Some(e) = self.error.take() {
+            return Poll::Ready(Some(Err(e)));
+        }
+        match self.rx.poll_recv(cx) {
+            Poll::Ready(Some(Ok(b))) => Poll::Ready(Some(Ok(hyper::body::Frame::data(b)))),
+            Poll::Ready(Some(Err(e))) => {
+                self.error = Some(e);
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 

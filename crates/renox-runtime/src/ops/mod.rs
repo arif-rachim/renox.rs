@@ -13,3 +13,5 @@ pub(crate) mod deadline;
 pub mod fetch;
 #[cfg(feature = "v8")]
 pub(crate) mod request;
+#[cfg(feature = "v8")]
+pub(crate) mod response;

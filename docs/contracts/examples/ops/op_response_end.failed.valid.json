@@ -1,0 +1,8 @@
+{
+  "$comment": "The handler's stream failed: the message goes to the tenant log, the client gets a truncated body",
+  "op": "op_response_end",
+  "args": [
+    "TypeError: chunk is not a Uint8Array"
+  ],
+  "result": null
+}

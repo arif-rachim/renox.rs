@@ -1,0 +1,10 @@
+{
+  "$comment": "One chunk of a streamed response body (ops.md section 6, 1.2.0): the bytes \"hi\"",
+  "op": "op_response_write",
+  "args": [
+    {
+      "$bytes": "aGk="
+    }
+  ],
+  "result": null
+}

@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1.1.1** (F2, #201: section 10 states the isolate pool and the CPU attribution of #155 and #156; wording only). 1.0.0 is implemented by the F1 runtime (#25–#28) and SDK (#31); the additions of 1.1.0 (#153: section 14, the blocked ranges of section 2) are implemented by #40, #41, #44, and #170. History: "Changelog" at the bottom |
+| Version | **1.2.0** (F2, #206: streamed response bodies; sections 0, 6, 7, 10, 11, 14). 1.0.0 is implemented by the F1 runtime (#25–#28) and SDK (#31); the additions of 1.1.0 (#153: section 14, the blocked ranges of section 2) are implemented by #40, #41, #44, and #170; the additions of 1.2.0 are implemented by #161. History: "Changelog" at the bottom |
 | Producer | `crates/renox-runtime` (P1): implements the ops |
 | Consumers | `sdk/` (P10): types and the `ctx` wrapper; `crates/renox-cell` (P5): request envelope, page dispatch and rendering, meter record |
 | TypeScript view | [`ctx.d.ts`](ctx.d.ts): the same surface, one to one |
@@ -18,10 +18,10 @@ Every limit below is enforced in Rust (`AGENTS.md`, "Per-tenant limits must be e
 
 - **How ops are exposed.** Every op is a `deno_core` `#[op2]` function in one extension, `renox`, defined in `crates/renox-runtime` and added to the `deno_runtime` worker the crate creates for each deployment. The crate uses `deno_runtime` from crates.io directly, not the Supabase Edge Runtime crates (D3; `crates/renox-runtime/README.md`, "Upstream consumption mode"), so no upstream patch is needed. Not a JavaScript shim over upstream APIs: upstream has no per-request deadline, no egress byte limit, and no DNS-checked allowlist, and SQLite has no upstream op at all. The extension's ESM bootstrap (section 11) is part of the platform snapshot.
 - **Naming.** `op_<area>_<verb>`, snake_case, as registered with `deno_core`.
-- **Async.** Every op that can wait on I/O returns a `Promise`. The runtime may resolve it synchronously when the work is already done; tenant code must not rely on that. `op_log`, `op_deadline_remaining_ms`, and `op_secrets_get_all` are synchronous.
-- **Request scope.** Every op call is tied to the request whose handler made it. The dispatch wrapper (section 11, step 6) runs each handler inside a fresh **async context** that carries an opaque request token. The mechanism is V8's continuation-preserved embedder data, which `deno_core` exposes and Deno's `AsyncLocalStorage` uses. The token therefore follows every `await`, promise continuation, and timer created by that handler. The bootstrap reads the token from the current async context and hands it to the op; the ops are held in the bootstrap's closures and are unreachable from tenant code, so tenant code can neither supply a token nor act on behalf of another request. Rust keeps the set of live tokens per isolate. An op called with no token (module top level) or with the token of a request that has ended (a timer that fires after the response) rejects with `RENOX_NO_REQUEST`. The one exception is `op_log`, which then logs with `request_id: null`. `op_secrets_get_all` is consumed by the bootstrap before tenant code runs (section 3). #25 proved that the token follows `await`, timers, and promise continuations (`deno_core` `AsyncVariable`), so concurrent requests share one isolate.
+- **Async.** Every op that can wait on I/O returns a `Promise`. The runtime may resolve it synchronously when the work is already done; tenant code must not rely on that. `op_log`, `op_deadline_remaining_ms`, `op_secrets_get_all`, and `op_response_end` are synchronous.
+- **Request scope.** Every op call is tied to the request whose handler made it. The dispatch wrapper (section 11, step 6) runs each handler inside a fresh **async context** that carries an opaque request token. The mechanism is V8's continuation-preserved embedder data, which `deno_core` exposes and Deno's `AsyncLocalStorage` uses. The token therefore follows every `await`, promise continuation, and timer created by that handler. The bootstrap reads the token from the current async context and hands it to the op; the ops are held in the bootstrap's closures and are unreachable from tenant code, so tenant code can neither supply a token nor act on behalf of another request. Rust keeps the set of live tokens per isolate. **A request ends when its response has ended**: for a static body when the handler's `Response` is handed back, for a streamed body when the stream ends for any reason (section 6, "Response body"). Until then its token is live, so a stream's `pull` may call `ctx.db` or `fetch`. An op called with no token (module top level) or with the token of a request that has ended (a timer that fires after the response) rejects with `RENOX_NO_REQUEST`. The one exception is `op_log`, which then logs with `request_id: null`. `op_secrets_get_all` is consumed by the bootstrap before tenant code runs (section 3). #25 proved that the token follows `await`, timers, and promise continuations (`deno_core` `AsyncVariable`), so concurrent requests share one isolate.
 - **Errors.** An op that fails rejects with a `RenoxError` whose `code` is one of the codes in section 13. Every code there also appears in `errors.md`, which owns HTTP status and tenant guidance, and `validate.ts` checks the sets. The SDK maps codes to the error subclasses in `ctx.d.ts`. An error message never contains a file path, an internal hostname or IP, a stack frame from Rust, or a secret value (`docs/23-failure-modes.md` rule 2).
-- **Cancellation.** When the request's deadline passes or the CPU watchdog fires, every pending op of that request is cancelled. Pending promises reject with `RENOX_DEADLINE`, or are dropped with the isolate after `RENOX_CPU_LIMIT` or `RENOX_OOM` (section 10).
+- **Cancellation.** When the request's deadline passes or the CPU watchdog fires, every pending op of that request is cancelled. So are they when a streamed response stops early (egress limit, client gone; section 6). Pending promises reject with `RENOX_DEADLINE`, or are dropped with the isolate after `RENOX_CPU_LIMIT` or `RENOX_OOM` (section 10).
 - **Values.** How arguments and results cross the boundary (`bigint`, `Uint8Array`, `null`, strings) is fixed in section 12.
 - **Metering.** Each op adds to the invocation's meter record (section 7). Ops never return meter data to tenant code.
 
@@ -319,11 +319,47 @@ export const POST: Handler = async ({ req, db }) => { /* ... */ return new Respo
 - The handler must return (or resolve to) a `Response`. Anything else → 500 `RENOX_INTERNAL`, and the reason goes to the tenant log only.
 - A throw → 500 `RENOX_INTERNAL` with the request id; the error and its stack (redacted) go to the tenant log sink only.
 
+### Response body (1.2.0)
+
+The bootstrap hands a `Response` back to Rust **head first**: status and headers, then the body. Rust sends the head to the client before the body is complete. There are two body shapes; which one a body takes is not visible to the end user except in timing.
+
+| Body | What crosses | When the request ends |
+| --- | --- | --- |
+| **Static**: `null`, a string, a `BufferSource`, `URLSearchParams`, `FormData`, a `Blob`, `Response.json(...)` | The bytes, in one piece, together with the head (as in 1.1) | When the head and bytes are handed back |
+| **Streamed**: a `ReadableStream` (written by the handler, or a `fetch` response body passed through) | The head, with `body: "stream"`; then each chunk through `op_response_write`, and the end through `op_response_end` | When `op_response_end` is called, or the stream is stopped (below) |
+
+The bootstrap may treat any static body as streamed (a `Blob`, for example, is a stream inside Deno); it never treats a streamed body as static, because reading a whole stream first is what this version removes.
+
+| Op | Arguments | Result |
+| --- | --- | --- |
+| `op_response_write` | `chunk: Uint8Array` | `Promise<void>`: resolves when Rust has taken the chunk; rejects with `RENOX_NO_REQUEST` when the response can take no more bytes (the stream was stopped, below) |
+| `op_response_end` | `error: string \| null` | `void` (sync, never throws): `null` is the normal end; a string says the handler's stream failed, with its message |
+
+- **Only the bootstrap calls them**, like every op (section 0). It reads the handler's stream with a reader in the request's async context, so the CPU of the stream's `pull` and of the copy is the request's `cpu_ms`, under the same CPU limit, and every op the stream calls works until the stream ends.
+- **Chunks.** A chunk is bytes (`Uint8Array`, copied, section 12). An empty chunk is skipped. A chunk of any other type is a stream failure (`op_response_end` with a `TypeError` message). Rust may split a chunk or join small ones on the wire; the bytes and their order are kept.
+- **Backpressure.** Rust holds at most 16 chunks of one response that the connection has not taken yet. `op_response_write` stays pending while that buffer is full, so a handler that produces faster than the client reads waits, and its wait counts against the deadline.
+- **Explicit end.** The body is complete only when `op_response_end(null)` is called. A stream that is stopped any other way (below) is **truncated**: the client gets the head and the bytes sent so far, and the body ends with an error instead of a clean end (HTTP/1.1: the connection is closed before the last chunk; HTTP/2: the stream is reset). A client can therefore always tell a truncated body from a complete one.
+- **Stops.** A streamed response stops early when: the response egress limit is reached (section 10); the deadline passes; the CPU or heap limit ends the isolate; the handler's stream fails (it errors, or yields a chunk that is not bytes); or the client goes away. Rust then ends the request (its token stops working, its pending ops are cancelled, its open transaction is rolled back, as in section 11, step 6), and the bootstrap cancels the handler's stream (its `cancel` callback runs) when the isolate is still alive. What the client sees and what the meter records in each case is section 10, "Mid-stream".
+- **Headers of a streamed body.** A `Content-Length` set by the handler is removed: the body is sent with chunked transfer coding (HTTP/1.1) or without a length (HTTP/2). Every other header is handled as for a static body.
+- **HEAD.** A `HEAD` served by `GET` sends the head only; the bootstrap cancels a streamed body without reading it.
+- **Compression** stays the gateway's (`crates/renox-gateway/src/compress.rs`): the same rules as for static bodies (type, size, `NoCompress`, `no-transform`), with a streaming encoder that flushes after each chunk, so a chunk reaches the client without waiting for the next one. A streamed body is compressed without the minimum-size rule, since its size is not known at the head.
+
+```ts
+// Tenant code: a body that streams.
+export const GET: Handler = () => new Response(new ReadableStream({
+  async pull(c) { const rows = await nextPage(); rows ? c.enqueue(encode(rows)) : c.close(); },
+}), { headers: { "content-type": "text/csv" } });
+
+// Bootstrap, not tenant code: what crosses after the head.
+await op_response_write(new Uint8Array([104, 105]));  // resolves once Rust holds the chunk
+op_response_end(null);                                // the body is complete
+```
+
 Page modules export `load` and `actions` (section 14). Reserved exports: `guard` for pages (F5, with `authz`); `ws` for WebSocket (F5); `sse` (F5); `schedule` for jobs (F6); `cors` and `frame` options (F2, `artifact.md` Open 6).
 
 ## 7. Meter record (emitted, not an op)
 
-The runtime and cell emit one record per invocation (`docs/05-tenant-lifecycle.md`, "Metering and billing"). The schema itself is owned by [`meter.md`](meter.md) (#16). This contract only fixes which fields the runtime is responsible for filling:
+The runtime and cell emit one record per invocation (`docs/05-tenant-lifecycle.md`, "Metering and billing"). The schema itself is owned by [`meter.md`](meter.md) (#16). This contract only fixes which fields the runtime is responsible for filling, and when the record is written.
 
 | Field | Filled by | From |
 | --- | --- | --- |
@@ -336,6 +372,13 @@ The runtime and cell emit one record per invocation (`docs/05-tenant-lifecycle.m
 | `logs_dropped` | runtime | `op_log` |
 
 Types, units, and the `status` values are defined in [`meter.md`](meter.md) section 2.
+
+**When (1.2.0).** The record is written when the request ends (section 0, "Request scope"): for a static body when the response is handed to the gateway, for a **streamed body at the end of the stream**, whatever ended it: the normal end, the egress limit, the deadline, a CPU or heap kill, a failed stream, or the client going away. Then:
+
+- `wall_ms` runs to the end of the stream; `cpu_ms`, `db_*`, `fetch_*` and `logs_dropped` include what the stream's `pull` used;
+- `egress_bytes` counts the body bytes handed to the connection, after compression, up to the stop: a truncated response records the bytes sent so far;
+- `http_status` is the status sent in the head, even when the stream was cut later;
+- `status` is the cause of the end: `ok` for the normal end and for a client that went away, `timeout`, `cpu_limit` or `oom` for a kill mid-stream, `error` for the egress limit and for a failed stream (section 10, "Mid-stream").
 
 ## 8. Reserved ops and `ctx` fields
 
@@ -373,6 +416,7 @@ Defaults from `docs/04-isolation-security.md`, "Per-tenant limits". An app may l
 | Concurrent requests per deployment | 50 | 500 | Semaphore per deployment in `crates/renox-runtime/src/limits/concurrency.rs`, shared by every member of the deployment's isolate pool, acquired before the request enters an isolate |
 | Isolates per hot deployment (pool size, `IsolateSpec::max_isolates`) | one per core, up to 2 | one per core, up to 8 | `crates/renox-cell/src/manager.rs` sets it per tier; a deployment grows past one isolate only while requests wait on a busy one (`crates/renox-runtime/src/isolate.rs`, "Pool") |
 | Module evaluation at isolate start (section 11, step 4) | 500 ms CPU, 10 s wall | 5 s CPU, 10 s wall | Same watchdog and deadline as requests |
+| Response egress per request (streamed body, 1.2.0) | 10 MB | 100 MB | Counted per chunk in `op_response_write`, before compression; separate from the `fetch` egress counter of section 2 |
 
 What happens on each limit:
 
@@ -383,6 +427,22 @@ What happens on each limit:
 | **Wall clock** | Pending ops reject with `RENOX_DEADLINE`; later ops of that request reject with `RENOX_NO_REQUEST` | 504 `RENOX_DEADLINE`, sent at the deadline whatever the handler does afterwards; a `Response` the handler returns later is discarded | `timeout` | **Kept.** JavaScript that is still running synchronously at the deadline is caught by the CPU limit, which is always shorter |
 | **Concurrency** | Nothing (no tenant code runs) | 503 `RENOX_BUSY` with `Retry-After: 1`, after queueing up to the request's deadline (`docs/23-failure-modes.md`, "Too many concurrent requests") | `busy` | Kept |
 | **Module evaluation** (CPU, wall, or a throw) | — | 503 `RENOX_CPU_LIMIT`, 504 `RENOX_DEADLINE`, or 500 `RENOX_INTERNAL` for every request waiting on that isolate | the matching status | Isolate creation fails. The failure is cached per deployment for 5 s, so a broken deployment does not rebuild an isolate on every request. One log line with `phase: "module_load"` per failure |
+
+**Response egress.** Every chunk of a streamed body is counted as `op_response_write` takes it. The chunk that would pass the limit is refused whole, so the client never gets more than the limit; the stream stops (section 6, "Stops"), the response is truncated, and the tenant log gets one line with `reason: "egress_limit"`, `route`, `limit_bytes` and `sent_bytes`. The limit counts the bytes the handler wrote, before compression, so it does not depend on the client's `Accept-Encoding`. A static body is bounded by the heap limit instead; the egress limit does not apply to it.
+
+**Mid-stream.** Once the head of a streamed response is sent, its status cannot change. A limit or failure after that point therefore truncates the body instead of answering with an error status:
+
+| Stop after the head | Client | Meter `status` | Tenant log |
+| --- | --- | --- | --- |
+| Normal end (`op_response_end(null)`) | Complete body | `ok` | — |
+| Client went away | — | `ok` | — |
+| Response egress limit | Truncated | `error` | `reason: "egress_limit"`, `limit_bytes`, `sent_bytes` |
+| The handler's stream failed | Truncated | `error` | `reason: "stream_error"`, `cause_message` (redacted) |
+| Wall-clock deadline | Truncated at the deadline | `timeout` | `code: "RENOX_DEADLINE"`, `phase: "stream"`, `sent_bytes` |
+| CPU limit | Truncated | `cpu_limit` | `code: "RENOX_CPU_LIMIT"`, `phase: "stream"`, `cpu_ms`, `limit_ms`, `sent_bytes` |
+| Heap limit | Truncated | `oom` | `code: "RENOX_OOM"`, `phase: "stream"`, `peak_heap_bytes`, `limit_bytes`, `sent_bytes` |
+
+A CPU or heap kill ends every in-flight request on the pool member, as in the collateral rule below: those whose head was sent are truncated, the others get 503 as before. Each gets its own record with the kill's `status` and the bytes it sent. A limit hit before the head is sent is answered as in the first table of this section: the handler has not returned a `Response` yet, so the client still gets the error status.
 
 Per-request CPU accounting (#155): the runtime reads the isolate thread's CPU clock (`CLOCK_THREAD_CPUTIME_ID`) and charges each run of JavaScript and synchronous op work to the request whose async context it runs in. The request's token travels in V8's continuation-preserved embedder data through every `await`, promise reaction, op, and timer of that request, and promise hooks report each switch; so **a request is charged the CPU of its own continuations**, not the CPU of other requests that ran while it was in flight. CPU that runs in no request's context (platform glue between reactions) is split evenly among the requests in flight, rounded up; with one request in flight everything is its own. **CPU used before a request was admitted is never split onto it**: the run so far is charged before the joining request counts as in flight. JavaScript with no request in flight (a timer that outlived its request) runs under the per-request limit, so orphaned work cannot spin forever (`crates/renox-runtime/README.md`, "CPU accounting"). A watchdog thread per isolate checks the running context every 1 ms and calls V8's `TerminateExecution` when the request it is running for would exceed its limit (for unattributed work: when the request in flight with the least CPU left would). The same total is the meter's `cpu_ms`. The V8 heap limit is set with `CreateParams::heap_limits`; no upstream per-worker CPU or wall-clock timer is used. Idle eviction (10 minutes, `docs/05-tenant-lifecycle.md`) belongs to the cell.
 
@@ -408,8 +468,8 @@ The sequence from an empty worker to a dispatched request. Each step finishes be
    - enters a new async context carrying the token;
    - builds the `Request` and a frozen per-request `ctx` (section 6);
    - calls the handler and awaits a `Response`;
-   - checks it, and streams it back.
-   When the request ends for any reason, Rust:
+   - checks it, hands back the head (with a static body, or `body: "stream"`), and, for a streamed body, writes it chunk by chunk with `op_response_write` and ends it with `op_response_end` (section 6, "Response body").
+   When the request ends for any reason (for a streamed body: when the stream ends, section 0), Rust:
    - invalidates the token;
    - rolls back the request's open transactions;
    - closes its open fetch bodies;
@@ -565,7 +625,7 @@ interface Session { readonly id: string }
 
 - **Invocation** (Rust → bootstrap): `route` (the pattern), `phase` (`"load"` or `"action"`), `action` (the name, or `null` for `load`), `fragment` (name or `null`), `params`, and `session` (`{ id }`).
 - **Result** (bootstrap → Rust), one of:
-  - `{ "type": "response" }`: the handler returned a `Response`; it is streamed back as for functions.
+  - `{ "type": "response" }`: the handler returned a `Response`; its head and body go back as for functions (section 6, "Response body"), a streamed body included.
   - `{ "type": "render", "data_json": "...", "fragments": [...] }`: the template data and the out-of-band fragment names (`[]` after `load`). The bootstrap serialises the data with `JSON.stringify` inside V8, and the cell parses the string straight into the renderer's values (the B9 path, #10). Serialisation rules: `bigint` becomes a decimal string, `Date` its ISO string (`toJSON`), `undefined` and functions are dropped, a `Uint8Array` or a cycle is 500 `RENOX_INTERNAL`, and so is data over 8 MiB of JSON *proposed*.
   - `{ "type": "internal", "reason": "..." }`: the handler threw (`threw`), or its result broke a rule above (`load_result`, `action_result`, `data_not_serialisable`, `data_too_large`, `no_template` for an object from a `.ts`-only page). The client gets 500 `RENOX_INTERNAL`; the reason and the redacted error go to the tenant log only.
 
@@ -575,6 +635,18 @@ interface Session { readonly id: string }
 - A render limit ends the request with 500 `RENOX_RENDER_LIMIT` (meter `status: render_limit`), answered with the error page of `errors.md` section 1.
 - The cell adds two values to the template data that tenant code cannot set: the CSP nonce for `<x-script>` and the platform's `<script>`/`<style>` tags, and the CSRF token for `<x-form>` and `<x-csrf>`. They live outside the tenant's data object, so a loader key with the same name cannot replace them.
 - Page responses get `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store` unless the loader returned a `Response`, and `Vary: HX-Request, HX-Target`.
+
+### Streaming the shell (1.2.0)
+
+`docs/08-template-engine.md` ("Streaming"): the `<head>` and the layout shell are sent while the loader awaits the database.
+
+- **Which requests.** A full-page `GET` of a page route that has both `load` and a template: not `HEAD`, not a fragment request (`LoaderContext.fragment` is `null`), not an action. Every other page request is rendered and sent in one piece, as in 1.1.
+- **The shell delay.** The cell waits for `load` up to **50 ms** *proposed* after the request entered the isolate. A loader that finishes within it gets exactly the 1.1 behaviour: its `Response` is sent as is, its object is rendered and sent in one piece, with the status the outcome calls for. Only a slower loader gets the shell first, so fast pages, and the B6 path, are unchanged.
+- **The shell** is the page's output up to the first point where the template reads the template data, cut back to the end of the last complete tag, with the platform tags of the page shell (`client-events.md` section 1) after `<head>` as for a buffered page. The cell finds it by rendering the page, layout included, with template data that records the first read; the output before that read depends on no loader data, so the full page starts with exactly these bytes. The shell render's fuel and CPU are part of the invocation's `render_fuel` and `render_ms`. A page whose template reads data before writing any complete tag has an empty shell: nothing is sent early, and the page is sent in one piece when `load` finishes.
+- **Sending it.** At the shell delay the cell sends the head (status 200, the page headers above, and the session `Set-Cookie` if any) and the shell. The response is a streamed body from then on (section 6: chunked, compressed per chunk, meter at the end).
+- **When `load` returns an object** the cell renders the full page with the data and sends the bytes after the shell. Out-of-band fragments do not apply (a `GET` has none).
+- **Errors after the shell.** The status is already sent, so any outcome that would have been an error page is **rendered inside the stream**: `load` threw or broke a result rule (`RENOX_INTERNAL`), a render limit (`RENOX_RENDER_LIMIT`), the deadline (`RENOX_DEADLINE`), a CPU or heap kill (`RENOX_CPU_LIMIT`, `RENOX_OOM`). The cell renders the error page exactly as it would for a buffered response (`pages/_error` with the same `status`, `code`, `request_id` and `message`, then the platform default page; `errors.md` section 1) and sends its markup from its opening `<body>` tag on (all of it when it has no `<body>` tag), then ends the stream normally. The meter `status` is the one the buffered page would have had (`error`, `render_limit`, `timeout`, `cpu_limit`, `oom`), and `http_status` is 200. The tenant log gets the line the buffered page would have logged (a render failure's line carries `streamed: true`), and the cell adds one line `error page rendered inside the stream` with `code`, `route`, `reason` (`error_after_shell`, `response_after_shell`, or `shell_mismatch` should the full page not start with its shell, which the shell rule rules out) and `streamed: true`. The error page's `<meta name="renox-error-code">` cannot be added to a `<head>` already sent; the client script reads no error code from such a page.
+- **A `Response` from `load` after the shell** cannot be sent (a redirect or a 404 needs its status). It is rendered inside the stream as `RENOX_INTERNAL`, logged with `reason: "response_after_shell"`. A loader that redirects or answers 404 should decide that before its first slow `await`, within the shell delay.
 
 ### TypeScript view
 
@@ -590,12 +662,22 @@ These are not open design questions. Each is a decided rule with a decided fallb
 4. **`x-renox-client-ip`** (section 6): the header name is fixed here. #22 decides which proxies are trusted to supply the client address.
 5. **Pages** (section 14): #41 tests CSRF (403 without a token, the action runs with one), the action transaction (rollback on throw), the re-run of `load` after an object result, and out-of-band fragments; #40 tests fragment selection and the `render_fuel`/`render_ms` fields; #44 tests that the SDK types are assignable to `ctx.d.ts`.
 6. **Blocked ranges** (section 2): #170 adds one test per range added in 1.1.0.
+7. **Streamed bodies** (sections 0, 6, 7, 10, 14): #161 tests that the head and the first chunk of a streamed body reach the client before the stream ends, that the egress limit truncates the body and logs `egress_limit`, that a CPU kill mid-stream truncates it and records `cpu_limit` with the bytes sent, that the meter record is written at the end of the stream, that the shell of a page reaches the client before a slow loader finishes, and that a loader error after the shell is rendered inside the stream; B6 is re-run before and after.
 
 ## Future (additive, not scheduled)
 
 - `op_db_query_raw` returning `{ columns, rows: Value[][] }` if B9/B10 show that building row objects dominates.
 - Redaction of common encodings of secret values (section 3), if a cheap way is found.
-- Tenant response body limits (streamed vs buffered) belong to the cell (#28, #89), not to this contract.
+- A body limit for static responses (today bounded only by the heap limit, section 10) and a per-app override of the response egress limit (`artifact.md` section 3, "Limits overrides").
+- Streamed `fetch` request bodies (section 8) and SSE framing (F5, #70) build on the chunk ops of section 6.
+
+## Open
+
+Values of 1.2.0 that #161 checks by measurement. #161 does not edit this file: a measured reason to change one goes to a new `type:contract` issue, as a minor version (section 9).
+
+1. **Shell delay** (section 14): 50 ms *proposed*. Shorter flushes more pages early but commits status 200 for more slow loaders that would have redirected; #161 re-runs B6 before and after.
+2. **Chunk buffer** (section 6, "Backpressure"): 16 chunks per response. A byte bound may replace it if a tenant's large chunks hold too much memory between the isolate and the connection.
+3. **Static body limit** (section 10, "Response egress"): none beyond the heap limit; listed under "Future".
 
 ## Changelog
 
@@ -604,4 +686,5 @@ These are not open design questions. Each is a decided rule with a decided fallb
 | 0 | #12 | First sketch (F0): db, fetch, secrets, log, deadline, request envelope, meter fields, reserved ops |
 | 1.0.0-f1 | #17 | **Exposure:** `op2` extension `renox` in `crates/renox-runtime` (section 0). **Request scope:** carried by the async context, with the one-request-per-isolate fallback; only `op_log` works outside a request (section 0). **Secrets:** consumed before tenant code runs; values under 8 bytes refused; exact-substring redaction stated as a limitation (section 3). **New sections:** limits per tier and behaviour on each limit (section 10), isolate bootstrap and global hardening (section 11), serialisation rules (section 12), shared error code table, with response codes `RENOX_CPU_LIMIT`, `RENOX_OOM`, `RENOX_BUSY`, `RENOX_INTERNAL`, `RENOX_BODY_TOO_LARGE` alongside the thrown codes (section 13). **Numbers:** every "proposed" value is now the F1 value. **Meter fields:** section 7 renamed to the names in `meter.md` (`route`, `fetch_sent_bytes`, `fetch_received_bytes`, `http_status`, `ingress_bytes`). **Versioning:** moved to `MAJOR.MINOR.PATCH` (section 9). **Open list:** replaced by "Verification by implementing issues" and "Future" |
 | 1.1.0 | #153 | **Pages (section 14):** `LoaderContext`, `ActionContext` (`form`, `action`, `fragment`, `session`, `db` as the action's transaction), `ActionResult`, `Session`, CSRF before actions, the page dispatch exchange (`ops.schema.json` `$defs/page_dispatch`), rendering off the isolate thread; response codes `RENOX_CSRF` and `RENOX_RENDER_LIMIT` (section 13). **Termination bound and collateral rule** stated for tenants (section 10). **Blocked ranges (section 2):** SIIT, NAT64 network-specific prefixes, `192.88.99.0/24`, `3fff::/20`, `5f00::/16`, `fec0::/10`, and the refused names. **Stale text removed:** the Edge Runtime per-worker options and user-worker wording (sections 0, 10, 11), the semaphore's location, the async-context fallback, the `node:` row; `op_fetch` is registered as `op_renox_fetch`. Meter fields `render_fuel` and `render_ms` filled by the cell (section 7) |
+| 1.2.0 | #206 | Minor (additive). **Streamed response bodies (section 6):** head first; a static body crosses with the head as before, a `ReadableStream` body crosses chunk by chunk through the new ops `op_response_write` (async, backpressure at 16 chunks) and `op_response_end` (sync, explicit end, or the failure message); a stopped stream is truncated so the client can tell; `Content-Length` removed from streamed bodies; per-chunk gateway compression. **Request scope (section 0):** a request ends when its response ends. **Meter (section 7):** written at the end of the stream, with `wall_ms`, `egress_bytes` and `status` of the whole stream. **Limits (section 10):** response egress per request, 10 MB free / 100 MB paid, counted per chunk before compression, separate from the `fetch` counter; the mid-stream table (egress limit, stream failure, deadline, CPU, heap, client gone). **Pages (section 14):** the shell is flushed after a 50 ms *proposed* shell delay for full-page `GET`s with a loader; errors after the shell are rendered inside the stream; a loader `Response` after the shell is `response_after_shell`. No new error code; `ctx.d.ts` unchanged except its version line |
 | 1.1.1 | #201 | Patch, wording only: section 10 states what #155 and #156 implement. **CPU attribution** per async context: a request is charged the CPU of its own continuations, unattributed CPU is split among the requests in flight, and CPU used before a request was admitted is never split onto it. **Collateral rule** per pool member: one bad request ends the in-flight requests on its own member only; the pool size is per tier (`IsolateSpec::max_isolates`); collateral meter records carry the same `status` and are indistinguishable from the request that hit the limit. `ctx.d.ts` and `ops.schema.json` unchanged |
