@@ -1,0 +1,17 @@
+[package]
+name = "renox-realtime"
+version = "0.0.0"
+description = "Realtime connections of a tenant: topics, fan-out with per-connection backpressure, limits, heartbeats, replay, WebSocket and SSE transports (docs/09-htmx-realtime.md, D9; ops.md 1.5.0 section 18)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Leaf crate: no renox-* dependencies, no V8 (AGENTS.md, compile discipline;
+# docs/22-development-plan.md section 2). The WebSocket frame codec is our
+# own (src/ws.rs, README "Why our own codec").
+[dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "sync", "time", "io-util", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "io-util", "macros", "test-util"] }
