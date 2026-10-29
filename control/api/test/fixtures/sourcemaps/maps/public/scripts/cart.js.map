@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../scripts/cart.ts"],
+  "sourcesContent": [
+    "// A browser script of a tenant app (public/scripts/cart.js once built).\n// The fixture for #128: an error thrown in `boom` must be shown at this\n// file's line 13, not at the built file's position.\n\ninterface Cart {\n  items: { price: number }[];\n  total?: number;\n}\n\nexport function boom(cart: Cart): string {\n  const n = cart.items.length;\n  // `total` is missing: this line throws.\n  return cart.total!.toFixed(n);\n}\n\ndocument.querySelector(\"#checkout\")?.addEventListener(\"click\", () => {\n  boom({ items: [] });\n});\n"
+  ],
+  "mappings": ";AASO,SAAS,IAAI,CAAC,MAAoB;AAAA,EACvC,MAAM,IAAI,KAAK,MAAM;AAAA,EAErB,OAAO,KAAK,MAAO,QAAQ,CAAC;AAAA;AAG9B,SAAS,cAAc,WAAW,GAAG,iBAAiB,SAAS,MAAM;AAAA,EACnE,KAAK,EAAE,OAAO,CAAC,EAAE,CAAC;AAAA,CACnB;",
+  "debugId": "8477610C9B30480364756E2164756E21",
+  "names": []
+}

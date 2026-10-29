@@ -2,8 +2,12 @@
 // against the real control API (in process): groups from ingested client
 // lines, the original TypeScript position from a privately uploaded
 // sourcemap, the 80 % quota warning, and the link from a client log line to
-// its group. Rendering is checked through the worker in dashboard.e2e.test.ts.
+// its group. With RENOX_WORKER_PATH, the last test renders the Logs filter
+// and the group view through the worker and screenshots them in Chromium.
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { contentHash, writeTar } from "@renox/artifact-validate";
 
 import { helloArtifact, upload } from "../../api/tests/artifacts.ts";
@@ -12,12 +16,13 @@ import { assertScoped, createApp_, registeredNode, scopedToken, tenant } from ".
 import { load as errorsLoad, actions as errorsActions } from "../pages/apps/[app]/client-errors.ts";
 import { load as logsLoad } from "../pages/apps/[app]/logs.ts";
 import { actions as signinActions } from "../pages/signin.ts";
-import { actionCtx, dash, loaderCtx, type Dash } from "./helpers.ts";
+import { actionCtx, dash, devWithData, loaderCtx, screenshots, type Dash } from "./helpers.ts";
 
 setDefaultTimeout(30_000);
 afterEach(assertScoped);
 
 const HELLO = { app: "hello" };
+const worker = process.env.RENOX_WORKER_PATH;
 type Data = Record<string, any>;
 const data = (v: unknown): Data => {
   expect(v).not.toBeInstanceOf(Response);
@@ -37,7 +42,8 @@ async function setup(scopes?: string[]): Promise<{ d: Dash; hash: string; node: 
 }
 
 let seq = 0;
-const clientLine = (hash: string, message: string, file = "/islands/cart.js") => {
+type Frame = { file: string; line: number; column: number; function: string | null };
+const clientLine = (hash: string, message: string, file = "/islands/cart.js", stack: Frame[] = [{ file, line: 1, column: 1, function: "updateTotal" }]) => {
   seq += 1;
   return {
     ts: Date.now() - 60_000 + seq,
@@ -47,7 +53,7 @@ const clientLine = (hash: string, message: string, file = "/islands/cart.js") =>
     module: "client",
     level: "error",
     message: `js.error: ${message}`,
-    fields: { source: "client", kind: "js.error", client_ts: 1, url: "/cart", ua: "chrome", session_fingerprint: "abcdefghijklmnop", detail: { message, stack: [{ file, line: 1, column: 1, function: "updateTotal" }] } },
+    fields: { source: "client", kind: "js.error", client_ts: 1, url: "/cart", ua: "chrome", session_fingerprint: "abcdefghijklmnop", detail: { message, stack } },
     source: "client",
   };
 };
@@ -134,4 +140,69 @@ describe("Browser errors (3.5)", () => {
     const lines = data(await logsLoad(loaderCtx(s.d, "/apps/hello/logs?source=client", { params: HELLO }))).lines as { group_url: string | null }[];
     expect(lines.map((l) => l.group_url)).toEqual([`/apps/hello/client-errors?fp=${fp}`]);
   });
+
+  /**
+   * The screenshot test (#128 acceptance 1): the group view with its detail
+   * and the Logs page filtered to `source: client`, rendered by the worker
+   * from what the real loaders returned against the real API (tests/helpers.ts,
+   * devWithData), then shot in Chromium when Playwright is installed. The map
+   * is the committed fixture of control/api/test/fixtures/sourcemaps.
+   */
+  test.skipIf(!worker)(
+    "rendered by the worker: the Logs source filter and the group view with the original TypeScript frame",
+    async () => {
+      const s = await setup();
+      const fixture = join(import.meta.dir, "../../api/test/fixtures/sourcemaps");
+      const map = readFileSync(join(fixture, "maps/public/scripts/cart.js.map"));
+      await s.d.h.store.put(`sourcemaps/t_hello/${s.hash}.tar`, writeTar(new Map([["public/scripts/cart.js.map", new Uint8Array(map)]])));
+      const built = readFileSync(join(fixture, "public/scripts/cart.js"), "utf8").split("\n");
+      const line = built.findIndex((l) => l.includes(".toFixed(")) + 1;
+      const column = (built[line - 1] as string).indexOf("toFixed") + 1;
+      const mapped = clientLine(s.hash, "Cannot read properties of undefined (reading 'toFixed')", "/scripts/cart.js", [{ file: "/scripts/cart.js", line, column, function: "boom" }]);
+      await ingest(s, [mapped, clientLine(s.hash, "boom 1")]);
+      const list = data(await errorsLoad(loaderCtx(s.d, "/apps/hello/client-errors", { params: HELLO })));
+      const fp = list.groups.find((g: Data) => g.top.mapped).fingerprint as string;
+      const group = data(await errorsLoad(loaderCtx(s.d, `/apps/hello/client-errors?fp=${fp}`, { params: HELLO })));
+      const logs = data(await logsLoad(loaderCtx(s.d, "/apps/hello/logs?source=client", { params: HELLO })));
+
+      const dev = await devWithData({ "pages/apps/[app]/client-errors.ts": group, "pages/apps/[app]/logs.ts": logs });
+      try {
+        const errorsPage = await fetch(`${dev.base}/apps/hello/client-errors?fp=${fp}`);
+        expect(errorsPage.status).toBe(200);
+        // The renderer adds `dir="auto"` to text it prints; it is not what is checked here.
+        const plain = (h: string) => h.replaceAll(' dir="auto"', "");
+        const html = plain(await errorsPage.text());
+        expect(html).toContain("<h1>Browser errors</h1>");
+        expect(html).toMatch(/<a href="\?status=open" class="current">open<\/a>/u);
+        // Two groups: the mapped one at its TypeScript position, the other marked unmapped.
+        expect(html).toContain(`<code>scripts/cart.ts:13:`);
+        expect(html).toContain("(no sourcemap)");
+        // The detail: the frame's function, original position, and the browser's position beside it.
+        expect(html).toContain("<code>boom</code> <code>scripts/cart.ts:13:");
+        expect(html).toContain(`(browser: /scripts/cart.js:${line}:${column})`);
+        expect(html).toContain(`href="/apps/hello/logs?q=${mapped.request_id}`);
+        expect(html).not.toContain(".map");
+
+        const logsPage = await fetch(`${dev.base}/apps/hello/logs?source=client`);
+        expect(logsPage.status).toBe(200);
+        const logsHtml = plain(await logsPage.text());
+        const source = /<select name="source">([\s\S]*?)<\/select>/u.exec(logsHtml)?.[1] ?? "";
+        expect(source.match(/<option value="(\w+)" selected/gu)).toEqual(['<option value="client" selected']);
+        expect(logsHtml).toContain(`href="/apps/hello/client-errors?fp=${fp}"`);
+
+        const out = process.env.RENOX_SCREENSHOTS ?? mkdtempSync(join(tmpdir(), "renox-dashboard-shots-"));
+        mkdirSync(out, { recursive: true });
+        const shots = await screenshots(dev.base, { "client-errors-group": `/apps/hello/client-errors?fp=${fp}`, "logs-source-client": "/apps/hello/logs?source=client" }, out);
+        if (shots !== null) {
+          // No console error, CSP violation or uncaught exception on either page.
+          expect(shots.errors).toEqual([]);
+          expect(shots.files).toHaveLength(2);
+          for (const f of shots.files) expect(statSync(f).size).toBeGreaterThan(5_000);
+        }
+      } finally {
+        await dev.stop();
+      }
+    },
+    120_000,
+  );
 });

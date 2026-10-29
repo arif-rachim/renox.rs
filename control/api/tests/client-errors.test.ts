@@ -3,9 +3,9 @@
 // the daily client-event quota, and the three client-error endpoints.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { contentHash, writeTar } from "@renox/artifact-validate";
 import { fingerprintOf, framesOf, messageTemplate, normalizeFile } from "../src/logs/grouping.ts";
 import { logIngest } from "../src/ingest/logs.ts";
@@ -263,6 +263,52 @@ describe("sourcemaps", () => {
     // A cross-origin frame and a frame no map covers keep their raw position and a null original.
     expect(d.events[0]?.frames[1]).toMatchObject({ file: "https://cdn.example/lib.js", original: null });
     expect((await list(s)).groups[0]?.top_frame.original).toMatchObject({ file: "islands/cart.ts", line: b.sourceLine });
+  });
+
+  /**
+   * The committed fixture (test/fixtures/sourcemaps/README.md): a script built
+   * once with `bun build`, its map uploaded the way `renox deploy` uploads
+   * `.renox/sourcemaps/<hash>/` (every `.map` of the tree, tar, gzip,
+   * `PUT …/sourcemaps`), an error ingested through the API, and the frame
+   * read back with `getClientError`.
+   */
+  test("a client error in a built public/*.js is shown with the original TS file, line and function", async () => {
+    const s = await setup();
+    const fixture = join(import.meta.dir, "../test/fixtures/sourcemaps");
+    const mapsDir = join(fixture, "maps");
+    const maps = new Map<string, Uint8Array>();
+    for (const entry of readdirSync(mapsDir, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".map")) continue;
+      const path = join(entry.parentPath, entry.name);
+      maps.set(relative(mapsDir, path), new Uint8Array(readFileSync(path)));
+    }
+    expect([...maps.keys()]).toEqual(["public/scripts/cart.js.map"]);
+    const put = await s.h.request("PUT", `/v1/apps/hello/deployments/${s.hash}/sourcemaps`, { token: s.token, body: Bun.gzipSync(writeTar(maps)), headers: { "content-type": "application/gzip" } });
+    expect(put.status).toBe(204);
+
+    // The browser's position of the throwing call in the built file.
+    const built = readFileSync(join(fixture, "public/scripts/cart.js"), "utf8").split("\n");
+    const line = built.findIndex((l) => l.includes(".toFixed(")) + 1;
+    const column = (built[line - 1] as string).indexOf("toFixed") + 1;
+    expect(line).toBeGreaterThan(0);
+    const source = readFileSync(join(fixture, "scripts/cart.ts"), "utf8").split("\n");
+    const sourceLine = source.findIndex((l) => l.includes(".toFixed(")) + 1;
+    expect(sourceLine).toBe(13);
+
+    const message = "Cannot read properties of undefined (reading 'toFixed')";
+    await ingest(s, [clientLine(s.hash, message, [{ file: "/scripts/cart.js", line, column, function: "boom" }, { file: "/scripts/cart.js", line: line + 3, column: 3, function: null }])]);
+    const fp = (await list(s)).groups[0]?.fingerprint as string;
+    const res = await s.h.request("GET", `/v1/apps/hello/client-errors/${fp}`, { token: s.token });
+    expect(res.status).toBe(200);
+    const d = (await res.json()) as { group: Record<string, any>; events: Record<string, any>[] };
+    const top = { file: "/scripts/cart.js", line, column, function: "boom", original: { file: "scripts/cart.ts", line: sourceLine } };
+    expect(d.group.top_frame).toMatchObject(top);
+    expect(d.events[0]?.frames[0]).toMatchObject(top);
+    // The column lands on the call in the source line.
+    const col = d.events[0]?.frames[0].original.column as number;
+    expect((source[sourceLine - 1] as string).slice(col - 1)).toStartWith("toFixed(");
+    // The second frame: the click listener calling boom.
+    expect(d.events[0]?.frames[1].original).toMatchObject({ file: "scripts/cart.ts", line: 17 });
   });
 
   /** The original path never leaks the build machine's layout. */
