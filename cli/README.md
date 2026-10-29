@@ -33,6 +33,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox check [--secrets] [--security] [--json] [--strict]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
 | `renox add <module> [--version <range>] [--source …] [--mount <path>] [--yes]` | Installs a module after showing and approving its permissions; writes `renox.toml` and `renox.lock` (below) |
 | `renox remove <module>` | Uninstalls a module; its tables stay |
+| `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs `tests/*.test.ts` with `renox/test` on the worker, a fresh tenant file per test file (below) |
 | `renox migrate [--db <file>]` | Builds, then runs the artifact's migration plan (installed modules in lock order, then the app's) on the dev tenant file `.renox/data/dev/app.db` through `renox-worker migrate` (below) |
 | `renox deploy [--json]` | Builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
 | `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |
@@ -135,6 +136,24 @@ With a `renox.lock`, `renox build` writes an artifact 1.1 (`docs/contracts/artif
 - every `<dep>__public_<id>_v<n>` view in the code is exported by `<dep>` (a different version names both) and listed in `[imports].views`.
 
 `renox migrate` runs `renox-worker migrate <artifact> <db>` (`renox_data::migrate_all`, #228): each module's files under its own prefix, the app's last. It prints what was applied per module and refuses a changed file that already ran (checksum). `renox dev` needs nothing extra: the worker's cell runs the same plan when it opens the artifact. `.renox/types/db.d.ts` includes the module tables, and `TablesOf<"auth">` groups them by prefix.
+
+### `renox test` and `renox/test` (#238)
+
+`renox test` builds the app (`src/lib/test-harness.ts`, `prepare`) and writes a test artifact: the app's plus `POST /__renox_test/service`. That function route imports `renox:modules` and calls a service like app code does, so the broker's dependency checks and transaction rules apply. It exists only in the test artifact, never in `renox build` or `renox deploy`. `bun test` then runs with `sdk/src/test.ts` preloaded and `RENOX_TEST_SPEC` pointing at the build.
+
+In a test file, `await app()` starts the worker on a temporary tenant file. The first request opens and migrates it, then the seeds run (`seeds/*.sql`, `--seed`), and the worker stops after the file. The returned app has:
+
+- `request(method, path, init)`, `page(path)`, and `action(path, name, form)` (the CSRF token taken from the session's cookie);
+- `as(user)`, a separate cookie jar, so a separate session: roles are whatever the app's own code ties to a session;
+- `service(module).<name>(...args)`;
+- `db.query(sql)`, read-only;
+- `logs()` and `meters()`.
+
+`snapshot(html, { role })` strips request ids, deployment hashes, nonces, CSRF tokens and ULIDs, then matches the snapshot named `role: <role>`. `policyCases()` registers each case of `policies/tests/*.json` as a pending test (F5 evaluates them). A malformed file fails.
+
+`installModule(name, "path:…")` runs `renox add` + `renox check` + `renox build` + `renox migrate` on a scratch copy of the app and a scratch tenant file. `.upgrade("path:…")` does it again on the same copy, with the range `^<version>` of the new tree. Each returns the check report (drift, broken contracts) and the migration report.
+
+Without `renox test` (plain `bun test` in CI), `app()` builds the project itself when `RENOX_WORKER_PATH` is set: `examples/shop/tests/shop.e2e.test.ts` runs that way.
 
 ### `renox deploy`, `renox logs`, `renox secrets` (#58)
 

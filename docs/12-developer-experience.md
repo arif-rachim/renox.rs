@@ -15,6 +15,19 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 | `renox authz explain` | Explain a policy decision |
 | `renox db shell` / `renox db export` | Open the local SQLite file; export a tenant's file from production |
 
+### `renox test`
+
+`renox test [pattern] [--seed <file.sql>] [-u]` builds the app, adds a test-only service route to a copy of the artifact, and runs `bun test` with `renox/test` preloaded (#238). Each test file that calls `app()` gets the same prebuilt worker as `renox dev` (rule 5) on a fresh temporary tenant file: migrations applied, then `seeds/*.sql` and the `--seed` files. The helpers:
+
+- `request`, `page`, `action`, each with its own cookie jar per user (`as(user)`), so session and CSRF work as in a browser;
+- `service(module).<name>(...)`, through the broker like app code;
+- a read-only `db` for assertions;
+- `snapshot(html, { role })`, with request ids, nonces and CSRF tokens stripped;
+- `installModule(name, source)` and `.upgrade(source)`, which return what `renox check` and the migration plan report;
+- `policyCases()`, which reads `policies/tests/*.json` (`{ principal, action, resource, expected }`) as pending tests until Cedar is wired (F5).
+
+Exit code 0 when every test passed, 2 when one failed.
+
 ### Installing the CLI
 
 The CLI is released as standalone binaries (`bun build --compile`, so no Bun is needed) for Linux and macOS on x64 and arm64. A `cli-v<version>` tag runs `.github/workflows/release-cli.yml`, which publishes `renox-<version>-<os>-<arch>` with a `.sha256` for each binary, `install.sh`, and `worker-version.txt`. That file holds the `renox-worker` version the CLI is tested against: `WORKER_VERSION` in `cli/scripts/fetch-worker.ts`, whose release must exist before the CLI release. `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh` (source: `cli/scripts/install.sh`) installs into `~/.renox/bin`. It installs `renox` and the pinned `renox-worker` for the platform, and installs a file only when its SHA-256 matches. Override with `RENOX_VERSION`, `RENOX_INSTALL_DIR` and `RENOX_RELEASE_BASE`, or skip the worker with `RENOX_NO_WORKER=1`. `renox new`, `renox check`, and `renox build` of an app without `templates/` run without the worker; `renox dev` and the template transpile of `renox build` find the installed worker beside `renox`.

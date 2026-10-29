@@ -16,6 +16,10 @@
     "./drizzle": {
       "types": "./src/drizzle.ts",
       "default": "./src/drizzle.ts"
+    },
+    "./test": {
+      "types": "./src/test.ts",
+      "default": "./src/test.ts"
     }
   },
   "files": [

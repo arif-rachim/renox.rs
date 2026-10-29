@@ -200,6 +200,7 @@ renox <command>
                                         scan for secrets; --security prints the effective headers per route; --json prints the report as JSON;
                                         --strict fails on a drifted template override
   migrate [--db <file>]                 run the migrations of the installed modules (lock order) and the app's on the dev database
+  test [pattern...] [--seed <file.sql>] run tests/*.test.ts on the worker with a temporary tenant file per test file (renox/test)
   add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]
                                         install a module: resolve it, show the permissions it asks for, write renox.toml and renox.lock
   remove <module>                       uninstall a module (its tables stay: migrations are forward-only)
