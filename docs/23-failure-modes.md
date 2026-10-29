@@ -55,17 +55,17 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 
 | Failure | Detected by | Tenant sees | Platform does | Proof | Phase |
 | --- | --- | --- | --- | --- | --- |
-| Syntax error, missing `renox.toml`, bad route file name | `renox build` / `renox check` | CLI error with file and line, non-zero exit | Nothing uploaded | `TODO` → #90 | F2 |
+| Syntax error, missing `renox.toml`, bad route file name | `renox build` / `renox check` | CLI error with file and line, non-zero exit | Nothing uploaded | `cli/tests/negative/messages.test.ts` "syntax error in a route", "missing renox.toml", "invalid TOML", "uppercase parameter"; `cli/tests/negative/dev.test.ts` (#90) | F2 |
 | Watcher thrash (many saves per second) | `renox dev` debounce | One rebuild per burst | Isolate recreated once | same issue | F2 |
 | Artifact hash mismatch, symlink, `..` path | Worker artifact loader | Deploy rejected | Artifact refused, never loaded | artifact tests | F1 |
 | Bundle over 20 MB, route conflict, unknown permission key | CLI check and control-plane validation (same code) | Structured validation error | Deployment state `rejected` | validation tests | F3 |
-| Tarball decompression bomb / too many files | Validation with size and entry caps before extraction | Rejected | Extraction aborted at cap | `TODO` → #95 | F3 |
+| Tarball decompression bomb / too many files | Validation with size and entry caps before extraction | Rejected | Extraction aborted at cap | `control/api/tests/extract.test.ts` "T1–T6 …", "the suite covers every rule a body can break while it is read (T1-T6)" (#95) | F3 |
 | Upload interrupted, retried | Content hash idempotency | Same hash, same deployment | No duplicate | deployments test | F3 |
-| Migration fails half-way during activation | Migration runner (transaction per file) | Deployment stays `validated` with the failing file and SQL error; old deployment keeps serving | No route switch; `renox__migrations` unchanged for the failed file | `TODO` → #96 | F3 |
+| Migration fails half-way during activation | Migration runner (transaction per file) | Deployment stays `validated` with the failing file and SQL error; old deployment keeps serving | No route switch; `renox__migrations` unchanged for the failed file | `crates/renox-cell/src/control/prepare.rs` `a_failing_second_file_is_reported_and_the_first_stays_applied`; `crates/renox-cell/tests/activation.rs` `activation_prepares_on_the_node_and_switches_only_on_success`; `control/api/tests/activation.test.ts` "a failing migration file: …" (#96) | F3 |
 | New deployment fails its first request | Activation health probe | Activation reported failed; old stays active | Automatic pointer revert | same issue | F3 |
 | Rollback to a hash whose migrations are older than the schema | Expand/contract rule (D17) | Rollback allowed; code must tolerate newer columns | Documented contract; `renox check --target <hash>` warns | same issue | F3 |
-| Route update message lost or out of order | Version number per route entry; periodic full resync | Nothing (converges) | Worker applies only newer versions, resyncs every N s | `TODO` → #97 | F3 |
-| Control plane unreachable from the worker | Heartbeat failure | Nothing for existing cells | Worker keeps serving from the local route table and artifact cache; meters buffered to disk; new cold starts for uncached artifacts fail with 503 `RENOX_UNAVAILABLE` | `TODO` → #98 | F3 |
+| Route update message lost or out of order | Version number per route entry; periodic full resync | Nothing (converges) | Worker applies only newer versions, resyncs every N s | `crates/renox-cell/src/control/routes.rs` `lossy_reordered_deltas_converge_after_one_resync`, `an_older_delta_is_ignored` (#97) | F3 |
+| Control plane unreachable from the worker | Heartbeat failure | Nothing for existing cells | Worker keeps serving from the local route table and artifact cache; meters buffered to disk; new cold starts for uncached artifacts fail with 503 `RENOX_UNAVAILABLE` | `crates/renox-cell/tests/degraded.rs` `control_plane_down_keeps_serving_and_spools_meters`, `object_storage_down_refuses_only_uncached_cold_starts` (#98) | F3 |
 | Object storage unreachable | Artifact fetch error | Cold start fails 503 for uncached artifacts only | Retry with backoff; alert | same issue | F3 |
 
 ## 4. Data and node failures
@@ -94,7 +94,7 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | Template override drifted from module version | Stored original hash | Warning with diff | Upgrade continues, override flagged | override tests | F4 |
 | Policy denies | Cedar | 403 `RENOX_FORBIDDEN` with policy id in dev | Audit row for sensitive actions | policy tests per role (`docs/contracts/ops.md` §17, "`authz` ops") | F5 |
 | Unscoped query on an owned table | `db.scoped` enforcement for module code | `RENOX_DB_SCOPE` | Statement refused | scoped tests (`docs/contracts/ops.md` §17, "`db.scoped()`") | F5 |
-| Session fixation, replayed token, OAuth `state` mismatch, password reset token reuse | `auth` module | Login refused | Session rotated on login; tokens single-use; `state` checked | `TODO` → #100 | F4 |
+| Session fixation, replayed token, OAuth `state` mismatch, password reset token reuse | `auth` module | Login refused | Session rotated on login; tokens single-use; `state` checked | `modules/auth/tests/negative/session-fixation.test.ts`, `token-replay.test.ts` ("reset: reuse refused, expiry refused"), `oauth-state-pkce.test.ts` ("state: missing, foreign or forged is refused") (#100) | F4 |
 | Marketplace module unsigned or permission diff on upgrade | Registry verification | Install refused / approval required | Hash can be disabled globally | registry tests | F7 |
 
 ## 6. Verification practice
