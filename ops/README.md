@@ -31,4 +31,13 @@ Local builds still let the build script download the archive; set `RUSTY_V8_ARCH
 3. Add the line `<sha256>  v<version>/<archive>` to `v8-checksums.txt` and remove the lines of versions no longer in `Cargo.lock`.
 4. Bump the `v8` (and the Deno crates) in the same PR; Dependabot leaves them alone (`.github/dependabot.yml`).
 
-Current entry: `v150.4.0/librusty_v8_simdutf_release_x86_64-unknown-linux-gnu.a.gz`, downloaded twice from the upstream release on 2026-10-27 with the same sha256, both times from the same build container (one network); a second-network check is still owed.
+Current entries, all `v150.4.0`, one per target the worker release builds or will build:
+
+| Archive | Added | Downloads |
+| --- | --- | --- |
+| `librusty_v8_simdutf_release_x86_64-unknown-linux-gnu.a.gz` | 2026-10-27 (#109) | twice, same sha256, both from the same build container (one network) |
+| `librusty_v8_simdutf_release_aarch64-unknown-linux-gnu.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
+| `librusty_v8_simdutf_release_aarch64-apple-darwin.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
+| `librusty_v8_simdutf_release_x86_64-apple-darwin.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
+
+A second-network check is still owed for all four. The macOS archives are verified by `ops/v8-archive.sh` but not yet used by a release: `release-worker.yml` builds the two Linux targets until the macOS CPU-clock issue is fixed (#139).
