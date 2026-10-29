@@ -11,7 +11,9 @@
 //! | evicted | Removed from the manager; the isolate is terminated and the tenant's database closed when no other cell uses it |
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
@@ -136,6 +138,48 @@ pub enum SecretsError {
     Permissions(u32),
     Read(String),
     Parse,
+    /// The control plane did not deliver the bundle (controlled mode, #55).
+    Unavailable(String),
+}
+
+/// The deployment a cell is created for, as [`SecretsSource`] sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretsRequest {
+    pub tenant_id: String,
+    /// The app of the deployment; `None` in local mode, where the route
+    /// table file has no app.
+    pub app: Option<String>,
+    pub deployment_hash: String,
+    /// The secret-set version the deployment pins (`deploy-api.md` section 9).
+    pub secrets_version: u64,
+}
+
+/// What [`SecretsSource::secrets`] returns: the name → value map.
+pub type SecretsFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<BTreeMap<String, String>, SecretsError>> + Send + 'a>>;
+
+/// Where a cell's secrets come from (#55): `secrets.json` in local mode
+/// ([`LocalSecrets`]), the control plane's bundle in controlled mode
+/// (`crate::control::secrets`). Called once per cell creation; the values
+/// stay in memory and go only into the isolate.
+pub trait SecretsSource: Send + Sync + 'static {
+    fn secrets(&self, request: SecretsRequest) -> SecretsFuture<'_>;
+}
+
+/// `<data_dir>/<tenant_id>/secrets.json` ([`load_secrets`]).
+pub struct LocalSecrets {
+    pub data_dir: PathBuf,
+}
+
+impl SecretsSource for LocalSecrets {
+    fn secrets(&self, request: SecretsRequest) -> SecretsFuture<'_> {
+        let path = self.data_dir.join(&request.tenant_id).join("secrets.json");
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || load_secrets(&path))
+                .await
+                .map_err(|e| SecretsError::Read(e.to_string()))?
+        })
+    }
 }
 
 impl std::fmt::Display for SecretsError {
@@ -146,6 +190,7 @@ impl std::fmt::Display for SecretsError {
             }
             SecretsError::Read(e) => write!(f, "secrets.json cannot be read: {e}"),
             SecretsError::Parse => f.write_str("secrets.json is not an object of string values"),
+            SecretsError::Unavailable(e) => write!(f, "secret bundle unavailable: {e}"),
         }
     }
 }

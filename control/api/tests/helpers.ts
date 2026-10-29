@@ -14,6 +14,7 @@ import { createTenantToken, newTokenValue, sha256hex } from "../src/auth/tokens.
 import { MemoryMailer } from "../src/auth/mailer.ts";
 import { guardDb } from "../src/tenancy/scope.ts";
 import { CSRF_HEADER, SESSION_COOKIE } from "../src/auth/sessions.ts";
+import { routeService } from "../src/routes/service.ts";
 
 let shared: Promise<Db> | undefined;
 
@@ -73,7 +74,12 @@ export interface RequestInit_ {
 /** Harnesses created by the running test; assertScoped checks them after the test. */
 export const harnesses: Harness[] = [];
 
-export async function harness(modules: RouteModule[] = []): Promise<Harness> {
+/**
+ * `prepare: "node"` keeps the node preparer of #96 (activation waits for the
+ * owning node's prepare_result). By default activation is accepted at once,
+ * as before #96, so tests about the pointer switch need no node.
+ */
+export async function harness(modules: RouteModule[] = [], opts: { prepare?: "node" | "accept" } = {}): Promise<Harness> {
   const db = await testDb();
   const tables = await db.query<{ tablename: string }>(
     "select tablename from pg_tables where schemaname = 'public' and tablename <> 'schema_migrations'",
@@ -105,6 +111,7 @@ export async function harness(modules: RouteModule[] = []): Promise<Harness> {
     },
   };
   const app = createApp(deps, modules);
+  if (opts.prepare !== "node") routeService(deps).prepare = async () => ({ ok: true });
   const request: Harness["request"] = (method, path, init = {}) => {
     const headers: Record<string, string> = { ...init.headers };
     if (init.token !== undefined) headers.authorization = `Bearer ${init.token}`;

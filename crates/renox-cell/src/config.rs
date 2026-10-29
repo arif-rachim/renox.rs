@@ -21,6 +21,8 @@ pub struct WorkerConfig {
     /// Artifact directories named by their hash.
     pub artifacts_dir: PathBuf,
     /// The route table file (`docs/contracts/schemas/route-table.schema.json`).
+    /// Local mode only; required there.
+    #[serde(default)]
     pub routes_file: PathBuf,
     /// Meter batches, one ndjson file per UTC day.
     pub meters_dir: PathBuf,
@@ -61,6 +63,54 @@ pub struct WorkerConfig {
     /// HTTPS (#162). Absent: `listen` serves plain HTTP.
     #[serde(default)]
     pub tls: Option<TlsSection>,
+    /// `local` (F1: route table file, artifacts directory, `secrets.json`,
+    /// files for meters and logs) or `controlled` (F3, #55: everything from
+    /// and to the control plane of `[control]`).
+    #[serde(default)]
+    pub mode: Mode,
+    /// The control plane (`mode = "controlled"` only).
+    #[serde(default)]
+    pub control: Option<ControlSection>,
+}
+
+/// Where routes, artifacts and secrets come from, and where meters and
+/// logs go.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    #[default]
+    Local,
+    Controlled,
+}
+
+/// `[control]`: the control plane a controlled worker registers with
+/// (`docs/contracts/deploy-api.md` section 7).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlSection {
+    /// Base URL of the control API: `https://…` in production; plain
+    /// `http://` only for a loopback address (local stack, tests).
+    pub url: String,
+    /// File holding the node token (`renox_node_…`), mode 0600.
+    pub node_token_file: PathBuf,
+    /// Region sent at registration.
+    #[serde(default = "default_region")]
+    pub region: String,
+    /// Cells this node offers, sent at registration.
+    #[serde(default = "default_max_cells")]
+    pub max_cells: u32,
+    /// The operator listener serving `GET /healthz` (bind it to a private
+    /// address). Absent: none.
+    #[serde(default)]
+    pub health_listen: Option<SocketAddr>,
+}
+
+fn default_region() -> String {
+    "local".into()
+}
+
+fn default_max_cells() -> u32 {
+    1000
 }
 
 /// `[tls]`: the gateway serves HTTPS on `listen` with certificates chosen
@@ -150,6 +200,41 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+/// `https://host[:port]`, or `http://` to a loopback address. No path, no
+/// user info, no query: the API paths are appended to it.
+fn check_control_url(url: &str) -> Result<(), ConfigError> {
+    let bad = |why: &str| Err(ConfigError::Invalid(format!("control.url: {why}")));
+    let Ok(uri) = url.parse::<http::Uri>() else {
+        return bad("not a URL");
+    };
+    let Some(authority) = uri.authority() else {
+        return bad("no host");
+    };
+    if authority.as_str().contains('@') {
+        return bad("user info is not allowed");
+    }
+    if !matches!(uri.path(), "" | "/") || uri.query().is_some() {
+        return bad("a base URL has no path or query");
+    }
+    match uri.scheme_str() {
+        Some("https") => Ok(()),
+        Some("http") => {
+            let host = authority
+                .host()
+                .trim_start_matches('[')
+                .trim_end_matches(']');
+            let loopback =
+                host == "localhost" || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
+            if loopback {
+                Ok(())
+            } else {
+                bad("plain http is allowed only to a loopback address")
+            }
+        }
+        _ => bad("the scheme must be https"),
+    }
+}
+
 impl WorkerConfig {
     /// Parse TOML. Relative paths are resolved against `base` (the config
     /// file's directory).
@@ -163,7 +248,7 @@ impl WorkerConfig {
             &mut c.meters_dir,
             &mut c.logs_dir,
         ] {
-            if p.is_relative() {
+            if p.is_relative() && !p.as_os_str().is_empty() {
                 *p = base.join(&*p);
             }
         }
@@ -171,6 +256,41 @@ impl WorkerConfig {
             && p.is_relative()
         {
             *p = base.join(&*p);
+        }
+        if let Some(control) = &mut c.control
+            && control.node_token_file.is_relative()
+        {
+            control.node_token_file = base.join(&control.node_token_file);
+        }
+        match c.mode {
+            Mode::Local => {
+                if c.control.is_some() {
+                    return Err(ConfigError::Invalid(
+                        "[control] is only used with mode = \"controlled\"".into(),
+                    ));
+                }
+                if c.routes_file.as_os_str().is_empty() {
+                    return Err(ConfigError::Invalid(
+                        "routes_file is required in local mode".into(),
+                    ));
+                }
+            }
+            Mode::Controlled => {
+                let Some(control) = &c.control else {
+                    return Err(ConfigError::Invalid(
+                        "mode = \"controlled\" needs a [control] section".into(),
+                    ));
+                };
+                check_control_url(&control.url)?;
+                // Gate F1 notes on #55: a controlled worker never runs tenant
+                // code without the node's and the control plane's addresses
+                // on the fetch blocklist (docs/24-threat-model.md B, SSRF).
+                if c.fetch_blocked_addresses.is_empty() {
+                    return Err(ConfigError::Invalid(
+                        "fetch_blocked_addresses must list the node's and the control plane's addresses in controlled mode".into(),
+                    ));
+                }
+            }
         }
         if let Some(tls) = &mut c.tls {
             for p in std::iter::once(&mut tls.cert_dir).chain(tls.acme_dir.as_mut()) {
@@ -259,6 +379,59 @@ mod tests {
         assert!(WorkerConfig::parse(&same, Path::new("/")).is_err());
         let unknown = format!("{base}[tls]\ncert_dir = \"c\"\nkey = \"k\"\n");
         assert!(WorkerConfig::parse(&unknown, Path::new("/")).is_err());
+    }
+
+    #[test]
+    fn controlled_mode() {
+        let base = "listen = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+        // Local mode needs the route table file.
+        assert!(WorkerConfig::parse(base, Path::new("/srv")).is_err());
+        let control = "[control]\nurl = \"https://control.renox.test\"\nnode_token_file = \"node.token\"\nhealth_listen = \"127.0.0.1:9090\"\n";
+        let blocked = "fetch_blocked_addresses = [\"203.0.113.10\"]\n";
+        let ok = format!("mode = \"controlled\"\n{blocked}{base}{control}");
+        let c = WorkerConfig::parse(&ok, Path::new("/srv")).unwrap();
+        assert_eq!(c.mode, Mode::Controlled);
+        let s = c.control.unwrap();
+        assert_eq!(s.node_token_file, Path::new("/srv/node.token"));
+        assert_eq!(s.region, "local");
+        assert_eq!(s.health_listen, Some("127.0.0.1:9090".parse().unwrap()));
+        // Gate F1 notes on #55: an empty fetch blocklist refuses to start.
+        let open = format!("mode = \"controlled\"\n{base}{control}");
+        let e = WorkerConfig::parse(&open, Path::new("/srv")).unwrap_err();
+        assert!(e.to_string().contains("fetch_blocked_addresses"), "{e}");
+        // No [control] in controlled mode; [control] in local mode.
+        let bare = format!("mode = \"controlled\"\n{blocked}{base}");
+        assert!(WorkerConfig::parse(&bare, Path::new("/srv")).is_err());
+        let local = format!("{base}routes_file = \"r\"\n{control}");
+        assert!(WorkerConfig::parse(&local, Path::new("/srv")).is_err());
+        for url in [
+            "http://control.renox.test",
+            "ftp://control.renox.test",
+            "https://u:p@control.renox.test",
+            "https://control.renox.test/v1",
+            "control.renox.test",
+        ] {
+            let text = format!(
+                "mode = \"controlled\"\n{blocked}{base}[control]\nurl = \"{url}\"\nnode_token_file = \"t\"\n"
+            );
+            assert!(
+                WorkerConfig::parse(&text, Path::new("/srv")).is_err(),
+                "{url}"
+            );
+        }
+        for url in [
+            "http://127.0.0.1:8787",
+            "http://localhost:8787/",
+            "https://control.renox.test:8443",
+        ] {
+            let text = format!(
+                "mode = \"controlled\"\n{blocked}{base}[control]\nurl = \"{url}\"\nnode_token_file = \"t\"\n"
+            );
+            assert!(
+                WorkerConfig::parse(&text, Path::new("/srv")).is_ok(),
+                "{url}"
+            );
+        }
     }
 
     #[test]

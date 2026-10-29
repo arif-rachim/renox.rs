@@ -7,6 +7,11 @@
 //! listener on `tls.http_listen` serves only ACME HTTP-01 challenges and
 //! answers everything else with `308` to the HTTPS URL. SIGHUP reloads the
 //! certificate directory as well as the route table.
+//!
+//! With `mode = "controlled"` (#55) routes, tiers, artifacts and secrets
+//! come from the control plane of `[control]` (`crate::control`), meters
+//! and logs go to it over HTTP, and `[control] health_listen` serves
+//! `GET /healthz`.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -19,7 +24,7 @@ use http_body_util::Full;
 use renox_gateway::{
     CertStore, Gateway, GatewayConfig, LoadReport, RouteEntry, RouteTable, TlsConfig, parse_host,
 };
-use renox_meter::{Meter, MeterConfig, NdjsonFileSink};
+use renox_meter::{HttpMeterSink, Meter, MeterConfig, NdjsonFileSink};
 use renox_runtime::ops::fetch::FetchConfig;
 use renox_runtime::ops::log::NdjsonLogSink;
 use renox_runtime::ops::net_policy::ExtraBlocked;
@@ -29,10 +34,21 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use crate::artifact::LocalArtifactStore;
+use crate::artifact_s3::S3ArtifactStore;
+use crate::cell::LocalSecrets;
 use crate::client_events::ClientLogSink;
-use crate::config::{TlsSection, WorkerConfig};
-use crate::manager::{CellManager, ManagerConfig};
+use crate::config::{Mode, TlsSection, WorkerConfig};
+use crate::control::degraded::{Guard, GuardedDispatcher, SnapshotFile};
+use crate::control::health::Health;
+use crate::control::http::{ControlClient, read_node_token};
+use crate::control::log_sink::HttpLogSink;
+use crate::control::prepare::Preparer;
+use crate::control::routes::RouteState;
+use crate::control::secrets::ControlSecrets;
+use crate::control::{self, Controller, MeterPoster};
+use crate::manager::{CellManager, ManagerConfig, StaticTiers};
 use crate::pages::PlatformKey;
+use crate::spool::{self, Queue};
 
 /// Why the worker did not start. No file contents, no secrets.
 #[derive(Debug)]
@@ -43,6 +59,8 @@ pub enum WorkerError {
     Key(String),
     /// `[tls] cert_dir` unreadable (never contains key bytes).
     Tls(String),
+    /// Controlled mode: the node token or the control client (never the token).
+    Control(String),
 }
 
 impl std::fmt::Display for WorkerError {
@@ -52,6 +70,7 @@ impl std::fmt::Display for WorkerError {
             WorkerError::Routes(e) => write!(f, "route table: {e}"),
             WorkerError::Key(e) => write!(f, "platform key: {e}"),
             WorkerError::Tls(e) => write!(f, "tls: {e}"),
+            WorkerError::Control(e) => write!(f, "control plane: {e}"),
         }
     }
 }
@@ -71,9 +90,13 @@ pub struct Worker {
     pub addr: SocketAddr,
     /// The plain listener of `[tls] http_listen` (ACME and redirects).
     pub http_addr: Option<SocketAddr>,
+    /// The operator listener of `[control] health_listen` (`GET /healthz`).
+    pub health_addr: Option<SocketAddr>,
     pub manager: CellManager,
     pub routes: Arc<RouteTable>,
     routes_file: PathBuf,
+    /// The control-plane side of controlled mode (#55).
+    pub controller: Option<Arc<Controller>>,
     certs: Option<Arc<CertStore>>,
     server: JoinHandle<std::io::Result<()>>,
     /// The plain listener and the SIGHUP certificate reloader.
@@ -100,28 +123,80 @@ impl Worker {
             .open(config.logs_dir.join("tenant.ndjson"))
             .map_err(io("open the tenant log"))?;
         let mut fetch = FetchConfig::default();
+        // `WorkerConfig::parse` refuses an empty list in controlled mode.
         if config.fetch_blocked_addresses.is_empty() {
             tracing::warn!(
                 "fetch_blocked_addresses is empty: set the node's and the control plane's addresses in production"
             );
         }
         fetch.extra_blocked = ExtraBlocked(config.fetch_blocked_addresses.clone());
-        let log_sink: Arc<dyn renox_runtime::LogSink> =
-            Arc::new(NdjsonLogSink::new(Box::new(log_file)));
+        let control = match (&config.mode, &config.control) {
+            (Mode::Controlled, Some(section)) => {
+                let token =
+                    read_node_token(&section.node_token_file).map_err(WorkerError::Control)?;
+                Some(
+                    ControlClient::new(&section.url, &token, &config.node_id)
+                        .map_err(WorkerError::Control)?,
+                )
+            }
+            _ => None,
+        };
+        // Degraded mode (#98): batches the control plane did not take wait
+        // in `<data_dir>/spool/` for the replayer.
+        let spool = [
+            Queue::meters(&config.data_dir),
+            Queue::logs(&config.data_dir),
+        ];
+        let health = Arc::new(Health::default());
+        let log_sink: Arc<dyn renox_runtime::LogSink> = match &control {
+            Some(client) => {
+                let logs = spool[1].clone();
+                Arc::new(HttpLogSink::start(
+                    client.clone(),
+                    Some(Arc::new(move |body: Vec<u8>| logs.append(&body))),
+                ))
+            }
+            None => Arc::new(NdjsonLogSink::new(Box::new(log_file))),
+        };
         let runtime = Runtime::new(RuntimeConfig {
             log_sink: log_sink.clone(),
             fetch,
         });
         let mut meter_config = MeterConfig::new(&config.node_id, &config.node_id, &config.data_dir);
         meter_config.flush_interval = Duration::from_millis(config.meter_flush_ms.max(1));
-        meter_config.dead_letter = NdjsonFileSink::new(config.meters_dir.join("dead"));
-        let meter = Meter::start(meter_config, NdjsonFileSink::new(&config.meters_dir));
+        meter_config.dead_letter = match &control {
+            Some(_) => NdjsonFileSink::new(&spool[0].dir),
+            None => NdjsonFileSink::new(config.meters_dir.join("dead")),
+        };
+        let meter = match &control {
+            Some(client) => Meter::start(
+                meter_config,
+                HttpMeterSink::new(MeterPoster {
+                    client: client.clone(),
+                }),
+            ),
+            None => Meter::start(meter_config, NdjsonFileSink::new(&config.meters_dir)),
+        };
 
-        let routes_json =
-            std::fs::read_to_string(&config.routes_file).map_err(io("read the route table"))?;
-        let routes = Arc::new(
-            RouteTable::from_json(&routes_json).map_err(|e| WorkerError::Routes(e.to_string()))?,
-        );
+        // Controlled mode starts with an empty table: every host is unknown
+        // until the first snapshot from the control plane.
+        let routes = match &control {
+            Some(_) => Arc::new(RouteTable::new()),
+            None => {
+                let routes_json = std::fs::read_to_string(&config.routes_file)
+                    .map_err(io("read the route table"))?;
+                Arc::new(
+                    RouteTable::from_json(&routes_json)
+                        .map_err(|e| WorkerError::Routes(e.to_string()))?,
+                )
+            }
+        };
+        let route_state = control
+            .as_ref()
+            .map(|c| Arc::new(RouteState::new(c.node_id(), routes.clone())));
+        let s3 = control
+            .as_ref()
+            .map(|c| Arc::new(S3ArtifactStore::new(&config.artifacts_dir, c.clone())));
         let tiers = config.tier_table();
         let platform_key = match &config.platform_key_file {
             Some(path) => PlatformKey::load(path).map_err(|e| WorkerError::Key(e.to_string()))?,
@@ -137,14 +212,45 @@ impl Worker {
             meter,
             ManagerConfig {
                 data_dir: config.data_dir.clone(),
-                artifacts: Arc::new(LocalArtifactStore::new(&config.artifacts_dir)),
+                artifacts: match &s3 {
+                    Some(store) => store.clone(),
+                    None => Arc::new(LocalArtifactStore::new(&config.artifacts_dir)),
+                },
                 idle_timeout: config.idle_timeout(),
                 tiers: tiers.clone(),
-                default_tier: config.default_tier,
-                tenant_tiers: config.tenant_tiers.clone(),
+                deployments: match &route_state {
+                    Some(state) => state.clone(),
+                    None => Arc::new(StaticTiers {
+                        default_tier: config.default_tier,
+                        tenant_tiers: config.tenant_tiers.clone(),
+                    }),
+                },
+                secrets: match &control {
+                    Some(client) => Arc::new(ControlSecrets {
+                        client: client.clone(),
+                        artifacts_dir: config.artifacts_dir.clone(),
+                    }),
+                    None => Arc::new(LocalSecrets {
+                        data_dir: config.data_dir.clone(),
+                    }),
+                },
                 platform_key,
             },
         );
+        if let Some(state) = &route_state {
+            state.set_manager(manager.clone());
+            // The last table this node applied: served until the control
+            // plane answers (#98); replaced by its first snapshot.
+            let file = SnapshotFile::in_data_dir(&config.data_dir);
+            if let Some(snapshot) = file.load() {
+                tracing::info!(
+                    version = snapshot.version,
+                    "route table restored from the snapshot file"
+                );
+                state.apply_snapshot(snapshot);
+            }
+            state.persist_to(file);
+        }
         let mut gw_config = GatewayConfig::new(&config.artifacts_dir);
         gw_config.wall_clock_limit = Duration::from_millis(tiers.max_wall_ms());
         gw_config.rate_limit.requests_per_second = config.gateway.rate_limit_per_ip;
@@ -163,7 +269,11 @@ impl Worker {
         let addr = listener
             .local_addr()
             .map_err(io("read the listen address"))?;
-        let dispatcher = Arc::new(manager.clone());
+        let s3_for_prepare = s3.clone();
+        let dispatcher = Arc::new(GuardedDispatcher {
+            manager: manager.clone(),
+            guard: s3.map(|store| Guard::new(store, health.clone(), config.artifacts_dir.clone())),
+        });
         let mut tasks = Vec::new();
         let mut http_addr = None;
         let server = match (&config.tls, &certs) {
@@ -185,13 +295,55 @@ impl Worker {
             }
             _ => tokio::spawn(async move { gateway.serve(listener, dispatcher).await }),
         };
-        tracing::info!(%addr, ?http_addr, tls = certs.is_some(), routes = routes.len(), "renox-worker listening");
+        let mut health_addr = None;
+        let controller = match (control, route_state, &config.control) {
+            (Some(client), Some(state), Some(section)) => {
+                if let Some(listen) = section.health_listen {
+                    let (bound, task) = control::health::serve(listen, health.clone())
+                        .await
+                        .map_err(io("bind control.health_listen"))?;
+                    health_addr = Some(bound);
+                    tasks.push(task);
+                }
+                tasks.push(spool::spawn_replayer(
+                    client.clone(),
+                    spool.to_vec(),
+                    health.clone(),
+                ));
+                let controller = Controller::new(
+                    client,
+                    state,
+                    health,
+                    manager.clone(),
+                    &section.region,
+                    section.max_cells,
+                );
+                // `prepare` (#96) from the stream.
+                if let Some(store) = &s3_for_prepare {
+                    let preparer = Arc::new(Preparer {
+                        client: controller.client.clone(),
+                        manager: manager.clone(),
+                        store: store.clone(),
+                        routes: controller.routes.clone(),
+                        data_dir: config.data_dir.clone(),
+                        tiers: tiers.clone(),
+                    });
+                    controller.on_message(Arc::new(move |m| preparer.handle(m)));
+                }
+                controller.start();
+                Some(controller)
+            }
+            _ => None,
+        };
+        tracing::info!(%addr, ?http_addr, ?health_addr, tls = certs.is_some(), controlled = controller.is_some(), routes = routes.len(), "renox-worker listening");
         Ok(Worker {
             addr,
             http_addr,
+            health_addr,
             manager,
             routes,
             routes_file: config.routes_file.clone(),
+            controller,
             certs,
             server,
             tasks,
@@ -210,6 +362,12 @@ impl Worker {
     /// validation the previous table stays in use. Cells whose deployment
     /// lost its active entry start draining.
     pub fn reload_routes(&self) -> Result<usize, WorkerError> {
+        if self.controller.is_some() {
+            tracing::info!(
+                "controlled mode: routes come from the control plane; nothing to reload"
+            );
+            return Ok(self.routes.len());
+        }
         let json = std::fs::read_to_string(&self.routes_file)
             .map_err(|e| WorkerError::Io("read the route table".into(), e))?;
         self.routes
@@ -224,6 +382,9 @@ impl Worker {
 
     /// Stop accepting connections and write every queued meter record.
     pub async fn shutdown(self) {
+        if let Some(c) = &self.controller {
+            c.stop();
+        }
         self.server.abort();
         for t in &self.tasks {
             t.abort();
