@@ -20,6 +20,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 static N: AtomicU64 = AtomicU64::new(0);
 
+/// Tracing (the sidecar's own log lines among it) into the captured test
+/// output: printed only when a test fails.
+fn logs() {
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_env_filter("renox_cell=info")
+        .try_init();
+}
+
 fn scratch(name: &str) -> PathBuf {
     let dir = PathBuf::from(format!(
         "/tmp/rnx-repl-{}-{name}-{}",
@@ -159,6 +168,35 @@ async fn eventually(what: &str, within: Duration, mut f: impl FnMut() -> bool) {
     }
 }
 
+/// Waits until the file replica of `t_repl` under `root` has files; on a
+/// timeout the panic carries the sidecar state, the sidecar count and the
+/// replica listing, so a CI failure says where it stopped.
+async fn frames_shipped(
+    root: &Path,
+    repl: &renox_cell::replication::Replication,
+    within: Duration,
+) {
+    let start = Instant::now();
+    while !has_files(&root.join("replica/t_repl")) {
+        if start.elapsed() >= within {
+            let listing: Vec<String> = walk(&root.join("replica"))
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
+            panic!(
+                "timed out waiting for frames shipped: state {:?}, sidecars started {}, replica {:?}, wal {:?}",
+                repl.state("t_repl"),
+                repl.sidecars_started(),
+                listing,
+                std::fs::metadata(root.join("data/t_repl/app.db-wal"))
+                    .map(|m| m.len())
+                    .ok(),
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 fn has_files(dir: &Path) -> bool {
     walk(dir).iter().any(|p| p.is_file())
 }
@@ -278,6 +316,7 @@ async fn writes_replicate_and_a_missing_or_corrupt_file_is_restored() {
 /// (`schemas/node-listener.yaml`), with the callback token.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_listener_restores_before_serving() {
+    logs();
     if no_litestream() {
         return;
     }
@@ -285,10 +324,7 @@ async fn node_listener_restores_before_serving() {
     let worker = Worker::start(worker_config(&root, true)).await.unwrap();
     let repl = worker.replication.clone().unwrap();
     assert_eq!(hits(worker.addr, true).await, 1);
-    eventually("frames shipped", Duration::from_secs(10), || {
-        has_files(&root.join("replica/t_repl"))
-    })
-    .await;
+    frames_shipped(&root, &repl, Duration::from_secs(10)).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     evict(&worker).await;
     eventually("stopped", Duration::from_secs(10), || {
@@ -449,6 +485,7 @@ async fn replication_off_never_spawns_litestream() {
 /// before the chosen time and none written after it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn point_in_time_restore_into_a_new_database() {
+    logs();
     if no_litestream() {
         return;
     }
@@ -458,10 +495,7 @@ async fn point_in_time_restore_into_a_new_database() {
     for n in 1..=3 {
         assert_eq!(hits(worker.addr, true).await, n);
     }
-    eventually("frames shipped", Duration::from_secs(10), || {
-        has_files(&root.join("replica/t_repl"))
-    })
-    .await;
+    frames_shipped(&root, &repl, Duration::from_secs(10)).await;
     // Past two sync intervals, so the three rows are in the replica before `at`.
     tokio::time::sleep(Duration::from_millis(1_000)).await;
     let at = std::time::SystemTime::now()
