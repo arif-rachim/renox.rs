@@ -1,0 +1,37 @@
+[module]
+name = "whatsapp"
+version = "1.0.0"
+description = "WhatsApp Cloud API: notifications, OTP, approved templates, a signed inbound webhook into a light inbox, a chat-to-order link"
+
+[config]
+api_version = { type = "string", default = "v21.0", max_length = 10, description = "The Graph API version of the Cloud API calls" }
+sends_per_minute = { type = "int", default = 60, min = 1, max = 6000, description = "Outgoing messages per minute for the tenant; past it, send rejects" }
+otp_template = { type = "string", default = "", max_length = 100, description = "An approved authentication template for OTPs (one parameter: the code); empty sends a plain text" }
+otp_language = { type = "string", default = "en", max_length = 10, description = "The OTP template's language code" }
+
+[permissions]
+tables = "whatsapp__*"
+network = ["graph.facebook.com"]
+secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET"]
+hooks = ["notifications.deliver"]
+
+[exports.services]
+send = "Queue a text message: (to, text) -> { id }; sent by the outbox, retried on a 5xx"
+sendTemplate = "Queue an approved template: (to, name, params, language?) -> { id }"
+sendOtp = "Send a 6-digit code to a phone: (phone) -> { sent: true, expires_in } (the same answer for every phone)"
+verifyOtp = "Check a code: (phone, code) -> { ok } (5 minutes, 5 attempts, single use)"
+linkPhone = "Make a phone the user's WhatsApp contact after verifyOtp succeeded for it: (user_id, phone) -> { ok }"
+inbox = "Messages newest first: ({ phone?, direction?, limit? }) -> rows (OTP bodies never shown)"
+chatLink = "A wa.me link with a prefilled message: (phone, text) -> { url }"
+
+[exports.events."whatsapp.send_requested"]
+payload = { type = "object", required = ["message_id"], additionalProperties = false, properties = { message_id = { type = "string" } } }
+description = "A message was queued; the module's own handler sends it (a 5xx is retried by the outbox)"
+
+[exports.events."whatsapp.message_received"]
+payload = { type = "object", required = ["message_id", "from"], additionalProperties = false, properties = { message_id = { type = "string" }, from = { type = "string" } } }
+description = "An inbound message was stored in the inbox"
+
+[exports.hooks."whatsapp.sms_fallback"]
+args = { type = "object", required = ["to", "text"], properties = { to = { type = "string" }, text = { type = "string" } } }
+description = "Declared for F7: an SMS module may send what WhatsApp could not deliver"
