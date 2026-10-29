@@ -67,15 +67,10 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
             smoke: docker
-          # macOS: limits/cpu.rs reads the isolate thread's CPU through its
-          # Mach port (#139); the ci.yml macos job runs the CPU-limit tests.
-          - target: aarch64-apple-darwin
-            runner: macos-14
-            smoke: native
-          # macos-13 is retired; macos-15-intel is the x86_64 macOS image.
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-            smoke: native
+          # macOS (aarch64-apple-darwin on macos-14, x86_64-apple-darwin on
+          # macos-15-intel) is not released yet (#139): renox-runtime builds
+          # there, but on the macOS runner the CPU limit landed 3-11 ms past a
+          # 50 ms limit, outside the ops.md section 10 bound of ± 5 ms.
     runs-on: ${{ matrix.runner }}
     env:
       RUSTC_WRAPPER: sccache
@@ -119,16 +114,6 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: rustup show active-toolchain || rustup toolchain install
-      # ops/v8-archive.sh checks with sha256sum, which macOS lacks.
-      - name: sha256sum on macOS
-        if: runner.os == 'macOS'
-        run: |
-          if ! command -v sha256sum >/dev/null; then
-            mkdir -p "$RUNNER_TEMP/bin"
-            printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' > "$RUNNER_TEMP/bin/sha256sum"
-            chmod +x "$RUNNER_TEMP/bin/sha256sum"
-            echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          fi
       # Verified prebuilt V8 (ops/v8-checksums.txt, issue #109).
       - name: Fetch and verify the rusty_v8 archive
         run: |

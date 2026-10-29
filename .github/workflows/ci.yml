@@ -43,7 +43,6 @@ jobs:
       rust_files: ${{ steps.filter.outputs.rust_files }}
       ts: ${{ steps.filter.outputs.ts }}
       docs: ${{ steps.filter.outputs.docs }}
-      macos: ${{ steps.filter.outputs.macos }}
     steps:
       # No token left in .git: bun install and cargo-deny run in this job.
       # The repository is public, so paths-filter fetches on push without it.
@@ -89,15 +88,6 @@ jobs:
               # A change to the jobs themselves runs them.
               - '.github/workflows/ci.yml'
               - 'Makefile'
-            # The macos job: renox-runtime and what it links.
-            macos:
-              - 'crates/renox-runtime/**'
-              - 'crates/renox-data/**'
-              - 'Cargo.*'
-              - 'rust-toolchain.toml'
-              - '.cargo/**'
-              - 'ops/v8-*'
-              - '.github/workflows/ci.yml'
             docs:
               - 'docs/**'
               - '**/*.md'
@@ -225,50 +215,6 @@ jobs:
           # main keeps its worker for the TypeScript-only PRs that follow.
           retention-days: ${{ github.event_name == 'push' && 30 || 3 }}
       # Hit rate for B20 (bench/scenarios/B20/run.sh reads job timings only).
-      - run: sccache --show-stats
-
-  # #139: the per-request CPU limit on macOS, where `renox dev` runs the
-  # prebuilt worker. limits/cpu.rs reads the isolate thread's CPU through its
-  # Mach port there instead of pthread_getcpuclockid; these are the tests of
-  # that path (docs/24-threat-model.md B, "CPU, memory, wall-clock
-  # exhaustion"). The rest of the workspace is tested on Linux only.
-  macos:
-    needs: lint
-    if: ${{ !cancelled() && needs.lint.outputs.macos == 'true' }}
-    runs-on: macos-14
-    env:
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-      CARGO_INCREMENTAL: "0"
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - run: rustup show active-toolchain || rustup toolchain install
-      # ops/v8-archive.sh checks with sha256sum, which macOS lacks.
-      - name: sha256sum
-        run: |
-          if ! command -v sha256sum >/dev/null; then
-            mkdir -p "$RUNNER_TEMP/bin"
-            printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' > "$RUNNER_TEMP/bin/sha256sum"
-            chmod +x "$RUNNER_TEMP/bin/sha256sum"
-            echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          fi
-      - name: Fetch and verify the rusty_v8 archive
-        run: |
-          archive=$(ops/v8-archive.sh fetch aarch64-apple-darwin "$RUNNER_TEMP/rusty_v8")
-          echo "RUSTY_V8_ARCHIVE=$archive" >> "$GITHUB_ENV"
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      # The clock and the watchdog, without V8.
-      - run: cargo test --locked -p renox-runtime --no-default-features --lib limits::cpu
-      # The limit on real isolates: an infinite loop is terminated (alone,
-      # among concurrent requests, inside a transaction) and CPU is charged
-      # to the request that used it. limits.rs is filtered to its CPU tests:
-      # its heap test reads /proc.
-      - run: cargo test --locked -p renox-runtime --test limits --test termination -- cpu
-      - run: cargo test --locked -p renox-runtime --test cpu_accounting
       - run: sccache --show-stats
 
   # Runs on a TypeScript change and on a Rust change: the CLI template, shop

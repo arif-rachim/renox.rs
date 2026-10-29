@@ -30,7 +30,9 @@ const IDLE: u64 = u64::MAX;
 /// The CPU clock of one thread, readable from any thread. Linux:
 /// `CLOCK_THREAD_CPUTIME_ID` of that thread (`pthread_getcpuclockid`).
 /// macOS (#139): the thread's Mach port and `thread_info(THREAD_BASIC_INFO)`,
-/// `user_time + system_time`, at microsecond resolution.
+/// `user_time + system_time`, at microsecond resolution. Not released: on
+/// the macOS CI runner the CPU limit landed 3-11 ms late (wall ≈ CPU), which
+/// points at this clock lagging for a running thread.
 #[derive(Debug, Clone)]
 pub struct ThreadCpuClock {
     clock: imp::Clock,
