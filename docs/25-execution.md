@@ -14,9 +14,10 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | O3 after the owner's two bench hosts (#158); gate #49 after O3 and the four open rows of #112. Y5 #246 and P (checklists #94 full, #112 19 of 23) are done. #212 (macOS CPU clock) needs a Mac and blocks no gate |
-| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221 | — | W (#99, #116) now; U3 (#219) after the owner tags `worker-v0.2.0`; gate #61 after W and O3. V3 #245 is in (#128 partly: client bundles and the dashboard screenshot test stay open) |
-| F4 | F4-0 #247 (#225, #227) | — | F4-ALL now (one session, #226 first, then the 18 tasks in order), or the parallel batches R1, R2, T1, T2, M1, M2, M3 below; P4; gate #68. Epics #63–#67 are split into #225–#244 (2026-10-29) |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211, Y5 #246, P (checklists #94 full, #112 19 of 23), X #250 (#166) | — | #260 (worker.toml knobs of #166) in F6-ALL; O3 after the owner's two bench hosts (#158); gate #49 after O3 and the four open rows of #112. #212 (macOS CPU clock) needs a Mac and blocks no gate |
+| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221, V3 #245 (#128 except two criteria), W (checklists #99 13 of 17, #116 17 of 27; the rest moved to #101 and #117), X #250 (#128 rest) | — | #261 (server stack symbolication) in F6-ALL; U3 (#219) after the owner tags `worker-v0.2.0`; gate #61 after O3 (#57's two open criteria and the #99/#116 moves are operator steps for that gate) |
+| F4 | F4-0 #247 (#225, #227) | F4-ALL (#226 first, then the 18 tasks in order) | P4 after F4-ALL; gate #68 after P4 (needs the booking product repo). If F4-ALL stops after two failed attempts on one issue (rule 13), the rest runs as a second F4-ALL from `main`. Epics #63–#67 are split into #225–#244 (2026-10-29) |
+| F6 | — | F6-ALL (#251–#261, one session, alongside F4-ALL) | #103, #104, #120, #121, #122 and #77 (observability, after F4-ALL: it touches the F4 crates) after F6-ALL; gate #79 after #74. Epics #75 and #76 are split into #251–#259 (2026-10-29) |
 
 Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), #222 and #223 (the contract and the `streamLogs` endpoint that #128 and the dashboard's Logs screen need), all placed in the batches below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
@@ -335,6 +336,18 @@ Work on batch W of arif-rachim/renox.rs: issues #99, #116 in that order. Follow 
 
 #116 needs #112 (P); #99 needs #128 (V3). Neither needs the bench hosts, so W can run as soon as P and V3 are in, before gate F2.
 
+Done: no PR (checklist special case), verified at `main` 3f60c8d. #99: 13 of 17 rows ticked with test names; the two #94 carry-overs (dev-time global-scope warning, template limit errors naming template and line) and the rest moved to #101 with reasons. #116: 17 of 27 rows ticked, including five added from the gate F1 notes, D23 and P; 7 moved to #117 (secret-scanning registration, PSL submission, parameterised-query lint, per-token deploy rate limits, a tampered-object test for the worker hash check, the `req.json()` lint, stale `TODO`s in `docs/24`). Both stay open: the owner confirms the moves at gate F3, and #117 carries the doc commit that also fixes the `TODO → #95/#96/#97/#98` cells in `docs/23-failure-modes.md`.
+
+### Batch X — now, alongside F4-ALL — HTTP/2 flood budgets, the last two #128 criteria (2 issues)
+
+```
+Work on batch X of arif-rachim/renox.rs: issues #166, #128 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+The only code issues outside F4 whose blockers are closed and whose Files do not meet F4-ALL's. #166 (`[F2-41]`, from the adversarial review of #107) owns `crates/renox-gateway/{src/protocol.rs,src/limits.rs,src/lib.rs,tests/protocol.rs,README.md}`: sliding-window and per-IP reset budgets, server-provoked resets, control-frame floods, one raw `h2` test each. #128's remainder is the dashboard screenshot test (runs in CI's `ts` job, where the worker is) and symbolication of a committed `.js`/`.map` fixture pair; its criteria were rewritten on 2026-10-29 because the CLI builds no client bundles. Everything else open outside F4 waits for the owner (#46, #158 bench hosts; #219 tag; #212 Mac; #157's `node-small` re-run) or for a gate (#167, #118, F5 to F7).
+
+Done: PR #250. #166: `H2FloodBudget` with a sliding window per connection, a per-IP budget across connections, provoked resets counted, control frames as a token bucket; `CONTINUATION` and empty `DATA` floods pinned to h2's own limits with a test each. #128: fixture symbolication and the screenshot test (Chromium through Playwright where available). Two follow-ups: #260 (the three new knobs are not in `worker.toml`) and #261 (server `RENOX_INTERNAL` stack symbolication, gate F1 note); both run in F6-ALL below.
+
 ### Gate F3 — after W, O3 and gate F2
 
 ```
@@ -437,6 +450,20 @@ Run the gate review issue #68 of arif-rachim/renox.rs. Follow docs/25-execution.
 
 Needs the booking product repository running on Renox with `auth` and `org` (owner), the kill criterion evaluated and recorded, and the F5 epics split the way this section split F4.
 
+## F6 (1 session now, alongside F4-ALL; the rest after it)
+
+`docs/15-roadmap.md` runs F6 alongside F4 and F5. Epics #75 (sandbox and tiers) and #76 (replication and backup) were split on 2026-10-29 into #251–#259 so one long session can run beside F4-ALL: they live in `ops/`, `crates/renox-cell/src/{sandbox,supervisor,replication}/`, `control/api/src/{workers,tenants,ops}/`, `cli/src/commands/db.ts` and the dashboard, none of which F4-ALL edits. Three files are shared with F4-ALL for small wiring (`crates/renox-cell/src/manager.rs` with #229, `crates/renox-cell/src/bin/renox-worker.rs` with #235, `cli/src/main.ts` with #234 and #235); the issues say to rebase on `main` before the PR. #77 (observability) stays after F4-ALL because its spans sit in the crates F4-ALL edits.
+
+### Batch F6-ALL — now, alongside F4-ALL — contract, ops, sandbox, process tiers, Litestream, replica spike, failover, export and restore, operator actions, two follow-ups of X (11 issues)
+
+```
+Work on batch F6-ALL of arif-rachim/renox.rs: issues #251, #252, #253, #254, #255, #256, #257, #258, #259, #260, #261 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for type:contract issues. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Order: #251 first (special case `type:contract`: deploy API 0.3 with backups, export, restore, node restore order, operator actions, `tier` and `process` on route entries; nothing in `ops.md`, which #226 holds). Then #252 (`ops/` units, slices, bootstrap, pinned Litestream fetcher, CI install), #253 (seccomp and Landlock in the worker), #254 (supervisor and per-tenant child processes; blocked by #251, #252, #253 earlier in the batch), #255 (Litestream sidecar per tenant file; blocked by #251, #252), #256 (spike on the synchronous replica, independent), #257 (failover in the control plane; blocked by #251, #255), #258 (export, import, point-in-time restore, dashboard Database screen; blocked by #251, #255, #257), #259 (operator actions; blocked by #251, #254, #257), then #260 and #261 (small, independent). Every blocker is earlier in the same batch, so rule 3 never skips. Owner steps the session cannot do: the B18 two-host run and the B19 `node-small` run (O3, #158), the `ops/` code-owner review, and the ADR decision #256 proposes. If the session stops after two failed attempts on one issue (rule 13), the rest runs as a second F6-ALL from `main`.
+
+After F6-ALL: #103 (integrity and recovery), #120 (keys), #121 (security process), #104 (chaos harness), #122 (checklist), #77 (observability, after F4-ALL), #78 (`jobs`, after F4-ALL); gate #79 after #74.
+
 ## F5 to F7: what can run in parallel
 
 These phases are still epics (one issue per block). The gate review before each phase proposes the task split; then this file gets that phase's batches with the same method (F4 was split ahead of its gates, see above). The dependencies already recorded on the epics give the shape:
@@ -445,7 +472,7 @@ These phases are still epics (one issue per block). The gate review before each 
 | --- | --- | --- | --- |
 | F4 modules | split into batches above (contracts now; code after gates F2 and F3) | 3 → 1 → 2 → 1: R1, R2, T1; then T2; then M1 and M2; then M3 | the broker (#230, #231) and the build (#235) are what every module waits for |
 | F5 authz and realtime | gate F4 (#68) | 2 → 3: `renox-authz` #69 and `renox-realtime` #70 side by side; then `2fa`/`audit` #71, App MCP #73, hardening #118 side by side; `notifications`/`whatsapp` #72 after both crates | two new crates, no overlap |
-| F6 reliability | gate F5 (#74) as recorded; the roadmap allows F6 alongside F4–F5 | 3: sandbox #75, replication #76, observability #77 side by side; then integrity #103, keys #120, security process #121, `jobs` #78; chaos harness #104 last | mostly ops work on nodes; the only code dependency is `jobs` on the broker |
+| F6 reliability | gate F5 (#74) as recorded; `docs/15-roadmap.md` runs F6 alongside F4–F5, so #75 and #76 were split on 2026-10-29 into #251–#259 (batch F6-ALL above), which runs beside F4-ALL; #77 and #78 follow F4-ALL | 3: sandbox #75, replication #76, observability #77 side by side; then integrity #103, keys #120, security process #121, `jobs` #78; chaos harness #104 last | mostly ops work on nodes; the only code dependency is `jobs` on the broker |
 | F7 external customers | gate F6 (#79) | 4: `billing` #80, `storage` #81, registry #84, go-to-market #85 side by side; then `email`/`reports`/`booking` #82 and `admin` #83 | modules are independent apps; `admin` needs `billing` and `storage` |
 
 Two observations for the F2 gate to settle:
