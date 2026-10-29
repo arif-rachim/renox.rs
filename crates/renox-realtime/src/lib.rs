@@ -11,11 +11,14 @@
 //!   heartbeats (ping every 30 s, pong within 10 s, else 1001).
 //! - [`sse`]: the event-stream encoder and transport: `retry`, `id`,
 //!   `event`, `data`, keep-alive comments.
+//! - [`origin`]: the `Origin` check of an upgrade (#118, cross-site
+//!   WebSocket hijacking), asked by the cell before anything runs.
 //!
 //! The isolate never runs during fan-out: the cell runs `open`, `message`,
 //! and `close` and calls the hub from the ops.
 
 mod hub;
+pub mod origin;
 pub mod sse;
 pub mod ws;
 

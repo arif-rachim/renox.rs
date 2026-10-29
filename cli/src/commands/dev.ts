@@ -318,6 +318,9 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
             const v = req.headers.get(name);
             if (v !== null) headers[name] = v;
           }
+          // The worker checks Origin against Host (#118): the dev server's own
+          // origin is the app's; any other site's is passed on to be refused.
+          if (headers.origin === u.origin) headers.origin = `http://${host}`;
           if (server.upgrade(req, { data: { path: `${u.pathname}${u.search}`, headers, queue: [] } })) return undefined;
           return new Response("renox dev: WebSocket upgrade failed\n", { status: 400 });
         }

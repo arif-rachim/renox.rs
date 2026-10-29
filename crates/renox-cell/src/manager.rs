@@ -1010,6 +1010,33 @@ impl CellManager {
         }
         // #281: `ws` and `sse` routes are served by the realtime layer.
         if let Some(route) = cell.isolate.realtime_route(parts.uri.path()) {
+            // #118: the Origin check (cross-site WebSocket hijacking), before
+            // the realtime layer and the isolate.
+            let header =
+                |n: http::header::HeaderName| parts.headers.get(n).and_then(|v| v.to_str().ok());
+            let kind = if parts.headers.contains_key(http::header::UPGRADE) {
+                renox_realtime::origin::Upgrade::Ws
+            } else {
+                renox_realtime::origin::Upgrade::Sse
+            };
+            if let Err(refusal) = renox_realtime::origin::check(
+                kind,
+                header(http::header::ORIGIN),
+                header(http::header::HOST).unwrap_or_default(),
+                &cell.web.origins,
+                parts.headers.contains_key(http::header::COOKIE),
+            ) {
+                tracing::info!(
+                    tenant_id = %ctx.tenant_id,
+                    request_id = %ctx.request_id,
+                    reason = refusal.as_str(),
+                    "realtime upgrade refused by the origin check"
+                );
+                return to_body(PlatformResponse::error(
+                    ErrorCode::Forbidden,
+                    &ctx.request_id,
+                ));
+            }
             let session = cell
                 .web
                 .guard
@@ -1820,6 +1847,7 @@ async fn load_pages(
             // `SameSite=None` only when CORS with credentials is enabled
             // (docs/04-isolation-security.md, "Cookies").
             same_site_none: security.cors.credentials && !security.cors.origins.is_empty(),
+            origins: security.cors.origins.clone(),
         })
     })
     .await

@@ -61,6 +61,23 @@ test.skipIf(!worker)(
       expect(got).toEqual(["ready", "echo: one", "echo: two"]);
       ws.close(1000, "done");
 
+      // #118: a browser's cookie-bearing socket from the dev page itself is
+      // let through; one from another site is refused before the handshake
+      // (docs/24-threat-model.md A, "Cross-site WebSocket hijacking").
+      const opened = (origin: string) =>
+        new Promise<boolean>((resolve) => {
+          const s = new WebSocket(`ws://localhost:${port}/ws/echo`, {
+            headers: { origin, cookie: "renox_session=x" },
+          } as unknown as string[]);
+          s.onmessage = () => {
+            s.close(1000);
+            resolve(true);
+          };
+          s.onclose = () => resolve(false);
+        });
+      expect(await opened(`http://localhost:${port}`)).toBe(true);
+      expect(await opened("https://evil.example")).toBe(false);
+
       // SSE: three events, each as it is sent.
       const res = await fetch(`http://localhost:${port}/sse/ticks`, { headers: { accept: "text/event-stream" } });
       expect(res.status).toBe(200);

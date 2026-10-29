@@ -172,6 +172,7 @@ fn artifact(store: &Path) -> String {
         "templates": compiled.manifest_entries(),
         "permissions": { "network": [], "secrets": [] },
         "authz": { "actions": ["room.join"] },
+        "security": { "cors": { "origins": ["https://partner.example"], "credentials": true } },
         "modules": [auth_module()],
     });
     std::fs::write(
@@ -362,18 +363,32 @@ struct Ws {
 }
 
 impl Ws {
-    /// `Err((status, head))` when the server did not switch protocols.
+    /// A same-origin browser upgrade. `Err((status, head))` when the
+    /// server did not switch protocols.
     async fn connect(
         addr: SocketAddr,
         path: &str,
         cookie: Option<&str>,
     ) -> Result<Ws, (u16, String)> {
+        Ws::connect_from(addr, path, cookie, Some("https://chat.renox.app")).await
+    }
+
+    /// An upgrade with the given `Origin` header (none when `None`).
+    async fn connect_from(
+        addr: SocketAddr,
+        path: &str,
+        cookie: Option<&str>,
+        origin: Option<&str>,
+    ) -> Result<Ws, (u16, String)> {
         let mut s = TcpStream::connect(addr).await.unwrap();
         let cookie = cookie
             .map(|c| format!("Cookie: {c}\r\n"))
             .unwrap_or_default();
+        let origin = origin
+            .map(|o| format!("Origin: {o}\r\n"))
+            .unwrap_or_default();
         let req = format!(
-            "GET {path} HTTP/1.1\r\nHost: chat.renox.app\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n{cookie}\r\n"
+            "GET {path} HTTP/1.1\r\nHost: chat.renox.app\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n{origin}{cookie}\r\n"
         );
         s.write_all(req.as_bytes()).await.unwrap();
         let mut buf = Vec::new();
@@ -562,6 +577,37 @@ async fn a_denied_guard_refuses_the_upgrade() {
         .await;
     assert_eq!(r.status, renox_meter::MeterStatus::Forbidden);
     assert_eq!(n.manager.realtime_stats("t_rt").unwrap().opened, 0);
+}
+
+/// Cross-site WebSocket hijacking (`docs/24-threat-model.md` A, "Cross-site
+/// WebSocket hijacking"): an upgrade from another site, or a cookie-bearing
+/// one with no `Origin`, is refused with 403 before the handshake and opens
+/// no hub connection; a CORS origin of `renox.toml` is let through.
+#[tokio::test]
+async fn a_cross_origin_upgrade_with_a_cookie_is_refused() {
+    let n = node().await;
+    for origin in [Some("https://evil.example"), Some("null"), None] {
+        let err = Ws::connect_from(n.addr, "/ws/chat/7", Some("uid=u_alice"), origin)
+            .await
+            .err()
+            .expect("no 101");
+        assert_eq!(err.0, 403, "{origin:?}: {}", err.1);
+    }
+    assert_eq!(n.manager.realtime_stats("t_rt").unwrap().opened, 0);
+    let mut ws = Ws::connect_from(
+        n.addr,
+        "/ws/chat/7",
+        Some("uid=u_alice"),
+        Some("https://partner.example"),
+    )
+    .await
+    .expect("an allowed CORS origin upgrades");
+    assert_eq!(ws.next().await.unwrap().1, b"welcome u_alice");
+    // No cookie, no ambient credential: a non-browser client without Origin.
+    let mut anon = Ws::connect_from(n.addr, "/ws/chat/7", None, None)
+        .await
+        .expect("no cookie, no Origin: allowed");
+    assert_eq!(anon.next().await.unwrap().1, b"welcome anon");
 }
 
 /// `open` subscribing to another user's topic: the policy denies, the

@@ -42,6 +42,9 @@ pub struct WebLayer {
     pub(crate) buckets: Option<RouteBuckets>,
     /// The session cookie may be `SameSite=None` (CORS with credentials).
     pub(crate) same_site_none: bool,
+    /// `[security.cors] origins`: besides the app's own host, the origins a
+    /// WebSocket or SSE upgrade may come from (#118).
+    pub(crate) origins: Vec<String>,
 }
 
 /// A live cell.
