@@ -8,16 +8,16 @@ Issue #87 (UAE entity and bank account) is yours, not a session; it is needed be
 
 Prompts of finished batches are kept as the record of what ran; the status line under each heading says what happened.
 
-## Where we are (2026-10-28)
+## Where we are (2026-10-29)
 
 | Phase | Done (PR) | Running | Next |
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198 | — | Y2 now; O3 after the owner's two bench hosts (#158); P after Y2 and O3; gate #49 |
-| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194 | — | R2 and T2 now; U after R2, T2; V after U and gate F2; W; gate #61 |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111) | — | Y3 and Y4 now; O3 after the owner's two bench hosts (#158); P after O3; gate #49 |
+| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205 | — | U now; V after U and gate F2; W; gate #61 |
 
-Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), all placed in the batches below. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
+Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), all placed in the batches below. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
 ## F0 (done: 2 sessions + gate)
 
@@ -44,7 +44,7 @@ Issues created outside the batches since the F1 gate: #182 (timing-dependent tes
 | Gate F1 | #37 | #165: GO to F2 and F3 with conditions; issues #152 to #164 created, #36, #92, #110, #146 closed |
 
 
-## F2 (15 sessions + gate)
+## F2 (16 sessions + gate)
 
 The F1 gate split its follow-ups into #152 to #161 and moved every F2 contract edit into #152 and #153. F3 runs at the same time as F2 (see below).
 
@@ -138,6 +138,24 @@ Work on batch Y2 of arif-rachim/renox.rs: issues #201, #157, #139, #111, #161 in
 
 #201 first (special case `type:contract`; it is the only contract edit in this batch). Then everything Y and N could not take: #157 and #139 were blocked by #154 when Y started (H4 closed it, PR #190); #111 was blocked by #159 when N ran; #161 touches `isolate.rs` and `manager.rs` like Y. #161 is not an F2 gate blocker; skip it if the batch runs long.
 
+Done: PR #204 (#201, #111, and #157 except the `node-small` re-run, which closes it in O3 with #158). #139 and #161 were skipped by rule 6 for the second time: their Files lists did not name the files they need (`limits/cpu.rs` for the macOS CPU clock; the bootstrap, a chunk op, `compress.rs` and `render.rs` for streaming). Both lists are complete now; #139 is batch Y3, #161 is batch Y4 behind its contract issue #206. #201 could not bump the version in `docs/contracts/README.md` and the header comments (outside its Files); #206 does it.
+
+### Batch Y3 — after Y2 — worker builds for macOS and arm64, tenant cookie domain rule (2 issues)
+
+```
+Work on batch Y3 of arif-rachim/renox.rs: issues #139, #207 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Runs now, alongside Y4 and U: no file overlap with either. #139 owns `limits/cpu.rs`, `release-worker.yml`, `v8-checksums.txt` and a macOS CI job; if the macOS clock needs more than `cpu.rs`, it ships the `aarch64-unknown-linux-gnu` row and leaves the macOS rows with a comment. #207 is gateway only (`src/security/cookies.rs`, the response path in `src/lib.rs`): a tenant `Set-Cookie: Domain=renox.app` reaches every other tenant's host today.
+
+### Batch Y4 — after T2 (in) — streamed responses end to end (2 issues)
+
+```
+Work on batch Y4 of arif-rachim/renox.rs: issues #206, #161 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+#206 first (special case `type:contract`: `ops.md` 1.2.0 defines the head-first body, the chunk op, per-chunk egress accounting and the meter at end of stream; it also fixes the version in `docs/contracts/README.md` and the header comments). #161 implements it; it edits `manager.rs` and `isolate.rs`, which T2 changed, so it branches from `main` after PR #205 (in). Not an F2 gate blocker.
+
 ### Batch O3 — after Y and the owner's bench hosts — benchmark environment and the F2 benchmarks (2 issues)
 
 ```
@@ -159,6 +177,8 @@ Done: PR #195. Both edit `.github/workflows/ci.yml`. #186 makes the CLI template
 ```
 Work on batch P of arif-rachim/renox.rs: issues #94, #112 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions.
 ```
+
+Next: N and Y2 are in; waits for O3 (#158 needs the owner's bench hosts). Y3 and Y4 are not gate blockers; #207 is in #112's checklist, so run Y3 before P.
 
 ### Gate F2 — after P
 
@@ -202,7 +222,7 @@ Work on batch T of arif-rachim/renox.rs: issues #162, #55, #98, #96, #97 in that
 
 Done: PR #196, #162 only. #55 was skipped by rule 6: its `SecretsSource` hook and per-route tier need `crates/renox-cell/src/manager.rs` and `cell.rs`, which batch Y held; #98, #96 and #97 depend on it. T also found three control-plane endpoints the worker calls that nothing implements, now #199. All of it is batch T2.
 
-### Batch T2 — after Y (now) — node endpoints, control-plane client, degraded mode, activation and route-table consistency (5 issues)
+### Batch T2 — after Y — node endpoints, control-plane client, degraded mode, activation and route-table consistency (5 issues)
 
 ```
 Work on batch T2 of arif-rachim/renox.rs: issues #199, #55, #98, #96, #97 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
@@ -210,13 +230,15 @@ Work on batch T2 of arif-rachim/renox.rs: issues #199, #55, #98, #96, #97 in tha
 
 #199 first (control/api, the endpoints the worker calls), then #55 with its extended Files, then the three that build on it. #96 and #97 touch `control/api/src/deployments/activate.ts` and `control/api/src/routes/versioning.ts` only.
 
+Done: PR #205, all five issues, after resolving two conflicts with `main` (the `app.ts` registration list after R2; `manager.rs` after Y2 moved `run_migrations` into `prepare_db`). Left open on the issues, not blockers: secret rotation does not recycle a live cell (#55); `worker.example.toml` and the `renox-cell` README do not describe controlled mode yet; a deployment that declares secrets cannot cold-start while the control plane is down (503 by design, #98).
+
 ### Batch R2 — after R and T — custom domains and domain ownership (2 issues)
 
 ```
 Work on batch R2 of arif-rachim/renox.rs: issues #59, #114 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Next: #59 needed #162 (T) and #114 needs #113 (R); both are in.
+Done: PR #203. For the owner: the Public Suffix List pull request for `renox.app` (`ops/psl/README.md` has the steps and the PR text; needs DNS control for `_psl.renox.app` and a registration term over two years). The tenant `Set-Cookie: Domain=` rule it found is #207 (batch Y3). Wildcard hostnames need a contract issue first and are not scheduled.
 
 ### Batch U0 — after H4, alongside T — deploy API 0.1 contract and the CLI release (2 issues)
 
@@ -233,6 +255,8 @@ Work on batch U of arif-rachim/renox.rs: issues #58, #60, #129, #62 in that orde
 ```
 
 #58 needs #55 (T2); #60 and #129 need the CLI release from #163 (U0, done); #62 needs the local MCP from #48 (L, done).
+
+Next: R2 and T2 are in; runs now, alongside Y3 and Y4 (no file overlap: U is `cli/`, `control/api/src/mcp/**`, `bench/scenarios/B15`, `.github/workflows/release.yml`; Y3 owns `release-worker.yml`, a different file).
 
 ### Batch V — after U and gate F2 — internal control-API access and the dashboard as a Renox app (3 issues)
 
