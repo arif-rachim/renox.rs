@@ -532,3 +532,116 @@ async fn shop_page_shell_and_client_events() {
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&e.root);
 }
+
+/// #280: one page using `r-can` both ways, rendered by the cell's
+/// `PageRenderer` against a fake policy engine and principal (no isolate):
+/// without a resource the principal's action set, with a resource one
+/// evaluation per row (a row lacking the declared attribute is denied, and
+/// dev mode reports it), and `authz_evals` for the meter.
+#[test]
+fn r_can_both_ways_against_a_fake_engine() {
+    use renox_authz::{AuthzBlock, Engine, EntityDecl, MergedSchema, Owner, PolicySet, Principal};
+    use renox_runtime::ops::authz::{AuthzState, PrincipalCache, new_slot};
+    use std::sync::Arc;
+
+    let mut project = TemplateProject::new();
+    project.insert(
+        "pages/invoices.html",
+        r#"<a r-can="invoice.export" href="/export">Export</a><ul><li r-for="inv in invoices">{{ inv.id }}<button r-can="invoice.refund" :resource="inv">Refund</button><i r-cannot="invoice.refund" :resource="inv">locked</i></li></ul>"#,
+    );
+    let compiled = Compiler::default().compile(&project).unwrap();
+    let dir = scratch("r-can");
+    for (rel, src) in compiled.files() {
+        let p = dir.join("templates").join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, src).unwrap();
+    }
+    let manifest: renox_runtime::manifest::Manifest = serde_json::from_value(serde_json::json!({
+        "artifact": { "version": 1 },
+        "app": { "name": "shop", "timezone": "Asia/Dubai" },
+        "code": { "format": "esm-dir", "entry": {} },
+        "routes": [{ "kind": "page", "path": "/invoices", "template": "pages/invoices" }],
+        "templates": compiled.manifest_entries(),
+        "permissions": { "network": [], "secrets": [] }
+    }))
+    .unwrap();
+
+    // The fake engine: refunds of open invoices of the user's org, export
+    // for the `finance` role.
+    let block = AuthzBlock {
+        actions: vec!["invoice.refund".into(), "invoice.export".into()],
+        entities: [(
+            "Invoice".to_string(),
+            EntityDecl {
+                table: Some("app__invoices".into()),
+                id: None,
+                attrs: vec!["org".into()],
+            },
+        )]
+        .into(),
+        ..AuthzBlock::default()
+    };
+    let schema = MergedSchema::build(&[Owner::new("app", block)], None).unwrap();
+    let policies = r#"
+permit (principal is Renox::User, action == Renox::Action::"invoice.refund", resource is App::Invoice)
+when { resource.org == principal.org };
+permit (principal in Renox::Role::"finance", action == Renox::Action::"invoice.export", resource);
+"#;
+    let set =
+        PolicySet::load(&[("policies/app/p.cedar".into(), policies.into())], &schema).unwrap();
+    let slot = new_slot();
+    *slot.write().unwrap() = Some(Arc::new(AuthzState {
+        engine: Arc::new(Engine::new(schema, set)),
+        dev: true,
+        cache: Arc::new(PrincipalCache::new(std::time::Duration::from_secs(60))),
+        module_roles: Default::default(),
+        decisions: Default::default(),
+    }));
+    let renderer = renox_cell::render::PageRenderer::load(&dir, &manifest, "h", None)
+        .unwrap()
+        .unwrap()
+        .with_authz(slot);
+
+    let page = |principal: Principal| renox_runtime::pages::PageRender {
+        template: Some("pages/invoices".into()),
+        fragment: None,
+        data_json: serde_json::json!({ "invoices": [
+            { "type": "Invoice", "id": "i1", "org": "o_1" },
+            { "type": "Invoice", "id": "i2", "org": "o_2" },
+            { "type": "Invoice", "id": "i3" },
+            { "type": "Invoice", "id": "i1", "org": "o_1" }
+        ]})
+        .to_string(),
+        oob_fragments: Vec::new(),
+        locale: None,
+        dir: None,
+        principal: Some(Arc::new(principal)),
+    };
+    let user = Principal::user("u_1").with_attr("org", serde_json::json!("o_1"));
+    let out = renderer.render_page(&page(user.clone()), "req_1", None, None, false, None);
+    let html = String::from_utf8_lossy(out.response.body()).into_owned();
+    assert_eq!(out.response.status(), 200, "{html}");
+    assert_eq!(
+        html.matches(">Refund</button>").count(),
+        2,
+        "i1 twice: {html}"
+    );
+    assert_eq!(
+        html.matches("<i>locked</i>").count(),
+        2,
+        "i2 and i3: {html}"
+    );
+    assert!(!html.contains("/export"), "{html}");
+    assert_eq!(out.authz_evals, 3, "i1 is a cache hit the second time");
+    assert_eq!(
+        out.authz_warnings.len(),
+        1,
+        "i3 lacks `org`: {:?}",
+        out.authz_warnings
+    );
+
+    let finance = user.with_role("finance", "global", None);
+    let out = renderer.render_page(&page(finance), "req_2", None, None, false, None);
+    let html = String::from_utf8_lossy(out.response.body()).into_owned();
+    assert!(html.contains(r#"href="/export""#), "{html}");
+}

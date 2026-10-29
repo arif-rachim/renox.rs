@@ -572,6 +572,8 @@ enum ThreadReply {
         /// `setLocale` (ops.md 1.3.0 section 14, "Locale").
         locale: Option<String>,
         dir: Option<String>,
+        /// The request's principal, for `r-can` in the cell's render.
+        principal: Option<Arc<renox_authz::Principal>>,
         meter: InvocationMeter,
     },
     /// The request ended with a platform error.
@@ -676,6 +678,10 @@ pub struct Pool {
     /// The policy engine, the principal cache, and dev mode, set by the cell
     /// once the deployment's policies are loaded (ops.md 1.5.0 section 17).
     authz: AuthzSlot,
+    /// A template calls `can` (`r-can`, a slot filler's `requires`): a page
+    /// without `load` still runs the principal prelude, so the renderer has
+    /// the principal (#280).
+    templates_use_can: bool,
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
@@ -761,6 +767,10 @@ impl IsolateHandle {
             )));
         }
         let max_members = spec.max_isolates.max(1);
+        let templates_use_can = artifact.manifest.template_defs().any(|(id, _)| {
+            std::fs::read_to_string(artifact.root.join("templates").join(format!("{id}.jinja")))
+                .is_ok_and(|src| src.contains("can(\""))
+        });
         let pool = Pool {
             runtime,
             spec: Arc::new(spec),
@@ -771,6 +781,7 @@ impl IsolateHandle {
             modules: Arc::new(modules),
             event_handlers: Arc::default(),
             authz: crate::ops::authz::new_slot(),
+            templates_use_can,
             sink,
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
@@ -1213,6 +1224,7 @@ impl Pool {
             && action.is_none()
             && route_def.handler_export().is_none()
             && route_def.guard.is_none()
+            && !self.templates_use_can
         {
             // An `.html` page, or `.ts` + `.html` without `load`: no tenant
             // code runs; the template gets `{}`.
@@ -1226,6 +1238,7 @@ impl Pool {
                     oob_fragments: Vec::new(),
                     locale: None,
                     dir: None,
+                    principal: None,
                 }),
                 page: true,
                 body: None,
@@ -1435,6 +1448,7 @@ impl Pool {
                 fragments,
                 locale,
                 dir,
+                principal,
                 mut meter,
             } => {
                 meter.route = Some(route_name.clone());
@@ -1479,6 +1493,7 @@ impl Pool {
                         oob_fragments: if htmx { fragments } else { Vec::new() },
                         locale,
                         dir,
+                        principal,
                     }),
                     page: true,
                     body: None,
@@ -2629,7 +2644,7 @@ async fn serve(
 }
 
 /// What a request's ops used, and what had to be cleaned up when it ended.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct RequestEnd {
     fetch_sent_bytes: u64,
     fetch_received_bytes: u64,
@@ -2638,6 +2653,8 @@ struct RequestEnd {
     db_rows: u64,
     logs_dropped: u64,
     authz_evals: u64,
+    /// The principal the request ran as (`None` before the prelude).
+    principal: Option<Arc<renox_authz::Principal>>,
     /// An open transaction was rolled back.
     rolled_back_tx: bool,
     /// Bytes `op_response_write` took for a streamed body.
@@ -2708,6 +2725,7 @@ fn end_request(
         db_rows: request.db_rows,
         logs_dropped: request.logs_dropped,
         authz_evals: request.authz.evals,
+        principal: request.authz.principal.clone(),
         rolled_back_tx,
         response_sent_bytes,
     }
@@ -2959,9 +2977,12 @@ fn build_args(
         )?,
         (h, None) => match h {
             Some(h) => v8::Local::new(scope, h).into(),
-            // An action on a page without `load`, or a guarded page without
-            // `load` (the guard runs in the isolate's prelude).
-            None if action_name.is_some() || job.guarded => v8::null(scope).into(),
+            // An action on a page without `load`, or a page without `load`
+            // that is guarded (the guard runs in the isolate's prelude) or
+            // whose templates call `can` (the renderer needs the principal).
+            None if action_name.is_some() || job.guarded || job.page.is_some() => {
+                v8::null(scope).into()
+            }
             None => return Err(serde_v8::Error::Message("route has no handler".into())),
         },
     };
@@ -3158,6 +3179,7 @@ fn finish_dispatch(
                 fragments: o.fragments.unwrap_or_default(),
                 locale: o.locale,
                 dir: o.dir,
+                principal: flight.used.principal.clone(),
                 meter: flight.meter(ctx, MeterStatus::Ok),
             },
             None => page_internal("data_not_serialisable", None),

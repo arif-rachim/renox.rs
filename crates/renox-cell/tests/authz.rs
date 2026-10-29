@@ -63,6 +63,16 @@ export async function POST(ctx) {
 }
 "#;
 
+const BOARD_JS: &str = r#"
+export async function load(ctx) {
+  return { orders: [
+    { type: "Order", id: "o1", owner: "u_alice" },
+    { type: "Order", id: "o2", owner: "u_bob" },
+    { type: "Order", id: "o3" },
+  ] };
+}
+"#;
+
 const REPORTS_JS: &str = r#"
 export async function GET(ctx) { return Response.json({ report: "q3" }); }
 "#;
@@ -92,10 +102,24 @@ fn module(name: &str, services: &[&str]) -> serde_json::Value {
 
 /// The artifact; `with_auth` installs the fixture `auth` module.
 fn artifact(store: &Path, with_auth: bool) -> String {
+    artifact_with(store, with_auth, "report.read")
+}
+
+/// `menu_action` is the action `pages/menu` names in its `r-can`.
+fn artifact_with(store: &Path, with_auth: bool, menu_action: &str) -> String {
     let mut project = TemplateProject::new();
     project.insert(
         "pages/orders/[id].html",
         r#"<h1 id="title">{{ title }}</h1>"#,
+    );
+    // #280: `r-can` both ways, against the deployment's policies.
+    project.insert(
+        "pages/board.html",
+        r#"<p r-can="report.read">reports</p><p r-cannot="report.read">no reports</p><ul><li r-for="o in orders"><a r-can="order.read" :resource="o">open {{ o.id }}</a></li></ul>"#,
+    );
+    project.insert(
+        "pages/menu.html",
+        format!(r#"<nav><a r-can="{menu_action}" href="/reports">Reports</a><i>menu</i></nav>"#),
     );
     let compiled = Compiler::new(CompileOptions::default())
         .compile(&project)
@@ -110,6 +134,7 @@ fn artifact(store: &Path, with_auth: bool) -> String {
         ("pages/orders/[id].js", ORDER_JS),
         ("functions/api.js", API_JS),
         ("functions/reports.js", REPORTS_JS),
+        ("pages/board.js", BOARD_JS),
     ];
     if with_auth {
         code.push(("modules/auth/services.js", AUTH));
@@ -135,6 +160,7 @@ fn artifact(store: &Path, with_auth: bool) -> String {
         ("pages/orders/[id]", "pages/orders/[id].js"),
         ("functions/api", "functions/api.js"),
         ("functions/reports", "functions/reports.js"),
+        ("pages/board", "pages/board.js"),
     ]);
     if with_auth {
         entry.insert("modules/auth/services", "modules/auth/services.js");
@@ -150,6 +176,8 @@ fn artifact(store: &Path, with_auth: bool) -> String {
             { "kind": "function", "method": "POST", "path": "/api", "module": "functions/api", "export": "POST" },
             { "kind": "function", "method": "GET", "path": "/reports", "module": "functions/reports", "export": "GET",
               "guard": { "action": "report.read" } },
+            { "kind": "page", "path": "/board", "module": "pages/board", "load": true, "template": "pages/board" },
+            { "kind": "page", "path": "/menu", "template": "pages/menu" },
         ],
         "templates": compiled.manifest_entries(),
         "permissions": { "network": [], "secrets": [] },
@@ -334,4 +362,82 @@ async fn an_app_without_auth_is_anonymous() {
         .send("GET", "/orders/o1", &[("cookie", "uid=u_alice")])
         .await;
     assert_eq!(status, 403);
+}
+
+/// #280: `r-can` without a resource reads the principal's action set, with
+/// a resource one evaluation per row (`o3` lacks the declared `owner`
+/// attribute: denied); a page without `load` still gets the principal; a
+/// role change shows on the next render. The meter counts the row checks.
+#[tokio::test]
+async fn r_can_in_templates_reads_the_policies() {
+    let n = node(true);
+    let alice = [("cookie", "uid=u_alice")];
+    let (status, html) = n.send("GET", "/board", &alice).await;
+    assert_eq!(status, 200, "{html}");
+    assert!(html.contains("open o1"), "{html}");
+    assert!(!html.contains("open o2"), "another owner's row: {html}");
+    assert!(
+        !html.contains("open o3"),
+        "missing attribute denies: {html}"
+    );
+    assert!(
+        html.contains("<p>no reports</p>") && !html.contains("<p>reports</p>"),
+        "{html}"
+    );
+    let (status, html) = n.send("GET", "/menu", &alice).await;
+    assert_eq!(status, 200, "{html}");
+    assert!(!html.contains("/reports"), "{html}");
+    let (status, _) = n.send("POST", "/api?user=u_alice", &[]).await;
+    assert_eq!(status, 200);
+    let t0 = Instant::now();
+    loop {
+        let (_, html) = n.send("GET", "/menu", &alice).await;
+        if html.contains(r#"href="/reports""#) {
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the new role never reached r-can: {html}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (_, html) = n.send("GET", "/board", &alice).await;
+    assert!(html.contains("<p>reports</p>"), "{html}");
+}
+
+/// #280 at prepare: a template naming an action no owner declares refuses
+/// the deployment (V25, `RENOX_POLICY_INVALID`).
+#[tokio::test]
+async fn an_undeclared_template_action_refuses_the_deployment() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    let data = scratch("data");
+    let artifacts = scratch("artifacts");
+    // The same artifact as `node`, but `pages/menu` names `report.delete`.
+    let hash = artifact_with(&artifacts, true, "report.delete");
+    let meter = Meter::start(MeterConfig::new("t_authz@test", "test", &data), StdoutSink);
+    let manager = CellManager::new(
+        Runtime::new(RuntimeConfig::default()),
+        meter,
+        ManagerConfig {
+            data_dir: data.clone(),
+            artifacts: Arc::new(LocalArtifactStore::new(&artifacts)),
+            idle_timeout: Duration::from_secs(600),
+            tiers: Tiers::default(),
+            deployments: Arc::new(StaticTiers {
+                default_tier: TierName::Free,
+                tenant_tiers: BTreeMap::new(),
+            }),
+            secrets: Arc::new(LocalSecrets {
+                data_dir: data.clone(),
+            }),
+            platform_key: PlatformKey::random(),
+        },
+    );
+    let n = Node {
+        manager,
+        hash,
+        data,
+    };
+    let (status, body) = n.send("GET", "/menu", &[]).await;
+    assert_eq!(status, 500, "{body}");
 }

@@ -710,7 +710,14 @@ impl CellManager {
             }
         };
         let keys = SessionKeys::new(self.inner.config.platform_key.tenant_key(&key.tenant_id));
-        let web = match load_pages(&artifact_dir, &key.deployment_hash, keys).await {
+        let web = match load_pages(
+            &artifact_dir,
+            &key.deployment_hash,
+            keys,
+            isolate.authz_slot(),
+        )
+        .await
+        {
             Ok(p) => p,
             Err(e) => {
                 isolate.terminate();
@@ -1168,7 +1175,10 @@ impl CellManager {
             out.meter.status = RuntimeStatus::Error;
         }
         let (mut render_fuel, mut render_ms, mut render_limit) = (0, None, false);
+        let mut render_evals = 0;
         if let Some(r) = rendered {
+            log_authz_warnings(&cell.isolate, &ctx.request_id, &r.authz_warnings);
+            render_evals = r.authz_evals;
             if let Some((message, fields)) = &r.log {
                 cell.isolate
                     .log("error", Some(&ctx.request_id), message, fields.clone());
@@ -1217,6 +1227,7 @@ impl CellManager {
             fuel: render_fuel,
             ms: render_ms,
             limit: render_limit,
+            authz_evals: render_evals,
         };
         self.record(
             &rc,
@@ -1267,7 +1278,7 @@ impl CellManager {
                 meter_status(m.status)
             },
             kind: None,
-            authz_evals: (m.authz_evals > 0).then_some(m.authz_evals),
+            authz_evals: Some(m.authz_evals + render.authz_evals).filter(|n| *n > 0),
             realtime_conn_seconds: None,
             realtime_messages: None,
         });
@@ -1309,6 +1320,7 @@ impl CellManager {
                 fuel: shell.fuel,
                 ms: Some(shell.ms),
                 limit: false,
+                authz_evals: 0,
             };
             let mut live = sender.send(shell.html.as_bytes()).await;
             let mut out = dispatch.await;
@@ -1331,6 +1343,8 @@ impl CellManager {
                     })
                     .await;
                     used.fuel += rendered.fuel;
+                    used.authz_evals += rendered.authz_evals;
+                    log_authz_warnings(&isolate.isolate, &request_id, &rendered.authz_warnings);
                     used.ms = add_ms(used.ms, rendered.ms);
                     used.limit = rendered.limit;
                     if let Some((message, mut fields)) = rendered.log {
@@ -1456,6 +1470,22 @@ struct RenderUse {
     fuel: u64,
     ms: Option<f64>,
     limit: bool,
+    /// `r-can` evaluations of the render (#280).
+    authz_evals: u64,
+}
+
+/// Dev mode: one `warn` line per `r-can` resource that lacked a declared
+/// attribute (#280; `docs/11-authorization.md`, "In templates").
+fn log_authz_warnings(
+    isolate: &renox_runtime::isolate::IsolateHandle,
+    request_id: &str,
+    warnings: &[String],
+) {
+    for w in warnings {
+        let mut fields = serde_json::Map::new();
+        fields.insert("event".into(), "authz_missing_attribute".into());
+        isolate.log("warn", Some(request_id), w, fields);
+    }
 }
 
 /// One `i18n_missing` line per translation key first found missing in this
@@ -1651,6 +1681,8 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
             limit: false,
             log: None,
             i18n_missing: Vec::new(),
+            authz_evals: 0,
+            authz_warnings: Vec::new(),
         },
     }
 }
@@ -1662,12 +1694,13 @@ async fn load_pages(
     artifact_dir: &Path,
     deployment_hash: &str,
     keys: SessionKeys,
+    authz: renox_runtime::ops::authz::AuthzSlot,
 ) -> Result<WebLayer, CellError> {
     let dir = artifact_dir.to_path_buf();
     let hash = deployment_hash.to_string();
     tokio::task::spawn_blocking(move || {
         let raw = std::fs::read(dir.join("manifest.json"))
-            .map_err(|_| "V3: manifest.json cannot be read".to_string())?;
+            .map_err(|_| ("V14", "V3: manifest.json cannot be read".to_string()))?;
         // `client.events` (client-events.md Open 1), read the way the
         // gateway reads it, so the script tag and the endpoint agree.
         let client_script = std::str::from_utf8(&raw)
@@ -1675,17 +1708,38 @@ async fn load_pages(
             .and_then(|j| DeploymentInfo::parse(j).ok())
             .is_none_or(|i| i.client_events)
             .then(renox_gateway::client_script::script_src);
-        let manifest: renox_runtime::manifest::Manifest =
-            serde_json::from_slice(&raw).map_err(|e| format!("V3: manifest.json: {e}"))?;
+        let manifest: renox_runtime::manifest::Manifest = serde_json::from_slice(&raw)
+            .map_err(|e| ("V14", format!("V3: manifest.json: {e}")))?;
         let guard = PageGuard::new(&manifest.routes, keys);
         let security: SecurityConfig = match &manifest.security {
             Some(v) => serde_json::from_value(v.clone())
-                .map_err(|e| format!("V16: manifest.security: {e}"))?,
+                .map_err(|e| ("V14", format!("V16: manifest.security: {e}")))?,
             None => SecurityConfig::default(),
         };
         let buckets = RouteBuckets::new(&manifest.routes, &security.ratelimit);
-        PageRenderer::load(&dir, &manifest, &hash, client_script).map(|p| WebLayer {
-            pages: p.map(Arc::new),
+        let pages = PageRenderer::load(&dir, &manifest, &hash, client_script)
+            .map_err(|e| ("V14", e))?
+            .map(|p| p.with_authz(authz.clone()));
+        // #280: a template naming an action the merged action set lacks is
+        // refused at prepare (`RENOX_POLICY_INVALID`, V25).
+        let engine = authz
+            .read()
+            .ok()
+            .and_then(|s| s.clone())
+            .filter(|st| crate::render::declares_actions(&st.engine));
+        if let (Some(p), Some(st)) = (&pages, engine)
+            && let Some(unknown) = p
+                .template_actions()
+                .iter()
+                .find(|a| !st.engine.schema().actions.contains(*a))
+        {
+            return Err((
+                "V25",
+                format!("RENOX_POLICY_INVALID: a template names the action `{unknown}`, which no policy owner declares"),
+            ));
+        }
+        Ok::<_, (&'static str, String)>(WebLayer {
+            pages: pages.map(Arc::new),
             guard,
             buckets,
             // `SameSite=None` only when CORS with credentials is enabled
@@ -1694,14 +1748,9 @@ async fn load_pages(
         })
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| ("V14", e.to_string()))
     .and_then(|r| r)
-    .map_err(|reason| {
-        CellError::Artifact(ArtifactError::Invalid {
-            rule: "V14",
-            reason,
-        })
-    })
+    .map_err(|(rule, reason)| CellError::Artifact(ArtifactError::Invalid { rule, reason }))
 }
 
 fn to_body(r: Response<Bytes>) -> Response<Body> {
