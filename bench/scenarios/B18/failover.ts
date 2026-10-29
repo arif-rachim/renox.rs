@@ -145,7 +145,7 @@ for (let run = 1; run <= runs; run++) {
     const auth = { authorization: `Bearer ${token}` };
     await fetch(`${api}/v1/apps`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: "b18" }) });
     const { hash, tar } = artifact(join(root, "artifact"));
-    const up = await fetch(`${api}/v1/apps/b18/deployments`, { method: "POST", headers: { ...auth, "content-type": "application/x-tar", "x-renox-artifact-hash": hash }, body: tar });
+    const up = await fetch(`${api}/v1/apps/b18/deployments`, { method: "POST", headers: { ...auth, "content-type": "application/x-tar", "x-renox-artifact-hash": hash }, body: new Uint8Array(tar) });
     if (up.status !== 201 && up.status !== 200) throw new Error(`upload: ${up.status} ${await up.text()}`);
     const act = await fetch(`${api}/v1/apps/b18/activate`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ hash }) });
     if (act.status !== 200) throw new Error(`activate: ${act.status} ${await act.text()}`);
