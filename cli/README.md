@@ -1,6 +1,6 @@
-# renox CLI (v0, F2)
+# renox CLI (v0, F3)
 
-One CLI for the tenant dev loop (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`, and `mcp` (P21). Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
+One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`, `mcp` (P21), and against the control plane `login`, `tokens`, `deploy`, `logs`, `secrets`. Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
 
 ```
 bun cli/src/main.ts <command>        # from the repository
@@ -18,6 +18,8 @@ bun test --cwd cli                   # tests; the dev end-to-end test needs RENO
 | `3` | environment error | no `renox-worker` binary (`RENOX_WORKER_PATH` unset and none downloaded, or pointing to nothing); the worker exits during startup or keeps exiting under `renox dev`; the port is in use |
 | `130` | interrupted | Ctrl-C (SIGINT); `renox dev` stops the worker first |
 
+Commands that call the control plane (`deploy`, `logs`, `secrets`, `tokens`, `login`) map the API's answer onto the same codes: not signed in, 400, 401, 403, 404, 409 → `1` (with the API's code, message and `details`); 422 `RENOX_DEPLOY_REJECTED` and `RENOX_ACTIVATION_FAILED` → `2` (the artifact or its migrations, cell or probe are wrong); 5xx, 429 and an unreachable API → `3` (after the retries below). A command never prints a token or a secret value.
+
 Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wrong>`, then `hint: <what to do>` when there is something to do (`src/errors.ts`). `renox check` prints each problem as `<file>:<line>  error  <message>`. A TypeScript syntax error carries the transpiler's line and column, relative to the app folder. A `renox.toml` problem carries the line of the key; for a TOML syntax error, the line where parsing first fails. An unknown key comes with the closest valid key ("did you mean"). The messages are snapshotted in `tests/negative/__snapshots__/`.
 
 ## Commands
@@ -28,6 +30,11 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`, version 1) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Leaves forbidden files out of `public/` and fails on a secret in what it ships (step 5 and the secret scan below). Prints the hash. An app with templates needs the `renox-worker` binary (see "Templates") |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact |
 | `renox check [--secrets] [--security]` | Validates `renox.toml`, route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
+| `renox deploy [--json]` | Builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
+| `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |
+| `renox logs [--follow] [--since <t>] [--source all\|server\|client] [--deployment <hash>] [--app <name>] [--json]` | The app's log lines; `--follow` keeps streaming |
+| `renox secrets set <NAME> \| list \| rm <NAME> [--app <name>]` | App secrets; `set` reads the value from stdin |
+| `renox login`, `renox tokens` | Sign in, manage tenant tokens (#113) |
 | `renox mcp [--project <dir>]` | Local MCP server on stdio for coding agents: the docs, the project's config and routes, and the `check`/`dev` status as tools (below) |
 
 ### `renox build`
@@ -92,6 +99,29 @@ The worker is the faster cold path, needs no Wasm file next to the compiled CLI,
 **Secret scan** (`renox build`, `renox check`, `renox check --secrets`; #115). Scanned: the project's own sources that went into `code/` (read from the source maps, so findings carry the original file and line; vendored npm code is not scanned) and the files copied as they are (`public/`, `migrations/`). Patterns (`@renox/artifact-validate`, `src/secrets.ts`): private key blocks, AWS access key ids, GitHub tokens, Stripe live secret and restricted keys, Slack tokens and webhooks, Google API keys, unsigned JWTs (`alg: none`), and a high-entropy string assigned to a name containing `secret`, `token`, `key`, `password` (hashes, UUIDs, `data:` URLs, and placeholders pass). A finding prints `file:line:col  pattern  description: <masked prefix> (N chars)`, never the value, with `hint: … renox secrets set <NAME> …`. A line that must keep such a string carries `renox-allow-secret: <reason>` on it or alone on the line above; the reason is required, and `renox build` prints it (`allowed <file>:<line> … renox-allow-secret: <reason>`). The control plane rejects the same patterns in `public/` and `migrations/` of an upload (rule H2); bundled `code/` is checked here only, because bundling removes the markers.
 
 The lint is a small tokenizer (comments, strings, and template literals with nested `${}` are understood), not a type checker: SQL passed through a variable is not followed. `global-state` adds brace scopes on that tokenizer, not a parser: it does not see writes into a shared object (`cache.set(k, v)`, `counts[k] = 1` on a module-level `const`), writes through a cast (`(globalThis as any).x = 1`), or writes inside a `${}` of a template literal. Tests are not linted.
+
+### `renox deploy`, `renox logs`, `renox secrets` (#58)
+
+All three use the token of `renox login` (`$XDG_CONFIG_HOME/renox/credentials.json`, default `~/.config/renox/`, mode 0600) or `RENOX_TOKEN` and `RENOX_API_URL` (CI). The endpoints are `docs/contracts/deploy-api.md`.
+
+```
+$ renox deploy
+  Bundling… <routes> routes, <modules> modules, <templates> templates  <s>
+  Uploading <size> MB → <api host>                                     <s>
+  Validating… ✓ manifest ✓ routes ✓ templates ✓ permissions ✓ bundle (validated)
+  Activating… ✓ migrations ✓ cell ✓ probe                              <s>
+  Live: https://shop.renox.app  (<new hash, 12 characters>)            total <s>
+  Rollback: renox deploy --rollback <previous hash, 12 characters>
+```
+
+Measured times are B15's (`bench/scenarios/B15/run.sh`).
+```
+
+- **Deploy.** `renox build` (with the secret scan), then the artifact directory as a gzip tar with `x-renox-artifact-hash` to `POST /v1/apps/{app}/deployments` (the app is created on the first deploy), the source maps of `.renox/sourcemaps/<hash>/` to the private `PUT …/sourcemaps` (a failure there is a warning, not an error), and `POST /v1/apps/{app}/activate`, which answers once the owning node has migrated, loaded and probed the new cell. The live URL is the app's first hostname. An upload is idempotent by hash, so it is retried on a network failure, a 5xx or a 429; activation and rollback are retried on 503 and 429. At most 4 attempts, waiting `Retry-After` (capped at 30 s) or 1, 2, 4 s. A rejected upload prints every violation (`rule=… path=… reason=…`); a failed activation prints the stage (`migrate` with module, file and the SQLite message; `probe` with the status) and the old deployment keeps serving.
+- **Rollback.** `renox deploy --rollback` is a pointer switch to the most recently superseded deployment (`POST /v1/apps/{app}/rollback`); no build, upload or migration. It prints the command that undoes it.
+- **`--json`** prints one object instead of the progress lines: `app`, `hash`, `previous`, `url`, `hostnames`, `sourcemaps`, `stages` (`build_ms`, `upload_ms`, `sourcemaps_ms`, `activate_ms`) and `total_ms` (B15 reads it).
+- **Logs.** `GET /v1/apps/{app}/logs` as Server-Sent Events: the last 100 lines (or those since `--since`, Unix ms or `30s`/`10m`/`2h`/`1d`), one per line (`time level [browser] module message (request id)`, or the raw JSON with `--json`). With `--follow` the stream stays open; when it drops, or nothing arrives for 45 s (three missed keep-alives), the CLI reconnects with `Last-Event-ID`, backing off from 1 s to 30 s, so no line is lost or repeated. 401, 403, 404 end it with exit 1; 10 failed reconnects in a row with exit 3.
+- **Secrets.** `renox secrets set NAME` reads the value from stdin (`printf %s "$VALUE" | renox secrets set NAME`; in a terminal it prompts with the echo off) and refuses it as an argument, where it would reach the shell history and `ps`. One trailing newline is dropped. A value under 8 bytes or 8 characters, or over 64 KiB, is refused before anything is sent. `list` prints names, update times and the secret version; `rm` removes. A new value is used from the next `renox deploy` or rollback. No output contains a value.
 
 ### `renox mcp`
 
