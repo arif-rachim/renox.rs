@@ -14,9 +14,9 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | Y5 (#170, #182) and P (#94, #112) now; O3 after the owner's two bench hosts (#158); gate #49 after P and O3. #212 (macOS CPU clock) needs a Mac and blocks no gate |
-| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221 | — | V3 (#222, #223, #128) now; U3 (#219) after the owner tags `worker-v0.2.0`; W after P and V3; gate #61 after W and O3 |
-| F4 | — | — | F4-0 (contracts) now, alongside V3, P and Y5; then R1, R2, T1 in parallel; T2; M1 and M2 in parallel; M3; P4; gate #68. Epics #63–#67 are split into #225–#244 (2026-10-29) |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | O3 after the owner's two bench hosts (#158); gate #49 after O3 and the four open rows of #112. Y5 #246 and P (checklists #94 full, #112 19 of 23) are done. #212 (macOS CPU clock) needs a Mac and blocks no gate |
+| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221 | — | W (#99, #116) now; U3 (#219) after the owner tags `worker-v0.2.0`; gate #61 after W and O3. V3 #245 is in (#128 partly: client bundles and the dashboard screenshot test stay open) |
+| F4 | F4-0 #247 (#225, #227) | — | F4-ALL now (one session, #226 first, then the 18 tasks in order), or the parallel batches R1, R2, T1, T2, M1, M2, M3 below; P4; gate #68. Epics #63–#67 are split into #225–#244 (2026-10-29) |
 
 Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), #222 and #223 (the contract and the `streamLogs` endpoint that #128 and the dashboard's Logs screen need), all placed in the batches below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
@@ -341,7 +341,7 @@ Work on batch W of arif-rachim/renox.rs: issues #99, #116 in that order. Follow 
 Run the gate review issue #61 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
-## F4 (9 sessions + gate)
+## F4 (10 sessions + gate, or 2 + gate with F4-ALL)
 
 The gate reviews of F2 and F3 are still open, but the split of the F4 epics is planning work and was done on 2026-10-29 so F4 can start the day the gates close, and so the contract batch, which is documentation only, runs now. Every F4 task issue carries the full Files list it needs (the lesson of #139 and #161). Batches are longer than in F2 and F3 on purpose: one session takes a whole crate's worth of work. Each epic (#63 to #67) stays open as the index of its tasks and closes with its last task.
 
@@ -354,6 +354,16 @@ Work on batch F4-0 of arif-rachim/renox.rs: issues #225, #226, #227 in that orde
 ```
 
 Special case `type:contract` for all three; #227 builds on #225 in the same batch. Documentation and the shared validator only. The one file it shares with V3's #222 is `docs/contracts/README.md` (one row each): if the PR conflicts there, keep both rows. #226 also settles what `auth` needs from the platform (argon2id as an op, savepoints, the event envelope), so read `docs/10-modules.md` and the F4 rows of `docs/23-failure-modes.md` and `docs/24-threat-model.md` before writing.
+
+Done: PR #247, #225 and #227. #226 was skipped by rule 6: the SDK pins its types to `ctx.d.ts` (`sdk/tests/contract.test-d.ts`), so the three new error codes and the new `ctx` members need type-only edits in `sdk/`, outside its Files. Its Files now include them and the `meter.md` minor bump; the full 1.3.0 draft is a comment on the issue. #225 decided that a module name has no hyphen, so the `gcc-data` module is `gcc` (#243, #244 updated).
+
+### Batch F4-ALL — after F4-0 — every remaining F4 task in one session (19 issues)
+
+```
+Work on batch F4-ALL of arif-rachim/renox.rs: issues #226, #228, #233, #234, #236, #237, #230, #231, #229, #232, #235, #238, #239, #240, #241, #100, #243, #242, #244 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for `type:contract` issues for the first one. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+The owner's choice on 2026-10-29: one long session instead of the parallel batches R1 to M3 below, which stay as the fallback and as the file-ownership map. The order is topological over the issues' Blocked-by lists (checked against the live tracker); every blocker is closed or earlier in the batch. #226 first, since everything else depends on it. Rule 13 applies as usual: a skipped issue takes its dependants with it (rule 3), and the PR's "Skipped" list says where the chain stopped; the remaining issues then run as a second F4-ALL batch from `main`. Not in this batch: #101 and #117 (checklists run without code, batch P4) and #68 (gate, needs the booking product repository).
 
 ### Batch R1 — after F4-0, alongside R2 and T1 — i18n filters, slots and overrides, module pages (2 issues)
 
