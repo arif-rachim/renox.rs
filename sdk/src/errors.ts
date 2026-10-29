@@ -1,5 +1,5 @@
 // Error codes and classes of docs/contracts/ops.md section 13 (contract
-// version 1.3.0). tests/errors.test.ts checks the lists below against the
+// version 1.5.0). tests/errors.test.ts checks the lists below against the
 // table in ops.md; tests/contract.test-d.ts checks the types against ctx.d.ts.
 
 /** Codes an op rejects with inside tenant code ("thrown" and "both" in ops.md section 13). */
@@ -15,6 +15,8 @@ export const RENOX_ERROR_CODES = [
   "RENOX_DB_MULTI_STATEMENT",
   "RENOX_DB_RESULT_LIMIT",
   "RENOX_DB_TX_STATE",
+  // ops 1.5.0: an owned table without a scope (section 17).
+  "RENOX_DB_SCOPE",
   "RENOX_FETCH_BLOCKED",
   "RENOX_FETCH_FAILED",
   "RENOX_FETCH_EGRESS_LIMIT",
@@ -24,6 +26,10 @@ export const RENOX_ERROR_CODES = [
   "RENOX_MODULE_UNDECLARED",
   "RENOX_MODULE_SERVICE",
   "RENOX_EVENT_PAYLOAD",
+  // ops 1.5.0: a policy denied (section 17); the realtime limits (section 18).
+  "RENOX_FORBIDDEN",
+  "RENOX_REALTIME_LIMIT",
+  "RENOX_REALTIME_BACKPRESSURE",
 ] as const;
 
 /** Codes the platform answers with when a request ends ("response" and "both"). */
@@ -38,6 +44,13 @@ export const RESPONSE_ERROR_CODES = [
   "RENOX_RENDER_LIMIT",
   // ops 1.4.0: a lazy route module failed its first evaluation.
   "RENOX_MODULE_EVAL",
+  // ops 1.5.0: a guard or the tool check denied; the realtime caps; /mcp refusals (sections 17-19).
+  "RENOX_FORBIDDEN",
+  "RENOX_REALTIME_LIMIT",
+  "RENOX_REALTIME_BACKPRESSURE",
+  "RENOX_TOOL_INPUT",
+  "RENOX_TOOL_SCOPE",
+  "RENOX_TOOL_CONFIRM",
 ] as const;
 
 export type DbErrorCode =
@@ -51,12 +64,22 @@ export type DbErrorCode =
   | "RENOX_DB_COLUMN_NAME"
   | "RENOX_DB_MULTI_STATEMENT"
   | "RENOX_DB_RESULT_LIMIT"
-  | "RENOX_DB_TX_STATE";
+  | "RENOX_DB_TX_STATE"
+  | "RENOX_DB_SCOPE";
 
 export type FetchErrorCode = "RENOX_FETCH_BLOCKED" | "RENOX_FETCH_FAILED" | "RENOX_FETCH_EGRESS_LIMIT";
 
 /** Codes of the module broker (ops.md section 15). */
 export type ModuleErrorCode = "RENOX_MODULE_UNDECLARED" | "RENOX_MODULE_SERVICE" | "RENOX_EVENT_PAYLOAD";
+
+/** A policy denied (ops.md section 17): thrown by `authz.require` and `realtime.subscribe`, answered by a `guard`. */
+export type AuthzErrorCode = "RENOX_FORBIDDEN";
+
+/** The realtime limits (ops.md section 18): thrown by the realtime ops, and the reason of a platform close. */
+export type RealtimeErrorCode = "RENOX_REALTIME_LIMIT" | "RENOX_REALTIME_BACKPRESSURE";
+
+/** `/mcp` refusals before a tool runs (ops.md section 19), as JSON-RPC errors. */
+export type ToolErrorCode = "RENOX_TOOL_INPUT" | "RENOX_TOOL_SCOPE" | "RENOX_TOOL_CONFIRM";
 
 export type RenoxErrorCode = (typeof RENOX_ERROR_CODES)[number];
 
@@ -146,6 +169,15 @@ export class DbUsageError extends RenoxError {
     super(code, message);
   }
 }
+export type DbScopeReason = "unscoped" | "scope_missing" | "owner_mismatch" | "unprovable";
+/** Module code reached an owned table without a scope, or the rewriter refused the statement (ops.md section 17). */
+export class DbScopeError extends RenoxError {
+  declare readonly code: "RENOX_DB_SCOPE";
+  declare readonly details: { readonly table: string; readonly module: string; readonly reason: DbScopeReason };
+  constructor(message: string, details: { table: string; module: string; reason: DbScopeReason }) {
+    super("RENOX_DB_SCOPE", message, details);
+  }
+}
 
 // Fetch (ops.md section 2)
 export type FetchBlockedReason =
@@ -230,5 +262,41 @@ export class EventPayloadError extends RenoxError {
   declare readonly details: { readonly event: string; readonly reason: EventPayloadReason };
   constructor(message: string, details: { event: string; reason: EventPayloadReason }) {
     super("RENOX_EVENT_PAYLOAD", message, details);
+  }
+}
+
+// Authorization (ops.md section 17)
+export type ForbiddenReason = "deny" | "unknown_action" | "missing_attribute" | "evaluation_error" | "eval_limit" | "dev_only";
+export type ForbiddenErrorDetails = {
+  readonly action: string;
+  readonly resource: { readonly type: string; readonly id: string } | null;
+  readonly reason: ForbiddenReason;
+  /** The deciding policy id in dev mode only. */
+  readonly policy: string | null;
+};
+/** A policy denied the action. Uncaught, it ends the request with 403 `RENOX_FORBIDDEN`, not 500. */
+export class ForbiddenError extends RenoxError {
+  declare readonly code: "RENOX_FORBIDDEN";
+  declare readonly details: ForbiddenErrorDetails;
+  constructor(message: string, details: ForbiddenErrorDetails) {
+    super("RENOX_FORBIDDEN", message, { ...details });
+  }
+}
+
+// Realtime (ops.md section 18)
+export type RealtimeLimitReason = "tenant" | "user" | "topics" | "message_size" | "flood";
+export class RealtimeLimitError extends RenoxError {
+  declare readonly code: "RENOX_REALTIME_LIMIT";
+  declare readonly details: { readonly reason: RealtimeLimitReason };
+  constructor(message: string, details: { reason: RealtimeLimitReason }) {
+    super("RENOX_REALTIME_LIMIT", message, details);
+  }
+}
+/** The connection's outbound queue was full: it has been closed with 1008. */
+export class RealtimeBackpressureError extends RenoxError {
+  declare readonly code: "RENOX_REALTIME_BACKPRESSURE";
+  declare readonly details: { readonly conn: string };
+  constructor(message: string, details: { conn: string }) {
+    super("RENOX_REALTIME_BACKPRESSURE", message, details);
   }
 }

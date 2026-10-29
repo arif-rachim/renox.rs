@@ -1,0 +1,31 @@
+{
+  "$comment": "invalid (schema): version 0 has function routes only [expect: const]",
+  "artifact": {
+    "version": 0
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "Asia/Dubai"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/orders/[id]": "pages/orders/[id].js",
+      "functions/ws/chat/[room]": "functions/ws/chat/[room].js",
+      "functions/sse/orders": "functions/sse/orders.js",
+      "functions/tools/refund-order": "functions/tools/refund-order.js",
+      "jobs/nightly-report": "jobs/nightly-report.js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "ws",
+      "path": "/ws/chat/:room",
+      "module": "functions/ws/chat/[room]"
+    }
+  ],
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}

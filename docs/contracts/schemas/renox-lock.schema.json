@@ -1,28 +1,50 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/manifest/v1/renox-lock.schema.json",
-  "title": "Renox lock file (renox.lock), manifest contract version 1",
+  "title": "Renox lock file (renox.lock), manifest contract version 1.1",
   "description": "A parsed renox.lock (TOML, written by the CLI). Prose: docs/contracts/manifest.md section 4. Consistency with renox.toml and the module manifests is MF2, MF3, MF5, MF11 and MF12.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "module"],
+  "required": [
+    "version",
+    "module"
+  ],
   "properties": {
-    "version": { "const": 1 },
+    "version": {
+      "const": 1
+    },
     "module": {
       "type": "array",
       "description": "One entry per installed module, in topological order (dependencies first; ties by name). The artifact's modules field copies this order (artifact.md section 3).",
       "maxItems": 64,
-      "items": { "$ref": "#/$defs/entry" }
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
     }
   },
   "$defs": {
-    "moduleName": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+    "moduleName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$"
+    },
     "entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "version", "source", "hash", "isolation", "mount", "dependencies", "config", "approved"],
+      "required": [
+        "name",
+        "version",
+        "source",
+        "hash",
+        "isolation",
+        "mount",
+        "dependencies",
+        "config",
+        "approved"
+      ],
       "properties": {
-        "name": { "$ref": "#/$defs/moduleName" },
+        "name": {
+          "$ref": "#/$defs/moduleName"
+        },
         "version": {
           "type": "string",
           "description": "The resolved version: the manifest's [module].version.",
@@ -40,33 +62,104 @@
           "description": "SHA-256 of the module tree: the canonical listing of artifact.md section 2 over every regular file under the module directory.",
           "pattern": "^[0-9a-f]{64}$"
         },
-        "isolation": { "enum": ["shared", "isolate"], "description": "The effective mode after the renox.toml override (MF11)." },
-        "mount": { "type": "string", "maxLength": 256, "pattern": "^(/|(/[A-Za-z0-9._~-]+)+)$" },
+        "isolation": {
+          "enum": [
+            "shared",
+            "isolate"
+          ],
+          "description": "The effective mode after the renox.toml override (MF11)."
+        },
+        "mount": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^(/|(/[A-Za-z0-9._~-]+)+)$"
+        },
         "dependencies": {
           "type": "array",
           "description": "The names of [dependencies], sorted: the dependency edges.",
           "maxItems": 64,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/moduleName" }
+          "items": {
+            "$ref": "#/$defs/moduleName"
+          }
         },
         "config": {
           "type": "object",
           "description": "The resolved [config]: every declared key, from renox.toml or the default.",
           "maxProperties": 64,
-          "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
-          "additionalProperties": { "type": ["string", "integer", "boolean"] }
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean"
+            ]
+          }
         },
         "approved": {
           "type": "object",
           "additionalProperties": false,
-          "description": "The permissions the tenant approved, a snapshot of the manifest's [permissions] at approval time (MF12).",
-          "required": ["network", "secrets", "slots", "hooks"],
+          "description": "The permissions the tenant approved, a snapshot of the manifest's [permissions] at approval time (MF12). From 1.1 also roles.",
+          "required": [
+            "network",
+            "secrets",
+            "slots",
+            "hooks"
+          ],
           "properties": {
-            "tables": { "type": "string", "maxLength": 40 },
-            "network": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "maxLength": 270 } },
-            "secrets": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" } },
-            "slots": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "maxLength": 128 } },
-            "hooks": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "maxLength": 128 } }
+            "tables": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "network": {
+              "type": "array",
+              "maxItems": 256,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 270
+              }
+            },
+            "secrets": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+              }
+            },
+            "slots": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "hooks": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "roles": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "description": "1.1: the roles the tenant approved the module to assign; absent = none."
+            }
           }
         }
       }

@@ -1,0 +1,13 @@
+{
+  "$comment": "valid (1.5.0): the app revokes a global role; false would mean no such row",
+  "op": "op_authz_roles_revoke",
+  "args": [
+    "u_2",
+    "viewer",
+    "global",
+    null,
+    null,
+    null
+  ],
+  "result": true
+}

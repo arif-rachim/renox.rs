@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1** (F4, #225). History: "Changelog" at the bottom |
+| Version | **1.1** (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
 | Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
 | Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
 | Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
@@ -49,6 +49,7 @@ tables  = "billing__*"
 network = ["api.stripe.com", "secure.telr.com"]
 secrets = ["BILLING_PROVIDER_KEY"]
 slots   = ["admin.sidebar"]
+roles   = ["finance", "viewer"]                  # 1.1: the roles the module may assign
 
 [exports]
 views = ["billing__public_user_plans_v1"]
@@ -67,8 +68,27 @@ name = "admin.sidebar"
 template = "partials/admin-menu.html"
 requires = "invoice.read"
 
+[[tools]]
+name = "create_invoice"
+file = "tools/create-invoice.ts"
+action = "invoice.create"
+
 [authz]
-actions = ["invoice.read", "invoice.create"]
+actions   = ["invoice.read", "invoice.create", "invoice.refund"]
+sensitive = ["invoice.refund"]                   # 1.1: audited, and the Renox::Action::"sensitive" group
+
+[authz.ownership]                                # 1.1: db.scoped()
+"billing__invoices" = { owner = "user_id", org = "org_id" }
+
+[authz.entities]                                 # 1.1: Cedar entity Billing::Invoice
+Invoice = { table = "billing__invoices", attrs = ["amount", "org_id", "status"] }
+
+[authz.default_roles]                            # 1.1
+finance = ["invoice.read", "invoice.refund"]
+viewer  = ["invoice.read"]
+
+[realtime.feeds]                                 # 1.1: the change feed
+"billing__invoices" = "invoices:{org_id}"
 ```
 
 No other tables or keys are allowed at any level (`additionalProperties: false`), so a typo can never silently drop a permission or an export.
@@ -124,8 +144,9 @@ What the module asks the tenant to approve (section 3). Every key is optional; a
 | `secrets` | names `^[A-Z][A-Z0-9_]{0,63}$` that start with `<NAME>_`, the module name in upper case (MF4) | The secrets the module reads as `ctx.secrets`. The prefix keeps one module from asking for the app's or another module's secret by name | `op_secrets_get_all` (`ops.md` section 3), once per module from 1.3.0 (#226) |
 | `slots` | slot names | The slots the module fills; must be exactly the names of its `[[slots]]` (MF8) | Renderer slot registry (`artifact.md` section 3) |
 | `hooks` | hook names | The hook points the module fills from `hooks.ts`; each must be exported by another installed module (MF8). A filler can halt another module's flow (`auth.after_login`), so filling is approved | Broker (`ops.md` 1.3.0, #226) |
+| `roles` (1.1) | role names, exactly the keys of `[authz.default_roles]` (MF13) | The roles the module may assign with `ctx.authz.roles.assign` (`ops.md` section 17). Assigning a role grants what its policies permit, so it is approved; any other role rejects with `RENOX_MODULE_UNDECLARED` | `op_authz_roles_*` (`ops.md` 1.5.0, #279) |
 
-Reading another module's public view needs no permission: it follows from `[dependencies]` and `[imports]` (MF7), and the authorizer allows `SELECT` on `<dep>__public_*` for declared dependencies only.
+Reading another module's public view needs no permission: it follows from `[dependencies]` and `[imports]` (MF7), and the authorizer allows `SELECT` on `<dep>__public_*` for declared dependencies only. Defining actions, entities, owned tables, and feeds (`[authz]`, `[realtime]`) needs no permission either: they concern the module's own tables and resources (MF14), and a policy that grants an action still comes from the app's or the module's policy set.
 
 ### `[exports]`
 
@@ -160,11 +181,25 @@ What the module uses from its dependencies, so a broken contract shows up in `re
 
 ### `[[tools]]`
 
-MCP tools (`docs/20-ai-agents-mcp.md`): `name` (`^[a-z][a-z0-9_]{0,63}$`), `file` (`tools/….ts`), `action` (in `[authz].actions`, MF9), `confirm`, `description`. Reserved for F5: validated now so manifests written today stay valid, not carried in the artifact.
+MCP tools (`docs/20-ai-agents-mcp.md` section 2; `ops.md` section 19): `name` (`^[a-z][a-z0-9_]{0,63}$`), `file` (`tools/….ts` in the module tree, MF9), `action` (in `[authz].actions`, MF9), `confirm` (default `false`), `description`. From 1.1 they are **carried in the artifact** as `tool` routes (`artifact.md` 1.3): `renox build` reads the `tool(...)` the file default-exports, records its input schema, and takes `name`, `action`, `confirm`, and `description` from the manifest, which must equal the file's (`renox check`, #284). Tool names are unique across the app and its installed modules (`artifact.md` V25).
 
 ### `[authz]`
 
-`actions`: the authorization actions the module defines (`<resource>.<verb>`, `docs/11-authorization.md`). Default policies live in `policies/*.cedar` and are carried in the artifact (`artifact.md` section 1); evaluation is F5.
+The module's side of `docs/11-authorization.md` (`ops.md` section 17). Everything here names the module's own tables and resources (MF14); the policies that grant actions live in `policies/*.cedar`, carried in the artifact (`artifact.md` section 1), and are evaluated from F5.
+
+| Key | Shape | Meaning |
+| --- | --- | --- |
+| `actions` | `["<resource>.<verb>"]` | The actions the module defines. `slots[].requires`, `tools[].action`, `sensitive`, and the actions of `default_roles` name them (MF9, MF13) |
+| `sensitive` (1.1) | a subset of `actions` (MF13) | Decisions on these actions are audited in `renox__authz_audit`, and the merged schema puts them in the group `Renox::Action::"sensitive"` (`docs/11`: "requires MFA, audit-logged") |
+| `[authz.ownership]` (1.1) | `"<table>" = { owner = "<column>", org? = "<column>" }`, tables under `<name>__` (MF14) | The owned tables `db.scoped()` fences: `owner` is the user (or session) column, `org` the organisation column. Module code reaching an owned table without a scope is refused (`RENOX_DB_SCOPE`) |
+| `[authz.entities]` (1.1) | `<Type> = { table? = "<name>__…", id? = "<column>", attrs = ["<column>", …] }`, `<Type>` matching `^[A-Z][A-Za-z0-9_]{0,63}$` | The Cedar entity types of the module, `<Module>::<Type>` with `<Module>` the module name capitalised: `attrs` are the only attributes sent to the engine; `table` (own prefix, MF14) and `id` (default `id`) let the cell load a `guard` resource |
+| `[authz.default_roles]` (1.1) | `<role> = ["<action>", …]`, actions of the merged action set (MF13) | The roles the module ships; its default policies grant them these actions. `permissions.roles` lists exactly these role names (MF13), and the lock's `approved.roles` is the tenant's approval |
+
+**The `auth.principal` convention (1.1).** The `auth` module (#291) exports the service `auth.principal(sessionId)` and the hook point `auth.principal` (`[exports.hooks."auth.principal"]`, `args = { principal }`). The cell calls the service once per request (`ops.md` section 17, "Principal"); the service builds the principal from its own tables and runs the hook, whose fillers extend `principal.attrs` and return `undefined` (a filler that halts is treated as a throw): `2fa` sets `attrs.mfa_verified`, `org` sets `attrs.org`. A module that wants an attribute on the principal fills this hook (`permissions.hooks = ["auth.principal"]`, approved at install like any hook fill); nothing else may add to a principal. `auth` also exports `auth.verifyAgentToken` for `/mcp` (`ops.md` section 19, #286).
+
+### `[realtime]` (1.1)
+
+`[realtime.feeds]`: `"<table>" = "<topic pattern>"`, tables under `<name>__` (MF14), the pattern a topic (`ops.md` section 18) whose `{column}` placeholders name columns of that table (`artifact.md` V26 checks the table against the module's migrations). After a commit that changes the table, the cell publishes `{ table, rowid, op }` to the topic to the connections that passed the subscribe check.
 
 ## 3. Permissions and approval
 
@@ -184,6 +219,8 @@ acme    = { version = "^0.4", source = "git:https://github.com/acme/renox-acme#v
 ```
 
 The key is the module's name and must equal the manifest's `[module].name` (MF3).
+
+**`[authz]` and `[realtime]` of the app (1.1).** `renox.toml` may carry the same `[authz]` (`actions`, `sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`) and `[realtime.feeds]` tables as a module manifest, for the app's own `app__*` tables and resources (`App::<Type>` in Cedar); the CLI resolves them into the artifact's `authz` and `realtime` blocks (`artifact.md` 1.3) and `renox check` applies MF13 and MF14 to them with the prefix `app__`. The app's policies are `policies/*.cedar` in the app root, built into `policies/app/`, with the schema `policies/schema.cedarschema`.
 
 | Key | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -207,7 +244,7 @@ isolation = "shared"
 mount = "/auth"
 dependencies = []
 config = { registration = "open", session_days = 30, magic_links = true }
-approved = { tables = "auth__*", network = ["accounts.google.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET"], slots = [], hooks = [] }
+approved = { tables = "auth__*", network = ["accounts.google.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET"], slots = [], hooks = [], roles = ["admin", "member"] }
 ```
 
 | Key | Meaning |
@@ -221,7 +258,7 @@ approved = { tables = "auth__*", network = ["accounts.google.com"], secrets = ["
 | `mount` | The effective mount (`renox.toml` or the default) |
 | `dependencies` | The names of the manifest's `[dependencies]`, sorted: the dependency edges (MF12) |
 | `config` | The resolved config: every declared key that has a value, from `renox.toml` or the default (MF12) |
-| `approved` | The permissions the tenant approved: `tables` (absent when none), `network`, `secrets`, `slots`, `hooks` (section 3) |
+| `approved` | The permissions the tenant approved: `tables` (absent when none), `network`, `secrets`, `slots`, `hooks`, and from 1.1 `roles` (absent or empty when the module assigns no role; section 3) |
 
 The lock is the input to the build: `renox build` resolves nothing; it reads the lock, checks it (MF1–MF12), and copies it into the artifact. `renox install` resolves (newest version satisfying every range) and rewrites the lock; `renox approve` rewrites `approved`.
 
@@ -231,7 +268,7 @@ Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `valid
 
 | # | Rule | Scope |
 | --- | --- | --- |
-| MF1 | **Names.** A module name matches `^[a-z][a-z0-9_]{0,31}$`, contains no `__`, does not end with `_`, and is not `app` or `renox`. This applies to `[module].name`, `[dependencies]` keys, `renox.toml [modules]` keys, and lock names. With this rule, no module's prefix `<a>__` is a prefix of another's tables: `a__x` cannot belong to a module `a_`, since `a_` is not a name (the authorizer's rule, `crates/renox-data/src/authorizer.rs`) | single file |
+| MF1 | **Names.** A module name matches `^[a-z][a-z0-9_]{0,31}$`, contains no `__`, does not end with `_`, and is not `app`, `renox`, or (1.1) `authz`, the namespace of the platform event `authz.roles_changed` (`ops.md` section 17). This applies to `[module].name`, `[dependencies]` keys, `renox.toml [modules]` keys, and lock names. With this rule, no module's prefix `<a>__` is a prefix of another's tables: `a__x` cannot belong to a module `a_`, since `a_` is not a name (the authorizer's rule, `crates/renox-data/src/authorizer.rs`) | single file |
 | MF2 | **Versions.** Every `version` is semver and every range is of section 2. The lock's version of each module satisfies its `renox.toml` range and the range of every installed module that depends on it | single file, project |
 | MF3 | **One install per name and prefix.** The `renox.toml` key, the manifest's `[module].name`, and the lock entry's `name` are the same; no two installed modules (or a module and `app`) have the same name; no installed module's prefix is a prefix of another's; each `renox.toml` module has exactly one lock entry and the lock has no other | single file (lock), project |
 | MF4 | **Own prefix only.** `permissions.tables`, when present, is exactly `"<name>__*"` (in the manifest and in the lock's `approved`); every secret name starts with `<NAME>_`, the module name in upper case | single file |
@@ -242,9 +279,11 @@ Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `valid
 | MF9 | **References.** Every `[[slots]].template` exists in the module tree; every `[[slots]].requires` and `[[tools]].action` is in `[authz].actions` | single file, project |
 | MF10 | **Config.** A declaration's `default` has its `type` and passes `values`, `min`, `max`, `max_length`; `min ≤ max`; `required = true` has no `default`. Every `renox.toml` config key is declared; every value has the declared type and passes its bounds; every required key has a value | single file, project |
 | MF11 | **Sources and isolation.** `source` is `path:` or `git:` (no registry); a `renox.toml` `isolation` is never lower than the manifest's (`shared` below `isolate`); the lock's `isolation` is the effective one | project |
-| MF12 | **Lock matches.** For each module: the lock's `version` is the manifest's; `hash` is the hash of the module tree; `dependencies` are the manifest's; `config` is the resolved config; `mount` and `source` are the `renox.toml` values (or the defaults); **`approved` equals the manifest's `[permissions]`** (section 3). A mismatch fails `renox check` until `renox install` or `renox approve` updates the lock | project |
+| MF12 | **Lock matches.** For each module: the lock's `version` is the manifest's; `hash` is the hash of the module tree; `dependencies` are the manifest's; `config` is the resolved config; `mount` and `source` are the `renox.toml` values (or the defaults); **`approved` equals the manifest's `[permissions]`** (section 3), `roles` included from 1.1 | project |
+| MF13 | **Actions and roles** (1.1). `permissions.roles` is exactly the set of `[authz.default_roles]` keys; every action of a `default_roles` entry, every `sensitive` action, every `slots[].requires`, and every `tools[].action` is in `[authz].actions` (MF9 for the last two); for the app's `renox.toml [authz]`, the same with the merged action set | single file |
+| MF14 | **Own prefix** (1.1). Every `[authz.ownership]` table, every `[authz.entities].table`, and every `[realtime.feeds]` table starts with `<name>__` (`app__` in `renox.toml`); every `[[tools]].file` exists in the module tree | single file, project (the file) |
 
-Every rejection names the rule (`MF1`–`MF12`), the file and key, and a one-line reason, and never a filesystem path outside the app.
+Every rejection names the rule (`MF1`–`MF14`), the file and key, and a one-line reason, and never a filesystem path outside the app.
 
 ## 7. What the other F4 contracts take from here
 
@@ -254,12 +293,13 @@ Every rejection names the rule (`MF1`–`MF12`), the file and key, and a one-lin
 | Ops 1.3.0 (#226) | Per-module `ctx` from `approved` and `config`; dependency checks from `dependencies`; export checks from `exports` | `ops.md` 1.3.0 (#226, not merged yet) |
 | SDK (#236) | `[exports.services]` and the services' signatures | `renox-modules.d.ts` |
 | Migrations (#234) | Lock order as migration order; `permissions.tables` for which modules must have migrations | `artifact.md` V19 |
+| Artifact 1.3 and ops 1.5.0 (#272, F5) | `[authz]`, `[realtime]`, `[[tools]]` on the module entry and as `tool` routes; `approved.roles` for `op_authz_roles_*`; the `auth.principal` service and hook for the principal | `artifact.md` section 3, "Authorization and realtime"; `ops.md` sections 17–19 |
 
 ## 8. Examples
 
 [`examples/manifest/`](examples/manifest/):
 
-- `module.<case>.(valid|invalid).toml`: single manifests. The valid ones include the manifests of the F4 catalog modules in `docs/18-build-plan.md`: `auth` (M1), `org` (M2), `gcc` (M23, catalog name `gcc-data`), and `i18n` (M12 with the M19 core), plus the `billing` manifest of `docs/10-modules.md`.
+- `module.<case>.(valid|invalid).toml`: single manifests. The valid ones include the manifests of the F4 catalog modules in `docs/18-build-plan.md`: `auth` (M1), `org` (M2), `gcc` (M23, catalog name `gcc-data`), and `i18n` (M12 with the M19 core), plus the `billing` manifest of `docs/10-modules.md`, which carries the 1.1 `[authz]`, `[realtime]`, `[[tools]]`, and `permissions.roles` (section 2).
 - `renox.<case>.(valid|invalid).toml` and `renox-lock.<case>.(valid|invalid).toml`: single `renox.toml` and lock files.
 - `projects/<case>.(valid|invalid)/`: a whole app (`renox.toml`, `renox.lock`, `modules/<name>/…`) for the project rules. `projects/shop.valid` installs `auth`, `org`, `gcc`, and `i18n` from `path:` sources.
 
@@ -285,3 +325,4 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 | Version | Issue | Changes |
 | --- | --- | --- |
 | 1 | #225 | First version (F4): `module.toml` (`[module]`, `[dependencies]`, `[config]`, `[permissions]`, `[exports]`, `[imports]`, `[[slots]]`, `[[tools]]`, `[authz]`), `renox.toml [modules]`, `renox.lock` with approved permissions, rules MF1–MF12 |
+| 1.1 | #272 | Minor (no lock version bump; every new key is optional). `[authz] sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`; `[realtime.feeds]`; `[[tools]]` carried in the artifact (`artifact.md` 1.3); `permissions.roles` and `approved.roles`; the `auth.principal` service and hook convention; `renox.toml [authz]` and `[realtime]` for the app; `authz` a reserved name (MF1); rules MF13–MF14. For `ops.md` 1.5.0 sections 17–19 |

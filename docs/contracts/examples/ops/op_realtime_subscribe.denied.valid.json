@@ -1,0 +1,23 @@
+{
+  "$comment": "valid (1.5.0): no policy permits realtime.subscribe on user:u_2:inbox for this principal: fail closed",
+  "op": "op_realtime_subscribe",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    "user:u_2:inbox",
+    null
+  ],
+  "error": {
+    "name": "ForbiddenError",
+    "code": "RENOX_FORBIDDEN",
+    "message": "realtime.subscribe was denied",
+    "details": {
+      "action": "realtime.subscribe",
+      "resource": {
+        "type": "Topic",
+        "id": "user:u_2:inbox"
+      },
+      "reason": "deny",
+      "policy": null
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$comment": "invalid: assign takes the transaction as its sixth argument [expect: minItems]",
+  "op": "op_authz_roles_assign",
+  "args": [
+    "u_2",
+    "finance",
+    "org",
+    "o_1",
+    "org"
+  ],
+  "result": null
+}

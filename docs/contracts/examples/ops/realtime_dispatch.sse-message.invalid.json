@@ -1,0 +1,19 @@
+{
+  "$comment": "invalid: an SSE connection has no message phase [expect: enum]",
+  "dispatch": "realtime",
+  "envelope": {
+    "kind": "realtime",
+    "phase": "message",
+    "transport": "sse",
+    "conn": "c_01JBQ3Z7MA00000000000002",
+    "route": "/sse/orders",
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "data": "x"
+  },
+  "result": {
+    "type": "ok"
+  }
+}

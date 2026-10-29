@@ -1,0 +1,13 @@
+# [expect: MF14] an owned table is under the module's own prefix
+[module]
+name = "billing"
+version = "1.2.0"
+
+[permissions]
+tables = "billing__*"
+
+[authz]
+actions = ["invoice.read"]
+
+[authz.ownership]
+"shop__orders" = { owner = "user_id" }

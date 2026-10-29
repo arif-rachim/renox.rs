@@ -1,0 +1,20 @@
+{
+  "$comment": "valid (1.5.0): a module enqueues only its own jobs",
+  "op": "op_jobs_enqueue",
+  "args": [
+    "nightly-report",
+    "{}",
+    null,
+    "billing",
+    null
+  ],
+  "error": {
+    "name": "ModuleUndeclaredError",
+    "code": "RENOX_MODULE_UNDECLARED",
+    "message": "billing has no job nightly-report",
+    "details": {
+      "module": "billing",
+      "target": "job:nightly-report"
+    }
+  }
+}

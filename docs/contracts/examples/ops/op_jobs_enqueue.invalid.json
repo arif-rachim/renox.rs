@@ -1,0 +1,12 @@
+{
+  "$comment": "invalid: run_at is Unix milliseconds or null [expect: minimum]",
+  "op": "op_jobs_enqueue",
+  "args": [
+    "send-reminder",
+    "{}",
+    -1,
+    "billing",
+    null
+  ],
+  "result": "01JBQ3Z7MA0000000000000401"
+}

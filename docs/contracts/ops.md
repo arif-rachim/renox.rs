@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1.4.0** (F4, #263: locale tags with the `-u-ca-` and `-u-nu-` extensions; route modules evaluated on first use, with the export check moved to build and deploy; sections 7, 8, 11, 13, 14). 1.0.0 is implemented by the F1 runtime (#25–#28) and SDK (#31); the additions of 1.1.0 (#153: section 14, the blocked ranges of section 2) are implemented by #40, #41, #44, and #170; the additions of 1.2.0 are implemented by #161; the additions of 1.3.0 by #229, #230, #231, #233, and #236; the additions of 1.4.0 by #265 (lazy route modules) and #266 (locale extensions). History: "Changelog" at the bottom |
+| Version | **1.5.0** (F5, #272: the principal, `guard`, `op_authz_*` and `ctx.authz`, `db.scoped()`, role assignments and the authz audit table (section 17); `ws` and `sse` routes, `op_realtime_*`, topics as Cedar resources, the change feed (section 18); App MCP tool routes and `/mcp` (section 19); jobs with `schedule` and `op_jobs_enqueue` (section 20); sections 0, 1, 6, 7, 8, 11, 13, 14 updated). 1.0.0 is implemented by the F1 runtime (#25–#28) and SDK (#31); the additions of 1.1.0 (#153: section 14, the blocked ranges of section 2) are implemented by #40, #41, #44, and #170; the additions of 1.2.0 are implemented by #161; the additions of 1.3.0 by #229, #230, #231, #233, and #236; the additions of 1.4.0 by #265 (lazy route modules) and #266 (locale extensions); the additions of 1.5.0 by #276–#281, #283–#285 and #291 (F5) and #297 (jobs, F6). History: "Changelog" at the bottom |
 | Producer | `crates/renox-runtime` (P1): implements the ops |
 | Consumers | `sdk/` (P10): types and the `ctx` wrapper; `crates/renox-cell` (P5): request envelope, page dispatch and rendering, meter record, the module broker's outbox worker (P9, section 15) |
 | TypeScript view | [`ctx.d.ts`](ctx.d.ts): the same surface, one to one |
@@ -19,7 +19,7 @@ Every limit below is enforced in Rust (`AGENTS.md`, "Per-tenant limits must be e
 - **How ops are exposed.** Every op is a `deno_core` `#[op2]` function in one extension, `renox`, defined in `crates/renox-runtime` and added to the `deno_runtime` worker the crate creates for each deployment. The crate uses `deno_runtime` from crates.io directly, not the Supabase Edge Runtime crates (D3; `crates/renox-runtime/README.md`, "Upstream consumption mode"), so no upstream patch is needed. Not a JavaScript shim over upstream APIs: upstream has no per-request deadline, no egress byte limit, and no DNS-checked allowlist, and SQLite has no upstream op at all. The extension's ESM bootstrap (section 11) is part of the platform snapshot.
 - **Naming.** `op_<area>_<verb>`, snake_case, as registered with `deno_core`.
 - **Async.** Every op that can wait on I/O returns a `Promise`. The runtime may resolve it synchronously when the work is already done; tenant code must not rely on that. `op_log`, `op_deadline_remaining_ms`, `op_secrets_get_all`, and `op_response_end` are synchronous.
-- **Module (1.3.0).** Ops that act for a module (`op_db_*`, `op_fetch`, `op_secrets_get_all`, `op_log`, `op_events_emit`) take the module's name as an argument, `null` meaning the app. The bootstrap fills it from the `ctx` the call came through (section 15.1); tenant code never passes it, and Rust checks it against the artifact's `modules` list.
+- **Module (1.3.0).** Ops that act for a module (`op_db_*`, `op_fetch`, `op_secrets_get_all`, `op_log`, `op_events_emit`, and from 1.5.0 `op_authz_*`, `op_realtime_*`, `op_jobs_enqueue`) take the module's name as an argument, `null` meaning the app. The bootstrap fills it from the `ctx` the call came through (section 15.1); tenant code never passes it, and Rust checks it against the artifact's `modules` list.
 - **Request scope.** Every op call is tied to the request whose handler made it. The dispatch wrapper (section 11, step 6) runs each handler inside a fresh **async context** that carries an opaque request token. The mechanism is V8's continuation-preserved embedder data, which `deno_core` exposes and Deno's `AsyncLocalStorage` uses. The token therefore follows every `await`, promise continuation, and timer created by that handler. The bootstrap reads the token from the current async context and hands it to the op; the ops are held in the bootstrap's closures and are unreachable from tenant code, so tenant code can neither supply a token nor act on behalf of another request. Rust keeps the set of live tokens per isolate. **A request ends when its response has ended**: for a static body when the handler's `Response` is handed back, for a streamed body when the stream ends for any reason (section 6, "Response body"). Until then its token is live, so a stream's `pull` may call `ctx.db` or `fetch`. An op called with no token (module top level) or with the token of a request that has ended (a timer that fires after the response) rejects with `RENOX_NO_REQUEST`. The one exception is `op_log`, which then logs with `request_id: null`. `op_secrets_get_all` is consumed by the bootstrap before tenant code runs (section 3). #25 proved that the token follows `await`, timers, and promise continuations (`deno_core` `AsyncVariable`), so concurrent requests share one isolate.
 - **Errors.** An op that fails rejects with a `RenoxError` whose `code` is one of the codes in section 13. Every code there also appears in `errors.md`, which owns HTTP status and tenant guidance, and `validate.ts` checks the sets. The SDK maps codes to the error subclasses in `ctx.d.ts`. An error message never contains a file path, an internal hostname or IP, a stack frame from Rust, or a secret value (`docs/23-failure-modes.md` rule 2).
 - **Cancellation.** When the request's deadline passes or the CPU watchdog fires, every pending op of that request is cancelled. So are they when a streamed response stops early (egress limit, client gone; section 6). Pending promises reject with `RENOX_DEADLINE`, or are dropped with the isolate after `RENOX_CPU_LIMIT` or `RENOX_OOM` (section 10).
@@ -39,9 +39,9 @@ Backs `ctx.db` (`docs/06-data.md`, "The `db` API"). The connection is bound by t
 
 | Op | Arguments | Result |
 | --- | --- | --- |
-| `op_db_query` | `sql: string, params: Param[], tx: number \| null, module?: string \| null` | `Row[]` |
-| `op_db_query_one` | `sql: string, params: Param[], tx: number \| null, module?: string \| null` | `Row \| null` (first row; the statement stops after it) |
-| `op_db_execute` | `sql: string, params: Param[], tx: number \| null, module?: string \| null` | `{ changes: number, lastInsertRowid: number \| bigint }` |
+| `op_db_query` | `sql: string, params: Param[], tx: number \| null, module?: string \| null, scope?: Scope \| null` | `Row[]` |
+| `op_db_query_one` | `sql: string, params: Param[], tx: number \| null, module?: string \| null, scope?: Scope \| null` | `Row \| null` (first row; the statement stops after it) |
+| `op_db_execute` | `sql: string, params: Param[], tx: number \| null, module?: string \| null, scope?: Scope \| null` | `{ changes: number, lastInsertRowid: number \| bigint }` |
 | `op_db_tx_begin` | `mode: "deferred" \| "immediate"` | `number` (transaction handle) |
 | `op_db_tx_commit` | `tx: number` | `void` |
 | `op_db_tx_rollback` | `tx: number` | `void` |
@@ -53,6 +53,7 @@ Backs `ctx.db` (`docs/06-data.md`, "The `db` API"). The connection is bound by t
 type Param = null | number | bigint | string | Uint8Array | boolean;
 type Value = null | number | bigint | string | Uint8Array;
 type Row = Record<string, Value>;
+type Scope = { user_id?: string; org_id?: string; session_id?: string };   // 1.5.0, "Scoped statements"
 ```
 
 ### Transactions: begin/commit/rollback, not a batch op
@@ -71,6 +72,10 @@ We pick explicit `op_db_tx_begin`/`commit`/`rollback` with a handle over a singl
 - The authorizer is chosen **per statement**, so one transaction carries statements of several modules, each under its own authorizer. That is how a cross-module transaction (`docs/10-modules.md`, "Cross-module transactions") stays inside the prefix rule: the broker passes the transaction, never a wider authorizer.
 - A module reads a public view only of a module in its own `dependencies` (the artifact's `modules[].dependencies`); the app may read the public views of every installed module.
 - **The current transaction.** The SDK keeps the handle of the innermost open transaction in the request's async context: the action's (section 14), a `db.transaction` callback's, or the caller's of a service (section 15.2). A callee's `ctx.db` statements run inside the current transaction, so a service called from an action writes in the action's transaction. The app's own `ctx.db` statements keep the 1.2 rule: with `tx = null` they run outside an open transaction on a reader connection; tenant code uses the `tx` argument of `db.transaction` to write inside it.
+
+### Scoped statements (1.5.0)
+
+`ctx.db.scoped(scope)` returns a `Db` whose statements carry `scope` as the fifth argument of `op_db_query`, `op_db_query_one`, and `op_db_execute` (`null` or absent = unscoped). It is the row-level fence of D16 (`docs/11-authorization.md`, "`db.scoped()`"); the full rules, the ownership declaration, and `RENOX_DB_SCOPE` are in section 17, "`db.scoped()`". The scope is bound in Rust per statement: a scoped `Db` inside `db.transaction` runs its statements in the current transaction, under the same authorizer, with the owner predicate added.
 
 ### Savepoints (1.3.0)
 
@@ -129,6 +134,7 @@ We pick explicit `op_db_tx_begin`/`commit`/`rollback` with a handle over a singl
 | `RENOX_DB_CONSTRAINT` | `DbConstraintError` (`details.kind`: `unique`, `foreign_key`, `not_null`, `check`, `primary_key`) | Constraint violation |
 | `RENOX_DB_SQL` | `DbSqlError` | Syntax error, unknown column, other `SQLITE_ERROR`; message is SQLite's text with no file path |
 | `RENOX_DB_PARAM`, `RENOX_DB_COLUMN_NAME`, `RENOX_DB_MULTI_STATEMENT`, `RENOX_DB_RESULT_LIMIT`, `RENOX_DB_TX_STATE` | `DbUsageError` | See above, including the module argument and savepoints (1.3.0) |
+| `RENOX_DB_SCOPE` (1.5.0) | `DbScopeError` (`details.table`, `details.module`, `details.reason`) | Module code touched an owned table without a scope, or a scoped statement could not be rewritten (section 17, "`db.scoped()`") |
 
 ### Example
 
@@ -321,6 +327,10 @@ The cell (P5) builds a Web API `Request` for each invocation and calls the match
 | `params` | `Record<string, string \| string[]>` | Route parameters from the file path (`[id]` → string, `[...slug]` → string[]) |
 | `headers` | `Headers` | Same object as `req.headers` |
 | `db`, `fetch`, `secrets`, `log`, `deadline` | see sections 1–5 | |
+| `principal` (1.5.0) | `Principal \| null` | Resolved by the cell before `guard` and before the handler (section 17, "Principal"); `null` is the anonymous principal |
+| `authz` (1.5.0) | `Authz` | `require`, `can`, `canBatch`, `explain`, `roles` (section 17) |
+| `realtime` (1.5.0) | `Realtime` | `subscribe`, `unsubscribe`, `publish`, `send`, `close` (section 18); `publish` works from any handler, the others need a `conn` |
+| `jobs` (1.5.0) | `Jobs` | `enqueue` (section 20) |
 
 Headers: hop-by-hop headers are removed. Any `x-renox-*` header sent by the client is removed, and then the gateway sets `x-renox-request-id` and `x-renox-client-ip`, so tenant code can trust those two. The body is limited by the gateway (1 MB default, `RENOX_BODY_TOO_LARGE`) before the isolate sees it.
 
@@ -374,7 +384,7 @@ await op_response_write(new Uint8Array([104, 105]));  // resolves once Rust hold
 op_response_end(null);                                // the body is complete
 ```
 
-Page modules export `load` and `actions` (section 14). Module trees add `services.ts` and `hooks.ts` (section 15), and an event handler is invoked with the event envelope of section 15.4, not a `Request`. Reserved exports: `guard` for pages (F5, with `authz`); `ws` for WebSocket (F5); `sse` (F5); `schedule` for jobs (F6); `cors` and `frame` options (F2, `artifact.md` Open 6).
+Page modules export `load` and `actions` (section 14). Module trees add `services.ts` and `hooks.ts` (section 15), and an event handler is invoked with the event envelope of section 15.4, not a `Request`. From 1.5.0 a page or function module may export `guard` (section 17), a `functions/ws/**` module exports `ws` and a `functions/sse/**` module `sse` (section 18), a `functions/tools/**` module default-exports a `tool(...)` (section 19), and a `jobs/**` module exports `schedule` and `run` (section 20). Still reserved: `cors` and `frame` options (F2, `artifact.md` Open 6).
 
 ## 7. Meter record (emitted, not an op)
 
@@ -389,6 +399,8 @@ The runtime and cell emit one record per invocation (`docs/05-tenant-lifecycle.m
 | `db_ms`, `db_rows` | runtime | `op_db_*` |
 | `render_fuel`, `render_ms` | cell | The renderer (section 14, "Rendering"). Rendering runs off the isolate thread, so it is not in `cpu_ms`. 0 / absent when nothing was rendered |
 | `logs_dropped` | runtime | `op_log` |
+| `authz_evals` (1.5.0) | cell | Every Cedar evaluation of the invocation: `guard`, `op_authz_*`, `r-can` with a resource, the subscribe check of section 18, the tool check of section 19 (section 17, "Metering") |
+| `realtime_conn_seconds`, `realtime_messages` (1.5.0) | cell | The realtime component, on the record of a `ws` or `sse` connection only (section 18, "Metering") |
 
 Types, units, and the `status` values are defined in [`meter.md`](meter.md) section 2.
 
@@ -403,16 +415,18 @@ Types, units, and the `status` values are defined in [`meter.md`](meter.md) sect
 
 **Lazy route modules (1.4.0).** A route module evaluated on its first request (section 11, step 4) is evaluated inside that request: its top-level code's CPU is in that request's `cpu_ms`, and its evaluation time is in that request's `wall_ms`. Later requests to the same route on the same isolate pay nothing for it. Eager modules are evaluated at isolate creation, outside any request, and are not metered, as before.
 
+**Realtime, tools, and jobs (1.5.0).** A `ws` or `sse` connection is **one invocation** from the upgrade to the close: one record, written at the close, with `route` `WS <pattern>` or `SSE <pattern>`, `http_status` 101 or 200, `wall_ms` the connection's lifetime, `cpu_ms` and `db_*` the sum of its `open`, `message`, and `close` handler runs, `realtime_conn_seconds`, and `realtime_messages` (section 18, "Metering"). A tool call through `/mcp` is one invocation: `kind: "tool"`, `route` `TOOL <name>` (section 19). A job run is one invocation per attempt, like an event delivery: `kind: "job"`, `route` `JOB <module> <name>`, `request_id` `<row id>_<attempt>` (section 20). The forms are fixed in `meter.md` 0.3, section 2.
+
 ## 8. Reserved ops and `ctx` fields
 
-Not available yet. Names are reserved so nothing else takes them. `form`, `session.id`, `fragment`, and `action` are available to pages since 1.1.0 (section 14).
+Not available yet. Names are reserved so nothing else takes them. `form`, `session.id`, `fragment`, and `action` are available to pages since 1.1.0 (section 14). `principal`, `authz` (`op_authz_*`), `realtime` (`op_realtime_*`), `db.scoped()`, and `jobs` (`op_jobs_enqueue`) are defined since 1.5.0 (sections 17–20); the runtime that implements them is F5 (#276–#285) and, for jobs, F6 (#297).
 
 | `ctx` field / op area | Phase |
 | --- | --- |
-| `render` (`op_render_*`), `webhook` (`verify`), streamed `fetch` request bodies | F2 |
-| `kv` (`op_kv_*`) | F2 |
+| `render` (`op_render_*`), `webhook` (`verify`), streamed `fetch` request bodies. Realtime payloads reach the renderer through the `fragment` payload of section 18, not through `ctx.render` | F2 (not scheduled yet) |
+| `kv` (`op_kv_*`) | F2 (not scheduled yet) |
 | `op_hooks_run` and the other cross-isolate broker ops of `isolate` mode (section 15.6). `config`, `events`, `hooks`, `services`, `password`, savepoints, and `setLocale` are available since 1.3.0, and `setLocale` takes the `-u-ca-`/`-u-nu-` extensions since 1.4.0; `auth` and session data beyond `session.id` are services of the `auth` module (`manifest.md`), not ops, so nothing is reserved for them | F4 (later issue) |
-| `authz` (`op_authz_*`), `realtime` (`op_realtime_*`), `db.scoped()` | F5 |
+| MCP resources and prompts on `/mcp`, server-initiated notifications (section 19, Open 17) | F7 |
 | `datasource(name)` (`op_datasource_*`) | F6–F7 |
 | `ai` (`op_ai_*`), `domains` (`op_domains_*`) | F7 |
 | `offload` | not scheduled |
@@ -473,7 +487,7 @@ Per-request CPU accounting (#155): the runtime reads the isolate thread's CPU cl
 
 **Collateral rule (for tenants).** A deployment runs in a pool of isolates (#156): one while it is cold, up to the tier's pool size (`IsolateSpec::max_isolates`, table above) while requests wait on a busy isolate, plus one spare once it has grown. Concurrent requests on the same pool member share its isolate. When one request hits the CPU or heap limit, that member is recycled, so **one bad request ends every in-flight request on the same pool member; other members of the deployment are unaffected**. Each ended request gets the same 503 code (`RENOX_CPU_LIMIT` or `RENOX_OOM`) and its own meter record with that `status` and its own `cpu_ms`; there is no marker that tells the request that hit the limit from the collateral ones, so in the meter they are indistinguishable (the log line of each carries the same `code`). Open transactions of all of them are rolled back. A request sent to a member that was already terminated, and that had not started on it, runs on another member instead. A deployment with one isolate (cold, or a pool size of 1) loses every in-flight request, as in 1.1.0. Tenants should keep handlers idempotent or safe to retry, and keep work that can run away (unbounded loops over input, large parses) out of hot routes.
 
-Per-op limits (statement time, rows, egress bytes, concurrent fetches, log rate) are in each op's section above.
+Per-op limits (statement time, rows, egress bytes, concurrent fetches, log rate) are in each op's section above. The realtime limits (connections, message size, backpressure) are in section 18, the authz evaluation limit in section 17, and the tool-call limits in section 19.
 
 ## 11. Isolate bootstrap
 
@@ -490,7 +504,7 @@ The sequence from an empty worker to a dispatched request. Each step finishes be
    - **Lazy route modules (1.4.0).** A module with `eager: false` is evaluated on the first request whose route needs it, once per isolate: concurrent first requests on the same isolate wait for the one evaluation. Its top-level code runs **inside that request**: ops work, under the request's deadline and limits, and its CPU is charged to it (section 7). Code that should not run on behalf of a request belongs in an eager module.
    - **A lazy module that throws** at its first evaluation, or exceeds a limit while evaluating, ends that request with 500 `RENOX_MODULE_EVAL` (section 13). The error is logged once per isolate with the module id and the redacted error. The isolate stays up, and other routes keep answering. The failed evaluation is cached for the isolate's lifetime: later requests to that route get the same 500 without re-running the module, and a new isolate tries again. A CPU or heap kill during evaluation is that limit's response (section 10), as for any request.
 5. **Handler lookup.** For each `manifest.routes[]` entry, the bootstrap checks that the module's `export` is a function and builds the matcher of `artifact.md` section 3 ("Route objects"). For an eager module this happens at isolate creation; a missing or non-function export fails the deployment as a whole (fail closed, `RENOX_INTERNAL`, logged with the route). For a lazy module (1.4.0) it happens right after its first evaluation; a missing or non-function export then answers that request with 500 `RENOX_MODULE_EVAL`, logged once as above. **The fail-closed export check moves to build and deploy (1.4.0):** `renox check` refuses a missing or non-function export, naming the file and the export, and `renox build` records each entry's static export names in the artifact's `entries` field. At prepare, before any isolate exists, the worker compares the recorded names with the module's static exports and refuses an artifact whose names differ (`artifact.md` V23). So a deployment whose lazy module lacks an export is refused at deploy, and the request-time check is a second line of defence. From 1.3.0 the same rule covers modules (section 15): every name in a module's `exports.services` must be a function export of its `services.ts`; every key of its `hooks.ts` `hooks` export must be a hook in its approved `permissions.hooks`, with a `handle` function (a filler the manifest does not declare is refused); every value of its `on` export must be a function. A key of `on` naming an event that no installed module exports is logged once and never called. These module checks stay at isolate creation, because `services` and `hooks` entries are always eager.
-6. **Request dispatch.** For each request, Rust calls the bootstrap's dispatch function with a fresh request token, the matched route, the route parameters, and the request head and body stream. The bootstrap:
+6. **Request dispatch.** For each request, Rust calls the bootstrap's dispatch function with a fresh request token, the matched route, the route parameters, the principal (1.5.0, section 17: resolved and the route's `guard` evaluated **before** this call; a denied guard never reaches the bootstrap), and the request head and body stream. The bootstrap:
    - enters a new async context carrying the token;
    - builds the `Request` and a frozen per-request `ctx` (section 6) for the route's owner: the app, or the module whose route it is (section 15.1);
    - calls the handler and awaits a `Response`;
@@ -562,6 +576,10 @@ One table, shared by Rust (`crates/renox-runtime`, `crates/renox-cell`) and Type
 | `RENOX_MODULE_UNDECLARED` | thrown | broker (section 15): a service call, hook run, or event emit the caller's manifest does not allow | `ModuleUndeclaredError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
 | `RENOX_MODULE_SERVICE` | thrown | broker: a service, hook filler, or in-memory event handler of another module threw (section 15.2) | `ModuleServiceError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
 | `RENOX_EVENT_PAYLOAD` | thrown | `op_events_emit`: the payload does not match the event's exported schema, is not JSON, or is too large (section 15.4) | `EventPayloadError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
+| `RENOX_DB_SCOPE` | thrown | 1.5.0: `op_db_*` with module code touching an owned table without a scope, or a scoped statement the rewriter cannot prove (section 17) | `DbScopeError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
+| `RENOX_REALTIME_LIMIT` | both | 1.5.0: `op_realtime_subscribe` over the topics per connection, `op_realtime_publish` / `op_realtime_send` with a message over 64 KB (thrown); the connection caps at the upgrade, or an inbound flood (response, section 18) | `RealtimeLimitError` | 503 `RENOX_REALTIME_LIMIT` at the upgrade; close 1008 on an open connection; uncaught in a handler → the handler's failure (section 18) | `busy` at the upgrade; `ok` for a close |
+| `RENOX_REALTIME_BACKPRESSURE` | both | 1.5.0: `op_realtime_send` to a connection whose outbound queue is full (thrown; the connection is closed); the fan-out closes a slow consumer (close 1008, section 18) | `RealtimeBackpressureError` | close 1008; never an HTTP response | `ok` (the connection record) |
+| `RENOX_FORBIDDEN` | both | 1.5.0: `op_authz_*` through `ctx.authz.require` and `op_realtime_subscribe` (thrown); the route `guard` and the tool check before any handler (response, sections 17 and 19) | `ForbiddenError` | 403 `RENOX_FORBIDDEN`, **also when uncaught** (an uncaught `ForbiddenError` is not `RENOX_INTERNAL`, section 17) | `forbidden` |
 | `RENOX_DEADLINE` | both | deadline (section 10) | `DeadlineError` | 504 `RENOX_DEADLINE` | `timeout` |
 | `RENOX_CPU_LIMIT` | response | CPU watchdog | — | 503 `RENOX_CPU_LIMIT` | `cpu_limit` |
 | `RENOX_OOM` | response | heap limit | — | 503 `RENOX_OOM` | `oom` |
@@ -571,6 +589,9 @@ One table, shared by Rust (`crates/renox-runtime`, `crates/renox-cell`) and Type
 | `RENOX_BODY_TOO_LARGE` | response | gateway body limit (section 6) | — | 413 `RENOX_BODY_TOO_LARGE` | no record (`meter.md` section 1) |
 | `RENOX_CSRF` | response | cell, before a page action runs (section 14) | — | 403 `RENOX_CSRF` | no record: no tenant code runs, as for 404 and 405 (`meter.md` section 1) |
 | `RENOX_RENDER_LIMIT` | response | cell renderer (section 14, "Rendering") | — | 500 `RENOX_RENDER_LIMIT` | `render_limit` |
+| `RENOX_TOOL_INPUT` | response | 1.5.0: `/mcp` `tools/call` arguments fail the tool's declared input schema (section 19) | — | 400 `RENOX_TOOL_INPUT` as a JSON-RPC error | no record: `run` did not start |
+| `RENOX_TOOL_SCOPE` | response | 1.5.0: the agent token's scopes do not cover the tool (section 19) | — | 403 `RENOX_TOOL_SCOPE` as a JSON-RPC error | no record |
+| `RENOX_TOOL_CONFIRM` | response | 1.5.0: a `confirm: true` tool called with a missing, expired, or mismatched confirmation token (section 19) | — | 409 `RENOX_TOOL_CONFIRM` as a JSON-RPC error | no record |
 
 "Uncaught" means the error propagated out of the handler. Tenant code that catches an op error and returns its own `Response` ends the request normally (`status: ok`). The error body format of platform responses (`{ error: { code, request_id, message } }` for API routes) is defined in `errors.md`.
 
@@ -655,7 +676,7 @@ interface Session { readonly id: string }
 
 `ops.schema.json` (`$defs/page_dispatch`) fixes the exchange between the cell and the bootstrap for one page invocation. It is not an op: Rust calls the bootstrap's dispatch function, as for functions (section 11, step 6).
 
-- **Invocation** (Rust → bootstrap): `route` (the pattern), `phase` (`"load"` or `"action"`), `action` (the name, or `null` for `load`), `fragment` (name or `null`), `params`, and `session` (`{ id }`). From 1.3.0, optionally `module`: the installed module whose page it is (absent for the app's pages), so the bootstrap builds that module's `ctx` (section 15.1).
+- **Invocation** (Rust → bootstrap): `route` (the pattern), `phase` (`"load"` or `"action"`), `action` (the name, or `null` for `load`), `fragment` (name or `null`), `params`, and `session` (`{ id }`). From 1.3.0, optionally `module`: the installed module whose page it is (absent for the app's pages), so the bootstrap builds that module's `ctx` (section 15.1). From 1.5.0, optionally `principal` (`ops.schema.json` `$defs/principal`, or `null`; absent = `null`): the principal of section 17, already resolved and already past the page's `guard`; the bootstrap exposes it as `ctx.principal`.
 - **Result** (bootstrap → Rust), one of:
   - `{ "type": "response" }`: the handler returned a `Response`; its head and body go back as for functions (section 6, "Response body"), a streamed body included.
   - `{ "type": "render", "data_json": "...", "fragments": [...], "locale"?: "...", "dir"?: "ltr" | "rtl" }`: the template data, the out-of-band fragment names (`[]` after `load`), and, from 1.3.0, the locale and direction set with `setLocale` (absent = `en`, `ltr`; "Locale", below). The bootstrap serialises the data with `JSON.stringify` inside V8, and the cell parses the string straight into the renderer's values (the B9 path, #10). Serialisation rules: `bigint` becomes a decimal string, `Date` its ISO string (`toJSON`), `undefined` and functions are dropped, a `Uint8Array` or a cycle is 500 `RENOX_INTERNAL`, and so is data over 8 MiB of JSON *proposed*.
@@ -842,6 +863,257 @@ Argon2id with the parameters of `docs/24-threat-model.md` needs 64 MiB per hash:
 
 `ctx.password` in `ctx.d.ts`: `hash(password): Promise<string>`, `verify(password, hash): Promise<boolean>`.
 
+## 17. Principal, `guard`, `authz`, `db.scoped()` (1.5.0)
+
+The runtime side of `docs/11-authorization.md` (D15, D16): who the end user is, how a policy decision is asked for, and how owned rows are fenced. Policies are Cedar; the engine is `crates/renox-authz` (#276); the cell asks it (#279); the SDK types are in `ctx.d.ts` (#283). Two points `docs/11` and `docs/03` leave open are settled here: **the principal reaches Rust through the `auth` module's exported service `auth.principal`** ("Principal"), and **`realtime.authorize` is a Cedar policy, not a hook** (section 18).
+
+### Principal
+
+```ts
+interface Principal {
+  id: string;                                   // the auth module's user id, or the module name for a System principal
+  kind: "user" | "system";
+  roles: { role: string; scope_type: string; scope_id: string | null }[];   // from renox__role_assignments
+  attrs: Record<string, JsonValue>;             // what auth.principal and its hook fillers added
+}
+```
+
+- **Resolution.** The cell resolves the principal **once per request**, after the session cookie is verified (section 14, "Session") and before the route's `guard`, the loader, the action, the function handler, or the `open` of a realtime connection runs. It calls the `auth` module's exported service `auth.principal(sessionId)` (added by #291) through the broker, as a service call of the platform: `auth`'s own `ctx`, no current transaction, the request's deadline. The service answers a `Principal` or `null`, and runs the hook point `auth.principal` itself (`manifest.md` section 2, "the `auth.principal` hook"): each filler receives `{ principal }` and extends `attrs` (`2fa` sets `mfa_verified`, `org` sets `org`), and the extended principal is what the cell keeps. An app without `auth` installed, a request without a session, and an `auth` that answers `null` all give the **anonymous principal**: `ctx.principal` is `null`, and the Cedar principal is `Renox::Anonymous::"anonymous"` with no roles and no attributes.
+- **Why a service, not the table.** The alternative, the cell reading `auth__sessions` and `auth__users` itself, is rejected: module tables are private to their module (D12, `manifest.md` MF4), the schema of `auth` would become a platform contract, and every other identity source (UAE PASS, passkeys, agent tokens) would need a second path. A service keeps one path, under `auth`'s authorizer.
+- **Cache.** The result is cached per cell by session id for **60 s** *proposed* (Open 12), and dropped before the TTL on: a durable delivery of the platform event `authz.roles_changed` ("Role assignments", below), and of the `auth` events `auth.login` and `auth.logout` (the cell subscribes to its own outbox for these three names). A role change is therefore visible within one outbox round trip, and a logout at once. The cache holds the extended principal; fillers are not re-run on a hit.
+- **In the ops.** The principal crosses into the bootstrap with the dispatch (section 11, step 6; `pageInvocation.principal`, section 14; the realtime, tool and job envelopes of sections 18–20) and is `ctx.principal` in every module's `ctx` of that request, frozen. `op_authz_*` never takes it as an argument: Rust uses the request's own principal, so tenant code cannot evaluate a policy as someone else. Event handlers and jobs run with a **System principal**: `{ id: "<module>", kind: "system", roles: [], attrs: {} }`, Cedar `Renox::System::"<module>"` (`docs/11`, "never as a superuser"); `app` for the app's own jobs.
+
+### Cedar entities and the merged schema
+
+| Cedar | Built from |
+| --- | --- |
+| `Renox::User::"<id>"` | A `user` principal. Attributes: `attrs`, converted JSON → Cedar (string, boolean, integer → `Long`, array → `Set`, object → record; floats and `null` are dropped). Parents: `Renox::Role::"<role>"` for every role assignment **in effect** |
+| `Renox::Anonymous::"anonymous"`, `Renox::System::"<module>"` | The anonymous and system principals, no attributes, no parents |
+| `Renox::Role::"<role>"` | A role name from `[authz.default_roles]` of a module or `renox.toml [authz]` of the app, or any role a role assignment names |
+| `Renox::Action::"<action>"` | Every action of the merged action set: `[authz] actions` of the app and of each installed module (`<resource>.<verb>`). `Renox::Action::"sensitive"` is the action group of every `[authz] sensitive` action |
+| `<Module>::<Type>::"<id>"` | A resource: `<Module>` is the owning module's name with its first letter upper-cased (`billing` → `Billing`, the app → `App`), `<Type>` a key of its `[authz.entities]`; attributes are exactly that entry's `attrs` |
+| `Renox::Topic::"<name>"` | A realtime topic (section 18) |
+
+A role assignment with the type `global` is in effect for every request of the tenant.
+Any other assignment is in effect only while the principal's attribute named by its `scope_type` equals its `scope_id` (so a `finance` role on `org` `o_1` applies while `org` reports `attrs.org == "o_1"`). The Cedar `context` of every evaluation is the caller's `context` argument with the platform keys written over it: `mfa_verified` (from `attrs.mfa_verified`, `false` when absent), `now` (Unix time in milliseconds), and `request` (`{ method, path }`, absent outside a request); tenant code cannot spoof them.
+
+The **merged schema** is the app's `policies/schema.cedarschema` plus a schema generated from each module's `[authz]` (`artifact.md` 1.3: entities, actions, the `sensitive` group), merged at `renox check` and at load; the app's and the modules' policy sets (`policies/app/*.cedar`, `policies/<module>/*.cedar`) are validated against it (V24; a policy that does not parse or validate is refused at check and deploy with the "Deploy" code of `errors.md` 0.4, never loaded). `docs/11` writes `Role::"finance"` and `Action::"invoice.read"` for short; the schema qualifies them as `Renox::Role` and `Renox::Action`.
+
+### `authz` ops
+
+| Op | Arguments | Result |
+| --- | --- | --- |
+| `op_authz_check` | `action: string, resource: ResourceRef \| null, context: Record<string, JsonValue> \| null, module: string \| null` | `Decision`: `{ allow: boolean, policy: string \| null }` (`policy` only in dev mode, else `null`) |
+| `op_authz_check_batch` | `action: string, resources: ResourceRef[], context, module` | `boolean[]`, one per resource, in order |
+| `op_authz_explain` | `action, resource, context, module` | `Explanation`: `{ decision: "allow" \| "deny", reasons: string[], errors: string[] }` (the permitting or forbidding policy ids; evaluation errors). **Dev mode only**: in production it rejects with `RENOX_FORBIDDEN`, `details.reason: "dev_only"` |
+| `op_authz_roles_assign` | `user_id: string, role: string, scope_type: string, scope_id: string \| null, module, tx: number \| null` | `void` |
+| `op_authz_roles_revoke` | `user_id, role, scope_type, scope_id, module, tx` | `boolean` (a row was removed) |
+| `op_authz_roles_list` | `user_id: string, module` | `RoleAssignment[]` |
+
+```ts
+type ResourceRef = { type: string; id: string; [attr: string]: JsonValue };   // type: a key of [authz.entities]; the rest: its attrs
+type RoleAssignment = { user_id: string; role: string; scope_type: string; scope_id: string | null; granted_by: string; at: number };
+```
+
+- **`ctx.authz`** (`ctx.d.ts`: `Authz`): `require(action, resource?, context?)` resolves when allowed and rejects with `ForbiddenError` (`RENOX_FORBIDDEN`) otherwise; `can(action, resource?, context?)` resolves the boolean; `canBatch(action, resources, context?)` resolves `boolean[]` (`docs/11`, "In templates": compute once in the loader, then `r-if`); `explain(action, resource?, context?)` resolves the `Explanation`; `roles.assign(userId, role, scope?)`, `roles.revoke(userId, role, scope?)`, `roles.list(userId)` with `scope = { type, id }` (`RoleScope`).
+  Without the third argument an assignment is tenant-wide: `{ type: "global", id: null }`. Each call is one op; the bootstrap serialises `resource` and `context` as JSON (rules of section 14, "Page dispatch") and passes the module of the `ctx` the call came through.
+- **Resources.** A `ResourceRef` becomes the entity `<Module>::<Type>::"<id>"` whose attributes are **only** the `attrs` declared for `type` in `[authz.entities]` (`manifest.md` 1.1): keys the caller adds are dropped, so a row loaded with `select *` can be passed as it is (`docs/11`: "the resource loaded from the database, not from the client"). The owning module of `type` is the `ctx`'s module; the app may name a module's type as `<module>:<Type>` (`"billing:Invoice"`). An unknown type, or a declared attribute that is missing from the object, is a **deny** (`reason: "missing_attribute"`) and, in dev mode, a warning in the overlay. Without a resource the request is evaluated against the resource `Renox::Action::"<action>"` itself (RBAC checks that need no resource).
+- **Decision.** `forbid` wins over `permit`; no permitting policy, an action outside the merged action set (`reason: "unknown_action"`), a missing attribute, or an evaluation error (`reason: "evaluation_error"`, logged) is a deny (`docs/24-threat-model.md` rule 3, fail closed). `RENOX_FORBIDDEN` carries `details: { action, resource: { type, id } | null, reason, policy }` with `reason` ∈ `deny`, `unknown_action`, `missing_attribute`, `evaluation_error`, `eval_limit`, `dev_only` and `policy` the deciding policy id in dev mode, `null` otherwise. The error message never names a policy outside dev mode. **An uncaught `ForbiddenError` ends the request with 403 `RENOX_FORBIDDEN`** (the error page of `errors.md` for a page route, the JSON body for a function route), not with 500: the action of `docs/11` ("the user still sends `POST ?/refund` with curl") needs no `try`.
+- **Audit.** A decision on a `sensitive` action (`[authz] sensitive` of the owning module or the app), allowed or denied, writes one row of the platform table `renox__authz_audit` (`id`, `principal` (the principal id, or `anonymous`), `action`, `resource_type`, `resource_id`, `result` (`allow` / `deny`), `policy`, `at`) **in the request's current transaction** (autocommit when none is open), so a denied refund and its audit row commit or roll back together with the action. The table is append-only: the authorizer refuses `UPDATE`, `DELETE`, `DROP`, and `ALTER` for everyone, `INSERT` for everyone but the platform, and `SELECT` through the view `renox__authz_audit_v1` for modules that depend on `audit` (#277, #288). A `guard` decision and the subscribe check of section 18 write the row too; a `can` or `canBatch` decision does not (it is a question, not an enforcement point), and neither does `explain`.
+- **Role assignments.** The platform table `renox__role_assignments` (`user_id`, `role`, `scope_type`, `scope_id`, `granted_by`, `at`; unique on the first four) is written only through `op_authz_roles_assign` / `_revoke`, in the current transaction (`tx`). App code may assign any role; a **module may assign only the roles its `[authz.default_roles]` names** (a module's approved `roles`, `manifest.md` 1.1), any other role rejects with `RENOX_MODULE_UNDECLARED` (`details.target: "role:<name>"`) before anything is written. `granted_by` is the request's principal id (`system:<module>` for a job or event handler). Every assign and revoke emits the durable platform event `authz.roles_changed` with `{ user_id, role, scope_type, scope_id, op: "assign" | "revoke" }` in the same transaction (section 15.4; the name is the platform's, so no module may be named `authz`, `manifest.md` MF1), which invalidates the principal cache above and lets `audit` record it.
+- **Metering and limits.** Every evaluation adds one to the invocation's `authz_evals` (section 7): a `guard`, each resource of a batch, each `r-can` with a resource (cached per `(action, resource.id)` within the request, so a cache hit does not count), a subscribe check, a tool check. A request may make at most **10,000** evaluations *proposed* (Open 13); the next evaluation is a deny with `reason: "eval_limit"` (fail closed, never an allow). `op_authz_check_batch` takes at most 1,000 resources (a `RangeError` in the bootstrap otherwise, like `setLocale`). Evaluation runs on the cell's thread, outside the tenant's CPU limit, like rendering; `authz_evals` is what the quota counts (`docs/11`, "Performance").
+
+### `guard`
+
+```ts
+export const guard = { action: "invoice.read", resource: { type: "Invoice", id: ":id" } };
+```
+
+- A page module, a function module, and a `ws` or `sse` module may export `guard` (`ctx.d.ts`: `Guard`): `action` (a string of the merged action set) and an optional `resource` (`{ type, id }` with `id` a literal or `":<param>"`, a route parameter). `renox build` records it on the route entry (`artifact.md` 1.3, `guard`), so the cell reads it from the manifest, never from the module: a guard is evaluated **before** the module is evaluated and before any handler runs, for every method of the route, and on **every fragment request** of a page (`docs/11`, "Enforcement points").
+- With a `resource`, the cell loads the entity through the type's `[authz.entities]` declaration (`table`, `id` column, `attrs`), under the owning module's authorizer, outside any tenant transaction; a row that does not exist is a deny (`reason: "missing_attribute"`), not a 404, so an id cannot be probed through the guard.
+- A deny answers 403 `RENOX_FORBIDDEN` (page: the error page; function: the JSON body; realtime: no upgrade) with no tenant code run for the route, and a meter record with `status: forbidden` (the principal service did run). The decision is audited when the action is sensitive.
+- The `renox check` rule that warns about a page without a guard whose policies name its action is #283's; it is not a load-time rule.
+
+### `db.scoped()`
+
+```toml
+# module.toml (the module's tables) or renox.toml [authz] (the app's tables)
+[authz.ownership]
+"shop__orders"     = { owner = "user_id", org = "org_id" }
+"shop__cart_items" = { owner = "session_id" }
+```
+
+- **Declaration.** `[authz.ownership]` maps an owned table (own prefix only, `manifest.md` MF14) to its `owner` column and, optionally, its `org` column. `ctx.db.scoped(scope)` with `Scope = { user_id?, org_id?, session_id? }` returns a `Db` whose statements carry the scope (section 1, "Scoped statements"). The owner predicate for a table is `<owner> = <scope.user_id>` when `owner` is a user column, `<owner> = <scope.session_id>` when the column is `session_id`, and additionally `<org> = <scope.org_id>` when the table declares `org` and the scope has `org_id`; a scope that lacks the value an owned table needs refuses the statement (`RENOX_DB_SCOPE`, `reason: "scope_missing"`).
+- **Rewrite** (`crates/renox-data`, #277): for `SELECT`, `UPDATE`, and `DELETE`, every reference of an owned table (joins and aliases included) gets the predicate added to its `WHERE`; an `INSERT` into an owned table must set the owner column (and the org column) to the scope's value: a missing owner column is filled in, an explicit different value is refused (`reason: "owner_mismatch"`). A statement the rewriter cannot prove (an owned table inside a subquery or CTE it does not rewrite, `INSERT … SELECT` from an owned table, a trigger reaching an owned table) is refused whole with `RENOX_DB_SCOPE`, `reason: "unprovable"`; the rewriter test file of #277 lists the shapes it proves and refuses. Unowned tables are untouched; the module's authorizer still applies (section 1).
+- **Unscoped access.** A statement from **module code** that touches an owned table without a scope rejects with `RENOX_DB_SCOPE` (`details: { table, module, reason: "unscoped" }`); the official modules use `scoped` for every user-owned table (`docs/11`). **App code** is only warned by `renox check` (D16: the app owns its data and may run reports across users); the runtime does not refuse it.
+- `RENOX_DB_SCOPE` is thrown as `DbScopeError`, logged like `RENOX_DB_AUTH` (always: `table`, `module`, `reason`; never the SQL), and ends the request with 500 `RENOX_INTERNAL` when uncaught (section 13).
+
+### Verification
+
+- #276: `crates/renox-authz` evaluates the entities of this section; `forbid` wins; an unknown action, a missing attribute, and an evaluation error deny.
+- #277: the rewriter shapes, `RENOX_DB_SCOPE` reasons, the two platform tables and their authorizer rules.
+- #279: the principal from `auth.principal`, the cache and its three invalidations, `guard` before the loader and on fragments, `ctx.authz` and `ctx.db.scoped()`, the audit row in the request's transaction, `authz_evals`.
+- #283: `ctx.d.ts` types in the SDK, `guard` in the route entry, the `renox check` warnings.
+
+## 18. Realtime: `ws` and `sse` routes, `op_realtime_*` (1.5.0)
+
+The runtime side of `docs/09-htmx-realtime.md`, "Realtime: SSE and WebSocket" (D9): connections are owned by Rust in the tenant's cell (`crates/renox-realtime`, #278; wired by #281; the gateway hands the connection over after a 101, #167); the isolate runs only `open`, `message`, and `close`. Fan-out never touches the isolate.
+
+### Routes and handlers
+
+| Kind | Files | Export | Handlers |
+| --- | --- | --- | --- |
+| `ws` | `functions/ws/**/*.ts` → `wss://<host>/ws/<path>` | `export const ws: WsModule` | `open(ctx)`, `message(ctx)`, `close(ctx)` |
+| `sse` | `functions/sse/**/*.ts` → `https://<host>/sse/<path>` | `export const sse: SseModule` | `open(ctx)`, `close(ctx)` |
+
+- The route entry is `artifact.md` 1.3 (`kind: "ws"` / `"sse"`, `path`, `module`, optional `guard`). A `ws` route answers a `GET` with `Upgrade: websocket`; an `sse` route answers a `GET` with `Accept: text/event-stream`; any other request to the path is 405 (`Allow: GET`). Patterns share the matcher of `artifact.md` section 3 with page and function routes (V8 applies).
+- **Before the isolate.** The cell checks the `Origin` rule (below), verifies the session cookie, resolves the principal (section 17), evaluates the route's `guard` (403, no upgrade), checks the connection caps ("Limits"), and only then completes the handshake (101, or 200 `text/event-stream`) and runs `open`.
+- **`RealtimeContext`** (`ctx.d.ts`) is `Ctx` (section 6: the upgrade request's `req`, `url`, `params`, `headers`, `principal`, `db`, …) plus `session` and `conn: Conn` (`{ id, transport }`); `message` gets `MessageContext`, which adds `data: string | Uint8Array` (text or binary frame). `close` gets `CloseContext` with `close: { code, reason }`. Each handler run is one request-scoped invocation for the ops (section 0): its own token, the tier's CPU and wall-clock limits per run (section 10), `db` the plain `Db`. The three runs share the connection's one meter record ("Metering").
+- **Failures.** A throw in `open` closes the connection (WebSocket code 1011; SSE: the stream ends) and logs the redacted error; a throw in `message` is logged and the connection stays open (the message is dropped); a throw in `close` is logged. A `RENOX_FORBIDDEN` thrown in `open` (a denied `subscribe`) closes with 1008 instead. An uncaught `RENOX_REALTIME_LIMIT` or `RENOX_REALTIME_BACKPRESSURE` is a handler failure like any other.
+- **Dispatch.** `ops.schema.json` `$defs/realtime_dispatch`: the cell calls the bootstrap with the **realtime envelope** `{ kind: "realtime", phase: "open" | "message" | "close", transport: "ws" | "sse", conn: "<id>", route, params, session, principal?, module?, data?, close? }` and gets `{ type: "ok" }` or `{ type: "failed", reason: "threw" | "no_handler" }` back (`no_handler`: the module has no `message` or `close`; the cell then skips the phase).
+
+### Ops
+
+| Op | Arguments | Result |
+| --- | --- | --- |
+| `op_realtime_subscribe` | `conn: string, topic: string, module: string \| null` | `void`; rejects with `RENOX_FORBIDDEN` when the policy denies ("Authorization") |
+| `op_realtime_unsubscribe` | `conn: string, topic: string` | `void` |
+| `op_realtime_publish` | `topic: string, payload: RealtimePayload, module: string \| null` | `number`: the connections the message was queued for |
+| `op_realtime_send` | `conn: string, payload: RealtimePayload` | `void` |
+| `op_realtime_close` | `conn: string, code: number, reason: string \| null` | `void` |
+
+```ts
+type Conn = { readonly id: string; readonly transport: "ws" | "sse" };
+type RealtimePayload =
+  | string                                                              // a text frame / an SSE data line
+  | { text: string; event?: string }
+  | { json: JsonValue; event?: string }                                 // sent as JSON text
+  | { fragment: string; data: Record<string, unknown>; event?: string } // a partial rendered by the cell
+```
+
+- **`ctx.realtime`** (`ctx.d.ts`: `Realtime`) wraps them one to one. `publish` works from any handler of the tenant (a `ws` handler, an action, a service, an event handler, a job): all of a tenant's connections are on one node, so pub/sub is in-process (`docs/09`). `subscribe`, `unsubscribe`, `send`, and `close` take a `conn`; only `ws` and `sse` handlers hold one. A `conn` id names a connection of the same tenant; an id that is unknown, closed, or another tenant's is ignored (`subscribe` and `send` resolve, nothing happens): a connection may close at any moment, so this is not an error.
+- **Topics** are strings of at most 256 characters, segments split on `:` (`room:42`, `user:u_1:inbox`); a segment is `[A-Za-z0-9_.-]+`. A topic outside that shape rejects with a `RangeError` in the bootstrap.
+- **Payloads.** The bootstrap serialises the payload before the op (`ops.schema.json` `$defs/realtimePayload`): a string or `{ text }` crosses as text; `{ json }` as `JSON.stringify` text (rules of section 14); `{ fragment, data }` names a `partial` template of the caller's module (`modules/<name>/partials/…` for a module, `partials/…` for the app) and the cell renders it **off the isolate thread**, under the render limits of `docs/08-template-engine.md`, into the HTML that is sent; its fuel and CPU are the publishing invocation's `render_fuel` and `render_ms`. This is how `docs/09`'s `render("partials/chat-message.html", …)` reaches subscribers; `ctx.render` stays reserved (section 8). `event` names the SSE event (`event:` line, `sse-swap="order-updated"`); it is ignored on a WebSocket. A message over **64 KB** after rendering rejects with `RENOX_REALTIME_LIMIT` (`details.reason: "message_size"`) and is not sent.
+- **On the wire.** WebSocket: text payloads as text frames; a `fragment` payload as a text frame holding the HTML (htmx `ws-connect` swaps it). SSE: `id: <n>` (the per-topic sequence, for replay), `event:` when set, `data:` lines, `retry: 1000` once at the start; a `: keep-alive` comment every 15 s.
+
+### Authorization: topics as Cedar resources
+
+Subscribing to a topic is the Cedar action **`Renox::Action::"realtime.subscribe"`** on the resource **`Renox::Topic::"<name>"`** with the attributes `name` (the topic string) and `segments` (the segments as a Cedar `Set`; the order is in `name`, test it with `like`: `resource.name like "room:*"`). The check runs on every `subscribe` with the connection's principal (resolved at connect, section 17) and is **fail-closed**: an app or module without a permitting policy for the action denies every subscribe (`docs/24-threat-model.md`, "Subscribing to another user's topic"). `realtime.authorize` of `docs/09` is therefore a policy, not a hook, and `realtime.subscribe` is a platform action every app may use in its policies without declaring it:
+
+```cedar
+permit (principal is Renox::User, action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
+when { resource.name like "user:*:inbox" && resource.segments.contains(principal.id) };
+```
+
+A deny rejects `subscribe` with `RENOX_FORBIDDEN` (`details.resource: { type: "Topic", id: <name> }`), counts one `authz_evals`, and is audited when `realtime.subscribe` is listed as sensitive. Decisions are cached per connection and topic and dropped when the principal cache is invalidated (section 17). `publish` and `send` are not policy-checked: they run in server code that already decided; what a subscriber receives is what it was allowed to subscribe to.
+
+### Change feed
+
+```toml
+[realtime.feeds]
+"shop__orders" = "orders:{org_id}"
+```
+
+- `[realtime.feeds]` (`manifest.md` 1.1; the app's in `renox.toml [realtime]`) maps a table of the declarer's own prefix (MF14) to a topic pattern whose `{column}` placeholders name columns of that table (V26: the table exists in the migrations). After a transaction **commits**, the cell publishes, for each changed row of a fed table, the JSON message `{ "table", "rowid", "op": "insert" | "update" | "delete" }` to the topic with the placeholders filled from the row (for a `delete`, from the row as it was before the statement, captured by the pre-update hook; `docs/09`, "Realtime from data changes uses SQLite's `update_hook`"). A rolled-back transaction publishes nothing. Delivery goes only to connections that passed the subscribe check for that topic, so the policy above is the whole filter. Feed messages count as `realtime_messages` of the receiving connections and cost the publishing invocation nothing beyond the hook.
+- A row whose placeholder column is `NULL` is not published. At most 1,000 feed messages per transaction *proposed* (Open 14); beyond that the transaction's feed is dropped and one log line says so.
+
+### `Origin` and authentication at connect
+
+- A browser upgrade (a request with a session cookie, or with a `Sec-WebSocket-Key` / `Sec-Fetch-Mode` header) must carry an `Origin` equal to one of the app's origins: its served hostnames (`deploy-api.md` section 3) and `security.cors.origins` (`artifact.md` section 3). A mismatch or a missing `Origin` on such a request is **403 before the isolate is touched** (`docs/24-threat-model.md`, "Cross-site WebSocket hijacking"; #118 proves it). A request without a cookie that carries an agent token (`Authorization: Bearer`, section 19) may omit `Origin`: it is not a browser.
+- The principal of the connection is resolved from the session cookie at connect (section 17) and kept on the connection; it is re-resolved on reconnect, never from a message.
+
+### Limits
+
+| Limit | Value | On the limit |
+| --- | --- | --- |
+| Connections per tenant | 100 free / 10,000 paid (`docs/04-isolation-security.md`) | The upgrade is refused: 503 `RENOX_REALTIME_LIMIT`, `Retry-After: 5`; meter `status: busy` |
+| Connections per user (principal id; per client IP for anonymous) | 10 | Same |
+| Topics per connection | 64 *proposed* (Open 15) | `subscribe` rejects with `RENOX_REALTIME_LIMIT` (`reason: "topics"`) |
+| Message size, inbound | 64 KB (one frame, or one SSE request body) | Closed with 1009 (message too big); logged |
+| Message size, outbound | 64 KB after rendering | `publish` / `send` reject with `RENOX_REALTIME_LIMIT` (`reason: "message_size"`) |
+| Inbound messages per connection | 100 per second *proposed* (Open 15) | Closed with 1008; logged with `reason: "flood"` (`docs/23-failure-modes.md`, "WebSocket message flood") |
+| Outbound queue per connection | 256 messages | A consumer that falls behind is closed with 1008 `RENOX_REALTIME_BACKPRESSURE`; `publish` never waits for a slow consumer |
+| Heartbeat | ping every 30 s, pong within 10 s *proposed* (Open 15); SSE `: keep-alive` every 15 s | Closed with 1001 (going away) |
+| Replay buffer per topic | the last 100 events or 60 s *proposed* (Open 15) | An SSE reconnect with `Last-Event-ID` inside the buffer gets the missed events; outside it, none, and the client re-reads its state |
+| Handler runs | The tier's CPU and wall-clock limits per `open`, `message`, `close` run (section 10) | As section 10; a kill closes the connection with 1011 |
+
+`RENOX_REALTIME_LIMIT` is thrown as `RealtimeLimitError` (`details: { reason }`, `reason` ∈ `tenant`, `user`, `topics`, `message_size`, `flood`), `RENOX_REALTIME_BACKPRESSURE` as `RealtimeBackpressureError` (`details: { conn }`). A connection closed by the platform is logged with `code`, `reason`, and `route`; the tenant's client script reports `realtime.closed` (`client-events.md`).
+
+### Metering
+
+One record per connection, written at the close (section 7): `route` `WS <pattern>` or `SSE <pattern>`, `http_status` 101 / 200, `wall_ms` the lifetime, `cpu_ms`, `db_*`, `fetch_*`, `render_*` summed over the handler runs and the fragment renders they published, `realtime_conn_seconds` (the lifetime in seconds, 3 decimals), `realtime_messages` (frames received plus messages delivered to the connection: `send`, `publish`, feeds, replay), `status` `ok` (closed by either side, including the platform's limit closes), `error` (`open` threw), or the kill statuses of section 10. A refused upgrade (caps) writes a record with `status: busy`, like `RENOX_BUSY`. A denied guard writes `status: forbidden`. Messages a publisher sends are not counted on the publisher's record: `realtime_messages` is per receiving connection, so the fan-out of one `publish` to 1,000 connections is 1,000 messages across 1,000 records (`docs/24-threat-model.md`, "Realtime fan-out amplification": B14 measures it).
+
+### Verification
+
+- #278: every row of the limits table on the crate (caps, oversized frame, flood, backpressure close, replay, heartbeat), the 10,000 idle connections of B14 on the crate.
+- #281: the handlers end to end, the feed after commit and nothing after rollback, the `fragment` payload rendered off the isolate, the connection record.
+- #118: `Origin` 403 before the isolate, same-origin 101, a subscribe to another user's topic denied, no policy → denied, the connection's principal from the cookie at connect.
+- #167: the gateway hands the connection to the cell after a 101.
+
+## 19. App MCP: tool routes and `/mcp` (1.5.0)
+
+The runtime side of `docs/20-ai-agents-mcp.md` section 2 (every row of its table) and section 5. Tenants declare tools; the cell serves `/mcp` for every app with authentication, authorization, limits, and metering applied (#285). The authorization server is the `auth` module (#286); the SDK's `tool()` and the route entry are #284.
+
+### Tool routes
+
+```ts
+// functions/tools/create-invoice.ts
+import { tool } from "renox";
+export default tool({
+  name: "create_invoice",
+  description: "Create a draft invoice for a customer",
+  input: z.object({ customerId: z.string(), items: z.array(z.object({ sku: z.string(), qty: z.number().int().positive() })) }),
+  action: "invoice.create",          // the Cedar action, as for the UI button
+  confirm: false,
+  async run({ input, services }) { return services.billing.createInvoice(input.customerId, input.items); },
+});
+```
+
+- Route kind `tool` (`artifact.md` 1.3): `functions/tools/*.ts` of the app and `tools/*.ts` of a module declared in its `[[tools]]` (`manifest.md`, carried from 1.1), one entry per tool with `name` (`^[a-z][a-z0-9_]{0,63}$`, unique across the app and its modules, V25), `description`, `input` (the JSON Schema `renox build` derives from the `input` schema through the Standard Schema adapter of `sdk/src/validate.ts`, restricted to the keyword subset of `validate.ts`), `action` (in the merged action set, V25), `confirm` (default `false`), and `module` (the code entry). The module default-exports the `tool(...)` value (`ctx.d.ts`: `Tool`, `ToolDefinition`); `entries` records `default`.
+- **`run(ctx)`** gets `ToolContext`: the owning module's `ctx` without a request (`req`, `url`, `params`, `headers`, `form` absent, like an event handler's), `principal` the token's user, `db` the plain `Db`, and `tool: { name, input, client: { name, model? }, preview: boolean }`. It returns a JSON-serialisable value (rules of section 14, "Page dispatch"), the tool's output.
+
+### `/mcp`
+
+- **Reserved paths.** `/mcp` and `/.well-known/oauth-protected-resource/mcp` are served by the cell on every app, like `/__renox/*`; a route on them is refused by `renox check` and V21. Without the `auth` module installed, both answer 404 (there is no authorization server).
+- **Transport.** Streamable HTTP, JSON-RPC 2.0: `POST /mcp` with one request (batches are refused with -32600) and `Accept: application/json, text/event-stream`; the answer is `application/json`. `GET /mcp` is 405: there is no server-initiated stream in 1.5.0 (Open 17). Methods: `initialize` (answers `protocolVersion: "2025-06-18"`, `capabilities: { tools: {} }`, `serverInfo: { name: <app name>, version: <first 12 hex of the deployment hash> }`), `notifications/initialized` (202, no body), `tools/list`, `tools/call`; any other method is -32601. The session is stateless: no `Mcp-Session-Id`.
+- **Authentication.** `Authorization: Bearer <agent token>`, a token the `auth` module's OAuth 2.1 server issued to an end user's agent (#286). The cell verifies it through the exported service **`auth.verifyAgentToken(token)`** → `{ principal, scopes, client: { name, model? } }` or `null`, cached per token hash for 60 s and dropped on the `auth.agent_token_revoked` event. No token, or `null`, is 401 with `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource/mcp"`. The principal of every call is the token's user (section 17): "Alice's agent can only do what Alice can".
+- **Scopes.** A token's `scopes` are tool names, `tools:*`, or `tools:<name>`; `tools/list` returns only the tools the scopes cover (`name`, `description`, `inputSchema`, `annotations: { readOnlyHint: !confirm, destructiveHint: confirm }`); `tools/call` of a tool outside the scopes is 403 `RENOX_TOOL_SCOPE`.
+- **One call**, in order: the token (401), the scope (403 `RENOX_TOOL_SCOPE`), the per-token rate limit (below), the input against the declared schema (400 `RENOX_TOOL_INPUT`, `details: [{ field, reason }]`), the Cedar check `op_authz_check(action)` with the token's user as principal and no resource (403 `RENOX_FORBIDDEN`; audited when the action is sensitive; a tool that acts on one resource calls `ctx.authz.require(action, resource)` inside `run`, like an action), then `run` in the isolate with the tool's module `ctx` under the tier's request limits (section 10), then the output. Errors before `run` are **JSON-RPC errors**: HTTP status and body code of `errors.md`, as `{ "jsonrpc": "2.0", "id", "error": { "code": -32000, "message", "data": { "code": "RENOX_…", "request_id" } } }`. Errors inside `run` (a throw, a limit) are **results** with `isError: true` and the fixed message of the code; never the throw's text.
+- **Confirmation.** A tool with `confirm: true` runs twice. The first call runs `run` with `ctx.tool.preview = true` **inside a transaction the cell always rolls back** (so a preview cannot change state) and answers `structuredContent: { preview: <output>, confirmation: { token, expires_at } }` with `isError: false`; the confirmation token (opaque, 10 minutes) binds the tool name, the SHA-256 of the arguments, and the agent token. The second call repeats the arguments with `params._meta["renox/confirmation"] = <token>` and runs for real. A missing, expired, replayed, or mismatched token is 409 `RENOX_TOOL_CONFIRM`.
+- **Output.** `run`'s value is serialised in the bootstrap; over **256 KB** of JSON the result is `isError: true` with the fixed text "The tool output is too large." (no code: the tool ran, and the record says `error`). Every result carries `_meta: { untrusted: true }` and its `content` is `[{ type: "text", text: <JSON> }]` plus `structuredContent` (`docs/20` section 5: tool results are data, never instructions). Secrets are redacted as in section 3 before the result leaves the cell.
+- **Rate limit.** 60 calls per minute per token *proposed* (Open 16), 429 with `Retry-After` and no body code, like the gateway's rate limit (`errors.md` Open 2); not metered.
+- **Metering and audit.** One meter record per `tools/call` that reached `run`: `kind: "tool"`, `route` `TOOL <name>`, `status` as for a request (`ok`, `error` for a throw, the kill statuses), `http_status` 200 (`meter.md` 0.3). A preview run is a record too. The request's log lines carry `client.name` and `client.model` (`docs/20` section 5, attribution); the authz audit row of a sensitive action carries the user id.
+- **Discovery.** `GET /.well-known/oauth-protected-resource/mcp` answers RFC 9728 metadata: `{ "resource": "https://<host>/mcp", "authorization_servers": ["https://<host><auth mount>/oauth"], "scopes_supported": ["tools:*", …], "bearer_methods_supported": ["header"] }`; the issuer's own metadata (RFC 8414) is the `auth` module's route `<mount>/oauth/.well-known/oauth-authorization-server` (#286), and the cell serves `/.well-known/oauth-authorization-server<mount>/oauth` by invoking it, so a general-purpose agent finds both from the app's host.
+- **Dispatch.** `ops.schema.json` `$defs/tool_dispatch`: the cell calls the bootstrap with the **tool envelope** `{ kind: "tool", name, module?, input, principal, client, preview, request_id }` and gets `{ type: "ok", output_json }` or `{ type: "failed", reason: "threw" | "output_too_large" }` back.
+
+### Verification
+
+- #285: list filtered by scope; allowed and denied calls; `RENOX_TOOL_INPUT`; the confirm flow (preview rolled back, expired and replayed tokens); the output cap; the rate limit; a revoked token refused after the event; no secret value in any output or log line; the meter record.
+- #286: `auth.verifyAgentToken`, the OAuth 2.1 server and its metadata route.
+- #284: `tool()` and the route entry; `renox check` on the reserved paths and V25.
+
+## 20. Jobs: `schedule` and `op_jobs_enqueue` (1.5.0, implemented in F6)
+
+The contract of the F6 `jobs` task (#297; `docs/07-app-model.md`, "Scheduled jobs"; `docs/18-build-plan.md` M10), written here so `ops.md` is edited once for the `schedule` export.
+
+```ts
+// jobs/nightly-report.ts (the app) or modules/<name>/jobs/<name>.ts (a module)
+export const schedule = "0 3 * * *";          // minute hour day-of-month month day-of-week
+export const tz = "Asia/Dubai";                // optional IANA zone; UTC when absent
+export async function run(ctx: JobContext) { /* … */ }
+```
+
+- **Route kind `job`** (`artifact.md` 1.3): `{ kind: "job", name, module, schedule, tz? }` with `name` the file stem (`^[a-z][a-z0-9_-]{0,63}$`), `schedule` a five-field cron expression (`*`, lists `1,15`, ranges `1-5`, steps `*/10`; numeric fields only, V27), `tz` an IANA zone (V4's rule). The module exports `schedule`, optionally `tz`, and **`run`** (a named export, so `entries` and `renox check` can name it; `docs/07`'s default-export example reads as this).
+- **Scheduler.** The cell computes each job's next tick in its zone. At the tick it writes **one durable outbox row** for `(job, tick)`, idempotently (unique on the pair), and the outbox worker runs it like an event delivery (section 15.4): its own `IMMEDIATE` transaction, committed with the acknowledgement, the tier's CPU and wall-clock limits per attempt, the retry schedule and dead-letter of section 15.4 (the `jobs` module shows dead letters). **At-least-once**, and **one at a time per job**: a running job holds a lease, so a second tick of the same job waits until the run ends. **Missed ticks coalesce**: after an eviction, a restart, or downtime, every missed tick of a job becomes one run whose `tick` is the latest missed one. A job runs on the deployment that is active when it runs.
+- **Queued jobs.** `ctx.jobs.enqueue(name, payload, { runAt? })` → `op_jobs_enqueue(name: string, payload_json: string, run_at: number | null, module: string | null, tx: number | null)` → the row id (a ULID). It writes a row for `name`, a job of the caller's module (any other name rejects with `RENOX_MODULE_UNDECLARED`, `details.target: "job:<name>"`), **in the current transaction**, to run at `runAt` (Unix ms; `null` or absent = as soon as possible; at most 30 days ahead *proposed*, Open 18); a queued run is a `run` call with `ctx.job.payload` set. The payload is JSON of at most 64 KiB; the bootstrap throws a `RangeError` for anything else, as for `setLocale`.
+- **`JobContext`** (`ctx.d.ts`): the module's `ctx` without the request (as `EventContext`): `db` is the attempt's transaction (`DbStatements`), `principal` the System principal `Renox::System::"<module>"` (`app` for the app's jobs; section 17; `docs/11`: "jobs run as `System::"<module>"` with explicit permissions, never as a superuser"), `job: { id, name, tick, attempt, payload }` (`payload` `null` for a scheduled run).
+- **Dispatch.** `ops.schema.json` `$defs/job_dispatch`: the **job envelope** `{ kind: "job", id, name, module, tick, attempt, payload }` and the result `{ type: "ok" }` or `{ type: "failed", reason: "threw" | "no_handler" }` (`no_handler`: the active deployment has no such job any more; the row is dropped and logged).
+- **Metering.** One record per attempt: `kind: "job"`, `route` `JOB <module> <name>` (`JOB app nightly-report`), `request_id` `<row id>_<attempt>`, `status` as for an event record (`meter.md` 0.3). Charged to the tenant's quota (`docs/07`).
+
+Verification: #297 (one row per tick, no overlap, coalescing after a simulated downtime, the System principal, the meter record, `enqueue` in a rolled-back transaction enqueues nothing); #284 (the route entry, V27).
+
+Types for sections 17–20 in `ctx.d.ts`: `Principal`, `RoleAssignment`, `Scope`, `ResourceRef`, `Decision`, `Explanation`, `Authz`, `AuthzRoles`, `Guard`, `ForbiddenReason`, `DbScopeReason`; `Conn`, `RealtimePayload`, `Realtime`, `RealtimeContext`, `MessageContext`, `CloseContext`, `WsModule`, `SseModule`; `ToolDefinition`, `Tool`, `ToolContext`, `tool()`; `JobContext`, `JobInfo`, `JobModule`, `Jobs`, `EnqueueOptions`; the dispatch types `RealtimeEnvelope`, `RealtimeResult`, `ToolEnvelope`, `ToolResult`, `JobEnvelope`, `JobResult`; the errors `ForbiddenError`, `DbScopeError`, `RealtimeLimitError`, `RealtimeBackpressureError`.
+
 Types for section 15 in `ctx.d.ts`: `Ctx.module`, `Ctx.config` (`ModuleConfig`), `Ctx.services` (`Services`), `Ctx.events` (`Events`, `EmitOptions`), `Ctx.hooks` (`Hooks`, `HookRunResult`), `ServicesModule`, `HooksModule` (`HookFiller`, `HookFillerResult`, `EventHandler`, `EventContext`, `EventInfo`, `DeliveredEvent`), the dispatch types `EventEnvelope`, `EventResult`, `ModuleInfo`, and the errors `ModuleUndeclaredError`, `ModuleServiceError`, `EventPayloadError`.
 
 ## Verification by implementing issues
@@ -860,6 +1132,7 @@ These are not open design questions. Each is a decided rule with a decided fallb
 9. **Lazy route modules and locale extensions** (sections 7, 11, 13, 14; 1.4.0):
    - #265 tests that a route module is not evaluated before its first request, that a throwing lazy module answers 500 `RENOX_MODULE_EVAL` for its route only while another route answers 200, that the worker refuses at prepare an artifact whose recorded exports differ from the module's, and that `renox check` names the file and export of a missing or non-function export. It re-runs B1.
    - #266 tests `setLocale` with `ar-AE-u-nu-arab` and the `number`, `money`, and `date` filters in both digit sets, and that an unknown key or value is refused.
+10. **Authorization, realtime, App MCP, jobs** (sections 17–20; 1.5.0): the "Verification" list at the end of each section names the task per rule (#276–#281, #283–#286, #291, #118, #167 for F5; #297 for jobs). The numbers marked *proposed* are Open 12–18.
 
 ## Future (additive, not scheduled)
 
@@ -883,6 +1156,13 @@ Values of 1.2.0 that #161 checks by measurement, and of 1.3.0 that #229–#231 c
 9. **Locale error type (1.4.0)**: #263 asked for the control plane's validation code on an unknown extension key or value. `setLocale` keeps the `RangeError` of 1.3.0 instead: it is a programming error in the loader, like an invalid `dir`, and adding a thrown `RenoxErrorCode` for it would be a second error type for the same call. Revisit if a tenant needs to tell the two apart.
 10. **Extension values (1.4.0)**: the `ca` and `nu` lists are the values a GCC app needs. Adding a value from the CLDR lists is a minor version; a key other than `ca` and `nu` (`hc`, `fw`, `cu`) needs a renderer that uses it first.
 11. **Which entries are eager (1.4.0)**: `renox build` keeps `pages/_error` eager and makes every other route module lazy. Layouts are templates, not code, so nothing about them is evaluated. Whether the app gets a way to list more eager entries (a `[build] eager = [...]` key in `renox.toml`) is left to #265. Until then the CLI marks only `pages/_error`, `services` and `hooks` eager.
+12. **Principal cache TTL (1.5.0, section 17)**: 60 s *proposed*. #279 measures the hit rate and the invalidation latency (a role change visible within one outbox round trip) on `node-small` and may change it; the three invalidations stay whatever the TTL.
+13. **Evaluation limit per request (1.5.0, section 17)**: 10,000 *proposed*, a deny past it. #280 measures `r-can` with a resource on a 1,000-row page (B-series of `docs/14-benchmarks.md`) and sets the number that keeps a page under its render budget.
+14. **Feed messages per transaction (1.5.0, section 18)**: 1,000 *proposed*. #281 measures a bulk import against a fed table and may raise it or replace the drop with coalescing per topic.
+15. **Realtime numbers (1.5.0, section 18)**: topics per connection 64, inbound 100 messages per second, heartbeat 30 s / 10 s, replay 100 events or 60 s are *proposed*; #278 measures them on the crate and #282 end to end with B14; the connection caps (100 / 10,000, 10 per user), the 64 KB message and the 256-message queue are `docs/04` values, not proposals.
+16. **Tool rate limit (1.5.0, section 19)**: 60 calls per minute per token *proposed*; #285 sets it from the cost of a call on `node-small`.
+17. **MCP resources, prompts, and notifications (section 19)**: 1.5.0 serves tools only, statelessly; `GET /mcp` is 405. Read-only resources over public views (`docs/20`, "Resources"), prompts, and an SSE stream for server-initiated notifications are F7 and need a session id; adding them is a minor version.
+18. **Queued jobs (1.5.0, section 20)**: `runAt` at most 30 days ahead *proposed*; the per-attempt budget is the tier's request limits, so a long job splits itself with `enqueue`. #297 measures the scheduler's tick lag and may propose a job budget of its own as a minor version.
 
 ## Changelog
 
@@ -894,4 +1174,5 @@ Values of 1.2.0 that #161 checks by measurement, and of 1.3.0 that #229–#231 c
 | 1.2.0 | #206 | Minor (additive). **Streamed response bodies (section 6):** head first; a static body crosses with the head as before, a `ReadableStream` body crosses chunk by chunk through the new ops `op_response_write` (async, backpressure at 16 chunks) and `op_response_end` (sync, explicit end, or the failure message); a stopped stream is truncated so the client can tell; `Content-Length` removed from streamed bodies; per-chunk gateway compression. **Request scope (section 0):** a request ends when its response ends. **Meter (section 7):** written at the end of the stream, with `wall_ms`, `egress_bytes` and `status` of the whole stream. **Limits (section 10):** response egress per request, 10 MB free / 100 MB paid, counted per chunk before compression, separate from the `fetch` counter; the mid-stream table (egress limit, stream failure, deadline, CPU, heap, client gone). **Pages (section 14):** the shell is flushed after a 50 ms *proposed* shell delay for full-page `GET`s with a loader; errors after the shell are rendered inside the stream; a loader `Response` after the shell is `response_after_shell`. No new error code; `ctx.d.ts` unchanged except its version line |
 | 1.3.0 | #226 | Minor (additive). **Modules (new section 15):** per-module `ctx` built by the bootstrap from the artifact's `modules` list (db under the module's authorizer, its own secrets, `fetch` allowlist, and config); `renox:modules` and `ctx.services` (service calls checked against the caller's dependencies, run in the callee's `ctx` with the same user, request, deadline, and current transaction; a callee error reaches the caller as `RENOX_MODULE_SERVICE` and rolls back the enclosing transaction); `ctx.hooks.run` (fillers in priority order, halt, undeclared fillers refused at load); `ctx.events.emit` and `op_events_emit` (durable into `renox__outbox` in the current transaction, or in-memory in the same request; payload checked against the exported schema); the event envelope and delivery (own transaction committed with the acknowledgement, retries, dead-letter); `ctx.config`; isolation modes. **Ops:** a trailing `module` argument on `op_db_*`, `op_secrets_get_all` (now once per module), `op_log`, and `FetchRequest.module` (sections 0–4); savepoint ops `op_db_savepoint_begin`/`_release`/`_rollback` (section 1); `op_events_emit` (section 15.4); `op_password_hash`, `op_password_verify` (argon2id off the isolate thread, new section 16). **Pages:** `setLocale`, `locale` and `dir` in the render result, optional `module` in the page invocation (section 14). **Errors:** `RENOX_MODULE_UNDECLARED`, `RENOX_MODULE_SERVICE`, `RENOX_EVENT_PAYLOAD` (section 13). **Meter:** event delivery records (section 7, Open 4). Section 8 reserves only `op_hooks_run` and the `isolate`-mode ops for F4 |
 | 1.4.0 | #263 | Minor (additive). **Locale (section 14):** `setLocale` and the page result's `locale` accept one Unicode extension `-u-` with the keys `ca` (calendar: `gregory`, `islamic`, `islamic-civil`, `islamic-tbla`, `islamic-umalqura`, `persian`) and `nu` (numbering system: `latn`, `arab`, `arabext`), in canonical order; at most 64 characters; `dir` from the language subtag only; `number`, `money`, and `date` honour `nu` (and `date` `ca` where supported); catalog lookup ignores the extension; `ops.schema.json` gains `$defs/locale`. **Lazy route modules (section 11):** a route module whose artifact `entries` record says `eager: false` (`artifact.md` 1.2) is evaluated on its first request, once per isolate; every entry's existence is still checked at isolate creation; `services` and `hooks` entries stay eager; the fail-closed export check moves to `renox check` and to the worker's prepare (V23). **Errors (section 13):** response code `RENOX_MODULE_EVAL` (500, that route only, logged once per isolate, the isolate stays up). **Meter (section 7):** a lazy evaluation is charged to the request that triggered it. Section 8 updated; Open 9–11 added |
+| 1.5.0 | #272 | Minor (additive). **Principal and authorization (new section 17):** the principal resolved once per request through the `auth` module's service `auth.principal` (hook fillers extend `attrs`; cached per cell by session id, invalidated by `authz.roles_changed`, `auth.login`, `auth.logout`; anonymous without `auth`), crossing as `ctx.principal` and in the dispatch envelopes; the Cedar entity model and the merged schema; `op_authz_check`, `op_authz_check_batch`, `op_authz_explain` (dev only), `op_authz_roles_assign` / `_revoke` / `_list` and `ctx.authz` (`require`, `can`, `canBatch`, `explain`, `roles`); resources become entities with only their declared attributes; `forbid` wins and everything else denies; the append-only `renox__authz_audit` row for sensitive actions in the request's transaction; `renox__role_assignments` written only by the role ops, a module limited to its approved roles; `guard` on pages, functions and realtime routes, evaluated before the handler and on fragments; `db.scoped()` with the ownership rules, its fifth argument on `op_db_*`, and its refusal code; `authz_evals`. **Realtime (new section 18):** route kinds `ws` and `sse`, `RealtimeContext` and the `conn` handle; `op_realtime_subscribe` / `_unsubscribe` / `_publish` / `_send` / `_close` and `ctx.realtime`; payloads text, JSON, or a partial rendered by the cell; subscribing as the Cedar action `realtime.subscribe` on `Renox::Topic`, fail closed; the change feed from `[realtime.feeds]` after commit; the `Origin` rule; the limits table; one meter record per connection with `realtime_conn_seconds` and `realtime_messages`. **App MCP (new section 19):** route kind `tool`, `/mcp` and the protected-resource metadata as reserved paths, agent tokens through `auth.verifyAgentToken` and what they cover, the call order, the confirm flow with a rolled-back preview, the 256 KB output cap and `untrusted`, the meter record `kind: "tool"`. **Jobs (new section 20):** `schedule`, `tz`, `run`, route kind `job`, durable ticks through the outbox (idempotent, one at a time, coalesced), `op_jobs_enqueue` and `ctx.jobs.enqueue`, `JobContext` with the System principal, `kind: "job"`. **Errors (section 13):** `RENOX_FORBIDDEN` (both; an uncaught `ForbiddenError` is 403), the owned-table refusal code of section 17, `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, the tool coverage code and `RENOX_TOOL_CONFIRM` of section 19; `RENOX_MODULE_UNDECLARED` also for roles and jobs. Sections 0, 1, 6, 7, 8, 11, 14 updated; `ops.schema.json` `$defs` for the principal, the authz ops, the realtime payload and envelope, the tool envelope and the job envelope; Open 12–18 |
 | 1.1.1 | #201 | Patch, wording only: section 10 states what #155 and #156 implement. **CPU attribution** per async context: a request is charged the CPU of its own continuations, unattributed CPU is split among the requests in flight, and CPU used before a request was admitted is never split onto it. **Collateral rule** per pool member: one bad request ends the in-flight requests on its own member only; the pool size is per tier (`IsolateSpec::max_isolates`); collateral meter records carry the same `status` and are indistinguishable from the request that hit the limit. `ctx.d.ts` and `ops.schema.json` unchanged |

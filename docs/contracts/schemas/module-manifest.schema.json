@@ -1,38 +1,62 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/manifest/v1/module-manifest.schema.json",
-  "title": "Renox module manifest (module.toml) and renox.toml [modules], manifest contract version 1",
-  "description": "The root validates a parsed module.toml. $defs/renoxToml validates a parsed renox.toml, of which this contract owns only [modules]. Prose: docs/contracts/manifest.md. Rules the schema cannot express (reserved names, own prefix, dependency graph, imports, config types, the lock) are MF1-MF12 in section 6.",
+  "title": "Renox module manifest (module.toml) and renox.toml [modules], [authz], [realtime], manifest contract version 1.1",
+  "description": "The root validates a parsed module.toml. $defs/renoxToml validates a parsed renox.toml, of which this contract owns only [modules]. Prose: docs/contracts/manifest.md. Rules the schema cannot express (reserved names, own prefix, dependency graph, imports, config types, the lock) are MF1-MF12 in section 6. Version 1.1 (#272) adds [authz] ownership, entities, default_roles and sensitive, [realtime.feeds], permissions.roles, and the same [authz] and [realtime] on renox.toml for the app; rules MF13-MF14.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["module"],
+  "required": [
+    "module"
+  ],
   "properties": {
     "module": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "version"],
+      "required": [
+        "name",
+        "version"
+      ],
       "properties": {
-        "name": { "$ref": "#/$defs/moduleName" },
-        "version": { "$ref": "#/$defs/version" },
-        "isolation": { "$ref": "#/$defs/isolation" },
-        "description": { "type": "string", "maxLength": 200 }
+        "name": {
+          "$ref": "#/$defs/moduleName"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "isolation": {
+          "$ref": "#/$defs/isolation"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200
+        }
       }
     },
     "dependencies": {
       "type": "object",
       "description": "Module name -> semver range. Required for service calls and public views (docs/10-modules.md, rule 1).",
       "maxProperties": 64,
-      "propertyNames": { "$ref": "#/$defs/moduleName" },
-      "additionalProperties": { "$ref": "#/$defs/range" }
+      "propertyNames": {
+        "$ref": "#/$defs/moduleName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/range"
+      }
     },
     "config": {
       "type": "object",
       "description": "Typed configuration keys; renox.toml [modules.<name>].config sets them (MF10).",
       "maxProperties": 64,
-      "propertyNames": { "$ref": "#/$defs/configKey" },
-      "additionalProperties": { "$ref": "#/$defs/configDecl" }
+      "propertyNames": {
+        "$ref": "#/$defs/configKey"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/configDecl"
+      }
     },
-    "permissions": { "$ref": "#/$defs/permissions" },
+    "permissions": {
+      "$ref": "#/$defs/permissions"
+    },
     "exports": {
       "type": "object",
       "additionalProperties": false,
@@ -41,27 +65,44 @@
           "type": "array",
           "maxItems": 64,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/viewName" }
+          "items": {
+            "$ref": "#/$defs/viewName"
+          }
         },
         "services": {
           "type": "object",
           "description": "Exported name of services.ts -> one-line doc.",
           "maxProperties": 256,
-          "propertyNames": { "$ref": "#/$defs/serviceName" },
-          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 200 }
+          "propertyNames": {
+            "$ref": "#/$defs/serviceName"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
         },
         "events": {
           "type": "object",
           "description": "Event name -> payload schema (JSON Schema, the keyword subset of validate.ts; MF6).",
           "maxProperties": 256,
-          "propertyNames": { "$ref": "#/$defs/dottedName" },
+          "propertyNames": {
+            "$ref": "#/$defs/dottedName"
+          },
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["payload"],
+            "required": [
+              "payload"
+            ],
             "properties": {
-              "description": { "type": "string", "maxLength": 200 },
-              "payload": { "type": "object" }
+              "description": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "payload": {
+                "type": "object"
+              }
             }
           }
         },
@@ -69,15 +110,26 @@
           "type": "object",
           "description": "Hook point this module runs with ctx.hooks.run -> argument and result shape.",
           "maxProperties": 64,
-          "propertyNames": { "$ref": "#/$defs/dottedName" },
+          "propertyNames": {
+            "$ref": "#/$defs/dottedName"
+          },
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["args"],
+            "required": [
+              "args"
+            ],
             "properties": {
-              "description": { "type": "string", "maxLength": 200 },
-              "args": { "type": "object" },
-              "result": { "type": "object" }
+              "description": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "args": {
+                "type": "object"
+              },
+              "result": {
+                "type": "object"
+              }
             }
           }
         }
@@ -92,13 +144,18 @@
           "type": "array",
           "maxItems": 256,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}\\.[A-Za-z_][A-Za-z0-9_]{0,63}$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,31}\\.[A-Za-z_][A-Za-z0-9_]{0,63}$"
+          }
         },
         "views": {
           "type": "array",
           "maxItems": 64,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/viewName" }
+          "items": {
+            "$ref": "#/$defs/viewName"
+          }
         }
       }
     },
@@ -109,44 +166,70 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "template"],
+        "required": [
+          "name",
+          "template"
+        ],
         "properties": {
-          "name": { "$ref": "#/$defs/dottedName" },
-          "template": { "type": "string", "maxLength": 256, "pattern": "^partials(/(?!\\.\\.?(/|$))[A-Za-z0-9_.-]+)+\\.html$" },
-          "requires": { "$ref": "#/$defs/actionName" },
-          "priority": { "type": "integer", "minimum": 0, "maximum": 1000 }
+          "name": {
+            "$ref": "#/$defs/dottedName"
+          },
+          "template": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^partials(/(?!\\.\\.?(/|$))[A-Za-z0-9_.-]+)+\\.html$"
+          },
+          "requires": {
+            "$ref": "#/$defs/actionName"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
         }
       }
     },
     "tools": {
       "type": "array",
-      "description": "Reserved for F5 (docs/20-ai-agents-mcp.md); validated now, not carried in the artifact.",
+      "description": "MCP tools (docs/20-ai-agents-mcp.md section 2; ops.md section 19). From 1.1 carried in the artifact as tool routes (artifact.md 1.3); confirm defaults to false; file exists in the tree (MF14) and action is in [authz].actions (MF9).",
       "maxItems": 64,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "file", "action"],
+        "required": [
+          "name",
+          "file",
+          "action"
+        ],
         "properties": {
-          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
-          "file": { "type": "string", "maxLength": 256, "pattern": "^tools(/(?!\\.\\.?(/|$))[A-Za-z0-9_.-]+)+\\.ts$" },
-          "action": { "$ref": "#/$defs/actionName" },
-          "confirm": { "type": "boolean" },
-          "description": { "type": "string", "maxLength": 200 }
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^tools(/(?!\\.\\.?(/|$))[A-Za-z0-9_.-]+)+\\.ts$"
+          },
+          "action": {
+            "$ref": "#/$defs/actionName"
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          }
         }
       }
     },
     "authz": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Actions this module defines. Files only in F4; enforcement is F5.",
-      "properties": {
-        "actions": {
-          "type": "array",
-          "maxItems": 256,
-          "uniqueItems": true,
-          "items": { "$ref": "#/$defs/actionName" }
-        }
-      }
+      "$ref": "#/$defs/authz"
+    },
+    "realtime": {
+      "$ref": "#/$defs/realtime"
     }
   },
   "$defs": {
@@ -167,36 +250,119 @@
       "maxLength": 140,
       "pattern": "^([~^](0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,2}|=?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?|>=(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)? <(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?)$"
     },
-    "isolation": { "enum": ["shared", "isolate"] },
-    "configKey": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
-    "configValue": { "type": ["string", "integer", "boolean"] },
+    "isolation": {
+      "enum": [
+        "shared",
+        "isolate"
+      ]
+    },
+    "configKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "configValue": {
+      "type": [
+        "string",
+        "integer",
+        "boolean"
+      ]
+    },
     "configDecl": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": { "enum": ["string", "enum", "int", "bool"] },
-        "values": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
-        "default": { "$ref": "#/$defs/configValue" },
-        "required": { "type": "boolean" },
-        "min": { "type": "integer" },
-        "max": { "type": "integer" },
-        "max_length": { "type": "integer", "minimum": 1, "maximum": 4096 },
-        "description": { "type": "string", "maxLength": 200 }
+        "type": {
+          "enum": [
+            "string",
+            "enum",
+            "int",
+            "bool"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "default": {
+          "$ref": "#/$defs/configValue"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "min": {
+          "type": "integer"
+        },
+        "max": {
+          "type": "integer"
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200
+        }
       },
       "allOf": [
         {
-          "if": { "properties": { "type": { "const": "enum" } } },
-          "then": { "required": ["values"] },
-          "else": { "properties": { "values": false } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "enum"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "values"
+            ]
+          },
+          "else": {
+            "properties": {
+              "values": false
+            }
+          }
         },
         {
-          "if": { "properties": { "type": { "const": "int" } } },
-          "else": { "properties": { "min": false, "max": false } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "int"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "min": false,
+              "max": false
+            }
+          }
         },
         {
-          "if": { "properties": { "type": { "const": "string" } } },
-          "else": { "properties": { "max_length": false } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "string"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "max_length": false
+            }
+          }
         }
       ]
     },
@@ -206,7 +372,10 @@
       "maxLength": 270,
       "pattern": "^(http://)?((\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+|[0-9]{1,3}(\\.[0-9]{1,3}){3}|\\[[0-9a-f:.]+\\])(:[0-9]{1,5})?$"
     },
-    "secretName": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+    "secretName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
     "dottedName": {
       "type": "string",
       "description": "<module>.<name>: events and hook points of the module that exports them; slot names.",
@@ -219,7 +388,10 @@
       "maxLength": 128,
       "pattern": "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63})+$"
     },
-    "serviceName": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
+    "serviceName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+    },
     "viewName": {
       "type": "string",
       "description": "MF6: <module>__public_<name>_v<n>, the module being the exporter.",
@@ -231,11 +403,52 @@
       "additionalProperties": false,
       "description": "What the module asks the tenant to approve at install (manifest.md section 3). Unknown keys are rejected.",
       "properties": {
-        "tables": { "type": "string", "description": "Exactly \"<name>__*\" (MF4).", "maxLength": 40 },
-        "network": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/networkEntry" } },
-        "secrets": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/secretName" } },
-        "slots": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/dottedName" } },
-        "hooks": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/dottedName" } }
+        "tables": {
+          "type": "string",
+          "description": "Exactly \"<name>__*\" (MF4).",
+          "maxLength": 40
+        },
+        "network": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/networkEntry"
+          }
+        },
+        "secrets": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/secretName"
+          }
+        },
+        "slots": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/dottedName"
+          }
+        },
+        "hooks": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/dottedName"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/roleName"
+          },
+          "description": "1.1: the roles the module may assign; exactly the keys of [authz.default_roles] (MF13)."
+        }
       }
     },
     "mount": {
@@ -253,18 +466,32 @@
     "renoxModule": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version"],
+      "required": [
+        "version"
+      ],
       "properties": {
-        "version": { "$ref": "#/$defs/range" },
-        "source": { "$ref": "#/$defs/installSource" },
-        "mount": { "$ref": "#/$defs/mount" },
+        "version": {
+          "$ref": "#/$defs/range"
+        },
+        "source": {
+          "$ref": "#/$defs/installSource"
+        },
+        "mount": {
+          "$ref": "#/$defs/mount"
+        },
         "config": {
           "type": "object",
           "maxProperties": 64,
-          "propertyNames": { "$ref": "#/$defs/configKey" },
-          "additionalProperties": { "$ref": "#/$defs/configValue" }
+          "propertyNames": {
+            "$ref": "#/$defs/configKey"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/configValue"
+          }
         },
-        "isolation": { "$ref": "#/$defs/isolation" }
+        "isolation": {
+          "$ref": "#/$defs/isolation"
+        }
       }
     },
     "renoxToml": {
@@ -274,8 +501,145 @@
         "modules": {
           "type": "object",
           "maxProperties": 64,
-          "propertyNames": { "$ref": "#/$defs/moduleName" },
-          "additionalProperties": { "$ref": "#/$defs/renoxModule" }
+          "propertyNames": {
+            "$ref": "#/$defs/moduleName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/renoxModule"
+          }
+        },
+        "authz": {
+          "$ref": "#/$defs/authz",
+          "description": "1.1: the app's own actions, owned tables (app__*), entities (App::<Type>) and default roles (manifest.md section 4)."
+        },
+        "realtime": {
+          "$ref": "#/$defs/realtime",
+          "description": "1.1: the app's change feeds on app__* tables."
+        }
+      }
+    },
+    "roleName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "tableName": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]{0,31}__[a-z0-9_]{1,64}$",
+      "description": "A table under the owner's prefix (MF14)."
+    },
+    "columnName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "authz": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "1.1 (manifest.md section 2, [authz]): actions, sensitive actions, owned tables, entity types and default roles of a module (own prefix, MF13-MF14) or, as renox.toml [authz], of the app.",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/actionName"
+          }
+        },
+        "sensitive": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/actionName"
+          }
+        },
+        "ownership": {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "$ref": "#/$defs/tableName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "owner"
+            ],
+            "properties": {
+              "owner": {
+                "$ref": "#/$defs/columnName"
+              },
+              "org": {
+                "$ref": "#/$defs/columnName"
+              }
+            }
+          }
+        },
+        "entities": {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attrs"
+            ],
+            "properties": {
+              "table": {
+                "$ref": "#/$defs/tableName"
+              },
+              "id": {
+                "$ref": "#/$defs/columnName"
+              },
+              "attrs": {
+                "type": "array",
+                "maxItems": 64,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/columnName"
+                }
+              }
+            }
+          }
+        },
+        "default_roles": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "$ref": "#/$defs/roleName"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/actionName"
+            }
+          }
+        }
+      }
+    },
+    "realtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "1.1 (manifest.md section 2, [realtime]): feeds, table -> topic pattern with {column} placeholders (ops.md section 18).",
+      "properties": {
+        "feeds": {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "$ref": "#/$defs/tableName"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^([A-Za-z0-9_.-]|\\{[a-z][a-z0-9_]{0,63}\\})+(:([A-Za-z0-9_.-]|\\{[a-z][a-z0-9_]{0,63}\\})+)*$",
+            "description": "A topic pattern: segments split on ':', none empty, with {column} placeholders (ops.md section 18)."
+          }
         }
       }
     }

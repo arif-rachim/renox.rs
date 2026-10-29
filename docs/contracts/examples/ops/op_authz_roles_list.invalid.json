@@ -1,0 +1,17 @@
+{
+  "$comment": "invalid: an assignment carries who granted it [expect: required]",
+  "op": "op_authz_roles_list",
+  "args": [
+    "u_1",
+    null
+  ],
+  "result": [
+    {
+      "user_id": "u_1",
+      "role": "finance",
+      "scope_type": "org",
+      "scope_id": "o_1",
+      "at": 1793318400000
+    }
+  ]
+}

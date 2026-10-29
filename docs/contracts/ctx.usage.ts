@@ -6,8 +6,13 @@ import type {
   Ctx,
   EventHandler,
   FetchBlockedError,
+  ForbiddenError,
+  Guard,
   HookFiller,
   HooksModule,
+  JobContext,
+  JobModule,
+  MessageContext,
   ModuleServiceError,
   FunctionModule,
   Handler,
@@ -16,9 +21,18 @@ import type {
   Ops,
   PageModule,
   PageResult,
+  RealtimeContext,
+  RealtimeEnvelope,
   Row,
   ServicesModule,
+  SseModule,
+  Tool,
+  ToolDefinition,
+  ToolEnvelope,
+  WsModule,
 } from "./ctx.d.ts";
+// The builder is declared in ctx.d.ts; a declaration file cannot be value-imported.
+declare const tool: typeof import("./ctx.d.ts").tool;
 
 interface Product extends Row {
   id: string;
@@ -101,8 +115,10 @@ export async function negatives(ctx: Ctx, ops: Ops): Promise<void> {
   await ctx.db.execute("insert into app__t values (?)", [undefined]);
   // @ts-expect-error secrets are read-only
   ctx.secrets.STRIPE_KEY = "x";
-  // @ts-expect-error authz is reserved for F5
+  // @ts-expect-error a resource is an object with type and id (section 17)
   ctx.authz.require("x", "y");
+  // @ts-expect-error ai is reserved for F7
+  ctx.ai.chat("x");
   // @ts-expect-error log fields must be JSON values
   ctx.log.info("bad", { when: new Date() });
   // @ts-expect-error a handler must return a Response
@@ -155,6 +171,117 @@ export const localized: Loader = ({ setLocale }) => {
   setLocale("ar", "rtl");
   return {};
 };
+
+// Authorization (ops.md section 17, 1.5.0).
+export const guard: Guard = { action: "invoice.read", resource: { type: "Invoice", id: ":id" } };
+
+interface Invoice extends Row {
+  id: string;
+  amount: number;
+  org: string;
+  status: string;
+}
+
+export const refund: Action = async ({ db, authz, principal, params, log }: ActionContext) => {
+  const invoice = await db.queryOne<Invoice>("select id, amount, org, status from billing__invoices where id = ?", [String(params.id)]);
+  if (!invoice) return new Response(null, { status: 404 });
+  // The row is the resource; only the declared [authz.entities] attributes are kept. Uncaught, a deny is 403.
+  await authz.require("invoice.refund", { type: "Invoice", ...invoice });
+  const allowed = await authz.canBatch("invoice.refund", [{ type: "Invoice", ...invoice }]);
+  log.info("refund", { by: principal?.id ?? "anonymous", mfa: principal?.attrs.mfa_verified ?? false, allowed: allowed[0] ?? false });
+  return { refunded: true };
+};
+
+export async function roles(ctx: Ctx): Promise<void> {
+  await ctx.authz.roles.assign("u_2", "finance", { type: "org", id: "o_1" });
+  const mine = await ctx.authz.roles.list("u_2");
+  const scoped = ctx.db.scoped({ user_id: "u_2", org_id: "o_1" });
+  await scoped.execute("insert into shop__orders (id, total) values (?, ?)", ["ord_9", 4200]); // the owner columns are filled in
+  if (!(await ctx.authz.can("invoice.read"))) ctx.log.warn("viewer", { roles: mine.length });
+}
+
+export function denied(e: ForbiddenError): string {
+  return `${e.details.action}: ${e.details.reason}${e.details.policy ? ` (${e.details.policy})` : ""}`;
+}
+
+// Realtime (ops.md section 18, 1.5.0).
+export const ws: WsModule = {
+  async open({ conn, params, realtime }: RealtimeContext) {
+    await realtime.subscribe(conn, `room:${String(params.room)}`); // the Cedar action realtime.subscribe, fail closed
+  },
+  async message({ conn, data, params, realtime, principal }: MessageContext) {
+    const text = typeof data === "string" ? data : "(binary)";
+    await realtime.publish(`room:${String(params.room)}`, { fragment: "partials/chat-message", data: { text, user: principal?.id ?? null } });
+    await realtime.send(conn, { json: { ok: true } });
+  },
+  close({ close, log }) {
+    log.info("closed", { code: close.code });
+  },
+};
+export const sse: SseModule = {
+  async open({ conn, realtime, principal }) {
+    if (principal === null) return realtime.close(conn, 1008, "sign in");
+    await realtime.subscribe(conn, `user:${principal.id}:inbox`);
+  },
+};
+export const openEnvelope: RealtimeEnvelope = { kind: "realtime", phase: "open", transport: "ws", conn: "c_01JBQ3Z7MA00000000000001", route: "/ws/chat/:room", params: { room: "42" }, session: { id: "Q2hhbmdlTWVQbGVhc2UxMg" } };
+
+// App MCP tools (ops.md section 19, 1.5.0).
+const createInvoiceInput = { "~standard": { version: 1 as const, vendor: "renox", validate: (v: unknown) => v }, __input: undefined as { customerId: string } | undefined };
+export const createInvoice: Tool<{ customerId: string }> = tool({
+  name: "create_invoice",
+  description: "Create a draft invoice for a customer",
+  input: createInvoiceInput,
+  action: "invoice.create",
+  async run({ tool: t, services }) {
+    if (t.preview) return { would_create_for: t.input.customerId };
+    return services.billing?.createInvoice?.(t.input.customerId);
+  },
+});
+export const toolEnvelope: ToolEnvelope = { kind: "tool", name: "create_invoice", input: { customerId: "c_7" }, principal: { id: "u_1", kind: "user", roles: [], attrs: {} }, client: { name: "claude-desktop" }, preview: false, request_id: "01JBQ3Z7MA0000000000000301" };
+
+// Jobs (ops.md section 20, 1.5.0).
+export const schedule = "0 3 * * *";
+export const nightly: JobModule = {
+  schedule,
+  tz: "Asia/Dubai",
+  async run({ db, job, jobs, principal }: JobContext) {
+    const rows = await db.query("select id from app__reports where sent = 0");
+    for (const r of rows) await jobs.enqueue("send-report", { report: r.id }, { runAt: job.tick + 60_000 });
+    if (principal?.kind !== "system") throw new Error("a job runs as the System principal");
+  },
+};
+
+export async function f5Negatives(ctx: Ctx, rctx: RealtimeContext, ops: Ops): Promise<void> {
+  // @ts-expect-error the principal is read-only
+  ctx.principal = null;
+  // @ts-expect-error a scope has user_id, org_id and session_id only
+  ctx.db.scoped({ tenant_id: "t_1" });
+  // @ts-expect-error canBatch takes an array of resources
+  await ctx.authz.canBatch("invoice.read", { type: "Invoice", id: "1" });
+  // @ts-expect-error a role scope is { type, id }
+  await ctx.authz.roles.assign("u_2", "finance", "org");
+  // @ts-expect-error a payload is a string, text, json, or fragment
+  await ctx.realtime.publish("room:1", { html: "<li>hi</li>" });
+  // @ts-expect-error subscribe needs the connection handle, not its id
+  await ctx.realtime.subscribe("c_1", "room:1");
+  // @ts-expect-error a function handler has no conn
+  ctx.conn.id;
+  // @ts-expect-error the frame is read-only
+  rctx.conn.id = "x";
+  // @ts-expect-error a tool needs an action
+  const badTool: ToolDefinition<unknown> = { name: "x", description: "x", input: createInvoiceInput, run: () => null };
+  void badTool;
+  // @ts-expect-error runAt is a number (Unix ms)
+  await ctx.jobs.enqueue("send-report", {}, { runAt: "tomorrow" });
+  // @ts-expect-error a job module exports run
+  const badJob: JobModule = { schedule: "0 3 * * *" };
+  void badJob;
+  // @ts-expect-error the principal is never an op argument
+  await ops.op_authz_check("invoice.read", null, null, "billing", { id: "u_1" });
+  // @ts-expect-error a wire payload carries json as text
+  await ops.op_realtime_publish("room:1", { type: "json", json_text: { ok: true } }, null);
+}
 
 export async function moduleNegatives(ctx: Ctx, lctx: LoaderContext, ops: Ops): Promise<void> {
   // @ts-expect-error config is frozen

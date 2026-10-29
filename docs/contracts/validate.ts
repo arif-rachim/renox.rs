@@ -4,7 +4,8 @@
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
 //     hash, manifest, migrations, public files, templates, pages, security,
-//     modules: rules V1-V23, versions 0, 1, 1.1 and 1.2);
+//     modules, policies, realtime, tools, jobs: rules V1-V27, versions 0, 1,
+//     1.1, 1.2 and 1.3);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - client-event batches and raw CSP report bodies follow
 //     docs/contracts/client-events.md (schema plus rules CE1 and CE2), and
@@ -13,9 +14,9 @@
 //     every code used in ops.md, deploy-api.md, schemas/deploy-api.yaml and
 //     docs/23-failure-modes.md, and ctx.d.ts uses exactly the codes of ops.md
 //     section 13;
-//   - module manifests, renox.toml [modules] and renox.lock follow
-//     docs/contracts/manifest.md (schemas plus rules MF1-MF12, single files
-//     and whole example projects);
+//   - module manifests, renox.toml [modules] / [authz] / [realtime] and
+//     renox.lock follow docs/contracts/manifest.md (schemas plus rules
+//     MF1-MF14, single files and whole example projects);
 //   - control-plane <-> worker messages follow docs/contracts/deploy-api.md
 //     (schemas/control-messages.schema.json plus rules R1-R3);
 //   - schemas/deploy-api.yaml (OpenAPI 3.1): every operation has request and
@@ -351,11 +352,155 @@ function parsePattern(path: string): Segment[] {
     });
 }
 
-/** The methods a route answers: its own for a function, GET and HEAD (and POST with actions) for a page. */
+/** The methods a route answers: its own for a function, GET and HEAD (and POST with actions) for a page, GET for ws and sse (1.3). */
 function routeMethods(route: JsonObject): string[] {
+  if (route.kind === "ws" || route.kind === "sse") return ["GET"];
   if (route.kind !== "page") return [route.method as string];
   const actions = (route.actions as string[] | undefined) ?? [];
   return actions.length > 0 ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
+}
+
+/** Version 1.3: tool and job routes have no path; everything else takes part in matching. */
+const hasPath = (route: JsonObject): boolean => route.kind !== "tool" && route.kind !== "job";
+
+/** Version 1.3: the module-id prefix a route kind requires (V7), for the app and for a module. */
+function routePrefix(kind: string, owner: string): string {
+  switch (kind) {
+    case "page":
+      return "pages/";
+    case "ws":
+      return "functions/ws/";
+    case "sse":
+      return "functions/sse/";
+    case "tool":
+      return owner === "app" ? "functions/tools/" : "tools/";
+    case "job":
+      return "jobs/";
+    default:
+      return "functions/";
+  }
+}
+
+/** The exports a route needs in its module's `entries` record (V23). */
+function routeExports(route: JsonObject): string[] {
+  const need: string[] = [];
+  if (route.kind === "function" && typeof route.export === "string") need.push(route.export);
+  if (route.kind === "page") {
+    if (route.load === true) need.push("load");
+    if (Array.isArray(route.actions) && route.actions.length > 0) need.push("actions");
+  }
+  if (route.kind === "ws" || route.kind === "sse") need.push(route.kind as string);
+  if (route.kind === "tool") need.push("default");
+  if (route.kind === "job") need.push("run", "schedule");
+  if (isObject(route.guard)) need.push("guard");
+  return need;
+}
+
+// artifact.md 1.3: the platform actions every app may name in a guard, a tool or a policy.
+const PLATFORM_ACTIONS = ["realtime.subscribe"];
+const RESERVED_PATHS = ["/mcp", "/.well-known/oauth-protected-resource/mcp"];
+
+/** V27: a five-field cron expression with numbers, `*`, lists, ranges and steps (ops.md section 20). */
+function cronProblem(expr: string): string | null {
+  const fields = expr.split(" ");
+  if (fields.length !== 5) return `${fields.length} fields, expected 5`;
+  const bounds: [number, number][] = [
+    [0, 59],
+    [0, 23],
+    [1, 31],
+    [1, 12],
+    [0, 7],
+  ];
+  for (const [i, field] of fields.entries()) {
+    const [lo, hi] = bounds[i] as [number, number];
+    for (const item of field.split(",")) {
+      const m = /^(\*|([0-9]+)(?:-([0-9]+))?)(?:\/([0-9]+))?$/u.exec(item);
+      if (m === null) return `field ${i + 1}: "${item}" is not a number, a range, * or a step`;
+      if (m[2] !== undefined) {
+        const a = Number(m[2]);
+        const b = m[3] === undefined ? a : Number(m[3]);
+        if (a < lo || b > hi || a > b) return `field ${i + 1}: "${item}" is outside ${lo}-${hi}`;
+      }
+      if (m[4] !== undefined && Number(m[4]) < 1) return `field ${i + 1}: a step is at least 1`;
+    }
+  }
+  return null;
+}
+
+/**
+ * V25 (references of an authz block), V26 (the single-file part: ownership and
+ * feed tables under the owner's prefix, feed placeholders) and V27 (schedules)
+ * on a manifest that passed the schema; the migration checks of V26 are in
+ * checkArtifact.
+ */
+function authzRules(manifest: JsonObject): string[] {
+  const errors: string[] = [];
+  const owners: [string, JsonObject, JsonObject][] = [["app", obj(manifest.authz), obj(manifest.realtime)]];
+  for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) owners.push([m.name as string, obj(m.authz), obj(m.realtime)]);
+  const actions = new Set(PLATFORM_ACTIONS);
+  for (const [, authz] of owners) for (const a of strings(authz.actions)) actions.add(a);
+  const entities = new Map<string, Set<string>>();
+  for (const [owner, authz, realtime] of owners) {
+    const prefix = `${owner}__`;
+    const own = new Set(strings(authz.actions));
+    for (const a of strings(authz.sensitive)) if (!own.has(a)) errors.push(`V25: ${owner} authz.sensitive "${a}" is not one of its actions`);
+    for (const [role, acts] of Object.entries(obj(authz.default_roles))) {
+      for (const a of strings(acts)) if (!actions.has(a)) errors.push(`V25: ${owner} authz.default_roles.${role}: "${a}" is not in the merged action set`);
+    }
+    entities.set(owner, new Set(Object.keys(obj(authz.entities))));
+    for (const [type, decl] of Object.entries(obj(authz.entities))) {
+      const table = obj(decl).table;
+      if (typeof table === "string" && !table.startsWith(prefix)) errors.push(`V25: ${owner} authz.entities.${type}.table "${table}" is not under ${prefix}`);
+    }
+    for (const table of Object.keys(obj(authz.ownership))) if (!table.startsWith(prefix)) errors.push(`V25: ${owner} authz.ownership "${table}" is not under ${prefix}`);
+    for (const [table, pattern] of Object.entries(obj(realtime.feeds))) {
+      if (!table.startsWith(prefix)) errors.push(`V26: ${owner} realtime.feeds "${table}" is not under ${prefix}`);
+      const topic = (pattern as string).replace(/\{[a-z][a-z0-9_]{0,63}\}/gu, "x");
+      if (!/^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*$/u.test(topic)) errors.push(`V26: ${owner} realtime.feeds "${table}": "${pattern}" is not a topic`);
+    }
+  }
+  const toolNames = new Set<string>();
+  const jobNames = new Set<string>();
+  (manifest.routes as JsonObject[]).forEach((route, i) => {
+    const owner = ownerOf((route.module ?? route.template) as string | undefined);
+    const where = `routes[${i}]`;
+    const guard = route.guard;
+    if (isObject(guard)) {
+      if (!actions.has(guard.action as string)) errors.push(`V25: ${where} guard.action "${guard.action}" is not in the merged action set`);
+      const resource = guard.resource;
+      if (isObject(resource)) {
+        const type = resource.type as string;
+        const [typeOwner, typeName] = type.includes(":") ? (type.split(":") as [string, string]) : [owner, type];
+        if (!(entities.get(typeOwner)?.has(typeName) ?? false)) errors.push(`V25: ${where} guard.resource.type "${type}" is not a declared entity of ${typeOwner}`);
+        const id = resource.id as string;
+        if (id.startsWith(":") && !parsePattern(route.path as string).some((s) => s.kind !== "static" && s.text === id.slice(1))) {
+          errors.push(`V25: ${where} guard.resource.id "${id}" names no parameter of ${route.path}`);
+        }
+      }
+    }
+    if (route.kind === "tool") {
+      const name = route.name as string;
+      if (toolNames.has(name)) errors.push(`V25: ${where} tool "${name}" is declared twice`);
+      toolNames.add(name);
+      if (!actions.has(route.action as string)) errors.push(`V25: ${where} tool "${name}": action "${route.action}" is not in the merged action set`);
+      for (const p of unsupportedKeywords(route.input as Json)) errors.push(`V25: ${where} tool "${name}" input ${p}`);
+    }
+    if (route.kind === "job") {
+      const key = `${owner} ${route.name}`;
+      if (jobNames.has(key)) errors.push(`V27: ${where} job "${route.name}" of ${owner} is declared twice`);
+      jobNames.add(key);
+      const problem = cronProblem(route.schedule as string);
+      if (problem !== null) errors.push(`V27: ${where} job "${route.name}": schedule "${route.schedule}": ${problem}`);
+      if (typeof route.tz === "string") {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: route.tz });
+        } catch {
+          errors.push(`V27: ${where} job "${route.name}": tz "${route.tz}" is not an IANA time zone`);
+        }
+      }
+    }
+  });
+  return errors;
 }
 
 /** Version 1.1: ids of an installed module start with modules/<name>/; every other id is the app's. */
@@ -386,9 +531,13 @@ function artifactModuleRules(manifest: JsonObject): string[] {
     const permissions = m.permissions as JsonObject;
     const approved = m.approved as JsonObject;
     if (permissions.tables !== undefined && permissions.tables !== approved.tables) errors.push(`V22: ${where}: tables "${permissions.tables}" were not approved`);
-    for (const key of ["network", "secrets", "slots", "hooks"]) {
+    for (const key of ["network", "secrets", "slots", "hooks", "roles"]) {
       for (const v of listOf(permissions[key])) if (!listOf(approved[key]).includes(v)) errors.push(`V22: ${where}: ${key} "${v}" was not approved`);
     }
+    // Version 1.3: the roles a module may assign are exactly the keys of its default_roles.
+    const roles = listOf(permissions.roles).sort();
+    const defaultRoles = Object.keys(obj(obj(m.authz).default_roles)).sort();
+    if (JSON.stringify(roles) !== JSON.stringify(defaultRoles)) errors.push(`V22: ${where}: permissions.roles ${JSON.stringify(roles)} are not the keys of authz.default_roles ${JSON.stringify(defaultRoles)}`);
     listed.set(name, m);
   });
 
@@ -424,6 +573,7 @@ function artifactModuleRules(manifest: JsonObject): string[] {
     if (owner === "app") return;
     const m = listed.get(owner);
     if (m === undefined) return void errors.push(`V18: routes[${i}]: module "${owner}" is not in modules`);
+    if (!hasPath(route)) return;
     const mount = m.mount as string;
     const path = route.path as string;
     if (mount !== "/" && path !== mount && !path.startsWith(`${mount}/`)) errors.push(`V21: routes[${i}] ${path} is not under ${owner}'s mount ${mount}`);
@@ -472,16 +622,21 @@ function manifestRules(manifest: JsonObject): string[] {
   const pageTemplates = new Map<string, number>();
   routes.forEach((route, i) => {
     const page = route.kind === "page";
-    const where = page ? `routes[${i}] page ${route.path}` : `routes[${i}] ${route.method} ${route.path}`;
+    const kind = route.kind as string;
+    const where = page ? `routes[${i}] page ${route.path}` : hasPath(route) ? `routes[${i}] ${route.method ?? kind.toUpperCase()} ${route.path}` : `routes[${i}] ${kind} ${route.name}`;
     const module = route.module as string | undefined;
     if (module !== undefined) {
       used.add(module);
       if (!(module in entry)) errors.push(`V7: ${where}: module "${module}" is not a key of code.entry`);
-      const prefix = page ? "pages/" : "functions/";
+      const prefix = routePrefix(kind, ownerOf(module));
       if (!localId(module).startsWith(prefix)) errors.push(`V7: ${where}: module "${module}" must be under ${prefix}`);
     }
-    if (!page && route.export !== route.method) {
+    if (kind === "function" && route.export !== route.method) {
       errors.push(`V7: ${where}: export "${route.export}" must equal the method`);
+    }
+    if (!hasPath(route)) return;
+    if (RESERVED_PATHS.some((p) => route.path === p || (route.path as string).startsWith("/.well-known/oauth-protected-resource/"))) {
+      errors.push(`V21: ${where}: the path is reserved for the cell (ops.md section 19)`);
     }
     if (page) {
       const load = route.load === true;
@@ -565,7 +720,7 @@ function manifestRules(manifest: JsonObject): string[] {
   if (cors.credentials === true && (!Array.isArray(cors.origins) || cors.origins.length === 0)) {
     errors.push("V16: security.cors.credentials requires a non-empty cors.origins");
   }
-  const answered = new Set(routes.flatMap((r) => routeMethods(r).map((m) => `${m} ${r.path}`)));
+  const answered = new Set(routes.filter(hasPath).flatMap((r) => routeMethods(r).map((m) => `${m} ${r.path}`)));
   const buckets = new Set<string>();
   ((security.ratelimit as JsonObject[] | undefined) ?? []).forEach((b, i) => {
     const key = `${b.method} ${b.path}`;
@@ -583,6 +738,7 @@ function manifestRules(manifest: JsonObject): string[] {
   }
   errors.push(...artifactModuleRules(manifest));
   errors.push(...entriesRules(manifest));
+  errors.push(...authzRules(manifest));
   return errors;
 }
 
@@ -606,13 +762,7 @@ function entriesRules(manifest: JsonObject): string[] {
   for (const [i, route] of (manifest.routes as JsonObject[]).entries()) {
     const id = route.module as string | undefined;
     if (id === undefined || !(id in entries)) continue;
-    const need: string[] = [];
-    if (route.kind === "function" && typeof route.export === "string") need.push(route.export);
-    if (route.kind === "page") {
-      if (route.load === true) need.push("load");
-      if (Array.isArray(route.actions) && route.actions.length > 0) need.push("actions");
-    }
-    for (const name of need) if (!exportsOf(id).includes(name)) errors.push(`V23: routes[${i}]: module "${id}" does not export "${name}"`);
+    for (const name of routeExports(route)) if (!exportsOf(id).includes(name)) errors.push(`V23: routes[${i}]: module "${id}" does not export "${name}"`);
   }
   for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) {
     for (const part of ["services", "hooks"]) {
@@ -773,8 +923,33 @@ function moduleNameProblem(name: string): string | null {
   if (!/^[a-z][a-z0-9_]{0,31}$/u.test(name)) return "does not match ^[a-z][a-z0-9_]{0,31}$";
   if (name.includes("__")) return 'contains "__"';
   if (name.endsWith("_")) return 'ends with "_"';
-  if (name === "app" || name === "renox") return "is reserved";
+  if (name === "app" || name === "renox" || name === "authz") return "is reserved";
   return null;
+}
+
+/**
+ * MF13 (roles and actions) and MF14 (own prefix) on a [authz] / [realtime]
+ * pair of a module (`prefix` = `<name>__`) or of the app (`app__`, 1.1).
+ * `actions` is the action set the owner's roles may name: the manifest's own
+ * for a module, the merged set (here: the app's own) for the app.
+ */
+function authzManifestRules(authz: JsonObject, realtime: JsonObject, permissions: JsonObject, prefix: string, where: string): string[] {
+  const errors: string[] = [];
+  const actions = new Set(strings(authz.actions));
+  for (const a of strings(authz.sensitive)) if (!actions.has(a)) errors.push(`MF13: ${where}[authz].sensitive "${a}" is not in [authz].actions`);
+  const defaultRoles = Object.keys(obj(authz.default_roles)).sort();
+  for (const [role, acts] of Object.entries(obj(authz.default_roles))) {
+    for (const a of strings(acts)) if (!actions.has(a)) errors.push(`MF13: ${where}[authz.default_roles].${role}: "${a}" is not in [authz].actions`);
+  }
+  const roles = strings(permissions.roles).sort();
+  if (JSON.stringify(roles) !== JSON.stringify(defaultRoles)) errors.push(`MF13: ${where}permissions.roles ${JSON.stringify(roles)} are not the keys of [authz.default_roles] ${JSON.stringify(defaultRoles)}`);
+  for (const t of Object.keys(obj(authz.ownership))) if (!t.startsWith(prefix)) errors.push(`MF14: ${where}[authz.ownership] "${t}" is not under ${prefix}`);
+  for (const [type, decl] of Object.entries(obj(authz.entities))) {
+    const table = obj(decl).table;
+    if (typeof table === "string" && !table.startsWith(prefix)) errors.push(`MF14: ${where}[authz.entities].${type}.table "${table}" is not under ${prefix}`);
+  }
+  for (const t of Object.keys(obj(realtime.feeds))) if (!t.startsWith(prefix)) errors.push(`MF14: ${where}[realtime.feeds] "${t}" is not under ${prefix}`);
+  return errors;
 }
 
 /** MF4 on a [permissions] table or a lock entry's `approved`. */
@@ -850,6 +1025,7 @@ function moduleRules(doc: JsonObject): string[] {
   ((doc.tools as JsonObject[] | undefined) ?? []).forEach((t, i) => {
     if (!actions.has(t.action as string)) errors.push(`MF9: tools[${i}].action "${t.action}" is not in [authz].actions`);
   });
+  errors.push(...authzManifestRules(obj(doc.authz), obj(doc.realtime), permissions, `${name}__`, ""));
 
   for (const [key, raw] of Object.entries(obj(doc.config))) {
     const decl = obj(raw);
@@ -862,13 +1038,16 @@ function moduleRules(doc: JsonObject): string[] {
   return errors;
 }
 
-/** MF1 on a renox.toml that passed the schema. */
+/** MF1 on a renox.toml that passed the schema; MF13 and MF14 on its [authz] and [realtime] (1.1). */
 function renoxRules(doc: JsonObject): string[] {
   const errors: string[] = [];
   for (const key of Object.keys(obj(doc.modules))) {
     const p = moduleNameProblem(key);
     if (p !== null) errors.push(`MF1: [modules] "${key}" ${p}`);
   }
+  // The app assigns any role, so its permissions.roles are its default_roles by definition.
+  const appRoles = { roles: Object.keys(obj(obj(doc.authz).default_roles)) };
+  errors.push(...authzManifestRules(obj(doc.authz), obj(doc.realtime), appRoles, "app__", "renox.toml "));
   return errors;
 }
 
@@ -906,6 +1085,7 @@ const normalisedPermissions = (p: JsonObject): string =>
     secrets: strings(p.secrets).sort(),
     slots: strings(p.slots).sort(),
     hooks: strings(p.hooks).sort(),
+    roles: strings(p.roles).sort(),
   });
 
 /** The project rules (MF2, MF3, MF5, MF7-MF12) on an example app: renox.toml, renox.lock, path: module trees. */
@@ -1013,6 +1193,10 @@ function checkProject(dir: string): string[] {
     }
     for (const s of (manifest.slots as JsonObject[] | undefined) ?? []) {
       if (!fs.existsSync(`${trees.get(key)}/${s.template}`)) errors.push(`MF9: ${key}: slot template ${s.template} is not in the module tree`);
+    }
+    // MF14 (1.1): a tool's file exists in the module tree.
+    for (const t of (manifest.tools as JsonObject[] | undefined) ?? []) {
+      if (!fs.existsSync(`${trees.get(key)}/${t.file}`)) errors.push(`MF14: ${key}: tool file ${t.file} is not in the module tree`);
     }
   }
 
@@ -1131,7 +1315,7 @@ function checkMessage(kind: string, doc: Json): string[] {
   return errors;
 }
 
-/** Walks an artifact directory and applies V1-V23. Returns one line per violation. */
+/** Walks an artifact directory and applies V1-V27. Returns one line per violation. */
 function checkArtifact(dir: string): string[] {
   const errors: string[] = [];
   const files = new Map<string, Uint8Array>();
@@ -1174,9 +1358,12 @@ function checkArtifact(dir: string): string[] {
     if (other !== undefined) errors.push(`V1: ${path} and ${other} differ only in case`);
     folded.set(key, path);
     const top = path.split("/")[0] as string;
-    if (withModules && (top === "policies" || top === "overrides" || path === "overrides.json")) continue;
-    if (top === "policies") errors.push("V1: policies/ is reserved and must be absent");
-    else if (version === 0 && (top === "templates" || path === "public.json")) {
+    if (withModules && (top === "overrides" || path === "overrides.json")) continue;
+    if (top === "policies") {
+      // Version 1.3: the app's own set and schema; version 1.1: a listed module's files (V18, below).
+      if (version === 0) errors.push(`V1: ${path}: policies/ must be absent in version 0`);
+      continue;
+    } else if (version === 0 && (top === "templates" || path === "public.json")) {
       errors.push(`V1: ${top === "templates" ? "templates/" : "public.json"} must be absent in version 0`);
     } else if (!(path === "manifest.json" || path === "public.json" || ["code", "migrations", "public", "templates"].includes(top))) {
       errors.push(`V1: ${path}: not an allowed top-level entry`);
@@ -1276,16 +1463,40 @@ function checkArtifact(dir: string): string[] {
   for (const id of templateIds) {
     if (!files.has(`templates/${id}.jinja`)) errors.push(`V14: templates/${id}.jinja is missing`);
   }
-  if (!withModules) return errors;
 
-  // V18: policies/<module>/<name>.cedar of installed modules (carried, evaluated from F5).
   const listed = installedModules(manifest);
   const paths = [...files.keys()];
+  // V24 (version 1.3): policies/app/<name>.cedar and policies/schema.cedarschema of the app, non-empty UTF-8;
+  // V18 (version 1.1): policies/<module>/<name>.cedar of installed modules (carried, evaluated from F5).
   for (const p of paths.filter((f) => f.startsWith("policies/"))) {
+    const app = p === "policies/schema.cedarschema" || /^policies\/app\/[A-Za-z0-9_.-]+\.cedar$/u.test(p);
     const m = /^policies\/([a-z][a-z0-9_]{0,31})\/[A-Za-z0-9_.-]+\.cedar$/u.exec(p);
-    if (m === null) errors.push(`V18: ${p}: not policies/<module>/<name>.cedar`);
-    else if (!listed.has(m[1] as string)) errors.push(`V18: ${p}: module "${m[1]}" is not in modules`);
+    if (!app && m === null) errors.push(`V24: ${p}: not policies/app/<name>.cedar, policies/schema.cedarschema, or policies/<module>/<name>.cedar`);
+    else if (!app && !listed.has(m?.[1] as string)) errors.push(`V18: ${p}: module "${m?.[1]}" is not in modules`);
+    const bytes = files.get(p) as Uint8Array;
+    if (bytes.length === 0) errors.push(`V24: ${p} is empty`);
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      errors.push(`V24: ${p} is not valid UTF-8`);
+    }
   }
+  // V26 (version 1.3): every feed and ownership table is created by a migration of its owner.
+  const created = new Map<string, Set<string>>();
+  for (const p of paths.filter((f) => /^migrations\/[^/]+\/.+\.sql$/u.test(f))) {
+    const owner = p.split("/")[1] as string;
+    const tables = created.get(owner) ?? new Set<string>();
+    for (const m of text(p).matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?["`]?([a-z][a-z0-9_]*)["`]?/giu)) tables.add((m[1] as string).toLowerCase());
+    created.set(owner, tables);
+  }
+  const owners: [string, JsonObject, JsonObject][] = [["app", obj(manifest.authz), obj(manifest.realtime)]];
+  for (const [name, m] of listed) owners.push([name, obj(m.authz), obj(m.realtime)]);
+  for (const [owner, authz, realtime] of owners) {
+    const tables = created.get(owner) ?? new Set<string>();
+    for (const t of Object.keys(obj(realtime.feeds))) if (!tables.has(t)) errors.push(`V26: ${owner} realtime.feeds "${t}": no migration of ${owner} creates it`);
+    for (const t of Object.keys(obj(authz.ownership))) if (!tables.has(t)) errors.push(`V26: ${owner} authz.ownership "${t}": no migration of ${owner} creates it`);
+  }
+  if (!withModules) return errors;
   // V19: migrations for every module that has tables, and none for a module that is not installed with tables.
   const migrated = new Set(paths.filter((p) => /^migrations\/[^/]+\/.+\.sql$/u.test(p)).map((p) => p.split("/")[1] as string));
   for (const [name, m] of listed) {
@@ -1423,8 +1634,8 @@ for (const name of listDir(`${manifestDir}/projects`)) {
 for (const [kind, { valid, invalid }] of Object.entries(manifestCounts)) {
   report(valid >= 1 && invalid >= 3, `manifest ${kind}: ${valid} valid and ${invalid} invalid examples (at least 1 and 3)`);
 }
-const mfMissing = Array.from({ length: 12 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
-report(mfMissing.length === 0, "every rule MF1-MF12 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
+const mfMissing = Array.from({ length: 14 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
+report(mfMissing.length === 0, "every rule MF1-MF14 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
 
 const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
 report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);
@@ -1458,6 +1669,9 @@ const artifacts: { dir: string; expect?: string }[] = [
   { dir: "examples/artifact/modules-artifact" }, // version 1.1: the auth module mounted at /auth
   { dir: "examples/artifact/broken-module-migrations-artifact", expect: "V19" }, // auth has tables but no migrations
   { dir: "examples/artifact/broken-override-artifact", expect: "V20" }, // an override not in overrides.json
+  { dir: "examples/artifact/f5-artifact" }, // version 1.3: guard, ws, sse, tool, job, authz, feeds, app policies
+  { dir: "examples/artifact/broken-feed-artifact", expect: "V26" }, // a feed on a table no migration creates
+  { dir: "examples/artifact/broken-policies-artifact", expect: "V24" }, // an empty policy file
 ];
 for (const { dir, expect } of artifacts) {
   for (const name of listDir(`${root}/${dir}`).filter((n) => /^[0-9a-f]{64}$/u.test(n))) {

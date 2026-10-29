@@ -1,0 +1,41 @@
+{
+  "$comment": "valid (1.5.0): the open handler of functions/ws/chat/[room].ts of the chat module, with the principal resolved at connect (ops.md section 18)",
+  "dispatch": "realtime",
+  "envelope": {
+    "kind": "realtime",
+    "phase": "open",
+    "transport": "ws",
+    "conn": "c_01JBQ3Z7MA00000000000001",
+    "route": "/chat/:room",
+    "params": {
+      "room": "42"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "principal": {
+      "id": "u_1",
+      "kind": "user",
+      "roles": [
+        {
+          "role": "finance",
+          "scope_type": "org",
+          "scope_id": "o_1"
+        },
+        {
+          "role": "viewer",
+          "scope_type": "global",
+          "scope_id": null
+        }
+      ],
+      "attrs": {
+        "org": "o_1",
+        "mfa_verified": true
+      }
+    },
+    "module": "chat"
+  },
+  "result": {
+    "type": "ok"
+  }
+}

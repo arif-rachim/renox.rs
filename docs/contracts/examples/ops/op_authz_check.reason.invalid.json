@@ -1,0 +1,21 @@
+{
+  "$comment": "invalid: unknown RENOX_FORBIDDEN reason [expect: enum]",
+  "op": "op_authz_check",
+  "args": [
+    "invoice.refund",
+    null,
+    null,
+    "billing"
+  ],
+  "error": {
+    "name": "ForbiddenError",
+    "code": "RENOX_FORBIDDEN",
+    "message": "x",
+    "details": {
+      "action": "invoice.refund",
+      "resource": null,
+      "reason": "because",
+      "policy": null
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$comment": "invalid: a principal has a kind [expect: invocation.principal]",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/invoices/:id",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {
+      "id": "inv_123"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "principal": {
+      "id": "u_1",
+      "roles": [],
+      "attrs": {}
+    }
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": []
+  }
+}

@@ -1,0 +1,10 @@
+# [expect: MF14] a feed names a table under the module's own prefix
+[module]
+name = "billing"
+version = "1.2.0"
+
+[permissions]
+tables = "billing__*"
+
+[realtime.feeds]
+"org__members" = "members:{org_id}"

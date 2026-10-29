@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: close codes are 1000-4999 [expect: minimum]",
+  "op": "op_realtime_close",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    200,
+    null
+  ],
+  "result": null
+}

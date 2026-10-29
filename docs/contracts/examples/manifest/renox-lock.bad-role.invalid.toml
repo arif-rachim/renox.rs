@@ -1,0 +1,13 @@
+# [expect: pattern] approved roles are role names
+version = 1
+
+[[module]]
+name = "org"
+version = "1.0.3"
+source = "official"
+hash = "a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+isolation = "shared"
+mount = "/org"
+dependencies = []
+config = {}
+approved = { tables = "org__*", network = [], secrets = [], slots = [], hooks = [], roles = ["Admin"] }

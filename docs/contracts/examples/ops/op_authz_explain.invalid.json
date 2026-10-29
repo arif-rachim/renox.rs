@@ -1,0 +1,15 @@
+{
+  "$comment": "invalid: a decision is allow or deny [expect: enum]",
+  "op": "op_authz_explain",
+  "args": [
+    "invoice.refund",
+    null,
+    null,
+    "billing"
+  ],
+  "result": {
+    "decision": "maybe",
+    "reasons": [],
+    "errors": []
+  }
+}

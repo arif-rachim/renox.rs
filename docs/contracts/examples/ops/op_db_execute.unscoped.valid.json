@@ -1,0 +1,23 @@
+{
+  "$comment": "valid (1.5.0): module code touching an owned table without a scope is RENOX_DB_SCOPE",
+  "op": "op_db_execute",
+  "args": [
+    "delete from shop__orders where id = ?",
+    [
+      "ord_1"
+    ],
+    7,
+    "shop",
+    null
+  ],
+  "error": {
+    "name": "DbScopeError",
+    "code": "RENOX_DB_SCOPE",
+    "message": "shop__orders needs db.scoped()",
+    "details": {
+      "table": "shop__orders",
+      "module": "shop",
+      "reason": "unscoped"
+    }
+  }
+}

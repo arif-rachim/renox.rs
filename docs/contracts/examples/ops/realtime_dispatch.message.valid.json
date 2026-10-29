@@ -1,0 +1,23 @@
+{
+  "$comment": "valid (1.5.0): one text frame of the app's own ws route; the handler threw, the message is dropped and the connection stays open",
+  "dispatch": "realtime",
+  "envelope": {
+    "kind": "realtime",
+    "phase": "message",
+    "transport": "ws",
+    "conn": "c_01JBQ3Z7MA00000000000001",
+    "route": "/ws/chat/:room",
+    "params": {
+      "room": "42"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "principal": null,
+    "data": "hello"
+  },
+  "result": {
+    "type": "failed",
+    "reason": "threw"
+  }
+}

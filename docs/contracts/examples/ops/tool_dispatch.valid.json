@@ -1,0 +1,48 @@
+{
+  "$comment": "valid (1.5.0): create_invoice of the billing module called by Alice's agent through /mcp (ops.md section 19)",
+  "dispatch": "tool",
+  "envelope": {
+    "kind": "tool",
+    "name": "create_invoice",
+    "module": "billing",
+    "input": {
+      "customerId": "c_7",
+      "items": [
+        {
+          "sku": "DATES-1KG",
+          "qty": 2
+        }
+      ]
+    },
+    "principal": {
+      "id": "u_1",
+      "kind": "user",
+      "roles": [
+        {
+          "role": "finance",
+          "scope_type": "org",
+          "scope_id": "o_1"
+        },
+        {
+          "role": "viewer",
+          "scope_type": "global",
+          "scope_id": null
+        }
+      ],
+      "attrs": {
+        "org": "o_1",
+        "mfa_verified": true
+      }
+    },
+    "client": {
+      "name": "claude-desktop",
+      "model": "claude-fable-5-1"
+    },
+    "preview": false,
+    "request_id": "01JBQ3Z7MA0000000000000301"
+  },
+  "result": {
+    "type": "ok",
+    "output_json": "{\"invoice_id\":\"inv_125\",\"status\":\"draft\"}"
+  }
+}

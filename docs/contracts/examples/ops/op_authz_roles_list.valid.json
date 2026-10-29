@@ -1,0 +1,26 @@
+{
+  "$comment": "valid (1.5.0): the assignments of u_1 (ops.md section 17)",
+  "op": "op_authz_roles_list",
+  "args": [
+    "u_1",
+    null
+  ],
+  "result": [
+    {
+      "user_id": "u_1",
+      "role": "finance",
+      "scope_type": "org",
+      "scope_id": "o_1",
+      "granted_by": "u_admin",
+      "at": 1793318400000
+    },
+    {
+      "user_id": "u_1",
+      "role": "viewer",
+      "scope_type": "global",
+      "scope_id": null,
+      "granted_by": "system:org",
+      "at": 1793318300000
+    }
+  ]
+}

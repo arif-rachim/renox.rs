@@ -1,0 +1,42 @@
+{
+  "$comment": "valid (1.5.0): the close of an SSE connection the platform ended for backpressure",
+  "dispatch": "realtime",
+  "envelope": {
+    "kind": "realtime",
+    "phase": "close",
+    "transport": "sse",
+    "conn": "c_01JBQ3Z7MA00000000000002",
+    "route": "/sse/orders",
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "principal": {
+      "id": "u_1",
+      "kind": "user",
+      "roles": [
+        {
+          "role": "finance",
+          "scope_type": "org",
+          "scope_id": "o_1"
+        },
+        {
+          "role": "viewer",
+          "scope_type": "global",
+          "scope_id": null
+        }
+      ],
+      "attrs": {
+        "org": "o_1",
+        "mfa_verified": true
+      }
+    },
+    "close": {
+      "code": 1008,
+      "reason": "backpressure"
+    }
+  },
+  "result": {
+    "type": "ok"
+  }
+}

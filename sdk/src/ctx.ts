@@ -1,8 +1,9 @@
 // The request context and handler shape (docs/contracts/ops.md sections 2-6,
-// 8, 15 and 16). Types identical to docs/contracts/ctx.d.ts; tests/contract.test-d.ts
+// 8, 15 to 20). Types identical to docs/contracts/ctx.d.ts; tests/contract.test-d.ts
 // enforces it.
 
 import type { Db, DbStatements } from "./db.ts";
+import type { Session } from "./pages.ts";
 
 /** Standard `fetch`; the allowlist and blocked ranges are enforced in Rust. */
 export type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -51,7 +52,228 @@ export interface Ctx {
   readonly hooks: Hooks;
   /** Argon2id off the isolate thread (section 16). */
   readonly password: Password;
+  /** The request's principal (section 17, 1.5.0); null is the anonymous principal. */
+  readonly principal: Principal | null;
+  /** Cedar decisions and role assignments (section 17, 1.5.0). */
+  readonly authz: Authz;
+  /** Topics, connections and payloads (section 18, 1.5.0); `publish` works from any handler. */
+  readonly realtime: Realtime;
+  /** Queued jobs (section 20, 1.5.0). */
+  readonly jobs: Jobs;
   // Reserved (ops.md section 8): see README.md.
+}
+
+// Authorization (ops.md section 17). The runtime glue is #279; `guard`,
+// `renox check` and the typed `authz` surface are #283.
+
+/** One row of `renox__role_assignments` as the principal carries it. */
+export interface PrincipalRole {
+  readonly role: string;
+  /** "global", or the `attrs` key the assignment is scoped on ("org"). */
+  readonly scope_type: string;
+  readonly scope_id: string | null;
+}
+
+/**
+ * The end user as the cell resolved it through the `auth` module's
+ * `auth.principal` service, or the System principal of a job or event
+ * handler. Frozen; the same object in every module's ctx of the request.
+ */
+export interface Principal {
+  readonly id: string;
+  readonly kind: "user" | "system";
+  readonly roles: readonly PrincipalRole[];
+  /** What `auth.principal` and its hook fillers added (`mfa_verified`, `org`, ...). */
+  readonly attrs: Readonly<Record<string, JsonValue>>;
+}
+
+/**
+ * A resource as tenant code passes it: `type` is a key of `[authz.entities]`
+ * (`"<module>:<Type>"` from the app for a module's type), `id` the entity id;
+ * only the declared attributes are kept, so a database row can be passed as it is.
+ */
+export type ResourceRef = { readonly type: string; readonly id: string } & Readonly<Record<string, unknown>>;
+
+export type AuthzContext = Readonly<Record<string, JsonValue>>;
+
+export interface Decision {
+  readonly allow: boolean;
+  /** The deciding policy id in dev mode, null otherwise. */
+  readonly policy: string | null;
+}
+
+export interface Explanation {
+  readonly decision: "allow" | "deny";
+  readonly reasons: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export interface RoleScope {
+  readonly type: string;
+  readonly id: string | null;
+}
+
+export interface RoleAssignment {
+  readonly user_id: string;
+  readonly role: string;
+  readonly scope_type: string;
+  readonly scope_id: string | null;
+  readonly granted_by: string;
+  readonly at: number;
+}
+
+export interface AuthzRoles {
+  /** Writes `renox__role_assignments` in the current transaction and emits `authz.roles_changed`; a module may assign only its approved roles. */
+  assign(userId: string, role: string, scope?: RoleScope): Promise<void>;
+  /** Resolves true when a row was removed. */
+  revoke(userId: string, role: string, scope?: RoleScope): Promise<boolean>;
+  list(userId: string): Promise<RoleAssignment[]>;
+}
+
+export interface Authz {
+  /** Resolves when the policy allows; rejects with `ForbiddenError` otherwise. */
+  require(action: string, resource?: ResourceRef, context?: AuthzContext): Promise<void>;
+  can(action: string, resource?: ResourceRef, context?: AuthzContext): Promise<boolean>;
+  /** One boolean per resource, in order; at most 1,000 resources. */
+  canBatch(action: string, resources: readonly ResourceRef[], context?: AuthzContext): Promise<boolean[]>;
+  /** Dev mode only; `RENOX_FORBIDDEN` (`reason: "dev_only"`) in production. */
+  explain(action: string, resource?: ResourceRef, context?: AuthzContext): Promise<Explanation>;
+  readonly roles: AuthzRoles;
+}
+
+/**
+ * `export const guard = { action, resource? }` of a page, function, ws or
+ * sse module: evaluated by the cell before the module is evaluated and
+ * before any handler runs, and on every fragment request. `resource.id` is
+ * a literal or `":<param>"`, a route parameter.
+ */
+export interface Guard {
+  readonly action: string;
+  readonly resource?: { readonly type: string; readonly id: string };
+}
+
+// Realtime (ops.md section 18). The typed `ws` / `sse` helpers are #284.
+
+/** A connection handle; only ws and sse handlers hold one. */
+export interface Conn {
+  readonly id: string;
+  readonly transport: "ws" | "sse";
+}
+
+/**
+ * A text frame, JSON text, or a partial rendered by the cell off the isolate
+ * thread (`fragment` is a partial template id of the caller's module).
+ * `event` names the SSE event; it is ignored on a WebSocket.
+ */
+export type RealtimePayload =
+  | string
+  | { readonly text: string; readonly event?: string }
+  | { readonly json: JsonValue; readonly event?: string }
+  | { readonly fragment: string; readonly data: Readonly<Record<string, unknown>>; readonly event?: string };
+
+export interface Realtime {
+  /** The Cedar action `realtime.subscribe` on `Renox::Topic`, fail closed: rejects with `ForbiddenError` on a deny. */
+  subscribe(conn: Conn, topic: string): Promise<void>;
+  unsubscribe(conn: Conn, topic: string): Promise<void>;
+  /** Resolves with the number of connections the message was queued for. */
+  publish(topic: string, payload: RealtimePayload): Promise<number>;
+  /** Rejects with `RealtimeBackpressureError` when the connection's queue is full. */
+  send(conn: Conn, payload: RealtimePayload): Promise<void>;
+  close(conn: Conn, code?: number, reason?: string): Promise<void>;
+}
+
+/** The ctx of `open` and `close`: the upgrade request plus the connection. */
+export interface RealtimeContext extends Ctx {
+  readonly session: Session;
+  readonly conn: Conn;
+}
+/** The ctx of `message`: one text or binary frame. */
+export interface MessageContext extends RealtimeContext {
+  readonly data: string | Uint8Array;
+}
+export interface CloseContext extends RealtimeContext {
+  readonly close: { readonly code: number; readonly reason: string | null };
+}
+
+/** Shape of a `functions/ws/**\/*.ts` module's `ws` export. */
+export interface WsModule {
+  open?(ctx: RealtimeContext): void | Promise<void>;
+  message?(ctx: MessageContext): void | Promise<void>;
+  close?(ctx: CloseContext): void | Promise<void>;
+}
+/** Shape of a `functions/sse/**\/*.ts` module's `sse` export. */
+export interface SseModule {
+  open?(ctx: RealtimeContext): void | Promise<void>;
+  close?(ctx: CloseContext): void | Promise<void>;
+}
+
+// App MCP tools (ops.md section 19). The `tool()` builder is #284.
+
+/** The ctx of a tool's `run`: the owning module's ctx without a request, as the token's user. */
+export interface ToolContext<I = unknown> extends Omit<Ctx, "req" | "url" | "params" | "headers"> {
+  readonly tool: {
+    readonly name: string;
+    readonly input: I;
+    readonly client: { readonly name: string; readonly model?: string };
+    /** true on the first call of a `confirm` tool: the run's transaction is rolled back. */
+    readonly preview: boolean;
+  };
+}
+
+/** A schema that validates `arguments` into `I` (the Standard Schema adapter of the SDK). */
+export interface ToolInputSchema<I> {
+  readonly "~standard": { readonly version: 1; readonly vendor: string; validate(value: unknown): unknown };
+  readonly __input?: I;
+}
+
+export interface ToolDefinition<I> {
+  readonly name: string;
+  readonly description: string;
+  readonly input: ToolInputSchema<I>;
+  /** The Cedar action checked with the token's user before `run`. */
+  readonly action: string;
+  readonly confirm?: boolean;
+  run(ctx: ToolContext<I>): unknown;
+}
+
+/** What `tool()` returns and a `functions/tools/*.ts` module default-exports. */
+export interface Tool<I = unknown> extends ToolDefinition<I> {
+  readonly confirm: boolean;
+}
+
+// Jobs (ops.md section 20; implemented in F6, #297).
+
+export interface EnqueueOptions {
+  /** Unix time in milliseconds; absent = as soon as possible. */
+  readonly runAt?: number;
+}
+
+export interface Jobs {
+  /** Writes a queued run of a job of this module in the current transaction; resolves with its id. */
+  enqueue(name: string, payload: Readonly<Record<string, unknown>>, options?: EnqueueOptions): Promise<string>;
+}
+
+export interface JobInfo<P = unknown> {
+  readonly id: string;
+  readonly name: string;
+  /** The tick the run is for, or the `runAt` of a queued run. */
+  readonly tick: number;
+  readonly attempt: number;
+  /** null for a scheduled run. */
+  readonly payload: P | null;
+}
+
+/** The ctx of `run`: the module's ctx without the request, with the attempt's transaction and the System principal. */
+export interface JobContext<P = unknown> extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
+  readonly db: DbStatements;
+  readonly job: JobInfo<P>;
+}
+
+/** Shape of a `jobs/*.ts` module. */
+export interface JobModule {
+  readonly schedule: string;
+  readonly tz?: string;
+  run(ctx: JobContext<never>): void | Promise<void>;
 }
 
 // Modules (ops.md section 15). Untyped here: the generated `renox:modules`

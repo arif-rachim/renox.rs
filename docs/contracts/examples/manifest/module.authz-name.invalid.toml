@@ -1,0 +1,4 @@
+# [expect: MF1] authz is the platform's event namespace (authz.roles_changed), not a module name
+[module]
+name = "authz"
+version = "0.1.0"

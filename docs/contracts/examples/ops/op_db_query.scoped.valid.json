@@ -1,0 +1,22 @@
+{
+  "$comment": "valid (1.5.0): a scoped statement of the shop module; Rust adds the owner predicate of shop__orders (ops.md section 17, db.scoped)",
+  "op": "op_db_query",
+  "args": [
+    "select id, total from shop__orders where status = ?",
+    [
+      "open"
+    ],
+    null,
+    "shop",
+    {
+      "user_id": "u_1",
+      "org_id": "o_1"
+    }
+  ],
+  "result": [
+    {
+      "id": "ord_1",
+      "total": 4200
+    }
+  ]
+}

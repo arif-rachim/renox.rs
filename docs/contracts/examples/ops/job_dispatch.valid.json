@@ -1,0 +1,16 @@
+{
+  "$comment": "valid (1.5.0): the first attempt of the app's nightly-report for the 03:00 tick; a scheduled run has no payload (ops.md section 20)",
+  "dispatch": "job",
+  "envelope": {
+    "kind": "job",
+    "id": "01JBQ3Z7MA0000000000000402",
+    "name": "nightly-report",
+    "module": "app",
+    "tick": 1793325600000,
+    "attempt": 1,
+    "payload": null
+  },
+  "result": {
+    "type": "ok"
+  }
+}

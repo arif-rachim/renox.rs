@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0.2** (F4, #226: event delivery records). Batches carry `schema_version: 0`: 0.1 and 0.2 are additive, and every version 0 record is a valid 0.2 record (section 8). History: "Changelog" at the bottom |
+| Version | **0.3** (F5, #272: `kind` values `tool` and `job`, the `authz_evals`, `realtime_conn_seconds` and `realtime_messages` fields, the route forms `WS`, `SSE`, `TOOL` and `JOB`, the `status` value `forbidden`; for `ops.md` 1.5.0). 0.2 (#226) added event delivery records. Batches carry `schema_version: 0`: 0.1 to 0.3 are additive, and every version 0 record is a valid 0.3 record (section 8). History: "Changelog" at the bottom |
 | Producers | `crates/renox-meter` (P4), fed by `crates/renox-runtime` (P1) and `crates/renox-cell` (P5) |
 | Consumers | `control/billing` (P14, F3): aggregation into billing tables; dashboard usage views (P13, F3); abuse detection (`docs/24-threat-model.md`) |
 | Machine-readable | [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json): the batch envelope (root) and the record (`$defs/record`) |
@@ -27,7 +27,7 @@ All fields are required except `render_ms`. Integers are JSON numbers within ±(
 | `request_id` | string, `^[0-9A-Za-z_-]{8,64}$` | — | gateway | The id the gateway assigned (`x-renox-request-id`, `ops.md` section 6): a ULID, unique across the platform. The de-duplication key (section 4) |
 | `tenant_id` | string, `^[a-z0-9][a-z0-9_-]{0,62}$` | — | cell, from the route table | Same value as `artifact.md` section 5. Never taken from request input |
 | `deployment_hash` | string, 64 lower-case hex | — | cell, from the route table | The artifact hash (`artifact.md` section 2) |
-| `route` | string, `<METHOD> <pattern>` | — | cell, from the matched manifest route | Method plus the route pattern from `manifest.routes[]`, e.g. `GET /api/notes/:id`. Low cardinality by construction |
+| `route` | string, `<METHOD> <pattern>` | — | cell, from the matched manifest route | Method plus the route pattern from `manifest.routes[]`, e.g. `GET /api/notes/:id`. Low cardinality by construction. From 0.3 also `WS <pattern>` and `SSE <pattern>` for a realtime connection, `TOOL <name>` for a tool call, `JOB <module> <name>` for a job attempt ("Realtime, tool, and job records", below) |
 | `started_at` | integer | Unix time, ms | cell | When the cell admitted the request (or rejected it as busy). Cell clock; only used to bucket records into hours |
 | `cpu_ms` | f64 | CPU milliseconds | runtime: **thread CPU time** (`CLOCK_THREAD_CPUTIME_ID`) of the isolate thread, summed over every slice of JavaScript and synchronous op work run on behalf of this request (`ops.md` section 10). Not V8's own counters, and not the Edge Runtime's per-worker CPU timer, which is cumulative per worker | The number that the CPU limit is checked against. Work on other threads (DNS, TLS, SQLite on a blocking pool) is not included; it is accounted as `db_ms` or as wall time |
 | `wall_ms` | f64 | milliseconds | cell, monotonic clock | From admission until the last response byte was handed to the gateway, or until the invocation ended by a limit or disconnect. For `busy`: time spent waiting in the queue |
@@ -44,7 +44,10 @@ All fields are required except `render_ms`. Integers are JSON numbers within ±(
 | `logs_dropped` | integer | lines | runtime, `op_log` | Log lines dropped by the tenant log rate limit during this request (`ops.md` section 4) |
 | `http_status` | integer, 100–599 | — | cell | Status code sent to the client. For an invocation ended by client disconnect, the status that was sent or would have been sent |
 | `status` | enum (below) | — | cell | How the invocation ended, from the platform's point of view |
-| `kind` | `"request"` or `"event"`, **optional** (0.2) | — | cell | What was invoked. Absent means `"request"`. `"event"`: one delivery attempt of a durable event ("Event records", below) |
+| `kind` | `"request"`, `"event"`, or (0.3) `"tool"`, `"job"`, **optional** (0.2) | — | cell | What was invoked. Absent means `"request"`. `"event"`: one delivery attempt of a durable event ("Event records", below); `"tool"`: one `tools/call` through `/mcp`; `"job"`: one attempt of a scheduled or queued job ("Realtime, tool, and job records", below) |
+| `authz_evals` | integer, **optional** (0.3) | count | cell, `crates/renox-authz` | Cedar evaluations of the invocation: the route `guard`, `op_authz_*`, `r-can` with a resource (cache hits excluded), the subscribe check, the tool check (`ops.md` section 17, "Metering and limits"). Absent means `0` |
+| `realtime_conn_seconds` | f64, **optional** (0.3) | seconds | cell, `crates/renox-realtime` | The lifetime of a `ws` or `sse` connection, on its record only (`route` `WS …` / `SSE …`). Absent means `0` |
+| `realtime_messages` | integer, **optional** (0.3) | count | cell, `crates/renox-realtime` | Frames received on the connection plus messages delivered to it (`send`, `publish`, feeds, replay), on a connection record only. Absent means `0` |
 
 ### Event records (0.2)
 
@@ -60,6 +63,16 @@ Each delivery attempt of a durable event to one module's handler (`ops.md` secti
 
 A request record (`kind` absent or `"request"`) never has an `EVENT` route, and an event record never has a `<METHOD>` route (`schemas/meter-record.schema.json`, the record's `if`/`then`/`else`). Service calls, hooks, and in-memory event handlers run inside the request that made them and produce no record of their own (`ops.md` section 7).
 
+### Realtime, tool, and job records (0.3)
+
+| Record | `kind` | `route` | `request_id` | Fields with a special value |
+| --- | --- | --- | --- | --- |
+| A `ws` or `sse` connection (`ops.md` section 18): **one invocation from the upgrade to the close**, written at the close | `request` (absent) | `WS <pattern>` / `SSE <pattern>` | the upgrade request's id | `http_status` 101 (ws) or 200 (sse); `wall_ms` the lifetime; `cpu_ms`, `db_*`, `fetch_*`, `render_*` summed over the `open`, `message`, `close` runs and the fragment renders they published; `realtime_conn_seconds` and `realtime_messages` set; `status` `ok` for any close (either side, or a platform limit close), `error` when `open` threw, `busy` for an upgrade refused by the connection caps (no tenant code ran), `forbidden` for a denied `guard` |
+| A tool call through `/mcp` that reached `run` (`ops.md` section 19) | `tool` | `TOOL <name>` | the HTTP request's id | `http_status` 200; `status` `ok`, `error` (`run` threw, or its output was over 256 KB), or the kill statuses; a preview run is a record too; `ingress_bytes` and `egress_bytes` are the HTTP request's and response's |
+| A job attempt (`ops.md` section 20): a scheduled tick or a queued run, one record per attempt like an event delivery | `job` | `JOB <module> <name>` (`JOB app nightly-report`) | `<outbox row id>_<attempt>` | `ingress_bytes`, `egress_bytes` 0; `http_status` 200 when `status` is `ok`, 500 otherwise; `status` as for an event record |
+
+A `tool` record's route starts with `TOOL `, a `job` record's with `JOB `, and neither carries the realtime fields; an `event` record never does either (the schema's per-kind rules). A `guard` denial on any route writes a request record with `status: forbidden` and the usual `<METHOD> <pattern>` route.
+
 ### `status`
 
 | Value | Meaning | Typical `http_status` |
@@ -72,6 +85,7 @@ A request record (`kind` absent or `"request"`) never has an `EVENT` route, and 
 | `blocked_fetch` | The handler failed with an **uncaught** `RENOX_FETCH_BLOCKED`. A blocked fetch that tenant code caught is `ok` with `fetch_blocked > 0` | 500 |
 | `busy` | Rejected by the per-deployment concurrency limit after queueing (`RENOX_BUSY`); no tenant code ran, so `cpu_ms`, `db_*`, `fetch_*` are 0 | 503 |
 | `render_limit` | Rendering the page or a fragment ran out of fuel, iterations, output size, include depth, or render time (`RENOX_RENDER_LIMIT`, F2). `render_fuel` and `render_ms` hold what was used up to the stop | 500 |
+| `forbidden` (0.3) | The route's `guard` denied before the handler, or the tool check denied before `run` (403 `RENOX_FORBIDDEN`, `ops.md` section 17). The principal was resolved, so tenant code may have run (the `auth.principal` service); `authz_evals` ≥ 1. An uncaught `ForbiddenError` from a handler is `ok` with the handler's 403, not `forbidden` | 403 |
 
 `busy` is an addition to the list in issue #16 (it was proposed in `ops.md` section 7). The record is kept because dashboards need to show rejected load, but billing does not charge it (section 5).
 
@@ -122,10 +136,11 @@ Not produced in v0. They get their own record kind in a later version. A record 
 
 | Meter | Phase | Field sketch | Interval |
 | --- | --- | --- | --- |
-| Realtime | F5 | `kind: "realtime"`, `tenant_id`, `deployment_hash`, `period_start`, `period_end`, `connection_seconds`, `peak_connections`, `messages_in`, `messages_out`, `bytes_out` | Per cell per minute |
+| Realtime | F5 (done in 0.3) | No per-minute record: a connection is one invocation record with `realtime_conn_seconds` and `realtime_messages` (section 2, "Realtime, tool, and job records"). A per-cell `peak_connections` gauge is a metric of the control endpoint (#295), not a meter record | — |
 | Storage | F5 (SQLite), F7 (object storage) | `kind: "storage"`, `tenant_id`, `measured_at`, `sqlite_bytes`, `wal_bytes`, `object_bytes`, `object_count` | Hourly, end of hour (`docs/05-tenant-lifecycle.md`) |
 | Render | F2 (done in 0.1) | No new record: `render_fuel` and `render_ms` are fields of the invocation record (section 2) | — |
-| Background jobs | F6 | Invocation records with `kind: "job"` and a `route` of the form `JOB <name>` (events are done in 0.2: section 2, "Event records") | Per run |
+| Background jobs | F6 (done in 0.3) | Invocation records with `kind: "job"` and `route` `JOB <module> <name>` (section 2); produced from #297 | Per attempt |
+| App MCP tools | F5 (done in 0.3) | Invocation records with `kind: "tool"` and `route` `TOOL <name>` (section 2); produced from #285 | Per call |
 
 ## 7. Mapping to billing dimensions
 
@@ -133,11 +148,12 @@ Not produced in v0. They get their own record kind in a later version. A record 
 
 | Billing dimension | Derived from | Notes |
 | --- | --- | --- |
-| Requests | Count of records with `status` ≠ `busy` | `busy` rejections are not charged. Event records (0.2) count as requests: each delivery attempt runs tenant code |
+| Requests | Count of records with `status` ≠ `busy` | `busy` rejections are not charged. Event records (0.2), tool and job records (0.3) count as requests: each runs tenant code. A connection record counts as one request, whatever its length (the length is billed as realtime) |
 | CPU-ms | Sum of `cpu_ms + render_ms` (absent `render_ms` = 0) | Rendering runs outside the tenant's CPU limit but is charged to its quota (`docs/04-isolation-security.md`), so it is billed as the CPU time it took. `render_fuel` is not converted: it is kept for the render limits and dashboards |
 | Egress | Sum of `egress_bytes + fetch_sent_bytes` | Bytes leaving our network. `fetch_received_bytes` and `ingress_bytes` are kept for abuse detection and limits, not billed |
+| Realtime (0.3) | Sum of `realtime_conn_seconds` and sum of `realtime_messages` | `docs/09-htmx-realtime.md`: "metered per tenant (connection-seconds and messages) for billing". The price per dimension is F7 (`control/billing`); until then both are usage-view numbers (#296) |
 | Storage | Storage meter (reserved, section 6) | Not derived from invocation records |
-| Not billed, kept for limits and dashboards | `wall_ms`, `peak_heap_bytes`, `db_ms`, `db_rows`, `fetch_blocked`, `logs_dropped`, `render_fuel`, `http_status` | Tier enforcement, usage views, anomaly alerts (`docs/24-threat-model.md`, abuse rows) |
+| Not billed, kept for limits and dashboards | `wall_ms`, `peak_heap_bytes`, `db_ms`, `db_rows`, `fetch_blocked`, `logs_dropped`, `render_fuel`, `http_status`, `authz_evals` (0.3: the evaluation quota of `ops.md` section 17, not a price) | Tier enforcement, usage views, anomaly alerts (`docs/24-threat-model.md`, abuse rows) |
 
 ## 8. Versioning
 
@@ -161,3 +177,4 @@ Not produced in v0. They get their own record kind in a later version. A record 
 | 0 | #16 | First version (F1): record, batch, delivery, sinks, reserved meters, billing mapping |
 | 0.1 | #152 | `render_fuel` may be non-zero (filled by the cell); new optional `render_ms` (render-pool CPU time, outside `cpu_ms`); new `status` value `render_limit`; billed CPU-ms is `cpu_ms + render_ms`; versioning rules (section 8) |
 | 0.2 | #226 | New optional `kind` (`"request"`, `"event"`; absent = request); event delivery records with the `EVENT <module> <name>` route form and the `<event id>_<module>_<attempt>` request id (section 2, "Event records"), the route form checked per `kind` by the schema; event attempts are billed as requests (section 7); `ops.md` 1.3.0 |
+| 0.3 | #272 | `kind` values `"tool"` and `"job"` with the route forms `TOOL <name>` and `JOB <module> <name>`; the route forms `WS <pattern>` and `SSE <pattern>` for a realtime connection, which is one record written at the close; new optional fields `authz_evals`, `realtime_conn_seconds`, `realtime_messages` (absent = 0; the realtime fields only on a connection record); new `status` value `forbidden`; the realtime billing dimension (section 7); the reserved realtime and job meters settled (section 6); `ops.md` 1.5.0 |

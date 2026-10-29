@@ -1,4 +1,4 @@
-// TypeScript view of docs/contracts/ops.md, contract version 1.3.0.
+// TypeScript view of docs/contracts/ops.md, contract version 1.5.0.
 // Plain declarations, no implementation: the SDK package (#31) implements and
 // re-exports these types. Section numbers refer to ops.md.
 
@@ -19,7 +19,9 @@ export type DbErrorCode =
   | "RENOX_DB_COLUMN_NAME"
   | "RENOX_DB_MULTI_STATEMENT"
   | "RENOX_DB_RESULT_LIMIT"
-  | "RENOX_DB_TX_STATE";
+  | "RENOX_DB_TX_STATE"
+  /** 1.5.0: an owned table without a scope, or a statement the rewriter cannot prove (section 17). */
+  | "RENOX_DB_SCOPE";
 
 export type FetchErrorCode = "RENOX_FETCH_BLOCKED" | "RENOX_FETCH_FAILED" | "RENOX_FETCH_EGRESS_LIMIT";
 
@@ -30,10 +32,21 @@ export type RenoxErrorCode =
   | "RENOX_DEADLINE"
   | "RENOX_NO_REQUEST"
   | "RENOX_SECRETS_CONSUMED"
-  | ModuleErrorCode;
+  | ModuleErrorCode
+  | AuthzErrorCode
+  | RealtimeErrorCode;
 
 /** Codes of the module broker (section 15, 1.3.0). */
 export type ModuleErrorCode = "RENOX_MODULE_UNDECLARED" | "RENOX_MODULE_SERVICE" | "RENOX_EVENT_PAYLOAD";
+
+/** 1.5.0: a policy denied (section 17); thrown by `authz.require` and `realtime.subscribe`, answered by a `guard`. */
+export type AuthzErrorCode = "RENOX_FORBIDDEN";
+
+/** 1.5.0: the realtime limits (section 18); thrown by the realtime ops, and the reason of a platform close. */
+export type RealtimeErrorCode = "RENOX_REALTIME_LIMIT" | "RENOX_REALTIME_BACKPRESSURE";
+
+/** 1.5.0: `/mcp` refusals before a tool runs (section 19), as JSON-RPC errors. */
+export type ToolErrorCode = "RENOX_TOOL_INPUT" | "RENOX_TOOL_SCOPE" | "RENOX_TOOL_CONFIRM";
 
 /**
  * Codes the platform answers with when a request ends ("response" in ops.md
@@ -50,7 +63,10 @@ export type ResponseErrorCode =
   | "RENOX_CSRF"
   | "RENOX_RENDER_LIMIT"
   /** 1.4.0: a lazy route module failed its first evaluation (ops.md section 11). */
-  | "RENOX_MODULE_EVAL";
+  | "RENOX_MODULE_EVAL"
+  | AuthzErrorCode
+  | RealtimeErrorCode
+  | ToolErrorCode;
 
 /** Body of a platform error response on an API route (errors.md, "Response body"). */
 export interface ErrorResponseBody {
@@ -94,6 +110,12 @@ export declare class DbUsageError extends RenoxError {
     | "RENOX_DB_MULTI_STATEMENT"
     | "RENOX_DB_RESULT_LIMIT"
     | "RENOX_DB_TX_STATE";
+}
+export type DbScopeReason = "unscoped" | "scope_missing" | "owner_mismatch" | "unprovable";
+/** 1.5.0 (section 17, "db.scoped()"): module code reached an owned table without a scope, or the rewriter refused the statement. */
+export declare class DbScopeError extends RenoxError {
+  readonly code: "RENOX_DB_SCOPE";
+  readonly details: { readonly table: string; readonly module: string; readonly reason: DbScopeReason };
 }
 
 // Fetch (section 2)
@@ -155,6 +177,35 @@ export declare class EventPayloadError extends RenoxError {
   readonly details: { readonly event: string; readonly reason: EventPayloadReason };
 }
 
+// Authorization (section 17, 1.5.0)
+export type ForbiddenReason = "deny" | "unknown_action" | "missing_attribute" | "evaluation_error" | "eval_limit" | "dev_only";
+/**
+ * A policy denied the action (section 17). Uncaught, it ends the request
+ * with 403 `RENOX_FORBIDDEN`, not 500. `policy` names the deciding policy in
+ * dev mode only.
+ */
+export declare class ForbiddenError extends RenoxError {
+  readonly code: "RENOX_FORBIDDEN";
+  readonly details: {
+    readonly action: string;
+    readonly resource: { readonly type: string; readonly id: string } | null;
+    readonly reason: ForbiddenReason;
+    readonly policy: string | null;
+  };
+}
+
+// Realtime (section 18, 1.5.0)
+export type RealtimeLimitReason = "tenant" | "user" | "topics" | "message_size" | "flood";
+export declare class RealtimeLimitError extends RenoxError {
+  readonly code: "RENOX_REALTIME_LIMIT";
+  readonly details: { readonly reason: RealtimeLimitReason };
+}
+/** The connection's outbound queue was full: it has been closed with 1008 (section 18, "Limits"). */
+export declare class RealtimeBackpressureError extends RenoxError {
+  readonly code: "RENOX_REALTIME_BACKPRESSURE";
+  readonly details: { readonly conn: string };
+}
+
 // ---------------------------------------------------------------------------
 // Database (section 1)
 // ---------------------------------------------------------------------------
@@ -180,6 +231,13 @@ export interface DbStatements {
   execute(sql: string, params?: readonly Param[]): Promise<ExecuteResult>;
 }
 
+/** The scope of `db.scoped()` (section 17): the values the owner predicates of owned tables are bound to. */
+export interface Scope {
+  readonly user_id?: string;
+  readonly org_id?: string;
+  readonly session_id?: string;
+}
+
 export interface Db extends DbStatements {
   /**
    * Runs `fn` in an IMMEDIATE transaction: commit when it resolves, rollback
@@ -188,6 +246,13 @@ export interface Db extends DbStatements {
    * savepoint instead (section 1, "Savepoints", 1.3.0).
    */
   transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T>;
+  /**
+   * A `Db` whose statements carry `scope` (section 1, "Scoped statements";
+   * section 17, "db.scoped()", 1.5.0): owned tables get their owner
+   * predicate, an INSERT must set the owner column to the scope's value, and
+   * a statement the rewriter cannot prove is refused with `RENOX_DB_SCOPE`.
+   */
+  scoped(scope: Scope): Db;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,9 +325,240 @@ export interface Ctx {
   readonly hooks: Hooks;
   /** Argon2id off the isolate thread (section 16). */
   readonly password: Password;
-  // Reserved (section 8): render, webhook, kv (F2); authz, realtime (F5);
-  // datasource (F6–F7); ai, domains (F7); offload. `auth` is a service of the
-  // `auth` module, not a ctx field. Pages get more fields (section 14, below).
+  /** The request's principal (section 17, 1.5.0); null is the anonymous principal. */
+  readonly principal: Principal | null;
+  /** Cedar decisions and role assignments (section 17, 1.5.0). */
+  readonly authz: Authz;
+  /** Topics, connections and payloads (section 18, 1.5.0); `publish` works from any handler. */
+  readonly realtime: Realtime;
+  /** Queued jobs (section 20, 1.5.0). */
+  readonly jobs: Jobs;
+  // Reserved (section 8): render, webhook, kv (F2); datasource (F6–F7); ai,
+  // domains (F7); offload. `auth` is a service of the `auth` module, not a
+  // ctx field. Pages get more fields (section 14, below).
+}
+
+// ---------------------------------------------------------------------------
+// Authorization (section 17, 1.5.0)
+// ---------------------------------------------------------------------------
+
+/** One row of `renox__role_assignments` as the principal carries it. */
+export interface PrincipalRole {
+  readonly role: string;
+  /** "global", or the `attrs` key the assignment is scoped on ("org"). */
+  readonly scope_type: string;
+  readonly scope_id: string | null;
+}
+
+/**
+ * The end user as the cell resolved it through the `auth` module's
+ * `auth.principal` service, or the System principal of a job or event
+ * handler (section 17, "Principal"). Frozen; the same object in every
+ * module's ctx of the request.
+ */
+export interface Principal {
+  readonly id: string;
+  readonly kind: "user" | "system";
+  readonly roles: readonly PrincipalRole[];
+  /** What `auth.principal` and its hook fillers added (`mfa_verified`, `org`, ...). */
+  readonly attrs: Readonly<Record<string, JsonValue>>;
+}
+
+/**
+ * A resource as tenant code passes it: `type` is a key of `[authz.entities]`
+ * (`"<module>:<Type>"` from the app for a module's type), `id` the entity id;
+ * only the declared attributes are kept, so a database row can be passed as it is.
+ */
+export type ResourceRef = { readonly type: string; readonly id: string } & Readonly<Record<string, unknown>>;
+
+export type AuthzContext = Readonly<Record<string, JsonValue>>;
+
+export interface Decision {
+  readonly allow: boolean;
+  /** The deciding policy id in dev mode, null otherwise. */
+  readonly policy: string | null;
+}
+
+export interface Explanation {
+  readonly decision: "allow" | "deny";
+  readonly reasons: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export interface RoleScope {
+  readonly type: string;
+  readonly id: string | null;
+}
+
+export interface RoleAssignment {
+  readonly user_id: string;
+  readonly role: string;
+  readonly scope_type: string;
+  readonly scope_id: string | null;
+  readonly granted_by: string;
+  readonly at: number;
+}
+
+export interface AuthzRoles {
+  /** Writes `renox__role_assignments` in the current transaction and emits `authz.roles_changed`; a module may assign only its approved roles. */
+  assign(userId: string, role: string, scope?: RoleScope): Promise<void>;
+  /** Resolves true when a row was removed. */
+  revoke(userId: string, role: string, scope?: RoleScope): Promise<boolean>;
+  list(userId: string): Promise<RoleAssignment[]>;
+}
+
+export interface Authz {
+  /** Resolves when the policy allows; rejects with `ForbiddenError` otherwise. */
+  require(action: string, resource?: ResourceRef, context?: AuthzContext): Promise<void>;
+  can(action: string, resource?: ResourceRef, context?: AuthzContext): Promise<boolean>;
+  /** One boolean per resource, in order; at most 1,000 resources. */
+  canBatch(action: string, resources: readonly ResourceRef[], context?: AuthzContext): Promise<boolean[]>;
+  /** Dev mode only; `RENOX_FORBIDDEN` (`reason: "dev_only"`) in production. */
+  explain(action: string, resource?: ResourceRef, context?: AuthzContext): Promise<Explanation>;
+  readonly roles: AuthzRoles;
+}
+
+/**
+ * `export const guard = { action, resource? }` of a page, function, ws or
+ * sse module (section 17, "guard"): evaluated by the cell before the module
+ * is evaluated and before any handler runs, and on every fragment request.
+ * `resource.id` is a literal or `":<param>"`, a route parameter.
+ */
+export interface Guard {
+  readonly action: string;
+  readonly resource?: { readonly type: string; readonly id: string };
+}
+
+// ---------------------------------------------------------------------------
+// Realtime (section 18, 1.5.0)
+// ---------------------------------------------------------------------------
+
+/** A connection handle; only ws and sse handlers hold one. */
+export interface Conn {
+  readonly id: string;
+  readonly transport: "ws" | "sse";
+}
+
+/**
+ * A text frame, JSON text, or a partial rendered by the cell off the isolate
+ * thread (`fragment` is a partial template id of the caller's module).
+ * `event` names the SSE event; it is ignored on a WebSocket.
+ */
+export type RealtimePayload =
+  | string
+  | { readonly text: string; readonly event?: string }
+  | { readonly json: JsonValue; readonly event?: string }
+  | { readonly fragment: string; readonly data: Readonly<Record<string, unknown>>; readonly event?: string };
+
+export interface Realtime {
+  /** The Cedar action `realtime.subscribe` on `Renox::Topic`, fail closed: rejects with `ForbiddenError` on a deny. */
+  subscribe(conn: Conn, topic: string): Promise<void>;
+  unsubscribe(conn: Conn, topic: string): Promise<void>;
+  /** Resolves with the number of connections the message was queued for. */
+  publish(topic: string, payload: RealtimePayload): Promise<number>;
+  /** Rejects with `RealtimeBackpressureError` when the connection's queue is full. */
+  send(conn: Conn, payload: RealtimePayload): Promise<void>;
+  close(conn: Conn, code?: number, reason?: string): Promise<void>;
+}
+
+/** The ctx of `open` and `close`: the upgrade request plus the connection. */
+export interface RealtimeContext extends Ctx {
+  readonly session: Session;
+  readonly conn: Conn;
+}
+/** The ctx of `message`: one text or binary frame. */
+export interface MessageContext extends RealtimeContext {
+  readonly data: string | Uint8Array;
+}
+export interface CloseContext extends RealtimeContext {
+  readonly close: { readonly code: number; readonly reason: string | null };
+}
+
+/** Shape of a `functions/ws/**\/*.ts` module's `ws` export. */
+export interface WsModule {
+  open?(ctx: RealtimeContext): void | Promise<void>;
+  message?(ctx: MessageContext): void | Promise<void>;
+  close?(ctx: CloseContext): void | Promise<void>;
+}
+/** Shape of a `functions/sse/**\/*.ts` module's `sse` export. */
+export interface SseModule {
+  open?(ctx: RealtimeContext): void | Promise<void>;
+  close?(ctx: CloseContext): void | Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// App MCP tools (section 19, 1.5.0)
+// ---------------------------------------------------------------------------
+
+/** The ctx of a tool's `run`: the owning module's ctx without a request, as the token's user. */
+export interface ToolContext<I = unknown> extends Omit<Ctx, "req" | "url" | "params" | "headers"> {
+  readonly tool: {
+    readonly name: string;
+    readonly input: I;
+    readonly client: { readonly name: string; readonly model?: string };
+    /** true on the first call of a `confirm` tool: the run's transaction is rolled back. */
+    readonly preview: boolean;
+  };
+}
+
+/** A schema that validates `arguments` into `I` (the Standard Schema adapter of the SDK). */
+export interface ToolInputSchema<I> {
+  readonly "~standard": { readonly version: 1; readonly vendor: string; validate(value: unknown): unknown };
+  readonly __input?: I;
+}
+
+export interface ToolDefinition<I> {
+  readonly name: string;
+  readonly description: string;
+  readonly input: ToolInputSchema<I>;
+  /** The Cedar action checked with the token's user before `run`. */
+  readonly action: string;
+  readonly confirm?: boolean;
+  run(ctx: ToolContext<I>): unknown;
+}
+
+/** What `tool()` returns and a `functions/tools/*.ts` module default-exports. */
+export interface Tool<I = unknown> extends ToolDefinition<I> {
+  readonly confirm: boolean;
+}
+
+export declare function tool<I>(definition: ToolDefinition<I>): Tool<I>;
+
+// ---------------------------------------------------------------------------
+// Jobs (section 20, 1.5.0; implemented in F6)
+// ---------------------------------------------------------------------------
+
+export interface EnqueueOptions {
+  /** Unix time in milliseconds; absent = as soon as possible. */
+  readonly runAt?: number;
+}
+
+export interface Jobs {
+  /** Writes a queued run of a job of this module in the current transaction; resolves with its id. */
+  enqueue(name: string, payload: Readonly<Record<string, unknown>>, options?: EnqueueOptions): Promise<string>;
+}
+
+export interface JobInfo<P = unknown> {
+  readonly id: string;
+  readonly name: string;
+  /** The tick the run is for, or the `runAt` of a queued run. */
+  readonly tick: number;
+  readonly attempt: number;
+  /** null for a scheduled run. */
+  readonly payload: P | null;
+}
+
+/** The ctx of `run`: the module's ctx without the request, with the attempt's transaction and the System principal. */
+export interface JobContext<P = unknown> extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
+  readonly db: DbStatements;
+  readonly job: JobInfo<P>;
+}
+
+/** Shape of a `jobs/*.ts` module. */
+export interface JobModule {
+  readonly schedule: string;
+  readonly tz?: string;
+  run(ctx: JobContext<never>): void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +630,7 @@ export interface DeliveredEvent<P = unknown> extends EventInfo {
 export interface EventContext extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
   readonly db: DbStatements;
   readonly event: EventInfo;
+  // `principal` is the System principal of the handling module (section 17, 1.5.0).
 }
 
 export type EventHandler = (ctx: EventContext, e: DeliveredEvent<never>) => void | Promise<void>;
@@ -454,7 +751,50 @@ export interface PageInvocation {
   session: { id: string };
   /** 1.3.0: the installed module whose page it is; absent for the app's pages. */
   module?: string;
+  /** 1.5.0: the request's principal, already past the page's guard; absent = anonymous. */
+  principal?: Principal | null;
 }
+
+/** Cell → bootstrap, one handler run of a ws or sse connection (ops.schema.json `$defs/realtimeEnvelope`). */
+export interface RealtimeEnvelope {
+  kind: "realtime";
+  phase: "open" | "message" | "close";
+  transport: "ws" | "sse";
+  conn: string;
+  route: string;
+  params: Params;
+  session: { id: string };
+  principal?: Principal | null;
+  module?: string;
+  data?: string | Uint8Array;
+  close?: { code: number; reason: string | null };
+}
+export type RealtimeResult = { type: "ok" } | { type: "failed"; reason: "threw" | "no_handler" };
+
+/** Cell → bootstrap, one tool call that passed every check before `run` (ops.schema.json `$defs/toolEnvelope`). */
+export interface ToolEnvelope {
+  kind: "tool";
+  name: string;
+  module?: string;
+  input: JsonValue;
+  principal: Principal;
+  client: { name: string; model?: string };
+  preview: boolean;
+  request_id: string;
+}
+export type ToolResult = { type: "ok"; output_json: string } | { type: "failed"; reason: "threw" | "output_too_large" };
+
+/** Outbox worker → bootstrap, one job attempt (ops.schema.json `$defs/jobEnvelope`). */
+export interface JobEnvelope {
+  kind: "job";
+  id: string;
+  name: string;
+  module: string;
+  tick: number;
+  attempt: number;
+  payload: JsonValue;
+}
+export type JobResult = { type: "ok" } | { type: "failed"; reason: "threw" | "no_handler" };
 
 /** Bootstrap → Rust (ops.schema.json `$defs/pageResult`). */
 export type PageResult =
@@ -496,10 +836,16 @@ export interface FetchResponseHead {
   body: number | null;
 }
 
+/** A payload as it crosses after the bootstrap serialised it (ops.schema.json `$defs/realtimePayload`). */
+export type RealtimeWirePayload =
+  | { type: "text"; text: string; event?: string }
+  | { type: "json"; json_text: string; event?: string }
+  | { type: "render"; template: string; data_json: string; event?: string };
+
 export interface Ops {
-  op_db_query(sql: string, params: Param[], tx: TxHandle | null, module?: string | null): Promise<Row[]>;
-  op_db_query_one(sql: string, params: Param[], tx: TxHandle | null, module?: string | null): Promise<Row | null>;
-  op_db_execute(sql: string, params: Param[], tx: TxHandle | null, module?: string | null): Promise<ExecuteResult>;
+  op_db_query(sql: string, params: Param[], tx: TxHandle | null, module?: string | null, scope?: Scope | null): Promise<Row[]>;
+  op_db_query_one(sql: string, params: Param[], tx: TxHandle | null, module?: string | null, scope?: Scope | null): Promise<Row | null>;
+  op_db_execute(sql: string, params: Param[], tx: TxHandle | null, module?: string | null, scope?: Scope | null): Promise<ExecuteResult>;
   op_db_tx_begin(mode: "deferred" | "immediate"): Promise<TxHandle>;
   op_db_tx_commit(tx: TxHandle): Promise<void>;
   op_db_tx_rollback(tx: TxHandle): Promise<void>;
@@ -519,6 +865,24 @@ export interface Ops {
 
   op_password_hash(password: string): Promise<string>;
   op_password_verify(password: string, hash: string): Promise<boolean>;
+
+  // Section 17 (1.5.0). The principal is the request's own, never an argument.
+  op_authz_check(action: string, resource: ResourceRef | null, context: AuthzContext | null, module: string | null): Promise<Decision>;
+  op_authz_check_batch(action: string, resources: ResourceRef[], context: AuthzContext | null, module: string | null): Promise<boolean[]>;
+  op_authz_explain(action: string, resource: ResourceRef | null, context: AuthzContext | null, module: string | null): Promise<Explanation>;
+  op_authz_roles_assign(userId: string, role: string, scopeType: string, scopeId: string | null, module: string | null, tx: TxHandle | null): Promise<void>;
+  op_authz_roles_revoke(userId: string, role: string, scopeType: string, scopeId: string | null, module: string | null, tx: TxHandle | null): Promise<boolean>;
+  op_authz_roles_list(userId: string, module: string | null): Promise<RoleAssignment[]>;
+
+  // Section 18 (1.5.0).
+  op_realtime_subscribe(conn: string, topic: string, module: string | null): Promise<void>;
+  op_realtime_unsubscribe(conn: string, topic: string): Promise<void>;
+  op_realtime_publish(topic: string, payload: RealtimeWirePayload, module: string | null): Promise<number>;
+  op_realtime_send(conn: string, payload: RealtimeWirePayload): Promise<void>;
+  op_realtime_close(conn: string, code: number, reason: string | null): Promise<void>;
+
+  // Section 20 (1.5.0).
+  op_jobs_enqueue(name: string, payloadJson: string, runAt: number | null, module: string | null, tx: TxHandle | null): Promise<string>;
 
   op_deadline_remaining_ms(): number;
 }

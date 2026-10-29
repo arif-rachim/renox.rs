@@ -1,0 +1,20 @@
+{
+  "$comment": "invalid: a tool runs as the token's user, never anonymous [expect: type]",
+  "dispatch": "tool",
+  "envelope": {
+    "kind": "tool",
+    "name": "create_invoice",
+    "module": "billing",
+    "input": {},
+    "principal": null,
+    "client": {
+      "name": "x"
+    },
+    "preview": false,
+    "request_id": "01JBQ3Z7MA0000000000000305"
+  },
+  "result": {
+    "type": "ok",
+    "output_json": "{}"
+  }
+}

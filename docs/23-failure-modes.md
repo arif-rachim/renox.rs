@@ -49,7 +49,7 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | Browser error (script, island, Alpine) or htmx failure (error response, no target, swap error, timeout) | `renox-client.js` events with request id | Dev: overlay "Browser" tab; prod: dashboard group with original file and line | Event rate-limited and logged with `source=client`; nothing touches the isolate | #127 Playwright suite; #128 grouping tests | F2/F3 |
 | Script blocked by CSP | CSP `report-to` → `/__renox/events` | Dev overlay / dashboard `csp.violation` with directive and source | Same as above | #126 normalisation test | F2 |
 | Client-event flood (bug or abuse) | Per-IP and per-tenant buckets at the gateway | Nothing (204 always) | Dropped and counted; daily quota warning in the dashboard | #126 limit tests; #128 quota test | F2/F3 |
-| WebSocket message flood / oversized frame | Per-connection limits, backpressure | Connection closed with code | Fan-out never touches the isolate | realtime tests, B14 | F5 |
+| WebSocket message flood / oversized frame | Per-connection limits, backpressure | Connection closed with code | Fan-out never touches the isolate | realtime tests, B14 (`docs/contracts/ops.md` §18, "Limits") | F5 |
 
 ## 3. Deploy and artifact failures (CLI, control plane, worker)
 
@@ -92,8 +92,8 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | Event handler fails repeatedly | Outbox retries | Dead-letter visible in `jobs` module | N retries with backoff, then dead-letter | outbox tests | F4 |
 | Module contract broken on upgrade (missing service, view version) | `renox check` | Upgrade refused with the broken reference | No migration run | check tests | F4 |
 | Template override drifted from module version | Stored original hash | Warning with diff | Upgrade continues, override flagged | override tests | F4 |
-| Policy denies | Cedar | 403 `RENOX_FORBIDDEN` with policy id in dev | Audit row for sensitive actions | policy tests per role | F5 |
-| Unscoped query on an owned table | `db.scoped` enforcement for module code | `RENOX_DB_SCOPE` | Statement refused | scoped tests | F5 |
+| Policy denies | Cedar | 403 `RENOX_FORBIDDEN` with policy id in dev | Audit row for sensitive actions | policy tests per role (`docs/contracts/ops.md` §17, "`authz` ops") | F5 |
+| Unscoped query on an owned table | `db.scoped` enforcement for module code | `RENOX_DB_SCOPE` | Statement refused | scoped tests (`docs/contracts/ops.md` §17, "`db.scoped()`") | F5 |
 | Session fixation, replayed token, OAuth `state` mismatch, password reset token reuse | `auth` module | Login refused | Session rotated on login; tokens single-use; `state` checked | `TODO` → #100 | F4 |
 | Marketplace module unsigned or permission diff on upgrade | Registry verification | Install refused / approval required | Hash can be disabled globally | registry tests | F7 |
 

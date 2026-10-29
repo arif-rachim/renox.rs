@@ -1,0 +1,12 @@
+{
+  "$comment": "invalid: a connection id is opaque, at least 8 characters [expect: pattern]",
+  "op": "op_realtime_send",
+  "args": [
+    "c1",
+    {
+      "type": "text",
+      "text": "x"
+    }
+  ],
+  "result": null
+}

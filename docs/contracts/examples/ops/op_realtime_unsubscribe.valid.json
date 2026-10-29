@@ -1,0 +1,9 @@
+{
+  "$comment": "valid (1.5.0)",
+  "op": "op_realtime_unsubscribe",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    "room:42"
+  ],
+  "result": null
+}

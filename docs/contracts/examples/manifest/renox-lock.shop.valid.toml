@@ -21,4 +21,4 @@ isolation = "shared"
 mount = "/org"
 dependencies = ["auth"]
 config = { max_members = 50, invitations = true }
-approved = { tables = "org__*", network = [], secrets = [], slots = ["auth.account_menu"], hooks = ["auth.after_login"] }
+approved = { tables = "org__*", network = [], secrets = [], slots = ["auth.account_menu"], hooks = ["auth.after_login"], roles = ["admin", "member"] }

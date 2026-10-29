@@ -1,0 +1,10 @@
+{
+  "$comment": "valid (1.5.0): the chat module subscribes the connection to its room after the Cedar check passed (ops.md section 18)",
+  "op": "op_realtime_subscribe",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    "room:42",
+    "chat"
+  ],
+  "result": null
+}

@@ -1,0 +1,20 @@
+{
+  "$comment": "invalid: the resources are an array [expect: type]",
+  "op": "op_authz_check_batch",
+  "args": [
+    "invoice.refund",
+    {
+      "type": "Invoice",
+      "id": "inv_123",
+      "amount": 4200,
+      "org": "o_1",
+      "status": "open",
+      "customer_email": "dropped@example.com"
+    },
+    null,
+    "billing"
+  ],
+  "result": [
+    true
+  ]
+}

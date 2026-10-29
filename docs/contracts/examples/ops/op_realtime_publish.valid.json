@@ -1,0 +1,14 @@
+{
+  "$comment": "valid (1.5.0): a partial of the chat module rendered by the cell and sent to the 3 subscribers of the room (ops.md section 18, Payloads)",
+  "op": "op_realtime_publish",
+  "args": [
+    "room:42",
+    {
+      "type": "render",
+      "template": "modules/chat/partials/message",
+      "data_json": "{\"msg\":{\"id\":\"m_9\",\"text\":\"hi\"},\"user\":\"u_1\"}"
+    },
+    "chat"
+  ],
+  "result": 3
+}

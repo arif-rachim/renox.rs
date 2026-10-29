@@ -1,0 +1,13 @@
+{
+  "$comment": "invalid: a role name is lower case [expect: pattern]",
+  "op": "op_authz_roles_revoke",
+  "args": [
+    "u_2",
+    "Finance",
+    "global",
+    null,
+    null,
+    null
+  ],
+  "result": true
+}

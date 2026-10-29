@@ -1,0 +1,21 @@
+{
+  "$comment": "valid (1.5.0): a message over 64 KB after rendering rejects with RENOX_REALTIME_LIMIT and is not sent",
+  "op": "op_realtime_publish",
+  "args": [
+    "room:42",
+    {
+      "type": "render",
+      "template": "modules/chat/partials/history",
+      "data_json": "{\"room\":\"42\"}"
+    },
+    "chat"
+  ],
+  "error": {
+    "name": "RealtimeLimitError",
+    "code": "RENOX_REALTIME_LIMIT",
+    "message": "the message is over 64 KB",
+    "details": {
+      "reason": "message_size"
+    }
+  }
+}

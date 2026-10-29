@@ -1,0 +1,10 @@
+{
+  "$comment": "valid (1.5.0): a handler closes a connection with a policy-violation code",
+  "op": "op_realtime_close",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    1008,
+    "left the room"
+  ],
+  "result": null
+}

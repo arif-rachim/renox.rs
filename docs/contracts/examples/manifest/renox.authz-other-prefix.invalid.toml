@@ -1,0 +1,13 @@
+# [expect: MF14] the app's owned tables are app__* tables
+[app]
+name = "shop"
+timezone = "Asia/Dubai"
+
+[modules]
+billing = { version = "^1.2" }
+
+[authz]
+actions = ["order.read"]
+
+[authz.ownership]
+"billing__invoices" = { owner = "user_id" }

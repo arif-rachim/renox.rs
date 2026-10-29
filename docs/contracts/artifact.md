@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1.2** (F4, #263: `entries`, the export names and `eager` flag of each code entry, for the lazy route modules of `ops.md` 1.4.0). 1.1 (#227) added modules. The major number is written into every manifest as `artifact.version`; 1.1 and 1.2 are additive and keep `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
+| Version | **1.3** (F5, #272: the app's policy set and schema under `policies/`, route kinds `ws`, `sse`, `tool`, `job`, the `guard` of a route, the `authz` and `realtime` blocks of the app and of each module, rules V24–V27; for `ops.md` 1.5.0). 1.2 (#263) added `entries`; 1.1 (#227) added modules. The major number is written into every manifest as `artifact.version`; 1.1 to 1.3 are additive and keep `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
 | Producers | `cli/` (P11): `renox build` writes an artifact directory; examples are also written by hand |
 | Consumers | `crates/renox-cell` (P5) and `crates/renox-runtime` (P1): load and verify an artifact; `crates/renox-gateway` (P3): reads the route table, the public index, and the `security` object; `control/api` (P12, F3): validates, stores, and routes artifacts |
 | Machine-readable | [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json), [`schemas/migrations-checksums.schema.json`](schemas/migrations-checksums.schema.json), [`schemas/public-manifest.schema.json`](schemas/public-manifest.schema.json) (JSON Schema draft 2020-12) |
@@ -34,12 +34,14 @@ An artifact is everything one deployment needs to run, frozen at build time and 
 ├── overrides/                       version 1.1, optional: tenant template overrides
 │   └── <module>/<path>.html         the override source of a module template
 └── policies/                        version 1.1: policies/<module>/<name>.cedar of installed modules (carried; evaluated from F5).
-                                     The app's own policy set and schema stay reserved for F5
+    ├── schema.cedarschema           version 1.3, optional: the app's Cedar schema (its own entity types and actions)
+    ├── app/<name>.cedar             version 1.3, optional: the app's own policy set
+    └── <module>/<name>.cedar        version 1.1: a module's default policies, as its tree ships them
 ```
 
 Rules for the tree:
 
-- Only the entries above may appear at the top level. `policies/`, `overrides/`, and `overrides.json` must be **absent** unless the manifest lists at least one installed module (version 1.1); `policies/` then holds only `policies/<module>/<name>.cedar` files of listed modules (V18), and F5 defines the app's own policies. In version 0, `templates/` and `public.json` must be absent too.
+- Only the entries above may appear at the top level. `overrides/` and `overrides.json` must be **absent** unless the manifest lists at least one installed module (version 1.1). `policies/` holds `policies/<module>/<name>.cedar` files of listed modules (V18) and, from version 1.3, the app's own `policies/app/<name>.cedar` files and `policies/schema.cedarschema` (V24); nothing else, and it is absent when there is none of those. In version 0, `templates/` and `public.json` must be absent too.
 - Only regular files and directories. Symbolic links, hard links to files outside the tree, device files, sockets, and FIFOs are rejected. Empty directories carry no meaning and are ignored by the hash (they cannot be represented in it).
 - `code.format = "esm-dir"`: `code/` holds `.js`, `.mjs`, and `.json` files only. `code.format = "eszip"`: `code/` holds exactly one file, `bundle.eszip` (Deno's module archive, with the V8 code cache when the CLI produces one).
 - Migration files: `migrations/<module>/NNN_<name>.sql` where `<module>` matches `^[a-z][a-z0-9_]{0,31}$` (the app's own migrations use the module name `app`, matching the `app__` table prefix), `NNN` is three digits from `001` upward with no gaps per module, and `<name>` matches `^[a-z0-9_]{1,64}$`. Nothing else may appear under `migrations/` besides `checksums.json`.
@@ -132,12 +134,16 @@ Version 1, abridged from [`examples/artifact/shop-artifact/`](examples/artifact/
 | `security` | object | version 1, optional | Web-layer settings from `renox.toml [security]` (below). Absent = every default of `docs/04-isolation-security.md`. Not allowed in version 0 |
 | `modules` | version 1.1: array of module entries; versions 0 and 1: an empty object | no | The installed modules, copied from `renox.lock` in its order (section 3, "Modules"). Absent or `{}`: no modules. Not allowed as an array in version 0 |
 | `slots` | version 1.1: object, slot name → fillers | no | The slot registry (section 3, "Modules"). Absent: no slot is filled |
+| `authz` | object | version 1.3, optional | The app's `renox.toml [authz]`, resolved: `actions`, `ownership`, `entities`, `default_roles`, `sensitive` (below, "Authorization and realtime"). Absent: the app defines no actions of its own |
+| `realtime` | object | version 1.3, optional | The app's `renox.toml [realtime]`: `feeds` (below). Absent: no change feed |
 
-No other keys are allowed at any level of the manifest (`additionalProperties: false` throughout). In particular, an unknown key under `permissions` or `security` is rejected rather than ignored, so a typo can never silently grant or drop a permission or a protection. Reserved for later versions: `jobs` (F6), `policies` (F5), `signature` (F7).
+No other keys are allowed at any level of the manifest (`additionalProperties: false` throughout). In particular, an unknown key under `permissions` or `security` is rejected rather than ignored, so a typo can never silently grant or drop a permission or a protection. Reserved for later versions: `signature` (F7).
 
 ### Route objects
 
-Each route object has a `kind`. Version 0 has only `"function"`; version 1 adds `"page"`. `"ws"` and `"sse"` are reserved (F5).
+Each route object has a `kind`. Version 0 has only `"function"`; version 1 adds `"page"`; version 1.3 adds `"ws"`, `"sse"`, `"tool"`, and `"job"` (below, "Realtime, tool, and job routes").
+
+**`guard` (version 1.3).** A function, page, `ws`, or `sse` route may carry `guard: { action, resource? }`, the module's `export const guard` as `renox build` read it (`ops.md` section 17, "`guard`"): `action` is in the merged action set (V25) and `resource` is `{ type, id }` with `type` a declared entity type and `id` a literal or `:<param>` naming a parameter of the route's pattern (V25). The cell evaluates it before the module is evaluated and before any handler, and on every fragment request.
 
 **Function routes** (`functions/**`, versions 0 and 1):
 
@@ -183,7 +189,62 @@ Route pattern syntax: `/` alone, or one or more segments `/<segment>` where a se
 
 `<name>` matches `^[a-z_][a-z0-9_]{0,31}$` and is unique within a pattern. No trailing `/` except the root pattern. The CLI derives patterns from file names: `[id]` → `:id`, `[...slug]` → `*slug`, `index` → the folder path. Files whose name starts with `_` (`_layouts/`, `_404`, `_error`) are not routes.
 
-Matching: segment by segment, a static segment beats a parameter, which beats a catch-all (`docs/07-app-model.md`, "Priority on conflict"). Page and function routes share one matcher: a page route takes part in matching for `GET` and `HEAD`, and for `POST` when it has actions. A request path with no matching pattern is a 404; a path that matches a pattern but not for the request's method is a 405 with an `Allow` header (`ops.md` section 6).
+Matching: segment by segment, a static segment beats a parameter, which beats a catch-all (`docs/07-app-model.md`, "Priority on conflict"). Page, function, `ws`, and `sse` routes share one matcher: a page route takes part in matching for `GET` and `HEAD`, and for `POST` when it has actions; a `ws` or `sse` route for `GET` (version 1.3). A request path with no matching pattern is a 404; a path that matches a pattern but not for the request's method is a 405 with an `Allow` header (`ops.md` section 6). The paths `/mcp` and `/.well-known/oauth-protected-resource/mcp` are reserved for the cell on every app (`ops.md` section 19) and no route may claim them (V21).
+
+### Realtime, tool, and job routes (version 1.3)
+
+**`ws` and `sse` routes** (`functions/ws/**`, `functions/sse/**`; `ops.md` section 18):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | `"ws"` \| `"sse"` | |
+| `path` | route pattern | Derived from the file path like a function route: `functions/ws/chat/[room].ts` → `/ws/chat/:room`, `functions/sse/orders.ts` → `/sse/orders` |
+| `module` | module id under `functions/ws/` or `functions/sse/` (after a `modules/<name>/` prefix), a key of `code.entry` | The module whose `ws` or `sse` export holds the handlers (`entries` records `ws` or `sse`) |
+| `guard` | optional | As above |
+
+A `ws` route answers a `GET` with `Upgrade: websocket`, an `sse` route a `GET` with `Accept: text/event-stream`; both take part in matching for `GET` only (V8).
+
+**`tool` routes** (`functions/tools/*.ts` of the app; `tools/*.ts` of a module declared in its `[[tools]]`, `manifest.md` section 2; `ops.md` section 19):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | `"tool"` | |
+| `name` | `^[a-z][a-z0-9_]{0,63}$`, unique across the app and its modules (V25) | The MCP tool name |
+| `module` | module id under `functions/tools/` (the app) or `modules/<name>/tools/` (a module), a key of `code.entry` | The module that default-exports the `tool(...)` (`entries` records `default`) |
+| `description` | string, 1–200 characters | Shown in `tools/list` |
+| `input` | a JSON Schema object in the keyword subset of `validate.ts` | The input schema `renox build` derived from the tool's `input`; `tools/call` arguments are validated against it before `run` |
+| `action` | an action of the merged action set (V25) | The Cedar action checked with the token's user before `run` |
+| `confirm` | boolean, default `false` | A two-step tool: preview, then a confirmation token |
+
+A tool route has no `path`: every tool is reached through `/mcp`.
+
+**`job` routes** (`jobs/*.ts` of the app, `jobs/*.ts` of a module; `ops.md` section 20):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | `"job"` | |
+| `name` | `^[a-z][a-z0-9_-]{0,63}$`, the file stem, unique per owner | `JOB <module> <name>` in the meter |
+| `module` | module id under `jobs/` (the app) or `modules/<name>/jobs/` (a module), a key of `code.entry` | The module whose `run` the scheduler calls (`entries` records `run` and `schedule`) |
+| `schedule` | a five-field cron expression (V27) | When the job ticks |
+| `tz` | IANA zone name, optional | The zone of the schedule; UTC when absent |
+
+A job route has no `path`. `renox build` writes one per `jobs/*.ts` file; the cell's scheduler reads them at load (#297).
+
+### Authorization and realtime (version 1.3)
+
+`authz` is the resolved `renox.toml [authz]` of the app; each module entry carries its own `authz`, copied from its `module.toml` (`manifest.md` 1.1), so the worker never reads a manifest. The shape is the same in both places:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `actions` | array of action names `<resource>.<verb>`, unique | The actions this owner defines. The **merged action set** of an artifact is the union over the app and every listed module, plus the platform actions (`realtime.subscribe`) |
+| `ownership` | object: table → `{ owner, org? }` | Owned tables for `db.scoped()` (`ops.md` section 17): the table is under the owner's own prefix (`app__` for the app, `<name>__` for a module; V26), `owner` and `org` are column names |
+| `entities` | object: type `^[A-Z][A-Za-z0-9_]{0,63}$` → `{ table?, id?, attrs }` | The Cedar entity types of this owner (`<Module>::<Type>`): `attrs` are the only attributes sent to the engine; `table` (own prefix) and `id` (column, default `id`) let the cell load a `guard` resource |
+| `default_roles` | object: role → array of actions | The roles this owner ships, with the actions a policy may grant them; a module may assign only these roles (`permissions.roles`, V22) |
+| `sensitive` | array of action names, a subset of `actions` | Decisions on these are audited; the group `Renox::Action::"sensitive"` of the merged schema |
+
+`realtime.feeds` (the app's `renox.toml [realtime]`; a module's `[realtime.feeds]` on its entry) maps a table of the owner's prefix to a topic pattern (`ops.md` section 18, "Change feed"): a topic string whose `{column}` placeholders name columns of that table; the table exists in the owner's migrations (V26).
+
+**Policies.** The app's policy set is `policies/app/<name>.cedar` and its schema `policies/schema.cedarschema` (both optional); a module's default policies are `policies/<module>/<name>.cedar`, carried from its tree (version 1.1). At `renox check`, `renox build`, upload, and load, the module schemas are generated from each `authz` block, merged with the app's schema, and every policy file is parsed and validated against the merged schema (V24); a failure is `RENOX_POLICY_INVALID` (`errors.md`, "Deploy"), and nothing is loaded. The merged policy set is what `crates/renox-authz` evaluates (`ops.md` section 17).
 
 **Trailing slashes** (Open 4 of version 0, settled here):
 
@@ -270,19 +331,20 @@ An app with installed modules (`docs/10-modules.md`; [`manifest.md`](manifest.md
 | --- | --- | --- |
 | `name`, `version`, `hash`, `source`, `mount`, `isolation`, `dependencies`, `config` | the lock entry (`manifest.md` section 5) | As there. `hash` is the module tree's hash; `config` the resolved config the module reads as `ctx.config` |
 | `approved` | the lock entry's `approved` | What the tenant approved |
-| `permissions` | the manifest's `[permissions]` at build time | What the runtime enforces for the module: its authorizer prefix, `fetch` allowlist, secrets, slots, and hook fills. Never more than `approved` (V22); `renox build` refuses to build when they differ at all (`manifest.md` MF12), so in a CLI-built artifact they are equal |
+| `permissions` | the manifest's `[permissions]` at build time | What the runtime enforces for the module: its authorizer prefix, `fetch` allowlist, secrets, slots, hook fills, and (version 1.3) `roles`, the roles it may assign. Never more than `approved` (V22); `renox build` refuses to build when they differ at all (`manifest.md` MF12), so in a CLI-built artifact they are equal |
 | `exports` | the manifest's `[exports]` | `services` (names), `events` (name → payload schema), `hooks` (names), `views` (names): what the broker checks calls, hook runs, and emits against |
+| `authz`, `realtime` | the manifest's `[authz]` and `[realtime]` (version 1.3) | The module's actions, ownership, entities, default roles, sensitive actions, and feeds (section 3, "Authorization and realtime") |
 
 **Ids and layout.** Every id of a module starts with `modules/<name>/` and is otherwise the id the module would have as an app:
 
 | What | App | Module `auth` |
 | --- | --- | --- |
-| Route module (`code.entry` key) | `pages/…`, `functions/…` | `modules/auth/pages/…`, `modules/auth/functions/…` |
+| Route module (`code.entry` key) | `pages/…`, `functions/…`, `jobs/…` (version 1.3) | `modules/auth/pages/…`, `modules/auth/functions/…`, `modules/auth/tools/…`, `modules/auth/jobs/…` (version 1.3) |
 | Services and hooks (`code.entry` keys, used by no route) | — | `modules/auth/services`, `modules/auth/hooks` |
 | Code path (`esm-dir`) | `code/<path>.js`, never under `code/modules/` | `code/modules/auth/<path>.js` |
 | Template id and file | `pages/…`, `partials/…` → `templates/<id>.jinja` | `modules/auth/pages/…`, `modules/auth/partials/…` → `templates/modules/auth/….jinja` |
 | Migrations | `migrations/app/` | `migrations/auth/` (V19) |
-| Policies | reserved, F5 | `policies/auth/<name>.cedar` |
+| Policies | `policies/app/<name>.cedar`, `policies/schema.cedarschema` (version 1.3) | `policies/auth/<name>.cedar` |
 
 A module's template `kind` follows from the id without its prefix (V14), so `modules/auth/pages/_layouts/main` is a layout.
 
@@ -315,7 +377,7 @@ A module's template `kind` follows from the id without its prefix (V14), so `mod
 ```
 
 - **Keys** are exactly the keys of `code.entry` (V23).
-- **`exports`** lists the module's static export names, sorted, as the bundler saw them (`export function POST`, `export const actions`, `export { x as y }` gives `y`; `export *` is resolved). Every route's handler must be in its module's list: `export` for a function route, `load` for a page route with `load: true`, and `actions` for one with actions. A module's `services` entry lists every name of its `exports.services` (V23).
+- **`exports`** lists the module's static export names, sorted, as the bundler saw them (`export function POST`, `export const actions`, `export { x as y }` gives `y`; `export *` is resolved). Every route's handler must be in its module's list: `export` for a function route, `load` for a page route with `load: true`, `actions` for one with actions, and (version 1.3) `ws` or `sse` for a realtime route, `default` for a tool route, `run` and `schedule` for a job route; a route with a `guard` lists `guard`. A module's `services` entry lists every name of its `exports.services` (V23).
 - **The worker re-checks at prepare,** before any isolate: it reads each module's static exports from the code (`code/` or `bundle.eszip`) and refuses the artifact when they differ from the recorded list. A tampered or stale `entries` cannot hide a missing export until a request finds it.
 - **`eager`** defaults to `true`. `false` lets the runtime evaluate the module on its first request, once per isolate (`ops.md` 1.4.0, section 11, step 4). A module's `services` and `hooks` entries must stay eager (V23): the broker needs them before any request. `renox build` writes `eager: false` for route modules and keeps `pages/_error` eager (`ops.md` Open 11).
 
@@ -397,14 +459,14 @@ One set of rules, applied by `renox check` and `renox build` (P11), by the worke
 
 | # | Rule | Where |
 | --- | --- | --- |
-| V1 | Every path follows section 1, "Paths"; no symlinks or special files; only the allowed top-level entries for the manifest's version (`templates/` and `public.json` absent in version 0; `policies/`, `overrides/`, and `overrides.json` absent unless `modules` lists a module, version 1.1) | check, *load* |
+| V1 | Every path follows section 1, "Paths"; no symlinks or special files; only the allowed top-level entries for the manifest's version (`templates/` and `public.json` absent in version 0; `overrides/` and `overrides.json` absent unless `modules` lists a module, version 1.1; `policies/` holds only module policy files of listed modules and, from version 1.3, `policies/app/*.cedar` and `policies/schema.cedarschema`) | check, *load* |
 | V2 | The directory name equals the content hash of section 2 | *load* (the CLI names the directory) |
 | V3 | `manifest.json` validates against `manifest.schema.json`; `artifact.version` is known. The schema also rejects version 1 fields (`templates`, `security`, page routes) in a version 0 manifest | check, *load* |
 | V4 | `app.timezone` is an IANA zone known to `Intl` | check |
 | V5 | **Bundle size**: the bytes under `code/` total at most 20 MiB (20,971,520 bytes) (`docs/04-isolation-security.md`, "Bundle size and versions"). The whole artifact totals at most 100 MiB and 10,000 files *proposed* (decompression-bomb caps for F3 are #95) | check, *load* |
 | V6 | `code/` matches `code.format` (section 1); every `code.entry` path exists in `code/` (for `esm-dir`) | check, *load* |
-| V7 | Every `routes[].module` is a key of `code.entry`, under `functions/` for function routes and under `pages/` for page routes (after a `modules/<name>/` prefix, version 1.1); `export` equals `method` for function routes; every `code.entry` key is used by at least one route, except the `modules/<name>/services` and `modules/<name>/hooks` entries | check, *load* |
-| V8 | **Route conflicts**: two routes that answer the same method with patterns of the same shape are rejected. Shape = the sequence of segment kinds with static segments compared literally and parameter / catch-all names ignored, so `/a/:id` and `/a/:slug` conflict, while `/a/new` and `/a/:id` do not (static wins). A page route answers `GET` and `HEAD`, and `POST` when it has actions, so it conflicts with a function route of the same shape for any of those methods, and with any other page route of the same shape. Parameter names are unique within a pattern; a catch-all is only the last segment | check, *load* |
+| V7 | Every `routes[].module` is a key of `code.entry`, under `functions/` for function routes, `pages/` for page routes, and (version 1.3) `functions/ws/` for `ws`, `functions/sse/` for `sse`, `functions/tools/` (the app) or `tools/` (a module) for `tool`, `jobs/` for `job` routes (after a `modules/<name>/` prefix, version 1.1); `export` equals `method` for function routes; every `code.entry` key is used by at least one route, except the `modules/<name>/services` and `modules/<name>/hooks` entries | check, *load* |
+| V8 | **Route conflicts**: two routes that answer the same method with patterns of the same shape are rejected. Shape = the sequence of segment kinds with static segments compared literally and parameter / catch-all names ignored, so `/a/:id` and `/a/:slug` conflict, while `/a/new` and `/a/:id` do not (static wins). A page route answers `GET` and `HEAD`, and `POST` when it has actions, so it conflicts with a function route of the same shape for any of those methods, and with any other page route of the same shape; a `ws` or `sse` route answers `GET` (version 1.3). Parameter names are unique within a pattern; a catch-all is only the last segment. Tool and job routes have no pattern | check, *load* |
 | V9 | **Unknown permission keys** (and unknown keys anywhere in the manifest) are rejected by the schema; network entries follow the allowlist syntax; no duplicate network entries or secret names | check, *load* |
 | V10 | `limits` values are within the tier defaults of the tenant (the schema only checks the paid-tier bounds) | F3 control plane; *load* clamps |
 | V11 | `migrations/`: file names as in section 1, numbering without gaps per module, `checksums.json` lists exactly the `.sql` files with matching hashes | check, *load* |
@@ -418,11 +480,15 @@ One set of rules, applied by `renox check` and `renox build` (P11), by the worke
 | V18 | **Ownership** (version 1.1): every `code.entry` id, template id, `slots` filler, and route under `modules/<name>/` belongs to a listed module, and its code path is under `code/modules/<name>/` (an app entry is never under `code/modules/`); a module that exports services has its `modules/<name>/services` entry; a filler's template is a `partial` of its own module; every `policies/` file is `policies/<module>/<name>.cedar` of a listed module | check, *load* |
 | V19 | **Module migrations** (version 1.1): every listed module with `permissions.tables` has migrations under `migrations/<name>/`; a `migrations/<name>/` other than `app` belongs to a listed module with tables | check, *load* |
 | V20 | **Overrides** (version 1.1): `overrides.json` exists when `overrides/` does and lists exactly its files; each is `<module>/(pages\|partials)/….html` of a listed module (templates only: logic cannot be overridden) and names the template `modules/<module>/<path without .html>`, which is a key of `manifest.templates`. With the module tree at hand (`renox build`), each `original_sha256` equals the original file at the installed version | check, *load*; the original hash in `renox build` |
-| V21 | **Routes after mounting** (version 1.1): a module's route path is its `mount` or under it; no two routes of different owners (the app, a module) answer the same method with the same shape (V8's rule, reported as V21 when the owners differ) | check, *load* |
-| V22 | **Approved permissions** (version 1.1): each module's `permissions` are a subset of its `approved` (tables equal when present; `network`, `secrets`, `slots`, `hooks` contained); a `slots` filler fills only a slot in its module's `permissions.slots` | check, *load* |
-| V23 | **Entries** (version 1.2): when `entries` is present, `artifact.version` is 1; its keys are exactly the keys of `code.entry`; every route's handler (`export` of a function route, `load` and `actions` of a page route that has them) is in its module's `exports`; every name of a module's `exports.services` is in the exports of its `modules/<name>/services` entry; the `services` and `hooks` entries of a module are not `eager: false`. At prepare, the recorded exports equal the module's static exports | check, *load* |
+| V21 | **Routes after mounting** (version 1.1): a module's route path is its `mount` or under it; no two routes of different owners (the app, a module) answer the same method with the same shape (V8's rule, reported as V21 when the owners differ); no route path is `/mcp` or under `/.well-known/oauth-protected-resource/` (version 1.3, reserved for the cell) | check, *load* |
+| V22 | **Approved permissions** (version 1.1): each module's `permissions` are a subset of its `approved` (tables equal when present; `network`, `secrets`, `slots`, `hooks`, and from version 1.3 `roles` contained); a `slots` filler fills only a slot in its module's `permissions.slots`; a module's `permissions.roles` are exactly the keys of its `authz.default_roles` (version 1.3) | check, *load* |
+| V23 | **Entries** (version 1.2): when `entries` is present, `artifact.version` is 1; its keys are exactly the keys of `code.entry`; every route's handler (`export` of a function route, `load` and `actions` of a page route that has them; from version 1.3 `ws` / `sse`, `default` of a tool route, `run` and `schedule` of a job route, `guard` of a guarded route) is in its module's `exports`; every name of a module's `exports.services` is in the exports of its `modules/<name>/services` entry; the `services` and `hooks` entries of a module are not `eager: false`. At prepare, the recorded exports equal the module's static exports | check, *load* |
+| V24 | **Policies** (version 1.3): every file under `policies/` is `policies/<module>/<name>.cedar` of a listed module (V18), `policies/app/<name>.cedar`, or `policies/schema.cedarschema`, non-empty UTF-8 (`<name>` matches `^[A-Za-z0-9_.-]+$`); the module schemas generated from each `authz` block merge with the app's schema without a duplicate entity type or action, and every policy parses and validates against the merged schema (`cedar-policy`; refused with `RENOX_POLICY_INVALID`). `validate.ts` checks the layout and encoding; the Cedar parse is the CLI's (#283) and the worker's (#276) | check, *load*; the parse in check and *load* |
+| V25 | **Actions** (version 1.3): every `guard.action`, every tool route's `action`, every `sensitive` action, and every action of a `default_roles` entry is in the merged action set (the app's and every module's `authz.actions`, plus `realtime.subscribe`); a `guard.resource.type` is a declared entity type of the route's owner and its `:<param>` names a parameter of the route's pattern; tool names are unique across the app and its modules; a tool's `input` uses only the keyword subset of `validate.ts`; each `authz` block's `sensitive` is a subset of its own `actions`, `ownership` and `entities.table` name tables of its owner's prefix | check, *load* |
+| V26 | **Feeds and ownership** (version 1.3): every `realtime.feeds` key (the app's and each module's) is a table of its owner's prefix that a `CREATE TABLE` in the owner's migrations creates, its topic pattern is a topic (`ops.md` section 18) whose `{column}` placeholders are identifiers; every `ownership` table likewise exists in the owner's migrations | check, *load* |
+| V27 | **Schedules** (version 1.3): every job route's `schedule` is a five-field cron expression (minute 0–59, hour 0–23, day of month 1–31, month 1–12, day of week 0–7; `*`, lists, ranges, steps; numbers only) and its `tz`, when present, is an IANA zone known to `Intl` (V4's rule); job names are unique per owner | check, *load* |
 
-Every rejection names the rule (`V1`–`V22`), the path or field, and a one-line reason; it never contains a filesystem path of the machine doing the check. In F3, a rejected upload sets the deployment state `rejected` with `RENOX_DEPLOY_REJECTED` (`errors.md`).
+Every rejection names the rule (`V1`–`V27`), the path or field, and a one-line reason; it never contains a filesystem path of the machine doing the check. In F3, a rejected upload sets the deployment state `rejected` with `RENOX_DEPLOY_REJECTED` (`errors.md`); a V24 Cedar failure is `RENOX_POLICY_INVALID`.
 
 ## 7. Worked examples
 
@@ -435,6 +501,8 @@ Every rejection names the rule (`V1`–`V22`), the path or field, and a one-line
 
 [`examples/artifact/modules-artifact/`](examples/artifact/modules-artifact/) is a version 1.1 artifact, written by hand: the app's own page and function routes and the `auth` module mounted at `/auth` (a page with a loader and an action, a function route, its `services` and `hooks` entries), the module's migrations after the app's, a tenant override of `auth`'s login template with `overrides.json`, a policy file, and the slot `app.header` filled by an `auth` partial. Its `modules` entry is the `auth` lock entry of [`manifest.md`](manifest.md)'s `projects/shop.valid` example. `broken-module-migrations-artifact` (V19) and `broken-override-artifact` (V20) are the same artifact with one thing broken.
 
+[`examples/artifact/f5-artifact/`](examples/artifact/f5-artifact/) is a version 1.3 artifact, written by hand: a guarded page, a `ws` and an `sse` route, a tool and a job of the app, the app's `authz` block (actions, an owned table, an entity, a default role, a sensitive action), a change feed on a table its migration creates, `policies/app/default.cedar` and `policies/schema.cedarschema`. `broken-feed-artifact` (V26, a feed on a table no migration creates) and `broken-policies-artifact` (V24, an empty policy file) are the same artifact with one thing broken.
+
 [`examples/artifact/`](examples/artifact/) also holds a version 0 artifact (`notes`: a parameter route, a migration, a public file), two deliberately broken artifacts (`broken-artifact`: a file changed after hashing; `broken-templates-artifact`: a template file not in the manifest), and single-file valid and invalid examples for each schema. Each invalid file states why in `$comment`, and `validate.ts` checks it fails for that reason.
 
 ## 8. Versions and consumers
@@ -444,6 +512,7 @@ Every rejection names the rule (`V1`–`V22`), the path or field, and a one-line
 - `renox build` writes version 1 from F2 on, also for apps with no pages, so the public index is always `public.json` in new artifacts.
 - **Version 1.1** (#227) keeps `artifact.version: 1`: an artifact without modules is byte-for-byte a version 1 artifact, and one with modules carries the new `modules` array, `slots`, and top-level entries. The consumers learn them in #232 (`crates/renox-cell` loads module code, migrations in `modules` order, the slot registry, and the module list for the bootstrap) and #235 (the CLI writes them). Until then a consumer that refuses a manifest whose `modules` is a non-empty array, with V3, is correct, not a bug. `packages/artifact-validate`, and so `control/api` uploads, accept 1.1 from this version on.
 - **Version 1.2** (#263) keeps `artifact.version: 1`: `entries` is optional, and without it everything behaves as in 1.1. The consumers learn it in #265: the CLI writes it, the cell checks it at prepare, and the runtime evaluates `eager: false` entries on first use. Until then a consumer that ignores `entries` and evaluates every entry eagerly is correct, not a bug: that is the 1.1 behaviour.
+- **Version 1.3** (#272) keeps `artifact.version: 1`: an artifact without the new route kinds, `guard`, `authz`, `realtime`, and app policies is byte-for-byte a version 1.2 artifact. The consumers learn it in F5: the CLI writes it (#283, #284), the worker checks V24–V27 at prepare and loads the policies (#276, #279), the cell serves the routes (#281, #285) and, in F6, the jobs (#297). Until then a consumer that refuses a manifest with a `ws`, `sse`, `tool`, or `job` route, a `guard`, or an `authz` block, with V3, is correct, not a bug; `packages/artifact-validate` accepts 1.3 from the CLI task on.
 - A future breaking change bumps the version again. A field added under an existing object, with a default that keeps old behaviour, is a minor change and does not bump the version.
 
 ## Open
@@ -459,6 +528,8 @@ Every rejection names the rule (`V1`–`V22`), the path or field, and a one-line
 
 Settled in version 1: the `public/manifest.json` name clash (version 0 Open 1, now section 4: the index moved to `public.json`) and trailing slashes (version 0 Open 4, now section 3, "Trailing slashes"). Settled in version 1.1: module templates and overrides (version 1 Open 5): a module's ids are prefixed with `modules/<name>/` instead of a `<module>:` namespace, so an id stays a path and the template file stays `templates/<id>.jinja`.
 9. **Static exports (version 1.2).** The worker's prepare-time check (V23) reads a module's static exports from its code. For `esm-dir` that is the ES module's export list after the CLI bundled it; for `eszip` the same list inside the bundle. A module whose exports are only known at run time (`export default` of a computed object used as a handler table) is not a route module the CLI produces, so the rule does not try to support it.
+10. **Reading `guard`, `tool(...)`, and `schedule` at build (version 1.3).** `renox build` records `guard`, a tool's definition, and a job's `schedule` and `tz` on the route entry, which needs the CLI to evaluate the module at build time (Open 6's question). #283 and #284 decide how (a static read of the literal, or an evaluation in Bun); a value the CLI cannot read statically is a build error, not a run-time surprise, and the worker's V23 check still proves the export exists.
+11. **Policy overrides.** `docs/11-authorization.md` lets an app override a module's policies under `overrides/<module>/policies/`. Version 1.3 carries only the app's own set and the modules' defaults; a `forbid` in the app's set already wins over a module's `permit`, which covers the common case. Overriding a module's policy file (like a template override, V20) is a minor change when a module needs it.
 
 ## Changelog
 
@@ -468,3 +539,4 @@ Settled in version 1: the `public/manifest.json` name clash (version 0 Open 1, n
 | 1 | #152 | **Pages:** `kind: "page"` routes with `module`, `load`, `actions`, `template`; methods and action selection (`?/name`); page and function routes share V8. **Templates:** `templates/<id>.jinja`, `manifest.templates` with `kind` and the per-page fragment map; fragment selection by `HX-Target`. **Security:** optional `security` object from `renox.toml [security]` (CSP, CORS, headers, rate-limit buckets). **Public index** moved to `public.json`, so `public/manifest.json` is an ordinary file (Open 1). **Trailing slash:** 308 redirect for page routes only (Open 4). **Rules:** V14–V16 added; V1, V3, V7, V8, V12 extended. Consumers accept versions 0 and 1 (section 8) |
 | 1.1 | #227 | Minor (additive), `artifact.version` stays `1`. **Modules:** the `modules` array copied from `renox.lock` in topological (migration) order, each entry with `name`, `version`, `hash`, `source`, `mount`, `isolation`, `dependencies`, `config`, `permissions`, `approved`, `exports`; module code under `code/modules/<name>/`, code ids and template ids under `modules/<name>/`, the `services` and `hooks` entries; `migrations/<name>/`; `policies/<name>/*.cedar` (carried, F5); `overrides/<name>/…` with `overrides.json`; module routes under their `mount`; the `slots` registry. **Rules:** V17–V22 added; V1, V7, V14 extended. Open 5 settled |
 | 1.2 | #263 | Minor (additive), `artifact.version` stays `1`. **Entries:** optional `entries`, code entry id → `{ exports, eager? }`, written by `renox build`: each module's static export names and whether the runtime evaluates it at isolate creation (`ops.md` 1.4.0, lazy route modules). **Rule:** V23 (keys match `code.entry`, route handlers and services are among the recorded exports, `services` and `hooks` stay eager, the worker re-checks the exports at prepare). Without `entries` an artifact behaves as in 1.1 |
+| 1.3 | #272 | Minor (additive), `artifact.version` stays `1`. **Routes:** kinds `ws` and `sse` (`functions/ws/**`, `functions/sse/**`, `GET` only in the matcher), `tool` (`name`, `description`, `input`, `action`, `confirm`; no path, reached through `/mcp`), `job` (`name`, `schedule`, `tz`; no path); optional `guard` on function, page, `ws`, and `sse` routes; module ids under `functions/ws/`, `functions/sse/`, `functions/tools/`, `jobs/`, `modules/<name>/tools/`, `modules/<name>/jobs/`. **Authorization:** the `authz` block (`actions`, `ownership`, `entities`, `default_roles`, `sensitive`) and `realtime.feeds` of the app and of each module entry; `permissions.roles` and `approved.roles`; the app's `policies/app/*.cedar` and `policies/schema.cedarschema`; the merged schema and action set. **Rules:** V24–V27 added; V1, V7, V8, V21 (`/mcp` reserved), V22, V23 extended. For `ops.md` 1.5.0 sections 17–20 |

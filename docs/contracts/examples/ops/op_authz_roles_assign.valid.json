@@ -1,0 +1,13 @@
+{
+  "$comment": "valid (1.5.0): the org module makes u_2 a finance of o_1 inside transaction 7; authz.roles_changed is emitted in it (ops.md section 17)",
+  "op": "op_authz_roles_assign",
+  "args": [
+    "u_2",
+    "finance",
+    "org",
+    "o_1",
+    "org",
+    7
+  ],
+  "result": null
+}
