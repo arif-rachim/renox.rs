@@ -34,6 +34,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[replication]` | off | `enabled`, `replica` (`file` \| `s3`), `path` (file), `bucket`, `prefix`, `region`, `endpoint`, `sse_kms_key_id` (s3), `allowed_regions` (`["me-central-1"]`), `sync_interval_ms` (1000), `retention_hours` (24), `snapshot_interval_secs` (3600), `stop_grace_ms` (3000), `litestream_bin` (`litestream` on `PATH`): "Replication" |
 | `[control] node_listen`, `node_listen_url` | — | The node listener the control plane calls (`docs/contracts/deploy-api.md` 0.3 section 15); a private address, refused at start when tenant `fetch` could reach it |
 | `[process]` | off | `enabled`, `max_children` (64), `child_idle_secs` (600), `restart_backoff_ms` (200), `run_dir` (`run`), `launcher` (`direct` \| `systemd`), `worker_bin`, `own_tenants` (local mode), `cgroup_root`, `child_cpu_quota_us` (200,000), `child_memory_bytes` (1 GiB), `child_pids` (512), `microvm_hook`: the process tiers of "Process tiers" |
+| `[realtime]` | 100 / 10,000 / 10 | `free_connections`, `paid_connections` (connections per tenant by tier), `user_connections` (per principal, or per client IP when anonymous): "Realtime". The other realtime limits are the contract's (`ops.md` 1.5.0 section 18) |
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 | `[authz]` | `false` / 60 | `dev` (`ctx.authz.explain` works and `RENOX_FORBIDDEN` names the deciding policy), `principal_ttl_secs` (how long a resolved principal is cached per session, 0 to 3,600): "Authorization" |
 
@@ -210,6 +211,20 @@ The cell enforces `docs/contracts/ops.md` 1.5.0 section 17 (`docs/11-authorizati
 
 Tests: `tests/authz.rs`; the ops themselves: `renox-runtime` `tests/authz_ops.rs`.
 
+## Realtime (#281)
+
+`ws` and `sse` routes (`ops.md` 1.5.0 section 18) are served by `src/realtime/`, not by the page or function path. One `renox-realtime` hub per cell, sized by the tier and `[realtime]`, is also the runtime's `RealtimeHost` (the deployment's realtime slot):
+
+1. **Connect.** The isolate runs the prelude alone (phase `connect`): the principal from the session cookie and the route's `guard`. A deny is 403 with a `forbidden` record; nothing is upgraded.
+2. **Caps.** The hub accepts the connection or refuses it over the tenant or per-user cap: 503 `RENOX_REALTIME_LIMIT`, `Retry-After: 5`, a `busy` record.
+3. **Handshake.** 101 (the gateway's `WsUpgrade`) or `200 text/event-stream`. Then `open` runs with `ctx.conn`, each inbound frame runs `message` (in order; a throw drops that message), and the end runs `close` with the code. A throw in `open` closes with 1011, a denied `subscribe` with 1008. Every run uses the principal resolved at connect.
+4. **Ops.** `ctx.realtime.subscribe` is checked first: `realtime.subscribe` on `Renox::Topic::"<topic>"`, fail closed, one `authz_evals`. `publish` and `send` go to the hub; a `{ fragment, data }` payload names a `partial` of the caller's module and is rendered on the blocking pool, its fuel and CPU on the publishing invocation's record. The fan-out never enters the isolate.
+5. **Meter.** One record per connection at its end: route `WS <pattern>` / `SSE <pattern>`, `http_status` 101 / 200, the handler runs summed, `realtime_conn_seconds`, and `realtime_messages` (frames received plus messages delivered). The connection holds the cell in flight, so the cell is not evicted while it is open.
+
+`CellManager::realtime_stats(tenant)` returns the hub's counters (live, opened, connection-seconds, messages in and out, refusals and closes by reason). The change feed (`[realtime.feeds]`) is not wired: it needs a commit hook in `renox-data` (see #281).
+
+Tests: `tests/realtime.rs`; the gateway handshake: `renox-gateway` `tests/upgrade.rs`.
+
 ## Outbox delivery (#229)
 
 Each cell runs one delivery task (`src/outbox.rs`) for the durable events of `docs/contracts/ops.md` 1.3.0 section 15.4 (ADR D14):
@@ -225,4 +240,4 @@ Tests: `tests/outbox.rs`.
 
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).
+Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the realtime change feed (#281), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).

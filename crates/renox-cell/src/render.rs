@@ -58,6 +58,19 @@ pub struct PageRenderer {
     missing: Arc<Mutex<Vec<(String, String)>>>,
     /// The deployment's policy engine (#279), for `r-can` (#280).
     authz: Option<renox_runtime::ops::authz::AuthzSlot>,
+    /// `partial` template ids: what a realtime `fragment` payload may name.
+    partials: BTreeSet<String>,
+}
+
+/// Why a realtime `fragment` could not be rendered (#281).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PartialError {
+    /// Not a `partial` template of the deployment.
+    Unknown,
+    /// A render limit (`fuel`, `iterations`, ...).
+    Limit(&'static str),
+    /// The render failed (the cause, for the tenant log).
+    Failed(String),
 }
 
 impl std::fmt::Debug for PageRenderer {
@@ -200,6 +213,7 @@ impl PageRenderer {
         let mut fragments = BTreeMap::new();
         let mut error_template = None;
         let mut not_found_template = None;
+        let mut partials = BTreeSet::new();
         for (id, def) in manifest.template_defs() {
             let path = artifact_dir.join("templates").join(format!("{id}.jinja"));
             let source = std::fs::read_to_string(&path)
@@ -217,7 +231,10 @@ impl PageRenderer {
                 }
                 TemplateKind::Error => error_template = Some(id.clone()),
                 TemplateKind::NotFound => not_found_template = Some(id.clone()),
-                TemplateKind::Layout | TemplateKind::Partial => {}
+                TemplateKind::Partial => {
+                    partials.insert(id.clone());
+                }
+                TemplateKind::Layout => {}
             }
         }
         if sources.is_empty() {
@@ -245,7 +262,32 @@ impl PageRenderer {
             deployment: deployment.to_string(),
             client_script,
             authz: None,
+            partials,
         }))
+    }
+
+    /// Renders a `partial` template for a realtime `fragment` payload
+    /// (`ops.md` 1.5.0 section 18): `data_json` is the payload's `data`,
+    /// under the default render limits. Blocking: call on the render pool.
+    /// `(html, fuel, ms)`.
+    pub fn render_partial(
+        &self,
+        id: &str,
+        data_json: &str,
+    ) -> Result<(String, u64, f64), PartialError> {
+        if !self.partials.contains(id) {
+            return Err(PartialError::Unknown);
+        }
+        let data: Value =
+            serde_json::from_str(data_json).map_err(|e| PartialError::Failed(e.to_string()))?;
+        let cx = self.context(None);
+        self.renderer
+            .render(RenderTarget::Page(id), data, &cx, &RenderLimits::DEFAULT)
+            .map(|o| (o.html, o.fuel_used, o.ms))
+            .map_err(|e| match limit_name(&e) {
+                Some(l) => PartialError::Limit(l),
+                None => PartialError::Failed(e.to_string()),
+            })
     }
 
     /// Answers `r-can` from the deployment's policies (#280).

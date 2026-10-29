@@ -16,6 +16,7 @@ pub mod manager;
 pub mod outbox;
 pub mod pages;
 pub mod ratelimit;
+pub mod realtime;
 pub mod render;
 pub mod replication;
 pub mod sandbox;

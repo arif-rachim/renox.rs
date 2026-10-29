@@ -62,6 +62,11 @@ pub enum RouteKind {
     Function,
     /// Version 1: a `pages/` route (`artifact.md` section 3, "Page routes").
     Page,
+    /// Version 1.3: `functions/ws/**`, the module's `export const ws`
+    /// (`ops.md` 1.5.0 section 18).
+    Ws,
+    /// Version 1.3: `functions/sse/**`, `export const sse`.
+    Sse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -123,6 +128,18 @@ enum WireRoute {
         #[serde(default)]
         guard: Option<crate::ops::authz::Guard>,
     },
+    Ws {
+        path: String,
+        module: String,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
+    },
+    Sse {
+        path: String,
+        module: String,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
+    },
     Page {
         path: String,
         #[serde(default)]
@@ -155,6 +172,32 @@ impl TryFrom<WireRoute> for RouteDef {
                 path,
                 module,
                 export,
+                page: None,
+                guard,
+            },
+            WireRoute::Ws {
+                path,
+                module,
+                guard,
+            } => RouteDef {
+                kind: RouteKind::Ws,
+                method: Method::Get,
+                path,
+                module,
+                export: "ws".into(),
+                page: None,
+                guard,
+            },
+            WireRoute::Sse {
+                path,
+                module,
+                guard,
+            } => RouteDef {
+                kind: RouteKind::Sse,
+                method: Method::Get,
+                path,
+                module,
+                export: "sse".into(),
                 page: None,
                 guard,
             },
@@ -591,7 +634,9 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
                 ),
             ));
         }
-        if r.export != r.method.as_str() {
+        // A `ws` / `sse` route's handler is its `ws` / `sse` export
+        // (artifact.md 1.3, V23).
+        if matches!(r.kind, RouteKind::Function) && r.export != r.method.as_str() {
             return Err(load_err(
                 "V7",
                 format!(

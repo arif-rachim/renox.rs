@@ -164,6 +164,16 @@ Every knob, its default, and where it is set. `GatewayConfig.protocol` is `Proto
 
 `Gateway::stats()` counts `protocol_refused` (connections closed by either guard) and `host_mismatch` (421 responses).
 
+## WebSocket upgrades (#281)
+
+Upgrades are enabled on HTTP/1.1 (`serve_connection(..).with_upgrades()`); HTTP/2 extended CONNECT (RFC 8441) is not offered, so a browser on an h2 connection opens a separate HTTP/1.1 connection for a WebSocket. `src/upgrade.rs`:
+
+- A request with `Connection: upgrade` and `Upgrade: websocket` is checked before dispatch: `GET` over HTTP/1.1 (else 405 `Allow: GET`), `Sec-WebSocket-Version: 13` (else 426 with `Sec-WebSocket-Version: 13`), a `Sec-WebSocket-Key` of 16 base64 bytes (else 400). A refused handshake never reaches the cell.
+- An accepted handshake reaches the cell like any request (hop-by-hop headers removed) with a `WsUpgrade` in its extensions. The cell decides: route kind `ws`, the principal and `guard`, the connection caps (`Origin` is #118). It answers `WsUpgrade::accept()` (101 with `Sec-WebSocket-Accept`) and takes the connection with `WsUpgrade::upgraded()`, or answers anything else and the connection stays HTTP/1.
+- SSE needs nothing here: it is a streamed `200 text/event-stream` response.
+
+Tests: `tests/upgrade.rs`.
+
 ## Client events (#126)
 
 `docs/contracts/client-events.md`. The gateway serves two platform paths for every app:

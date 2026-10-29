@@ -32,6 +32,11 @@ import {
   op_events_emit,
   op_password_hash,
   op_password_verify,
+  op_realtime_close,
+  op_realtime_publish,
+  op_realtime_send,
+  op_realtime_subscribe,
+  op_realtime_unsubscribe,
   op_renox_fetch,
   op_fetch_body_close,
   op_fetch_body_read,
@@ -65,6 +70,7 @@ const {
   ObjectGetOwnPropertyDescriptor,
   ObjectGetOwnPropertyNames,
   ObjectGetPrototypeOf,
+  ObjectPrototypeHasOwnProperty,
   ObjectPrototypeIsPrototypeOf,
   PromisePrototypeThen,
   PromiseReject,
@@ -183,6 +189,21 @@ class DbScopeError extends RenoxError {
   }
 }
 
+// ops.md 1.5.0 section 18: the typed errors of realtime.
+class RealtimeLimitError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_REALTIME_LIMIT", message, details);
+    this.name = "RealtimeLimitError";
+  }
+}
+
+class RealtimeBackpressureError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_REALTIME_BACKPRESSURE", message, details);
+    this.name = "RealtimeBackpressureError";
+  }
+}
+
 /** Ops reject with "CODE|json-details|message"; turn that into a RenoxError. */
 function toRenoxError(e) {
   const msg = typeof e?.message === "string" ? e.message : "";
@@ -203,6 +224,10 @@ function toRenoxError(e) {
       return new ForbiddenError(message, details ?? undefined);
     case "RENOX_DB_SCOPE":
       return new DbScopeError(message, details ?? undefined);
+    case "RENOX_REALTIME_LIMIT":
+      return new RealtimeLimitError(message, details ?? undefined);
+    case "RENOX_REALTIME_BACKPRESSURE":
+      return new RealtimeBackpressureError(message, details ?? undefined);
     case "RENOX_MODULE_UNDECLARED":
       return new ModuleUndeclaredError(message, details ?? undefined);
     default:
@@ -887,6 +912,79 @@ function makeAuthz(module) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Realtime (ops.md 1.5.0 section 18): ctx.realtime. Connections live in the
+// cell; the ops reach them by id. Fan-out never enters the isolate.
+
+const TOPIC = /^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*$/;
+
+function checkTopic(topic) {
+  if (typeof topic !== "string" || topic.length === 0 || topic.length > 256 || !RegExpPrototypeTest(TOPIC, topic)) {
+    throw new RangeError("realtime: a topic is 1 to 256 characters of segments [A-Za-z0-9_.-] split on ':'");
+  }
+}
+
+/** A `Conn` or its id. */
+function connId(conn) {
+  const id = typeof conn === "string" ? conn : conn?.id;
+  if (typeof id !== "string") throw new TypeError("realtime: conn is a Conn or its id");
+  return id;
+}
+
+/** `RealtimePayload` -> the wire shape of `ops.schema.json` `$defs/realtimePayload`. */
+function realtimePayload(module, p) {
+  if (typeof p === "string") return { kind: "text", text: p, event: null };
+  if (p === null || typeof p !== "object") throw new TypeError("realtime: payload is a string, { text }, { json }, or { fragment, data }");
+  const event = p.event ?? null;
+  if (event !== null && typeof event !== "string") throw new TypeError("realtime: event is a string");
+  if (typeof p.text === "string") return { kind: "text", text: p.text, event };
+  if (ObjectPrototypeHasOwnProperty(p, "json")) {
+    const text = JSONStringify(p.json, dataReplacer);
+    if (typeof text !== "string") throw new TypeError("realtime: json is not JSON-serialisable");
+    return { kind: "text", text, event };
+  }
+  if (typeof p.fragment === "string") {
+    const data = JSONStringify(p.data ?? {}, dataReplacer);
+    if (typeof data !== "string") throw new TypeError("realtime: fragment data is not JSON-serialisable");
+    return { kind: "fragment", fragment: p.fragment, data, module, event };
+  }
+  throw new TypeError("realtime: payload is a string, { text }, { json }, or { fragment, data }");
+}
+
+/** `ctx.realtime` of `module`. */
+function makeRealtime(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  };
+  return ObjectFreeze({
+    async subscribe(conn, topic) {
+      const id = connId(conn);
+      checkTopic(topic);
+      await call(op_realtime_subscribe, id, topic);
+    },
+    async unsubscribe(conn, topic) {
+      const id = connId(conn);
+      checkTopic(topic);
+      await call(op_realtime_unsubscribe, id, topic);
+    },
+    async publish(topic, payload) {
+      checkTopic(topic);
+      return await call(op_realtime_publish, topic, realtimePayload(module, payload));
+    },
+    async send(conn, payload) {
+      await call(op_realtime_send, connId(conn), realtimePayload(module, payload));
+    },
+    async close(conn, code = 1000, reason = null) {
+      if (typeof code !== "number") throw new TypeError("realtime.close: code is a number");
+      await call(op_realtime_close, connId(conn), code, reason ?? "");
+    },
+  });
+}
+
 /** A principal from Rust, frozen all the way down. */
 function freezePrincipal(p) {
   if (p === null || p === undefined) return null;
@@ -1013,6 +1111,7 @@ function moduleFields(m) {
     hooks: makeHooks(m),
     events: makeEvents(m),
     authz: makeAuthz(m),
+    realtime: makeRealtime(m),
     password,
   };
 }
@@ -1033,6 +1132,8 @@ const KIND_EVENT = 5;
 const KIND_MODULE_EVAL = 6;
 // The route's guard denied before the handler (ops.md 1.5.0 section 17).
 const KIND_FORBIDDEN = 7;
+// A realtime run ended (ops.md 1.5.0 section 18): `result` is `ok` or `no_handler`.
+const KIND_REALTIME = 8;
 
 /** `ctx.deadline`: the request's own (ops.md section 5). */
 const requestDeadline = ObjectFreeze({
@@ -1297,7 +1398,8 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
  * template }`; for an action, `action` is the action function and
  * `handler` the page's `load` (or null).
  */
-function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app") {
+function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app", realtime = null) {
+  if (realtime !== null) return dispatchRealtime(handler, token, url, headers, body, params, owner, realtime);
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1369,6 +1471,66 @@ function run(handler, token, method, url, headers, body, params, wantBody, page,
       },
       describeThrow,
     );
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
+/**
+ * A `ws` / `sse` handler run (ops.md 1.5.0 section 18, "Dispatch"). Phase
+ * `connect` is the prelude alone (principal and guard, before the
+ * handshake); `open`, `message`, and `close` run the module's handler with
+ * the principal resolved at connect, `ctx.conn`, and the phase's fields.
+ */
+function dispatchRealtime(handler, token, url, headers, body, params, owner, rt) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(owner);
+    const go = async () => {
+      if (rt.phase === "connect") {
+        const pre = await prelude(token, url, headers);
+        if (pre.forbidden !== undefined) return pre.forbidden;
+        return { kind: KIND_REALTIME, result: "ok" };
+      }
+      const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
+      let handlers = handler;
+      if (handlers !== null && typeof handlers === "object" && typeof handlers.lazy === "string") {
+        let p = lazyModules.get(handlers.lazy);
+        if (p === undefined) {
+          p = import(handlers.lazy);
+          lazyModules.set(handlers.lazy, p);
+        }
+        let ns;
+        try {
+          ns = await p;
+        } catch (e) {
+          return lazyFailed(handlers, e);
+        }
+        const desc = handlers;
+        handlers = ns[desc.export];
+        if (handlers === null || typeof handlers !== "object") return lazyFailed(desc, new TypeError(`export ${desc.export} of ${desc.module} is missing or not an object`));
+      }
+      const h = handlers?.[rt.phase];
+      if (typeof h !== "function") return { kind: KIND_REALTIME, result: "no_handler" };
+      const req = new (requestMod().Request)(url, { method: "GET", headers });
+      const base = {
+        req,
+        url: new (urlMod().URL)(url),
+        params: ObjectFreeze(params),
+        headers: req.headers,
+        principal,
+        deadline: requestDeadline,
+        session: ObjectFreeze({ id: rt.session }),
+        conn: ObjectFreeze({ id: rt.conn, transport: rt.transport }),
+      };
+      if (rt.phase === "message") base.data = rt.binary ? new Uint8Array(body ?? []) : rt.text;
+      if (rt.phase === "close") base.close = ObjectFreeze({ code: rt.close_code, reason: rt.close_reason ?? "" });
+      const st = newRequestState(base);
+      const ctx = st.ctxOf(owner);
+      await within([[stateVar, st]], () => h(ctx));
+      return { kind: KIND_REALTIME, result: "ok" };
+    };
+    return PromisePrototypeThen(go(), undefined, describeThrow);
   } finally {
     core.setAsyncContext(previous);
   }

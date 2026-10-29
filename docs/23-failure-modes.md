@@ -49,7 +49,7 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | Browser error (script, island, Alpine) or htmx failure (error response, no target, swap error, timeout) | `renox-client.js` events with request id | Dev: overlay "Browser" tab; prod: dashboard group with original file and line | Event rate-limited and logged with `source=client`; nothing touches the isolate | #127 Playwright suite; #128 grouping tests | F2/F3 |
 | Script blocked by CSP | CSP `report-to` → `/__renox/events` | Dev overlay / dashboard `csp.violation` with directive and source | Same as above | #126 normalisation test | F2 |
 | Client-event flood (bug or abuse) | Per-IP and per-tenant buckets at the gateway | Nothing (204 always) | Dropped and counted; daily quota warning in the dashboard | #126 limit tests; #128 quota test | F2/F3 |
-| WebSocket message flood / oversized frame | Per-connection limits, backpressure | Connection closed with code | Fan-out never touches the isolate | realtime tests, B14 (`docs/contracts/ops.md` §18, "Limits") | F5 |
+| WebSocket message flood / oversized frame | Per-connection limits, backpressure | Connection closed with code | Fan-out never touches the isolate | realtime tests, B14 (`docs/contracts/ops.md` §18, "Limits"): `crates/renox-realtime/tests/hub.rs` (#278); end to end `crates/renox-cell/tests/realtime.rs` `an_oversized_frame_closes_with_1009`, `a_publish_from_an_action_reaches_two_connections_without_the_isolate` (#281) | F5 |
 
 ## 3. Deploy and artifact failures (CLI, control plane, worker)
 

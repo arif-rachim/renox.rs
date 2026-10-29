@@ -151,6 +151,11 @@ pub struct InvocationMeter {
     pub logs_dropped: u64,
     /// Cedar evaluations (`meter.md` 0.3, `authz_evals`).
     pub authz_evals: u64,
+    /// Realtime `fragment` payloads rendered for this invocation's
+    /// `publish` / `send` (ops.md 1.5.0 section 18): the cell adds them to
+    /// `render_fuel` / `render_ms`.
+    pub render_fuel: u64,
+    pub render_ms: f64,
 }
 
 impl InvocationMeter {
@@ -167,8 +172,18 @@ impl InvocationMeter {
             db_rows: 0,
             logs_dropped: 0,
             authz_evals: 0,
+            render_fuel: 0,
+            render_ms: 0.0,
         }
     }
+}
+
+/// A `ws` or `sse` route (ops.md 1.5.0 section 18), for the cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RealtimeRoute {
+    pub transport: renox_realtime::Transport,
+    /// The route's pattern, for the meter's `WS <pattern>`.
+    pub pattern: String,
 }
 
 /// The result of one dispatch.
@@ -504,6 +519,8 @@ struct DispatchJob {
     event: Option<EventEnvelope>,
     /// The route has a `guard` (ops.md 1.5.0 section 17).
     guarded: bool,
+    /// A `ws` / `sse` handler run (ops.md 1.5.0 section 18).
+    realtime: Option<crate::ops::realtime::RealtimeCall>,
     ctx: RequestCtx,
     reply: oneshot::Sender<ThreadReply>,
 }
@@ -573,6 +590,12 @@ enum ThreadReply {
         locale: Option<String>,
         dir: Option<String>,
         /// The request's principal, for `r-can` in the cell's render.
+        principal: Option<Arc<renox_authz::Principal>>,
+        meter: InvocationMeter,
+    },
+    /// A realtime run ended (ops.md 1.5.0 section 18).
+    Realtime {
+        result: crate::ops::realtime::RealtimeResult,
         principal: Option<Arc<renox_authz::Principal>>,
         meter: InvocationMeter,
     },
@@ -678,6 +701,8 @@ pub struct Pool {
     /// The policy engine, the principal cache, and dev mode, set by the cell
     /// once the deployment's policies are loaded (ops.md 1.5.0 section 17).
     authz: AuthzSlot,
+    /// The cell's realtime host (ops.md 1.5.0 section 18).
+    realtime: crate::ops::realtime::RealtimeSlot,
     /// A template calls `can` (`r-can`, a slot filler's `requires`): a page
     /// without `load` still runs the principal prelude, so the renderer has
     /// the principal (#280).
@@ -781,6 +806,7 @@ impl IsolateHandle {
             modules: Arc::new(modules),
             event_handlers: Arc::default(),
             authz: crate::ops::authz::new_slot(),
+            realtime: crate::ops::realtime::new_slot(),
             templates_use_can,
             sink,
             limits,
@@ -846,6 +872,30 @@ impl Pool {
     /// then every check denies.
     pub fn authz_slot(&self) -> AuthzSlot {
         self.authz.clone()
+    }
+
+    /// The deployment's realtime slot: the cell puts its hub in it (ops.md
+    /// 1.5.0 section 18). Until then `publish` reaches no one and
+    /// `subscribe` is refused.
+    pub fn realtime_slot(&self) -> crate::ops::realtime::RealtimeSlot {
+        self.realtime.clone()
+    }
+
+    /// The `ws` / `sse` route a `GET` of `path` matches, if any.
+    pub fn realtime_route(&self, path: &str) -> Option<RealtimeRoute> {
+        let RouteMatch::Found { route, .. } = self.router.find("GET", path) else {
+            return None;
+        };
+        let r = &self.artifact.manifest.routes[route];
+        let transport = match r.kind {
+            RouteKind::Ws => renox_realtime::Transport::Ws,
+            RouteKind::Sse => renox_realtime::Transport::Sse,
+            _ => return None,
+        };
+        Some(RealtimeRoute {
+            transport,
+            pattern: r.path.clone(),
+        })
     }
 
     pub fn limits(&self) -> Limits {
@@ -934,6 +984,7 @@ impl Pool {
             modules: self.modules.clone(),
             event_handlers: self.event_handlers.clone(),
             authz: self.authz.clone(),
+            realtime: self.realtime.clone(),
             sink: self.sink.clone(),
             shared: shared.clone(),
         };
@@ -1191,6 +1242,20 @@ impl Pool {
         let route_def = &self.artifact.manifest.routes[route];
         let route_name = format!("{} {}", route_def.method.as_str(), route_def.path);
         let is_page = route_def.kind == RouteKind::Page;
+        // ops.md 1.5.0 section 18: a `ws` / `sse` route runs only as the
+        // cell's realtime dispatch; any plain request to it is 405.
+        let realtime = parts
+            .extensions
+            .get::<crate::ops::realtime::RealtimeCall>()
+            .cloned();
+        let is_realtime = matches!(route_def.kind, RouteKind::Ws | RouteKind::Sse);
+        if is_realtime != realtime.is_some() {
+            return Dispatched::plain(
+                PlatformResponse::method_not_allowed(&ctx.request_id, "GET"),
+                InvocationMeter::new(None, MeterStatus::Ok),
+                false,
+            );
+        }
         let fragment = if is_page {
             select_fragment(&self.artifact.manifest, route_def, &parts.headers)
         } else {
@@ -1327,6 +1392,7 @@ impl Pool {
                 body: body.clone(),
                 event: None,
                 guarded: route_def.guard.is_some(),
+                realtime: realtime.clone(),
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1507,6 +1573,23 @@ impl Pool {
                     is_page,
                 )
             }
+            ThreadReply::Realtime {
+                result,
+                principal,
+                meter,
+            } => {
+                let mut response = http::Response::new(Bytes::new());
+                response
+                    .extensions_mut()
+                    .insert(crate::ops::realtime::RealtimeOutcome { result, principal });
+                Dispatched {
+                    response,
+                    meter,
+                    render: None,
+                    page: false,
+                    body: None,
+                }
+            }
             // Refused twice: both members died before the request started.
             // (`Event` never answers a request.)
             ThreadReply::Refused | ThreadReply::Event { .. } => {
@@ -1561,6 +1644,7 @@ impl Pool {
                 page: None,
                 event: Some(ev.clone()),
                 guarded: false,
+                realtime: None,
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1637,6 +1721,7 @@ struct ThreadContext {
     modules: Arc<ModuleRegistry>,
     event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
     authz: AuthzSlot,
+    realtime: crate::ops::realtime::RealtimeSlot,
     sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
 }
@@ -1650,7 +1735,9 @@ struct Platform {
     deliver: v8::Global<v8::Function>,
     /// One handler per `manifest.routes[]` entry; `None` for a page route
     /// without `load` (it never enters the isolate).
-    handlers: Vec<Option<v8::Global<v8::Function>>>,
+    /// The route's handler: a function, or the `ws` / `sse` object of a
+    /// realtime route.
+    handlers: Vec<Option<v8::Global<v8::Value>>>,
     /// Per route: action name -> function, from the page module's
     /// `export const actions` (empty for every other route).
     actions: Vec<BTreeMap<String, v8::Global<v8::Function>>>,
@@ -1874,6 +1961,10 @@ async fn create_worker(
                 .map(route_owner)
                 .collect(),
         }));
+        state.put(Rc::new(crate::ops::realtime::RealtimeEnv {
+            slot: ctx.realtime.clone(),
+            authz: ctx.authz.clone(),
+        }));
         state.put(LogEnv {
             sink: ctx.sink.clone(),
             limiter: ctx.runtime.inner.log_limiter.clone(),
@@ -2084,15 +2175,29 @@ async fn create_worker(
             let key = v8::String::new(scope, &r.export)
                 .ok_or_else(|| CreateError::Manifest("export name".into()))?;
             let v = ns.get(scope, key.into());
+            // ops.md 1.5.0 section 18: `export const ws` / `sse` is an
+            // object of handlers; every other route exports a function.
+            let realtime = matches!(r.kind, RouteKind::Ws | RouteKind::Sse);
             let f = v
-                .and_then(|v| v8::Local::<v8::Function>::try_from(v).ok())
+                .filter(|v| {
+                    if realtime {
+                        v.is_object()
+                    } else {
+                        v.is_function()
+                    }
+                })
                 .ok_or_else(|| {
                     CreateError::ModuleLoad(format!(
-                        "route {} {}: export {} of {} is missing or not a function",
+                        "route {} {}: export {} of {} is missing or not a {}",
                         r.method.as_str(),
                         r.path,
                         r.export,
-                        r.module
+                        r.module,
+                        if realtime {
+                            "handler object"
+                        } else {
+                            "function"
+                        }
                     ))
                 })?;
             handlers.push(Some(v8::Global::new(scope, f)));
@@ -2204,6 +2309,9 @@ const KIND_MODULE_EVAL: u8 = 6;
 /// The route's `guard` denied before the handler (ops.md 1.5.0 section 17):
 /// 403 `RENOX_FORBIDDEN`, meter `status: forbidden`.
 const KIND_FORBIDDEN: u8 = 7;
+/// A realtime run ended (ops.md 1.5.0 section 18): `result` is `ok` or
+/// `no_handler`.
+const KIND_REALTIME: u8 = 8;
 
 type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
 type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
@@ -2217,6 +2325,8 @@ struct InFlight {
     route: usize,
     /// An event delivery: its `EVENT <module> <name>` route.
     event: Option<String>,
+    /// A realtime run: its phase, for the log line of a throw.
+    realtime_phase: Option<&'static str>,
     /// Thread CPU charged to the request (ns); set from the CPU ledger when
     /// the request ends.
     cpu_ns: u64,
@@ -2253,6 +2363,8 @@ impl InFlight {
             db_rows: self.used.db_rows,
             logs_dropped: self.used.logs_dropped,
             authz_evals: self.used.authz_evals,
+            render_fuel: self.used.render_fuel,
+            render_ms: self.used.render_ms,
         }
     }
 }
@@ -2653,6 +2765,8 @@ struct RequestEnd {
     db_rows: u64,
     logs_dropped: u64,
     authz_evals: u64,
+    render_fuel: u64,
+    render_ms: f64,
     /// The principal the request ran as (`None` before the prelude).
     principal: Option<Arc<renox_authz::Principal>>,
     /// An open transaction was rolled back.
@@ -2725,6 +2839,8 @@ fn end_request(
         db_rows: request.db_rows,
         logs_dropped: request.logs_dropped,
         authz_evals: request.authz.evals,
+        render_fuel: request.render_fuel,
+        render_ms: request.render_ms,
         principal: request.authz.principal.clone(),
         rolled_back_tx,
         response_sent_bytes,
@@ -2859,6 +2975,7 @@ fn request_authz(job: &DispatchJob) -> crate::ops::authz::RequestAuthz {
         .page
         .as_ref()
         .map(|p| p.session.clone())
+        .or_else(|| job.realtime.as_ref().map(|r| r.session.clone()))
         .filter(|s| !s.is_empty());
     let path = url::Url::parse(&job.url)
         .map(|u| u.path().to_string())
@@ -2880,6 +2997,9 @@ fn request_authz(job: &DispatchJob) -> crate::ops::authz::RequestAuthz {
             .collect(),
         cache_key: cache_key(session.as_deref(), Some(&cookie)),
         session,
+        // ops.md 1.5.0 section 18: a realtime handler run uses the principal
+        // resolved at connect, never one from a message.
+        principal: job.realtime.as_ref().and_then(|r| r.principal.clone()),
         ..RequestAuthz::default()
     }
 }
@@ -2945,6 +3065,7 @@ fn start_dispatch(
             ctx: job.ctx,
             route: job.route,
             event: job.event.as_ref().map(EventEnvelope::route),
+            realtime_phase: job.realtime.as_ref().map(|r| r.phase.as_str()),
             cpu_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
@@ -2976,7 +3097,7 @@ fn build_args(
             }),
         )?,
         (h, None) => match h {
-            Some(h) => v8::Local::new(scope, h).into(),
+            Some(h) => v8::Local::new(scope, h),
             // An action on a page without `load`, or a page without `load`
             // that is guarded (the guard runs in the isolate's prelude) or
             // whose templates call `can` (the renderer needs the principal).
@@ -2996,12 +3117,42 @@ fn build_args(
     };
     let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
     let method: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.method)?;
+    // ops.md 1.5.0 section 18: the realtime envelope; a binary frame
+    // crosses as the body.
+    let mut frame: Option<Vec<u8>> = None;
+    let realtime: v8::Local<v8::Value> = match &job.realtime {
+        Some(rt) => {
+            use crate::ops::realtime::RealtimeData;
+            let text = match &rt.data {
+                Some(RealtimeData::Text(t)) => Some(t.clone()),
+                Some(RealtimeData::Binary(b)) => {
+                    frame = Some(b.clone());
+                    None
+                }
+                None => None,
+            };
+            serde_v8::to_v8(
+                scope,
+                serde_json::json!({
+                    "phase": rt.phase.as_str(),
+                    "conn": rt.conn,
+                    "transport": rt.transport.as_str(),
+                    "session": rt.session,
+                    "text": text,
+                    "binary": frame.is_some(),
+                    "close_code": rt.close.as_ref().map(|c| c.0),
+                    "close_reason": rt.close.as_ref().map(|c| c.1.clone()),
+                }),
+            )?
+        }
+        None => v8::null(scope).into(),
+    };
     let url: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.url)?;
     let headers: v8::Local<v8::Value> = serde_v8::to_v8(scope, job.headers.as_slice())?;
-    let body: v8::Local<v8::Value> = if job.body.is_empty() {
-        v8::null(scope).into()
-    } else {
-        serde_v8::to_v8(scope, ToJsBuffer::from(job.body.to_vec()))?
+    let body: v8::Local<v8::Value> = match frame {
+        Some(b) => serde_v8::to_v8(scope, ToJsBuffer::from(b))?,
+        None if job.body.is_empty() => v8::null(scope).into(),
+        None => serde_v8::to_v8(scope, ToJsBuffer::from(job.body.to_vec()))?,
     };
     let params_json: serde_json::Map<String, serde_json::Value> = job
         .params
@@ -3035,7 +3186,7 @@ fn build_args(
     };
     let owner: v8::Local<v8::Value> = serde_v8::to_v8(scope, &platform.owners[job.route])?;
     Ok([
-        handler, token_v, method, url, headers, body, params, want, page, action, owner,
+        handler, token_v, method, url, headers, body, params, want, page, action, owner, realtime,
     ]
     .into_iter()
     .map(|l| v8::Global::new(scope, l))
@@ -3058,6 +3209,76 @@ fn build_event_args(
         .into_iter()
         .map(|l| v8::Global::new(scope, l))
         .collect())
+}
+
+/// A realtime run's outcome (ops.md 1.5.0 section 18, "Failures"): a throw
+/// is logged with the phase; a `RENOX_FORBIDDEN` (a denied `guard` at
+/// connect, or an uncaught `ForbiddenError`) is `Forbidden`, which the cell
+/// answers with 403 or a 1008 close.
+fn finish_realtime(
+    ctx: &ThreadContext,
+    flight: &InFlight,
+    outcome: Result<JsOutcome, String>,
+) -> ThreadReply {
+    use crate::ops::realtime::RealtimeResult;
+    let route = &ctx.artifact.manifest.routes[flight.route];
+    let kind = if route.kind == RouteKind::Ws {
+        "WS"
+    } else {
+        "SSE"
+    };
+    let route_name = format!("{kind} {}", route.path);
+    let phase = flight.realtime_phase.unwrap_or("open");
+    let (result, status) = match &outcome {
+        Ok(o) if o.kind == KIND_REALTIME => match o.result.as_deref() {
+            Some("no_handler") => (RealtimeResult::NoHandler, MeterStatus::Ok),
+            _ => (RealtimeResult::Ok, MeterStatus::Ok),
+        },
+        Ok(o) if o.kind == KIND_FORBIDDEN => (RealtimeResult::Forbidden, MeterStatus::Forbidden),
+        Ok(o) if o.kind == KIND_THROW && o.code.as_deref() == Some("RENOX_FORBIDDEN") => {
+            (RealtimeResult::Forbidden, MeterStatus::Ok)
+        }
+        _ => (RealtimeResult::Threw, MeterStatus::Error),
+    };
+    if result == RealtimeResult::Threw {
+        let mut f = serde_json::Map::new();
+        f.insert("code".into(), "RENOX_INTERNAL".into());
+        f.insert("route".into(), route_name.clone().into());
+        f.insert("phase".into(), phase.into());
+        match &outcome {
+            Ok(o) => {
+                if let Some(code) = &o.code {
+                    f.insert("cause_code".into(), code.clone().into());
+                }
+                f.insert(
+                    "cause_name".into(),
+                    o.name.clone().unwrap_or_default().into(),
+                );
+                f.insert(
+                    "cause_message".into(),
+                    o.message.clone().unwrap_or_default().into(),
+                );
+                f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+            }
+            Err(e) => {
+                f.insert("cause_message".into(), e.clone().into());
+            }
+        }
+        log_line(
+            ctx,
+            "error",
+            Some(&flight.ctx.request_id),
+            "realtime handler threw",
+            f,
+        );
+    }
+    let mut meter = flight.meter(ctx, status);
+    meter.route = Some(route_name);
+    ThreadReply::Realtime {
+        result,
+        principal: flight.used.principal.clone(),
+        meter,
+    }
 }
 
 /// An event delivery's outcome; the cause of a throw goes to the tenant
@@ -3140,6 +3361,9 @@ fn finish_dispatch(
         return finish_event(ctx, flight, outcome);
     }
     let route = &ctx.artifact.manifest.routes[flight.route];
+    if matches!(route.kind, RouteKind::Ws | RouteKind::Sse) {
+        return finish_realtime(ctx, flight, outcome);
+    }
     let route_name = format!("{} {}", route.method.as_str(), route.path);
     let no_template = route.page().is_some_and(|p| p.template.is_none());
     let page_internal = |reason: &str, detail: Option<String>| {

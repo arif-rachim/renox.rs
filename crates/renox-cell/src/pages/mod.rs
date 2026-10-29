@@ -86,6 +86,12 @@ impl PageGuard {
         })
     }
 
+    /// The page session id of a request's session cookie, when it verifies;
+    /// nothing is minted. A realtime connection's `ctx.session` (#281).
+    pub fn session_of(&self, headers: &http::HeaderMap) -> Option<String> {
+        session::cookie(headers, session::SESSION_COOKIE).and_then(|v| self.keys.verify_session(&v))
+    }
+
     /// Steps 1-4 of the module doc. `headers` is changed in place.
     pub fn check(
         &self,

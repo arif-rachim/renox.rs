@@ -21,6 +21,10 @@ use crate::ops::events::{op_events_ack, op_events_emit};
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
 use crate::ops::log::op_log;
 use crate::ops::password::{op_password_hash, op_password_verify};
+use crate::ops::realtime::{
+    op_realtime_close, op_realtime_publish, op_realtime_send, op_realtime_subscribe,
+    op_realtime_unsubscribe,
+};
 use crate::ops::request::RequestTable;
 use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_response_write};
 use crate::ops::secrets::op_secrets_get_all;
@@ -97,6 +101,11 @@ deno_core::extension!(
         op_authz_roles_assign,
         op_authz_roles_revoke,
         op_authz_roles_list,
+        op_realtime_subscribe,
+        op_realtime_unsubscribe,
+        op_realtime_publish,
+        op_realtime_send,
+        op_realtime_close,
         op_events_emit,
         op_events_ack,
         op_password_hash,

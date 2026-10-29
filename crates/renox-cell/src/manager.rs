@@ -199,6 +199,8 @@ struct Inner {
     outbox: Mutex<crate::outbox::OutboxConfig>,
     /// The worker's `[authz]` (#279): dev mode and the principal cache TTL.
     authz: Mutex<crate::authz::AuthzConfig>,
+    /// The worker's `[realtime]` caps (#281).
+    realtime: Mutex<crate::config::RealtimeSection>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -259,6 +261,7 @@ impl CellManager {
                 evicted: Default::default(),
                 outbox: Mutex::new(crate::outbox::OutboxConfig::default()),
                 authz: Mutex::new(crate::authz::AuthzConfig::default()),
+                realtime: Mutex::new(crate::config::RealtimeSection::default()),
                 trim_scheduled: Default::default(),
                 trims: Default::default(),
                 #[cfg(feature = "test-support")]
@@ -317,6 +320,11 @@ impl CellManager {
     /// Outbox delivery settings for cells created from now on (retries,
     /// backoff, dead-letter cap; ops.md 1.3.0 section 15.4).
     /// Dev mode and the principal cache TTL of cells created from now on.
+    /// The worker's `[realtime]` (#281), for cells created from now on.
+    pub fn set_realtime_config(&self, config: crate::config::RealtimeSection) {
+        *self.inner.realtime.lock().expect("realtime lock") = config;
+    }
+
     pub fn set_authz_config(&self, config: crate::authz::AuthzConfig) {
         *self.inner.authz.lock().expect("authz lock") = config;
     }
@@ -731,7 +739,22 @@ impl CellManager {
             }
         };
         let stats = isolate.stats();
-        let cell = Arc::new(Cell::new(key.clone(), isolate, web));
+        // #281: one hub per cell, sized by the tier; the isolate reaches it
+        // through its realtime slot.
+        let host = crate::realtime::CellRealtime::new(
+            renox_realtime::Hub::new(
+                self.inner
+                    .realtime
+                    .lock()
+                    .expect("realtime lock")
+                    .limits(tier_name == TierName::Paid),
+            ),
+            web.pages.clone(),
+        );
+        *isolate.realtime_slot().write().expect("realtime slot") = Some(host.clone());
+        let mut cell = Cell::new(key.clone(), isolate, web);
+        cell.realtime = Some(host);
+        let cell = Arc::new(cell);
         self.inner
             .created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -975,6 +998,16 @@ impl CellManager {
         };
         let _guard = InFlightGuard(&cell);
         let (mut parts, body) = req.into_parts();
+        // #281: `ws` and `sse` routes are served by the realtime layer.
+        if let Some(route) = cell.isolate.realtime_route(parts.uri.path()) {
+            let session = cell
+                .web
+                .guard
+                .as_ref()
+                .and_then(|g| g.session_of(&parts.headers))
+                .unwrap_or_default();
+            return crate::realtime::serve(self, cell.clone(), ctx, parts, route, session).await;
+        }
         let is_head = parts.method == http::Method::HEAD;
         let get_or_head = is_head || parts.method == http::Method::GET;
         let wants_html = prefers_html(&parts.headers);
@@ -1239,6 +1272,22 @@ impl CellManager {
         to_body(out.response)
     }
 
+    /// A realtime connection's record (#281), built by the realtime layer.
+    pub(crate) fn record_realtime(&self, r: MeterRecord) {
+        self.inner.meter.record(r);
+    }
+
+    /// The realtime counters of a live cell (#281): connections, messages,
+    /// refusals and closes by reason.
+    pub fn realtime_stats(&self, tenant_id: &str) -> Option<renox_realtime::Counters> {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        cells
+            .iter()
+            .filter(|(k, _)| k.tenant_id == tenant_id)
+            .filter_map(|(_, slot)| slot.get())
+            .find_map(|c| c.realtime.as_ref().map(|r| r.hub.snapshot()))
+    }
+
     /// One meter record (`ops.md` section 7). 404 and 405 answered by
     /// route matching produce none (`meter.md` section 1).
     fn record(
@@ -1268,8 +1317,13 @@ impl CellManager {
             fetch_blocked: m.fetch_blocked,
             db_ms: m.db_ms,
             db_rows: m.db_rows,
-            render_fuel: render.fuel,
-            render_ms: render.ms,
+            // #281: realtime fragments the invocation published.
+            render_fuel: render.fuel + m.render_fuel,
+            render_ms: match (render.ms, m.render_fuel > 0) {
+                (Some(ms), true) => Some(ms + m.render_ms),
+                (None, true) => Some(m.render_ms),
+                (ms, false) => ms,
+            },
             logs_dropped: m.logs_dropped,
             http_status,
             status: if render.limit {
@@ -1521,10 +1575,10 @@ struct ShellSent {
 
 /// Keeps a cell counted as in flight while a streamed body is sent after
 /// `handle` returned, so a draining cell is not evicted mid-stream.
-struct OwnedInFlight(Option<Arc<Cell>>);
+pub(crate) struct OwnedInFlight(Option<Arc<Cell>>);
 
 impl OwnedInFlight {
-    fn take(cell: &Arc<Cell>) -> OwnedInFlight {
+    pub(crate) fn take(cell: &Arc<Cell>) -> OwnedInFlight {
         // The request is in flight already, so the cell is not evicted.
         OwnedInFlight(cell.try_admit().then(|| cell.clone()))
     }
@@ -1636,9 +1690,20 @@ impl BodySender {
 /// The connection's end of a streamed body. A truncation is held back for
 /// one poll: hyper drops the bytes it has buffered when a body fails, so it
 /// gets one round to flush the last chunk before the error.
-struct ChannelBody {
+pub(crate) struct ChannelBody {
     rx: tokio::sync::mpsc::Receiver<Result<Bytes, std::io::Error>>,
     error: Option<std::io::Error>,
+}
+
+impl ChannelBody {
+    /// A body fed by the returned sender (an SSE stream, #281).
+    pub(crate) fn channel() -> (
+        tokio::sync::mpsc::Sender<Result<Bytes, std::io::Error>>,
+        ChannelBody,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::channel(BODY_CHANNEL);
+        (tx, ChannelBody { rx, error: None })
+    }
 }
 
 impl hyper::body::Body for ChannelBody {

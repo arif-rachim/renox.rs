@@ -58,6 +58,9 @@ pub struct Cell {
     pub(crate) wake: Notify,
     /// The outbox delivery task (#229); dropped (stopped) at eviction.
     outbox: Mutex<Option<crate::outbox::OutboxWorker>>,
+    /// The deployment's realtime hub (#281), also the runtime's
+    /// `RealtimeHost`.
+    pub(crate) realtime: Option<std::sync::Arc<crate::realtime::CellRealtime>>,
 }
 
 impl Cell {
@@ -66,6 +69,7 @@ impl Cell {
             key,
             isolate,
             web,
+            realtime: None,
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
             draining: AtomicBool::new(false),

@@ -9,6 +9,7 @@ pub mod log;
 pub mod modules;
 pub mod net_policy;
 pub mod password;
+pub mod realtime;
 pub mod secrets;
 
 #[cfg(feature = "v8")]
