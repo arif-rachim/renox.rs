@@ -5,18 +5,18 @@ version = 1
 name = "i18n"
 version = "1.0.0"
 source = "official"
-hash = "8e532b1d8c9fc5880cb70b7d7ba131e902d48b519278c4b22d719bcb91f6dff8"
+hash = "b69e811fb50fe054ab4b9be071623ac1042ddb4324e163733934a67fa7296bd0"
 isolation = "shared"
 mount = "/i18n"
 dependencies = []
-config = { locales = "en,ar", default_locale = "en", digits = "latin" }
+config = { locales = "en,ar", default_locale = "en", digits = "latn" }
 approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "a47d98d39e37ca1c69e208c97b65b2c5ccde694c3e653c23fd5d59e0102d346d"
+hash = "ee1d4db870db05d0091abe080f6bc00fc90cf2a380641f853fb13e219c21ddc1"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -27,7 +27,7 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "2cf67da4161a9f2d88390843feada1e98bd6f5697c0e37a3b405fc46297d38b6"
+hash = "c78f8fa10f9b5e28da2bffbfd1fcbcdb62fccf134adfc1a585d6b962e81918eb"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
