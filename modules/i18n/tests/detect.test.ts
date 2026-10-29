@@ -3,13 +3,13 @@
 // only offered locales count.
 import { expect, test } from "bun:test";
 
-import { dirOf, digitsOf, match, negotiate, options, pick } from "../lib/detect.ts";
+import { dirOf, digitsOf, match, negotiate, options, pick, splitTag, tagOf } from "../lib/detect.ts";
 
-const o = options({ locales: "en,ar", default_locale: "en", digits: "latin" });
+const o = options({ locales: "en,ar", default_locale: "en", digits: "latn" });
 
 test("options: the offered locales and the default; bad entries are dropped", () => {
-  expect(o).toEqual({ locales: ["en", "ar"], fallback: "en", digits: "latin" });
-  expect(options({ locales: "ar, en ,x!,", default_locale: "fr" })).toEqual({ locales: ["ar", "en"], fallback: "ar", digits: "latin" });
+  expect(o).toEqual({ locales: ["en", "ar"], fallback: "en", digits: "latn" });
+  expect(options({ locales: "ar, en ,x!,", default_locale: "fr" })).toEqual({ locales: ["ar", "en"], fallback: "ar", digits: "latn" });
   expect(options({ locales: "", default_locale: "en" }).locales).toEqual(["en"]);
 });
 
@@ -43,12 +43,27 @@ test("the order: query, user, session, org, Accept-Language, default", () => {
   expect(pick({ query: "fr", user: "ar" }, o)).toEqual({ locale: "ar", source: "user" });
 });
 
-test("direction and digits", () => {
+test("direction and digits (#266): latn, arab, and auto following the stored choice", () => {
   expect(dirOf("ar")).toBe("rtl");
   expect(dirOf("ar-AE")).toBe("rtl");
   expect(dirOf("en")).toBe("ltr");
-  const indic = options({ locales: "en,ar", digits: "arabic_indic" });
-  expect(digitsOf("ar", indic)).toBe("arabic_indic");
-  expect(digitsOf("en", indic)).toBe("latin");
-  expect(digitsOf("ar", o)).toBe("latin");
+  const arab = options({ locales: "en,ar", digits: "arab" });
+  const auto = options({ locales: "en,ar", digits: "auto" });
+  expect(digitsOf("ar", arab)).toBe("arab");
+  expect(digitsOf("en", arab)).toBe("latn");
+  expect(digitsOf("ar", o)).toBe("latn");
+  expect(digitsOf("ar", o, "arab")).toBe("latn"); // latn ignores the stored choice
+  expect(digitsOf("ar", auto)).toBe("latn");
+  expect(digitsOf("ar", auto, "arab")).toBe("arab");
+  expect(digitsOf("ar", auto, "latn")).toBe("latn");
+  expect(tagOf("ar", "arab")).toBe("ar-u-nu-arab");
+  expect(tagOf("ar", "latn")).toBe("ar");
+});
+
+test("tags with a -u- extension: matched by their language, nu read out", () => {
+  expect(splitTag("ar-AE-u-nu-arab")).toEqual({ base: "ar-AE", nu: "arab" });
+  expect(splitTag("ar-u-ca-islamic-nu-latn")).toEqual({ base: "ar", nu: "latn" });
+  expect(splitTag("ar")).toEqual({ base: "ar", nu: null });
+  expect(match("ar-u-nu-arab", o.locales)).toBe("ar");
+  expect(pick({ query: "ar-AE-u-nu-arab" }, o)).toEqual({ locale: "ar", source: "query" });
 });

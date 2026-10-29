@@ -159,12 +159,45 @@ fn flatten(
 /// `^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`, at most 35 characters (`ops.md`
 /// section 14, "Locale").
 pub fn valid_locale(tag: &str) -> bool {
-    let mut parts = tag.split('-');
+    if tag.len() > 64 {
+        return false;
+    }
+    // ops.md 1.4.0: the language part, then optionally one `-u-` extension
+    // with `ca` and/or `nu`, in that order, values from the contract's lists.
+    let (base, ext) = match tag.find("-u-") {
+        Some(i) => (&tag[..i], Some(&tag[i + 3..])),
+        None => (tag, None),
+    };
+    let mut parts = base.split('-');
     let first = parts.next().unwrap_or("");
-    tag.len() <= 35
+    let base_ok = base.len() <= 35
         && (2..=3).contains(&first.len())
         && first.bytes().all(|b| b.is_ascii_lowercase())
-        && parts.all(|p| (2..=8).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric()))
+        && parts.all(|p| (2..=8).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric()));
+    base_ok && ext.is_none_or(valid_extension)
+}
+
+/// `ca-<calendar>` and/or `nu-<system>`, in that order, each once.
+fn valid_extension(ext: &str) -> bool {
+    const CA: [&str; 6] = [
+        "gregory",
+        "islamic",
+        "islamic-civil",
+        "islamic-tbla",
+        "islamic-umalqura",
+        "persian",
+    ];
+    const NU: [&str; 3] = ["latn", "arab", "arabext"];
+    let (ca, nu) = match ext.strip_prefix("ca-") {
+        Some(rest) => match rest.find("-nu-") {
+            Some(i) => (Some(&rest[..i]), Some(&rest[i + 4..])),
+            None => (Some(rest), None),
+        },
+        None => (None, ext.strip_prefix("nu-")),
+    };
+    (ca.is_some() || nu.is_some())
+        && ca.is_none_or(|c| CA.contains(&c))
+        && nu.is_none_or(|n| NU.contains(&n))
 }
 
 /// The text direction of a page.

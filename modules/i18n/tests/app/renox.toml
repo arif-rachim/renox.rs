@@ -5,5 +5,5 @@ name = "i18ntest"
 timezone = "Asia/Dubai"
 
 [modules]
-i18n = { version = "^1.0", source = "path:../.." }
+i18n = { version = "^1.0", source = "path:../..", config = { digits = "auto" } }
 auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }

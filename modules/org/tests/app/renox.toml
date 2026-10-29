@@ -4,7 +4,7 @@ name = "orgtest"
 timezone = "Asia/Dubai"
 
 [modules]
-i18n = { version = "^1.0", source = "path:../../../i18n" }
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
 auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
 org = { version = "^1.0", source = "path:../..", mount = "/org" }
 orgmail = { version = "^1.0", source = "path:../fixtures/orgmail" }

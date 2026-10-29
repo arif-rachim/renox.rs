@@ -115,9 +115,15 @@ impl Locale {
         } else {
             Lang::En
         };
+        // ops.md 1.4.0: `nu-arab` anywhere in the `-u-` extension
+        // (`ar-u-nu-arab`, `ar-u-ca-islamic-nu-arab`); not `nu-arabext`.
+        let arabic_digits = lower.find("-u-").is_some_and(|i| {
+            let keys: Vec<&str> = lower[i + 3..].split('-').collect();
+            keys.windows(2).any(|w| w == ["nu", "arab"])
+        });
         Locale {
             lang,
-            arabic_digits: lower.contains("-u-nu-arab"),
+            arabic_digits,
         }
     }
 }

@@ -19,7 +19,7 @@ i18n = { version = "^1.0", config = { locales = "en,ar", default_locale = "en" }
 | --- | --- | --- |
 | `locales` | `en,ar` | The locales the app offers, comma separated |
 | `default_locale` | `en` | Used when nothing else decides |
-| `digits` | `latin` | `arabic_indic` for Eastern Arabic digits on Arabic pages. `detectLocale` returns it, but the renderer cannot use it yet (below) |
+| `digits` | `latn` | Digits on Arabic pages: `latn`, `arab` (Eastern Arabic), or `auto`, which follows the stored choice (below) |
 
 `auth` and `org` depend on i18n. Installing either installs nothing implicitly, so add i18n first.
 
@@ -82,8 +82,14 @@ Each module ships `i18n/<locale>.json`. Nested objects are flattened to dotted k
 
 ## Arabic digits
 
-The renderer shows Eastern Arabic digits for a locale tag with `-u-nu-arab`. `ctx.setLocale` only accepts tags that match `^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$` (`ops.md` 1.3.0), and the one-letter `u` extension does not match. So `digits = "arabic_indic"` is returned by `detectLocale` but cannot reach the renderer until the ops contract allows the extension.
+An Arabic page gets Eastern Arabic digits (`١٢٣٫٤٥`, `١٬٢٣٤٫٥٠ د.إ.`) in the `number`, `money` and `date` filters when its tag carries `-u-nu-arab` (`ops.md` 1.4.0, "Locale"). `detectLocale` builds that tag from `digits`:
+
+- `latn`: never; `ar`.
+- `arab`: always on Arabic pages; `ar-u-nu-arab`.
+- `auto`: when the choice that won asked for it. `?lang=ar-u-nu-arab` (or `setLocale("ar-u-nu-arab", …)`) stores `digits = 'arab'` with the choice, and `?lang=ar` or `ar-u-nu-latn` stores Latin.
+
+The loader passes the returned `locale` to `ctx.setLocale` unchanged. `<html lang>` then carries the full tag, and catalogs are looked up by the language (`ar`). Only `nu-arab` is rendered. `arabext` (Persian digits) is accepted by the contract but renders Latin digits until the renderer supports it.
 
 ## Tables
 
-`i18n__prefs`: `subject` (`user:<id>` or `session:<page session id>`), `locale`, `updated_at`.
+`i18n__prefs`: `subject` (`user:<id>` or `session:<page session id>`), `locale`, `digits` (`arab`, `latn` or null, migration 002), `updated_at`.

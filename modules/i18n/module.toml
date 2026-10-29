@@ -6,13 +6,13 @@ description = "Locale detection (?lang, user, organisation, Accept-Language), st
 [config]
 locales = { type = "string", default = "en,ar", max_length = 256, description = "The locales the app offers, comma separated, the first is not special" }
 default_locale = { type = "string", default = "en", max_length = 35, description = "The locale when nothing else decides" }
-digits = { type = "enum", values = ["latin", "arabic_indic"], default = "latin", description = "Digits for Arabic pages (returned by detectLocale; see the README)" }
+digits = { type = "enum", values = ["latn", "arab", "auto"], default = "latn", description = "Digits on Arabic pages: latn, arab (Eastern Arabic), or auto (the stored choice, e.g. ?lang=ar-u-nu-arab)" }
 
 [permissions]
 tables = "i18n__*"
 
 [exports.services]
-detectLocale = "The locale of this request and its direction: ({ user_id?, org_locale? }) -> { locale, dir, digits, source, alternates }; the loader passes locale and dir to ctx.setLocale"
+detectLocale = "The locale of this request and its direction: ({ user_id?, org_locale? }) -> { locale (the full tag, e.g. ar-u-nu-arab), language, dir, digits, source, alternates }; the loader passes locale and dir to ctx.setLocale"
 locale = "The same as detectLocale"
 setLocale = "Store a locale: (locale, { user_id? }) -> { locale, dir } or { error }; per user when user_id is given, else per page session"
 

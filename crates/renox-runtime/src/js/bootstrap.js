@@ -783,12 +783,15 @@ function buildProxies() {
 }
 
 // Locale of the page (ops.md 1.3.0 section 14, "Locale").
-const LOCALE_TAG = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+// ops.md 1.4.0 section 14 ("Locale"; `ops.schema.json` `$defs/locale`): the
+// language part, then optionally one `-u-` extension with `ca` and `nu`.
+const LOCALE_TAG =
+  /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*(-u(-ca-(gregory|islamic|islamic-civil|islamic-tbla|islamic-umalqura|persian)(-nu-(arab|arabext|latn))?|-nu-(arab|arabext|latn)))?$/;
 const RTL_LANGS = ["ar", "fa", "he", "ur", "ps", "sd", "ug", "yi", "dv", "ckb"];
 
 function makeSetLocale(st) {
   return (locale, dir = undefined) => {
-    if (typeof locale !== "string" || locale.length > 35 || !RegExpPrototypeTest(LOCALE_TAG, locale)) {
+    if (typeof locale !== "string" || locale.length > 64 || !RegExpPrototypeTest(LOCALE_TAG, locale)) {
       throw new RangeError("setLocale: a BCP 47 tag such as \"ar-AE\"");
     }
     if (dir !== undefined && dir !== "ltr" && dir !== "rtl") throw new RangeError('setLocale: dir is "ltr" or "rtl"');
