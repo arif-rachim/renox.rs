@@ -64,6 +64,17 @@ export const EXTRA_ROUTES: Record<string, string> = {
   "POST /v1/team/owner-transfer/accept": "acceptOwnerTransfer",
   "DELETE /v1/team/owner-transfer": "cancelOwnerTransfer",
   "GET /v1/apps/:app/usage": "getUsage",
+  // Remote MCP and OAuth (#62): no tenant id is taken from the request; tests/mcp.test.ts checks another tenant's app is 404 through the tools.
+  "GET /.well-known/oauth-protected-resource": "getProtectedResourceMetadata",
+  "GET /.well-known/oauth-protected-resource/mcp": "getProtectedResourceMetadata",
+  "GET /.well-known/oauth-authorization-server": "getAuthorizationServerMetadata",
+  "POST /oauth/register": "registerOAuthClient",
+  "GET /oauth/authorize": "showOAuthConsent",
+  "POST /oauth/authorize": "decideOAuthConsent",
+  "POST /oauth/token": "exchangeOAuthCode",
+  "POST /mcp": "callMcp",
+  "GET /mcp": "mcpMethodNotAllowed",
+  "DELETE /mcp": "mcpMethodNotAllowed",
 };
 
 /** Callers that are not tenant principals: not part of this suite, with the reason. */
