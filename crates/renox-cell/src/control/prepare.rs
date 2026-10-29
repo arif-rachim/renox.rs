@@ -172,7 +172,19 @@ impl Preparer {
         let quota = self.tiers.get(p.tier).db_quota_bytes;
         let db_path = self.data_dir.join(&p.tenant_id).join("app.db");
         let dir = artifact.path.clone();
-        let migrated = tokio::task::spawn_blocking(move || migrate(&db_path, &dir, quota)).await;
+        // #255: a missing or corrupt tenant file is restored from its replica
+        // before the migrations open it.
+        let hooks = self.manager.db_lifecycle();
+        let tenant = p.tenant_id.clone();
+        let migrated = tokio::task::spawn_blocking(move || {
+            if let Some(h) = &hooks
+                && let Err(e) = h.before_open(&tenant, &db_path)
+            {
+                return (Vec::new(), Err(failure("migrate", e)));
+            }
+            migrate(&db_path, &dir, quota)
+        })
+        .await;
         let applied = match migrated {
             Ok((applied, Ok(()))) => applied,
             Ok((applied, Err(e))) => return (applied, Err(e)),

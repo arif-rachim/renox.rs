@@ -294,7 +294,15 @@ impl Replication {
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!(database, error = %e, "litestream did not start");
+                let mut dbs = self.inner.dbs.lock().expect("dbs lock");
+                if let Some(db) = dbs.get_mut(database) {
+                    db.crashes += 1;
+                    db.next_start =
+                        Instant::now() + Duration::from_millis(500u64 << db.crashes.min(6));
+                    if db.crashes == 1 || db.crashes.is_power_of_two() {
+                        tracing::error!(database, error = %e, attempts = db.crashes, "litestream did not start");
+                    }
+                }
                 return;
             }
         };

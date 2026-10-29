@@ -286,6 +286,11 @@ impl CellManager {
         &self.inner.config
     }
 
+    /// The tenant-file lifecycle hooks, when set (#255).
+    pub fn db_lifecycle(&self) -> Option<Arc<dyn DbLifecycle>> {
+        self.inner.db_lifecycle.get().cloned()
+    }
+
     /// Registers the tenant-file lifecycle hooks (once, before any cell).
     pub fn set_db_lifecycle(&self, hooks: Arc<dyn DbLifecycle>) {
         let _ = self.inner.db_lifecycle.set(hooks);
