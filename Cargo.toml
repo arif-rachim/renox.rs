@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["bench/spike/*", "crates/*"]
+# Spikes without Rust code (Bun scripts only, #256).
+exclude = ["bench/spike/replica"]
 
 [workspace.package]
 edition = "2024"
