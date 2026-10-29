@@ -37,7 +37,7 @@ The platform behaves as if `renox.app` were on the list:
 | --- | --- | --- |
 | Control API and dashboard | Session cookie `__Host-renox_session`: host-only, `Path=/`, `Secure`, never `Domain` | `control/api/tests/domains-ownership.test.ts`, "the session cookie is host-only" |
 | Tenant pages (renox-cell) | Session and CSRF cookies are host-only (no `Domain`) | `crates/renox-cell/src/pages/session.rs` |
-| Gateway | Not yet: a tenant's own `Set-Cookie` with `Domain=renox.app` (or the bare apex) passes through. The rule to add: drop the `Domain` attribute, or the whole header, when the domain is the platform domain itself | Open on #114 (not in the files of that issue) |
+| Gateway | Every tenant `Set-Cookie` is rewritten before it reaches the browser (#207): a `Domain=` equal to the request host (leading dot ignored, any case) is kept; any other `Domain=` (the platform apex `renox.app`, a parent of the host, another tenant's host, a subdomain, an empty value) is removed, so the cookie becomes host-only; a malformed `Set-Cookie` is dropped. The log names the cookie and the removed domain, never the value | `crates/renox-gateway/src/security/cookies.rs`; `crates/renox-gateway/tests/cookies.rs`, `cookies_that_reach_other_tenants_become_host_only` and `custom_domain_may_scope_to_itself_not_its_parent` |
 | App names | Reserved words (`www`, `api`, `admin`, …) are never app names, and a deleted app's name is quarantined for 90 days for other tenants | `control/api/src/apps/slugs.ts` |
 
 ## Status

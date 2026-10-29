@@ -56,7 +56,7 @@ The gateway's request deadline is the longest tier's wall clock; the runtime the
 | State | What happens |
 | --- | --- |
 | **starting** | The first request for the key creates the cell; concurrent requests wait for the same creation. Steps: check the tenant id (it is a directory name), find the artifact, open the tenant's `TenantDb` (`app` authorizer, the tier's quota) on its DB thread or share the one already open, run the artifact's app migrations (`migrations/app/*.sql` against `migrations/checksums.json`), read `secrets.json`, create the isolate with the tier's limits. A failure answers 500 `RENOX_INTERNAL` (or the isolate's limit code) and is retried on the next request |
-| **ready** | Requests are dispatched to the isolate; the body (already limited by the gateway) is collected, the response is buffered |
+| **ready** | Requests are dispatched to the isolate; the request body (already limited by the gateway) is collected; the response is sent head first and its body streams (`docs/contracts/ops.md` 1.2.0, below) |
 | **draining** | After a route table reload, a cell whose `(tenant, hash)` has no `active` entry anymore takes no new route; it is evicted as soon as its in-flight requests finish (`docs/05-tenant-lifecycle.md`, "Deployment switch"). New requests for the new hash create a new cell |
 | **evicted** | No request for `idle_timeout`, or drained. The cell is removed from the map under the same lock that admits requests (so no request is admitted to an evicted cell; one arriving now waits for a fresh cell), its isolate is terminated, and the tenant's database is closed with a WAL truncate when no other cell of the tenant uses it. Once no cell was evicted for 2 s, the worker returns freed memory to the OS with glibc `malloc_trim(0)`, and again 10 s and 30 s later (`src/alloc.rs`, #144; B2 0.06 MB per idle tenant) |
 
@@ -92,7 +92,7 @@ A verified hash is cached (artifacts are never overwritten); a failure is not, s
 | Platform error on a page route (handler threw, bad loader result, CPU, deadline) | the tenant's `pages/_error` with `status`, `code`, `request_id`, `message` under `RenderLimits::ERROR_PAGE`, else the platform default page |
 | `GET`/`HEAD` with no matching route, `Accept` preferring HTML | `pages/_404`, else `_error`, else the default page; no meter record |
 
-The meter record gets `render_fuel` and `render_ms` (render-thread CPU time) of every render of the invocation, error page included. Responses are buffered; streaming the layout shell is #161. The CSP nonce argument exists and is `None` until #47 wires the header. `date` uses the app's zone for the Gulf zones (`Asia/Dubai`, ...) and UTC otherwise.
+The meter record gets `render_fuel` and `render_ms` (render-thread CPU time) of every render of the invocation, error page included, the shell render of a streamed page too. The CSP nonce argument exists and is `None` until #47 wires the header. `date` uses the app's zone for the Gulf zones (`Asia/Dubai`, ...) and UTC otherwise.
 
 ## Sessions and CSRF
 
@@ -113,6 +113,16 @@ The meter record gets `render_fuel` and `render_ms` (render-thread CPU time) of 
 
 Function routes are not checked (APIs; webhooks verify signatures). **Keys:** the tenant key is HKDF-SHA256 (salt `renox-pages-v1`, info = tenant id) of the node's platform key, read from `platform_key_file` (mode 0600, at least 32 bytes). Without the key a worker uses a random key per process and logs a warning; sessions then end on restart. F3 delivers the node key (#54, #55). The keys never reach an isolate or a log. Token masking against BREACH is #111.
 
+## Streamed responses
+
+Since #161 the cell implements `docs/contracts/ops.md` 1.2.0 (`src/manager.rs`, `src/render.rs`):
+
+- **Head first** (section 6, "Response body"): the head is answered as soon as the isolate hands it back. A static body goes with it in one piece; a `ReadableStream` body follows chunk by chunk (`op_response_write`, `op_response_end`), and a task moves each chunk to the connection. The runtime holds at most 16 chunks the cell has not taken (`STREAM_BUFFER_CHUNKS` in `renox-runtime`), and the cell at most `BODY_CHANNEL` (4) the connection has not taken, so a slow client holds the handler back. A handler's `Content-Length` is removed from a streamed body.
+- **Compression per chunk** (section 6): the gateway's rules (type, `NoCompress`, `no-transform`) with a streaming encoder that flushes after every chunk, without the minimum-size rule.
+- **Egress per chunk** (section 10, "Response egress"): the runtime counts each chunk against the tier's response egress limit as `op_response_write` takes it; the chunk that would pass it is refused, and the body is truncated (section 10, "Mid-stream"; `BodySender::truncate` ends it with an error, not a clean end), so a client can tell it from a complete body.
+- **Meter at the end of the stream** (section 7, "When"): the record is written when the stream ends, whatever ended it. `wall_ms` runs to the end, `egress_bytes` counts the bytes handed to the connection after compression up to the stop, `http_status` is the status sent in the head, `status` the cause of the end.
+- **Shell before the loader resolves** (section 14, "Streaming the shell"): a full-page `GET` whose `load` is slower than `SHELL_DELAY` (50 ms, proposed) gets status 200, the page headers, and the shell (`PageRenderer::shell_of`: the output up to the template's first data read, cut back to the last complete tag) at once; the rest of the page follows when `load` returns. An error after the shell is rendered inside the stream (`error page rendered inside the stream`, `streamed: true`); a `Response` from `load` after the shell is `RENOX_INTERNAL` with `reason: "response_after_shell"`. Fragments, actions, `HEAD`, and loaders that finish within the delay are sent in one piece as before.
+
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the process sandbox (F6), realtime (F5), TLS certificates from the control plane (F3). Requests and responses are buffered; streaming is F2.
+Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the process sandbox (F6), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).

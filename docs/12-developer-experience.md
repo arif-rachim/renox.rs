@@ -17,7 +17,22 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 
 ### Installing the CLI
 
-The CLI is released as standalone binaries (`bun build --compile`, so no Bun is needed) for Linux and macOS on x64 and arm64. A `cli-v<version>` tag runs `.github/workflows/release-cli.yml`, which publishes `renox-<version>-<os>-<arch>` with a `.sha256` for each binary, `install.sh`, and `worker-version.txt`. That file holds the `renox-worker` version the CLI is tested against: `WORKER_VERSION` in `cli/scripts/fetch-worker.ts`, whose release must exist before the CLI release. `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh` (source: `cli/scripts/install.sh`) installs into `~/.renox/bin`. It installs `renox` and the pinned `renox-worker` for the platform, and installs a file only when its SHA-256 matches. Override with `RENOX_VERSION`, `RENOX_INSTALL_DIR` and `RENOX_RELEASE_BASE`, or skip the worker with `RENOX_NO_WORKER=1`. `renox new`, `renox check`, and `renox build` of an app without `templates/` run without the worker; `renox dev` and the template transpile of `renox build` find it through `RENOX_WORKER_PATH`. Release signing and provenance are #129.
+The CLI is released as standalone binaries (`bun build --compile`, so no Bun is needed) for Linux and macOS on x64 and arm64. A `cli-v<version>` tag runs `.github/workflows/release-cli.yml`, which publishes `renox-<version>-<os>-<arch>` with a `.sha256` for each binary, `install.sh`, and `worker-version.txt`. That file holds the `renox-worker` version the CLI is tested against: `WORKER_VERSION` in `cli/scripts/fetch-worker.ts`, whose release must exist before the CLI release. `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh` (source: `cli/scripts/install.sh`) installs into `~/.renox/bin`. It installs `renox` and the pinned `renox-worker` for the platform, and installs a file only when its SHA-256 matches. Override with `RENOX_VERSION`, `RENOX_INSTALL_DIR` and `RENOX_RELEASE_BASE`, or skip the worker with `RENOX_NO_WORKER=1`. `renox new`, `renox check`, and `renox build` of an app without `templates/` run without the worker; `renox dev` and the template transpile of `renox build` find the installed worker beside `renox`.
+
+Releases are signed (#129; `docs/24-threat-model.md` F, "Tampered release"). Every `cli-v*` and `worker-v*` release also carries `SHA256SUMS`, a sigstore bundle `<asset>.sigstore.json` per file (cosign keyless signature from the release workflow's OIDC identity, logged in Rekor), and SLSA v1 build provenance (`renox-<version>.provenance.sigstore.json`, `renox-worker-<version>.provenance.sigstore.json`). The release workflow verifies all of them with cosign in a fresh container before it publishes. With `cosign` installed, `install.sh` also checks each file's signature and installs nothing that fails; `RENOX_REQUIRE_SIGNATURE=1` refuses to install without a verified signature. To verify a download by hand:
+
+```sh
+v=0.1.0; a=renox-$v-linux-x64
+sha256sum -c --ignore-missing SHA256SUMS
+cosign verify-blob --bundle $a.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-cli\.yml@refs/tags/cli-v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com $a
+cosign verify-blob-attestation --bundle renox-$v.provenance.sigstore.json --new-bundle-format --type slsaprovenance1 \
+  --certificate-identity-regexp '^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-cli\.yml@refs/tags/cli-v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com $a
+```
+
+For a worker use `release-worker\.yml@refs/tags/worker-v` and the worker release's files. The CLI checks the worker before it runs it: the downloaded or installed worker must have the sha256 of the pinned release for its platform, baked into the CLI (`PINNED_WORKER` in `cli/src/worker/verify.ts`, checked against the worker release when the CLI is released); `renox dev --worker <path>` also accepts a binary whose `<path>.sigstore.json` and the release's provenance bundle beside it verify with cosign as above. Anything else stops with `RENOX_CLI_WORKER_UNVERIFIED` (exit code 3) and the expected and actual sha256. `RENOX_WORKER_PATH` is the unverified override for a worker built from source.
 
 ## Dev loop
 

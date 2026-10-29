@@ -1,4 +1,4 @@
-// renox dev [--port 8787]: build, write a local route table and worker
+// renox dev [--port 8787] [--worker <path>]: build, write a local route table and worker
 // config under .renox/, start the prebuilt renox-worker, watch the project,
 // rebuild the changed module, point the route at the new hash, and SIGHUP
 // the worker so the next request goes to a fresh isolate (D19: hot reload
@@ -46,6 +46,7 @@ import { ERROR_DETAILS_PATH, ERROR_OVERLAY_JS, ERROR_OVERLAY_PATH, injectErrorOv
 import { changeEvent, DEV_CLIENT_JS, DEV_CLIENT_PATH, DEV_EVENTS_PATH, injectDevClient, sse } from "../lib/templates-dev.ts";
 import { writeTypes } from "../lib/types/generate.ts";
 import { DOWNLOAD_HINT, workerPath } from "../lib/worker.ts";
+import { verifyExternal } from "../worker/verify.ts";
 import { clearDevState, type DevState, problemOf, writeDevState } from "../mcp/devstate.ts";
 
 export { workerPath };
@@ -506,14 +507,31 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
 export async function run(args: string[]): Promise<number> {
   const p = args.indexOf("--port");
   const port = p >= 0 ? Number(args[p + 1]) : 8787;
-  if (!Number.isInteger(port) || port <= 0 || port > 65535 || args.some((a, i) => a.startsWith("-") && a !== "--port" && args[i - 1] !== "--port")) {
-    console.error("usage: renox dev [--port <port>]");
+  const w = args.indexOf("--worker");
+  const external = w >= 0 ? args[w + 1] : undefined;
+  const flags = ["--port", "--worker"];
+  if (
+    !Number.isInteger(port) ||
+    port <= 0 ||
+    port > 65535 ||
+    (w >= 0 && (!external || external.startsWith("-"))) ||
+    args.some((a, i) => a.startsWith("-") && !flags.includes(a) && !flags.includes(args[i - 1] ?? ""))
+  ) {
+    console.error("usage: renox dev [--port <port>] [--worker <path>]");
     return EXIT.USER;
+  }
+  // #129: an external worker runs only with a pinned hash or a verified
+  // signature and provenance (worker/verify.ts).
+  let worker: string | undefined;
+  if (external) {
+    worker = resolve(external);
+    if (!existsSync(worker)) throw new EnvironmentError(`--worker ${worker} does not exist`, { hint: DOWNLOAD_HINT });
+    verifyExternal(worker);
   }
   // Ctrl-C during the first build or the worker start: stop at once.
   const early = (): never => process.exit(EXIT.INTERRUPTED);
   process.once("SIGINT", early);
-  const dev = await startDev({ project: process.cwd(), port });
+  const dev = await startDev({ project: process.cwd(), port, ...(worker ? { worker } : {}) });
   process.off("SIGINT", early);
   const outcome = await Promise.race([
     new Promise<"interrupted">((r) => process.once("SIGINT", () => r("interrupted"))),

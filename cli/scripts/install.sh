@@ -21,9 +21,14 @@
 #                        <base>/<tag>/<asset>), for a mirror or the release workflow's smoke test
 #   RENOX_RELEASE_REPO   owner/repo (default: arif-rachim/renox.rs)
 #   RENOX_NO_WORKER=1    skip the worker (renox new, check, and build of an app without templates/ do not need it)
+#   RENOX_REQUIRE_SIGNATURE=1
+#                        refuse to install without a verified sigstore signature (needs cosign)
 #
 # Nothing is installed unless its checksum matches. Needs curl or wget, and
-# sha256sum or shasum. Signature verification of the release is #129.
+# sha256sum or shasum. When cosign is installed, each file must also carry a
+# sigstore signature (<asset>.sigstore.json) made by this repository's
+# release workflow on its tag, release-cli.yml or release-worker.yml (#129;
+# docs/12-developer-experience.md, "Installing the CLI").
 
 set -eu
 
@@ -63,7 +68,8 @@ sha256() {
   fi
 }
 
-# fetch_verified <tag> <asset> <destination>: download the asset and its .sha256, install only on a match.
+# fetch_verified <tag> <asset> <destination> <workflow> <tag prefix>: download the asset and its .sha256,
+# check its signature, install only when both match.
 fetch_verified() {
   get "$BASE/$1/$2" "$TMP/$2"
   get "$BASE/$1/$2.sha256" "$TMP/$2.sha256"
@@ -74,8 +80,35 @@ fetch_verified() {
   [ ${#expected} -eq 64 ] || die "$2.sha256 does not hold a SHA-256 digest"
   actual=$(sha256 "$TMP/$2")
   [ "$actual" = "$expected" ] || die "checksum mismatch for $2: expected $expected, got $actual; nothing installed"
+  verify_signature "$1" "$2" "$4" "$5"
   chmod 755 "$TMP/$2"
   mv -f "$TMP/$2" "$3"
+}
+
+# The repository in a regular expression (its dots escaped).
+REPO_RE=$(printf '%s' "$REPO" | sed 's/\./\\./g')
+
+require_signature() {
+  [ "${RENOX_REQUIRE_SIGNATURE:-}" = 1 ] && die "$1; RENOX_REQUIRE_SIGNATURE=1, so nothing is installed"
+  say "$1; $2 is verified by its checksum only"
+}
+
+# verify_signature <tag> <asset> <workflow> <tag prefix>: the sigstore
+# signature of the downloaded asset, made by <workflow> on a <tag prefix>* tag.
+verify_signature() {
+  if ! command -v cosign >/dev/null 2>&1; then
+    require_signature "cosign is not installed (https://docs.sigstore.dev/cosign/system_config/installation/)" "$2"
+    return 0
+  fi
+  if ! (get "$BASE/$1/$2.sigstore.json" "$TMP/$2.sigstore.json") 2>/dev/null; then
+    require_signature "$1 has no signature for $2" "$2"
+    return 0
+  fi
+  cosign verify-blob --bundle "$TMP/$2.sigstore.json" \
+    --certificate-identity-regexp "^https://github\.com/$REPO_RE/\.github/workflows/$3\.yml@refs/tags/$4" \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com "$TMP/$2" >/dev/null 2>&1 ||
+    die "the sigstore signature of $2 does not verify; nothing installed"
+  say "$2: signature verified ($3 on $1)"
 }
 
 valid_version() {
@@ -113,7 +146,7 @@ version=${version#cli-v}
 valid_version "$version" || die "invalid version $version (expected for example 0.1.0)"
 
 mkdir -p "$DIR"
-fetch_verified "cli-v$version" "renox-$version-$os-$arch" "$DIR/renox"
+fetch_verified "cli-v$version" "renox-$version-$os-$arch" "$DIR/renox" release-cli cli-v
 say "renox $version -> $DIR/renox"
 
 if [ "${RENOX_NO_WORKER:-}" != 1 ]; then
@@ -130,9 +163,8 @@ if [ "${RENOX_NO_WORKER:-}" != 1 ]; then
   # Only linux-x64 workers are released so far (#139 adds the others); the
   # CLI still builds and checks without one.
   if (get "$BASE/worker-v$worker/$asset.sha256" "$TMP/probe") 2>/dev/null; then
-    fetch_verified "worker-v$worker" "$asset" "$DIR/renox-worker"
-    say "renox-worker $worker -> $DIR/renox-worker"
-    say "renox dev uses it with: export RENOX_WORKER_PATH=\"$DIR/renox-worker\""
+    fetch_verified "worker-v$worker" "$asset" "$DIR/renox-worker" release-worker worker-v
+    say "renox-worker $worker -> $DIR/renox-worker (renox finds it beside itself and checks its sha256 before running it)"
   else
     say "no renox-worker $worker build for $os-$arch yet; renox new, check, and build without templates/ work without it; renox dev needs RENOX_WORKER_PATH"
   fi
