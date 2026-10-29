@@ -108,11 +108,101 @@ export interface TestApp {
   as(user: string): TestApp;
   /** Read a cookie of this user's jar, or plant one (an attacker's token, a forged state). */
   cookie(name: string, value?: string): string | undefined;
+  /** Open an SSE route (`GET`, `Accept: text/event-stream`) as this user; read its events with `next`. */
+  sse(path: string, options?: { headers?: Record<string, string> }): Promise<SseStream>;
   /** Tenant log lines so far. */
   logs(): Record<string, unknown>[];
   /** Meter records so far (flushed about every second). */
   meters(): Record<string, unknown>[];
   stop(): Promise<void>;
+}
+
+/** One SSE event as received (ops.md section 18, "On the wire"). */
+export interface SseEvent {
+  id: string | null;
+  event: string | null;
+  data: string;
+}
+
+/** An open SSE connection of a test. */
+export interface SseStream {
+  status: number;
+  headers: Headers;
+  /** The next event, or null when none arrives within `ms` (default 2000) or the stream ended. */
+  next(ms?: number): Promise<SseEvent | null>;
+  /** Events received so far and not yet returned by `next`. */
+  pending(): SseEvent[];
+  close(): void;
+}
+
+/** Reads `body` as an SSE stream: comments and `retry:` are skipped. */
+function sseStream(res: Response, abort: AbortController): SseStream {
+  const queue: SseEvent[] = [];
+  const waiters: ((e: SseEvent | null) => void)[] = [];
+  let ended = false;
+  const push = (e: SseEvent | null) => {
+    const w = waiters.shift();
+    if (w) w(e);
+    else if (e) queue.push(e);
+  };
+  void (async () => {
+    const reader = res.body?.getReader();
+    if (!reader) return;
+    const dec = new TextDecoder();
+    let buf = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let cut: number;
+        while ((cut = buf.indexOf("\n\n")) >= 0) {
+          const block = buf.slice(0, cut);
+          buf = buf.slice(cut + 2);
+          let id: string | null = null;
+          let event: string | null = null;
+          const data: string[] = [];
+          for (const line of block.split("\n")) {
+            if (line.startsWith(":")) continue;
+            const i = line.indexOf(":");
+            const field = i < 0 ? line : line.slice(0, i);
+            const v = i < 0 ? "" : line.slice(i + 1).replace(/^ /u, "");
+            if (field === "id") id = v;
+            else if (field === "event") event = v;
+            else if (field === "data") data.push(v);
+          }
+          if (data.length || event !== null) push({ id, event, data: data.join("\n") });
+        }
+      }
+    } catch {
+      // aborted
+    }
+    ended = true;
+    while (waiters.length) push(null);
+  })();
+  return {
+    status: res.status,
+    headers: res.headers,
+    next(ms = 2000) {
+      const e = queue.shift();
+      if (e) return Promise.resolve(e);
+      if (ended) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        const w = (x: SseEvent | null) => {
+          clearTimeout(timer);
+          resolve(x);
+        };
+        const timer = setTimeout(() => {
+          const i = waiters.indexOf(w);
+          if (i >= 0) waiters.splice(i, 1);
+          resolve(null);
+        }, ms);
+        waiters.push(w);
+      });
+    },
+    pending: () => queue.splice(0),
+    close: () => abort.abort(),
+  };
 }
 
 type Jar = Map<string, string>;
@@ -164,6 +254,15 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
     };
     const self: TestApp = {
       request: send,
+      async sse(path, o = {}) {
+        const jar = jarOf(user);
+        const headers: Record<string, string> = { host: w.host, accept: "text/event-stream", ...o.headers };
+        if (jar.size && o.headers?.cookie === undefined) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+        const abort = new AbortController();
+        const res = await fetch(`${w.base}${path}`, { headers, redirect: "manual", signal: abort.signal });
+        afterAll(() => abort.abort());
+        return sseStream(res, abort);
+      },
       page: (path, o) => (o?.user ? make(o.user) : self).request("GET", path),
       async action(path, name, form, o) {
         const as = o?.user ? make(o.user) : self;

@@ -1,0 +1,22 @@
+{
+  "notifications": {
+    "badge": { "label": "Notifications" },
+    "channel": "{channel, select, inapp {in the app} whatsapp {WhatsApp} email {email} other {{channel}}}",
+    "list": {
+      "title": "Notifications",
+      "prefs": "Preferences",
+      "mark_all": "Mark all read",
+      "mark_read": "Mark read",
+      "none": "No notifications yet."
+    },
+    "prefs": {
+      "title": "Notification preferences",
+      "on": "on",
+      "off": "off",
+      "turn_on": "Turn on",
+      "turn_off": "Turn off",
+      "none": "Nothing to choose yet: categories appear with your first notification.",
+      "back": "Back to notifications"
+    }
+  }
+}

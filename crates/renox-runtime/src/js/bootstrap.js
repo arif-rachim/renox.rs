@@ -510,6 +510,20 @@ function makeDb(module, scope = null, fixedTx = null) {
 
 const db = makeDb("app");
 
+/**
+ * An action's `ctx.db` (ops.md section 14): the action's transaction, no
+ * `transaction()`; `scoped(scope)` (1.5.0 section 17) gives the same
+ * statements with the scope, in the same transaction.
+ */
+function actionDb(tx, module) {
+  return ObjectFreeze({
+    ...statements(tx, module),
+    scoped(s) {
+      return ObjectFreeze(statements(tx, module, checkScope(s)));
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Logging (ops.md section 4): ctx.log and console. Rust adds tenant,
 // deployment, request, level, and time, redacts secret values, applies the
@@ -1343,7 +1357,7 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
   };
   let res;
   try {
-    const ctx = ObjectFreeze({ ...st.ctxOf(owner), db: statements(tx, owner), form, action: page.action, fragment: page.fragment ?? null });
+    const ctx = ObjectFreeze({ ...st.ctxOf(owner), db: actionDb(tx, owner), form, action: page.action, fragment: page.fragment ?? null });
     // The action's transaction is current for the services it calls (ops.md 1.3.0 section 1).
     res = await within([[txVar, tx]], () => action(ctx));
   } catch (e) {

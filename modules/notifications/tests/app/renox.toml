@@ -1,0 +1,11 @@
+# The app the notifications module's tests run in (renox test, #289).
+[app]
+name = "notiftest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+notifications = { version = "^1.0", source = "path:../..", mount = "/notifications", config = { channels = "whatsapp" } }
+deliver = { version = "^1.0", source = "path:../fixtures/deliver" }
