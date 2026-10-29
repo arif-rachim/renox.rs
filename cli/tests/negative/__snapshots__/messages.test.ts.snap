@@ -207,6 +207,8 @@ renox <command>
                                         the app's log lines (--follow keeps streaming)
   secrets set <NAME> | list | rm <NAME> [--app <name>]
                                         app secrets; set reads the value from stdin and never prints it
+  db export [--out <file>] | import <file> | restore --at <time> --as <new-app> [--app <name>]
+                                        download the database (sha256 checked), import into a staging app, restore into a new app
 
 Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
 Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev (not verified: for a worker you built);

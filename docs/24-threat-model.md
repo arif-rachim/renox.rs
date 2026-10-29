@@ -108,7 +108,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
-| Tenant files or backups read from storage | Node disks encrypted at rest (cloud disk encryption or LUKS); Litestream and Postgres backups encrypted with SSE-KMS using a key separate from the secrets master key | Buckets private, access logged, no public ACLs possible | `TODO` → #120 | F6 |
+| Tenant files or backups read from storage | Node disks encrypted at rest (cloud disk encryption or LUKS); Litestream and Postgres backups encrypted with SSE-KMS using a key separate from the secrets master key | Buckets private, access logged, no public ACLs possible; an export is readable only through a signed URL that expires within 15 minutes (deploy-api.md section 14) | `control/api/tests/backups.test.ts` "export answers a signed URL; the object is not readable without the signature" (bare path 404, forged or expired signature 403; #258); encryption at rest `TODO` → #120 | F6 |
 | Key compromise | Key hierarchy documented: TLS keys, secrets master key, backup key, token signing key; rotation runbook per key with a tested procedure | HSM/KMS for the master key | #120 | F6 |
 | Erasure incomplete (PDPL right to erasure) | Tenant delete removes the file, replicas, exports; backups expire within a documented window; the deletion is audited with the completion time | Export before delete offered | #120 | F6 |
 | Operator reads tenant data | Break-glass only: reason, time-boxed, logged, reviewed | Tenant notified after the fact | #121 | F6 |

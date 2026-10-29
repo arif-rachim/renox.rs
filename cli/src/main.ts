@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
-// renox: new, build, dev, check, mcp, login, tokens, deploy, logs, secrets. docs/12-developer-experience.md.
+// renox: new, build, dev, check, mcp, login, tokens, deploy, logs, secrets, db. docs/12-developer-experience.md.
 // Exit codes: src/errors.ts and cli/README.md, "Exit codes".
 
 import { run as build } from "./commands/build.ts";
 import { run as check } from "./commands/check.ts";
+import { run as db } from "./commands/db.ts";
 import { run as deploy } from "./commands/deploy.ts";
 import { run as dev } from "./commands/dev.ts";
 import { run as login } from "./commands/login.ts";
@@ -33,12 +34,14 @@ const USAGE = `renox <command>
                                         the app's log lines (--follow keeps streaming)
   secrets set <NAME> | list | rm <NAME> [--app <name>]
                                         app secrets; set reads the value from stdin and never prints it
+  db export [--out <file>] | import <file> | restore --at <time> --as <new-app> [--app <name>]
+                                        download the database (sha256 checked), import into a staging app, restore into a new app
 
 Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
 Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev (not verified: for a worker you built);
 RENOX_TOKEN and RENOX_API_URL override the credentials saved by login.`;
 
-const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, mcp, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a) };
+const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, mcp, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), db: (a) => db(a) };
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
