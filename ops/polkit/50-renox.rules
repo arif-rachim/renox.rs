@@ -1,0 +1,16 @@
+// Lets the worker (user `renox`) start, stop and restart its own sidecar and
+// child units, and nothing else (#252): the Litestream sidecar of a tenant
+// file (#255) and the child worker of a paid tenant (#254). Installed by
+// ops/scripts/bootstrap-node.sh into /etc/polkit-1/rules.d/.
+polkit.addRule(function (action, subject) {
+  if (action.id !== "org.freedesktop.systemd1.manage-units" || subject.user !== "renox") {
+    return polkit.Result.NOT_HANDLED;
+  }
+  var unit = action.lookup("unit") || "";
+  var verb = action.lookup("verb") || "";
+  var ours = /^renox-(litestream|child)@[a-z0-9][a-z0-9_.-]{0,113}\.service$/.test(unit);
+  if (ours && (verb === "start" || verb === "stop" || verb === "restart")) {
+    return polkit.Result.YES;
+  }
+  return polkit.Result.NOT_HANDLED;
+});

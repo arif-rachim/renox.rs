@@ -1,0 +1,1 @@
+{ "type": "node_register", "schema_version": 0, "node_id": "node-dxb-01", "worker_version": "0.3.0", "region": "me-central-1", "max_cells": 2000, "listen_url": "https://10.0.1.11:8790" }

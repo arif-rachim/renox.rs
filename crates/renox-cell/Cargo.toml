@@ -62,6 +62,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
 libc = "0.2"
 
+# The sandbox of #253 (src/sandbox/): Landlock rules and a seccomp
+# allowlist, both pure Rust (no libseccomp).
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4.7"
+seccompiler = { version = "0.5.0", features = ["json"] }
+
 [dev-dependencies]
 renox-cell = { path = ".", features = ["test-support"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "process"] }

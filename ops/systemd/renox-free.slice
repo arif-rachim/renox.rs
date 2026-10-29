@@ -1,0 +1,19 @@
+# Free tier: the worker (the supervisor and the shared process holding every
+# free tenant's cells, docs/04-isolation-security.md "Isolation hierarchy")
+# and the Litestream sidecars of free tenants. Per-request limits (50 ms CPU,
+# 128 MB heap, 50 concurrent requests) are enforced in Rust; this slice caps
+# what all free tenants together can take from the node.
+[Unit]
+Description=Renox free tier (shared process)
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/README.md
+Before=slices.target
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes
+# Half the weight of the paid tier under contention, all of the CPU when idle.
+CPUWeight=100
+MemoryHigh=45%
+MemoryMax=50%
+TasksMax=16384

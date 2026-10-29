@@ -1,0 +1,1 @@
+{ "type": "import_result", "schema_version": 0, "node_id": "node-dxb-01", "tenant_id": "t_hello", "database": "t_hello.hello-staging", "size_bytes": 81920, "sha256": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", "tables": ["app__notes", "auth__users"] }

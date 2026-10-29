@@ -1,0 +1,57 @@
+# renox-worker in controlled mode (crates/renox-cell/README.md). The
+# supervisor of #254 runs here with the shared process of the free tier.
+# Hardening: docs/04-isolation-security.md "Defense in depth"; the seccomp
+# and Landlock profile the worker applies to itself is #253 ([sandbox]).
+[Unit]
+Description=Renox worker
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/README.md
+PartOf=renox-node.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=renox
+Group=renox
+DynamicUser=no
+Slice=renox-free.slice
+ExecStart=/opt/renox/bin/renox-worker --config /etc/renox/worker.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2s
+# Drain in-flight requests (twice the paid wall-clock limit of 60 s).
+TimeoutStopSec=130s
+KillMode=mixed
+LimitNOFILE=1048576
+# /run/renox: the children's Unix sockets and the Litestream configs (#254, #255).
+RuntimeDirectory=renox
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
+StateDirectory=renox
+StateDirectoryMode=0750
+# The supervisor creates per-child cgroups under its own (#254, `direct` launcher).
+Delegate=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=no
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0027
+# Everything else is read-only: data, artifacts, meters, logs, spool, replica.
+ReadWritePaths=/var/lib/renox/data /var/lib/renox/artifacts /var/lib/renox/meters /var/lib/renox/logs /var/lib/renox/spool /var/lib/renox/replica
+ReadOnlyPaths=/etc/renox
+
+[Install]
+WantedBy=renox-node.target

@@ -1,0 +1,1 @@
+{ "type": "restore_result", "schema_version": 0, "node_id": "node-dxb-02", "tenant_id": "t_hello", "database": "t_hello", "source": "replica", "generation": "a1b2c3d4e5f60718", "file_sha256": "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", "restored_to": 1793318409000, "elapsed_ms": 1840 }

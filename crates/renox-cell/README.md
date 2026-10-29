@@ -28,8 +28,13 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `default_tier` | `free` | Tier of tenants not listed in `tenant_tiers` |
 | `platform_key_file` | — | The node's platform key (mode 0600, ≥ 32 bytes); page session and CSRF keys are derived from it per tenant ("Sessions and CSRF"). Unset: a random key per process |
 | `[gateway]` | 100 / 200 / 100 | `rate_limit_per_ip` (req/s), `rate_limit_burst`, `max_connections_per_ip`: the gateway's per-client limits (`renox-gateway` README). Benchmarks that send all load from one address raise them |
+| `[gateway]` HTTP/2 | 100 / 200 / 2,000 | `h2_max_resets_per_second` (resets per connection in any one second), `h2_max_resets_per_ip_per_second` (the same over all of a client IP's connections, IPv6 by /64), `h2_max_control_frames_per_second` (`PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY` per connection): the HTTP/2 flood budgets of #166 (`renox-gateway` README, "Protocol limits"). Over a budget the connection is closed. `0` is refused with the key's name (#260) |
 | `[tenant_tiers]` | — | `tenant_id = "free" \| "paid"` (F1 stand-in for the control plane) |
 | `[tiers.free]`, `[tiers.paid]` | see "Tiers" | Overrides of single tier fields |
+| `[replication]` | off | `enabled`, `replica` (`file` \| `s3`), `path` (file), `bucket`, `prefix`, `region`, `endpoint`, `sse_kms_key_id` (s3), `allowed_regions` (`["me-central-1"]`), `sync_interval_ms` (1000), `retention_hours` (24), `snapshot_interval_secs` (3600), `stop_grace_ms` (3000), `litestream_bin` (`litestream` on `PATH`): "Replication" |
+| `[control] node_listen`, `node_listen_url` | — | The node listener the control plane calls (`docs/contracts/deploy-api.md` 0.3 section 15); a private address, refused at start when tenant `fetch` could reach it |
+| `[process]` | off | `enabled`, `max_children` (64), `child_idle_secs` (600), `restart_backoff_ms` (200), `run_dir` (`run`), `launcher` (`direct` \| `systemd`), `worker_bin`, `own_tenants` (local mode), `cgroup_root`, `child_cpu_quota_us` (200,000), `child_memory_bytes` (1 GiB), `child_pids` (512), `microvm_hook`: the process tiers of "Process tiers" |
+| `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 
 Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`). They name tenants, hashes, and request ids, never secret values or request content.
 
@@ -123,6 +128,62 @@ Since #161 the cell implements `docs/contracts/ops.md` 1.2.0 (`src/manager.rs`, 
 - **Meter at the end of the stream** (section 7, "When"): the record is written when the stream ends, whatever ended it. `wall_ms` runs to the end, `egress_bytes` counts the bytes handed to the connection after compression up to the stop, `http_status` is the status sent in the head, `status` the cause of the end.
 - **Shell before the loader resolves** (section 14, "Streaming the shell"): a full-page `GET` whose `load` is slower than `SHELL_DELAY` (50 ms, proposed) gets status 200, the page headers, and the shell (`PageRenderer::shell_of`: the output up to the template's first data read, cut back to the last complete tag) at once; the rest of the page follows when `load` returns. An error after the shell is rendered inside the stream (`error page rendered inside the stream`, `streamed: true`); a `Response` from `load` after the shell is `RENOX_INTERNAL` with `reason: "response_after_shell"`. Fragments, actions, `HEAD`, and loaders that finish within the delay are sent in one piece as before.
 
+## Replication
+
+With `[replication] enabled = true` (#255, `docs/06-data.md` "Replication and backup tiers") each tenant file gets one `litestream replicate` sidecar (`ops/litestream.lock` pins 0.3.13), so an idle tenant costs nothing:
+
+| State | Enters when |
+| --- | --- |
+| `off` | The file is opened (first cell) and has not been written since |
+| `starting` → `replicating` | The WAL holds frames or the file changed since it was opened (checked every sync interval, at most 1 s): the sidecar starts with `<run_dir>/litestream/<database>.yml` |
+| `stopped` | The last cell closed the file (eviction) and `stop_grace_ms` passed, so the last frames shipped; the sidecar gets `SIGTERM` |
+
+- Replicas: `file` writes `<path>/<database>/` (tests, the dev container); `s3` writes `s3://<bucket>/<prefix>/<database>` with the node's own credentials from its environment, never tenant secrets. In controlled mode an `s3` replica must use a region in `allowed_regions` (the UAE, `docs/21-uae-gcc-strategy.md`) and name `sse_kms_key_id`, or the worker does not start; Litestream 0.3 has no per-object encryption option, so the bucket enforces SSE-KMS with that key by its default encryption (#120).
+- Restore before open: a missing file is restored from its replica before the cell opens it (`litestream restore -generation <newest>`), a file that fails `PRAGMA quick_check` is moved aside as `app.db.corrupt-<ts>` and restored, and the restored file is checked again before it is renamed into place. A brand-new tenant (no generation) starts empty. In controlled mode a failed restore refuses the open; in local mode the file starts empty with a warning.
+- The node listener (`[control] node_listen`): `POST /nodes/{node}/tenants/{tenant}/restore` (`restore_request` → `restore_result`, idempotent: a present sound file answers `source: local`) and `GET …/replication` (`replication_status`: state, replica, generations, `last_sync_at` = the newest generation's end, `lag_seconds` = how far the file's last write is ahead of it, size and WAL bytes). Bearer: the callback token of the node's registration.
+- Children (#254) run their own sidecar for their tenant's file. With `[sandbox]`, a sidecar spawned by the worker inherits the seccomp filter. The allowlist covers Litestream 0.3.13: its calls were traced for `replicate`, `snapshots`, `wal` and `restore`, and are in `sandbox/baseline.txt`. `clone` is allowed only with `CLONE_THREAD`. The systemd unit `ops/systemd/renox-litestream@.service` is the alternative launcher.
+- Tests: `tests/replication.rs` (skipped without `litestream` on `PATH`; CI's rust job installs it). B19: `bench/scenarios/B19/`.
+
+## Process tiers
+
+With `[process] enabled = true` (#254, `docs/04-isolation-security.md` "Isolation hierarchy") the worker is a **supervisor**: the free tier shares its process, and each tenant whose route entry says `process = "own"` (controlled mode; the control plane writes it for every `paid` tenant, `docs/contracts/deploy-api.md` section 8) or that `own_tenants` lists (local mode) runs in a child `renox-worker --config <worker.toml> --child <tenant> --socket <run_dir>/children/<tenant>.sock` of its own.
+
+```
+                       ┌──────────────── renox-worker (supervisor) ─────────────────┐
+client ── TLS ──► gateway ──► Supervisor ──► shared CellManager: free tenants       │
+                       │           │                                                │
+                       └───────────┼────────────────────────────────────────────────┘
+                                   │ HTTP/1 over <run_dir>/children/<tenant>.sock
+                                   ▼
+                       renox-worker --child t_paid   (own cells, own SQLite handle,
+                                                      own sandbox, own cgroup)
+```
+
+- **Start.** On the tenant's first request. The supervisor hands the child each deployment's tier, app, secret version and secrets (`prepare`, in memory only) before its first request, after making sure the artifact is on disk; the child reads artifacts from the same `artifacts_dir`. No gateway listener and no control-plane client in the child.
+- **Requests.** Forwarded with the gateway's request id, deadline (as remaining ms), client IP and CSP nonce in `x-renox-ipc-*` headers, which no client can set (the gateway strips client `x-renox-*` headers). A request for another tenant id on a child's socket is 403 `RENOX_TENANT_MISMATCH` (internal to the node, never sent to a tenant).
+- **Crash.** A child that exits is started again on the next request after an exponential backoff (`restart_backoff_ms` doubling to 30 s, reset after 60 s alive); requests in flight get 503 `RENOX_UNAVAILABLE`.
+- **Drain.** A route sync that leaves the tenant without an active entry, or moves it back to `shared`, drains the child (it finishes in-flight requests and exits) and reaps it. A move from `shared` to `own` drains the tenant's cells in the supervisor. A child without a request for `child_idle_secs` is stopped.
+- **cgroups.** `launcher = "direct"`: the supervisor moves itself into `<cgroup_root>/supervisor` and creates `<cgroup_root>/renox-<tenant>.scope` per child with `cpu.max`, `memory.max`, `pids.max` (`cgroup_root` defaults to its own, delegated by `Delegate=yes` in `ops/systemd/renox-worker.service`). When the tree is not writable it logs once and runs without; a controlled node refuses that unless `[sandbox] allow_unsandboxed`. `launcher = "systemd"`: `systemctl start renox-child@<tenant>` (`ops/systemd/renox-child@.service` in `renox-paid.slice`, allowed by `ops/polkit/50-renox.rules`).
+- **Sandbox.** With `[sandbox] enabled` the child applies the profile of "Sandbox" with `data_dir/<tenant>` instead of the whole `data_dir`.
+- **Meters and logs.** The child writes meter batches and log lines with the node's `node_id`: to `meters_dir` and `logs_dir/tenant.ndjson` in local mode, to the spool (`<data_dir>/spool/`) in controlled mode, which the supervisor's replayer ships.
+- Tests: `tests/supervisor.rs`. B12 with the noisy tenant in its own child needs a load generator; `bench/results/2026-10-29-B12-process-tier-dev-container.md` records why it is open.
+
+## Sandbox
+
+With `[sandbox] enabled = true` (#253, ADR D6, `docs/04-isolation-security.md` "Defense in depth") the worker restricts itself after start, so code that escapes an isolate reaches no more than the worker needs:
+
+| Mechanism | When | What it allows |
+| --- | --- | --- |
+| Landlock (file system) | In `main`, after the config is read and before the async runtime starts a thread (Landlock reaches only threads created after it) | Read and execute: `artifacts_dir`, the binary's dir. Read and write: `data_dir` (with the spool), `meters_dir`, `logs_dir`, the temp dir, `/dev/null`. Read: the route table file, `[tls]` dirs, the platform key, the node token, `extra_read_paths`, and the few system files name resolution and the runtime need (`SYSTEM_READ` in `src/sandbox/mod.rs`: `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, the shared libraries, `/proc/self`, CPU and cgroup information). Nothing else: not `/etc/passwd`, not `/root`, not another tenant's files outside `data_dir` |
+| Landlock (network, ABI 4, Linux 6.7) | Same | TCP `bind` to the configured listeners; TCP `connect` to 443, 53, the control plane's port and `extra_connect_ports` only, so the metadata address `169.254.169.254:80` is refused even without the `fetch` op |
+| seccomp | In `Worker::start`, once the listeners are bound, with `TSYNC` (every thread) and `no_new_privs` | The syscalls in `sandbox/syscalls.<arch>.txt` plus `extra_syscalls`. Any other kills the process (`enforce`) or is logged by the kernel (`audit`) |
+
+- The allowlist is produced by `ops/scripts/trace-syscalls.sh` (`strace -f -c` around every test binary of this crate, the CLI's e2e tests and the bench scenarios that drive `renox-worker`), plus `sandbox/baseline.txt` (calls on paths no trace reaches, each with its reason). The run is recorded in `bench/results/*-syscall-profile.md`. `syscalls.aarch64.txt` is derived from the x86_64 list until a trace on an arm64 host replaces it. A unit test compiles both lists and keeps `ptrace`, `bpf`, `mount`, `unshare`, `setns`, `keyctl`, `userfaultfd` and the like out of them.
+- A kernel without Landlock logs one warning and runs with seccomp only; one without seccomp refuses to start in `enforce`.
+- Children inherit both. The Litestream sidecars (#255) are a Go binary. Go creates its threads with `clone`, which the filter allows only with `CLONE_THREAD` set (a thread, never a new process; `clone3` is allowed whole already). Litestream's other calls are in `sandbox/baseline.txt`. Another pinned Litestream version needs a new trace (`bench/results/2026-10-29-syscall-profile.md`).
+- `renox-worker --sandbox-selftest --config worker.toml` applies the profile, then tries `open("/etc/passwd")`, `connect(169.254.169.254:80)` and `connect` to the control plane's port, lists the artifacts dir and writes in the data dir; it prints a table and exits non-zero if either of the first two got through. Run it on every new node.
+- Tests: `tests/sandbox.rs` (the self-test, and a tenant with a database served by the real binary under `enforce`); `RENOX_TEST_SANDBOX=enforce cargo test -p renox-cell` loads the allowlist into the test process (seccomp only; the `test-support` feature) so the whole suite runs under it, as CI's rust job does.
+
 ## Modules (#232)
 
 An artifact 1.1 with installed modules (`docs/contracts/artifact.md`, "Modules") needs nothing special to render: the build has compiled module templates into `templates/modules/<name>/…`, with any tenant override compiled into the module's id, and the slot registry into the layouts' `<r-slot>` includes. The cell:
@@ -150,4 +211,4 @@ Tests: `tests/outbox.rs`.
 
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the process sandbox (F6), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).
+Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).

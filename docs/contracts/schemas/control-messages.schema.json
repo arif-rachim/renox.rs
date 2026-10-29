@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/deploy-api/v0/control-messages.schema.json",
   "title": "Renox control-plane <-> worker messages, deploy API contract version 0",
-  "description": "Every JSON document a worker node and the control plane exchange: registration, heartbeat, the route table (snapshot and deltas), activation (prepare), secret and certificate bundles, certificate push, and log batches. Meter batches are meter-record.schema.json. Prose: docs/contracts/deploy-api.md sections 7-10. Each message carries `type` and `schema_version`; a receiver rejects a schema_version it does not know.",
+  "description": "Every JSON document a worker node and the control plane exchange: registration, heartbeat, the route table (snapshot and deltas), activation (prepare), secret and certificate bundles, certificate push, log batches, and from 0.3 the node listener messages (restore, replication status, drop, import, move). Meter batches are meter-record.schema.json. Prose: docs/contracts/deploy-api.md sections 7-10. Each message carries `type` and `schema_version`; a receiver rejects a schema_version it does not know.",
   "oneOf": [
     { "$ref": "#/$defs/node_register" },
     { "$ref": "#/$defs/node_registered" },
@@ -17,7 +17,14 @@
     { "$ref": "#/$defs/certificate_update" },
     { "$ref": "#/$defs/certificate_remove" },
     { "$ref": "#/$defs/certificate_bundle" },
-    { "$ref": "#/$defs/log_batch" }
+    { "$ref": "#/$defs/log_batch" },
+    { "$ref": "#/$defs/restore_request" },
+    { "$ref": "#/$defs/restore_result" },
+    { "$ref": "#/$defs/replication_status" },
+    { "$ref": "#/$defs/tenant_dropped" },
+    { "$ref": "#/$defs/import_result" },
+    { "$ref": "#/$defs/move_request" },
+    { "$ref": "#/$defs/move_result" }
   ],
   "$defs": {
     "schema_version": { "const": 0 },
@@ -68,7 +75,7 @@
         "node_id",
         "secrets_version"
       ],
-      "description": "artifact.md section 5 route-table entry plus the F3 fields: version (#97), app, tier, node_id (tenant assignment), secrets_version.",
+      "description": "artifact.md section 5 route-table entry plus the F3 fields: version (#97), app, tier, node_id (tenant assignment), secrets_version; and from 0.3 the optional process (#254) and database (section 14).",
       "properties": {
         "hostname": { "$ref": "#/$defs/hostname" },
         "tenant_id": { "$ref": "#/$defs/tenant_id" },
@@ -83,6 +90,14 @@
           "type": "integer",
           "minimum": 0,
           "description": "The app's secret-set version pinned by this deployment. 0 = no secrets set."
+        },
+        "process": {
+          "enum": ["shared", "own"],
+          "description": "0.3: shared = the tenant's cells run in the node's shared worker process; own = in a child process of the tenant's own (#254). Missing means shared."
+        },
+        "database": {
+          "$ref": "#/$defs/database_id",
+          "description": "0.3: the tenant file the entry's cells open. Missing means the tenant's own file (database = tenant_id)."
         }
       }
     },
@@ -107,7 +122,13 @@
         "node_id": { "$ref": "#/$defs/node_id" },
         "worker_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]{1,64})?$" },
         "region": { "type": "string", "pattern": "^[a-z0-9-]{1,32}$" },
-        "max_cells": { "type": "integer", "minimum": 1, "maximum": 100000 }
+        "max_cells": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "listen_url": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^https?://[a-z0-9.:\\[\\]-]{1,200}(:[0-9]{1,5})?/?$",
+          "description": "0.3: the base URL of the node listener (section 15), on an address only the control plane reaches. Missing: the node serves no section 15 endpoint (F3 nodes)."
+        }
       }
     },
     "node_registered": {
@@ -130,7 +151,12 @@
         "heartbeat_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 60000 },
         "unhealthy_after_ms": { "type": "integer", "minimum": 3000, "maximum": 600000 },
         "resync_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 3600000 },
-        "route_version": { "$ref": "#/$defs/route_version" }
+        "route_version": { "$ref": "#/$defs/route_version" },
+        "callback_token": {
+          "type": "string",
+          "pattern": "^renox_cb_[a-z2-7]{32}$",
+          "description": "0.3: present when node_register carried listen_url. The bearer the control plane presents on the node listener until the next registration; the node keeps it in memory only."
+        }
       }
     },
     "heartbeat": {
@@ -328,7 +354,17 @@
     "log_line": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ts", "tenant_id", "deployment_hash", "request_id", "module", "level", "message", "fields", "source"],
+      "required": [
+        "ts",
+        "tenant_id",
+        "deployment_hash",
+        "request_id",
+        "module",
+        "level",
+        "message",
+        "fields",
+        "source"
+      ],
       "description": "One tenant log line as written by op_log (ops.md section 4), already redacted on the node, plus `source`.",
       "properties": {
         "ts": { "$ref": "#/$defs/unix_ms" },
@@ -339,7 +375,10 @@
         "level": { "enum": ["debug", "info", "warn", "error"] },
         "message": { "type": "string", "maxLength": 8300 },
         "fields": { "type": ["object", "null"] },
-        "source": { "enum": ["server", "client"] }
+        "source": {
+          "enum": ["server", "client", "platform"],
+          "description": "platform (0.3): written by the control plane itself (failover, restore, export, import, operator actions; fields.kind names which). A node never sends it; ingestLogs refuses a batch that does."
+        }
       }
     },
     "log_batch": {
@@ -353,6 +392,233 @@
         "node_id": { "$ref": "#/$defs/node_id" },
         "lines": { "type": "array", "minItems": 1, "maxItems": 1000, "items": { "$ref": "#/$defs/log_line" } }
       }
+    },
+    "database_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}(\\.[a-z][a-z0-9-]{0,49})?$",
+      "description": "A tenant file: the tenant id for the tenant's shared file, or <tenant_id>.<app> for an app with a database of its own (a staging app or an app created by a restore, deploy-api.md section 14)."
+    },
+    "generation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "A Litestream generation: one continuous WAL history of a tenant file."
+    },
+    "generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "start", "end"],
+      "description": "One generation and the time range a restore can reach inside it.",
+      "properties": {
+        "id": { "$ref": "#/$defs/generation_id" },
+        "start": { "$ref": "#/$defs/unix_ms" },
+        "end": { "$ref": "#/$defs/unix_ms" }
+      }
+    },
+    "replica": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["file", "s3"] },
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "s3 only: the bucket's region (UAE regions in controlled mode)."
+        }
+      }
+    },
+    "database_size": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size_bytes", "quota_bytes", "wal_bytes"],
+      "properties": {
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "quota_bytes": { "type": "integer", "minimum": 0 },
+        "wal_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "restore_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "tenant_id", "database", "timestamp", "reason", "deadline_ms"],
+      "description": "POST /nodes/{node_id}/tenants/{tenant_id}/restore (section 15): the control plane asks the node to restore a tenant file from its replica before any route points there (FO3). Idempotent.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "restore_request" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "database": { "$ref": "#/$defs/database_id" },
+        "source_database": {
+          "$ref": "#/$defs/database_id",
+          "description": "Restore from this file's replica into database (a restore to a new app). Missing: from database's own replica."
+        },
+        "timestamp": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Restore the state as of this time (Unix ms); null = the latest replicated state."
+        },
+        "reason": { "enum": ["failover", "restore", "move"] },
+        "deadline_ms": { "type": "integer", "minimum": 1000, "maximum": 120000 }
+      }
+    },
+    "restore_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "node_id",
+        "tenant_id",
+        "database",
+        "source",
+        "generation",
+        "file_sha256",
+        "restored_to",
+        "elapsed_ms"
+      ],
+      "description": "200 answer of the restore request: the file is in place, passed PRAGMA quick_check, and the node may now open it.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "restore_result" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "database": { "$ref": "#/$defs/database_id" },
+        "source": {
+          "enum": ["replica", "local"],
+          "description": "replica: restored now; local: the file was already present and passed PRAGMA quick_check (a repeated request), nothing changed."
+        },
+        "generation": {
+          "anyOf": [{ "$ref": "#/$defs/generation_id" }, { "type": "null" }],
+          "description": "The generation restored from; null when source is local and the file was never replicated."
+        },
+        "file_sha256": { "$ref": "#/$defs/sha256" },
+        "restored_to": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "The time of the last transaction in the restored file, when the replica says it."
+        },
+        "elapsed_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "replication_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "node_id",
+        "tenant_id",
+        "database",
+        "replication",
+        "state",
+        "replica",
+        "last_sync_at",
+        "lag_seconds",
+        "retention_hours",
+        "snapshot_interval_seconds",
+        "generations",
+        "db"
+      ],
+      "description": "GET /nodes/{node_id}/tenants/{tenant_id}/replication (section 15): what the node reports about one tenant file.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "replication_status" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "database": { "$ref": "#/$defs/database_id" },
+        "replication": { "enum": ["none", "litestream"] },
+        "state": {
+          "enum": ["off", "starting", "replicating", "stopped"],
+          "description": "The sidecar state machine of #255: off (replication none, or no write yet), starting, replicating, stopped (cell evicted and the last frames shipped)."
+        },
+        "replica": { "anyOf": [{ "$ref": "#/$defs/replica" }, { "type": "null" }] },
+        "last_sync_at": { "type": ["integer", "null"], "minimum": 0 },
+        "lag_seconds": { "type": ["number", "null"], "minimum": 0 },
+        "retention_hours": { "type": "integer", "minimum": 0 },
+        "snapshot_interval_seconds": { "type": "integer", "minimum": 0 },
+        "generations": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/generation" },
+          "description": "Newest first."
+        },
+        "db": { "$ref": "#/$defs/database_size" }
+      }
+    },
+    "tenant_dropped": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "node_id", "tenant_id", "cells_drained", "file"],
+      "description": "200 answer of DELETE /nodes/{node_id}/tenants/{tenant_id} (FO4): the node drained the tenant's cells and refuses the tenant from now on.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "tenant_dropped" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "cells_drained": { "type": "integer", "minimum": 0 },
+        "file": {
+          "enum": ["kept", "removed"],
+          "description": "removed only after the replica confirmed the last frames; otherwise kept and quarantined from serving."
+        }
+      }
+    },
+    "import_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "node_id", "tenant_id", "database", "size_bytes", "sha256", "tables"],
+      "description": "200 answer of PUT /nodes/{node_id}/tenants/{tenant_id}/import: the file passed PRAGMA quick_check and the authorizer's table-name rules and replaced the staging app's file.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "import_result" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "database": { "$ref": "#/$defs/database_id" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "tables": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*__[a-z0-9_]+$" }
+        }
+      }
+    },
+    "move_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "tenant_id", "target", "reason", "operator"],
+      "description": "POST /nodes/{node_id}/tenants/{tenant_id}/move (section 17): the node runs its [process] microvm_hook for the tenant.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "move_request" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "target": { "const": "microvm" },
+        "reason": { "type": "string", "minLength": 10, "maxLength": 500 },
+        "operator": { "type": "string", "pattern": "^(operator|acct_[0-9A-Za-z]{16,32})$" }
+      }
+    },
+    "move_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "schema_version", "node_id", "tenant_id", "target", "state", "hook_exit_code"],
+      "description": "200 answer of the move request: the hook's exit code (0 moved; anything else failed, the tenant stays where it is and stops being moving).",
+      "properties": {
+        "$comment": { "type": "string" },
+        "type": { "const": "move_result" },
+        "schema_version": { "$ref": "#/$defs/schema_version" },
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "target": { "const": "microvm" },
+        "state": { "enum": ["moved", "failed"] },
+        "hook_exit_code": { "type": "integer", "minimum": 0, "maximum": 255 }
+      },
+      "if": { "properties": { "state": { "const": "moved" } } },
+      "then": { "properties": { "hook_exit_code": { "const": 0 } } },
+      "else": { "properties": { "hook_exit_code": { "minimum": 1 } } }
     }
   }
 }

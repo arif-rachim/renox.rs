@@ -525,6 +525,8 @@ max_connections_per_ip = 1000
 url = "{url}"
 node_token_file = "{t}"
 health_listen = "127.0.0.1:0"
+[sandbox]
+allow_unsandboxed = true
 "#,
             d = dir.display(),
             url = self.url,

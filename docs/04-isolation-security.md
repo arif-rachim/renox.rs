@@ -51,7 +51,7 @@ All limits are measured per request and recorded for billing (`05-tenant-lifecyc
 | --- | --- |
 | Isolate + heap limit + watchdog | A tenant consuming another tenant's CPU or memory |
 | `SharedArrayBuffer` disabled, timers coarsened | Side-channel attacks (Spectre-class) between isolates |
-| Sandboxed process (seccomp/Landlock, namespaces, cgroups) | A V8 bug allowing escape from an isolate |
+| Sandboxed process: seccomp allowlist and Landlock rules applied by the worker itself (`[sandbox]`, `crates/renox-cell/src/sandbox/`, #253), systemd hardening and cgroup slices per tier (`ops/systemd`, #252) | A V8 bug allowing escape from an isolate |
 | Process tiers: free shared, paid per tenant, suspicious → microVM (Firecracker) | Blast radius when one layer fails |
 | SQLite file per tenant + authorizer | Queries crossing tenants or modules |
 | Immutable bundles, no npm or filesystem access at runtime | Supply-chain changes after deploy |

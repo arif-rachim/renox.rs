@@ -94,6 +94,17 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   ingestLogs: "node",
   // Usage (src/ingest/routes.ts, #56).
   getUsage: "apps:read",
+  // Backups (src/tenants/backups.ts, deploy-api.md 0.3 section 14; #257, #258).
+  getBackups: "apps:read",
+  exportBackup: "apps:write",
+  restoreBackup: "apps:write",
+  importDatabase: "apps:write",
+  // The signed download of an export from a store that cannot presign; the
+  // signature is the credential (src/tenants/backups.ts).
+  downloadExport: "public",
+  // Operator actions (src/ops/tenants.ts, section 17; #259).
+  setTenantTier: "operator",
+  moveTenant: "operator",
   // Accounts (src/auth/accounts.ts).
   signup: "public",
   verifyEmail: "public",

@@ -1,0 +1,46 @@
+<r-layout use="main">
+  <r-group slot="title">Operator · {{ tenant }} · Renox dashboard</r-group>
+  <section id="page" r-fragment="page">
+    <h1>Tenant <code>{{ tenant }}</code></h1>
+    <p class="muted">Operator console. Every action needs your operator token (it is used for this one request and never kept) and a reason of {{ reason_min }} to {{ reason_max }} characters, which goes into the audit row with your account.</p>
+    <p class="problem" r-if="form_error">{{ form_error }}</p>
+    <x-problem :problem="action_problem" r-if="action_problem" />
+    <r-group r-if="state">
+      <p class="notice">{{ state.notice }}</p>
+      <table class="list">
+        <tbody>
+          <tr><td>Tier</td><td>{{ state.tier }}</td></tr>
+          <tr><td>Process</td><td>{{ state.process }}</td></tr>
+          <tr><td>Node</td><td><code>{{ state.node }}</code></td></tr>
+          <tr><td>Route version</td><td>{{ state.route_version }}</td></tr>
+          <tr r-if="state.hook"><td>Hook exit code</td><td>{{ state.hook }}</td></tr>
+          <tr><td>Audit row</td><td><code>{{ state.audit_id }}</code></td></tr>
+        </tbody>
+      </table>
+    </r-group>
+
+    <h2>Change tier</h2>
+    <x-form action="tier" hx-target="#page" hx-swap="outerHTML" hx-confirm="Change the tier of {{ tenant }}? Its route entries are republished with the new process tier." class="row">
+      <label>Tier <select name="tier"><option value="free">free (shared process)</option><option value="paid">paid (own process)</option></select></label>
+      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit">Change tier</button>
+    </x-form>
+
+    <h2>Move to another node</h2>
+    <x-form action="node" hx-target="#page" hx-swap="outerHTML" hx-confirm="Move {{ tenant }}? Its file is restored on the node first, then its routes change and the old node drains it." class="row">
+      <label>Node <input name="node_id" required maxlength="63" pattern="[a-z0-9][a-z0-9_.\-]*" autocomplete="off" spellcheck="false"></label>
+      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit">Move to node</button>
+    </x-form>
+
+    <h2>Move to a microVM</h2>
+    <p class="muted">The tenant answers 503 while the node's hook runs. In F6 the hook is a stub that exits 75, and the tenant stays where it is.</p>
+    <x-form action="microvm" hx-target="#page" hx-swap="outerHTML" hx-confirm="Move {{ tenant }} to a microVM? Its requests answer 503 while the hook runs." class="row">
+      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit">Move to microVM</button>
+    </x-form>
+  </section>
+</r-layout>

@@ -113,7 +113,8 @@ Tenant code does not change when moving up unless it uses SQLite-only features; 
 | --- | --- |
 | `renox db shell` | Open the local SQLite file and run queries |
 | `renox db seed` | Load sample data from `seeds/*.sql` or `seeds/*.ts` |
-| `renox db export` / `renox db import` | Download a production file to the laptop for debugging (with optional column masking), or push a file to a staging app |
+| `renox db export [--out file]` | Download a consistent snapshot of the production file to the laptop for debugging, through a signed URL, with its SHA-256 checked (`cli/README.md`, "`renox db`"; column masking is F7) |
+| `renox db import <file> --app <staging-app>` | Push a file to a staging app; production apps and tables outside the naming rules are refused (`cli/README.md`, "`renox db`") |
 | `renox db diff` | Compare the current schema with migrations and draft the next migration file (later phase) |
 | `cp .renox/data/app.db test.db` | A database "branch" is a file copy: try a risky migration on the copy, discard on failure |
 
@@ -142,7 +143,7 @@ What will not exist: connection strings in tenant code, heavy ORMs, and `down` m
 | Paid | libSQL / LiteFS synchronous replica on a second node | Near zero; automatic failover | 2x memory and disk |
 | Large | Postgres | Standard Postgres HA | Per Postgres |
 
-Failover: the control plane marks the node unhealthy, reassigns the tenant's cell to another node, which restores the file from the replica or from S3, then updates the route table.
+Failover: the control plane marks the node unhealthy, reassigns the tenant's cell to another node, which restores the file from the replica or from S3, then updates the route table. The rules, with the B18 target each serves, are FO1–FO6 in [`contracts/deploy-api.md`](contracts/deploy-api.md) section 16.
 
 ## What is lost compared with Postgres, and the replacement
 

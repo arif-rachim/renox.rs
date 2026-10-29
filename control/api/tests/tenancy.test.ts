@@ -92,6 +92,9 @@ describe("crossTenant call sites", () => {
       "domains/repo.ts: the domain job checks and orders for every tenant's domains",
       "domains/routes.ts: a certificate belongs to a hostname, whichever tenant held it",
       "ingest/routes.ts: the tenant's quota is read through control/billing, which binds the tenant id as $3",
+      "tenants/backups.ts: a signed export URL names its export, not a tenant",
+      "tenants/backups.ts: app names are unique across the platform",
+      "tokens/routes.ts: an operator account and its tokens belong to no tenant",
     ]);
   });
 });

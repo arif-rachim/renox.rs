@@ -38,6 +38,9 @@ export function contractRoutes(): Map<string, string> {
 
 /** Routes outside the deploy-api contract (accounts and team, #113; usage, #56): "METHOD /path" → operationId. */
 export const EXTRA_ROUTES: Record<string, string> = {
+  // The signed download of an export (src/tenants/backups.ts): the signature
+  // is the credential; a bare or foreign id is 404.
+  "GET /v1/exports/:id": "downloadExport",
   "POST /v1/account/signup": "signup",
   "POST /v1/account/verify": "verifyEmail",
   "POST /v1/account/verify/resend": "resendVerification",
@@ -231,21 +234,21 @@ describe("IDOR: tenant A with tenant B's ids", () => {
 
   test("a new endpoint without a case is reported", async () => {
     const extra: RouteModule = (app) => {
-      app.get("/v1/apps/:app/backups", (c) => c.json({}));
-      app.get("/v1/backups", (c) => c.json({}));
+      app.get("/v1/apps/:app/widgets", (c) => c.json({}));
+      app.get("/v1/widgets", (c) => c.json({}));
     };
     expect(uncovered(await harness([extra]))).toEqual([
-      "GET /v1/apps/:app/backups: no operationId (add it to deploy-api.yaml or EXTRA_ROUTES)",
-      "GET /v1/backups: no operationId (add it to deploy-api.yaml or EXTRA_ROUTES)",
+      "GET /v1/apps/:app/widgets: no operationId (add it to deploy-api.yaml or EXTRA_ROUTES)",
+      "GET /v1/widgets: no operationId (add it to deploy-api.yaml or EXTRA_ROUTES)",
     ]);
     try {
       // With an operation, a route with ids is generated; one without ids needs a NO_ID_CASES entry.
-      EXTRA_ROUTES["GET /v1/apps/:app/backups"] = "getApp";
-      EXTRA_ROUTES["GET /v1/backups"] = "listSecrets";
-      expect(uncovered(await harness([extra]))).toEqual(["GET /v1/backups: listSecrets has no NO_ID_CASES entry"]);
+      EXTRA_ROUTES["GET /v1/apps/:app/widgets"] = "getApp";
+      EXTRA_ROUTES["GET /v1/widgets"] = "listSecrets";
+      expect(uncovered(await harness([extra]))).toEqual(["GET /v1/widgets: listSecrets has no NO_ID_CASES entry"]);
     } finally {
-      delete EXTRA_ROUTES["GET /v1/backups"];
-      delete EXTRA_ROUTES["GET /v1/apps/:app/backups"];
+      delete EXTRA_ROUTES["GET /v1/widgets"];
+      delete EXTRA_ROUTES["GET /v1/apps/:app/widgets"];
     }
   });
 

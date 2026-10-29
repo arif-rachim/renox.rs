@@ -81,6 +81,27 @@ fn max_isolates(tier: TierName) -> usize {
     }
 }
 
+/// `database` is `tenant_id` or `<tenant_id>.<app>` (deploy-api.md 0.3 section 3).
+pub fn database_belongs(tenant_id: &str, database: &str) -> bool {
+    if database == tenant_id {
+        return true;
+    }
+    match database
+        .strip_prefix(tenant_id)
+        .and_then(|r| r.strip_prefix('.'))
+    {
+        Some(app) => {
+            !app.is_empty()
+                && app.len() <= 50
+                && app.as_bytes()[0].is_ascii_lowercase()
+                && app
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        }
+        None => false,
+    }
+}
+
 /// What the manager needs to know about a deployment before creating its cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeploymentMeta {
@@ -88,6 +109,10 @@ pub struct DeploymentMeta {
     /// `None` in local mode (the route table file has no app).
     pub app: Option<String>,
     pub secrets_version: u64,
+    /// deploy-api.md 0.3 section 3: the tenant file the cells open, when the
+    /// app has a database of its own (`<tenant_id>.<app>`); `None` is the
+    /// tenant's shared file.
+    pub database: Option<String>,
 }
 
 /// Looks up [`DeploymentMeta`] of `(tenant_id, deployment_hash)`.
@@ -112,6 +137,7 @@ impl DeploymentLookup for StaticTiers {
                 .unwrap_or(self.default_tier),
             app: None,
             secrets_version: 0,
+            database: None,
         }
     }
 }
@@ -180,6 +206,29 @@ struct Inner {
     /// instead of racing a short one (#182).
     #[cfg(feature = "test-support")]
     idle_override_us: std::sync::atomic::AtomicU64,
+    /// Told about every route sync (#254: the supervisor places tenants
+    /// in children from the same entries).
+    sync_observer: std::sync::OnceLock<SyncObserver>,
+    db_lifecycle: std::sync::OnceLock<Arc<dyn DbLifecycle>>,
+    /// The database key (tenant id or `<tenant_id>.<app>`) of each cell.
+    db_keys: Mutex<HashMap<CellKey, String>>,
+    /// Tenants being moved to a microVM (#259): their requests answer 503.
+    moving: Mutex<HashSet<String>>,
+}
+
+/// Called with the entries of every [`CellManager::sync_routes`].
+pub type SyncObserver = Arc<dyn Fn(&[RouteEntry]) + Send + Sync>;
+
+/// What happens around a tenant file's life in this process (#255: the
+/// Litestream sidecar, `crate::replication`).
+pub trait DbLifecycle: Send + Sync + 'static {
+    /// Before the file is opened, on the database thread (blocking is fine):
+    /// restore a missing or corrupt file. An error refuses the open.
+    fn before_open(&self, tenant_id: &str, file: &Path) -> Result<(), String>;
+    /// The file is open (the first cell of the tenant).
+    fn opened(&self, tenant_id: &str, file: &Path);
+    /// The last cell closed the file (eviction).
+    fn closed(&self, tenant_id: &str);
 }
 
 /// Quiet time after the last eviction before freed memory is trimmed: one
@@ -211,6 +260,10 @@ impl CellManager {
                 trims: Default::default(),
                 #[cfg(feature = "test-support")]
                 idle_override_us: std::sync::atomic::AtomicU64::new(u64::MAX),
+                sync_observer: std::sync::OnceLock::new(),
+                db_lifecycle: std::sync::OnceLock::new(),
+                db_keys: Mutex::new(HashMap::new()),
+                moving: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -307,6 +360,105 @@ impl CellManager {
         &self.inner.runtime
     }
 
+    /// The configuration the manager was built with (#254: the supervisor
+    /// hands the same deployment metadata, secrets and artifacts to the
+    /// children).
+    pub fn config(&self) -> &ManagerConfig {
+        &self.inner.config
+    }
+
+    /// The tenant-file lifecycle hooks, when set (#255).
+    pub fn db_lifecycle(&self) -> Option<Arc<dyn DbLifecycle>> {
+        self.inner.db_lifecycle.get().cloned()
+    }
+
+    /// Registers the tenant-file lifecycle hooks (once, before any cell).
+    pub fn set_db_lifecycle(&self, hooks: Arc<dyn DbLifecycle>) {
+        let _ = self.inner.db_lifecycle.set(hooks);
+    }
+
+    /// Registers the observer of [`Self::sync_routes`] (once).
+    pub fn set_sync_observer(&self, observer: SyncObserver) {
+        let _ = self.inner.sync_observer.set(observer);
+    }
+
+    /// Marks `tenant_id` as moving (#259); false when it already was.
+    pub fn start_moving(&self, tenant_id: &str) -> bool {
+        self.inner
+            .moving
+            .lock()
+            .expect("moving lock")
+            .insert(tenant_id.to_string())
+    }
+
+    /// Ends the move of `tenant_id`: it serves here again.
+    pub fn stop_moving(&self, tenant_id: &str) {
+        self.inner
+            .moving
+            .lock()
+            .expect("moving lock")
+            .remove(tenant_id);
+    }
+
+    /// Requests to a moving tenant answer 503 `RENOX_TENANT_MOVING`.
+    pub fn is_moving(&self, tenant_id: &str) -> bool {
+        self.inner
+            .moving
+            .lock()
+            .expect("moving lock")
+            .contains(tenant_id)
+    }
+
+    /// The tenant's file is open in this process.
+    pub fn db_open(&self, tenant_id: &str) -> bool {
+        self.inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .is_some_and(|s| s.try_lock().map_or(true, |g| g.handle.is_some()))
+    }
+
+    /// Drain every cell that opens the database `db_key` (#258: an import
+    /// swaps a staging app's file).
+    pub fn drain_database(&self, db_key: &str) -> usize {
+        let keys: Vec<CellKey> = self
+            .inner
+            .db_keys
+            .lock()
+            .expect("db keys lock")
+            .iter()
+            .filter(|(_, d)| d.as_str() == db_key)
+            .map(|(k, _)| k.clone())
+            .collect();
+        let cells = self.inner.cells.lock().expect("cells lock");
+        let mut n = 0;
+        for k in keys {
+            if let Some(cell) = cells.get(&k).and_then(|s| s.get()) {
+                cell.start_draining();
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// Drain every cell of `tenant_id` (#254: the tenant moved to a child
+    /// process of its own).
+    pub fn drain_tenant(&self, tenant_id: &str) -> usize {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        let mut n = 0;
+        for (key, slot) in cells.iter() {
+            if key.tenant_id == tenant_id
+                && let Some(cell) = slot.get()
+            {
+                tracing::info!(tenant_id, deployment_hash = %key.deployment_hash, "cell draining: tenant moved to a child process");
+                cell.start_draining();
+                n += 1;
+            }
+        }
+        n
+    }
+
     pub fn meter(&self) -> &Meter {
         &self.inner.meter
     }
@@ -371,14 +523,19 @@ impl CellManager {
             .filter(|e| e.status == RouteStatus::Active)
             .map(|e| (e.tenant_id.clone(), e.deployment_hash.clone()))
             .collect();
-        let cells = self.inner.cells.lock().expect("cells lock");
-        for (key, slot) in cells.iter() {
-            if !active.contains(&(key.tenant_id.clone(), key.deployment_hash.clone()))
-                && let Some(cell) = slot.get()
-            {
-                tracing::info!(tenant_id = %key.tenant_id, deployment_hash = %key.deployment_hash, "cell draining");
-                cell.start_draining();
+        {
+            let cells = self.inner.cells.lock().expect("cells lock");
+            for (key, slot) in cells.iter() {
+                if !active.contains(&(key.tenant_id.clone(), key.deployment_hash.clone()))
+                    && let Some(cell) = slot.get()
+                {
+                    tracing::info!(tenant_id = %key.tenant_id, deployment_hash = %key.deployment_hash, "cell draining");
+                    cell.start_draining();
+                }
             }
+        }
+        if let Some(observer) = self.inner.sync_observer.get() {
+            observer(entries);
         }
     }
 
@@ -414,12 +571,23 @@ impl CellManager {
             .lookup(&key.tenant_id, &key.deployment_hash);
         let tier_name = meta.tier;
         let tier = *self.inner.config.tiers.get(tier_name);
+        // A database of the app's own, only ever one of this tenant's.
+        let db_key = meta
+            .database
+            .clone()
+            .filter(|d| database_belongs(&key.tenant_id, d))
+            .unwrap_or_else(|| key.tenant_id.clone());
         // #157: the tenant file opens on its DB thread while the artifact is
         // verified and the isolate is created; migrations run alongside the
         // isolate's creation. Tenant code cannot reach the DB before the
         // cell is ready: module evaluation runs outside any request, where
         // `ctx.db` rejects with `RENOX_NO_REQUEST` (ops.md section 11).
-        let db = self.acquire_db(&key.tenant_id, tier.db_quota_bytes).await?;
+        let db = self.acquire_db(&db_key, tier.db_quota_bytes).await?;
+        self.inner
+            .db_keys
+            .lock()
+            .expect("db keys lock")
+            .insert(key.clone(), db_key.clone());
         let store = self.inner.config.artifacts.clone();
         let hash = key.deployment_hash.clone();
         let verified = tokio::task::spawn_blocking(move || store.get(&hash))
@@ -434,7 +602,12 @@ impl CellManager {
         let artifact_dir = match verified {
             Ok(a) => a.path,
             Err(e) => {
-                self.release_db(&key.tenant_id).await;
+                self.inner
+                    .db_keys
+                    .lock()
+                    .expect("db keys lock")
+                    .remove(&key);
+                self.release_db(&db_key).await;
                 return Err(e);
             }
         };
@@ -494,7 +667,12 @@ impl CellManager {
         let isolate = match result {
             Ok(i) => i,
             Err(e) => {
-                self.release_db(&key.tenant_id).await;
+                self.inner
+                    .db_keys
+                    .lock()
+                    .expect("db keys lock")
+                    .remove(&key);
+                self.release_db(&db_key).await;
                 return Err(e);
             }
         };
@@ -503,7 +681,12 @@ impl CellManager {
             Ok(p) => p,
             Err(e) => {
                 isolate.terminate();
-                self.release_db(&key.tenant_id).await;
+                self.inner
+                    .db_keys
+                    .lock()
+                    .expect("db keys lock")
+                    .remove(&key);
+                self.release_db(&db_key).await;
                 return Err(e);
             }
         };
@@ -556,15 +739,25 @@ impl CellManager {
             return Ok(h);
         }
         let dir = self.tenant_dir(tenant_id);
+        let hooks = self.inner.db_lifecycle.get().cloned();
+        let tenant = tenant_id.to_string();
         // The open runs on the DB thread; the handle is usable at once and
         // `DbHandle::ready` reports an open failure (#157).
         let handle = DbHandle::open_in_background(move || {
             std::fs::create_dir_all(&dir).map_err(|e| DbError::Open(e.kind().to_string()))?;
+            let file = dir.join("app.db");
+            if let Some(h) = &hooks {
+                h.before_open(&tenant, &file).map_err(DbError::Open)?;
+            }
             let options = DbOptions {
                 module_prefix: Some("app".into()),
                 ..DbOptions::with_quota_bytes(quota)
             };
-            TenantDb::open(dir.join("app.db"), options)
+            let db = TenantDb::open(&file, options)?;
+            if let Some(h) = &hooks {
+                h.opened(&tenant, &file);
+            }
+            Ok(db)
         })
         .map_err(|e| CellError::Db(DbError::Open(e.kind().to_string())))?;
         slot.handle = Some(handle.clone());
@@ -593,6 +786,9 @@ impl CellManager {
             // `TenantDb::close` checkpoints with the platform policy (#147).
             if let Err(e) = h.close().await {
                 tracing::error!(tenant_id, error = %e, "closing the tenant database failed")
+            }
+            if let Some(hooks) = self.inner.db_lifecycle.get() {
+                hooks.closed(tenant_id);
             }
         }
     }
@@ -643,9 +839,15 @@ impl CellManager {
         );
         cell.stop_outbox();
         cell.isolate.terminate();
-        let tenant = cell.key.tenant_id.clone();
+        let db_key = self
+            .inner
+            .db_keys
+            .lock()
+            .expect("db keys lock")
+            .remove(&cell.key)
+            .unwrap_or_else(|| cell.key.tenant_id.clone());
         drop(cell);
-        self.release_db(&tenant).await;
+        self.release_db(&db_key).await;
         self.inner
             .evicted
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

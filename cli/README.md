@@ -1,6 +1,6 @@
 # renox CLI (v0, F3)
 
-One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`, `mcp` (P21), and against the control plane `login`, `tokens`, `deploy`, `logs`, `secrets`. Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
+One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`, `mcp` (P21), and against the control plane `login`, `tokens`, `deploy`, `logs`, `secrets`, `db`. Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
 
 ```
 bun cli/src/main.ts <command>        # from the repository
@@ -18,7 +18,7 @@ bun test --cwd cli                   # tests; the dev end-to-end test needs RENO
 | `3` | environment error | no `renox-worker` binary (`RENOX_WORKER_PATH` unset and none downloaded, or pointing to nothing); the worker exits during startup or keeps exiting under `renox dev`; the port is in use |
 | `130` | interrupted | Ctrl-C (SIGINT); `renox dev` stops the worker first |
 
-Commands that call the control plane (`deploy`, `logs`, `secrets`, `tokens`, `login`) map the API's answer onto the same codes: not signed in, 400, 401, 403, 404, 409 → `1` (with the API's code, message and `details`); 422 `RENOX_DEPLOY_REJECTED` and `RENOX_ACTIVATION_FAILED` → `2` (the artifact or its migrations, cell or probe are wrong); 5xx, 429 and an unreachable API → `3` (after the retries below). A command never prints a token or a secret value.
+Commands that call the control plane (`deploy`, `logs`, `secrets`, `db`, `tokens`, `login`) map the API's answer onto the same codes: not signed in, 400, 401, 403, 404, 409 → `1` (with the API's code, message and `details`); 422 `RENOX_DEPLOY_REJECTED` and `RENOX_ACTIVATION_FAILED` → `2` (the artifact or its migrations, cell or probe are wrong); 5xx, 429 and an unreachable API → `3` (after the retries below). A command never prints a token or a secret value.
 
 Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wrong>`, then `hint: <what to do>` when there is something to do (`src/errors.ts`). `renox check` prints each problem as `<file>:<line>  error  <message>`. A TypeScript syntax error carries the transpiler's line and column, relative to the app folder. A `renox.toml` problem carries the line of the key; for a TOML syntax error, the line where parsing first fails. An unknown key comes with the closest valid key ("did you mean"). The messages are snapshotted in `tests/negative/__snapshots__/`.
 
@@ -39,6 +39,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |
 | `renox logs [--follow] [--since <t>] [--source all\|server\|client] [--deployment <hash>] [--app <name>] [--json]` | The app's log lines; `--follow` keeps streaming |
 | `renox secrets set <NAME> \| list \| rm <NAME> [--app <name>]` | App secrets; `set` reads the value from stdin |
+| `renox db export [--out <file>] \| import <file> \| restore --at <time> --as <new-app> [--app <name>]` | The app's database: download a snapshot, import into a staging app, restore into a new app (#258) |
 | `renox login`, `renox tokens` | Sign in, manage tenant tokens (#113) |
 | `renox mcp [--project <dir>]` | Local MCP server on stdio for coding agents: the docs, the project's config and routes, and the `check`/`dev` status as tools (below) |
 
@@ -177,6 +178,14 @@ Measured times are B15's (`bench/scenarios/B15/run.sh`).
 - **`--json`** prints one object instead of the progress lines: `app`, `hash`, `previous`, `url`, `hostnames`, `sourcemaps`, `stages` (`build_ms`, `upload_ms`, `sourcemaps_ms`, `activate_ms`) and `total_ms` (B15 reads it).
 - **Logs.** `GET /v1/apps/{app}/logs` as Server-Sent Events: the last 100 lines (or those since `--since`, Unix ms or `30s`/`10m`/`2h`/`1d`), one per line (`time level [browser] module message (request id)`, or the raw JSON with `--json`). With `--follow` the stream stays open; when it drops, or nothing arrives for 45 s (three missed keep-alives), the CLI reconnects with `Last-Event-ID`, backing off from 1 s to 30 s, so no line is lost or repeated. 401, 403, 404 end it with exit 1; 10 failed reconnects in a row with exit 3.
 - **Secrets.** `renox secrets set NAME` reads the value from stdin (`printf %s "$VALUE" | renox secrets set NAME`; in a terminal it prompts with the echo off) and refuses it as an argument, where it would reach the shell history and `ps`. One trailing newline is dropped. A value under 8 bytes or 8 characters, or over 64 KiB, is refused before anything is sent. `list` prints names, update times and the secret version; `rm` removes. A new value is used from the next `renox deploy` or rollback. No output contains a value.
+
+### `renox db` (#258)
+
+The app's database, through `docs/contracts/deploy-api.md` 0.3 section 14.
+
+- **Export.** `renox db export [--out <file>]` asks for a consistent snapshot (`exportBackup`). The API answers a signed URL that expires within 15 minutes, and the file is downloaded through that URL, without the API token. The file's SHA-256 is compared with the one the API reported; a mismatch writes nothing and exits `3`. The file is written as `<file>.partial` with mode 0600, then renamed. The default name is `<app>-<UTC time of the export>.db`.
+- **Import.** `renox db import <file> --app <staging-app>` replaces the database of a staging app (`POST /v1/apps`, `"staging": true`) with a SQLite file, sent as `application/vnd.sqlite3`. A file that is missing, or does not start with the SQLite header, is refused before anything is sent. The API refuses a production app and a file whose tables break the naming rules (422 `RENOX_IMPORT_REJECTED`, exit `1`, with the reasons).
+- **Restore.** `renox db restore --at <time> --as <new-app>` restores the database as of `<time>` (milliseconds since the epoch, or an ISO 8601 time with a zone) into a new app with the source app's active artifact. 0.3 never restores in place. A time that no backup generation covers is 422 `RENOX_RESTORE_POINT_UNKNOWN` (exit `1`), and nothing is created.
 
 ### `renox mcp`
 

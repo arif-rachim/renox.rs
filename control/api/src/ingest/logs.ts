@@ -38,7 +38,8 @@ export interface LogLine {
   level: "debug" | "info" | "warn" | "error";
   message: string;
   fields: Record<string, unknown> | null;
-  source: "server" | "client";
+  /** `platform` (deploy-api.md 0.3): written by the control plane itself; never accepted from a node. */
+  source: "server" | "client" | "platform";
 }
 
 export interface LogBatch {
@@ -64,7 +65,7 @@ export interface ReadOptions {
   since?: number;
   /** Lines stored after this sequence number. */
   afterSeq?: number;
-  source?: "server" | "client";
+  source?: "server" | "client" | "platform";
   deployment?: string;
   /** At most this many of the latest matching lines; default 100. */
   limit?: number;
@@ -234,6 +235,8 @@ export function registerLogIngest(app: Hono<Env>, deps: Deps): void {
     const node = nodeId(c);
     const batch = await batchBody(c);
     if (batch.node_id !== node) throw new ApiError("RENOX_TOKEN_SCOPE");
+    // deploy-api.md 0.3 section 11: only the control plane writes `platform` lines.
+    if (batch.lines.some((l) => l.source === "platform")) throw invalid("lines.source", "platform lines are written by the control plane only");
     const { store, cap, clientToday } = logIngest(deps);
 
     // The deployments the lines name, with their app and the tenant's tier (a node token spans tenants).

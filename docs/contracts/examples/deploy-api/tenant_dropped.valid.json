@@ -1,0 +1,1 @@
+{ "type": "tenant_dropped", "schema_version": 0, "node_id": "node-dxb-01", "tenant_id": "t_hello", "cells_drained": 2, "file": "kept" }

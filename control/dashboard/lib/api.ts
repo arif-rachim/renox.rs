@@ -230,7 +230,8 @@ export class Api {
     return { ok: true, value: { res, text } };
   }
 
-  private async json<T>(method: string, path: string, body?: unknown): Promise<Result<T>> {
+  /** A JSON call; public for the calls of lib/database.ts (#258). */
+  async json<T>(method: string, path: string, body?: unknown): Promise<Result<T>> {
     const r = await this.call(method, path, body);
     if (!r.ok) return r;
     if (r.value.res.status === 204) return { ok: true, value: undefined as T };

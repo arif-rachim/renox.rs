@@ -1,0 +1,31 @@
+# Syscalls renox-worker makes only on paths the traces of
+# ops/scripts/trace-syscalls.sh do not reach. One name per line, then the
+# reason. Reviewed by hand; keep it short.
+exit_group      process exit on a fatal error
+rt_sigreturn    return from every signal handler (SIGHUP reload, SIGTERM)
+restart_syscall restart of a sleep interrupted by a signal
+execve          [process] children (#254) and the Litestream sidecars (#255) are started by the worker
+wait4           reaping those children
+kill            stopping them
+pidfd_open      tokio's child-process reaping on Linux
+exit            thread exit (strace -c does not count calls that never return)
+tgkill          pthread_kill and abort() on a fatal error
+pipe2           stdio pipes of spawned children
+dup3            stdio of spawned children (aarch64 has no dup2)
+waitid          child reaping without pidfd
+close_range     Rust std closes inherited descriptors in spawned children
+getcwd          relative paths resolved at start
+nanosleep       std::thread::sleep on older glibc
+getuid          [process] microvm_hook (#259): a shell hook's identity reads at start (read-only; no fork is allowed)
+getgid          same
+getegid         same
+getppid         same
+getpgrp         same
+epoll_pwait     Go's network poller in the Litestream sidecars (#255), which inherit the filter
+mkdirat         the Litestream sidecars and `litestream restore` (#255), which inherit the filter: replica directories
+renameat        same: replica files and the restored file moved into place
+readlinkat      same: Go's runtime reads /proc/self/exe
+fchownat        same: replica files take the owner of the database file (the worker's own user; no CAP_CHOWN)
+statfs          same: the file system of the database
+getrlimit       same: Go's runtime reads RLIMIT_NOFILE
+getpeername     the Litestream sidecars (#255): read-only socket query the Go runtime makes on CI's kernel (audit type=1326, syscall 52, on the rust job)

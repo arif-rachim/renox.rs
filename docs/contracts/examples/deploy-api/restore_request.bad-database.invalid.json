@@ -1,0 +1,1 @@
+{ "$comment": "invalid: a database id is the tenant id or <tenant_id>.<app>, never a path [expect: pattern]", "type": "restore_request", "schema_version": 0, "tenant_id": "t_hello", "database": "../t_other", "timestamp": null, "reason": "failover", "deadline_ms": 25000 }

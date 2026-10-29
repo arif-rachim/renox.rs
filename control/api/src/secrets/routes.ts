@@ -13,7 +13,7 @@ import { actorOf, type Deps, type Env } from "../context.ts";
 import { deploymentView, requireDeployment, type DeploymentRow } from "../deployments/repo.ts";
 import { routeService } from "../routes/service.ts";
 import { entriesWhere, lockRoutes, upsertEntry } from "../routes/table.ts";
-import { ownerOf } from "../workers/assign.ts";
+import { ownerFor } from "../workers/assign.ts";
 import { healthyNodes } from "../workers/repo.ts";
 import { EnvMasterKey, type KeyProvider } from "./crypto.ts";
 import { deleteSecret, latestVersion, listSecrets, putSecret, valuesAt } from "./store.ts";
@@ -105,7 +105,7 @@ export function registerSecrets(app: Hono<Env>, deps: Deps): void {
     const d: DeploymentRow = await requireDeployment(db, tenant, appName, hash);
     const pinned = d.state === "active" || d.state === "activating" ? d.secrets_version : null;
     if (pinned === null || pinned !== version) throw notFound();
-    if (ownerOf(tenant, await healthyNodes(db)) !== node) throw notFound();
+    if ((await ownerFor(db, tenant, await healthyNodes(db))) !== node) throw notFound();
     const declared = ((d.manifest?.permissions as { secrets?: string[] } | undefined)?.secrets ?? []).slice();
     const secrets = await valuesAt(db, keysOf(deps), tenant, appName, version, declared);
     deps.log.info("secret bundle served", { request_id: c.get("requestId"), actor: actorOf(c.get("principal")), app: appName, hash, version, names: Object.keys(secrets) });

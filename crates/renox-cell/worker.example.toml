@@ -28,6 +28,10 @@ default_tier = "free"
 rate_limit_per_ip = 100.0
 rate_limit_burst = 200
 max_connections_per_ip = 100
+# HTTP/2 flood budgets (renox-gateway README, "Protocol limits"); 0 is refused.
+h2_max_resets_per_second = 100
+h2_max_resets_per_ip_per_second = 200
+h2_max_control_frames_per_second = 2000
 
 [tenant_tiers]
 t_paid_example = "paid"
@@ -45,3 +49,43 @@ t_paid_example = "paid"
 
 [tiers.paid]
 # cpu_ms = 500
+
+# The worker's own seccomp allowlist and Landlock rules (#253, README
+# "Sandbox"). Required in controlled mode unless allow_unsandboxed = true.
+# Linux only. Try it with: renox-worker --sandbox-selftest --config <file>
+[sandbox]
+enabled = false
+# mode = "enforce"            # or "audit": misses are logged by the kernel, not fatal
+# extra_syscalls = []
+# extra_read_paths = []
+# extra_connect_ports = [80]  # fetch allowlist entries with http:// or an explicit port
+# allow_unsandboxed = false
+
+# Process tiers (#254, README "Process tiers"): tenants in a child process
+# of their own. Controlled mode places them by the route entry's process.
+[process]
+enabled = false
+# own_tenants = ["t_paid_example"]   # local mode
+# launcher = "direct"                # or "systemd" (ops/systemd/renox-child@.service)
+# run_dir = "run"
+# max_children = 64
+# child_idle_secs = 600
+# restart_backoff_ms = 200
+# child_cpu_quota_us = 200000        # cpu.max per 100 ms period
+# child_memory_bytes = 1073741824
+# child_pids = 512
+
+# Litestream per tenant file (#255, README "Replication").
+[replication]
+enabled = false
+# replica = "file"                 # or "s3"
+# path = "replica"                 # file: <path>/<database>/
+# bucket = "renox-replica"         # s3
+# prefix = "tenants"
+# region = "me-central-1"          # controlled mode: one of allowed_regions
+# sse_kms_key_id = "…"             # controlled mode, s3: required
+# sync_interval_ms = 1000
+# retention_hours = 24
+# snapshot_interval_secs = 3600
+# stop_grace_ms = 3000
+# litestream_bin = "litestream"

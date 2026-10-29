@@ -20,6 +20,7 @@ import { ApiError, invalid } from "../errors.ts";
 import { pathParam } from "../http.ts";
 import { logIngest, matches, type ReadOptions, type SeqLine } from "../ingest/logs.ts";
 import { tenantDb } from "../tenancy/scope.ts";
+import { withServerFrames } from "./symbolicate-server.ts";
 
 /** Lines replayed when `since` or `Last-Event-ID` is given (no `since` and no id: the last 100). */
 export const REPLAY_LIMIT = 10_000;
@@ -54,10 +55,14 @@ function query(c: Context<Env>): Query {
   };
 }
 
-/** One `log` event: the line as the contract's `log_line`, without the store's own fields. */
-function event(l: SeqLine): { event: string; id: string; data: string } {
+/**
+ * One `log` event: the line as the contract's `log_line`, without the store's
+ * own fields; a server stack gets `fields.frames` with original positions
+ * (symbolicate-server.ts, #261).
+ */
+async function event(deps: Deps, l: SeqLine): Promise<{ event: string; id: string; data: string }> {
   const { node_id: _n, app: _a, seq, ...line } = l;
-  return { event: "log", id: `${l.ts}-${seq}`, data: JSON.stringify(line) };
+  return { event: "log", id: `${l.ts}-${seq}`, data: JSON.stringify(await withServerFrames(deps, line)) };
 }
 
 export function registerLogStream(app: Hono<Env>, deps: Deps): void {
@@ -92,13 +97,16 @@ export function registerLogStream(app: Hono<Env>, deps: Deps): void {
         let sent = q.afterSeq ?? 0;
         let backlog = true;
         const queued: SeqLine[] = [];
-        const send = async (lines: SeqLine[]): Promise<void> => {
-          for (const l of lines) {
-            if (l.app !== name || l.seq <= sent || !matches(l, q.filter) || (q.filter.since !== undefined && l.ts < q.filter.since)) continue;
-            sent = l.seq;
-            await out.writeSSE(event(l));
-          }
-        };
+        // Batches are written one after the other: symbolication awaits, and lines keep their order.
+        let chain: Promise<void> = Promise.resolve();
+        const send = (lines: SeqLine[]): Promise<void> =>
+          (chain = chain.then(async () => {
+            for (const l of lines) {
+              if (l.app !== name || l.seq <= sent || !matches(l, q.filter) || (q.filter.since !== undefined && l.ts < q.filter.since)) continue;
+              sent = l.seq;
+              await out.writeSSE(await event(deps, l));
+            }
+          }));
         if (q.follow) {
           unsubscribe = store.subscribe(tenant, (lines) => {
             if (backlog) queued.push(...lines);
@@ -108,7 +116,7 @@ export function registerLogStream(app: Hono<Env>, deps: Deps): void {
         const replay = q.filter.since !== undefined || q.afterSeq !== undefined;
         const opts: ReadOptions = { ...q.filter, ...(q.afterSeq === undefined ? {} : { afterSeq: q.afterSeq }), limit: replay ? REPLAY_LIMIT : DEFAULT_TAIL };
         const lines = await store.read(tenant, name, opts);
-        for (const l of lines) await out.writeSSE(event(l));
+        for (const l of lines) await out.writeSSE(await event(deps, l));
         sent = Math.max(sent, ...lines.map((l) => l.seq));
         backlog = false;
         await send(queued.splice(0));

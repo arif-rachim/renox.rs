@@ -52,6 +52,51 @@ use crate::control::{self, Controller, MeterPoster};
 use crate::manager::{CellManager, ManagerConfig, StaticTiers};
 use crate::pages::PlatformKey;
 use crate::spool::{self, Queue};
+use crate::supervisor::{ProcessLookup, StaticProcesses, Supervisor};
+
+/// The gateway's dispatcher: the shared process alone, or the supervisor
+/// of the process tiers in front of it (#254).
+enum Dispatch {
+    Shared(Arc<GuardedDispatcher>),
+    Tiers(Supervisor<GuardedDispatcher>),
+}
+
+/// The dispatcher, with the moving check in front of either process tier
+/// (#259): a tenant being moved answers 503 `RENOX_TENANT_MOVING`.
+struct NodeDispatcher {
+    inner: Dispatch,
+    manager: CellManager,
+}
+
+/// `errors.md`, `RENOX_TENANT_MOVING`.
+const MOVING_MESSAGE: &str = "The service is being moved. Try again shortly.";
+
+impl renox_gateway::CellDispatcher for NodeDispatcher {
+    async fn dispatch(
+        &self,
+        ctx: renox_gateway::RequestCtx,
+        req: Request<axum::body::Body>,
+    ) -> Response<axum::body::Body> {
+        if self.manager.is_moving(&ctx.tenant_id) {
+            let mut res = renox_gateway::limits::platform_error(
+                http::StatusCode::SERVICE_UNAVAILABLE,
+                "RENOX_TENANT_MOVING",
+                MOVING_MESSAGE,
+                &ctx.request_id,
+                req.headers(),
+            );
+            res.headers_mut().insert(
+                http::header::RETRY_AFTER,
+                http::HeaderValue::from_static("30"),
+            );
+            return res;
+        }
+        match &self.inner {
+            Dispatch::Shared(d) => d.dispatch(ctx, req).await,
+            Dispatch::Tiers(s) => s.dispatch(ctx, req).await,
+        }
+    }
+}
 
 /// Why the worker did not start. No file contents, no secrets.
 #[derive(Debug)]
@@ -64,6 +109,8 @@ pub enum WorkerError {
     Tls(String),
     /// Controlled mode: the node token or the control client (never the token).
     Control(String),
+    /// `[sandbox]` could not be applied (#253).
+    Sandbox(String),
 }
 
 impl std::fmt::Display for WorkerError {
@@ -74,6 +121,7 @@ impl std::fmt::Display for WorkerError {
             WorkerError::Key(e) => write!(f, "platform key: {e}"),
             WorkerError::Tls(e) => write!(f, "tls: {e}"),
             WorkerError::Control(e) => write!(f, "control plane: {e}"),
+            WorkerError::Sandbox(e) => write!(f, "{e}"),
         }
     }
 }
@@ -139,11 +187,17 @@ pub struct Worker {
     pub http_addr: Option<SocketAddr>,
     /// The operator listener of `[control] health_listen` (`GET /healthz`).
     pub health_addr: Option<SocketAddr>,
+    /// The node listener of `[control] node_listen` (deploy-api.md 0.3).
+    pub node_addr: Option<SocketAddr>,
+    /// Litestream per tenant file (#255), with `[replication] enabled`.
+    pub replication: Option<crate::replication::Replication>,
     pub manager: CellManager,
     pub routes: Arc<RouteTable>,
     routes_file: PathBuf,
     /// The control-plane side of controlled mode (#55).
     pub controller: Option<Arc<Controller>>,
+    /// The process tiers (#254), with `[process] enabled`.
+    pub supervisor: Option<Supervisor<GuardedDispatcher>>,
     certs: Option<Arc<CertStore>>,
     server: JoinHandle<std::io::Result<()>>,
     /// The plain listener and the SIGHUP certificate reloader.
@@ -285,6 +339,18 @@ impl Worker {
                 platform_key,
             },
         );
+        // Litestream per tenant file (#255).
+        let replication = config.replication.enabled.then(|| {
+            let r = crate::replication::Replication::start(
+                config.replication.clone(),
+                config.mode,
+                &config.node_id,
+                &config.data_dir,
+                &config.process.run_dir,
+            );
+            manager.set_db_lifecycle(Arc::new(r.clone()));
+            r
+        });
         if let Some(state) = &route_state {
             state.set_manager(manager.clone());
             // The last table this node applied: served until the control
@@ -304,6 +370,11 @@ impl Worker {
         gw_config.rate_limit.requests_per_second = config.gateway.rate_limit_per_ip;
         gw_config.rate_limit.burst = config.gateway.rate_limit_burst;
         gw_config.limits.max_connections_per_ip = config.gateway.max_connections_per_ip;
+        gw_config.protocol.h2_max_resets_per_second = config.gateway.h2_max_resets_per_second;
+        gw_config.protocol.h2_max_resets_per_ip_per_second =
+            config.gateway.h2_max_resets_per_ip_per_second;
+        gw_config.protocol.h2_max_control_frames_per_second =
+            config.gateway.h2_max_control_frames_per_second;
         let gateway = Gateway::new(gw_config, routes.clone());
         // `/__renox/events` lines go to the same tenant log (#126).
         gateway.set_client_event_sink(Arc::new(ClientLogSink::new(log_sink, &config.data_dir)));
@@ -318,9 +389,43 @@ impl Worker {
             .local_addr()
             .map_err(io("read the listen address"))?;
         let s3_for_prepare = s3.clone();
-        let dispatcher = Arc::new(GuardedDispatcher {
+        let guarded = Arc::new(GuardedDispatcher {
             manager: manager.clone(),
             guard: s3.map(|store| Guard::new(store, health.clone(), config.artifacts_dir.clone())),
+        });
+        // Process tiers (#254): tenants placed in a child process of their own.
+        let supervisor = if config.process.enabled {
+            let lookup: Arc<dyn ProcessLookup> = match &route_state {
+                Some(state) => state.clone(),
+                None => Arc::new(StaticProcesses(
+                    config.process.own_tenants.iter().cloned().collect(),
+                )),
+            };
+            let config_path = config.config_path.clone().ok_or_else(|| {
+                WorkerError::Control("[process] needs the worker started from a config file".into())
+            })?;
+            let require_cgroup =
+                config.mode == Mode::Controlled && !config.sandbox.allow_unsandboxed;
+            Some(
+                Supervisor::start(
+                    guarded.clone(),
+                    manager.clone(),
+                    lookup,
+                    config.process.clone(),
+                    config_path,
+                    require_cgroup,
+                )
+                .map_err(|e| WorkerError::Sandbox(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let dispatcher = Arc::new(NodeDispatcher {
+            inner: match &supervisor {
+                Some(s) => Dispatch::Tiers(s.clone()),
+                None => Dispatch::Shared(guarded),
+            },
+            manager: manager.clone(),
         });
         let mut tasks = Vec::new();
         let mut http_addr = None;
@@ -344,6 +449,8 @@ impl Worker {
             _ => tokio::spawn(async move { gateway.serve(listener, dispatcher).await }),
         };
         let mut health_addr = None;
+        let mut node_addr = None;
+        let extra_blocked = ExtraBlocked(config.fetch_blocked_addresses.clone());
         let controller = match (control, route_state, &config.control) {
             (Some(client), Some(state), Some(section)) => {
                 if let Some(listen) = section.health_listen {
@@ -366,6 +473,37 @@ impl Worker {
                     &section.region,
                     section.max_cells,
                 );
+                // The node listener (deploy-api.md 0.3 section 15), on an
+                // address tenant fetch cannot reach (#218 rule).
+                if let Some(listen) = section.node_listen {
+                    if blocked_reason(listen.ip()).is_none()
+                        && !extra_blocked.contains(listen.ip())
+                        && !listen.ip().is_unspecified()
+                    {
+                        return Err(WorkerError::Control(format!(
+                            "control.node_listen {listen} is an address tenant fetch can reach; use a private address or add it to fetch_blocked_addresses"
+                        )));
+                    }
+                    let token = Arc::new(crate::control::node_listener::CallbackToken::default());
+                    let listener = Arc::new(crate::control::node_listener::NodeListener {
+                        node_id: config.node_id.clone(),
+                        token: token.clone(),
+                        replication: replication.clone(),
+                        manager: manager.clone(),
+                        microvm_hook: config.process.microvm_hook.clone(),
+                    });
+                    let (bound, task) = listener
+                        .serve(listen)
+                        .await
+                        .map_err(io("bind control.node_listen"))?;
+                    node_addr = Some(bound);
+                    tasks.push(task);
+                    let url = section
+                        .node_listen_url
+                        .clone()
+                        .unwrap_or_else(|| format!("http://{bound}"));
+                    controller.set_node_listener(url, token);
+                }
                 // `prepare` (#96) from the stream.
                 if let Some(store) = &s3_for_prepare {
                     let preparer = Arc::new(Preparer {
@@ -383,15 +521,41 @@ impl Worker {
             }
             _ => None,
         };
+        // #253: the listeners are bound and every file read at start (config,
+        // keys, token, route table) is open; from here on only the allowlist.
+        if config.sandbox.enabled {
+            let exe = std::env::current_exe().ok();
+            let profile = crate::sandbox::Profile::from_config(
+                &config,
+                exe.as_deref().and_then(Path::parent),
+            );
+            if !crate::sandbox::landlock_applied() {
+                tracing::warn!(
+                    "sandbox: Landlock was not applied before the runtime started; only seccomp applies (renox-worker applies Landlock in main)"
+                );
+            }
+            crate::sandbox::restrict_syscalls(&profile)
+                .map_err(|e| WorkerError::Sandbox(e.to_string()))?;
+        } else {
+            if config.mode == Mode::Controlled {
+                tracing::warn!(
+                    "[sandbox] is off (allow_unsandboxed = true): this controlled node runs without seccomp and Landlock"
+                );
+            }
+            crate::sandbox::apply_test_sandbox();
+        }
         tracing::info!(%addr, ?http_addr, ?health_addr, tls = certs.is_some(), controlled = controller.is_some(), routes = routes.len(), "renox-worker listening");
         Ok(Worker {
             addr,
             http_addr,
             health_addr,
+            node_addr,
+            replication,
             manager,
             routes,
             routes_file: config.routes_file.clone(),
             controller,
+            supervisor,
             certs,
             server,
             tasks,
@@ -432,6 +596,9 @@ impl Worker {
     pub async fn shutdown(self) {
         if let Some(c) = &self.controller {
             c.stop();
+        }
+        if let Some(s) = &self.supervisor {
+            s.shutdown().await;
         }
         self.server.abort();
         for t in &self.tasks {

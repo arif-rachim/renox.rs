@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::control::degraded::SnapshotFile;
 use crate::manager::{CellManager, DeploymentLookup, DeploymentMeta};
+use crate::supervisor::{ProcessKind, ProcessLookup};
 use crate::tiers::TierName;
 
 /// A route entry with the F3 fields (`control-messages.schema.json`
@@ -49,6 +50,13 @@ pub struct ControlEntry {
     pub tier: TierName,
     pub node_id: String,
     pub secrets_version: u64,
+    /// 0.3 (#251, #254): `shared` or `own`; missing means `shared`.
+    #[serde(default, skip_serializing_if = "ProcessKind::is_shared")]
+    pub process: ProcessKind,
+    /// 0.3 (#251): the tenant file the entry's cells open; missing means
+    /// the tenant's own (`tenant_id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
 }
 
 fn tier_name<S: serde::Serializer>(t: &TierName, s: S) -> Result<S::Ok, S::Error> {
@@ -282,6 +290,23 @@ impl RouteState {
     }
 }
 
+/// #254: a tenant's placement is the `process` of its newest active entry
+/// on this node.
+impl ProcessLookup for RouteState {
+    fn process(&self, tenant_id: &str) -> ProcessKind {
+        let t = self.table.lock().expect("routes lock");
+        t.entries
+            .values()
+            .filter(|e| {
+                e.tenant_id == tenant_id
+                    && e.node_id == self.node_id
+                    && e.status == RouteStatus::Active
+            })
+            .max_by_key(|e| e.version)
+            .map_or(ProcessKind::Shared, |e| e.process)
+    }
+}
+
 impl DeploymentLookup for RouteState {
     fn lookup(&self, tenant_id: &str, deployment_hash: &str) -> DeploymentMeta {
         let t = self.table.lock().expect("routes lock");
@@ -295,6 +320,7 @@ impl DeploymentLookup for RouteState {
                 tier: e.tier,
                 app: Some(e.app.clone()),
                 secrets_version: e.secrets_version,
+                database: e.database.clone(),
             },
             // Being prepared (#96): what the prepare message said.
             None if self.is_expected(tenant_id, deployment_hash) => self
@@ -310,6 +336,7 @@ impl DeploymentLookup for RouteState {
                 tier: TierName::Free,
                 app: None,
                 secrets_version: 0,
+                database: None,
             },
         }
     }
@@ -337,6 +364,8 @@ mod tests {
             tier: TierName::Paid,
             node_id: node.into(),
             secrets_version: 3,
+            process: ProcessKind::Shared,
+            database: None,
         }
     }
 
@@ -446,6 +475,8 @@ mod convergence {
                 tier: TierName::Free,
                 node_id: node.into(),
                 secrets_version: 0,
+                process: ProcessKind::Shared,
+                database: None,
             }
         }
 
