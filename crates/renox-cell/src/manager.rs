@@ -973,6 +973,7 @@ impl CellManager {
             } else {
                 meter_status(m.status)
             },
+            kind: None,
         });
     }
 

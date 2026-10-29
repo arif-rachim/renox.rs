@@ -2,10 +2,12 @@
 //! (`docs/contracts/ops.md`).
 
 pub mod db;
+pub mod events;
 pub mod fetch_connector;
 pub mod log;
 pub mod modules;
 pub mod net_policy;
+pub mod password;
 pub mod secrets;
 
 #[cfg(feature = "v8")]

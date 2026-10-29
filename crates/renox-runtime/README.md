@@ -219,7 +219,15 @@ The broker is JavaScript in `src/js/bootstrap.js`, in `shared` mode (one context
 - A nested `db.transaction` while a transaction is current is a savepoint (`op_db_savepoint_*`).
 - `setLocale(locale, dir?)` on page contexts; the page result carries `locale` and `dir` to the renderer.
 
-Tests: `tests/modules.rs`. Not yet: events (#231), slot fillers with the provider's ctx (#232), `isolate` mode.
+Tests: `tests/modules.rs`. Not yet: slot fillers with the provider's ctx (#232), `isolate` mode.
+
+### Events and password ops (#231)
+
+- `ctx.events.emit(name, payload, { durable })` (`src/ops/events.rs`, `op_events_emit`): the name must be one the emitting module exports, and the payload is checked in Rust against the exported schema, a keyword subset (`type`, `properties`, `required`, `additionalProperties`, `items`, `enum`, `const`, the length and range bounds, `oneOf`, `anyOf`); a mismatch, a value `JSON.stringify` refuses, or more than 64 KiB is `RENOX_EVENT_PAYLOAD`. A durable event is a `renox__outbox` row written through `DbHandle::call_tx` on the request's current transaction (a savepoint included), or as its own autocommit write outside one, so a rollback drops it. An in-memory event runs each installed module's `on[name]` before `emit` resolves, with that module's ctx and the emitter's transaction; a throw is `RENOX_MODULE_SERVICE` and rolls the transaction back.
+- Delivery: `IsolateHandle::deliver_event(ctx, EventEnvelope)` runs the bootstrap's `deliver` like a request (concurrency slot, CPU, heap and wall-clock limits, its own token). The handler gets a ctx without the request, `db` in its own `IMMEDIATE` transaction; when it resolves, `op_events_ack` deletes the delivery's outbox row in that transaction and it commits. The answer is `EventOutcome::{Ok, Threw, NoHandler, Failed(code)}` with an `EVENT <module> <name>` meter route. Retries, fan-out and dead letters are the cell's (#229).
+- `ctx.password.hash` / `verify` (`src/ops/password.rs`): argon2id, m = 64 MiB, t = 3, p = 1, 16-byte salt, PHC string out. The work runs on tokio's blocking pool behind a per-process semaphore (`PasswordPool`, default 4, `PasswordPool::configure`); each call adds 1 ms to the request's CPU (`CpuLedger::add`), and its wall time counts against the deadline. `verify` refuses a PHC string above the platform's parameters and compares the digest in constant time. A password over 1,024 bytes is a `RangeError`; neither the password nor the hash is logged.
+
+Tests: `tests/events.rs`, `tests/password.rs`.
 
 ## Thread model
 

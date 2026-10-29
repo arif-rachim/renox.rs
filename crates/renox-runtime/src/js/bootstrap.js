@@ -19,6 +19,10 @@ import {
   op_db_tx_commit,
   op_db_tx_rollback,
   op_deadline_remaining_ms,
+  op_events_ack,
+  op_events_emit,
+  op_password_hash,
+  op_password_verify,
   op_renox_fetch,
   op_fetch_body_close,
   op_fetch_body_read,
@@ -679,6 +683,88 @@ function register(namespaces) {
   }
 }
 
+/**
+ * Runs the in-memory handlers of `name` (ops.md 1.3.0 section 15.4): each
+ * installed module's `on[name]`, in the modules order, with its own ctx and
+ * the emitter's current transaction. A throw rolls the transaction back and
+ * fails the emit.
+ */
+async function runInMemory(st, id, name, payload) {
+  for (const [m, on] of new SafeArrayIterator([...eventHandlers])) {
+    const h = on[name];
+    if (typeof h !== "function") continue;
+    const e = ObjectFreeze({ id, name, payload, attempt: 1 });
+    const hctx = eventCtx(st.ctxOf(m), m, statements("current", m), e);
+    try {
+      await within([[moduleVar, m]], () => h(hctx, e));
+    } catch (err) {
+      throw await calleeFailed(err, { module: m, event: name }, `${m} handler of ${name}`);
+    }
+  }
+}
+
+/** An EventContext: the module's ctx without the request, `db` given. */
+function eventCtx(base, module, statementsOf, e) {
+  const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }) };
+  delete c.req;
+  delete c.url;
+  delete c.params;
+  delete c.headers;
+  delete c.setLocale;
+  delete c.session;
+  delete c.fragment;
+  return ObjectFreeze(c);
+}
+
+/** `ctx.events` of `module`. */
+function makeEvents(module) {
+  return ObjectFreeze({
+    async emit(name, payload, options = undefined) {
+      const st = requestState();
+      if (typeof name !== "string") throw new TypeError("events.emit: name must be a string");
+      const durable = options?.durable ?? true;
+      if (typeof durable !== "boolean") throw new TypeError("events.emit: durable must be a boolean");
+      let json;
+      try {
+        json = JSONStringify(payload);
+      } catch {
+        json = undefined;
+      }
+      // Not JSON-serialisable: Rust answers RENOX_EVENT_PAYLOAD, reason "not_json".
+      if (typeof json !== "string") json = "";
+      const tx = txVar.get() ?? 0;
+      let id;
+      try {
+        id = await op_events_emit(currentToken(), name, json, durable, moduleArg(module), tx);
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      if (!durable) await runInMemory(st, id, name, JSONParse(json));
+      return id;
+    },
+  });
+}
+
+/** `ctx.password` (ops.md 1.3.0 section 16): argon2id in Rust, off this thread. */
+const password = ObjectFreeze({
+  async hash(pw) {
+    if (typeof pw !== "string") throw new TypeError("password.hash: a string");
+    try {
+      return await op_password_hash(currentToken(), pw);
+    } catch (e) {
+      throw e instanceof RangeError ? e : toRenoxError(e);
+    }
+  },
+  async verify(pw, hash) {
+    if (typeof pw !== "string" || typeof hash !== "string") throw new TypeError("password.verify: two strings");
+    try {
+      return await op_password_verify(currentToken(), pw, hash);
+    } catch (e) {
+      throw e instanceof RangeError ? e : toRenoxError(e);
+    }
+  },
+});
+
 /** One frozen object of service proxies per installed module. */
 function buildProxies() {
   const out = {};
@@ -743,6 +829,8 @@ function moduleFields(m) {
     module: m,
     services: serviceProxies,
     hooks: makeHooks(m),
+    events: makeEvents(m),
+    password,
   };
 }
 
@@ -755,6 +843,8 @@ const KIND_NOT_RESPONSE = 2;
 // Page loaders (ops.md section 14): an object becomes template data.
 const KIND_RENDER = 3;
 const KIND_PAGE_INTERNAL = 4;
+// An event delivery ended (ops.md 1.3.0 section 15.4).
+const KIND_EVENT = 5;
 
 function safeString(v) {
   try {
@@ -1062,6 +1152,62 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
   }
 }
 
+/**
+ * Called by Rust for one delivery attempt of a durable event (ops.md 1.3.0
+ * section 15.4, "Delivery"): `module`'s `on[name]` runs with a fresh ctx of
+ * that module, `db` its own IMMEDIATE transaction; when it resolves, the
+ * delivery is acknowledged in that transaction and it commits. Never rejects.
+ */
+function deliver(token, id, name, payloadJson, attempt, module) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(module);
+    const h = eventHandlers.get(module)?.[name];
+    if (typeof h !== "function") return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
+    const st = newRequestState({
+      deadline: ObjectFreeze({
+        remainingMs() {
+          try {
+            return op_deadline_remaining_ms(currentToken());
+          } catch (e) {
+            throw toRenoxError(e);
+          }
+        },
+      }),
+    });
+    stateVar.enter(st);
+    const run = async () => {
+      let tx;
+      try {
+        tx = await op_db_tx_begin(token, "immediate");
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      const e = ObjectFreeze({ id, name, payload: JSONParse(payloadJson), attempt });
+      const hctx = eventCtx(st.ctxOf(module), module, statements(tx, module), e);
+      try {
+        await within([[txVar, tx]], () => h(hctx, e));
+        if (st.rolledBack.has(tx)) throw new ModuleServiceError(`${module} handler of ${name}: a callee failed`, { module, event: name, cause_code: null });
+        await op_events_ack(token, tx, id, module);
+        await op_db_tx_commit(token, tx);
+      } catch (err) {
+        if (!st.rolledBack.has(tx)) {
+          try {
+            await op_db_tx_rollback(token, tx);
+          } catch {
+            // The request may have ended; Rust rolls back in that case.
+          }
+        }
+        throw err;
+      }
+      return { kind: KIND_EVENT, result: "ok" };
+    };
+    return PromisePrototypeThen(run(), undefined, (err) => ({ ...describeThrow(err), kind: KIND_EVENT, result: "threw" }));
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Global hardening (ops.md section 11, step 2, and the README's table).
 
@@ -1174,7 +1320,7 @@ function harden(modulesJson) {
 }
 
 ObjectDefineProperty(globalThis, "__renoxInternal", {
-  value: ObjectFreeze({ dispatch, harden, register }),
+  value: ObjectFreeze({ dispatch, deliver, harden, register }),
   writable: false,
   enumerable: false,
   configurable: true,

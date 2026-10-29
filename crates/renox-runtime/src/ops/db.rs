@@ -95,10 +95,19 @@ enum Job {
         reply: Option<Reply<Result<(), DbError>>>,
     },
     Call(Box<dyn FnOnce(&TenantDb) + Send>),
+    /// Run on the DB thread inside the open transaction `tx`, or outside
+    /// any transaction for `None` (a platform write such as an outbox row,
+    /// `ops/events.rs`). A mismatched handle gets `TxState`.
+    TxCall {
+        tx: Option<u32>,
+        f: TxFn,
+    },
     Close(Reply<Result<(), DbError>>),
     /// Answered once the file is open ([`DbHandle::ready`]).
     Ready(Reply<Result<(), DbError>>),
 }
+
+type TxFn = Box<dyn FnOnce(&TenantDb, Result<Option<&renox_data::Tx<'_>>, DbError>) + Send>;
 
 /// What a savepoint job does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +261,24 @@ impl DbHandle {
         }));
         self.tx.send(job).map_err(|_| closed())?;
         rx.await.map_err(|_| closed())
+    }
+
+    /// Run `f` inside the open transaction `tx` (`Some`), or as its own
+    /// autocommit work once no transaction holds the writer (`None`).
+    pub async fn call_tx<T: Send + 'static>(
+        &self,
+        tx: Option<u32>,
+        f: impl FnOnce(&TenantDb, Option<&renox_data::Tx<'_>>) -> Result<T, DbError> + Send + 'static,
+    ) -> Result<T, DbError> {
+        let (reply, rx) = oneshot::channel();
+        let job = Job::TxCall {
+            tx,
+            f: Box::new(move |db, t| {
+                let _ = reply.send(t.and_then(|t| f(db, t)));
+            }),
+        };
+        self.tx.send(job).map_err(|_| closed())?;
+        rx.await.unwrap_or_else(|_| Err(closed()))
     }
 
     /// Roll back an open transaction, truncate the WAL, and close the file
@@ -496,7 +523,14 @@ impl DbLoop {
                             on_db(db, kind, &sql, &params, deadline)
                         }));
                     }
-                    job @ (Job::Stmt { .. } | Job::Begin { .. } | Job::Call(_)) => {
+                    Job::TxCall { tx: Some(t), f } if t == id => f(db, Ok(Some(tx))),
+                    Job::TxCall { tx: Some(_), f } => {
+                        f(db, Err(tx_state("the transaction is not open")));
+                    }
+                    job @ (Job::Stmt { .. }
+                    | Job::Begin { .. }
+                    | Job::Call(_)
+                    | Job::TxCall { .. }) => {
                         self.defer(db, job);
                     }
                     Job::End {
@@ -561,6 +595,7 @@ fn failed_thread(e: DbError, rx: mpsc::Receiver<Job>) {
                 }
             }
             Job::Call(_) => {}
+            Job::TxCall { .. } => {}
             Job::Close(reply) | Job::Ready(reply) => {
                 let _ = reply.send(Err(e.clone()));
             }
@@ -618,6 +653,8 @@ fn db_thread(db: TenantDb, rx: mpsc::Receiver<Job>) {
                 }
             }
             Job::Call(f) => f(&db),
+            Job::TxCall { tx: None, f } => f(&db, Ok(None)),
+            Job::TxCall { f, .. } => f(&db, Err(tx_state("the transaction is not open"))),
             Job::Close(reply) => lp.close = Some(reply),
             Job::Ready(reply) => {
                 let _ = reply.send(Ok(()));

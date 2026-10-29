@@ -93,6 +93,7 @@ mod tests {
                 logs_dropped: 0,
                 http_status: 200,
                 status: MeterStatus::Ok,
+                kind: None,
             }],
         }
     }

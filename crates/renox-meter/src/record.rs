@@ -1,4 +1,4 @@
-//! The record and the batch envelope of `docs/contracts/meter.md` version 0.1
+//! The record and the batch envelope of `docs/contracts/meter.md` version 0.2
 //! (`schema_version` 0).
 //!
 //! Field names and types match `docs/contracts/schemas/meter-record.schema.json`
@@ -25,6 +25,16 @@ pub enum MeterStatus {
     Busy,
     /// Rendering hit a render limit (`RENOX_RENDER_LIMIT`, contract 0.1).
     RenderLimit,
+}
+
+/// What was invoked (contract 0.2, `kind`; absent = a request).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeterKind {
+    Request,
+    /// One delivery attempt of a durable event: `route` is
+    /// `EVENT <module> <name>`, `request_id` `<event id>_<module>_<attempt>`.
+    Event,
 }
 
 /// One invocation record (contract section 2). All fields are required
@@ -69,6 +79,9 @@ pub struct MeterRecord {
     pub logs_dropped: u64,
     pub http_status: u16,
     pub status: MeterStatus,
+    /// Contract 0.2; `None` is serialised as an absent field (= request).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<MeterKind>,
 }
 
 /// One batch envelope: one line of the ndjson sink (contract section 3).
