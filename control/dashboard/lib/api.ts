@@ -82,6 +82,44 @@ export interface AppUsage {
   hours: UsageHour[];
   total: Omit<UsageHour, "hour_start">;
   quota: { tenant_id: string; tier: string; period_start: number; period_end: number; used: QuotaAmounts; limits: QuotaAmounts; over: string[] };
+  /** Browser events today against the daily cap (deploy-api.md section 11; warning from 80 %). */
+  client_events: { used_today: number; daily_cap: number; warning: boolean };
+}
+
+export type ClientErrorStatus = "open" | "resolved" | "ignored";
+
+/** A stack frame as the browser reported it and, when a private sourcemap matched, its original position. */
+export interface ClientErrorFrame {
+  file: string;
+  line: number;
+  column: number;
+  function: string | null;
+  original: { file: string; line: number; column: number } | null;
+}
+
+/** `ClientErrorGroup` (deploy-api.yaml). */
+export interface ClientErrorGroup {
+  fingerprint: string;
+  kind: string;
+  message: string;
+  status: ClientErrorStatus;
+  first_seen: number;
+  last_seen: number;
+  count: number;
+  regressed: boolean;
+  deployments: { deployment_hash: string; count: number }[];
+  top_frame: ClientErrorFrame | null;
+}
+
+export interface ClientErrorEvent {
+  ts: number;
+  client_ts: number;
+  deployment_hash: string;
+  request_id: string | null;
+  message: string;
+  url: string;
+  ua: string;
+  frames: ClientErrorFrame[];
 }
 
 export interface SecretList {
@@ -234,6 +272,23 @@ export class Api {
 
   usage(app: string, from: number, to: number): Promise<Result<AppUsage>> {
     return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/usage?from=${from}&to=${to}`);
+  }
+
+  clientErrors(app: string, opts: { status?: ClientErrorStatus; deployment?: string; cursor?: string; limit?: number } = {}): Promise<Result<{ groups: ClientErrorGroup[]; next_cursor: string | null }>> {
+    const q = new URLSearchParams();
+    if (opts.status !== undefined) q.set("status", opts.status);
+    if (opts.deployment !== undefined) q.set("deployment", opts.deployment);
+    if (opts.cursor !== undefined) q.set("cursor", opts.cursor);
+    q.set("limit", String(opts.limit ?? 50));
+    return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/client-errors?${q}`);
+  }
+
+  clientError(app: string, fingerprint: string): Promise<Result<{ group: ClientErrorGroup; events: ClientErrorEvent[] }>> {
+    return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/client-errors/${encodeURIComponent(fingerprint)}`);
+  }
+
+  setClientErrorStatus(app: string, fingerprint: string, status: ClientErrorStatus): Promise<Result<ClientErrorGroup>> {
+    return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/client-errors/${encodeURIComponent(fingerprint)}`, { status });
   }
 
   listSecrets(app: string): Promise<Result<SecretList>> {

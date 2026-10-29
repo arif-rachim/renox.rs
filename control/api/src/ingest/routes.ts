@@ -13,6 +13,8 @@ import { checkMeterBatch } from "../contract.ts";
 import { ApiError, invalid } from "../errors.ts";
 import { JSON_LIMIT, pathParam, readBody } from "../http.ts";
 import type { Deps, Env } from "../context.ts";
+import { logIngest } from "./logs.ts";
+import { clientEventsQuota } from "../logs/client-events.ts";
 
 /** The longest range one usage request may cover. */
 export const MAX_USAGE_RANGE_MS = 366 * 24 * HOUR_MS;
@@ -66,6 +68,8 @@ export function registerIngest(app: Hono<Env>, deps: Deps): void {
     const hours = await appUsageHours(t, tenant, name, from, to);
     // The billing package filters the rollup by a later parameter; the tenant id is still the principal's.
     const quota = await quotaOf(crossTenant(db, "the tenant's quota is read through control/billing, which binds the tenant id as $3"), tenant, now);
-    return c.json({ app: name, from, to, hours, total: total(hours), quota });
+    // Browser events today against the daily cap (deploy-api.md section 11, client-events.md section 7; #128).
+    const client_events = await clientEventsQuota(t, tenant, logIngest(deps).clientToday.usedToday(tenant, now));
+    return c.json({ app: name, from, to, hours, total: total(hours), quota, client_events });
   });
 }

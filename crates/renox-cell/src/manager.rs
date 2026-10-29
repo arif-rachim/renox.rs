@@ -172,6 +172,11 @@ struct Inner {
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
     trims: std::sync::atomic::AtomicU64,
+    /// Idle timeout in microseconds that replaces the configured one
+    /// (`u64::MAX`: none). Tests keep a long timeout and force eviction
+    /// instead of racing a short one (#182).
+    #[cfg(feature = "test-support")]
+    idle_override_us: std::sync::atomic::AtomicU64,
 }
 
 /// Quiet time after the last eviction before freed memory is trimmed: one
@@ -200,8 +205,53 @@ impl CellManager {
                 evicted: Default::default(),
                 trim_scheduled: Default::default(),
                 trims: Default::default(),
+                #[cfg(feature = "test-support")]
+                idle_override_us: std::sync::atomic::AtomicU64::new(u64::MAX),
             }),
         }
+    }
+
+    /// The idle timeout in force.
+    fn idle_timeout(&self) -> Duration {
+        #[cfg(feature = "test-support")]
+        {
+            let us = self
+                .inner
+                .idle_override_us
+                .load(std::sync::atomic::Ordering::SeqCst);
+            if us != u64::MAX {
+                return Duration::from_micros(us);
+            }
+        }
+        self.inner.config.idle_timeout
+    }
+
+    /// Test hook: treat every cell as idle for `idle` from now on and wake
+    /// the eviction tasks, so idle cells go now. `None` restores the
+    /// configured timeout.
+    #[cfg(feature = "test-support")]
+    pub fn set_idle_timeout_for_tests(&self, idle: Option<Duration>) {
+        let us = idle.map_or(u64::MAX, |d| d.as_micros().min(u64::MAX as u128 - 1) as u64);
+        self.inner
+            .idle_override_us
+            .store(us, std::sync::atomic::Ordering::SeqCst);
+        let cells = self.inner.cells.lock().expect("cells lock");
+        for slot in cells.values() {
+            if let Some(cell) = slot.get() {
+                cell.wake.notify_one();
+            }
+        }
+    }
+
+    /// Test hook: requests in flight across all cells.
+    #[cfg(feature = "test-support")]
+    pub fn inflight_for_tests(&self) -> usize {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        cells
+            .values()
+            .filter_map(|s| s.get())
+            .map(|c| c.inflight())
+            .sum()
     }
 
     pub fn runtime(&self) -> &Runtime {
@@ -494,9 +544,9 @@ impl CellManager {
     /// as soon as a draining cell has nothing in flight.
     fn spawn_eviction(&self, cell: Arc<Cell>) {
         let this = self.clone();
-        let idle = self.inner.config.idle_timeout;
         tokio::spawn(async move {
             loop {
+                let idle = this.idle_timeout();
                 let due = cell.last_used() + idle;
                 if !cell.is_draining() {
                     tokio::select! {

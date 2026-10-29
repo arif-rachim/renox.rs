@@ -7019,6 +7019,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "rcgen 0.14.10",
+ "renox-cell",
  "renox-data",
  "renox-gateway",
  "renox-meter",

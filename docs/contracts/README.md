@@ -17,6 +17,8 @@ Rules:
 | Error codes | every component ↔ tenants | [`errors.md`](errors.md) | #91 (v0), #152 | 0.1 |
 | Module manifest, `renox.toml [modules]`, `renox.lock` | broker (P9) ↔ CLI (P11) ↔ modules | [`manifest.md`](manifest.md), [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) | #225 | 1 |
 | Deploy API, worker control messages | CLI (P11), cell (P5), dashboard (P13) ↔ control plane (P12) | [`deploy-api.md`](deploy-api.md), [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml), [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) | #50 | v0 |
+| Module manifest | broker (P9) ↔ CLI (P11) ↔ modules | `manifest.md` | F4 | Planned |
+| Deploy API, worker control messages | CLI (P11), cell (P5), dashboard (P13) ↔ control plane (P12) | [`deploy-api.md`](deploy-api.md), [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml), [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) | #50, #184, #222 | 0.2 |
 
 ## Checking
 

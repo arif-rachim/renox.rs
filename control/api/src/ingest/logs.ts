@@ -7,6 +7,10 @@
 // that does not apply it cannot flood the store. Over the cap, one line in
 // SAMPLE_EVERY is kept and the rest are counted as dropped; ingestion never
 // fails because of volume.
+//
+// Lines with `source: client` (browser events, client-events.md section 7) are
+// outside that per-minute cap: they count toward the tenant's daily
+// client-event counter only, which the usage view reads (#128).
 
 import type { Context, Hono } from "hono";
 import { operation } from "../audit.ts";
@@ -15,6 +19,7 @@ import { checkMessage } from "../contract.ts";
 import type { Deps, Env } from "../context.ts";
 import { ApiError, invalid } from "../errors.ts";
 import { JSON_LIMIT, readBody } from "../http.ts";
+import { recordClientEvents } from "../logs/client-events.ts";
 
 /** ops.md section 4: lines per tenant per minute. */
 export const LOG_LINES_PER_MINUTE = { free: 1_000, paid: 10_000 } as const;
@@ -49,40 +54,113 @@ export interface StoredLine extends LogLine {
   app: string;
 }
 
-/** Where accepted lines go; the dashboard and `GET /v1/apps/{app}/logs` (#57) read it. */
+/** A stored line with its place in the tenant's ingestion order (the `n` of the SSE id `<ts>-<n>`). */
+export interface SeqLine extends StoredLine {
+  seq: number;
+}
+
+export interface ReadOptions {
+  /** Lines with `ts` at or after this. */
+  since?: number;
+  /** Lines stored after this sequence number. */
+  afterSeq?: number;
+  source?: "server" | "client";
+  deployment?: string;
+  /** At most this many of the latest matching lines; default 100. */
+  limit?: number;
+}
+
+/** Where accepted lines go; `GET /v1/apps/{app}/logs` (stream.ts) reads it. */
 export interface LogStore {
   append(lines: StoredLine[]): Promise<void>;
-  /** The lines of one app, oldest first, at most `limit` of the latest. */
-  read(tenantId: string, app: string, opts?: { since?: number; limit?: number }): Promise<StoredLine[]>;
+  /** The matching lines of one app, oldest first, at most `limit` of the latest. */
+  read(tenantId: string, app: string, opts?: ReadOptions): Promise<SeqLine[]>;
+  /** Calls `fn` with each batch appended for `tenantId` until the returned function is called. */
+  subscribe(tenantId: string, fn: (lines: SeqLine[]) => void): () => void;
+}
+
+/** Whether `line` passes the `source` and `deployment` filters of a read. */
+export function matches(line: StoredLine, opts: Pick<ReadOptions, "source" | "deployment">): boolean {
+  return (opts.source === undefined || line.source === opts.source) && (opts.deployment === undefined || line.deployment_hash === opts.deployment);
 }
 
 /** In-process store: per tenant, a bounded buffer within the retention window. */
 export class MemoryLogStore implements LogStore {
-  private readonly byTenant = new Map<string, StoredLine[]>();
+  private readonly byTenant = new Map<string, SeqLine[]>();
+  private readonly seqs = new Map<string, number>();
+  private readonly listeners = new Map<string, Set<(lines: SeqLine[]) => void>>();
   constructor(
     private readonly now: () => number,
     private readonly perTenant = 50_000,
   ) {}
   async append(lines: StoredLine[]): Promise<void> {
     const cutoff = this.now() - LOG_RETENTION_MS;
+    const added = new Map<string, SeqLine[]>();
     for (const line of lines) {
       let buf = this.byTenant.get(line.tenant_id);
       if (buf === undefined) {
         buf = [];
         this.byTenant.set(line.tenant_id, buf);
       }
-      buf.push(line);
+      const seq = (this.seqs.get(line.tenant_id) ?? 0) + 1;
+      this.seqs.set(line.tenant_id, seq);
+      const stored = { ...line, seq };
+      buf.push(stored);
+      const batch = added.get(line.tenant_id);
+      if (batch === undefined) added.set(line.tenant_id, [stored]);
+      else batch.push(stored);
     }
     for (const [tenant, buf] of this.byTenant) {
       const kept = buf.filter((l) => l.ts >= cutoff).slice(-this.perTenant);
       this.byTenant.set(tenant, kept);
     }
+    for (const [tenant, batch] of added) for (const fn of this.listeners.get(tenant) ?? []) fn(batch);
   }
-  async read(tenantId: string, app: string, opts: { since?: number; limit?: number } = {}): Promise<StoredLine[]> {
-    const lines = (this.byTenant.get(tenantId) ?? []).filter((l) => l.app === app && (opts.since === undefined || l.ts >= opts.since));
+  async read(tenantId: string, app: string, opts: ReadOptions = {}): Promise<SeqLine[]> {
+    const lines = (this.byTenant.get(tenantId) ?? []).filter(
+      (l) => l.app === app && (opts.since === undefined || l.ts >= opts.since) && (opts.afterSeq === undefined || l.seq > opts.afterSeq) && matches(l, opts),
+    );
     return lines.slice(-(opts.limit ?? 100));
   }
+  subscribe(tenantId: string, fn: (lines: SeqLine[]) => void): () => void {
+    let set = this.listeners.get(tenantId);
+    if (set === undefined) {
+      set = new Set();
+      this.listeners.set(tenantId, set);
+    }
+    set.add(fn);
+    return () => void set.delete(fn);
+  }
 }
+
+const DAY_MS = 86_400_000;
+
+/** Client lines per tenant since 00:00 UTC (client-events.md section 7); read by the usage view. */
+export class DailyClientCounter {
+  private day = -1;
+  private readonly counts = new Map<string, number>();
+
+  add(tenant: string, n: number, now: number): void {
+    this.roll(now);
+    this.counts.set(tenant, (this.counts.get(tenant) ?? 0) + n);
+  }
+
+  usedToday(tenant: string, now: number): number {
+    this.roll(now);
+    return this.counts.get(tenant) ?? 0;
+  }
+
+  private roll(now: number): void {
+    const d = Math.floor(now / DAY_MS);
+    if (d === this.day) return;
+    this.day = d;
+    this.counts.clear();
+  }
+}
+
+/** Limits of the follow streams of `GET /v1/apps/{app}/logs`; fields so tests can shorten them. */
+export const FOLLOW_STREAMS_PER_TENANT = 5;
+export const STREAM_KEEPALIVE_MS = 15_000;
 
 /** Per-tenant line counts in fixed one-minute windows, and what was dropped over the cap. */
 export class VolumeCap {
@@ -110,6 +188,14 @@ export class VolumeCap {
 interface LogIngest {
   store: LogStore;
   cap: VolumeCap;
+  /** Client lines today, per tenant; they never touch `cap`. */
+  clientToday: DailyClientCounter;
+  stream: {
+    keepAliveMs: number;
+    maxFollowPerTenant: number;
+    /** Open follow streams per tenant. */
+    open: Map<string, number>;
+  };
 }
 
 const ingests = new WeakMap<Deps, LogIngest>();
@@ -118,7 +204,12 @@ const ingests = new WeakMap<Deps, LogIngest>();
 export function logIngest(deps: Deps): LogIngest {
   let s = ingests.get(deps);
   if (s === undefined) {
-    s = { store: new MemoryLogStore(deps.now), cap: new VolumeCap() };
+    s = {
+      store: new MemoryLogStore(deps.now),
+      cap: new VolumeCap(),
+      clientToday: new DailyClientCounter(),
+      stream: { keepAliveMs: STREAM_KEEPALIVE_MS, maxFollowPerTenant: FOLLOW_STREAMS_PER_TENANT, open: new Map() },
+    };
     ingests.set(deps, s);
   }
   return s;
@@ -143,7 +234,7 @@ export function registerLogIngest(app: Hono<Env>, deps: Deps): void {
     const node = nodeId(c);
     const batch = await batchBody(c);
     if (batch.node_id !== node) throw new ApiError("RENOX_TOKEN_SCOPE");
-    const { store, cap } = logIngest(deps);
+    const { store, cap, clientToday } = logIngest(deps);
 
     // The deployments the lines name, with their app and the tenant's tier (a node token spans tenants).
     const tenants = [...new Set(batch.lines.map((l) => l.tenant_id))];
@@ -173,10 +264,19 @@ export function registerLogIngest(app: Hono<Env>, deps: Deps): void {
       }
       seen.add(key);
       const d = known.get(`${line.tenant_id} ${line.deployment_hash}`) as (typeof rows)[number];
-      if (!cap.take(line.tenant_id, d.tier, now)) continue;
+      // Client events count toward the daily counter only (client-events.md section 7).
+      if (line.source === "client") clientToday.add(line.tenant_id, 1, now);
+      else if (!cap.take(line.tenant_id, d.tier, now)) continue;
       accepted.push({ ...line, node_id: node, app: d.app });
     }
-    await store.append(accepted);
+    // Browser errors are grouped by fingerprint (#128); a grouping failure never fails the ingest.
+    const fingerprints = await recordClientEvents(db, accepted).catch((e: unknown) => {
+      deps.log.error("client error grouping failed", { request_id: c.get("requestId"), node_id: node, error: String(e) });
+      return new Map<StoredLine, string>();
+    });
+    // The fingerprint travels with the stored line (deploy-api.md section 11): the node's line has none.
+    const stored = accepted.map((l) => (fingerprints.has(l) ? { ...l, fields: { ...l.fields, fingerprint: fingerprints.get(l) } } : l));
+    await store.append(stored);
     const dropped = batch.lines.length - duplicates - accepted.length;
     if (dropped > 0) deps.log.warn("log lines sampled over the tenant cap", { request_id: c.get("requestId"), node_id: node, dropped });
     return c.json({ accepted: accepted.length, duplicates }, 202);

@@ -26,7 +26,8 @@ use tokio::net::TcpStream;
 pub const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 use crate::ops::net_policy::{
-    BlockReason, ExtraBlocked, Resolve, ResolveError, Scheme, Target, TargetHost, resolve_and_check,
+    BlockReason, ExtraBlocked, Nat64Prefixes, Resolve, ResolveError, Scheme, Target, TargetHost,
+    resolve_and_check_nat64,
 };
 
 /// hickory-resolver, without the hosts file (it maps names the operator
@@ -98,6 +99,9 @@ pub struct FetchConfig {
     /// The node's own public addresses and the control plane's node-facing
     /// ones (`ExtraBlocked`; never the public API address, ADR D23).
     pub extra_blocked: ExtraBlocked,
+    /// The node's NAT64 network-specific prefixes (RFC 6052); an address
+    /// under one is checked as the IPv4 address it embeds.
+    pub nat64_prefixes: Nat64Prefixes,
     /// Trust anchors added to the webpki roots (an operator's egress CA).
     /// There is no way to disable verification.
     pub extra_root_certs: Vec<rustls::pki_types::CertificateDer<'static>>,
@@ -112,6 +116,7 @@ impl FetchConfig {
         FetchConfig {
             resolver,
             extra_blocked: ExtraBlocked::default(),
+            nat64_prefixes: Nat64Prefixes::default(),
             extra_root_certs: Vec::new(),
             #[cfg(feature = "test-hooks")]
             connect_override: Default::default(),
@@ -282,19 +287,24 @@ pub async fn resolve_checked(
     target: &Target,
     hop: usize,
 ) -> Result<Vec<SocketAddr>, FetchFailure> {
-    resolve_and_check(config.resolver.as_ref(), &config.extra_blocked, target)
-        .await
-        .map_err(|e| match e {
-            ResolveError::Dns => FetchFailure::Failed {
-                host: target.host.display(),
-                reason: "dns",
-            },
-            ResolveError::Blocked(reason) => FetchFailure::Blocked {
-                host: target.host.display(),
-                reason,
-                hop,
-            },
-        })
+    resolve_and_check_nat64(
+        config.resolver.as_ref(),
+        &config.extra_blocked,
+        &config.nat64_prefixes,
+        target,
+    )
+    .await
+    .map_err(|e| match e {
+        ResolveError::Dns => FetchFailure::Failed {
+            host: target.host.display(),
+            reason: "dns",
+        },
+        ResolveError::Blocked(reason) => FetchFailure::Blocked {
+            host: target.host.display(),
+            reason,
+            hop,
+        },
+    })
 }
 
 /// Step 3: connect to one of the checked addresses, in resolver order, and
