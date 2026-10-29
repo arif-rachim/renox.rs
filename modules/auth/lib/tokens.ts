@@ -4,7 +4,7 @@
 // conditional UPDATE), bound to the user agent family of the request that
 // asked for it.
 
-import { type AuthCtx, normalizeEmail, randomHex, sha256Hex, startSession, type User } from "./core.ts";
+import { type AuthCtx, normalizeEmail, randomHex, register, sha256Hex, startSession, type User } from "./core.ts";
 
 export type Purpose = "magic" | "reset";
 
@@ -51,7 +51,7 @@ export async function consumeToken(ctx: AuthCtx, purpose: Purpose, token: string
 /** Sends through the `auth.send_mail` hook: the app (or a mail module) fills it. */
 export interface Mail {
   to: string;
-  template: "magic_link" | "password_reset";
+  template: "magic_link" | "password_reset" | "verify_email" | "account_exists";
   args: { url: string; expires_minutes: number; display_name: string };
 }
 
@@ -136,4 +136,27 @@ export async function confirmReset(ctx: AuthCtx, token: string, password: string
   const session = await startSession(ctx, userId);
   await ctx.events.emit("auth.password_changed", { user_id: userId, at: t });
   return { ok: true, cookie: session.cookie };
+}
+
+/** The answer to every registration that passed the checks, new email or not. */
+export const REGISTERED = "Check your inbox: we sent a link to finish signing up.";
+
+/**
+ * Register from a public form (#100, no enumeration): a new email gets its
+ * account and a confirmation link (a magic link: it signs in and marks the
+ * email verified); an email with an account gets a mail saying so, with the
+ * sign-in link. Both answer `REGISTERED`, set no cookie, and take one
+ * argon2 run.
+ */
+export async function signUp(ctx: AuthCtx & { url: URL }, input: { email?: unknown; password?: unknown; display_name?: unknown }): Promise<{ ok: true; message: string } | { ok: false; error: string; halt?: Response }> {
+  const r = await register(ctx, input);
+  if (!r.ok) return r;
+  if (await sendAllowed(ctx, r.user.email)) {
+    const base = `${ctx.url.origin}${mountOf(ctx)}`;
+    const mail: Mail = r.created
+      ? { to: r.user.email, template: "verify_email", args: { url: `${base}/magic/${await createToken(ctx, "magic", r.user.id)}`, expires_minutes: TOKEN_TTL_SECONDS / 60, display_name: r.user.display_name } }
+      : { to: r.user.email, template: "account_exists", args: { url: `${base}/login`, expires_minutes: 0, display_name: r.user.display_name } };
+    await ctx.hooks.run("auth.send_mail", mail);
+  }
+  return { ok: true, message: REGISTERED };
 }

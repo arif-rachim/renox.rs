@@ -38,6 +38,7 @@ exports[`snapshots per role anonymous: login, register, the account redirect, th
   
   <h1>Create an account</h1>
   
+  
   <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
     <input type="hidden" name="next" value="/">
     <label>Name <input type="text" name="display_name" autocomplete="name" value="" dir="auto"></label>

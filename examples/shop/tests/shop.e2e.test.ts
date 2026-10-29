@@ -74,7 +74,8 @@ test.skipIf(!worker)(
     // Checkout needs a user (auth, #241): 401, then sign up through auth's page and check out.
     expect((await post("/api/checkout", { cart_id: "c_e2e" })).status).toBe(401);
     const buyer = t.as("buyer");
-    expect((await buyer.action("/auth/register", "default", { email: "buyer@example.com", password: "correct horse battery", display_name: "Buyer" })).status).toBe(303);
+    expect((await buyer.action("/auth/register", "default", { email: "buyer@example.com", password: "correct horse battery", display_name: "Buyer" })).status).toBe(200);
+    expect((await buyer.action("/auth/login", "default", { email: "buyer@example.com", password: "correct horse battery" })).status).toBe(303);
     const co = (await buyer.request("POST", "/api/checkout", { body: { cart_id: "c_e2e" } })).json<{ amount: number; currency: string; order_id: number }>();
     expect(co.amount).toBe(3 * one.price_fils);
     expect(co.currency).toBe("aed");

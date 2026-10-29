@@ -27,7 +27,8 @@ describe.skipIf(!worker)("snapshots per role", () => {
 
   test("user: the account page and the header", async () => {
     const user = t.as("signed-in-user");
-    expect((await user.action("/auth/register", "default", { email: "sam@example.com", password: "correct horse battery", display_name: "Sam" })).status).toBe(303);
+    expect((await user.action("/auth/register", "default", { email: "sam@example.com", password: "correct horse battery", display_name: "Sam" })).status).toBe(200);
+    expect((await user.action("/auth/login", "default", { email: "sam@example.com", password: "correct horse battery" })).status).toBe(303);
     snapshot(stable((await user.page("/auth/account")).html), { role: "user account" });
     snapshot(stable((await user.page("/private")).html), { role: "user header" });
     // Signed in, the login page sends the user on.

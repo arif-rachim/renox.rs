@@ -183,9 +183,18 @@ export async function login(ctx: AuthCtx, input: { email?: unknown; password?: u
   return { ok: true, user, cookie: session.cookie };
 }
 
-export type RegisterResult = { ok: true; user: User; cookie: string } | { ok: false; error: string; halt?: Response };
+/**
+ * `created: false`: the email has an account; nothing was written. The caller
+ * answers both cases the same (no enumeration, #100).
+ */
+export type RegisterResult = { ok: true; created: boolean; user: User } | { ok: false; error: string; halt?: Response };
 
-/** `auth.before_register`, the checks, the argon2id hash, the user, a first session, and `auth.user_registered`. */
+/**
+ * `auth.before_register`, the checks, the argon2id hash, the user, and
+ * `auth.user_registered`. No session: the account is confirmed through the
+ * link `tokens.signUp` mails. An email that already has an account costs the
+ * same (one argon2 run) and changes nothing.
+ */
 export async function register(ctx: AuthCtx, input: { email?: unknown; password?: unknown; display_name?: unknown }): Promise<RegisterResult> {
   const email = typeof input.email === "string" ? normalizeEmail(input.email) : "";
   const password = typeof input.password === "string" ? input.password : "";
@@ -196,20 +205,14 @@ export async function register(ctx: AuthCtx, input: { email?: unknown; password?
   if (new TextEncoder().encode(password).length > 1024) return { ok: false, error: "That password is too long." };
   const hook = await ctx.hooks.run("auth.before_register", { email, display_name: displayName });
   if (hook.halt) return { ok: false, error: "Registration is not open.", halt: hook.response };
-  const taken = await ctx.db.queryOne("select 1 as x from auth__users where email = ?", [email]);
-  // Same answer whether or not the email exists would need an email loop (#240);
-  // until then a taken email is reported, and the IP bucket limits probing.
-  if (taken !== null) {
-    await bucket(ctx, `ip:${clientIp(ctx.headers)}`, true);
-    return { ok: false, error: "An account with this email exists. Sign in instead." };
-  }
   const hash = await ctx.password.hash(password);
+  const existing = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where email = ?", [email]);
+  if (existing !== null) return { ok: true, created: false, user: existing };
   const t = now();
   const user: User = { id: randomHex(16), email, display_name: displayName, created_at: t };
   await ctx.db.execute("insert into auth__users (id, email, display_name, password_hash, created_at, updated_at) values (?, ?, ?, ?, ?, ?)", [user.id, email, displayName, hash, t, t]);
   await ctx.events.emit("auth.user_registered", { user_id: user.id, at: t, source: "password" });
-  const session = await startSession(ctx, user.id);
-  return { ok: true, user, cookie: session.cookie };
+  return { ok: true, created: true, user };
 }
 
 /** Revoke the request's session. */

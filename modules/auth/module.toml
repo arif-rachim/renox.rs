@@ -23,7 +23,7 @@ secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICRO
 views = ["auth__public_users_v1"]
 
 [exports.services]
-register = "Create a user: { email, password, display_name } -> { user, cookie }"
+register = "Create a user and mail a confirmation link: { email, password, display_name } -> { message } (the same if the email was taken)"
 login = "Sign in: { email, password } -> { user, cookie } or { error }"
 logout = "End the current session (server side) -> { cookie }"
 currentUser = "The signed-in user of this request, or null"
@@ -46,7 +46,7 @@ payload = { type = "object", required = ["user_id", "at"], additionalProperties 
 description = "A password was set through a reset link"
 
 [exports.hooks."auth.send_mail"]
-args = { type = "object", required = ["to", "template", "args"], properties = { to = { type = "string" }, template = { enum = ["magic_link", "password_reset"] }, args = { type = "object" } } }
+args = { type = "object", required = ["to", "template", "args"], properties = { to = { type = "string" }, template = { enum = ["magic_link", "password_reset", "verify_email", "account_exists"] }, args = { type = "object" } } }
 description = "Send one mail (auth sends none itself before the email module, F7): fill it to deliver magic and reset links"
 
 [exports.hooks."auth.after_login"]

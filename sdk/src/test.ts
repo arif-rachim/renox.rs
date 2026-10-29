@@ -105,6 +105,8 @@ export interface TestApp {
   dbFile: string;
   /** The same app as another user: a separate session (cookie jar). */
   as(user: string): TestApp;
+  /** Read a cookie of this user's jar, or plant one (an attacker's token, a forged state). */
+  cookie(name: string, value?: string): string | undefined;
   /** Tenant log lines so far. */
   logs(): Record<string, unknown>[];
   /** Meter records so far (flushed about every second). */
@@ -182,6 +184,11 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
       db: { query: <T>(sql: string, params: (string | number | null)[] = []) => sqlite.query(sql).all(...params) as T[] },
       dbFile: w.db,
       as: (other) => make(other),
+      cookie: (name, value) => {
+        const jar = jarOf(user);
+        if (value !== undefined) jar.set(name, value);
+        return jar.get(name);
+      },
       logs: () => w.logs(),
       meters: () => w.meters(),
       stop: () => w.stop(),

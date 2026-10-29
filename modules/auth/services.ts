@@ -6,10 +6,10 @@ import * as core from "./lib/core.ts";
 import type { AuthCtx, User } from "./lib/core.ts";
 import * as tokens from "./lib/tokens.ts";
 
-/** Create a user and a first session. The caller sends `cookie` as `Set-Cookie`. */
-export async function register(ctx: AuthCtx, input: { email: string; password: string; display_name?: string }): Promise<{ user: User; cookie: string } | { error: string }> {
-  const r = await core.register(ctx, input);
-  return r.ok ? { user: r.user, cookie: r.cookie } : { error: r.error };
+/** Register: the account and a confirmation link by mail (auth.send_mail); `message` is the same whether or not the email was taken. */
+export async function register(ctx: AuthCtx & { url: URL }, input: { email: string; password: string; display_name?: string }): Promise<{ message: string } | { error: string }> {
+  const r = await tokens.signUp(ctx, input);
+  return r.ok ? { message: r.message } : { error: r.error };
 }
 
 /** Sign in. A wrong password, an unknown email, and a locked bucket all answer the same `error`. */

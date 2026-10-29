@@ -18,18 +18,25 @@ const worker = process.env.RENOX_TEST_SPEC ?? process.env.RENOX_WORKER_PATH;
 
 const cookieOf = (r: { headers: Headers }, name = "__Host-renox_auth"): string | undefined => r.headers.getSetCookie().find((c) => c.startsWith(`${name}=`));
 
+/** Register (a confirmation link is mailed; no session), then sign in with the password. */
 async function signUp(t: TestApp, email: string, password = "correct horse battery"): Promise<void> {
   const r = await t.action("/auth/register", "default", { email, password, display_name: email.split("@")[0] as string, next: "/" });
-  expect(r.status).toBe(303);
+  expect(r.status).toBe(200);
+  expect((await t.action("/auth/login", "default", { email, password })).status).toBe(303);
 }
 
 const t = worker ? await app({ project: MODULE }) : (undefined as unknown as TestApp);
 
 describe.skipIf(!worker)("auth", () => {
-  test("register: user with an argon2id hash at the platform's parameters, a session cookie, the event", async () => {
+  test("register: user with an argon2id hash at the platform's parameters, the confirmation mail, the event; then sign in", async () => {
     const r = await t.as("ann").action("/auth/register", "default", { email: "Ann@Example.com", password: "correct horse battery", display_name: "Ann", next: "/private" });
-    expect(r.status).toBe(303);
-    expect(r.headers.get("location")).toBe("/private");
+    expect(r.status).toBe(200);
+    expect(cookieOf(r)).toBeUndefined();
+    expect(r.html).toContain("Check your inbox");
+    expect(t.db.query<{ template: string }>("select template from mailer__sent where mail_to = 'ann@example.com'")).toEqual([{ template: "verify_email" }]);
+    const login = await t.as("ann").action("/auth/login", "default", { email: "ann@example.com", password: "correct horse battery", next: "/private" });
+    expect(login.status).toBe(303);
+    expect(login.headers.get("location")).toBe("/private");
     const users = t.db.query<{ email: string; password_hash: string }>("select email, password_hash from auth__users");
     expect(users).toHaveLength(1);
     expect(users[0]?.email).toBe("ann@example.com");
@@ -49,7 +56,8 @@ describe.skipIf(!worker)("auth", () => {
   });
 
   test("the session cookie is __Host-, HttpOnly, Secure, SameSite=Lax, Path=/; only its hash is stored", async () => {
-    const r = await t.as("cookie").action("/auth/register", "default", { email: "cookie@example.com", password: "correct horse battery", next: "/" });
+    await t.as("cookie").action("/auth/register", "default", { email: "cookie@example.com", password: "correct horse battery", next: "/" });
+    const r = await t.as("cookie").action("/auth/login", "default", { email: "cookie@example.com", password: "correct horse battery" });
     const c = cookieOf(r) as string;
     expect(c).toMatch(/^__Host-renox_auth=[0-9a-f]{64}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/u);
     const token = c.split(";")[0]?.split("=")[1] as string;

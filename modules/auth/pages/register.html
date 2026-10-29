@@ -2,6 +2,7 @@
   <r-group slot="title">Create an account</r-group>
   <h1>Create an account</h1>
   <p class="error" id="error" r-if="error">{{ error }}</p>
+  <p class="notice" id="notice" r-if="notice">{{ notice }}</p>
   <x-form action="default">
     <input type="hidden" name="next" :value="next">
     <label>Name <input type="text" name="display_name" autocomplete="name" :value="display_name"></label>

@@ -16,7 +16,7 @@ const worker = process.env.RENOX_TEST_SPEC ?? process.env.RENOX_WORKER_PATH;
 const t = worker ? await app({ project: MODULE }) : (undefined as unknown as TestApp);
 
 const notice = (html: string) => /<p class="notice" id="notice"[^>]*>([^<]*)<\/p>/u.exec(html)?.[1];
-const mails = () => t.db.query<{ mail_to: string; template: string; url: string }>("select mail_to, template, url from mailer__sent order by seq");
+const mails = () => t.db.query<{ mail_to: string; template: string; url: string }>("select mail_to, template, url from mailer__sent where template = 'magic_link' order by seq");
 const pathOf = (url: string) => new URL(url).pathname + new URL(url).search;
 
 describe.skipIf(!worker)("magic links", () => {
@@ -59,14 +59,14 @@ describe.skipIf(!worker)("magic links", () => {
     const before = mails().length;
     let last = "";
     for (let i = 0; i < 6; i++) last = notice((await t.as("spam").action("/auth/magic", "default", { email: "mia@example.com" })).html) ?? "";
-    // 3 were sent above in this window; 2 more, then nothing.
-    expect(mails().length - before).toBe(2);
+    // The register's confirmation mail and 3 links were sent above in this window: 1 more, then nothing.
+    expect(mails().length - before).toBe(1);
     expect(last).toContain("If an account exists");
   });
 
   test("no token and no secret in the tenant log", async () => {
     const log = JSON.stringify(t.logs());
-    for (const m of mails()) expect(log).not.toContain(m.url.split("/").pop() as string);
+    for (const m of t.db.query<{ url: string }>("select url from mailer__sent")) expect(log).not.toContain(m.url.split("/").pop() as string);
     expect(log).not.toContain("test-google-secret-do-not-log-7f3a");
   });
 });

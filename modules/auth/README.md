@@ -48,7 +48,7 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `currentUser()` | The signed-in user of this request, or `null` |
 | `requireUser()` | The user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`; through the broker, `RENOX_MODULE_SERVICE`) |
 | `loginUrl(next?)` | `/auth/login?next=…`; `next` kept only when it is a path of the app |
-| `register({ email, password, display_name? })` | `{ user, cookie }` or `{ error }` |
+| `register({ email, password, display_name? })` | `{ message }` (a confirmation link is mailed; the same message when the email already has an account, which gets a mail saying so) or `{ error }` for a bad email or password |
 | `login({ email, password })` | `{ user, cookie }` or `{ error }`: the same error for an unknown email, a wrong password, and a locked account |
 | `logout()` | `{ cookie }` (clears it); the session is revoked server side |
 | `sendMagicLink({ email })`, `requestPasswordReset({ email })` | `{ message }`: the same in every case |
@@ -83,7 +83,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
 | `auth.after_login` | After the password, magic link, or OAuth check, before any session starts (`{ user_id, next? }`) | Halt with its own response: a second factor (F5); no session is started |
-| `auth.send_mail` | A magic or reset link must be mailed (`{ to, template: "magic_link" \| "password_reset", args: { url, expires_minutes, display_name } }`) | Send it. auth sends no mail itself until the email module (F7). Fill it from a small module of the app (`modules/mailer`, `permissions.hooks = ["auth.send_mail"]`) |
+| `auth.send_mail` | A mail must go out (`{ to, template: "magic_link" \| "password_reset" \| "verify_email" \| "account_exists", args: { url, expires_minutes, display_name } }`) | Send it. auth sends no mail itself until the email module (F7). Fill it from a small module of the app (`modules/mailer`, `permissions.hooks = ["auth.send_mail"]`) |
 
 ## Slots
 
@@ -112,4 +112,18 @@ Override a template, never the code: put a copy at `overrides/auth/pages/login.h
 
 ## Security tests
 
-The negative suite is `tests/negative/` (#100), with the `docs/24-threat-model.md` row each test proves.
+`tests/negative/` (#100): one file per attack, with the `docs/24-threat-model.md` F4 and `docs/23-failure-modes.md` section 5 rows each one proves.
+
+| File | Case | Expected |
+| --- | --- | --- |
+| `session-fixation.test.ts` | A session token planted in the victim's browser before sign-in | A new token at sign-in; the planted one is revoked |
+| `session-fixation.test.ts` | Password change | This session rotated, every other one signed out |
+| `logout.test.ts` | A cookie copied before logout, replayed after | Refused (server-side revocation); "sign out everywhere" ends every session |
+| `token-replay.test.ts` | Magic link used twice; from another browser family | Refused; tokens live 15 minutes and are stored hashed |
+| `token-replay.test.ts` | Reset token reused, or past 15 minutes | Refused; the password stays |
+| `oauth-state-pkce.test.ts` | Callback with a forged state, another flow's state, or no flow cookie | Refused before the code exchange, no session |
+| `oauth-state-pkce.test.ts` | Code exchanged with another PKCE verifier | Refused by the provider (a fake Google in the test process) |
+| `enumeration.test.ts` | Login, register, reset, magic link for an existing and a missing account | The same status and message, no cookie at register; timing within 20 % |
+| `brute-force.test.ts` | 10 failures per account, 30 per IP in 15 minutes | Locked with the generic message, which is snapshotted with the register, reset and magic-link messages; unlocked in the next window |
+| `password-hashing.test.ts` | The stored hash | argon2id v19, m = 65536, t = 3, p = 1, 16-byte salt, 32-byte digest, a different salt per user |
+| `cookies.test.ts` | The session, logout and OAuth flow cookies | `__Host-`, `Path=/`, no `Domain`, `HttpOnly`, `Secure`, `SameSite=Lax` |
