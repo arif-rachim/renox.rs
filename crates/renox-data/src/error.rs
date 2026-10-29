@@ -29,6 +29,30 @@ impl ConstraintKind {
     }
 }
 
+/// `details.reason` of `RENOX_DB_SCOPE` (`ops.md` 1.5.0 section 17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeReason {
+    /// Module code reached an owned table outside `db.scoped()`.
+    Unscoped,
+    /// The scope lacks the value an owned table needs.
+    ScopeMissing,
+    /// An `INSERT` names another owner.
+    OwnerMismatch,
+    /// A statement shape the rewriter cannot prove.
+    Unprovable,
+}
+
+impl ScopeReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ScopeReason::Unscoped => "unscoped",
+            ScopeReason::ScopeMissing => "scope_missing",
+            ScopeReason::OwnerMismatch => "owner_mismatch",
+            ScopeReason::Unprovable => "unprovable",
+        }
+    }
+}
+
 /// Every error `renox-data` returns. Messages never contain the file path.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum DbError {
@@ -54,6 +78,18 @@ pub enum DbError {
         kind: ConstraintKind,
         message: String,
     },
+    /// `db.scoped()` (`ops.md` 1.5.0 section 17): a module's statement on an
+    /// owned table without a scope (`unscoped`), a scope without the value
+    /// a table needs (`scope_missing`), an `INSERT` with another owner
+    /// (`owner_mismatch`), or a shape the rewriter cannot prove
+    /// (`unprovable`). Logged with `table`, `module`, `reason`; never the SQL.
+    #[error("db.scoped(): {} on {table}", reason.as_str())]
+    Scope {
+        table: Box<str>,
+        /// The module whose statement it was (`""` until the caller fills it).
+        module: Box<str>,
+        reason: ScopeReason,
+    },
     /// Wrong parameter count or named parameters.
     #[error("invalid parameter: {0}")]
     Param(String),
@@ -78,6 +114,7 @@ impl DbError {
             DbError::Busy => "RENOX_DB_BUSY",
             DbError::Sqlite { .. } => "RENOX_DB_SQL",
             DbError::Auth { .. } => "RENOX_DB_AUTH",
+            DbError::Scope { .. } => "RENOX_DB_SCOPE",
             DbError::Timeout => "RENOX_DB_TIMEOUT",
             DbError::QuotaExceeded => "RENOX_DB_QUOTA",
             DbError::Constraint { .. } => "RENOX_DB_CONSTRAINT",

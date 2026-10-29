@@ -13,6 +13,13 @@ use crate::error::{DbError, Result};
 pub const APP_MODULE: &str = "app";
 /// The platform: `renox__*` tables; a handle for it has no restrictions.
 pub const PLATFORM_MODULE: &str = "renox";
+/// The append-only authz audit table (`ops.md` 1.5.0 section 17, "Audit"):
+/// `INSERT` by the platform only, never `UPDATE`, `DELETE`, `DROP`, `ALTER`.
+pub const AUDIT_TABLE: &str = "renox__authz_audit";
+/// The view of [`AUDIT_TABLE`] that modules depending on `audit` read.
+pub const AUDIT_VIEW: &str = "renox__authz_audit_v1";
+/// The module whose dependants may read [`AUDIT_VIEW`] (#288).
+const AUDIT_MODULE: &str = "audit";
 
 /// What one module's connections may touch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +31,11 @@ pub struct AuthorizerPolicy {
     /// Allow `create`/`alter`/`drop` of the module's own objects. Only the
     /// migration runner sets it.
     pub allow_ddl: bool,
+    /// The module's owned tables (`[authz.ownership]`, lower-case): a
+    /// statement reaching one is refused unless `scoped` (#277).
+    pub owned: Vec<String>,
+    /// The statement went through `db.scoped()`'s rewriter.
+    pub scoped: bool,
 }
 
 impl AuthorizerPolicy {
@@ -33,7 +45,37 @@ impl AuthorizerPolicy {
             module: module.into(),
             read_deps: Vec::new(),
             allow_ddl: false,
+            owned: Vec::new(),
+            scoped: false,
         }
+    }
+
+    /// The module's owned tables. The app's are never refused unscoped (D16:
+    /// the app owns its data; `renox check` warns, #283).
+    pub fn with_owned<I, S>(mut self, tables: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.owned = tables
+            .into_iter()
+            .map(|t| t.into().to_ascii_lowercase())
+            .collect();
+        self
+    }
+
+    /// Mark the policy of a statement rewritten by `db.scoped()`.
+    pub fn with_scoped(mut self, scoped: bool) -> Self {
+        self.scoped = scoped;
+        self
+    }
+
+    /// The owned table `name` reached without a scope by module code.
+    fn unscoped(&self, name: &str) -> bool {
+        !self.scoped
+            && !self.allow_ddl
+            && self.module != APP_MODULE
+            && self.owned.iter().any(|t| t.eq_ignore_ascii_case(name))
     }
 
     pub fn with_read_deps<I, S>(mut self, deps: I) -> Self
@@ -83,6 +125,9 @@ impl AuthorizerPolicy {
     /// MF6): only versioned public views pass reads through.
     fn is_dep_public(&self, name: &str) -> bool {
         self.read_deps.iter().any(|d| is_public_view_of(name, d))
+            || (name.eq_ignore_ascii_case(AUDIT_VIEW)
+                && (self.module == AUDIT_MODULE
+                    || self.read_deps.iter().any(|d| d == AUDIT_MODULE)))
     }
 
     /// Decide one authorizer call; `Err` carries the object and the action.
@@ -127,6 +172,22 @@ impl AuthorizerPolicy {
                 pragma_name: "quick_check",
                 ..
             } if ddl => via_view.iter().any(|t| t == ALTERED),
+            AuthAction::Read { table_name, .. } if main_db && self.unscoped(table_name) => {
+                return Err(Denial {
+                    table: table_name.to_string(),
+                    action: SCOPE,
+                });
+            }
+            AuthAction::Insert { table_name }
+            | AuthAction::Update { table_name, .. }
+            | AuthAction::Delete { table_name }
+                if main_db && self.unscoped(table_name) =>
+            {
+                return Err(Denial {
+                    table: table_name.to_string(),
+                    action: SCOPE,
+                });
+            }
             AuthAction::Read {
                 table_name,
                 column_name,
@@ -193,6 +254,10 @@ impl AuthorizerPolicy {
         if ok { Ok(()) } else { Err(Denial::of(ctx)) }
     }
 }
+
+/// The [`Denial`] action of an owned table reached without a scope; mapped
+/// to `DbError::Scope` (`RENOX_DB_SCOPE`, reason `unscoped`).
+pub(crate) const SCOPE: &str = "SCOPE";
 
 /// Marks, in the per-statement list, an allowed `alter table` of an own
 /// table. Not a table name: SQLite names never contain a NUL byte.
@@ -314,11 +379,31 @@ pub(crate) fn decide(
     ctx: &AuthContext<'_>,
     via_view: &mut Vec<String>,
 ) -> (Authorization, Option<Denial>) {
+    // Append-only for everyone, the platform included.
+    if audit_write(ctx) {
+        return (Authorization::Deny, Some(Denial::of(ctx)));
+    }
     match policy {
         None => (Authorization::Allow, None),
         Some(p) => match p.check(ctx, via_view) {
             Ok(()) => (Authorization::Allow, None),
             Err(d) => (Authorization::Deny, Some(d)),
         },
+    }
+}
+
+/// `UPDATE`, `DELETE`, `DROP`, or `ALTER` of [`AUDIT_TABLE`] (or its view).
+fn audit_write(ctx: &AuthContext<'_>) -> bool {
+    let is_audit =
+        |t: &str| t.eq_ignore_ascii_case(AUDIT_TABLE) || t.eq_ignore_ascii_case(AUDIT_VIEW);
+    match ctx.action {
+        AuthAction::Update { table_name, .. } | AuthAction::Delete { table_name } => {
+            is_audit(table_name)
+        }
+        AuthAction::DropTable { table_name } => is_audit(table_name),
+        AuthAction::DropView { view_name } => is_audit(view_name),
+        AuthAction::AlterTable { table_name, .. } => is_audit(table_name),
+        AuthAction::DropTrigger { table_name, .. } => is_audit(table_name),
+        _ => false,
     }
 }
