@@ -1,0 +1,48 @@
+[module]
+name = "auth"
+version = "1.0.0"
+description = "Users, passwords (argon2id), sessions, and the login, register and account pages"
+
+[config]
+session_idle_hours = { type = "int", min = 1, max = 720, default = 24, description = "A session ends after this many hours without a request" }
+session_absolute_days = { type = "int", min = 1, max = 365, default = 30, description = "A session ends this many days after sign-in, whatever its use" }
+password_min_length = { type = "int", min = 8, max = 128, default = 12, description = "Shortest password accepted at register and password change" }
+login_path = { type = "string", max_length = 200, default = "/auth/login", description = "The login page as the app mounts it (requireUser and loginUrl point there)" }
+
+[permissions]
+tables = "auth__*"
+slots = ["app.header"]
+
+[exports]
+views = ["auth__public_users_v1"]
+
+[exports.services]
+register = "Create a user: { email, password, display_name } -> { user, cookie }"
+login = "Sign in: { email, password } -> { user, cookie } or { error }"
+logout = "End the current session (server side) -> { cookie }"
+currentUser = "The signed-in user of this request, or null"
+requireUser = "The signed-in user; throws AUTH_REQUIRED when there is none"
+loginUrl = "The module's login page with a safe `next`"
+
+[exports.events."auth.user_registered"]
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+description = "A user registered"
+
+[exports.events."auth.login"]
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+description = "A user signed in"
+
+[exports.hooks."auth.after_login"]
+args = { type = "object", required = ["user_id"], properties = { user_id = { type = "string" }, next = { type = "string" } } }
+description = "After the password check, before the session cookie is sent; a filler may halt with its own response (2fa)"
+
+[exports.hooks."auth.before_register"]
+args = { type = "object", required = ["email"], properties = { email = { type = "string" }, display_name = { type = "string" } } }
+description = "Before a user is created; a filler may halt (invite only, domain allowlist)"
+
+[[slots]]
+name = "app.header"
+template = "partials/user-menu.html"
+
+[authz]
+actions = ["user.read", "user.update_self", "session.revoke"]

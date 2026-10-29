@@ -101,6 +101,8 @@ export interface TestApp {
   service(module: string): ServiceProxy;
   /** Read-only SQL on the tenant file, for assertions. */
   db: { query<T = Record<string, unknown>>(sql: string, params?: (string | number | null)[]): T[] };
+  /** The tenant file itself (to age a row in an expiry test, open it with bun:sqlite). */
+  dbFile: string;
   /** The same app as another user: a separate session (cookie jar). */
   as(user: string): TestApp;
   /** Tenant log lines so far. */
@@ -144,7 +146,8 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
     const send = async (method: string, path: string, init: RequestInitLite = {}): Promise<Reply> => {
       const jar = jarOf(user);
       const headers: Record<string, string> = { host: w.host, accept: "text/html", ...init.headers };
-      if (jar.size) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+      // An explicit `cookie` header is sent as given (a replayed token); else the user's jar.
+      if (jar.size && init.headers?.cookie === undefined) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
       let body: string | undefined;
       if (typeof init.body === "string") body = init.body;
       else if (init.body !== undefined) {
@@ -177,6 +180,7 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
           },
         }),
       db: { query: <T>(sql: string, params: (string | number | null)[] = []) => sqlite.query(sql).all(...params) as T[] },
+      dbFile: w.db,
       as: (other) => make(other),
       logs: () => w.logs(),
       meters: () => w.meters(),

@@ -1,0 +1,17 @@
+[module]
+name = "reader"
+version = "1.0.0"
+description = "Test fixture: a module that depends on auth and reads its public view"
+
+[dependencies]
+auth = "^1.0"
+
+[imports]
+views = ["auth__public_users_v1"]
+
+[exports.services]
+names = "Display names through auth__public_users_v1"
+hashes = "Tries auth__users directly (refused by the authorizer)"
+
+[permissions]
+tables = "reader__*"

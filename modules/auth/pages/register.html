@@ -1,0 +1,13 @@
+<r-layout use="auth">
+  <r-group slot="title">Create an account</r-group>
+  <h1>Create an account</h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <x-form action="default">
+    <input type="hidden" name="next" :value="next">
+    <label>Name <input type="text" name="display_name" autocomplete="name" :value="display_name"></label>
+    <label>Email <input type="email" name="email" autocomplete="username" :value="email" required></label>
+    <label>Password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Create account</button>
+  </x-form>
+  <p><a href="login">Sign in instead</a></p>
+</r-layout>

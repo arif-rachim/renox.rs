@@ -17,7 +17,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { addModule } from "../commands/add.ts";
 import { check, type CheckReport } from "../commands/check.ts";
 import { migrateArtifact, type MigrateReport } from "../commands/migrate.ts";
-import { EnvironmentError } from "../errors.ts";
+import { EnvironmentError, UserError } from "../errors.ts";
+import { readModulesTable } from "./modules/resolve.ts";
 import { buildArtifact } from "./build.ts";
 import { hashFiles } from "./hash.ts";
 import { workerPath } from "./worker.ts";
@@ -83,8 +84,36 @@ export function testArtifact(artifactDir: string, out: string): string {
   return hash;
 }
 
-/** Build the project and its test artifact. */
+/**
+ * A module's own tests run in the app of `<module>/tests/app/`. It is
+ * copied to a temporary folder, its `path:` sources rewritten to stay
+ * relative from there, and installed (`renox add`) on every run, so
+ * nothing is written under the module tree (whose hash covers every file
+ * in it, manifest.md section 5).
+ */
+async function moduleTestApp(module: string): Promise<string> {
+  const src = join(module, "tests", "app");
+  if (!existsSync(join(src, "renox.toml"))) {
+    throw new UserError("a module's tests run in tests/app/: a renox.toml that installs the module from path:../..", { file: "tests/app/renox.toml" });
+  }
+  const app = mkdtempSync(join(tmpdir(), "renox-module-test-"));
+  cpSync(src, app, { recursive: true, filter: (p) => !/\/(\.renox|renox\.lock|node_modules)(\/|$)/u.test(p.slice(src.length)) });
+  const toml = readFileSync(join(src, "renox.toml"), "utf8").replace(/"path:([^"]+)"/gu, (_m, rel: string) => JSON.stringify(`path:${relative(app, resolve(src, rel)).split("\\").join("/")}`));
+  writeFileSync(join(app, "renox.toml"), toml);
+  const { specs } = readModulesTable(app);
+  const log = console.log;
+  console.log = () => {};
+  try {
+    for (const name of Object.keys(specs)) await addModule(app, name, { yes: true }, async () => true);
+  } finally {
+    console.log = log;
+  }
+  return app;
+}
+
+/** Build the project (or, for a module, its test app) and the test artifact. */
 export async function prepare(project: string, seeds: string[] = [], worker = workerPath()): Promise<TestSpec> {
+  if (existsSync(join(project, "module.toml")) && !existsSync(join(project, "renox.toml"))) project = await moduleTestApp(project);
   const artifacts = join(project, ".renox", "test", "artifact");
   const built = await buildArtifact(project, artifacts);
   const hash = testArtifact(built.dir, artifacts);

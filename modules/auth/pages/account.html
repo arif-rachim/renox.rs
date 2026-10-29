@@ -1,0 +1,23 @@
+<r-layout use="auth">
+  <r-group slot="title">Your account</r-group>
+  <h1>{{ user.display_name }}</h1>
+  <p id="email">{{ user.email }}</p>
+  <p class="notice" r-if="notice">{{ notice }}</p>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <h2>Password</h2>
+  <x-form action="password">
+    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>New password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Change password</button>
+  </x-form>
+  <h2>Sessions</h2>
+  <ul id="sessions">
+    <li r-for="s in sessions">
+      {{ s.user_agent ?? "Unknown" }} · since {{ s.created_at }}
+      <strong r-if="s.current">(this browser)</strong>
+      <x-form action="revoke" r-if="!s.current"><input type="hidden" name="session" :value="s.id"><button type="submit">Sign out</button></x-form>
+    </li>
+  </ul>
+  <x-form action="everywhere"><button type="submit">Sign out everywhere</button></x-form>
+  <x-form action="logout"><button type="submit">Sign out</button></x-form>
+</r-layout>
