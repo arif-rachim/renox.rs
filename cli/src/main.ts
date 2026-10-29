@@ -15,6 +15,7 @@ import { run as secrets } from "./commands/secrets.ts";
 import { run as tokens } from "./commands/tokens.ts";
 import { CliError, EXIT, exitCodeOf, formatError } from "./errors.ts";
 import { run as mcp } from "./mcp/command.ts";
+import { run as migrate } from "./commands/migrate.ts";
 
 const USAGE = `renox <command>
 
@@ -23,9 +24,11 @@ const USAGE = `renox <command>
   dev [--port 8787]                     run the app on the local worker, rebuild on change
   dev --worker <path>                   run another renox-worker; it must be the pinned release or carry
                                         a sigstore signature and provenance that cosign verifies
-  check [--secrets] [--security] [--json]
+  check [--secrets] [--security] [--json] [--strict]
                                         validate config, routes, templates, manifest, modules and renox.lock; lint SQL, fetch, global state;
-                                        scan for secrets; --security prints the effective headers per route; --json prints the report as JSON
+                                        scan for secrets; --security prints the effective headers per route; --json prints the report as JSON;
+                                        --strict fails on a drifted template override
+  migrate [--db <file>]                 run the migrations of the installed modules (lock order) and the app's on the dev database
   add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]
                                         install a module: resolve it, show the permissions it asks for, write renox.toml and renox.lock
   remove <module>                       uninstall a module (its tables stay: migrations are forward-only)
@@ -45,7 +48,7 @@ Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 int
 Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev (not verified: for a worker you built);
 RENOX_TOKEN and RENOX_API_URL override the credentials saved by login.`;
 
-const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, remove, mcp, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a) };
+const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, remove, migrate, mcp, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a) };
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;

@@ -30,9 +30,10 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`, version 1) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Leaves forbidden files out of `public/` and fails on a secret in what it ships (step 5 and the secret scan below). Prints the hash. An app with templates needs the `renox-worker` binary (see "Templates") |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact |
 | `renox dev --worker <path>` | Runs another `renox-worker` binary: it must have the pinned release's sha256 or carry a sigstore signature (`<path>.sigstore.json`) and the release's provenance bundle beside it that `cosign` verifies; otherwise `RENOX_CLI_WORKER_UNVERIFIED`, exit code 3 (#129) |
-| `renox check [--secrets] [--security] [--json]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
+| `renox check [--secrets] [--security] [--json] [--strict]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
 | `renox add <module> [--version <range>] [--source …] [--mount <path>] [--yes]` | Installs a module after showing and approving its permissions; writes `renox.toml` and `renox.lock` (below) |
 | `renox remove <module>` | Uninstalls a module; its tables stay |
+| `renox migrate [--db <file>]` | Builds, then runs the artifact's migration plan (installed modules in lock order, then the app's) on the dev tenant file `.renox/data/dev/app.db` through `renox-worker migrate` (below) |
 | `renox deploy [--json]` | Builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
 | `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |
 | `renox logs [--follow] [--since <t>] [--source all\|server\|client] [--deployment <hash>] [--app <name>] [--json]` | The app's log lines; `--follow` keeps streaming |
@@ -115,6 +116,25 @@ The lint is a small tokenizer (comments, strings, and template literals with nes
 Running `renox add` again for an installed module re-resolves it and asks again: that is how a changed manifest is approved. `renox remove <module>` drops the entry from both files; its tables stay (migrations are forward-only, D17), and a module another one depends on cannot be removed.
 
 `renox check` applies the project rules MF2, MF3, MF5, MF7–MF12 to `renox.toml`, the module trees, and `renox.lock`: a module without a lock entry fails (MF3); a manifest whose `[permissions]` differ from the approved ones, or whose tree, version, config, or mount changed, fails (MF12). Each error starts with its rule id; `renox check --json` prints `{ ok, errors: [{ rule, file, message }], findings }`.
+
+### Building with modules, `renox check` contracts, `renox migrate` (#235)
+
+With a `renox.lock`, `renox build` writes an artifact 1.1 (`docs/contracts/artifact.md`, "Modules"). For each lock entry, in lock order:
+
+- **Code.** The module's `functions/`, `pages/`, `services.ts`, and `hooks.ts` are bundled from its tree (one bundle per module, `renox:*` left to the runtime's loader) into `code/modules/<name>/`, with code ids `modules/<name>/…`.
+- **Routes.** The module's routes go under its `mount` (`/login` of `auth` at `/auth` is `/auth/login`). A collision with the app or another module fails the build with `V21`, naming both owners.
+- **Migrations, policies, catalogs.** `migrations/` → `migrations/<name>/`, with the checksums in `migrations/checksums.json`. `policies/*.cedar` → `policies/<name>/`. `i18n/<locale>.json` → `code/modules/<name>/i18n/` (where the cell reads it, #233).
+- **Templates.** The module's `pages/` and `partials/` are compiled as `modules/<name>/…`, from the installed tree, not from the app's `modules/` folder. Its `[[slots]]` (by priority, then module name) go to the compiler and to the manifest's `slots`.
+- **Overrides.** The app's `overrides/<name>/(pages|partials)/….html` are compiled in place of the original and carried with `overrides.json`, which holds the original's sha256 at the installed version. The app keeps its own `overrides.json` at the project root: the hash each override was made against. When the module's original no longer has that hash, `renox build` warns with a unified diff of the override against the new original ("Template override drifted"), and `renox check` reports it: a warning, or an error with `--strict`. Fix the override, then delete its entry from the root `overrides.json` to record the new original.
+- **`modules`.** The manifest's `modules` field holds the lock entries, the manifest's permissions, and the exports (service names, event payload schemas, hook names, views).
+
+`renox check` also compares what each module's code uses against the manifests (`docs/23-failure-modes.md`, "Module contract broken on upgrade"; MF7):
+
+- every `renox:modules` import is a declared dependency (the app may import every installed module);
+- every `<dep>.<service>` call or `ctx.services.<dep>.<service>` is exported by the installed `<dep>` and listed in `[imports].services`;
+- every `<dep>__public_<id>_v<n>` view in the code is exported by `<dep>` (a different version names both) and listed in `[imports].views`.
+
+`renox migrate` runs `renox-worker migrate <artifact> <db>` (`renox_data::migrate_all`, #228): each module's files under its own prefix, the app's last. It prints what was applied per module and refuses a changed file that already ran (checksum). `renox dev` needs nothing extra: the worker's cell runs the same plan when it opens the artifact. `.renox/types/db.d.ts` includes the module tables, and `TablesOf<"auth">` groups them by prefix.
 
 ### `renox deploy`, `renox logs`, `renox secrets` (#58)
 
