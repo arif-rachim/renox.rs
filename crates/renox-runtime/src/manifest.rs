@@ -86,6 +86,9 @@ pub struct RouteDef {
     pub module: String,
     pub export: String,
     pub page: Option<PageRoute>,
+    /// Artifact 1.3: the module's `export const guard`, as `renox build`
+    /// recorded it (`ops.md` 1.5.0 section 17, "`guard`").
+    pub guard: Option<crate::ops::authz::Guard>,
 }
 
 /// The page fields of a version 1 page route.
@@ -117,6 +120,8 @@ enum WireRoute {
         path: String,
         module: String,
         export: String,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
     },
     Page {
         path: String,
@@ -128,6 +133,8 @@ enum WireRoute {
         actions: Vec<String>,
         #[serde(default)]
         template: Option<String>,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
     },
 }
 
@@ -141,6 +148,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 path,
                 module,
                 export,
+                guard,
             } => RouteDef {
                 kind: RouteKind::Function,
                 method,
@@ -148,6 +156,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 module,
                 export,
                 page: None,
+                guard,
             },
             WireRoute::Page {
                 path,
@@ -155,6 +164,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 load,
                 actions,
                 template,
+                guard,
             } => RouteDef {
                 kind: RouteKind::Page,
                 method: Method::Get,
@@ -167,6 +177,7 @@ impl TryFrom<WireRoute> for RouteDef {
                     actions,
                     template,
                 }),
+                guard,
             },
         })
     }
@@ -268,6 +279,14 @@ pub struct Manifest {
     /// Absent: every entry is eager.
     #[serde(default)]
     pub entries: Option<BTreeMap<String, EntryInfo>>,
+    /// Artifact 1.3: the app's resolved `renox.toml [authz]` (`actions`,
+    /// `ownership`, `entities`, `default_roles`, `sensitive`); read by the
+    /// cell's engine and by `db.scoped()` (`ops.md` 1.5.0 section 17).
+    #[serde(default)]
+    pub authz: Option<serde_json::Value>,
+    /// Artifact 1.3: the app's `renox.toml [realtime]` (`feeds`).
+    #[serde(default)]
+    pub realtime: Option<serde_json::Value>,
     /// Free-text note the schema allows at the top level; ignored (#147).
     #[serde(rename = "$comment", default)]
     pub comment: Option<String>,
@@ -472,6 +491,14 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         let allowed = match top {
             "manifest.json" | "code" | "migrations" | "public" => true,
             "templates" | "public.json" => version >= 1,
+            // Artifact 1.3: the app's own policies and schema (V24).
+            "policies"
+                if version >= 1
+                    && (rel.starts_with("policies/app/")
+                        || rel == "policies/schema.cedarschema") =>
+            {
+                true
+            }
             // Artifact 1.1 (`artifact.md` section 1): only with installed modules.
             "policies" | "overrides" | "overrides.json" => {
                 version >= 1

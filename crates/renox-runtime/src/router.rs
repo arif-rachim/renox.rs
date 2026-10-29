@@ -326,6 +326,7 @@ mod tests {
             module: "m".to_string(),
             export: method.as_str().to_string(),
             page: None,
+            guard: None,
         }
     }
 

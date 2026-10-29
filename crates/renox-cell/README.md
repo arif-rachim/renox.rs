@@ -35,6 +35,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[control] node_listen`, `node_listen_url` | — | The node listener the control plane calls (`docs/contracts/deploy-api.md` 0.3 section 15); a private address, refused at start when tenant `fetch` could reach it |
 | `[process]` | off | `enabled`, `max_children` (64), `child_idle_secs` (600), `restart_backoff_ms` (200), `run_dir` (`run`), `launcher` (`direct` \| `systemd`), `worker_bin`, `own_tenants` (local mode), `cgroup_root`, `child_cpu_quota_us` (200,000), `child_memory_bytes` (1 GiB), `child_pids` (512), `microvm_hook`: the process tiers of "Process tiers" |
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
+| `[authz]` | `false` / 60 | `dev` (`ctx.authz.explain` works and `RENOX_FORBIDDEN` names the deciding policy), `principal_ttl_secs` (how long a resolved principal is cached per session, 0 to 3,600): "Authorization" |
 
 Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`). They name tenants, hashes, and request ids, never secret values or request content.
 
@@ -190,11 +191,23 @@ An artifact 1.1 with installed modules (`docs/contracts/artifact.md`, "Modules")
 
 - runs the migrations in `modules` order (each module under its own prefix, `renox_data::migrate_all`), then the app's, which may read every module's public views;
 - dispatches module routes like the app's: their paths already carry the `mount`, and the route's owner gives the loader its module ctx (`renox-runtime`);
-- gives the renderer the request's **action set** for `r-can` and slot fillers' `requires`. The set is empty until the policy engine (F5), unless the page loader's data has an `actions` array of action names (`src/render.rs`, `action_set`).
+- gives the renderer the request's **action set** for `r-can` and slot fillers' `requires`. The set is empty until `r-can` reads the policy engine (#280), unless the page loader's data has an `actions` array of action names (`src/render.rs`, `action_set`).
 
 Override drift is detected by `renox build` (#235), not here: the artifact carries the original's hash (`overrides.json`), but not the original file.
 
 Tests: `tests/modules_pages.rs`.
+
+## Authorization (#279)
+
+The cell enforces `docs/contracts/ops.md` 1.5.0 section 17 (`docs/11-authorization.md`, "Enforcement points"):
+
+- **Engine.** After the migrations, `authz::build` loads the artifact's `policies/**` (the app's `policies/app/*.cedar` and `schema.cedarschema`, each module's `policies/<module>/`) into one `renox_authz::Engine`; entity attribute types come from the owning tables (`pragma_table_info`). A policy or schema error is V24: the cell is not created and the request fails like any invalid artifact.
+- **Principal.** Before tenant code runs, the request's principal is looked up in the deployment's **principal cache**, keyed by `sha256(session id | cookie header)`. On a miss, the `auth` module's service `principal(ctx, session)` resolves it (the module runs its own `auth.principal` hook); the platform adds the user's roles from `renox__role_assignments` and caches the result for `principal_ttl_secs`. Without `auth` installed every request is `Anonymous`. The cell drops a user's cached principals when its own outbox delivers `authz.roles_changed`, `auth.login` or `auth.logout` (`authz::INVALIDATING_EVENTS`); an event without a `user_id` clears the cache.
+- **`guard`.** A route's `guard` (artifact route entry) is evaluated in Rust with the principal before the loader, the action, the handler, and on fragment requests. A deny answers 403 `RENOX_FORBIDDEN` (the policy id only in dev) and is metered with status `forbidden`; the loader never runs.
+- **Audit.** A decision on an action the manifest marks `sensitive` writes a `renox__authz_audit` row in the request's transaction; event handlers decide as `System::"<module>"`.
+- **Meter and counters.** Each record carries `authz_evals` (distinct decisions of the request). `CellManager::authz_stats()` sums the live cells' principal cache hits, misses, cached entries and decisions (`AuthzStats::hit_rate`).
+
+Tests: `tests/authz.rs`; the ops themselves: `renox-runtime` `tests/authz_ops.rs`.
 
 ## Outbox delivery (#229)
 

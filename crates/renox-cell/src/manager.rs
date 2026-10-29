@@ -197,6 +197,8 @@ struct Inner {
     evicted: std::sync::atomic::AtomicU64,
     /// Outbox delivery settings for new cells (#229).
     outbox: Mutex<crate::outbox::OutboxConfig>,
+    /// The worker's `[authz]` (#279): dev mode and the principal cache TTL.
+    authz: Mutex<crate::authz::AuthzConfig>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -256,6 +258,7 @@ impl CellManager {
                 created: Default::default(),
                 evicted: Default::default(),
                 outbox: Mutex::new(crate::outbox::OutboxConfig::default()),
+                authz: Mutex::new(crate::authz::AuthzConfig::default()),
                 trim_scheduled: Default::default(),
                 trims: Default::default(),
                 #[cfg(feature = "test-support")]
@@ -313,6 +316,11 @@ impl CellManager {
 
     /// Outbox delivery settings for cells created from now on (retries,
     /// backoff, dead-letter cap; ops.md 1.3.0 section 15.4).
+    /// Dev mode and the principal cache TTL of cells created from now on.
+    pub fn set_authz_config(&self, config: crate::authz::AuthzConfig) {
+        *self.inner.authz.lock().expect("authz lock") = config;
+    }
+
     pub fn set_outbox_config(&self, config: crate::outbox::OutboxConfig) {
         *self.inner.outbox.lock().expect("outbox lock") = config;
     }
@@ -507,6 +515,16 @@ impl CellManager {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Principal cache and decision counters of the live cells (#279).
+    pub fn authz_stats(&self) -> crate::authz::AuthzStats {
+        let mut stats = crate::authz::AuthzStats::default();
+        let cells = self.inner.cells.lock().expect("cells lock");
+        for cell in cells.values().filter_map(|slot| slot.get()) {
+            stats.add(&cell.isolate.authz_slot());
+        }
+        stats
+    }
+
     pub fn cells_evicted(&self) -> u64 {
         self.inner
             .evicted
@@ -653,7 +671,22 @@ impl CellManager {
                 (Ok((opened, migrated)), Ok(isolate)) => {
                     db_ms = opened.saturating_sub(artifact_ms);
                     migrate_ms = migrated;
-                    Ok(isolate)
+                    // ops.md 1.5.0 section 17: the policies are loaded (V24
+                    // at load) once the tables exist, before any request.
+                    let config = *self.inner.authz.lock().expect("authz lock");
+                    match crate::authz::build(&artifact_dir, &db, config).await {
+                        Ok(state) => {
+                            *isolate.authz_slot().write().expect("authz slot") = Some(state);
+                            Ok(isolate)
+                        }
+                        Err(reason) => {
+                            isolate.terminate();
+                            Err(CellError::Artifact(ArtifactError::Invalid {
+                                rule: "V24",
+                                reason,
+                            }))
+                        }
+                    }
                 }
                 (Err(e), Ok(isolate)) => {
                     isolate.terminate();
@@ -1234,6 +1267,9 @@ impl CellManager {
                 meter_status(m.status)
             },
             kind: None,
+            authz_evals: (m.authz_evals > 0).then_some(m.authz_evals),
+            realtime_conn_seconds: None,
+            realtime_messages: None,
         });
     }
 
@@ -1681,6 +1717,7 @@ fn meter_status(s: RuntimeStatus) -> MeterStatus {
         RuntimeStatus::Oom => MeterStatus::Oom,
         RuntimeStatus::BlockedFetch => MeterStatus::BlockedFetch,
         RuntimeStatus::Busy => MeterStatus::Busy,
+        RuntimeStatus::Forbidden => MeterStatus::Forbidden,
     }
 }
 

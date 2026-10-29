@@ -86,10 +86,47 @@ pub struct WorkerConfig {
     /// Litestream per tenant file (#255, `src/replication/`).
     #[serde(default)]
     pub replication: ReplicationSection,
+    /// Authorization (#279, `src/authz/`): dev mode and the principal
+    /// cache TTL.
+    #[serde(default)]
+    pub authz: AuthzSection,
     /// The file this config was loaded from ([`WorkerConfig::load`]); the
     /// supervisor passes it to its children. Not a key.
     #[serde(skip)]
     pub config_path: Option<PathBuf>,
+}
+
+/// `[authz]` (#279; `docs/contracts/ops.md` 1.5.0 section 17).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthzSection {
+    /// Dev mode (`renox dev`): `ctx.authz.explain` works and
+    /// `RENOX_FORBIDDEN` names the deciding policy. Default false.
+    pub dev: bool,
+    /// How long a resolved principal is kept per session (`ops.md` Open
+    /// 12: 60 s *proposed*); a role change, login or logout drops it
+    /// sooner.
+    pub principal_ttl_secs: f64,
+}
+
+impl Default for AuthzSection {
+    fn default() -> Self {
+        AuthzSection {
+            dev: false,
+            principal_ttl_secs: 60.0,
+        }
+    }
+}
+
+impl AuthzSection {
+    pub fn to_config(&self) -> crate::authz::AuthzConfig {
+        crate::authz::AuthzConfig {
+            dev: self.dev,
+            principal_ttl: std::time::Duration::from_secs_f64(
+                self.principal_ttl_secs.clamp(0.0, 3600.0),
+            ),
+        }
+    }
 }
 
 /// `[process]` (#254): the supervisor and its child workers.

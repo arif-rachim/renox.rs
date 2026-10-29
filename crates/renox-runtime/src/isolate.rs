@@ -52,6 +52,7 @@ use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
 use crate::manifest::{Artifact, CodeFormat, LoadError, RouteKind};
+use crate::ops::authz::AuthzSlot;
 use crate::ops::db::{DbEnv, DbHandle};
 use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
@@ -109,6 +110,8 @@ pub enum MeterStatus {
     Oom,
     BlockedFetch,
     Busy,
+    /// ops.md 1.5.0 section 17: the route's `guard` denied (403).
+    Forbidden,
 }
 
 impl MeterStatus {
@@ -121,6 +124,7 @@ impl MeterStatus {
             MeterStatus::Oom => "oom",
             MeterStatus::BlockedFetch => "blocked_fetch",
             MeterStatus::Busy => "busy",
+            MeterStatus::Forbidden => "forbidden",
         }
     }
 }
@@ -145,6 +149,8 @@ pub struct InvocationMeter {
     pub db_rows: u64,
     /// Log lines dropped by the rate limit (`meter.md`, `logs_dropped`).
     pub logs_dropped: u64,
+    /// Cedar evaluations (`meter.md` 0.3, `authz_evals`).
+    pub authz_evals: u64,
 }
 
 impl InvocationMeter {
@@ -160,6 +166,7 @@ impl InvocationMeter {
             db_ms: 0.0,
             db_rows: 0,
             logs_dropped: 0,
+            authz_evals: 0,
         }
     }
 }
@@ -495,6 +502,8 @@ struct DispatchJob {
     page: Option<PageJob>,
     /// An event delivery instead of a request (`route` is unused).
     event: Option<EventEnvelope>,
+    /// The route has a `guard` (ops.md 1.5.0 section 17).
+    guarded: bool,
     ctx: RequestCtx,
     reply: oneshot::Sender<ThreadReply>,
 }
@@ -664,6 +673,9 @@ pub struct Pool {
     /// Event name -> the modules with an `on` handler for it, by name
     /// (filled when a member registers the modules).
     event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
+    /// The policy engine, the principal cache, and dev mode, set by the cell
+    /// once the deployment's policies are loaded (ops.md 1.5.0 section 17).
+    authz: AuthzSlot,
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
@@ -705,7 +717,8 @@ impl IsolateHandle {
             .with_overrides(artifact.manifest.limits.as_ref());
         // ops.md 1.3.0 section 15: the installed modules (fail closed).
         let modules = ModuleRegistry::from_manifest(artifact.manifest.modules.as_ref())
-            .map_err(CreateError::Manifest)?;
+            .map_err(CreateError::Manifest)?
+            .with_app_authz(artifact.manifest.authz.as_ref());
         // ops.md section 3: only declared secrets, per module; short values
         // refused by name.
         let mut by_module = BTreeMap::new();
@@ -757,6 +770,7 @@ impl IsolateHandle {
             secrets: Arc::new(by_module),
             modules: Arc::new(modules),
             event_handlers: Arc::default(),
+            authz: crate::ops::authz::new_slot(),
             sink,
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
@@ -816,6 +830,13 @@ impl IsolateHandle {
 
 impl Pool {
     /// The effective limits (tier limits lowered by the manifest).
+    /// The deployment's authorization slot: the cell puts the engine, the
+    /// principal cache, and dev mode in it (ops.md 1.5.0 section 17). Until
+    /// then every check denies.
+    pub fn authz_slot(&self) -> AuthzSlot {
+        self.authz.clone()
+    }
+
     pub fn limits(&self) -> Limits {
         self.limits
     }
@@ -901,6 +922,7 @@ impl Pool {
             secrets: self.secrets.clone(),
             modules: self.modules.clone(),
             event_handlers: self.event_handlers.clone(),
+            authz: self.authz.clone(),
             sink: self.sink.clone(),
             shared: shared.clone(),
         };
@@ -1187,7 +1209,11 @@ impl Pool {
             .get::<PageSession>()
             .map(|s| s.id.clone())
             .unwrap_or_default();
-        if is_page && action.is_none() && route_def.handler_export().is_none() {
+        if is_page
+            && action.is_none()
+            && route_def.handler_export().is_none()
+            && route_def.guard.is_none()
+        {
             // An `.html` page, or `.ts` + `.html` without `load`: no tenant
             // code runs; the template gets `{}`.
             return Dispatched {
@@ -1287,6 +1313,7 @@ impl Pool {
                 headers: headers.clone(),
                 body: body.clone(),
                 event: None,
+                guarded: route_def.guard.is_some(),
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1518,6 +1545,7 @@ impl Pool {
                 want_body: false,
                 page: None,
                 event: Some(ev.clone()),
+                guarded: false,
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1593,6 +1621,7 @@ struct ThreadContext {
     secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
     modules: Arc<ModuleRegistry>,
     event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
+    authz: AuthzSlot,
     sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
 }
@@ -1812,6 +1841,23 @@ async fn create_worker(
             db: ctx.spec.db.clone(),
             redactor: Arc::new(Redactor::new(ctx.spec.secrets.values())),
             modules: ctx.modules.clone(),
+        }));
+        state.put(Rc::new(crate::ops::authz::AuthzEnv {
+            slot: ctx.authz.clone(),
+            guards: ctx
+                .artifact
+                .manifest
+                .routes
+                .iter()
+                .map(|r| r.guard.clone())
+                .collect(),
+            owners: ctx
+                .artifact
+                .manifest
+                .routes
+                .iter()
+                .map(route_owner)
+                .collect(),
         }));
         state.put(LogEnv {
             sink: ctx.sink.clone(),
@@ -2140,6 +2186,9 @@ const KIND_EVENT: u8 = 5;
 /// A lazy route module failed its first evaluation, or lacks the route's
 /// export (ops.md 1.4.0 section 11, steps 4-5): 500 `RENOX_MODULE_EVAL`.
 const KIND_MODULE_EVAL: u8 = 6;
+/// The route's `guard` denied before the handler (ops.md 1.5.0 section 17):
+/// 403 `RENOX_FORBIDDEN`, meter `status: forbidden`.
+const KIND_FORBIDDEN: u8 = 7;
 
 type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
 type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
@@ -2188,6 +2237,7 @@ impl InFlight {
             db_ms: (self.used.db_ms * 1_000.0).round() / 1_000.0,
             db_rows: self.used.db_rows,
             logs_dropped: self.used.logs_dropped,
+            authz_evals: self.used.authz_evals,
         }
     }
 }
@@ -2587,6 +2637,7 @@ struct RequestEnd {
     db_ms: f64,
     db_rows: u64,
     logs_dropped: u64,
+    authz_evals: u64,
     /// An open transaction was rolled back.
     rolled_back_tx: bool,
     /// Bytes `op_response_write` took for a streamed body.
@@ -2656,6 +2707,7 @@ fn end_request(
         db_ms: request.db_ms,
         db_rows: request.db_rows,
         logs_dropped: request.logs_dropped,
+        authz_evals: request.authz.evals,
         rolled_back_tx,
         response_sent_bytes,
     }
@@ -2766,6 +2818,54 @@ fn log_line(
 
 type StartResult = Result<(CallFuture, InFlight), (oneshot::Sender<ThreadReply>, ErrorCode)>;
 
+/// What the authz ops need of the request (ops.md 1.5.0 section 17): the
+/// route and its parameters (`guard`), the method and path (Cedar
+/// `context.request`), the principal cache key; a System principal for an
+/// event delivery.
+fn request_authz(job: &DispatchJob) -> crate::ops::authz::RequestAuthz {
+    use crate::ops::authz::{RequestAuthz, cache_key};
+    if let Some(ev) = &job.event {
+        return RequestAuthz {
+            principal: Some(Arc::new(renox_authz::Principal::system(&ev.module))),
+            ..RequestAuthz::default()
+        };
+    }
+    let cookie = job
+        .headers
+        .iter()
+        .filter(|(k, _)| k.eq_ignore_ascii_case(b"cookie"))
+        .map(|(_, v)| String::from_utf8_lossy(v).into_owned())
+        .collect::<Vec<_>>()
+        .join("; ");
+    let session = job
+        .page
+        .as_ref()
+        .map(|p| p.session.clone())
+        .filter(|s| !s.is_empty());
+    let path = url::Url::parse(&job.url)
+        .map(|u| u.path().to_string())
+        .unwrap_or_default();
+    RequestAuthz {
+        route: Some(job.route),
+        method: job.method.clone(),
+        path,
+        params: job
+            .params
+            .iter()
+            .map(|(k, v)| {
+                let v = match v {
+                    ParamValue::One(s) => s.clone(),
+                    ParamValue::Many(l) => l.join("/"),
+                };
+                (k.clone(), v)
+            })
+            .collect(),
+        cache_key: cache_key(session.as_deref(), Some(&cookie)),
+        session,
+        ..RequestAuthz::default()
+    }
+}
+
 fn start_dispatch(
     ctx: &ThreadContext,
     worker: &mut MainWorker,
@@ -2776,11 +2876,13 @@ fn start_dispatch(
     let (token, body) = {
         let state = worker.js_runtime.op_state();
         let mut state = state.borrow_mut();
-        let token = state.borrow_mut::<RequestTable>().begin(RequestState::new(
+        let mut request = RequestState::new(
             job.ctx.request_id.clone(),
             job.ctx.deadline,
             egress_limit_bytes,
-        ));
+        );
+        request.authz = request_authz(&job);
+        let token = state.borrow_mut::<RequestTable>().begin(request);
         // ops.md section 10: the response egress limit has the tier's
         // egress value, on a counter of its own.
         let body = state
@@ -2857,8 +2959,9 @@ fn build_args(
         )?,
         (h, None) => match h {
             Some(h) => v8::Local::new(scope, h).into(),
-            // An action on a page without `load`.
-            None if action_name.is_some() => v8::null(scope).into(),
+            // An action on a page without `load`, or a guarded page without
+            // `load` (the guard runs in the isolate's prelude).
+            None if action_name.is_some() || job.guarded => v8::null(scope).into(),
             None => return Err(serde_v8::Error::Message("route has no handler".into())),
         },
     };
@@ -3095,6 +3198,28 @@ fn finish_dispatch(
             ThreadReply::Failed {
                 code: ErrorCode::ModuleEval,
                 meter: flight.meter(ctx, MeterStatus::Error),
+            }
+        }
+        Ok(o) if o.kind == KIND_FORBIDDEN => {
+            let mut f = serde_json::Map::new();
+            f.insert("code".into(), "RENOX_FORBIDDEN".into());
+            f.insert("route".into(), route_name.clone().into());
+            f.insert("reason".into(), o.reason.clone().unwrap_or_default().into());
+            if let Some(name) = &o.name {
+                f.insert("policy".into(), name.clone().into());
+            }
+            log_line(ctx, "info", Some(&flight.ctx.request_id), "guard denied", f);
+            ThreadReply::Failed {
+                code: ErrorCode::Forbidden,
+                meter: flight.meter(ctx, MeterStatus::Forbidden),
+            }
+        }
+        // ops.md 1.5.0 section 17: an uncaught ForbiddenError is 403, not
+        // 500; the meter status stays `ok` (meter.md 0.3, `forbidden`).
+        Ok(o) if o.kind == KIND_THROW && o.code.as_deref() == Some("RENOX_FORBIDDEN") => {
+            ThreadReply::Failed {
+                code: ErrorCode::Forbidden,
+                meter: flight.meter(ctx, MeterStatus::Ok),
             }
         }
         Ok(o) if o.kind == KIND_OK => ThreadReply::Ok {

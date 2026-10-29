@@ -92,8 +92,8 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | Event handler fails repeatedly | Outbox retries | Dead-letter visible in `jobs` module | N retries with backoff, then dead-letter | outbox tests | F4 |
 | Module contract broken on upgrade (missing service, view version) | `renox check` | Upgrade refused with the broken reference | No migration run | check tests | F4 |
 | Template override drifted from module version | Stored original hash | Warning with diff | Upgrade continues, override flagged | override tests | F4 |
-| Policy denies | Cedar | 403 `RENOX_FORBIDDEN` with policy id in dev | Audit row for sensitive actions | policy tests per role (`docs/contracts/ops.md` §17, "`authz` ops") | F5 |
-| Unscoped query on an owned table | `db.scoped` enforcement for module code | `RENOX_DB_SCOPE` | Statement refused | scoped tests (`docs/contracts/ops.md` §17, "`db.scoped()`") | F5 |
+| Policy denies | Cedar | 403 `RENOX_FORBIDDEN` with policy id in dev | Audit row for sensitive actions | policy tests per role (`docs/contracts/ops.md` §17, "`authz` ops"): `crates/renox-runtime/tests/authz_ops.rs` `require_and_the_audit_row`, `forbid_beats_permit`, `explain_is_dev_only`; `crates/renox-cell/tests/authz.rs` `guard_denies_before_the_loader_and_on_fragments` (#279) | F5 |
+| Unscoped query on an owned table | `db.scoped` enforcement for module code | `RENOX_DB_SCOPE` | Statement refused | scoped tests (`docs/contracts/ops.md` §17, "`db.scoped()`"): `crates/renox-data/tests/scoped.rs` (#277); `crates/renox-runtime/tests/authz_ops.rs` `db_scoped_for_module_code` (#279) | F5 |
 | Session fixation, replayed token, OAuth `state` mismatch, password reset token reuse | `auth` module | Login refused | Session rotated on login; tokens single-use; `state` checked | `TODO` → #100 | F4 |
 | Marketplace module unsigned or permission diff on upgrade | Registry verification | Install refused / approval required | Hash can be disabled globally | registry tests | F7 |
 

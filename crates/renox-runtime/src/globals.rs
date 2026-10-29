@@ -7,6 +7,11 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use deno_core::{OpDecl, OpState, op2};
 
+use crate::ops::authz::{
+    op_authz_check, op_authz_check_batch, op_authz_explain, op_authz_guard,
+    op_authz_principal_cached, op_authz_principal_set, op_authz_roles_assign, op_authz_roles_list,
+    op_authz_roles_revoke,
+};
 use crate::ops::db::{
     op_db_execute, op_db_query, op_db_query_one, op_db_savepoint_begin, op_db_savepoint_release,
     op_db_savepoint_rollback, op_db_tx_begin, op_db_tx_commit, op_db_tx_rollback,
@@ -83,6 +88,15 @@ deno_core::extension!(
         op_db_savepoint_release,
         op_db_savepoint_rollback,
         op_secrets_get_all,
+        op_authz_principal_cached,
+        op_authz_principal_set,
+        op_authz_guard,
+        op_authz_check,
+        op_authz_check_batch,
+        op_authz_explain,
+        op_authz_roles_assign,
+        op_authz_roles_revoke,
+        op_authz_roles_list,
         op_events_emit,
         op_events_ack,
         op_password_hash,

@@ -6,6 +6,7 @@
 pub mod alloc;
 pub mod artifact;
 pub mod artifact_s3;
+pub mod authz;
 pub mod cell;
 pub mod client_events;
 pub mod config;

@@ -104,6 +104,9 @@ fn event_records_validate_and_route_form_follows_kind() {
     let v = validator();
     let event = MeterRecord {
         kind: Some(MeterKind::Event),
+        authz_evals: None,
+        realtime_conn_seconds: None,
+        realtime_messages: None,
         route: "EVENT email billing.invoice_paid".into(),
         request_id: "01JBQ3Z7MA0000000000000001_email_1".into(),
         ingress_bytes: 0,
@@ -125,6 +128,9 @@ fn event_records_validate_and_route_form_follows_kind() {
     };
     let as_request = MeterRecord {
         kind: None,
+        authz_evals: None,
+        realtime_conn_seconds: None,
+        realtime_messages: None,
         ..event
     };
     for r in [wrong_route, as_request] {

@@ -182,6 +182,9 @@ async fn pass(d: &Delivery) -> Option<Option<i64>> {
         for row in rows {
             let cell = d.cell.upgrade()?;
             if row.target.is_empty() {
+                // ops.md 1.5.0 section 17: authz.roles_changed, auth.login
+                // and auth.logout drop the user's cached principal.
+                crate::authz::on_event(&cell.isolate.authz_slot(), &row.name, &row.payload);
                 let targets = cell.isolate.event_handlers(&row.name);
                 let id = row.id.clone();
                 d.db.call(move |db| outbox::fan_out(db, &id, &targets, now))
@@ -251,6 +254,9 @@ async fn attempt(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option<()> {
             http_status: if status == MeterStatus::Ok { 200 } else { 500 },
             status,
             kind: Some(MeterKind::Event),
+            authz_evals: (m.authz_evals > 0).then_some(m.authz_evals),
+            realtime_conn_seconds: None,
+            realtime_messages: None,
         });
     }
     let (id, target) = (row.id.clone(), row.target.clone());

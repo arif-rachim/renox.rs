@@ -25,6 +25,8 @@ pub enum MeterStatus {
     Busy,
     /// Rendering hit a render limit (`RENOX_RENDER_LIMIT`, contract 0.1).
     RenderLimit,
+    /// Contract 0.3: the route's `guard` or the tool check denied (403).
+    Forbidden,
 }
 
 /// What was invoked (contract 0.2, `kind`; absent = a request).
@@ -35,6 +37,10 @@ pub enum MeterKind {
     /// One delivery attempt of a durable event: `route` is
     /// `EVENT <module> <name>`, `request_id` `<event id>_<module>_<attempt>`.
     Event,
+    /// Contract 0.3: one `tools/call` that reached `run` (`TOOL <name>`).
+    Tool,
+    /// Contract 0.3: one job attempt (`JOB <module> <name>`).
+    Job,
 }
 
 /// One invocation record (contract section 2). All fields are required
@@ -82,6 +88,21 @@ pub struct MeterRecord {
     /// Contract 0.2; `None` is serialised as an absent field (= request).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<MeterKind>,
+    /// Contract 0.3: Cedar evaluations of the invocation (absent = 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authz_evals: Option<u64>,
+    /// Contract 0.3: a realtime connection's lifetime in seconds, on its
+    /// record only (absent = 0).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "opt_millis"
+    )]
+    pub realtime_conn_seconds: Option<f64>,
+    /// Contract 0.3: frames received plus messages delivered to a realtime
+    /// connection (absent = 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realtime_messages: Option<u64>,
 }
 
 /// One batch envelope: one line of the ndjson sink (contract section 3).

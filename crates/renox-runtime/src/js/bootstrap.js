@@ -9,6 +9,15 @@
 
 import { core, primordials } from "ext:core/mod.js";
 import {
+  op_authz_check,
+  op_authz_check_batch,
+  op_authz_explain,
+  op_authz_guard,
+  op_authz_principal_cached,
+  op_authz_principal_set,
+  op_authz_roles_assign,
+  op_authz_roles_list,
+  op_authz_roles_revoke,
   op_db_execute,
   op_db_query,
   op_db_query_one,
@@ -159,6 +168,21 @@ class ModuleServiceError extends RenoxError {
   }
 }
 
+// ops.md 1.5.0 section 17: the typed errors of authorization and db.scoped().
+class ForbiddenError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_FORBIDDEN", message, details);
+    this.name = "ForbiddenError";
+  }
+}
+
+class DbScopeError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_DB_SCOPE", message, details);
+    this.name = "DbScopeError";
+  }
+}
+
 /** Ops reject with "CODE|json-details|message"; turn that into a RenoxError. */
 function toRenoxError(e) {
   const msg = typeof e?.message === "string" ? e.message : "";
@@ -173,7 +197,17 @@ function toRenoxError(e) {
   } catch {
     details = undefined;
   }
-  return new RenoxError(code, msg.slice(second + 1), details ?? undefined);
+  const message = msg.slice(second + 1);
+  switch (code) {
+    case "RENOX_FORBIDDEN":
+      return new ForbiddenError(message, details ?? undefined);
+    case "RENOX_DB_SCOPE":
+      return new DbScopeError(message, details ?? undefined);
+    case "RENOX_MODULE_UNDECLARED":
+      return new ModuleUndeclaredError(message, details ?? undefined);
+    default:
+      return new RenoxError(code, message, details ?? undefined);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,12 +365,12 @@ function toRows(out) {
   });
 }
 
-async function dbCall(op, sql, params, tx, module) {
+async function dbCall(op, sql, params, tx, module, scope = null) {
   const token = currentToken();
   if (typeof sql !== "string") throw new RenoxError("RENOX_DB_PARAM", "sql must be a string");
   const [wire, bytes] = encodeParams(params);
   try {
-    return await op(token, sql, wire, bytes, tx, moduleArg(module));
+    return await op(token, sql, wire, bytes, tx, moduleArg(module), scope);
   } catch (e) {
     throw toRenoxError(e);
   }
@@ -348,21 +382,37 @@ async function dbCall(op, sql, params, tx, module) {
  * (ops.md 1.3.0 section 1), which is how a service called from an action
  * writes in the action's transaction.
  */
-function statements(tx, module = "app") {
+function statements(tx, module = "app", scope = null) {
   const handle = () => (tx === "current" ? (txVar.get() ?? 0) : tx);
   return ObjectFreeze({
     async query(sql, params) {
-      return toRows(await dbCall(op_db_query, sql, params, handle(), module));
+      return toRows(await dbCall(op_db_query, sql, params, handle(), module, scope));
     },
     async queryOne(sql, params) {
-      const rows = toRows(await dbCall(op_db_query_one, sql, params, handle(), module));
+      const rows = toRows(await dbCall(op_db_query_one, sql, params, handle(), module, scope));
       return rows.length === 0 ? null : rows[0];
     },
     async execute(sql, params) {
-      const r = await dbCall(op_db_execute, sql, params, handle(), module);
+      const r = await dbCall(op_db_execute, sql, params, handle(), module, scope);
       return { changes: r.changes, lastInsertRowid: decodeCell(r.lastInsertRowid) };
     },
   });
+}
+
+/** `db.scoped(scope)` (ops.md 1.5.0 section 17): `{ user_id?, org_id?, session_id? }`, strings. */
+function checkScope(scope) {
+  if (scope === null || typeof scope !== "object" || ArrayIsArray(scope)) {
+    throw new TypeError("db.scoped: a scope object { user_id?, org_id?, session_id? }");
+  }
+  const out = {};
+  for (const k of new SafeArrayIterator(ObjectKeys(scope))) {
+    if (k !== "user_id" && k !== "org_id" && k !== "session_id") throw new TypeError(`db.scoped: unknown key ${k}`);
+    const v = scope[k];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== "string" && typeof v !== "number") throw new TypeError(`db.scoped: ${k} must be a string`);
+    out[k] = String(v);
+  }
+  return ObjectFreeze(out);
 }
 
 /**
@@ -371,9 +421,12 @@ function statements(tx, module = "app") {
  * `transaction(fn)` is IMMEDIATE, or a savepoint when a transaction is
  * current (ops.md 1.3.0 section 1, "Savepoints").
  */
-function makeDb(module) {
+function makeDb(module, scope = null) {
   return ObjectFreeze({
-    ...statements(module === "app" ? 0 : "current", module),
+    ...statements(module === "app" ? 0 : "current", module, scope),
+    scoped(s) {
+      return makeDb(module, checkScope(s));
+    },
     async transaction(fn) {
       const token = currentToken();
       const outer = txVar.get();
@@ -386,7 +439,7 @@ function makeDb(module) {
         }
         let result;
         try {
-          result = await within([[txVar, outer]], () => fn(statements(outer, module)));
+          result = await within([[txVar, outer]], () => fn(statements(outer, module, scope)));
         } catch (e) {
           try {
             await op_db_savepoint_rollback(token, outer, sp);
@@ -410,7 +463,7 @@ function makeDb(module) {
       }
       let result;
       try {
-        result = await within([[txVar, tx]], () => fn(statements(tx, module)));
+        result = await within([[txVar, tx]], () => fn(statements(tx, module, scope)));
       } catch (e) {
         try {
           await op_db_tx_rollback(token, tx);
@@ -769,6 +822,128 @@ const password = ObjectFreeze({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Authorization (ops.md 1.5.0 section 17): ctx.authz. Rust evaluates with
+// the request's own principal; tenant code never passes one.
+
+/** A resource or context as plain JSON (dates as strings, bigints as text). */
+function authzJson(v, what) {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "object" || ArrayIsArray(v)) throw new TypeError(`authz: ${what} must be an object`);
+  return JSONParse(JSONStringify(v, dataReplacer));
+}
+
+function checkAction(action) {
+  if (typeof action !== "string" || action.length === 0) throw new TypeError("authz: action must be a string");
+}
+
+/** `ctx.authz` of `module`. */
+function makeAuthz(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError ? e : toRenoxError(e);
+    }
+  };
+  const roleArgs = (userId, role, scope) => {
+    if (typeof userId !== "string" || typeof role !== "string") throw new TypeError("authz.roles: userId and role are strings");
+    if (scope !== undefined && (scope === null || typeof scope !== "object")) throw new TypeError("authz.roles: scope is { type, id }");
+    return { user_id: userId, role, scope_type: scope?.type ?? "global", scope_id: scope?.id ?? null };
+  };
+  return ObjectFreeze({
+    async require(action, resource = undefined, context = undefined) {
+      checkAction(action);
+      await call(op_authz_check, action, authzJson(resource, "resource"), authzJson(context, "context"), moduleArg(module), true);
+    },
+    async can(action, resource = undefined, context = undefined) {
+      checkAction(action);
+      const d = await call(op_authz_check, action, authzJson(resource, "resource"), authzJson(context, "context"), moduleArg(module), false);
+      return d.allow === true;
+    },
+    async canBatch(action, resources, context = undefined) {
+      checkAction(action);
+      if (!ArrayIsArray(resources)) throw new TypeError("authz.canBatch: resources must be an array");
+      if (resources.length > 1000) throw new RangeError("authz.canBatch: at most 1000 resources");
+      return await call(op_authz_check_batch, action, ArrayPrototypeMap(resources, (r) => authzJson(r, "resource")), authzJson(context, "context"), moduleArg(module));
+    },
+    async explain(action, resource = undefined, context = undefined) {
+      checkAction(action);
+      const x = await call(op_authz_explain, action, authzJson(resource, "resource"), authzJson(context, "context"), moduleArg(module));
+      return ObjectFreeze({ decision: x.decision, reasons: ObjectFreeze(x.reasons), errors: ObjectFreeze(x.errors) });
+    },
+    roles: ObjectFreeze({
+      async assign(userId, role, scope = undefined) {
+        await call(op_authz_roles_assign, roleArgs(userId, role, scope), moduleArg(module), txVar.get() ?? 0);
+      },
+      async revoke(userId, role, scope = undefined) {
+        return await call(op_authz_roles_revoke, roleArgs(userId, role, scope), moduleArg(module), txVar.get() ?? 0);
+      },
+      async list(userId) {
+        if (typeof userId !== "string") throw new TypeError("authz.roles.list: userId is a string");
+        return ObjectFreeze(ArrayPrototypeMap(await call(op_authz_roles_list, userId, moduleArg(module)), (r) => ObjectFreeze(r)));
+      },
+    }),
+  });
+}
+
+/** A principal from Rust, frozen all the way down. */
+function freezePrincipal(p) {
+  if (p === null || p === undefined) return null;
+  return ObjectFreeze({
+    id: p.id,
+    kind: p.kind,
+    roles: ObjectFreeze(ArrayPrototypeMap(p.roles ?? [], (r) => ObjectFreeze({ ...r }))),
+    attrs: ObjectFreeze({ ...(p.attrs ?? {}) }),
+  });
+}
+
+/**
+ * The request's principal (ops.md 1.5.0 section 17, "Principal"): the
+ * cell's cache, else the `auth` module's `principal` service (which runs
+ * the `auth.principal` hook), else anonymous. A failing service gives the
+ * anonymous principal (fail closed) and a log line.
+ */
+async function resolvePrincipal(token, url, headers) {
+  const cached = op_authz_principal_cached(token);
+  if (cached.state !== "miss") return cached.principal ?? null;
+  const svc = serviceModules.get("auth")?.principal;
+  let answer = null;
+  if (typeof svc === "function") {
+    const req = new (requestMod().Request)(url, { method: "GET", headers });
+    const st0 = newRequestState({
+      req,
+      url: new (urlMod().URL)(url),
+      params: ObjectFreeze({}),
+      headers: req.headers,
+      principal: null,
+      deadline: requestDeadline,
+    });
+    try {
+      answer = await within(
+        [
+          [moduleVar, "auth"],
+          [stateVar, st0],
+        ],
+        () => svc(st0.ctxOf("auth"), cached.session ?? null),
+      );
+    } catch (e) {
+      within([[moduleVar, "auth"]], () => writeLog("error", "auth.principal threw; the request is anonymous", { error: describeThrow(e), code: "RENOX_INTERNAL" }));
+      answer = null;
+    }
+    if (answer !== null && (typeof answer !== "object" || typeof answer.id !== "string")) answer = null;
+  }
+  return await op_authz_principal_set(token, answer === null ? null : JSONParse(JSONStringify({ id: answer.id, attrs: answer.attrs ?? {} }, dataReplacer)));
+}
+
+/** Principal, then the route's guard; `{ forbidden }` stops the request. */
+async function prelude(token, url, headers) {
+  const principal = await resolvePrincipal(token, url, headers);
+  const g = await op_authz_guard(token);
+  if (!g.allow) return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined } };
+  return { principal: freezePrincipal(principal) };
+}
+
 /** One frozen object of service proxies per installed module. */
 function buildProxies() {
   const out = {};
@@ -837,6 +1012,7 @@ function moduleFields(m) {
     services: serviceProxies,
     hooks: makeHooks(m),
     events: makeEvents(m),
+    authz: makeAuthz(m),
     password,
   };
 }
@@ -855,6 +1031,19 @@ const KIND_EVENT = 5;
 // A lazy route module failed its first evaluation or lacks the route's
 // export (ops.md 1.4.0 section 11, steps 4-5).
 const KIND_MODULE_EVAL = 6;
+// The route's guard denied before the handler (ops.md 1.5.0 section 17).
+const KIND_FORBIDDEN = 7;
+
+/** `ctx.deadline`: the request's own (ops.md section 5). */
+const requestDeadline = ObjectFreeze({
+  remainingMs() {
+    try {
+      return op_deadline_remaining_ms(currentToken());
+    } catch (e) {
+      throw toRenoxError(e);
+    }
+  },
+});
 
 function safeString(v) {
   try {
@@ -1109,9 +1298,27 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
  * `handler` the page's `load` (or null).
  */
 function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app") {
-  if (handler !== null && typeof handler === "object" && typeof handler.lazy === "string") {
-    return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner);
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(owner);
+    return PromisePrototypeThen(
+      prelude(token, url, headers),
+      (pre) => {
+        if (pre.forbidden !== undefined) return pre.forbidden;
+        if (handler !== null && typeof handler === "object" && typeof handler.lazy === "string") {
+          return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner, pre.principal);
+        }
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, pre.principal);
+      },
+      describeThrow,
+    );
+  } finally {
+    core.setAsyncContext(previous);
   }
+}
+
+/** The handler, once the principal is known and the guard passed. */
+function run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1134,6 +1341,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
         url: new (urlMod().URL)(url),
         params: ObjectFreeze(params),
         headers: req.headers,
+        principal,
         deadline,
       };
       const st = newRequestState(base);
@@ -1148,7 +1356,8 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
         }
       }
       const ctx = st.ctxOf(owner);
-      p = PromiseResolve(handler(ctx));
+      // A guarded page without `load`: the template gets `{}`.
+      p = PromiseResolve(handler === null ? {} : handler(ctx));
     } catch (e) {
       p = PromiseReject(e);
     }
@@ -1185,7 +1394,7 @@ function lazyFailed(desc, err) {
  * evaluation. Then the handler and the action are looked up (step 5) and
  * the request goes on as for an eager route.
  */
-function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner) {
+function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner, principal) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1208,7 +1417,7 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
           action = actions !== null && typeof actions === "object" ? actions[desc.action] : undefined;
           if (typeof action !== "function") return lazyFailed(desc, new TypeError(`action ${desc.action} of ${desc.module} is missing or not a function`));
         }
-        return dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner);
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal);
       },
       (e) => lazyFailed(desc, e),
     );
@@ -1230,15 +1439,9 @@ function deliver(token, id, name, payloadJson, attempt, module) {
     const h = eventHandlers.get(module)?.[name];
     if (typeof h !== "function") return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
     const st = newRequestState({
-      deadline: ObjectFreeze({
-        remainingMs() {
-          try {
-            return op_deadline_remaining_ms(currentToken());
-          } catch (e) {
-            throw toRenoxError(e);
-          }
-        },
-      }),
+      deadline: requestDeadline,
+      // ops.md 1.5.0 section 17: event handlers run as Renox::System::"<module>".
+      principal: freezePrincipal({ id: module, kind: "system", roles: [], attrs: {} }),
     });
     stateVar.enter(st);
     const run = async () => {
