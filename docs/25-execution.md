@@ -422,7 +422,7 @@ Checklist special case. #117 also carries whatever #116 (F3) moved here.
 ### Gate F4 — after P4
 
 ```
-Work on issue #68 of arif-rachim/renox.rs: the F4 gate review. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for `type:review` issues. Do not ask me questions.
+Run the gate review issue #68 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
 Needs the booking product repository running on Renox with `auth` and `org` (owner), the kill criterion evaluated and recorded, and the F5 epics split the way this section split F4.
