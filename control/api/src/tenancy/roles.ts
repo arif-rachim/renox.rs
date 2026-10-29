@@ -99,6 +99,9 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   exportBackup: "apps:write",
   restoreBackup: "apps:write",
   importDatabase: "apps:write",
+  // The signed download of an export from a store that cannot presign; the
+  // signature is the credential (src/tenants/backups.ts).
+  downloadExport: "public",
   // Operator actions (src/ops/tenants.ts, section 17; #259).
   setTenantTier: "operator",
   moveTenant: "operator",

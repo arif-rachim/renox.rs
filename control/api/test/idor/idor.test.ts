@@ -38,6 +38,9 @@ export function contractRoutes(): Map<string, string> {
 
 /** Routes outside the deploy-api contract (accounts and team, #113; usage, #56): "METHOD /path" → operationId. */
 export const EXTRA_ROUTES: Record<string, string> = {
+  // The signed download of an export (src/tenants/backups.ts): the signature
+  // is the credential; a bare or foreign id is 404.
+  "GET /v1/exports/:id": "downloadExport",
   "POST /v1/account/signup": "signup",
   "POST /v1/account/verify": "verifyEmail",
   "POST /v1/account/verify/resend": "resendVerification",

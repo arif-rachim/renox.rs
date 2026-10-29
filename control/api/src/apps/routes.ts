@@ -12,12 +12,13 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps", operation(deps, "createApp"), tenantAuth(deps, "apps:write"), async (c) => {
     const db = tenantDb(deps, c);
     const tenant = db.tenantId;
-    const { name } = await jsonBody<{ name: string }>(c, "CreateAppRequest");
+    const { name, staging = false } = await jsonBody<{ name: string; staging?: boolean }>(c, "CreateAppRequest");
     const now = deps.now();
     const created = await db.transaction(async (tx) => {
+      // 0.3 (deploy-api.md section 3): a staging app gets a database of its own.
       const rows = await tx.query(
-        "insert into apps (name, tenant_id, created_at) values ($1, $2, $3) on conflict (name) do nothing returning name",
-        [name, tenant, now],
+        "insert into apps (name, tenant_id, created_at, staging, database) values ($1, $2, $3, $4, $5) on conflict (name) do nothing returning name",
+        [name, tenant, now, staging, staging ? `${tenant}.${name}` : null],
       );
       if (rows.length === 0) return false;
       await tx.query("insert into secret_sets (app, tenant_id, version) values ($1, $2, 0)", [name, tenant]);

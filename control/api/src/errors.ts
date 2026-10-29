@@ -14,6 +14,11 @@ export const MESSAGES = {
   RENOX_RATE_LIMITED: "Too many requests. Try again later.",
   RENOX_INTERNAL: "Internal error. Quote the request id when reporting it.",
   RENOX_UNAVAILABLE: "The service is temporarily unavailable.",
+  // deploy-api.md 0.3 (#251).
+  RENOX_BACKUP_UNAVAILABLE: "No backup is available for this database right now.",
+  RENOX_RESTORE_POINT_UNKNOWN: "No backup covers the requested time.",
+  RENOX_IMPORT_REJECTED: "The database file cannot be imported.",
+  RENOX_TENANT_MOVING: "The service is being moved. Try again shortly.",
 } as const;
 
 export type ErrorCode = keyof typeof MESSAGES;
@@ -30,6 +35,10 @@ export const STATUS: Record<ErrorCode, number> = {
   RENOX_RATE_LIMITED: 429,
   RENOX_INTERNAL: 500,
   RENOX_UNAVAILABLE: 503,
+  RENOX_BACKUP_UNAVAILABLE: 503,
+  RENOX_RESTORE_POINT_UNKNOWN: 422,
+  RENOX_IMPORT_REJECTED: 422,
+  RENOX_TENANT_MOVING: 503,
 };
 
 export type Detail = Record<string, string | number>;

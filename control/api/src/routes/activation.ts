@@ -39,8 +39,10 @@ async function activeOf(tx: Db, tenantId: string, app: string): Promise<Deployme
  * entries at draining, in the order the one-active-per-hostname index needs.
  */
 async function pointAt(tx: Db, deps: Deps, d: { tenant_id: string; app: string }, hash: string, previous: string | null, node: string, tier: "free" | "paid", secretsVersion: number, now: number): Promise<void> {
+  const own = await tx.query<{ database: string | null }>("select database from apps where tenant_id = $1 and name = $2", [d.tenant_id, d.app]);
+  const database = own[0]?.database ?? null;
   for (const hostname of hostnamesOf(deps, d.app)) {
-    const base = { hostname, tenant_id: d.tenant_id, app: d.app, updated_at: now, tier, node_id: node };
+    const base = { hostname, tenant_id: d.tenant_id, app: d.app, updated_at: now, tier, node_id: node, ...(database === null ? {} : { database }) };
     if (previous !== null && previous !== hash) {
       const [old] = await entriesWhere(tx, "hostname = $1 and deployment_hash = $2", [hostname, previous]);
       await upsertEntry(tx, { ...base, deployment_hash: previous, status: "draining", secrets_version: old?.secrets_version ?? 0 });
