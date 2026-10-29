@@ -1,0 +1,7 @@
+{
+  "version": 0,
+  "files": {
+    "app/001_init.sql": "60b1a568be64bb18baf9dea45609b2da6083151e27781d2a68527d452dfb51c2",
+    "auth/001_users.sql": "ccc0961a68a9b080377aa2093efc4bd94ef40089ae4a513a7929674b5df479c7"
+  }
+}

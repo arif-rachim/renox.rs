@@ -1,4 +1,4 @@
-// Artifact rules V1-V16 (versions 0 and 1) (docs/contracts/artifact.md section 6) on an artifact
+// Artifact rules V1-V22 (versions 0, 1 and 1.1) (docs/contracts/artifact.md section 6) on an artifact
 // held in memory as path -> bytes. One implementation for `renox check`, the
 // control plane's upload validation (#52), and the contract examples.
 
@@ -80,8 +80,102 @@ function routeMethods(route: JsonObject): string[] {
   return actions.length > 0 ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
 }
 
-/** V14: a template's kind follows from its id. */
-function templateKindProblem(id: string, kind: string): string | null {
+/** Version 1.1: ids of an installed module start with modules/<name>/; every other id is the app's. */
+const MODULE_PREFIX = /^modules\/([a-z][a-z0-9_]{0,31})\//u;
+const ownerOf = (id: string | undefined): string => (id === undefined ? null : MODULE_PREFIX.exec(id))?.[1] ?? "app";
+const localId = (id: string): string => id.replace(MODULE_PREFIX, "");
+
+/** manifest.md MF1, applied by V17: the reason `name` cannot be an installed module, or null. */
+function moduleNameProblem(name: string): string | null {
+  if (name.includes("__")) return 'contains "__"';
+  if (name.endsWith("_")) return 'ends with "_"';
+  if (name === "app" || name === "renox") return "is reserved";
+  return null;
+}
+
+const strings = (v: Json | undefined): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/** The installed modules of a version 1.1 manifest, by name (an empty map for versions 0 and 1). */
+const installed = (manifest: JsonObject): Map<string, JsonObject> =>
+  new Map((Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []).map((m) => [m.name as string, m]));
+
+/** V17, V18, V21 (mounts), V22 on the modules, slots, and module-owned ids of a manifest that passed the schema. */
+function moduleRules(manifest: JsonObject): Violation[] {
+  const out: Violation[] = [];
+  const entries = Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : [];
+  const listed = new Map<string, JsonObject>();
+  entries.forEach((m, i) => {
+    const field = `modules[${i}]`;
+    const name = m.name as string;
+    const problem = moduleNameProblem(name);
+    if (problem !== null) out.push({ rule: "V17", field, reason: `name "${name}" ${problem}` });
+    if (listed.has(name)) out.push({ rule: "V17", field, reason: `"${name}" is listed twice` });
+    for (const dep of strings(m.dependencies)) {
+      if (!listed.has(dep)) out.push({ rule: "V17", field, reason: `${name} depends on ${dep}, which is not listed before it` });
+    }
+    for (const which of ["permissions", "approved"]) {
+      const p = m[which] as JsonObject;
+      if (p.tables !== undefined && p.tables !== `${name}__*`) out.push({ rule: "V17", field: `${field}.${which}.tables`, reason: `"${p.tables}" is not "${name}__*"` });
+      for (const secret of strings(p.secrets)) {
+        if (!secret.startsWith(`${name.toUpperCase()}_`)) out.push({ rule: "V17", field: `${field}.${which}.secrets`, reason: `"${secret}" does not start with ${name.toUpperCase()}_` });
+      }
+    }
+    const permissions = m.permissions as JsonObject;
+    const approved = m.approved as JsonObject;
+    if (permissions.tables !== undefined && permissions.tables !== approved.tables) {
+      out.push({ rule: "V22", field: `${field}.permissions.tables`, reason: `"${permissions.tables}" was not approved` });
+    }
+    for (const key of ["network", "secrets", "slots", "hooks"]) {
+      const allowed = new Set(strings(approved[key]));
+      for (const v of strings(permissions[key])) if (!allowed.has(v)) out.push({ rule: "V22", field: `${field}.permissions.${key}`, reason: `"${v}" was not approved` });
+    }
+    listed.set(name, m);
+  });
+
+  const entry = (manifest.code as JsonObject).entry as JsonObject;
+  for (const [id, path] of Object.entries(entry)) {
+    const owner = ownerOf(id);
+    if (owner === "app") {
+      if ((path as string).startsWith("modules/")) out.push({ rule: "V18", field: `code.entry.${id}`, reason: `an app module may not live under code/modules/` });
+    } else if (!listed.has(owner)) out.push({ rule: "V18", field: `code.entry.${id}`, reason: `module "${owner}" is not in modules` });
+    else if (!(path as string).startsWith(`modules/${owner}/`)) out.push({ rule: "V18", field: `code.entry.${id}`, reason: `code/${path} is not under code/modules/${owner}/` });
+  }
+  for (const [name, m] of listed) {
+    if (strings((m.exports as JsonObject).services).length > 0 && !(`modules/${name}/services` in entry)) {
+      out.push({ rule: "V18", field: "code.entry", reason: `${name} exports services but has no modules/${name}/services entry` });
+    }
+  }
+  const templates = (isObject(manifest.templates) ? manifest.templates : {}) as Record<string, JsonObject>;
+  for (const id of Object.keys(templates)) {
+    const owner = ownerOf(id);
+    if (owner !== "app" && !listed.has(owner)) out.push({ rule: "V18", field: `templates.${id}`, reason: `module "${owner}" is not in modules` });
+  }
+  for (const [slot, fills] of Object.entries(isObject(manifest.slots) ? manifest.slots : {})) {
+    (fills as JsonObject[]).forEach((f, i) => {
+      const field = `slots.${slot}[${i}]`;
+      const m = listed.get(f.module as string);
+      if (m === undefined) return void out.push({ rule: "V18", field, reason: `module "${f.module}" is not in modules` });
+      const template = f.template as string;
+      if (ownerOf(template) !== f.module) out.push({ rule: "V18", field, reason: `template "${template}" is not under modules/${f.module}/` });
+      else if (templates[template]?.kind !== "partial") out.push({ rule: "V18", field, reason: `template "${template}" is not a partial of templates` });
+      if (!strings((m.permissions as JsonObject).slots).includes(slot)) out.push({ rule: "V22", field, reason: `${f.module} does not have the slot "${slot}" in its permissions` });
+    });
+  }
+  (manifest.routes as JsonObject[]).forEach((route, i) => {
+    const owner = ownerOf((route.module ?? route.template) as string | undefined);
+    if (owner === "app") return;
+    const m = listed.get(owner);
+    if (m === undefined) return void out.push({ rule: "V18", field: `routes[${i}]`, reason: `module "${owner}" is not in modules` });
+    const mount = m.mount as string;
+    const path = route.path as string;
+    if (mount !== "/" && path !== mount && !path.startsWith(`${mount}/`)) out.push({ rule: "V21", field: `routes[${i}]`, reason: `${path} is not under ${owner}'s mount ${mount}` });
+  });
+  return out;
+}
+
+/** V14: a template's kind follows from its id (a module's ids are read without their modules/<name>/ prefix). */
+function templateKindProblem(fullId: string, kind: string): string | null {
+  const id = localId(fullId);
   const last = id.split("/").pop() as string;
   const expected = id.startsWith("partials/")
     ? "partial"
@@ -94,11 +188,11 @@ function templateKindProblem(id: string, kind: string): string | null {
           : last.startsWith("_")
             ? null
             : "page";
-  if (expected === null) return `"${id}" is not a page, layout, partial, error, or 404 template`;
-  return kind === expected ? null : `"${id}" must have kind "${expected}", not "${kind}"`;
+  if (expected === null) return `"${fullId}" is not a page, layout, partial, error, or 404 template`;
+  return kind === expected ? null : `"${fullId}" must have kind "${expected}", not "${kind}"`;
 }
 
-/** V4, V7, V8, V9, V14 (kinds), V15, V16 (and V10 with a tier) on a manifest that passed the schema. */
+/** V4, V7, V8, V9, V14 (kinds), V15, V16, V17, V18, V21, V22 (and V10 with a tier) on a manifest that passed the schema. */
 export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violation[] {
   const out: Violation[] = [];
   const app = manifest.app as JsonObject;
@@ -127,7 +221,7 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
       used.add(module);
       if (!(module in entry)) out.push({ rule: "V7", field, reason: `${where}: module "${module}" is not a key of code.entry` });
       const prefix = page ? "pages/" : "functions/";
-      if (!module.startsWith(prefix)) out.push({ rule: "V7", field, reason: `${where}: module "${module}" must be under ${prefix}` });
+      if (!localId(module).startsWith(prefix)) out.push({ rule: "V7", field, reason: `${where}: module "${module}" must be under ${prefix}` });
     }
     if (!page && route.export !== route.method) {
       out.push({ rule: "V7", field, reason: `${where}: export "${route.export}" must equal the method` });
@@ -163,14 +257,18 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
       const shape = `${method} ${pattern}`;
       const previous = shapes.get(shape);
       if (previous !== undefined) {
-        out.push({ rule: "V8", field, reason: `${where} conflicts with routes[${previous}] for ${method}` });
+        // Routes of different owners (the app, installed modules) collide after mounting: V21.
+        const other = routes[previous] as JsonObject;
+        const rule = ownerOf((other.module ?? other.template) as string | undefined) === ownerOf(module ?? (route.template as string | undefined)) ? "V8" : "V21";
+        out.push({ rule, field, reason: `${where} conflicts with routes[${previous}] for ${method}` });
         break;
       }
       shapes.set(shape, i);
     }
   });
   for (const key of Object.keys(entry)) {
-    if (!used.has(key)) out.push({ rule: "V7", field: `code.entry.${key}`, reason: "not used by any route" });
+    // A module's services and hooks entries are loaded by the bootstrap, not by a route.
+    if (!used.has(key) && !/^modules\/[a-z][a-z0-9_]{0,31}\/(services|hooks)$/u.test(key)) out.push({ rule: "V7", field: `code.entry.${key}`, reason: "not used by any route" });
   }
 
   for (const [id, t] of Object.entries(templates)) {
@@ -219,6 +317,8 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
     }
   });
 
+  out.push(...moduleRules(manifest));
+
   if (tier !== undefined && isObject(manifest.limits)) {
     for (const [key, value] of Object.entries(manifest.limits)) {
       const max = tier[key as keyof TierLimits];
@@ -237,7 +337,7 @@ export function checkManifest(manifest: Json, tier?: TierLimits): Violation[] {
   return manifestRules(manifest, tier);
 }
 
-/** V1-V12, V14-V16 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
+/** V1-V12, V14-V22 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
 export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, options: CheckOptions = {}): CheckResult {
   const out: Violation[] = [];
   const hash = contentHash(files);
@@ -267,6 +367,8 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
     return result(null);
   }
   const version = isObject(manifest) && isObject(manifest.artifact) && typeof manifest.artifact.version === "number" ? manifest.artifact.version : 0;
+  // Version 1.1: policies/, overrides/ and overrides.json belong to installed modules.
+  const withModules = version >= 1 && isObject(manifest) && Array.isArray(manifest.modules) && manifest.modules.length > 0;
   const folded = new Map<string, string>();
   for (const path of files.keys()) {
     const key = path.toLowerCase();
@@ -274,6 +376,7 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
     if (other !== undefined) out.push({ rule: "V1", path, reason: `differs from ${other} only in case` });
     folded.set(key, path);
     const top = path.split("/")[0] as string;
+    if (withModules && (top === "policies" || top === "overrides" || path === "overrides.json")) continue;
     if (top === "policies") out.push({ rule: "V1", path, reason: "policies/ is reserved and must be absent" });
     else if (version === 0 && (top === "templates" || path === "public.json")) {
       out.push({ rule: "V1", path, reason: `${top === "templates" ? "templates/" : "public.json"} must be absent in version 0` });
@@ -381,7 +484,60 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
     }
   }
   for (const id of templateIds) if (!files.has(`templates/${id}.jinja`)) out.push({ rule: "V14", path: `templates/${id}.jinja`, reason: "missing" });
+
+  if (withModules) out.push(...moduleTreeRules(files, manifest));
   return result(manifest);
+}
+
+/** V18 (policies), V19, V20 on the files of a version 1.1 artifact whose manifest passed the schema. */
+function moduleTreeRules(files: ReadonlyMap<string, Uint8Array>, manifest: JsonObject): Violation[] {
+  const out: Violation[] = [];
+  const listed = installed(manifest);
+  const paths = [...files.keys()];
+
+  for (const p of paths.filter((f) => f.startsWith("policies/"))) {
+    const m = /^policies\/([a-z][a-z0-9_]{0,31})\/[A-Za-z0-9_.-]+\.cedar$/u.exec(p);
+    if (m === null) out.push({ rule: "V18", path: p, reason: "not policies/<module>/<name>.cedar" });
+    else if (!listed.has(m[1] as string)) out.push({ rule: "V18", path: p, reason: `module "${m[1]}" is not in modules` });
+  }
+
+  // V19: migrations for every module that has tables, and none for a module that is not installed with tables.
+  const migrated = new Set(paths.filter((p) => /^migrations\/[^/]+\/.+\.sql$/u.test(p)).map((p) => p.split("/")[1] as string));
+  for (const [name, m] of listed) {
+    if ((m.permissions as JsonObject).tables !== undefined && !migrated.has(name)) out.push({ rule: "V19", path: `migrations/${name}/`, reason: `${name} declares tables but has no migrations` });
+  }
+  for (const name of migrated) {
+    if (name !== "app" && (listed.get(name)?.permissions as JsonObject | undefined)?.tables === undefined) {
+      out.push({ rule: "V19", path: `migrations/${name}/`, reason: `${name} is not an installed module with tables` });
+    }
+  }
+
+  // V20: overrides.json lists exactly the files under overrides/, each replacing a template of its module.
+  const overrideFiles = paths.filter((p) => p.startsWith("overrides/")).map((p) => p.slice("overrides/".length));
+  if (overrideFiles.length > 0 || files.has("overrides.json")) {
+    if (!files.has("overrides.json")) out.push({ rule: "V20", path: "overrides.json", reason: "missing" });
+    else {
+      let index: Json = null;
+      try {
+        index = JSON.parse(new TextDecoder().decode(files.get("overrides.json"))) as Json;
+      } catch {
+        out.push({ rule: "V20", path: "overrides.json", reason: "not JSON" });
+      }
+      out.push(...schemaViolations("V20", { $ref: "#/$defs/overridesIndex", $defs: (manifestSchema as JsonObject).$defs as Json } as Json, index, "overrides.json"));
+      const listedFiles = isObject(index) && isObject(index.files) ? index.files : {};
+      const templates = (isObject(manifest.templates) ? manifest.templates : {}) as JsonObject;
+      for (const f of overrideFiles) if (!(f in listedFiles)) out.push({ rule: "V20", path: `overrides/${f}`, reason: "not in overrides.json" });
+      for (const [f, raw] of Object.entries(listedFiles)) {
+        const owner = f.split("/")[0] as string;
+        const template = isObject(raw) ? (raw.template as string) : "";
+        if (!overrideFiles.includes(f)) out.push({ rule: "V20", path: `overrides/${f}`, reason: "listed in overrides.json but missing" });
+        if (!listed.has(owner)) out.push({ rule: "V20", path: `overrides/${f}`, reason: `module "${owner}" is not in modules` });
+        if (template !== `modules/${f.replace(/\.html$/u, "")}`) out.push({ rule: "V20", path: `overrides/${f}`, reason: `template must be "modules/${f.replace(/\.html$/u, "")}"` });
+        else if (!(template in templates)) out.push({ rule: "V20", path: `overrides/${f}`, reason: `template "${template}" is not in manifest.templates` });
+      }
+    }
+  }
+  return out;
 }
 
 /** V13 on a route table document. */
