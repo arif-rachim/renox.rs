@@ -56,10 +56,20 @@ use crate::supervisor::{ProcessLookup, StaticProcesses, Supervisor};
 
 /// The gateway's dispatcher: the shared process alone, or the supervisor
 /// of the process tiers in front of it (#254).
-enum NodeDispatcher {
+enum Dispatch {
     Shared(Arc<GuardedDispatcher>),
     Tiers(Supervisor<GuardedDispatcher>),
 }
+
+/// The dispatcher, with the moving check in front of either process tier
+/// (#259): a tenant being moved answers 503 `RENOX_TENANT_MOVING`.
+struct NodeDispatcher {
+    inner: Dispatch,
+    manager: CellManager,
+}
+
+/// `errors.md`, `RENOX_TENANT_MOVING`.
+const MOVING_MESSAGE: &str = "The service is being moved. Try again shortly.";
 
 impl renox_gateway::CellDispatcher for NodeDispatcher {
     async fn dispatch(
@@ -67,9 +77,23 @@ impl renox_gateway::CellDispatcher for NodeDispatcher {
         ctx: renox_gateway::RequestCtx,
         req: Request<axum::body::Body>,
     ) -> Response<axum::body::Body> {
-        match self {
-            NodeDispatcher::Shared(d) => d.dispatch(ctx, req).await,
-            NodeDispatcher::Tiers(s) => s.dispatch(ctx, req).await,
+        if self.manager.is_moving(&ctx.tenant_id) {
+            let mut res = renox_gateway::limits::platform_error(
+                http::StatusCode::SERVICE_UNAVAILABLE,
+                "RENOX_TENANT_MOVING",
+                MOVING_MESSAGE,
+                &ctx.request_id,
+                req.headers(),
+            );
+            res.headers_mut().insert(
+                http::header::RETRY_AFTER,
+                http::HeaderValue::from_static("30"),
+            );
+            return res;
+        }
+        match &self.inner {
+            Dispatch::Shared(d) => d.dispatch(ctx, req).await,
+            Dispatch::Tiers(s) => s.dispatch(ctx, req).await,
         }
     }
 }
@@ -391,9 +415,12 @@ impl Worker {
         } else {
             None
         };
-        let dispatcher = Arc::new(match &supervisor {
-            Some(s) => NodeDispatcher::Tiers(s.clone()),
-            None => NodeDispatcher::Shared(guarded),
+        let dispatcher = Arc::new(NodeDispatcher {
+            inner: match &supervisor {
+                Some(s) => Dispatch::Tiers(s.clone()),
+                None => Dispatch::Shared(guarded),
+            },
+            manager: manager.clone(),
         });
         let mut tasks = Vec::new();
         let mut http_addr = None;
@@ -458,6 +485,7 @@ impl Worker {
                         token: token.clone(),
                         replication: replication.clone(),
                         manager: manager.clone(),
+                        microvm_hook: config.process.microvm_hook.clone(),
                     });
                     let (bound, task) = listener
                         .serve(listen)

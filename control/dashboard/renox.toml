@@ -9,4 +9,4 @@ timezone = "Asia/Dubai"
 # points at another API, whose host must then be added to `network`.
 [permissions]
 network = ["api.renox.app"]
-secrets = ["DASHBOARD_KEY", "RENOX_API_URL"]
+secrets = ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL"]

@@ -19,7 +19,12 @@ export interface RouteEntry {
   secrets_version: number;
   /** 0.3: the app's own database (deploy-api.md section 3); absent for the tenant's shared file. */
   database?: string;
+  /** 0.3: `own` for the paid tier (a child process of its own on the node, #254); absent means `shared`. */
+  process?: "own";
 }
+
+/** The process tier of a tier (deploy-api.md section 17): paid runs in a process of its own. */
+export const processOf = (tier: "free" | "paid"): "shared" | "own" => (tier === "paid" ? "own" : "shared");
 
 export interface RouteRemoval {
   hostname: string;
@@ -55,7 +60,8 @@ async function nextVersion(tx: Db): Promise<number> {
 
 /** Inserts or replaces the entry for (hostname, deployment_hash) with a new version. */
 export async function upsertEntry(tx: Db, e: Omit<RouteEntry, "version">): Promise<RouteEntry> {
-  const entry: RouteEntry = { ...e, version: await nextVersion(tx) };
+  const { process: _process, ...rest } = e;
+  const entry: RouteEntry = { ...rest, version: await nextVersion(tx), ...(processOf(e.tier) === "own" ? { process: "own" as const } : {}) };
   await tx.query(
     `insert into route_entries (hostname, deployment_hash, tenant_id, app, status, updated_at, version, tier, node_id, secrets_version, database)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -101,6 +107,7 @@ function toEntry(r: Record<string, unknown>): RouteEntry {
     node_id: r.node_id as string,
     secrets_version: num(r.secrets_version),
     ...(typeof r.database === "string" ? { database: r.database } : {}),
+    ...(r.tier === "paid" ? { process: "own" as const } : {}),
   };
 }
 

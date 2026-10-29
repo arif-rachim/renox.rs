@@ -16,6 +16,7 @@ The F3 subset of `docs/19-platform-wireframes.md`:
 | `/apps/:app/usage[?range=24h\|7d\|30d]` | 3.13 Usage, per app | Requests, CPU and egress per hour as SVG bars; totals; the tenant's monthly quota with `over` flagged |
 | `/apps/:app/secrets` | 3.9 Secrets | Names and update times (never values); add or replace (`secrets:write`), delete with a confirmation |
 | `/apps/:app/database` | 3.8 Database | Size, quota, WAL, replication status and lag (`GET …/backups`); the Backups panel (generations, a restore point, "Restore to new app" with a confirmation and a link to the new app); the Export panel (a signed link the browser downloads; the dashboard never proxies the bytes). The Tables and Query panels are F7 (`admin`) (#258) |
+| `/ops/tenants/:tenant` | 5 Operator console | With `OPS_CONSOLE` on: change the tier, move to a named node, move to a microVM, each with a reason, a confirmation, and the operator's `renox_op_` token. The token is passed to the API for that one request and never stored: the dashboard is a tenant (D23). The state shown is the last action's answer, because 0.3 has no read endpoint for operators. The API decides `ops:write` (only an account flagged `operator` mints it) (#259) |
 
 Not in F3: metrics (3.6, needs #77), modules (3.7, F4), the Tables and Query panels of database (3.8, F7), domains (3.10), realtime and jobs (3.11, 3.12, F5/F6), team (3.14), app settings (3.15), the operator console. The URL scheme drops the `/o/<org>` prefix of the wireframes: one sign-in is one tenant token, bound to one tenant, so the org is implied (the tenant id is shown on `/apps`).
 
@@ -41,6 +42,7 @@ renox tokens create dashboard --scope apps:read --scope apps:write --scope deplo
 | --- | --- | --- |
 | `DASHBOARD_KEY` | yes | At least 32 characters; derives the key of stored sign-ins. Changing it signs everyone out |
 | `RENOX_API_URL` | no | Another control API (`https://` only); its host must also be in `[permissions] network` |
+| `OPS_CONSOLE` | no | `operators` turns on the operator console (`/ops/tenants/:tenant`) on this deployment; anything else answers 403 there |
 
 ## Run
 
@@ -69,6 +71,7 @@ The deployment is recorded in the F3 review (#61).
 - `tests/pages.test.ts`: every loader and action against the real control API in process (`control/api` on PGlite) through a fake `ctx` whose `fetch` reaches only `https://api.renox.app`: sign-in and `next` (no open redirect), sign-out, a revoked token, the app list and create, Promote/Rollback and the deployment detail, logs filters and the live fragment, usage bars and quota, secrets set/list/delete with the value never returned or logged, and the API's 403 and 404 shown on the page.
 - `tests/client-errors.test.ts`: the Browser errors page (#128) against the real control API: groups, the original TypeScript position from a privately uploaded sourcemap, resolve/ignore/reopen, the 80 % quota warning, and the link from a client log line to its group. With `RENOX_WORKER_PATH`, the screenshot test renders the group view and the Logs page filtered to `source: client` through the worker and checks the HTML. A local control API cannot be reached from `renox dev` (see above), so `devWithData` in `tests/helpers.ts` runs `renox dev` on a copy whose two loaders return what the real loaders returned in process. Where Node resolves Playwright (or `PLAYWRIGHT_PATH`), it also shoots both pages in Chromium and fails on any console error or CSP violation. The PNGs go to `RENOX_SCREENSHOTS` (default: a temporary directory). The map is the committed fixture in `control/api/test/fixtures/sourcemaps/`.
 - `tests/database.test.ts`: the Database page (#258) against the real control API with a fake node: the header, the generations, restore into a new app (bad input refused before the API, `apps:read` refused by it), and an export that answers a signed link the dashboard never fetches. With `RENOX_WORKER_PATH`, it renders the page through the worker and shoots it like the test above.
+- `tests/ops.test.ts`: the operator console (#259): 403 without `OPS_CONSOLE`; with it, a tier change sent once with the operator token, which is not kept and does not replace the sign-in; bad input refused before the API; a token without `ops:write` shown as the API's refusal. With `RENOX_WORKER_PATH`, the worker renders the three actions.
 - `tests/dashboard.e2e.test.ts` (with `RENOX_WORKER_PATH`): the build's routes, fragments and permissions, `renox check`, and under `renox dev` the redirects, the sign-in form with CSRF, every signed-in screen rendered by the worker, the `log_lines` fragment, and a loopback control API refused with `RENOX_FETCH_BLOCKED`.
 
 ## Notes

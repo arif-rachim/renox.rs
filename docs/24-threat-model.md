@@ -91,7 +91,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | SQL injection, SSRF, deserialisation in the Bun API | Parameterised queries only (lint); no outbound fetch from user input except the domain verifier with fixed targets | Dependency scanning | #109; #116 | F3 |
 | Deploy API abuse (huge uploads, bombs) | Size caps, decompression limits, rate limits per token | Validation shares code with `renox check` | #95, #52 | F3 |
 | Remote MCP tool misuse by an agent | OAuth 2.1 scopes; confirmation token for mutating tools; audit | Dry-run mode | #62 | F3 |
-| Operator console abuse | Separate identity provider, hardware MFA, break-glass with reason and logging | Operator actions audited and reviewed | #121 | F6 |
+| Operator console abuse | Separate identity provider, hardware MFA, break-glass with reason and logging; operator actions need `ops:write`, which only an account flagged `operator` can mint (a tenant token, a session or `*` never holds it), and carry a reason of 10 to 500 characters (deploy-api.md section 17) | Operator actions audited (operator, tenant, reason, result) and reviewed | `control/api/tests/ops-tenants.test.ts` "a non-operator cannot obtain ops:write…" (scope) and the audit assertions of the tier and move tests (#259); `crates/renox-cell/tests/move_hook.rs` (the node's move needs the callback token and a reason); MFA and break-glass review → #121 | F6 |
 
 ## F. Supply chain → us
 

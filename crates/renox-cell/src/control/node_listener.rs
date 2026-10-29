@@ -63,7 +63,14 @@ pub struct NodeListener {
     pub token: Arc<CallbackToken>,
     pub replication: Option<Replication>,
     pub manager: CellManager,
+    /// `[process] microvm_hook` (#259): run by `POST …/move`.
+    pub microvm_hook: Option<std::path::PathBuf>,
 }
+
+/// The hook gets at most this long (node-listener.yaml, `nodeMoveTenant`).
+pub const MOVE_HOOK_TIMEOUT: Duration = Duration::from_secs(600);
+/// `EX_TEMPFAIL`: no hook configured, or the hook timed out.
+pub const EX_TEMPFAIL: i32 = 75;
 
 /// Answers are JSON, or a file streamed from disk (`snapshot`).
 pub type NodeBody = http_body_util::combinators::BoxBody<Bytes, std::io::Error>;
@@ -224,6 +231,63 @@ pub fn database_of(tenant: &str, database: &str) -> bool {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MoveRequest {
+    #[serde(rename = "type")]
+    kind: String,
+    schema_version: u32,
+    tenant_id: String,
+    target: String,
+    reason: String,
+    operator: String,
+}
+
+/// Runs `hook <tenant> <file>` with an empty environment (PATH only) and
+/// waits at most `timeout`; the exit code, 75 on a timeout (the hook is
+/// killed), 128 + the signal when a signal ended it.
+pub fn run_hook(
+    hook: &std::path::Path,
+    tenant: &str,
+    file: &std::path::Path,
+    timeout: Duration,
+) -> i32 {
+    let child = std::process::Command::new(hook)
+        .arg(tenant)
+        .arg(file)
+        .env_clear()
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(tenant_id = tenant, hook = %hook.display(), error = %e, "microvm hook did not start");
+            return 127;
+        }
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                use std::os::unix::process::ExitStatusExt;
+                return status
+                    .code()
+                    .or_else(|| status.signal().map(|s| 128 + s))
+                    .unwrap_or(1);
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return EX_TEMPFAIL;
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RestoreRequest {
     #[serde(rename = "type")]
     kind: String,
@@ -298,6 +362,10 @@ impl NodeListener {
                 Err(r) => *r,
             },
             (Method::DELETE, "") => self.drop_tenant(&tenant).await,
+            (Method::POST, "move") => match read_json(req).await {
+                Ok(body) => self.move_tenant(&tenant, body).await,
+                Err(r) => *r,
+            },
             (Method::POST, "snapshot") => {
                 let database = query_param(&query, "database").unwrap_or_else(|| tenant.clone());
                 if !database_of(&tenant, &database) {
@@ -329,6 +397,82 @@ impl NodeListener {
             }
             _ => not_found(),
         }
+    }
+
+    /// #259: marks the tenant moving (its requests answer 503
+    /// `RENOX_TENANT_MOVING`), drains its cells, runs `[process]
+    /// microvm_hook` with the tenant id and its file, and answers the exit
+    /// code. Exit 0 keeps the tenant refused here (it moved; the control
+    /// plane republishes its route); anything else lets it serve again.
+    async fn move_tenant(&self, tenant: &str, body: Value) -> Resp {
+        let req: MoveRequest = match serde_json::from_value(body) {
+            Ok(r) => r,
+            Err(e) => return validation("body", &e.to_string()),
+        };
+        if req.kind != "move_request" || req.schema_version != 0 {
+            return validation("type", "expected move_request, schema_version 0");
+        }
+        if req.tenant_id != tenant {
+            return validation("tenant_id", "differs from the path");
+        }
+        if req.target != "microvm" {
+            return validation("target", "only microvm");
+        }
+        let reason_len = req.reason.chars().count();
+        if !(10..=500).contains(&reason_len) {
+            return validation("reason", "10 to 500 characters");
+        }
+        if !(req.operator == "operator" || req.operator.starts_with("acct_")) {
+            return validation("operator", "operator or an account id");
+        }
+        if !self.manager.start_moving(tenant) {
+            let mut r = error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "RENOX_TENANT_MOVING",
+                "The service is being moved. Try again shortly.",
+                None,
+            );
+            r.headers_mut()
+                .insert(header::RETRY_AFTER, http::HeaderValue::from_static("30"));
+            return r;
+        }
+        let drained = self.manager.drain_tenant(tenant);
+        let file = self.manager.config().data_dir.join(tenant).join("app.db");
+        let file = std::path::absolute(&file).unwrap_or(file);
+        // The reason stays in the control plane's audit row, not here.
+        tracing::info!(tenant_id = tenant, operator = %req.operator, cells_drained = drained, "moving the tenant to a microVM");
+        let code = match self.microvm_hook.clone() {
+            None => EX_TEMPFAIL,
+            Some(hook) => {
+                let (t, f) = (tenant.to_string(), file.clone());
+                tokio::task::spawn_blocking(move || run_hook(&hook, &t, &f, MOVE_HOOK_TIMEOUT))
+                    .await
+                    .unwrap_or(1)
+            }
+        };
+        let code = code.clamp(0, 255);
+        let state = if code == 0 { "moved" } else { "failed" };
+        if code != 0 {
+            self.manager.stop_moving(tenant);
+        }
+        tracing::info!(
+            tenant_id = tenant,
+            hook_exit_code = code,
+            state,
+            "microVM move ended"
+        );
+        json_response(
+            StatusCode::OK,
+            json!({
+                "type": "move_result",
+                "schema_version": 0,
+                "node_id": self.node_id,
+                "tenant_id": tenant,
+                "target": "microvm",
+                "state": state,
+                "hook_exit_code": code,
+            }),
+        )
     }
 
     /// FO4 (#257): the tenant moved away while this node was gone. Its cells

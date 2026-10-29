@@ -14,6 +14,7 @@ import { ApiError, conflict, notFound } from "../errors.ts";
 import { jsonBody, readBody } from "../http.ts";
 import { ulid } from "../ids.ts";
 import { logIngest } from "../ingest/logs.ts";
+import { assertNotMoving } from "../ops/tenants.ts";
 import { activate } from "../routes/activation.ts";
 import { crossTenant } from "../tenancy/scope.ts";
 import { tenantAuth } from "../auth/middleware.ts";
@@ -145,6 +146,7 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const tenant = db.tenantId;
     const row = await requireApp(db, tenant, pathParam(c, "app", "AppName"));
     const { expires_in_seconds: seconds = EXPORT_MAX_SECONDS } = await jsonBody<{ expires_in_seconds?: number }>(c, "ExportRequest");
+    await assertNotMoving(db, tenant);
     const database = await databaseOf(db, tenant, row.name);
     const { node, target } = await nodeOf(deps, db, tenant);
     if (target.listen_url === null) throw unavailable("node", "unreachable");
@@ -252,6 +254,7 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const row = await requireApp(db, tenant, pathParam(c, "app", "AppName"));
     const flags = await db.query<{ staging: boolean; database: string | null }>("select staging, database from apps where tenant_id = $1 and name = $2", [tenant, row.name]);
     if (flags[0]?.staging !== true || flags[0].database === null) throw new ApiError("RENOX_IMPORT_REJECTED", [{ field: "app", reason: "not a staging app" }]);
+    await assertNotMoving(db, tenant);
     const tierRows = await db.query<{ tier: "free" | "paid" }>("select tier from tenants where id = $1", [tenant]);
     const bytes = await readBody(c, DB_QUOTA_BYTES[tierRows[0]?.tier ?? "free"]);
     const database = flags[0].database;

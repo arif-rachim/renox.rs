@@ -209,6 +209,8 @@ struct Inner {
     db_lifecycle: std::sync::OnceLock<Arc<dyn DbLifecycle>>,
     /// The database key (tenant id or `<tenant_id>.<app>`) of each cell.
     db_keys: Mutex<HashMap<CellKey, String>>,
+    /// Tenants being moved to a microVM (#259): their requests answer 503.
+    moving: Mutex<HashSet<String>>,
 }
 
 /// Called with the entries of every [`CellManager::sync_routes`].
@@ -257,6 +259,7 @@ impl CellManager {
                 sync_observer: std::sync::OnceLock::new(),
                 db_lifecycle: std::sync::OnceLock::new(),
                 db_keys: Mutex::new(HashMap::new()),
+                moving: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -328,6 +331,33 @@ impl CellManager {
     /// Registers the observer of [`Self::sync_routes`] (once).
     pub fn set_sync_observer(&self, observer: SyncObserver) {
         let _ = self.inner.sync_observer.set(observer);
+    }
+
+    /// Marks `tenant_id` as moving (#259); false when it already was.
+    pub fn start_moving(&self, tenant_id: &str) -> bool {
+        self.inner
+            .moving
+            .lock()
+            .expect("moving lock")
+            .insert(tenant_id.to_string())
+    }
+
+    /// Ends the move of `tenant_id`: it serves here again.
+    pub fn stop_moving(&self, tenant_id: &str) {
+        self.inner
+            .moving
+            .lock()
+            .expect("moving lock")
+            .remove(tenant_id);
+    }
+
+    /// Requests to a moving tenant answer 503 `RENOX_TENANT_MOVING`.
+    pub fn is_moving(&self, tenant_id: &str) -> bool {
+        self.inner
+            .moving
+            .lock()
+            .expect("moving lock")
+            .contains(tenant_id)
     }
 
     /// The tenant's file is open in this process.

@@ -118,3 +118,22 @@ Forward-only migrations (D17) mean a rollback never undoes a tenant migration; t
 `litestream.lock` pins one release for every node and for CI (the `rust` job puts it on `PATH`, so `renox-cell`'s replication tests run). 0.3.x is pinned on purpose: the deploy API 0.3 exposes Litestream generations, which 0.5 replaced.
 
 To bump it: download the tarball for each target from `https://github.com/benbjohnson/litestream/releases/download/v<version>/` twice, from two networks, check both give the same `sha256sum`, update `version` and the lines in `litestream.lock`, and run `ops/scripts/fetch-litestream.test.sh` and the replication tests. The 0.3.13 entries were downloaded twice from the same build container (one network) on 2026-10-29; a second-network check is owed, as for the V8 archives.
+
+## Moving a tenant to a microVM
+
+An operator moves a tenant with `POST /v1/ops/tenants/{tenant_id}/move` and `{ "target": "microvm", "reason": … }` (deploy-api.md section 17, #259). The control plane marks the tenant `moving` and calls the owning node's listener (`POST /nodes/{node}/tenants/{tenant}/move`). The node then:
+
+1. answers 503 `RENOX_TENANT_MOVING` for the tenant and drains its cells;
+2. runs `[process] microvm_hook` with the tenant id and the absolute path of its file, with an empty environment (`PATH` only) and a 10-minute timeout;
+3. reports the hook's exit code.
+
+Exit 0 means moved: the node keeps refusing the tenant, and the control plane records the move. Any other code means failed: the tenant serves where it was. A node without a hook answers 75 without running anything.
+
+`scripts/move-to-microvm.sh` is the hook in F6, a documented stub. It prints the plan a Firecracker launcher would follow: a `VACUUM INTO` snapshot of the drained file, a VM started from the renox-worker image with the copy as its disk, the VM's worker registering as a node, and the control plane pinning the tenant to it. With `--dry-run` it exits 0; otherwise it exits 75 (`EX_TEMPFAIL`), so a real move fails safely and the tenant stays on its node. `scripts/move-to-microvm.test.sh` checks both codes. To try the flow on a node, set:
+
+```toml
+[process]
+microvm_hook = "/opt/renox/ops/scripts/move-to-microvm.sh"
+```
+
+The real launcher (the Firecracker image, its network, and the route to a VM) is F7 work. It replaces this script behind the same interface: two arguments in, one exit code out.

@@ -133,6 +133,7 @@ jobs:
           shellcheck --version | head -2
           shellcheck --severity=warning ops/scripts/*.sh
           ops/scripts/fetch-litestream.test.sh
+          ops/scripts/move-to-microvm.test.sh
       # RustSec advisories, licences, sources (deny.toml).
       - name: Rust toolchain for cargo-deny
         if: success() || failure()

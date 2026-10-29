@@ -205,11 +205,12 @@ async function record(
   elapsed: number,
 ): Promise<void> {
   const now = deps.now();
-  await writeAudit(deps.db, {
+  // An operator move (#259) is audited by its request, with the operator and the reason.
+  if (reason === "failover") await writeAudit(deps.db, {
     at: now,
     tenantId,
     actor,
-    action: reason === "failover" ? "failover" : "moveTenant",
+    action: "failover",
     target: { tenant_id: tenantId, from_node: from, ...(to === null ? {} : { to_node: to }) },
     status,
     requestId: `${reason}-${now}`,

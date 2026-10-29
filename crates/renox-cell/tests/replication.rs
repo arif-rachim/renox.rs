@@ -307,6 +307,7 @@ async fn node_listener_restores_before_serving() {
         token,
         replication: Some(repl.clone()),
         manager: worker.manager.clone(),
+        microvm_hook: None,
     });
     let (addr, _task) = listener
         .serve("127.0.0.1:0".parse().unwrap())
@@ -495,6 +496,7 @@ async fn node_listener_snapshot_and_import() {
         token,
         replication: None,
         manager: worker.manager.clone(),
+        microvm_hook: None,
     });
     let (addr, _task) = listener
         .serve("127.0.0.1:0".parse().unwrap())
