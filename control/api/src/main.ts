@@ -12,6 +12,7 @@ import type { Db } from "./db/db.ts";
 import { routeService } from "./routes/service.ts";
 import { sweep } from "./workers/health.ts";
 import { NullMailer, OutboxDirMailer } from "./auth/mailer.ts";
+import { startDomainJobs } from "./domains/jobs.ts";
 
 const log = createLogger();
 const config = loadConfig();
@@ -34,6 +35,8 @@ const app = createApp(deps);
 await routeService(deps).publisher.listen();
 // Node health and drained routes (deploy-api.md sections 7-8).
 setInterval(() => void sweep(deps).catch((e: unknown) => log.error("sweep failed", { error: String(e) })), 5_000);
+// Custom domains: verification, DNS checks, certificates (src/domains/README.md).
+await startDomainJobs(deps);
 
 const server = Bun.serve({ port: config.port, fetch: app.fetch, idleTimeout: 0 });
 log.info("control api listening", { port: server.port, migrations_applied: applied });

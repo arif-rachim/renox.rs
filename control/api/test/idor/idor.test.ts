@@ -102,6 +102,7 @@ async function seed(h: Harness, name: "a" | "b"): Promise<Tenant> {
   const hash = contentHash(files);
   expect((await h.request("POST", `/v1/apps/${app}/activate`, { token, json: { hash } })).status).toBe(200);
   expect((await h.request("PUT", `/v1/apps/${app}/secrets/${name.toUpperCase()}_SECRET`, { token, json: { value: "a long enough value" } })).status).toBe(200);
+  expect((await h.request("POST", `/v1/apps/${app}/domains`, { token, json: { hostname: `www.${app}.example` } })).status).toBe(201);
   const inv = await json(await h.request("POST", "/v1/team/invitations", { session, json: { email: `invitee-${name}@idor.test`, role: "developer" } }));
   const account = await json(await h.request("GET", "/v1/account", { session }));
   const sessions = (await json(await h.request("GET", "/v1/account/sessions", { session }))).sessions as { id: string; current: boolean }[];
@@ -126,7 +127,7 @@ const idsOf = (b: Tenant): Record<string, string> => ({
   hash: b.hash,
   name: "B_SECRET",
   token_id: b.tokenId,
-  hostname: `${b.app}.renox.app`,
+  hostname: `www.${b.app}.example`,
   user_id: b.userId,
   session_id: b.sessionId,
   invitation_id: b.invitationId,
@@ -139,7 +140,7 @@ const BODIES: Record<string, (b: Tenant) => unknown> = {
   activateDeployment: (b) => ({ hash: b.hash }),
   rollbackDeployment: (b) => ({ hash: b.hash }),
   changeMemberRole: () => ({ role: "viewer" }),
-  addDomain: (b) => ({ hostname: `www.${b.app}.example` }),
+  addDomain: (b) => ({ hostname: `shop.${b.app}.example` }),
 };
 
 interface NoIdCase {
@@ -307,5 +308,6 @@ async function snapshot(h: Harness, b: Tenant): Promise<unknown> {
     sessions: await h.db.query("select id, tenant_id, revoked_at from sessions where user_id = $1 order by id", [b.userId]),
     transfers: await h.db.query("select id from owner_transfers where tenant_id = $1", [b.tenant]),
     routes: await h.db.query("select hostname, deployment_hash, status from route_entries where tenant_id = $1 order by hostname", [b.tenant]),
+    domains: await h.db.query("select hostname, app, state from domains where tenant_id = $1 order by hostname", [b.tenant]),
   };
 }
