@@ -14,7 +14,7 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | O3 after the owner's two bench hosts (#158); P after O3; gate #49. #212 (macOS CPU clock) needs a Mac and blocks no gate |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | Y5 (#170, #182) now; O3 after the owner's two bench hosts (#158); P after Y5 and O3; gate #49. #212 (macOS CPU clock) needs a Mac and blocks no gate |
 | F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only) | — | V2 (#57, #128) and T3 (#218) now; U3 (#219) after the owner tags `worker-v0.2.0`; W after V2 and P; gate #61 |
 
 Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), all placed in the batches below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
@@ -44,7 +44,7 @@ Issues created outside the batches since the F1 gate: #182 (timing-dependent tes
 | Gate F1 | #37 | #165: GO to F2 and F3 with conditions; issues #152 to #164 created, #36, #92, #110, #146 closed |
 
 
-## F2 (16 sessions + gate)
+## F2 (17 sessions + gate)
 
 The F1 gate split its follow-ups into #152 to #161 and moved every F2 contract edit into #152 and #153. F3 runs at the same time as F2 (see below).
 
@@ -160,6 +160,14 @@ Work on batch Y4 of arif-rachim/renox.rs: issues #206, #161 in that order. Follo
 
 Done: PR #211, both issues. Error pages for a loader that fails after the shell was flushed now arrive inside the stream with status 200, as 1.2.0 says; `crates/renox-cell/tests/errors.rs` was adapted. The `renox-cell` README still describes buffered responses: #213.
 
+### Batch Y5 — after Y4 — fetch blocked ranges of ops 1.1.0, timing-dependent tests (2 issues)
+
+```
+Work on batch Y5 of arif-rachim/renox.rs: issues #170, #182 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Both were created after the F1 gate and had no batch. #170 (blocked ranges of `ops.md` section 2: SIIT, `3fff::/20`, `5f00::/16` and the rest) blocks #112, so it is on the gate F2 path; it owns `net_policy.rs`, which V (D23 normalisation fix) already merged. #182 owns the two flaky tests and at most a test hook in `manager.rs`; Y and Y4 are in, so nothing else edits that file now. No overlap with V2 or T3.
+
 ### Batch O3 — after Y and the owner's bench hosts — benchmark environment and the F2 benchmarks (2 issues)
 
 ```
@@ -176,13 +184,13 @@ Work on batch O2 of arif-rachim/renox.rs: issues #186, #189 in that order. Follo
 
 Done: PR #195. Both edit `.github/workflows/ci.yml`. #186 makes the CLI template and shop build tests run with a worker binary in CI (today they skip); #189 folds the small jobs and takes `release-worker.yml` off pull requests.
 
-### Batch P — after N, Y2, and O3 — the two checklists (2 issues)
+### Batch P — after N, Y2, Y5 and O3 — the two checklists (2 issues)
 
 ```
 Work on batch P of arif-rachim/renox.rs: issues #94, #112 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions.
 ```
 
-Next: N and Y2 are in; waits for O3 (#158 needs the owner's bench hosts). Y3 and Y4 are not gate blockers; #207 is in #112's checklist, so run Y3 before P.
+Next: N, Y2, Y3 and Y4 are in; waits for Y5 (#170 blocks #112) and O3 (#158 needs the owner's bench hosts).
 
 ### Gate F2 — after P
 
