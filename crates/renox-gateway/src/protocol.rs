@@ -479,6 +479,9 @@ fn refused() -> io::Error {
 pub struct Http1Guard<I> {
     inner: I,
     framing: Http1Framing,
+    /// Set by the gateway when it answers `101 Switching Protocols` (#167):
+    /// from then on the bytes are the new protocol's, passed through.
+    switch: Option<crate::upgrade::UpgradeSwitch>,
     /// The refusal ([`Violation::response`]) and the bytes of it written
     /// so far; once written, the read fails.
     rejecting: Option<(Vec<u8>, usize)>,
@@ -490,9 +493,18 @@ impl<I> Http1Guard<I> {
         Self {
             inner,
             framing: Http1Framing::new(max_line),
+            switch: None,
             rejecting: None,
             refused,
         }
+    }
+
+    /// Stops checking once `switch` is set (a 101 was answered, #167). Only
+    /// the gateway's upgrade path sets it; every other response keeps the
+    /// connection under the guard.
+    pub fn with_switch(mut self, switch: crate::upgrade::UpgradeSwitch) -> Self {
+        self.switch = Some(switch);
+        self
     }
 
     /// See [`Http1Framing::with_max_headers`].
@@ -509,6 +521,9 @@ impl<I: AsyncRead + AsyncWrite + Unpin> AsyncRead for Http1Guard<I> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        if this.rejecting.is_none() && this.switch.as_ref().is_some_and(|s| s.is_set()) {
+            return Pin::new(&mut this.inner).poll_read(cx, buf);
+        }
         loop {
             if let Some((response, written)) = &mut this.rejecting {
                 if *written < response.len() {

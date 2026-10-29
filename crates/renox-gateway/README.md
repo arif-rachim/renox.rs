@@ -171,6 +171,7 @@ Upgrades are enabled on HTTP/1.1 (`serve_connection(..).with_upgrades()`); HTTP/
 - A request with `Connection: upgrade` and `Upgrade: websocket` is checked before dispatch: `GET` over HTTP/1.1 (else 405 `Allow: GET`), `Sec-WebSocket-Version: 13` (else 426 with `Sec-WebSocket-Version: 13`), a `Sec-WebSocket-Key` of 16 base64 bytes (else 400). A refused handshake never reaches the cell.
 - An accepted handshake reaches the cell like any request (hop-by-hop headers removed) with a `WsUpgrade` in its extensions. The cell decides: route kind `ws`, the principal and `guard`, the connection caps (`Origin` is #118). It answers `WsUpgrade::accept()` (101 with `Sec-WebSocket-Accept`) and takes the connection with `WsUpgrade::upgraded()`, or answers anything else and the connection stays HTTP/1.
 - SSE needs nothing here: it is a streamed `200 text/event-stream` response.
+- **Guard handover (#167).** The HTTP/1 protocol guard parses every byte of a connection as HTTP/1 framing. When the gateway answers 101, it sets the connection's `UpgradeSwitch` before hyper writes the response, and the guard passes everything after it through: frames reach the cell. Only a 101 sets it; a request carrying `Upgrade: websocket` that is answered with anything else stays under the guard, and its next head is checked as before. A client that sends frames before it has read the 101 gets them parsed as HTTP/1 and refused, as RFC 6455 requires clients to wait.
 
 Tests: `tests/upgrade.rs`.
 

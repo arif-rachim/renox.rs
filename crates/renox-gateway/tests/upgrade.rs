@@ -180,3 +180,100 @@ async fn a_cell_may_decline_the_upgrade() {
     let seen = cell.seen.lock().unwrap().clone();
     assert_eq!(seen, vec![("/plain".to_string(), true, false)]);
 }
+
+/// One masked client text frame (< 126 bytes).
+fn client_frame(payload: &[u8]) -> Vec<u8> {
+    let mask = [7u8, 1, 9, 3];
+    let mut f = vec![0x81, 0x80 | payload.len() as u8];
+    f.extend_from_slice(&mask);
+    f.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
+    f
+}
+
+/// #167: after the 101 the HTTP/1 guard hands the connection over, so the
+/// client's frames (bytes that are no HTTP/1 head) reach the cell and the
+/// echo comes back; before the fix the guard refused the first frame and
+/// closed the connection.
+#[tokio::test]
+async fn frames_after_the_101_pass_the_guard() {
+    let (addr, _cell, _dir) = start().await;
+    let mut s = TcpStream::connect(addr).await.unwrap();
+    s.write_all(handshake("/ws", "13", "dGhlIHNhbXBsZSBub25jZQ==").as_bytes())
+        .await
+        .unwrap();
+    let (head, mut rest) = read_head(&mut s).await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    for word in ["ping one", "GET / HTTP/1.1", "\r\n\r\n"] {
+        s.write_all(&client_frame(word.as_bytes())).await.unwrap();
+    }
+    let want: Vec<u8> = [&b"hello"[..], b"ping one", b"GET / HTTP/1.1", b"\r\n\r\n"]
+        .iter()
+        .flat_map(|p| {
+            let mut f = vec![0x81, p.len() as u8];
+            f.extend_from_slice(p);
+            f
+        })
+        .collect();
+    while rest.len() < want.len() {
+        let mut chunk = [0u8; 256];
+        let n = tokio::time::timeout(Duration::from_secs(10), s.read(&mut chunk))
+            .await
+            .expect("echo")
+            .unwrap();
+        assert!(
+            n > 0,
+            "closed after {} bytes: the guard parsed a frame as HTTP/1",
+            rest.len()
+        );
+        rest.extend_from_slice(&chunk[..n]);
+    }
+    assert_eq!(rest, want);
+}
+
+/// #167: a request carrying `Upgrade: websocket` that the cell answers
+/// without a 101 leaves the connection under the guard: the next head is
+/// still checked (a smuggling attempt is refused) after a valid one passes.
+#[tokio::test]
+async fn an_upgrade_answered_without_101_stays_checked() {
+    let (addr, cell, _dir) = start().await;
+    let mut s = TcpStream::connect(addr).await.unwrap();
+    s.write_all(handshake("/plain", "13", "dGhlIHNhbXBsZSBub25jZQ==").as_bytes())
+        .await
+        .unwrap();
+    let (head, rest) = read_head(&mut s).await;
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    // The body of that 200 ("plain") follows the head; read it off.
+    let mut body = vec![0u8; 5 - rest.len()];
+    s.read_exact(&mut body).await.unwrap();
+    // A second, valid request on the same connection is served.
+    s.write_all(b"GET /next HTTP/1.1\r\nHost: a.test\r\n\r\n")
+        .await
+        .unwrap();
+    let (head, rest) = read_head(&mut s).await;
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    let mut body = vec![0u8; 5 - rest.len()];
+    s.read_exact(&mut body).await.unwrap();
+    // A third with two Content-Length headers is refused by the guard.
+    s.write_all(b"POST /smuggle HTTP/1.1\r\nHost: a.test\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nxx")
+        .await
+        .unwrap();
+    let mut rest = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut rest)).await;
+    let text = String::from_utf8_lossy(&rest);
+    assert!(
+        !text.starts_with("HTTP/1.1 200"),
+        "smuggled request served: {text}"
+    );
+    let paths: Vec<String> = cell
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(p, _, _)| p.clone())
+        .collect();
+    assert_eq!(
+        paths,
+        vec!["/plain".to_string(), "/next".to_string()],
+        "the refused head never reached the cell"
+    );
+}

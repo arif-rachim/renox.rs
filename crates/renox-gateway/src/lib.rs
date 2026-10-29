@@ -454,8 +454,13 @@ async fn serve_connection<I>(
     let protocol = &settings.protocol;
     let is_tls = tls.is_some();
     let (alpn, sni) = tls.map_or((None, None), |t| (t.alpn, t.sni));
+    // #167: set when this connection answers 101; the HTTP/1 guard then
+    // stops parsing the bytes that follow as HTTP/1.
+    let switch = upgrade::UpgradeSwitch::new();
+    let conn_switch = switch.clone();
     let service = hyper::service::service_fn(move |req: Request<_>| {
         let mut req = req.map(Body::new);
+        req.extensions_mut().insert(conn_switch.clone());
         req.extensions_mut().insert(ConnectInfo(peer));
         if is_tls {
             req.extensions_mut().insert(TlsConnection);
@@ -486,7 +491,9 @@ async fn serve_connection<I>(
         let _ = builder.serve_connection(io, service).await;
     } else {
         let io = TokioIo::new(
-            Http1Guard::new(io, header_bytes, refused).with_max_headers(limits.max_headers),
+            Http1Guard::new(io, header_bytes, refused)
+                .with_max_headers(limits.max_headers)
+                .with_switch(switch),
         );
         let mut builder = hyper::server::conn::http1::Builder::new();
         builder
@@ -524,9 +531,17 @@ async fn handle<D: CellDispatcher>(
 ) -> Result<Response<Body>, Infallible> {
     let request_id = request_id::new_request_id();
     let tls = req.extensions().get::<TlsConnection>().is_some();
+    let switch = req.extensions().get::<upgrade::UpgradeSwitch>().cloned();
     let nonce = security::new_nonce();
     let mut used: Option<Arc<security::DeploymentInfo>> = None;
     let mut response = route(&state, req, &request_id, &nonce, &mut used).await;
+    // #167: a 101 hands the connection over; set before hyper writes it,
+    // so the client's first frame is never parsed as an HTTP/1 head.
+    if response.status() == StatusCode::SWITCHING_PROTOCOLS
+        && let Some(s) = &switch
+    {
+        s.set();
+    }
     let cfg = used.as_ref().map(|i| &i.security);
     finish_response(response.headers_mut(), &request_id, tls, cfg, &nonce);
     Ok(response)
