@@ -11,6 +11,9 @@ import type { Deps, Env } from "../context.ts";
 import { routeService } from "../routes/service.ts";
 import { currentVersion, lockRoutes, snapshot } from "../routes/table.ts";
 import { reassign } from "./health.ts";
+import { dropMovedTenants, sealCallbackToken } from "./failover.ts";
+import { base32 } from "../ids.ts";
+import { randomBytes } from "node:crypto";
 import { findWorker, HEARTBEAT_INTERVAL_MS, RESYNC_INTERVAL_MS, UNHEALTHY_AFTER_MS } from "./repo.ts";
 import { ApiError, conflict, invalid } from "../errors.ts";
 import type { Context } from "hono";
@@ -36,9 +39,14 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
 
   app.post("/v1/nodes/register", operation(deps, "registerNode"), nodeAuth(deps), async (c) => {
     const node = nodeId(c);
-    const body = await message<{ node_id: string; worker_version: string; region: string; max_cells: number }>(c, "node_register");
+    const body = await message<{ node_id: string; worker_version: string; region: string; max_cells: number; listen_url?: string }>(c, "node_register");
     if (body.node_id !== node) throw new ApiError("RENOX_TOKEN_SCOPE");
     const now = deps.now();
+    // 0.3 (section 15): a node with a listener gets a fresh callback token,
+    // stored wrapped under the master key, returned once.
+    const callback = body.listen_url === undefined ? null : `renox_cb_${base32(randomBytes(20))}`;
+    const sealed = callback === null ? null : await sealCallbackToken(deps, node, callback);
+    if (callback !== null && sealed === null) deps.log.warn("node listener announced but CONTROL_MASTER_KEY is unset: no callback token issued", { node_id: node });
     const moved = await db.transaction(async (tx) => {
       await lockRoutes(tx);
       const before = await findWorker(tx, node);
@@ -49,9 +57,17 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
            max_cells = excluded.max_cells, registered_at = excluded.registered_at, last_heartbeat_at = excluded.last_heartbeat_at, healthy = true`,
         [node, body.worker_version, body.region, body.max_cells, now],
       );
+      await tx.query("update workers set listen_url = $1, callback_token_wrapped = $2, callback_token_nonce = $3 where node_id = $4", [
+        sealed === null ? null : (body.listen_url as string),
+        sealed?.wrapped ?? null,
+        sealed?.nonce ?? null,
+        node,
+      ]);
       return before?.healthy === true ? 0 : reassign(tx, now);
     });
     if (moved > 0) await service.publisher.publish();
+    // FO4: tenants moved off this node while it was gone are dropped there.
+    void dropMovedTenants(deps, node).catch((e: unknown) => deps.log.warn("drop of moved tenants failed", { node_id: node, error: String(e) }));
     return c.json({
       type: "node_registered",
       schema_version: 0,
@@ -60,6 +76,7 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
       unhealthy_after_ms: UNHEALTHY_AFTER_MS,
       resync_interval_ms: RESYNC_INTERVAL_MS,
       route_version: await currentVersion(db),
+      ...(callback !== null && sealed !== null ? { callback_token: callback } : {}),
     });
   });
 
@@ -81,6 +98,7 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
       return before.healthy ? 0 : reassign(tx, now);
     });
     if (moved > 0) await service.publisher.publish();
+    void dropMovedTenants(deps, node).catch((e: unknown) => deps.log.warn("drop of moved tenants failed", { node_id: node, error: String(e) }));
     return c.json({ type: "heartbeat_ack", schema_version: 0, route_version: await currentVersion(db) });
   });
 

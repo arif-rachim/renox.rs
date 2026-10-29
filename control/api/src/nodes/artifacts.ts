@@ -10,7 +10,7 @@ import { nodeAuth, nodeId } from "../auth/middleware.ts";
 import type { Deps, Env } from "../context.ts";
 import { ApiError, notFound } from "../errors.ts";
 import { pathParam } from "../http.ts";
-import { ownerOf } from "../workers/assign.ts";
+import { ownerFor } from "../workers/assign.ts";
 import { healthyNodes } from "../workers/repo.ts";
 
 /** Lifetime of a presigned artifact URL (the OpenAPI description: 300 s). */
@@ -36,7 +36,8 @@ export async function assigned(deps: Deps, node: string, hash: string): Promise<
   );
   if (tenants.length === 0) return null;
   const nodes = await healthyNodes(deps.db);
-  return tenants.some((t) => ownerOf(t.tenant_id, nodes) === node);
+  for (const t of tenants) if ((await ownerFor(deps.db, t.tenant_id, nodes)) === node) return true;
+  return false;
 }
 
 export function registerNodeArtifacts(app: Hono<Env>, deps: Deps): void {

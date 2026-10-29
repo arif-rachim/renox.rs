@@ -6,7 +6,7 @@ import type { Db } from "../db/db.ts";
 import type { TenantDb } from "../tenancy/scope.ts";
 import { ApiError, conflict } from "../errors.ts";
 import { prune, requireDeployment, transition, type Actor, type DeploymentRow } from "../deployments/repo.ts";
-import { ownerOf } from "../workers/assign.ts";
+import { ownerFor } from "../workers/assign.ts";
 import { healthyNodes } from "../workers/repo.ts";
 import type { Deps } from "../context.ts";
 import { routeService } from "./service.ts";
@@ -76,7 +76,7 @@ export async function activate(deps: Deps, db: TenantDb, app: string, hash: stri
     throw err;
   };
 
-  const node = ownerOf(tenantId, await healthyNodes(db));
+  const node = await ownerFor(db, tenantId, await healthyNodes(db));
   if (node === null) {
     await fail({ stage: "no_worker", reason: "no healthy node can take the tenant" }, new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 5 }));
   }
@@ -104,7 +104,7 @@ export async function rollback(deps: Deps, db: TenantDb, app: string, hash: stri
   const service = routeService(deps);
   const { tier, state } = await tenantInfo(db, tenantId);
   if (state === "suspended") throw conflict("tenant", "the tenant is suspended");
-  const node = ownerOf(tenantId, await healthyNodes(db));
+  const node = await ownerFor(db, tenantId, await healthyNodes(db));
   if (node === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 5 });
 
   const target = await db.transaction(async (tx) => {
@@ -144,7 +144,7 @@ export async function onTenantState(deps: Deps, tx: Db, tenantId: string, state:
     return;
   }
   const { tier } = await tenantInfo(tx, tenantId);
-  const node = ownerOf(tenantId, await healthyNodes(tx));
+  const node = await ownerFor(tx, tenantId, await healthyNodes(tx));
   const suspended = await tx.query<{ app: string; hash: string; secrets_version: number | null }>(
     "select app, hash, secrets_version from deployments where tenant_id = $1 and state = 'suspended'",
     [tenantId],

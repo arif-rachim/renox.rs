@@ -9,7 +9,7 @@ The biggest risks are not in Rust. They are sandbox security (because that is th
 | Tenant template as DoS on Rust threads | One tenant consumes a cell's CPU | Medium | Fuel, iteration and output limits, render timeout charged to the quota (B13) | F2 |
 | npm libraries that do not run on Deno | Tenants leave | Medium | Public compatibility list, test popular packages from F0 (B17), platform APIs for images/PDF/email | F0 |
 | V8→Rust marshaling erases the render advantage | Performance claim unproven | Medium | B8/B9 benchmark in F2 with path B as the alternative (D7) | F2 |
-| Cell node dies | Tenants on that node are down | Medium | Litestream to S3 for the base tier (RPO seconds), synchronous replica for the higher tier, artifacts in object storage (B18) | F6 |
+| Cell node dies | Tenants on that node are down | Medium | Litestream to S3 for the base tier (RPO seconds), synchronous replica for the higher tier, artifacts in object storage; failover restores before the route moves (`docs/contracts/deploy-api.md` FO1–FO6). B18: `bench/results/2026-10-29-B18-failover-dev-container.md` (not measured on the dev container; the `node-small` run is O3) | F6 |
 | Single writer per SQLite file | Busy tenants hit a ceiling | Low–medium | Tier limits, lock-wait metrics, upgrade path to Postgres | F6 |
 | Global state leaking between requests in `shared` mode | Mixed user data within one tenant | Medium | Per-request data through `ctx`, dev-mode warnings, module documentation, lint | F2 |
 | Module contracts change without notice | Tenant apps break on upgrade | Medium | Semver, generated types, `renox check`, versioned views (D17) | F4 |
