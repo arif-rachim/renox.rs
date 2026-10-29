@@ -849,6 +849,9 @@ const KIND_RENDER = 3;
 const KIND_PAGE_INTERNAL = 4;
 // An event delivery ended (ops.md 1.3.0 section 15.4).
 const KIND_EVENT = 5;
+// A lazy route module failed its first evaluation or lacks the route's
+// export (ops.md 1.4.0 section 11, steps 4-5).
+const KIND_MODULE_EVAL = 6;
 
 function safeString(v) {
   try {
@@ -1103,6 +1106,9 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
  * `handler` the page's `load` (or null).
  */
 function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app") {
+  if (handler !== null && typeof handler === "object" && typeof handler.lazy === "string") {
+    return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner);
+  }
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1150,6 +1156,58 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
         return PromisePrototypeThen(serializeResponse(res, wantBody), undefined, describeThrow);
       },
       describeThrow,
+    );
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
+/** Code entry specifier -> the promise of its namespace: one evaluation per isolate; a rejection stays cached until the isolate is replaced. */
+const lazyModules = new SafeMap();
+/** Module ids whose failure was reported already (logged once per isolate). */
+const lazyReported = new SafeSet();
+
+function lazyFailed(desc, err) {
+  const d = describeThrow(err);
+  const first = !lazyReported.has(desc.module);
+  if (first) lazyReported.add(desc.module);
+  return { kind: KIND_MODULE_EVAL, name: d.name, message: d.message, stack: d.stack, reason: desc.module, first };
+}
+
+/**
+ * A route whose module is evaluated on first use (ops.md 1.4.0 section 11,
+ * step 4): `desc` is `{ lazy, module, export, action }`. The module is
+ * imported inside this request, so its top-level code runs with the
+ * request's ops, deadline, and CPU; concurrent first requests share the one
+ * evaluation. Then the handler and the action are looked up (step 5) and
+ * the request goes on as for an eager route.
+ */
+function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(owner);
+    let p = lazyModules.get(desc.lazy);
+    if (p === undefined) {
+      p = import(desc.lazy);
+      lazyModules.set(desc.lazy, p);
+    }
+    return PromisePrototypeThen(
+      p,
+      (ns) => {
+        let handler = null;
+        let action = null;
+        if (desc.export !== null) {
+          handler = ns[desc.export];
+          if (typeof handler !== "function") return lazyFailed(desc, new TypeError(`export ${desc.export} of ${desc.module} is missing or not a function`));
+        }
+        if (desc.action !== null) {
+          const actions = ns.actions;
+          action = actions !== null && typeof actions === "object" ? actions[desc.action] : undefined;
+          if (typeof action !== "function") return lazyFailed(desc, new TypeError(`action ${desc.action} of ${desc.module} is missing or not a function`));
+        }
+        return dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner);
+      },
+      (e) => lazyFailed(desc, e),
     );
   } finally {
     core.setAsyncContext(previous);

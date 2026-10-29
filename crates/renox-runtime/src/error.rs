@@ -16,6 +16,8 @@ pub enum ErrorCode {
     Oom,
     Busy,
     Internal,
+    /// ops.md 1.4.0: a lazy route module failed its first evaluation.
+    ModuleEval,
 }
 
 impl ErrorCode {
@@ -30,6 +32,7 @@ impl ErrorCode {
             ErrorCode::Oom => "RENOX_OOM",
             ErrorCode::Busy => "RENOX_BUSY",
             ErrorCode::Internal => "RENOX_INTERNAL",
+            ErrorCode::ModuleEval => "RENOX_MODULE_EVAL",
         }
     }
 
@@ -39,7 +42,7 @@ impl ErrorCode {
         match self {
             ErrorCode::Deadline => Some(504),
             ErrorCode::CpuLimit | ErrorCode::Oom | ErrorCode::Busy => Some(503),
-            ErrorCode::Internal => Some(500),
+            ErrorCode::Internal | ErrorCode::ModuleEval => Some(500),
             _ => None,
         }
     }
