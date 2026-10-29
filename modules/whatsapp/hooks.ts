@@ -1,6 +1,7 @@
 // The whatsapp module's handlers (#290): its own queue (the outbox runs
 // `whatsapp.send_requested` after the commit and retries it on a throw),
-// and the `notifications.deliver` filler for the `whatsapp` channel.
+// the `notifications.deliver` filler for the `whatsapp` channel, and the
+// `auth.send_otp` filler for auth's phone sign-in (#291).
 import * as core from "./lib/core.ts";
 
 interface Event {
@@ -15,6 +16,12 @@ export const on = {
 };
 
 export const hooks = {
+  /** auth's phone sign-in and phone verification (#291): the code goes out as an OTP message. */
+  "auth.send_otp": {
+    async handle(ctx: core.WaCtx, args: { to: string; code: string }) {
+      await core.sendCode(ctx, args.to, args.code);
+    },
+  },
   "notifications.deliver": {
     /** Only the `whatsapp` channel, and only to a user with a verified contact (linkPhone). */
     async handle(ctx: core.WaCtx, args: { user: string; channel: string; item: { title: string; body?: string; link?: string } }) {

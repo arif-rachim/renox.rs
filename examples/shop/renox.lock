@@ -16,18 +16,18 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "5b66324bd487018b7d04b3cdea7d651db1fddd1a4ddb5c2f035f02da5579177c"
+hash = "f3457cb13bc7045353bf45f24ae6cc53abb44883065d471aec312a21eb2f271f"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
-config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "" }
-approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
+config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "", uaepass_client_id = "", uaepass_env = "staging", phone_login = true, passkeys = true, passkey_rp_id = "", passkey_origin = "" }
+approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
 
 [[module]]
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "3cb07f3ac2083cf2559d2503d50f0e502bbbc2227eaf790b55d317ee04e916d7"
+hash = "88b212ad203e040ec42a737c2b3b3fcb22ac73fb40a792787dba28fa198039b1"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]

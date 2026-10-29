@@ -17,6 +17,10 @@ exports[`auth in Arabic login and register: lang=ar, dir=rtl, the Arabic catalog
     <label>كلمة المرور <input type="password" name="password" autocomplete="current-password" required></label>
     <button type="submit">تسجيل الدخول</button>
   </form>
+  <ul class="methods">
+    <li><a href="phone?next=%2F">تسجيل الدخول برقم الهاتف</a></li>
+    <li><a href="passkeys/login?next=%2F">تسجيل الدخول بمفتاح المرور</a></li>
+  </ul>
   <ul class="providers">
     <li><a href="oauth/google/start?next=%2F">المتابعة باستخدام Google</a></li>
   </ul>
@@ -83,6 +87,22 @@ exports[`auth in Arabic account: the user's stored choice follows them to anothe
       
     </li>
   </ul>
+  
+    <h2>الهاتف</h2>
+    
+    <form method="post" action="?/phone_send" hx-post="?/phone_send"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>رقم الجوال <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" required></label>
+      <button type="submit">إرسال الرمز</button>
+    </form>
+    
+  
+  
+    <h2>مفاتيح المرور</h2>
+    <ul id="passkeys">
+      <li>لا يوجد مفتاح مرور بعد.</li>
+    </ul>
+    <p><a href="passkeys/register">إضافة مفتاح مرور</a></p>
+  
   <h2>الوكلاء المتصلون</h2>
   <ul id="agents">
     <li>لا يوجد وكيل متصل.</li>
@@ -112,6 +132,10 @@ exports[`auth in Arabic in both digit sets (#266): ar-u-nu-arab carries Eastern 
     <label>كلمة المرور <input type="password" name="password" autocomplete="current-password" required></label>
     <button type="submit">تسجيل الدخول</button>
   </form>
+  <ul class="methods">
+    <li><a href="phone?next=%2F">تسجيل الدخول برقم الهاتف</a></li>
+    <li><a href="passkeys/login?next=%2F">تسجيل الدخول بمفتاح المرور</a></li>
+  </ul>
   <ul class="providers">
     <li><a href="oauth/google/start?next=%2F">المتابعة باستخدام Google</a></li>
   </ul>
@@ -139,6 +163,10 @@ exports[`auth in Arabic in both digit sets (#266): ar-u-nu-arab carries Eastern 
     <label>كلمة المرور <input type="password" name="password" autocomplete="current-password" required></label>
     <button type="submit">تسجيل الدخول</button>
   </form>
+  <ul class="methods">
+    <li><a href="phone?next=%2F">تسجيل الدخول برقم الهاتف</a></li>
+    <li><a href="passkeys/login?next=%2F">تسجيل الدخول بمفتاح المرور</a></li>
+  </ul>
   <ul class="providers">
     <li><a href="oauth/google/start?next=%2F">المتابعة باستخدام Google</a></li>
   </ul>

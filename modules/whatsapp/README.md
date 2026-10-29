@@ -28,11 +28,11 @@ notifications = { version = "^1.0", mount = "/notifications", config = { channel
 whatsapp = { version = "^1.0", mount = "/whatsapp", config = { otp_template = "login_code", otp_language = "en" } }
 ```
 
-whatsapp fills `notifications.deliver`, so `notifications` must be installed with it (`manifest.md` MF8). `renox add whatsapp` asks to approve:
+whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` and `auth` must be installed with it (`manifest.md` MF8). `renox add whatsapp` asks to approve:
 
 - the single network host `graph.facebook.com`;
 - the four secrets;
-- the hook `notifications.deliver`.
+- the two hooks.
 
 | Config | Default | Meaning |
 | --- | --- | --- |
@@ -77,6 +77,10 @@ The webhook is at `<mount>/webhook/whatsapp`.
 - `POST` carries inbound messages and status updates. `X-Hub-Signature-256` is checked against the raw body with `WHATSAPP_APP_SECRET`, in constant time. A missing or wrong signature is 401 and stores nothing.
 - An inbound message is stored once (by its `wa_id`) and emits `whatsapp.message_received`.
 - The gateway's body limit applies, as for every function route.
+
+## auth's codes
+
+whatsapp fills `auth.send_otp` (#291). auth's phone sign-in and phone verification send their codes as OTP messages, sealed in the queue like the module's own. auth keeps its codes and their checks, and whatsapp only delivers them.
 
 ## Notifications
 

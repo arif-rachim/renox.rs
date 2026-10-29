@@ -44,7 +44,7 @@ F3 (control plane) depends only on F1's artifact format and route table contract
 | Pricing model | Per request + CPU-ms (Cloudflare style), flat per tenant with quotas, or hybrid; AED tiers in `01-business.md` are hypotheses | F7, after unit-economics data from F3 meters |
 | Bring-your-own Postgres | From the start, or only on the top tier | F6 |
 | Second region (Saudi Arabia) | Requires in-country hosting and ZATCA e-invoicing; not before UAE traction | After first external customers |
-| UAE PASS | Onboarding requirements for private providers; whether to ship in M16 or later | F5 |
+| UAE PASS | Onboarding requirements for private providers; whether to ship in M16 or later (shipped behind config in M16, #291; owner steps in `modules/auth/README.md`, "UAE PASS") | F5 |
 | E-invoicing | Phase timing for SMEs and the accredited-provider route for `tax-gcc` | F7 (verify, see `21-uae-gcc-strategy.md`) |
 | Data-plane license | Open source (contributors, trust) vs closed (protect the hosting business) | Before F7 |
 | Marketplace revenue share | Percentage and payout mechanism | F7 |

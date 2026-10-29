@@ -38,19 +38,27 @@ export async function currentUser(ctx: AuthCtx): Promise<User | null> {
   return core.currentUser(ctx);
 }
 
+/** The user attributes the platform's Cedar schema knows (renox-authz USER_ATTRS); a filler's other keys are dropped. */
+const PRINCIPAL_ATTRS = ["created_at", "email_verified", "mfa_verified", "org", "phone_verified"] as const;
+
 /**
  * The request's principal (ops.md 1.5.0 section 17, "Principal"): the cell
  * calls it once per request, before any guard. `null` when signed out
- * (the anonymous principal). Roles are the platform's role assignments,
- * added by the cell. The `auth.principal` hook that lets other modules
- * extend `attrs` is #291.
+ * (the anonymous principal). The hook `auth.principal` lets other modules
+ * extend `attrs` in place (2fa sets `mfa_verified`, org sets `org`); only
+ * the platform's user attributes are kept. Roles are the platform's role
+ * assignments, added by the cell.
  */
 export async function principal(ctx: AuthCtx, _sessionId?: string | null): Promise<{ id: string; attrs: Record<string, unknown> } | null> {
   const u = await core.currentUser(ctx);
   if (u === null) return null;
-  const row = await ctx.db.queryOne<{ email_verified_at: number | null; created_at: number }>("select email_verified_at, created_at from auth__users where id = ?", [u.id]);
+  const row = await ctx.db.queryOne<{ email_verified_at: number | null; phone_verified_at: number | null; created_at: number }>("select email_verified_at, phone_verified_at, created_at from auth__users where id = ?", [u.id]);
   if (row === null) return null;
-  return { id: u.id, attrs: { email_verified: row.email_verified_at !== null, created_at: row.created_at } };
+  const p = { id: u.id, attrs: { email_verified: row.email_verified_at !== null, phone_verified: row.phone_verified_at !== null, created_at: row.created_at } as Record<string, unknown> };
+  await ctx.hooks.run("auth.principal", { principal: p });
+  const attrs: Record<string, unknown> = {};
+  for (const k of PRINCIPAL_ATTRS) if (p.attrs[k] !== undefined) attrs[k] = p.attrs[k];
+  return { id: u.id, attrs };
 }
 
 /** The signed-in user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`); a page sends `loginUrl(next)` instead. */

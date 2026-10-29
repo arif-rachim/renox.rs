@@ -11,7 +11,9 @@
       "title": "Sign in",
       "submit": "Sign in",
       "create": "Create an account",
-      "continue_with": "Continue with {provider}"
+      "continue_with": "Continue with {provider}",
+      "with_phone": "Sign in with your phone",
+      "with_passkey": "Sign in with a passkey"
     },
     "register": {
       "title": "Create an account",
@@ -44,7 +46,11 @@
       "agents": "Connected agents",
       "no_agents": "No agent is connected.",
       "revoke_agent": "Disconnect",
-      "last_used": "last used"
+      "last_used": "last used",
+      "phone": "Phone",
+      "passkeys": "Passkeys",
+      "no_passkeys": "No passkey yet.",
+      "remove_passkey": "Remove"
     },
     "menu": {
       "sign_in": "Sign in"
@@ -55,6 +61,25 @@
       "returns_to": "After you answer you return to",
       "allow": "Allow",
       "deny": "Deny"
+    },
+    "phone": {
+      "title": "Sign in with your phone",
+      "number": "Mobile number",
+      "send": "Send code",
+      "other_ways": "Other ways to sign in",
+      "code_title": "Enter your code",
+      "sent": "If this number has an account, a code is on its way.",
+      "code": "Code",
+      "verify": "Verify",
+      "again": "Use another number or ask for a new code"
+    },
+    "passkeys": {
+      "login_title": "Sign in with a passkey",
+      "use": "Use a passkey",
+      "add_title": "Add a passkey",
+      "name": "Name",
+      "create": "Create the passkey",
+      "back": "Back to your account"
     }
   }
 }

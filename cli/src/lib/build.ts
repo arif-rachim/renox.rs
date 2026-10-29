@@ -26,6 +26,7 @@
 //   <out>/<hash>/. An existing directory with that name is reused
 //   (artifacts are content-addressed and never overwritten).
 
+import type { BunPlugin } from "bun";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -231,16 +232,39 @@ function listFiles(dir: string, rel = "", skipped?: Skipped[]): string[] {
   return out.sort();
 }
 
+/**
+ * `renox` (and `renox/<sub>`) resolves from the app, whoever imports it: a
+ * module's tree lives outside the app (a git cache, or `path:` elsewhere)
+ * and has no node_modules of its own, so its code uses the app's SDK (#291:
+ * auth's passkeys import `verifyAssertion`). Not installed in the app: the
+ * bundler's own resolution, and its error.
+ */
+function appSdk(appRoot: string): BunPlugin {
+  return {
+    name: "renox-app-sdk",
+    setup(build) {
+      build.onResolve({ filter: /^renox(\/[A-Za-z0-9_-]+)?$/u }, (args) => {
+        try {
+          return { path: Bun.resolveSync(args.path, appRoot) };
+        } catch {
+          return undefined;
+        }
+      });
+    },
+  };
+}
+
 /** A module to bundle: its id (`functions/...`, `pages/...`) and source file. */
 interface Entry {
   id: string;
   source: string;
 }
 
-async function bundle(project: string, functions: Entry[]): Promise<Bundle> {
+async function bundle(project: string, functions: Entry[], app = project): Promise<Bundle> {
   // Paths in comments and source maps are relative to the working
   // directory: build from the project so the artifact is reproducible.
   const cwd = process.cwd();
+  const appRoot = resolve(app);
   process.chdir(project);
   try {
     const r = await Bun.build({
@@ -254,6 +278,7 @@ async function bundle(project: string, functions: Entry[]): Promise<Bundle> {
       // node: built-ins stay imports; the runtime offers the compute-only ones.
       // `renox:modules` is resolved by the runtime's loader (ops.md 1.3.0 section 15).
       external: ["node:*", "renox:*"],
+      plugins: [appSdk(appRoot)],
       throw: false,
     });
     if (!r.success) {
@@ -375,7 +400,7 @@ export async function buildFiles(
     const own = (mods?.entries ?? []).filter((e) => e.module === m.lock.name);
     if (own.length === 0) continue;
     const local = own.map((e) => ({ id: e.id.slice(`modules/${m.lock.name}/`.length), source: e.source }));
-    const b = await bundle(m.tree, local);
+    const b = await bundle(m.tree, local, project);
     for (const [p, code] of b.code) bundled.code.set(`modules/${m.lock.name}/${p}`, code);
     for (const [p, map] of b.maps) bundled.maps.set(`modules/${m.lock.name}/${p}`, map);
     for (const e of own) entry[e.id] = `${e.id}.js`;

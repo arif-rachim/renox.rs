@@ -18,19 +18,25 @@ login_path = { type = "string", max_length = 200, default = "/auth/login", descr
 google_client_id = { type = "string", max_length = 200, default = "", description = "Google sign-in: the OAuth client id (the secret is AUTH_GOOGLE_CLIENT_SECRET); empty = off" }
 github_client_id = { type = "string", max_length = 200, default = "", description = "GitHub sign-in: the OAuth app's client id (secret AUTH_GITHUB_CLIENT_SECRET); empty = off" }
 microsoft_client_id = { type = "string", max_length = 200, default = "", description = "Microsoft sign-in: the application id (secret AUTH_MICROSOFT_CLIENT_SECRET); empty = off" }
+uaepass_client_id = { type = "string", max_length = 200, default = "", description = "UAE PASS sign-in: the client id (secret AUTH_UAEPASS_CLIENT_SECRET); empty = off (#291)" }
+uaepass_env = { type = "enum", values = ["staging", "production"], default = "staging", description = "Which UAE PASS environment the sign-in uses" }
+phone_login = { type = "bool", default = false, description = "Phone-first sign-in with a one-time code (#291); codes go out through the auth.send_otp hook (whatsapp fills it)" }
+passkeys = { type = "bool", default = false, description = "Passkeys as a sign-in method (#291)" }
+passkey_rp_id = { type = "string", max_length = 200, default = "", description = "The WebAuthn relying party id; empty = the request's host" }
+passkey_origin = { type = "string", max_length = 200, default = "", description = "The WebAuthn origin; empty = https://<the request's host>" }
 
 [permissions]
 tables = "auth__*"
 slots = ["app.header"]
 # OAuth/OIDC providers (#240): token endpoints, signing keys, the GitHub API.
-network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com"]
-secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"]
+network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"]
+secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"]
 
 [exports]
 views = ["auth__public_users_v1"]
 
 [exports.services]
-principal = "The request's principal for the cell (ops.md 1.5.0 section 17): { id, attrs } of the signed-in user, or null"
+principal = "The request's principal for the cell (ops.md 1.5.0 section 17): { id, attrs: { email_verified, phone_verified, created_at, ... } } of the signed-in user, extended by the auth.principal hook, or null"
 register = "Create a user and mail a confirmation link: { email, password, display_name } -> { message } (the same if the email was taken)"
 login = "Sign in: { email, password } -> { user, cookie } or { error }"
 logout = "End the current session (server side) -> { cookie }"
@@ -58,6 +64,10 @@ description = "A user signed in"
 payload = { type = "object", required = ["token_hash", "user_id", "at"], additionalProperties = false, properties = { token_hash = { type = "string" }, user_id = { type = "string" }, at = { type = "integer" } } }
 description = "An agent token was revoked; the cell drops it from its /mcp cache (#286)"
 
+[exports.events."auth.logout"]
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+description = "A session was signed out; the cell drops the principal from its cache (#291)"
+
 [exports.events."auth.password_changed"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
 description = "A password was set through a reset link"
@@ -73,6 +83,18 @@ description = "After the password check, before the session cookie is sent; a fi
 [exports.hooks."auth.agent_audit"]
 args = { type = "object", required = ["action", "user_id", "client_name", "scopes", "at"], properties = { action = { enum = ["connect", "revoke"] }, user_id = { type = "string" }, client_name = { type = "string" }, scopes = { type = "array", items = { type = "string" } }, at = { type = "integer" } } }
 description = "An agent was connected or disconnected; the audit library fills it to write an audit row (#288); never the token"
+
+[exports.hooks."auth.principal"]
+args = { type = "object", required = ["principal"], properties = { principal = { type = "object", required = ["id", "attrs"], properties = { id = { type = "string" }, attrs = { type = "object" } } } } }
+description = "Extend the principal's attrs in place (2fa: mfa_verified; org: org); only the platform's user attributes are kept (#291)"
+
+[exports.hooks."auth.send_otp"]
+args = { type = "object", required = ["to", "code", "purpose"], properties = { to = { type = "string" }, code = { type = "string" }, purpose = { enum = ["login", "verify"] } } }
+description = "Deliver a one-time code to a phone (E.164): whatsapp fills it (#290), an SMS module in F7. Never log the code"
+
+[exports.hooks."auth.send_sms"]
+args = { type = "object", required = ["to", "text"], properties = { to = { type = "string" }, text = { type = "string" } } }
+description = "Declared for F7: send one SMS; unfilled until an SMS module exists"
 
 [exports.hooks."auth.before_register"]
 args = { type = "object", required = ["email"], properties = { email = { type = "string" }, display_name = { type = "string" } } }

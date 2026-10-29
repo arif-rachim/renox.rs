@@ -1,0 +1,11 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.phone.title" /></r-group>
+  <h1><r-t key="auth.phone.title" /></h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <x-form action="default">
+    <input type="hidden" name="next" :value="next">
+    <label><r-t key="auth.phone.number" /> <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" placeholder="+971 50 123 4567" :value="phone" required></label>
+    <button type="submit"><r-t key="auth.phone.send" /></button>
+  </x-form>
+  <p><a href="../login"><r-t key="auth.phone.other_ways" /></a></p>
+</r-layout>

@@ -1,0 +1,14 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.phone.code_title" /></r-group>
+  <h1><r-t key="auth.phone.code_title" /></h1>
+  <p class="notice" r-if="message"><r-t key="auth.phone.sent" /></p>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <x-form action="default">
+    <input type="hidden" name="phone" :value="phone">
+    <input type="hidden" name="next" :value="next">
+    <p dir="ltr">{{ phone }}</p>
+    <label><r-t key="auth.phone.code" /> <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" dir="ltr" required></label>
+    <button type="submit"><r-t key="auth.phone.verify" /></button>
+  </x-form>
+  <p><a href="../phone"><r-t key="auth.phone.again" /></a></p>
+</r-layout>

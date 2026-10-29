@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import * as api from "../lib/cloud-api.ts";
-import { deliverQueued, receive, type WaCtx } from "../lib/core.ts";
+import { deliverQueued, receive, sendCode, type WaCtx } from "../lib/core.ts";
 import * as otp from "../lib/otp.ts";
 
 const CFG: api.ApiConfig = { token: "tok", phoneId: "1234567890", version: "v21.0" };
@@ -134,5 +134,19 @@ describe("the send handler", () => {
     expect(ctx.sqlite.query("select phone, body, status from whatsapp__messages where direction = 'in'").all()).toEqual([{ phone: "+971509999999", body: "Is #42 in stock?", status: "received" }]);
     expect(row(ctx)).toMatchObject({ status: "read" });
     expect(ctx.emitted).toHaveLength(1);
+  });
+
+  test("auth's code (the auth.send_otp filler, #291): queued as an OTP, sealed, sent by the handler", async () => {
+    const f = fakeApi();
+    const ctx = fakeCtx(f.fetch);
+    const { id } = await sendCode(ctx, "+971 50 111 2233", "482913");
+    const row = ctx.sqlite.query("select kind, phone, body, status from whatsapp__messages where id = ?").get(id) as { kind: string; phone: string; body: string; status: string };
+    expect(row).toMatchObject({ kind: "otp", phone: "+971501112233", status: "queued" });
+    expect(row.body).toStartWith("seal:");
+    expect(row.body).not.toContain("482913");
+    expect(ctx.emitted).toEqual([{ name: "whatsapp.send_requested", payload: { message_id: id } }]);
+    await deliverQueued(ctx, id);
+    expect((f.calls[0]?.body as { text: { body: string } }).text.body).toContain("482913");
+    expect(ctx.sqlite.query("select body, status from whatsapp__messages where id = ?").get(id)).toEqual({ body: "", status: "sent" });
   });
 });

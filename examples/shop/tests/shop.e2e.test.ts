@@ -25,7 +25,7 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   expect(hashDir(r.dir)).toBe(r.hash);
   expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql", "003_orders_org.sql"]);
   // auth (#241): its migrations before the app's, its pages under /auth.
-  expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql", "004_phone_passkeys_uaepass.sql"]);
   // org (#242): after auth, its dependency; its pages under /org.
   expect(readdirSync(join(r.dir, "migrations/org")).sort()).toEqual(["001_init.sql", "002_orgs_locale.sql"]);
   // i18n (#244): first, auth and org depend on it; the shop's catalogs under code/i18n/.
@@ -43,6 +43,10 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
     "PAGE /auth/magic",
     "PAGE /auth/magic/:token",
     "PAGE /auth/oauth/consent",
+    "PAGE /auth/passkeys/login",
+    "PAGE /auth/passkeys/register",
+    "PAGE /auth/phone",
+    "PAGE /auth/phone/verify",
     "PAGE /auth/register",
     "PAGE /auth/reset",
     "PAGE /auth/reset/confirm",

@@ -93,6 +93,12 @@ export async function sendOtp(ctx: WaCtx, phone: unknown): Promise<{ sent: true;
   return answer;
 }
 
+/** auth's code (#291, the `auth.send_otp` filler): sent as an OTP message, sealed in the queue like ours. */
+export async function sendCode(ctx: WaCtx, phone: unknown, code: unknown): Promise<{ id: string }> {
+  if (typeof code !== "string" || !/^[0-9]{4,10}$/u.test(code)) throw new WaError("a numeric code", "INVALID");
+  return queue(ctx, phoneOf(phone), "otp", await otp.seal(appSecret(ctx), code));
+}
+
 /** `{ ok: false }` for a wrong, expired, used, or exhausted code alike. */
 export async function verifyOtp(ctx: WaCtx, phone: unknown, code: unknown): Promise<{ ok: boolean }> {
   const p = api.normalizePhone(phone);

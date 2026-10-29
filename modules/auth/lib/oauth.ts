@@ -10,7 +10,7 @@
 
 import { type AuthCtx, GENERIC_LOGIN_ERROR, normalizeEmail, randomHex, startSession, type User } from "./core.ts";
 
-export type ProviderName = "google" | "github" | "microsoft";
+export type ProviderName = "google" | "github" | "microsoft" | "uaepass";
 
 export interface Provider {
   name: ProviderName;
@@ -21,6 +21,32 @@ export interface Provider {
   pkce: boolean;
   /** OIDC providers: where the signing keys are, and whether an issuer is theirs. */
   oidc?: { jwks: string; issuer(iss: string, claims: Record<string, unknown>): boolean };
+  /** OAuth 2 providers with a user-info endpoint (UAE PASS). */
+  userinfo?: string;
+  /** Extra authorize parameters (UAE PASS: `acr_values`). */
+  extra?: Record<string, string>;
+}
+
+/**
+ * UAE PASS (#291; docs/21-uae-gcc-strategy.md): the national digital
+ * identity. Staging by default (config `uaepass_env`); production needs the
+ * onboarding steps of the README. OAuth 2 with a user-info endpoint, no
+ * PKCE, the `acr_values` of a web login.
+ */
+export const UAEPASS_HOSTS = { staging: "https://stg-id.uaepass.ae", production: "https://id.uaepass.ae" } as const;
+
+function uaepass(env: keyof typeof UAEPASS_HOSTS): Provider {
+  const host = UAEPASS_HOSTS[env];
+  return {
+    name: "uaepass",
+    label: "UAE PASS",
+    authorize: `${host}/idshub/authorize`,
+    token: `${host}/idshub/token`,
+    userinfo: `${host}/idshub/userinfo`,
+    scope: "urn:uae:digitalid:profile:general",
+    pkce: false,
+    extra: { acr_values: "urn:safelayer:tws:policies:authentication:level:low", ui_locales: "en" },
+  };
 }
 
 export const PROVIDERS: Record<ProviderName, Provider> = {
@@ -54,7 +80,14 @@ export const PROVIDERS: Record<ProviderName, Provider> = {
       issuer: (iss, claims) => typeof claims.tid === "string" && iss === `https://login.microsoftonline.com/${claims.tid}/v2.0`,
     },
   },
+  uaepass: uaepass("staging"),
 };
+
+/** The provider as configured: UAE PASS follows `uaepass_env` ("staging" or "production"). */
+export function providerFor(ctx: { config: Readonly<Record<string, unknown>> }, name: string): Provider | undefined {
+  if (name === "uaepass") return uaepass(ctx.config.uaepass_env === "production" ? "production" : "staging");
+  return Object.hasOwn(PROVIDERS, name) ? PROVIDERS[name as ProviderName] : undefined;
+}
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -105,6 +138,7 @@ export async function startFlow(p: Provider, clientId: string, redirectUri: stri
     q.set("code_challenge_method", "S256");
   }
   if (p.oidc) q.set("nonce", flow.nonce);
+  for (const [k, v] of Object.entries(p.extra ?? {})) q.set(k, v);
   return { url: `${p.authorize}?${q}`, flow };
 }
 
@@ -215,6 +249,22 @@ export interface Profile {
   email: string | null;
   emailVerified: boolean;
   name: string | null;
+  /** UAE PASS: the person's UUID, and whether the identity is verified (an SOP3 account). */
+  uaepass?: { uuid: string; verifiedIdentity: boolean };
+}
+
+/**
+ * A UAE PASS user-info answer. `userType` is SOP1 (basic: unverified),
+ * SOP2 or SOP3 (verified at a kiosk or with the Emirates ID); the email of
+ * SOP2 and SOP3 accounts is verified by UAE PASS.
+ */
+export function uaepassProfile(info: Record<string, unknown>): Profile {
+  const uuid = typeof info.uuid === "string" ? info.uuid : typeof info.sub === "string" ? info.sub : "";
+  if (uuid === "") throw new OAuthError("profile_unavailable");
+  const type = typeof info.userType === "string" ? info.userType : "SOP1";
+  const email = typeof info.email === "string" && info.email.includes("@") ? info.email.toLowerCase() : null;
+  const name = typeof info.fullnameEN === "string" ? info.fullnameEN : typeof info.firstnameEN === "string" ? info.firstnameEN : null;
+  return { subject: uuid, email, emailVerified: type === "SOP2" || type === "SOP3", name, uaepass: { uuid, verifiedIdentity: type === "SOP3" } };
 }
 
 export async function profileOf(fetch: Fetch, p: Provider, tokens: Record<string, unknown>, expect: { clientId: string; nonce: string; now?: number }): Promise<Profile> {
@@ -224,6 +274,11 @@ export async function profileOf(fetch: Fetch, p: Provider, tokens: Record<string
     const email = typeof c.email === "string" ? c.email.toLowerCase() : null;
     // Microsoft does not send email_verified; its `email` claim is not verified for us.
     return { subject: c.sub as string, email, emailVerified: c.email_verified === true, name: typeof c.name === "string" ? c.name : null };
+  }
+  if (p.userinfo) {
+    const res = await fetch(p.userinfo, { headers: { authorization: `Bearer ${tokens.access_token as string}`, accept: "application/json" } });
+    if (!res.ok) throw new OAuthError("profile_unavailable");
+    return uaepassProfile((await res.json()) as Record<string, unknown>);
   }
   // GitHub: the user, then the primary verified email.
   const auth = { authorization: `Bearer ${tokens.access_token as string}`, accept: "application/vnd.github+json", "user-agent": "renox-auth" };
@@ -264,13 +319,17 @@ export async function userOfProfile(ctx: AuthCtx, provider: ProviderName, profil
     "select u.id, u.email, u.display_name, u.created_at from auth__identities i join auth__users u on u.id = i.user_id where i.provider = ? and i.subject = ?",
     [provider, profile.subject],
   );
-  if (known !== null) return { ok: true, user: known, created: false };
+  if (known !== null) {
+    await recordUaepass(ctx, known.id, profile);
+    return { ok: true, user: known, created: false };
+  }
   if (profile.email === null) return { ok: false, error: GENERIC_LOGIN_ERROR };
   const email = normalizeEmail(profile.email);
   const existing = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where email = ?", [email]);
   if (existing !== null) {
     if (!profile.emailVerified) return { ok: false, error: GENERIC_LOGIN_ERROR };
     await ctx.db.execute("insert into auth__identities (provider, subject, user_id, created_at) values (?, ?, ?, ?)", [provider, profile.subject, existing.id, t]);
+    await recordUaepass(ctx, existing.id, profile);
     return { ok: true, user: existing, created: false };
   }
   const user: User = { id: randomHex(16), email, display_name: (profile.name ?? email.split("@")[0] ?? "").slice(0, 100), created_at: t };
@@ -281,7 +340,14 @@ export async function userOfProfile(ctx: AuthCtx, provider: ProviderName, profil
   );
   await ctx.db.execute("insert into auth__identities (provider, subject, user_id, created_at) values (?, ?, ?, ?)", [provider, profile.subject, user.id, t]);
   await ctx.events.emit("auth.user_registered", { user_id: user.id, at: t, source: "oauth" });
+  await recordUaepass(ctx, user.id, profile);
   return { ok: true, user, created: true };
+}
+
+/** UAE PASS: the person's UUID and whether the identity is verified, on the user. */
+async function recordUaepass(ctx: AuthCtx, userId: string, profile: Profile): Promise<void> {
+  if (!profile.uaepass) return;
+  await ctx.db.execute("update auth__users set uaepass_uuid = ?, verified_identity = ? where id = ?", [profile.uaepass.uuid, profile.uaepass.verifiedIdentity ? 1 : 0, userId]);
 }
 
 /** After the profile: `auth.after_login`, the session, `auth.login`. */

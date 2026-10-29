@@ -10,7 +10,7 @@
 // bypass). It never exists in what `renox build` or `renox deploy` produce.
 
 import { Database } from "bun:sqlite";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -102,6 +102,13 @@ async function moduleTestApp(module: string): Promise<string> {
   }
   const app = mkdtempSync(join(tmpdir(), "renox-module-test-"));
   cpSync(src, app, { recursive: true, filter: (p) => !/\/(\.renox|renox\.lock|node_modules)(\/|$)/u.test(p.slice(src.length)) });
+  // The SDK as `node_modules/renox`, as an app has it: module code may import
+  // its helpers (auth's passkeys use `verifyAssertion`, #291).
+  const sdk = resolve(import.meta.dir, "../../../sdk");
+  if (!existsSync(join(app, "node_modules", "renox")) && existsSync(join(sdk, "package.json"))) {
+    mkdirSync(join(app, "node_modules"), { recursive: true });
+    symlinkSync(sdk, join(app, "node_modules", "renox"), "dir");
+  }
   const toml = readFileSync(join(src, "renox.toml"), "utf8").replace(/"path:([^"]+)"/gu, (_m, rel: string) => JSON.stringify(`path:${relative(app, resolve(src, rel)).split("\\").join("/")}`));
   writeFileSync(join(app, "renox.toml"), toml);
   const { specs } = readModulesTable(app);

@@ -49,7 +49,7 @@ export const GENERIC_LOGIN_ERROR = "The email or password is incorrect, or there
  */
 const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=1$YXV0aC10aW1pbmctc2FsdA$Hk5oYhG8b6q3U0mW1Vd8Ow3Y0bBqX9Y4s2y1zQm4n2c";
 
-const now = (): number => Math.floor(Date.now() / 1000);
+export const now = (): number => Math.floor(Date.now() / 1000);
 
 const intConfig = (ctx: AuthCtx, key: string, fallback: number): number => {
   const v = ctx.config[key];
@@ -142,7 +142,7 @@ export async function startSession(ctx: AuthCtx, userId: string): Promise<{ id: 
 }
 
 /** Bucket counts after `failed` (one more failure) or read only. */
-async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> {
+export async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> {
   const t = now();
   const row = await ctx.db.queryOne<{ count: number; window_start: number }>("select count, window_start from auth__attempts where bucket = ?", [key]);
   const fresh = row === null || t - row.window_start >= WINDOW_SECONDS;
@@ -153,7 +153,7 @@ async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> 
   return count + 1;
 }
 
-const clientIp = (headers: Headers): string => headers.get("x-renox-client-ip") ?? "unknown";
+export const clientIp = (headers: Headers): string => headers.get("x-renox-client-ip") ?? "unknown";
 
 /** `halt`: a filler of `auth.after_login` answered; no session was started and `cookie` is empty. */
 export type LoginResult = { ok: true; user: User; cookie: string; halt?: Response } | { ok: false; error: string };
@@ -215,10 +215,14 @@ export async function register(ctx: AuthCtx, input: { email?: unknown; password?
   return { ok: true, created: true, user };
 }
 
-/** Revoke the request's session. */
+/** Revoke the request's session; `auth.logout` drops the principal from the cell's cache (ops.md 1.5.0 section 17). */
 export async function logout(ctx: AuthCtx): Promise<void> {
   const token = sessionToken(ctx.headers);
-  if (token !== null) await ctx.db.execute("update auth__sessions set revoked_at = ? where token_hash = ? and revoked_at is null", [now(), await sha256Hex(token)]);
+  if (token === null) return;
+  const hash = await sha256Hex(token);
+  const s = await ctx.db.queryOne<{ user_id: string }>("select user_id from auth__sessions where token_hash = ? and revoked_at is null", [hash]);
+  await ctx.db.execute("update auth__sessions set revoked_at = ? where token_hash = ? and revoked_at is null", [now(), hash]);
+  if (s !== null) await ctx.events.emit("auth.logout", { user_id: s.user_id, at: now() });
 }
 
 /** Change the password: checks the current one, revokes every other session, rotates this one. */

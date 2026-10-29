@@ -1,0 +1,8 @@
+[module]
+name = "otpbox"
+version = "1.0.0"
+description = "Test fixture: fills auth.send_otp with a recorder (stands in for whatsapp), extends auth.principal, and halts auth.after_login for chosen users"
+
+[permissions]
+tables = "otpbox__*"
+hooks = ["auth.send_otp", "auth.principal", "auth.after_login"]

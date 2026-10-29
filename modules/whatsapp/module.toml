@@ -13,7 +13,7 @@ otp_language = { type = "string", default = "en", max_length = 10, description =
 tables = "whatsapp__*"
 network = ["graph.facebook.com"]
 secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET"]
-hooks = ["notifications.deliver"]
+hooks = ["notifications.deliver", "auth.send_otp"]
 
 [exports.services]
 send = "Queue a text message: (to, text) -> { id }; sent by the outbox, retried on a 5xx"
