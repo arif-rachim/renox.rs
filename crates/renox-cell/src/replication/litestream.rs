@@ -149,6 +149,39 @@ pub fn parse_generations(out: &str) -> Vec<Generation> {
     gens
 }
 
+/// The generations of the tables `litestream snapshots` and `litestream
+/// wal` print (`replica generation … created`, one row per file): a
+/// generation spans from its oldest file to its newest. Newest first.
+pub fn generations_of_files(out: &str) -> Vec<Generation> {
+    let mut spans: std::collections::BTreeMap<String, (u64, u64)> = Default::default();
+    for l in out.lines() {
+        let cols: Vec<&str> = l.split_whitespace().collect();
+        if cols.len() < 3 {
+            continue;
+        }
+        let id = cols[1];
+        if id.len() != 16 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        let Some(at) = rfc3339_ms(cols[cols.len() - 1]) else {
+            continue;
+        };
+        let span = spans.entry(id.to_ascii_lowercase()).or_insert((at, at));
+        span.0 = span.0.min(at);
+        span.1 = span.1.max(at);
+    }
+    let mut gens: Vec<Generation> = spans
+        .into_iter()
+        .map(|(id, (start_ms, end_ms))| Generation {
+            id,
+            start_ms,
+            end_ms,
+        })
+        .collect();
+    gens.sort_by_key(|g| std::cmp::Reverse(g.end_ms));
+    gens
+}
+
 /// `2026-10-29T12:00:00Z` or with fractional seconds → Unix ms.
 pub fn rfc3339_ms(s: &str) -> Option<u64> {
     let s = s.strip_suffix('Z')?;
@@ -210,6 +243,29 @@ mod tests {
         );
         assert_eq!(ms_rfc3339(1_793_275_200_000), "2026-10-29T12:00:00Z");
         assert_eq!(rfc3339_ms("garbage"), None);
+    }
+
+    #[test]
+    fn generations_from_snapshots_and_wal_files() {
+        let out = "replica  generation        index  size  created\n\
+                   file     56382955d36956c7  0      354   2026-10-29T14:56:26Z\n\
+                   file     0123456789abcdef  0      300   2026-10-29T10:00:00Z\n\n\
+                   replica  generation        index  offset  size  created\n\
+                   file     56382955d36956c7  0      0       504   2026-10-29T14:56:30Z\n\
+                   file     56382955d36956c7  1      0       504   2026-10-29T14:58:00Z\n";
+        let g = generations_of_files(out);
+        assert_eq!(g.len(), 2);
+        assert_eq!(g[0].id, "56382955d36956c7");
+        assert_eq!(g[0].start_ms, rfc3339_ms("2026-10-29T14:56:26Z").unwrap());
+        assert_eq!(g[0].end_ms, rfc3339_ms("2026-10-29T14:58:00Z").unwrap());
+        assert_eq!(
+            (g[1].start_ms, g[1].end_ms),
+            (
+                rfc3339_ms("2026-10-29T10:00:00Z").unwrap(),
+                rfc3339_ms("2026-10-29T10:00:00Z").unwrap()
+            )
+        );
+        assert!(generations_of_files("no table here\n").is_empty());
     }
 
     #[test]

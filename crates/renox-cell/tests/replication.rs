@@ -410,6 +410,25 @@ async fn node_listener_restores_before_serving() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The first write after the file opened is noticed, whatever the timing:
+/// the sidecar is wanted (`starting`, or `replicating` when `litestream`
+/// runs). Needs no `litestream`: without it the state stays `starting`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_first_write_is_noticed() {
+    for round in 0..5 {
+        let root = scratch(&format!("first-write-{round}"));
+        let worker = Worker::start(worker_config(&root, true)).await.unwrap();
+        let repl = worker.replication.clone().unwrap();
+        assert_eq!(hits(worker.addr, true).await, 1);
+        eventually("the first write noticed", Duration::from_secs(5), || {
+            repl.state("t_repl") != State::Off
+        })
+        .await;
+        worker.shutdown().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
 /// A tenant with replication off never starts `litestream`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn replication_off_never_spawns_litestream() {

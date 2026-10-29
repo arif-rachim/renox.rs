@@ -97,28 +97,34 @@ impl std::fmt::Display for RestoreError {
     }
 }
 
-/// The generations of `source`'s replica, newest first.
+/// The generations of `source`'s replica, newest first. Built from
+/// `litestream snapshots` and `litestream wal`, which read the replica
+/// through the config only: `litestream generations` stats the local file
+/// and fails when it is missing, which is when a restore is needed.
 pub fn generations(
     r: &ReplicationSection,
     config: &Path,
     source_file: &Path,
 ) -> Result<Vec<litestream::Generation>, String> {
-    let out = Command::new(&r.litestream_bin)
-        .arg("generations")
-        .arg("-config")
-        .arg(config)
-        .arg(source_file)
-        .output()
-        .map_err(|e| format!("run litestream: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "litestream generations: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+    let mut text = String::new();
+    for sub in ["snapshots", "wal"] {
+        let out = Command::new(&r.litestream_bin)
+            .arg(sub)
+            .arg("-config")
+            .arg(config)
+            .arg(source_file)
+            .output()
+            .map_err(|e| format!("run litestream: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "litestream {sub}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        text.push_str(&String::from_utf8_lossy(&out.stdout));
+        text.push('\n');
     }
-    Ok(litestream::parse_generations(&String::from_utf8_lossy(
-        &out.stdout,
-    )))
+    Ok(litestream::generations_of_files(&text))
 }
 
 /// Restores `target` from the replica of `source` (the same file unless
