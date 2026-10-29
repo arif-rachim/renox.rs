@@ -105,6 +105,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   // Operator actions (src/ops/tenants.ts, section 17; #259).
   setTenantTier: "operator",
   moveTenant: "operator",
+  // deploy-api.md 0.3.1 section 17: the read of operator data (ops:read), implemented by #296.
+  getOpsTenant: "operator",
   // Accounts (src/auth/accounts.ts).
   signup: "public",
   verifyEmail: "public",
