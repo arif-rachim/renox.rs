@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0.1** (F3, #184). HTTP paths are under `/v1`; every worker message carries `schema_version: 0`. Adding an endpoint, an optional request field, a rule id, or an error row is minor. Removing or renaming a field, a path, or a state, or changing a status code, is breaking: `/v2` and `schema_version: 1`. History: "Changelog" at the bottom |
+| Version | **0.2** (F3, #222). HTTP paths are under `/v1`; every worker message carries `schema_version: 0`. Adding an endpoint, an optional request field, a rule id, or an error row is minor. Removing or renaming a field, a path, or a state, or changing a status code, is breaking: `/v2` and `schema_version: 1`. History: "Changelog" at the bottom |
 | Producers | `control/api` (P12) |
 | Consumers | `cli/` (P11): `renox deploy`, `logs`, `secrets`, `domains`, `tokens` (#58, #113); `crates/renox-cell` (P5): the controlled-mode worker (#55, #96, #97, #98, #162); the dashboard (P13, #57, including the usage screen of section 11); the remote MCP (#62) |
 | Machine-readable | [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml) (OpenAPI 3.1, every endpoint with request and response examples); [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) (JSON Schema 2020-12: worker registration, heartbeat, route table, activation, bundles, log batches); meter batches are [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json) |
@@ -93,9 +93,9 @@ Which permission each operation of this contract needs (`x-renox-scope` in the O
 | Permission | Operations |
 | --- | --- |
 | `apps:read` | `listApps`, `getApp`, `listDeployments`, `getDeployment`, `listDomains`, `getDomain`, `getUsage` |
-| `apps:write` | `createApp` |
+| `apps:write` | `createApp`, `setClientErrorStatus` |
 | `deploy` | `uploadDeployment`, `putSourcemaps`, `activateDeployment`, `rollbackDeployment` |
-| `logs:read` | `streamLogs` |
+| `logs:read` | `streamLogs`, `listClientErrors`, `getClientError` |
 | `secrets:read` | `listSecrets` (names only) |
 | `secrets:write` | `putSecret`, `deleteSecret`, `bumpSecrets` |
 | `domains:write` | `addDomain`, `removeDomain` |
@@ -273,7 +273,20 @@ Draining: activation publishes the new deployment `active` and the previous one 
 - **Meters.** `POST /v1/ingest/meters` is the HTTP sink reserved in `meter.md` section 5: the body is one batch envelope (`meter-record.schema.json`); `node_id` must equal the token's node (403 otherwise); records are de-duplicated on `request_id` (`meter.md` section 4); 202 `{ accepted, duplicates }` means persisted. A batch with an unknown `schema_version` gets 400 and the node keeps it for replay.
 - **Logs.** The node's `HttpLogSink` (#55) sends `log_batch` messages (1–1,000 lines, each already redacted on the node, with `source`: `server`, or `client` for browser events from #126) to `POST /v1/ingest/logs`; 202 `{ accepted, duplicates }`. Lines are de-duplicated on `(node_id, ts, request_id, message)` within one batch only; at-least-once delivery may show a line twice.
 - **Usage.** `GET /v1/apps/{app}/usage` (`apps:read`, #56) reads the hourly rollup of the app's meter records (`meter.md` section 7) in `[from, to)`: `from` defaults to the start of the current calendar month (UTC), `to` to the start of the next; `to` must be after `from` and at most 366 days later (400 `RENOX_VALIDATION` otherwise). The answer is `{ app, from, to, hours, total, quota }`: `hours` lists one row per hour that has records (`hour_start` plus the sums of `requests`, `cpu_ms`, `wall_ms`, `egress_bytes`, `fetch_sent_bytes`, `db_ms`, `db_rows`, `render_fuel`), oldest first; `total` sums them; `quota` is the **tenant's** state for the current month over all its apps (`tier`, `period_start`, `period_end`, `used` and `limits` in the billing dimensions `requests`, `cpu_ms` = `cpu_ms + render_ms`, `egress_bytes` = `egress_bytes + fetch_sent_bytes`, and `over`, the dimensions above their limit). A non-empty `over` is the **over-quota signal**; in F3 nothing is suspended or throttled on it (suspension is F7). The rollup runs in the billing job (`control/billing`), so the last hour may lag by one job interval. The tier limits are proposals until F7 (`control/billing/src/quota.ts`).
-- **Reading logs.** `GET /v1/apps/{app}/logs` (`logs:read`) is a Server-Sent Events response: `event: log`, `id: <ts>-<n>`, `data:` one `log_line`. Without `follow` it returns the last 100 lines (or the lines since `since`) and closes; with `follow=true` it stays open, with `: keep-alive` every 15 s, and resumes from `Last-Event-ID` after a reconnect. Filters: `source` (`all`, `server`, `client`), `deployment`. Retention is 7 days (*proposed*).
+- **Reading logs.** `GET /v1/apps/{app}/logs` (`logs:read`) is a Server-Sent Events response: `event: log`, `id: <ts>-<n>`, `data:` one `log_line`. Without `follow` it returns the last 100 lines (or the lines since `since`) and closes; with `follow=true` it stays open, with `: keep-alive` every 15 s, and resumes from `Last-Event-ID` after a reconnect. Filters: `source` (`all`, `server`, `client`), `deployment`. A line with `source: client` carries `fields.fingerprint`, the 16-hex fingerprint of its error group (section 11.1), added by the control plane at ingestion (a node's `log_batch` does not have it), so the Logs page can link the line to `GET /v1/apps/{app}/client-errors/{fingerprint}`; its `request_id` links it to the server lines of the same request. Retention is 7 days (*proposed*).
+- **Client events and the caps.** Lines with `source: client` count toward the tenant's **daily** client-event cap only, never toward the per-minute log cap (`client-events.md` section 7, `ops.md` section 4). `GET /v1/apps/{app}/usage` reports the daily count as `client_events: { used_today, daily_cap, warning }` (counted since 00:00 UTC, `daily_cap` 144,000 free and 1,440,000 paid, *proposed* as in `client-events.md`; `warning` is true from 80 % of the cap, which is when the dashboard shows its warning). Events over the cap are dropped by the gateway (`daily_cap`), so `used_today` does not pass `daily_cap`.
+
+### 11.1 Client error groups
+
+Every client line with `kind` `js.*`, `htmx.*`, `csp.violation` or `realtime.*` is assigned to a **group** at ingestion (#128). The fingerprint is the first 16 hex characters of the SHA-256 of `kind`, the top frame's file (with content hashes in the file name stripped) and function, and the message with numbers, hex ids and quoted values replaced by placeholders; it is per app. A group has: `status` (`open`, `resolved`, `ignored`), `first_seen`, `last_seen`, `count`, the message and top frame of the most recent event, `deployments` (event count per deployment hash, newest deployment first) and `regressed`.
+
+- `GET /v1/apps/{app}/client-errors` (`logs:read`, `listClientErrors`) lists groups, most recently seen first. Filters: `status`, `since` (groups with `last_seen` at or after it), `deployment` (groups with an event on that deployment), `limit` (1–100, default 20) and `cursor` (the previous page's `next_cursor`, `null` on the last page).
+- `GET /v1/apps/{app}/client-errors/{fingerprint}` (`logs:read`, `getClientError`) returns the group and its last 20 events, newest first. An event has `ts`, `client_ts`, `deployment_hash`, `request_id`, `message`, `url`, `ua` (`browser`, `os`, `device`: the family only, `client-events.md` section 8) and `frames`.
+- `POST /v1/apps/{app}/client-errors/{fingerprint}` (`setClientErrorStatus`) with `{ "status": "open" | "resolved" | "ignored" }` sets the status and answers the group. It needs `apps:write`: no `logs:write` scope exists, and the status of a group is app state, like an app's other settings (Open 9). The audit row carries the fingerprint and the new status.
+- **Regression.** An event for a `resolved` group from a deployment created after the one that was active when the group was resolved sets the status back to `open` and `regressed` to `true`; setting a status by hand clears `regressed`. An `ignored` group stays ignored and keeps counting.
+- **Frames.** A frame is `{ file, line, column, function, original }`: the position as the browser reported it (kept always) and `original`, `{ file, line, column }` in the source file, or `null` when no private sourcemap of the event's deployment matched (`PUT …/deployments/{hash}/sourcemaps`, section 4). Sourcemaps are never served from the app's origin or by any endpoint of this API.
+- A fingerprint that is not 16 lowercase hex characters is 400 `RENOX_VALIDATION`; an unknown group, or one of another tenant, is 404 `RENOX_NOT_FOUND`.
+- Event text is untrusted: anyone can post to the client-events endpoint (`client-events.md` section 9). Consumers escape every field.
 
 ## 12. Error codes
 
@@ -304,10 +317,11 @@ The rows, with fixed messages and guidance, are in [`errors.md`](errors.md) ("Co
 2. **Front door.** Each node serves only the tenants assigned to it (section 7). How a request for `<app>.renox.app` reaches the owning node (DNS per tenant, an L4 balancer that hashes on SNI, or forwarding between nodes) is not decided; F3 runs one node per region, where the question does not arise.
 3. **Preview hosts.** `<app>-<first 12 hex of the hash>.renox.app` for `validated` and `superseded` deployments is not published in version 0: a preview would run code against a schema its migrations have not reached. Revisit with a read-only database mode.
 4. **Node authentication.** Bearer node tokens over TLS. mTLS with per-node certificates (#120 key hierarchy) is the stronger option for F6.
-5. **Internal tenants.** #164 decides by ADR whether the dashboard tenant reaches this API over the public path or through a `ctx.platform` op for tenants flagged `internal` in the route entry; option (b) adds an optional `internal` field to `route_entry` (a coordinated change of both sides, since the schema rejects unknown keys).
+5. **Internal tenants.** Decided by ADR D23 (#164), option (a): the dashboard tenant reaches this API over its public hostname with a scoped tenant token held in `ctx.secrets`. There is no `internal` field in `route_entry`, no exemption from the tenant `fetch` rules and no `ctx.platform` op.
 6. **Rate-limit numbers** in section 2 are proposals for #113.
 7. **Probe pass rule.** "Any status below 500" (section 6) differs from #96's "non-2xx fails". If tenants want a stricter check, a manifest `healthcheck` route (reserved) can require 2xx.
-8. **Log retention and volume** (7 days, the per-tenant volume limit of `ops.md` section 4) are proposals for #56 and #57.
+8. **Log retention and volume** (7 days, the per-tenant volume limit of `ops.md` section 4) stay proposals. `streamLogs` is served from the in-memory store until durable logs exist (#223); client error groups and their retention follow the same 7 days (#128).
+9. **A `logs:write` scope.** Changing a group's status uses `apps:write` because adding a scope changes the matrix of section 2.1 and the token pattern. If teams want viewers' tokens to triage errors without `apps:write`, a `logs:write` scope is a minor change.
 
 ## Changelog
 
@@ -315,3 +329,4 @@ The rows, with fixed messages and guidance, are in [`errors.md`](errors.md) ("Co
 | --- | --- | --- |
 | 0 | #50 | First version (F3): authentication and scopes, apps, upload and T1–T8, deployment states, activation and rollback, nodes and the route-table messages, secrets, domains and certificates, logs and meters, error codes |
 | 0.1 | #184 | `GET /v1/apps/{app}/usage` (section 11, #56); bundle-hygiene rule ids H1 and H2 in `violations` (section 4, #115); `code/` is scanned for secrets by the CLI only (section 4); session callers, roles, the permission matrix and the operation table (section 2.1, #113) |
+| 0.2 | #222 | Browser error groups: `listClientErrors`, `getClientError`, `setClientErrorStatus` and the frame, group and event shapes (section 11.1); `client_events` (`used_today`, `daily_cap`, `warning`) in the usage answer; `fields.fingerprint` on `source: client` lines of `streamLogs` and the client cap rule (section 11); Open 5 resolved by D23, Open 8 and 9 |

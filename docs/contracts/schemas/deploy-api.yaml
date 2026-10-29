@@ -1,4 +1,4 @@
-# Renox deploy API, contract version 0.1 (F3).
+# Renox deploy API, contract version 0.2 (F3).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renox deploy API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -34,6 +34,8 @@ tags:
     description: "Secret names and values (section 9)"
   - name: logs
     description: "Tenant log stream"
+  - name: client-errors
+    description: "Browser error groups, their events and status (section 11.1)"
   - name: usage
     description: "Metered usage and the quota signal (section 11)"
   - name: domains
@@ -470,7 +472,9 @@ paths:
       description: >-
         Returns lines newer than `since` (default: the last 100 lines), then, with
         follow=true, keeps the stream open and sends new lines as they arrive. A
-        comment line `: keep-alive` is sent every 15 s. Lines were redacted on the node.
+        comment line `: keep-alive` is sent every 15 s. Lines were redacted on the node. A line with
+        `source: client` carries `fields.fingerprint`, the error group of GET /client-errors/{fingerprint}
+        (deploy-api.md section 11.1).
       x-renox-scope: logs:read
       parameters:
         - name: follow
@@ -505,6 +509,224 @@ paths:
         "403": { $ref: "#/components/responses/TokenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/apps/{app}/client-errors:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    get:
+      operationId: listClientErrors
+      tags: [client-errors]
+      summary: Browser error groups of an app, most recently seen first
+      description: >-
+        One group per fingerprint (deploy-api.md section 11.1). `since` keeps groups whose
+        `last_seen` is at or after it; `deployment` keeps groups with at least one event on
+        that deployment. `top_frame` is symbolicated when a sourcemap of the event's
+        deployment matched, else `original` is null.
+      x-renox-scope: logs:read
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/ClientErrorStatus" }
+        - name: since
+          in: query
+          required: false
+          description: Unix time in milliseconds.
+          schema: { type: integer, minimum: 0 }
+        - name: deployment
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/Sha256" }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: cursor
+          in: query
+          required: false
+          description: The `next_cursor` of the previous page.
+          schema: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        "200":
+          description: A page of error groups.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClientErrorGroupList" }
+              examples:
+                one-group:
+                  value:
+                    groups:
+                      - fingerprint: "9f3a1c5e7b2d4086"
+                        kind: js.error
+                        message: "Cannot read properties of undefined (reading 'total')"
+                        status: open
+                        first_seen: 1793318400000
+                        last_seen: 1793322000000
+                        count: 42
+                        regressed: false
+                        deployments:
+                          - { deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", count: 40 }
+                          - { deployment_hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", count: 2 }
+                        top_frame:
+                          file: /public/islands/cart.js
+                          line: 1
+                          column: 2043
+                          function: updateTotal
+                          original: { file: islands/cart.ts, line: 57, column: 12 }
+                    next_cursor: null
+                empty:
+                  value: { groups: [], next_cursor: null }
+              x-renox-invalid-examples:
+                unknown-status:
+                  x-expect: status
+                  value:
+                    groups:
+                      - fingerprint: "9f3a1c5e7b2d4086"
+                        kind: js.error
+                        message: boom
+                        status: fixed
+                        first_seen: 1
+                        last_seen: 1
+                        count: 1
+                        regressed: false
+                        deployments: []
+                        top_frame: null
+                    next_cursor: null
+                short-fingerprint:
+                  x-expect: fingerprint
+                  value:
+                    groups:
+                      - fingerprint: "9f3a"
+                        kind: js.error
+                        message: boom
+                        status: open
+                        first_seen: 1
+                        last_seen: 1
+                        count: 1
+                        regressed: false
+                        deployments: []
+                        top_frame: null
+                    next_cursor: null
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/client-errors/{fingerprint}:
+    parameters:
+      - $ref: "#/components/parameters/App"
+      - name: fingerprint
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ClientErrorFingerprint" }
+    get:
+      operationId: getClientError
+      tags: [client-errors]
+      summary: One error group with its last 20 events
+      x-renox-scope: logs:read
+      responses:
+        "200":
+          description: The group and its most recent events, newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClientErrorDetail" }
+              examples:
+                symbolicated:
+                  value:
+                    group:
+                      fingerprint: "9f3a1c5e7b2d4086"
+                      kind: js.error
+                      message: "Cannot read properties of undefined (reading 'total')"
+                      status: open
+                      first_seen: 1793318400000
+                      last_seen: 1793322000000
+                      count: 42
+                      regressed: false
+                      deployments:
+                        - { deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", count: 42 }
+                      top_frame:
+                        file: /public/islands/cart.js
+                        line: 1
+                        column: 2043
+                        function: updateTotal
+                        original: { file: islands/cart.ts, line: 57, column: 12 }
+                    events:
+                      - ts: 1793322000000
+                        client_ts: 1793321999870
+                        deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a"
+                        request_id: "01JBQ3Z7M8K5V6W9X2Y4A1B3C5"
+                        message: "Cannot read properties of undefined (reading 'total')"
+                        url: /cart
+                        ua: { browser: chrome, os: android, device: mobile }
+                        frames:
+                          - { file: /public/islands/cart.js, line: 1, column: 2043, function: updateTotal, original: { file: islands/cart.ts, line: 57, column: 12 } }
+                          - { file: /public/islands/cart.js, line: 1, column: 311, function: null, original: null }
+              x-renox-invalid-examples:
+                frame-without-original:
+                  x-expect: top_frame
+                  value:
+                    group:
+                      fingerprint: "9f3a1c5e7b2d4086"
+                      kind: js.error
+                      message: boom
+                      status: open
+                      first_seen: 1
+                      last_seen: 1
+                      count: 1
+                      regressed: false
+                      deployments: []
+                      top_frame: { file: /public/a.js, line: 1, column: 1, function: null }
+                    events: []
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: setClientErrorStatus
+      tags: [client-errors]
+      summary: Resolve, ignore or reopen an error group
+      description: >-
+        Moves the group to `status`. Setting the status a group already has answers 200 with
+        no change. A `resolved` group that receives an event on a newer deployment goes back
+        to `open` with `regressed: true` (deploy-api.md section 11.1).
+      x-renox-scope: apps:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetClientErrorStatusRequest" }
+            examples:
+              resolve: { value: { status: resolved } }
+            x-renox-invalid-examples:
+              unknown-status:
+                x-expect: status
+                value: { status: fixed }
+              extra-field:
+                x-expect: note
+                value: { status: ignored, note: "later" }
+      responses:
+        "200":
+          description: The group after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClientErrorGroup" }
+              examples:
+                resolved:
+                  value:
+                    fingerprint: "9f3a1c5e7b2d4086"
+                    kind: js.error
+                    message: "Cannot read properties of undefined (reading 'total')"
+                    status: resolved
+                    first_seen: 1793318400000
+                    last_seen: 1793322000000
+                    count: 42
+                    regressed: false
+                    deployments:
+                      - { deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", count: 42 }
+                    top_frame: null
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/apps/{app}/usage:
     parameters:
       - $ref: "#/components/parameters/App"
@@ -517,7 +739,8 @@ paths:
         deployments in [from, to), oldest hour first; hours without records are absent.
         `total` sums the returned hours. `quota` is the tenant's state for the current
         calendar month (UTC) over all its apps; a non-empty `quota.over` is the over-quota
-        signal. In F3 it is a signal only: nothing is suspended or throttled on it.
+        signal. In F3 it is a signal only: nothing is suspended or throttled on it. `client_events` is
+        the tenant's browser-event count against its daily cap (client-events.md section 7).
       x-renox-scope: apps:read
       parameters:
         - name: from
@@ -553,6 +776,7 @@ paths:
                       used: { requests: 1200, cpu_ms: 2834.512, egress_bytes: 5283840 }
                       limits: { requests: 3000000, cpu_ms: 30000000, egress_bytes: 10737418240 }
                       over: []
+                    client_events: { used_today: 120, daily_cap: 144000, warning: false }
                 over-quota:
                   value:
                     app: hello
@@ -568,6 +792,7 @@ paths:
                       used: { requests: 3000001, cpu_ms: 12000000, egress_bytes: 2147483648 }
                       limits: { requests: 3000000, cpu_ms: 30000000, egress_bytes: 10737418240 }
                       over: [requests]
+                    client_events: { used_today: 120000, daily_cap: 144000, warning: true }
               x-renox-invalid-examples:
                 unknown-dimension:
                   x-expect: over
@@ -1523,6 +1748,135 @@ components:
         hours: { type: array, items: { $ref: "#/components/schemas/UsageHour" } }
         total: { $ref: "#/components/schemas/Usage" }
         quota: { $ref: "#/components/schemas/QuotaState" }
+        client_events: { $ref: "#/components/schemas/ClientEventsQuota" }
+
+    ClientEventsQuota:
+      type: object
+      additionalProperties: false
+      required: [used_today, daily_cap, warning]
+      description: >-
+        The tenant's browser events since 00:00 UTC against the daily cap (client-events.md
+        section 7: 10 % of the daily log allowance, proposed). `warning` is true from 80 %
+        of the cap. Client events count here only, never toward the per-minute log cap.
+      properties:
+        used_today: { type: integer, minimum: 0 }
+        daily_cap: { type: integer, minimum: 1 }
+        warning: { type: boolean }
+
+    ClientErrorFingerprint:
+      type: string
+      pattern: "^[0-9a-f]{16}$"
+      description: 16 lowercase hex characters; computed by the control plane at ingestion from kind, top frame and normalised message.
+
+    ClientErrorStatus: { enum: [open, resolved, ignored] }
+
+    ClientErrorKind:
+      enum: [js.error, js.unhandledrejection, js.console.error, htmx.responseError, htmx.sendError, htmx.timeout, htmx.targetError, htmx.swapError, csp.violation, realtime.connectError, realtime.closed]
+
+    OriginalPosition:
+      type: object
+      additionalProperties: false
+      required: [file, line, column]
+      properties:
+        file: { type: string, minLength: 1, maxLength: 2048 }
+        line: { type: integer, minimum: 1 }
+        column: { type: integer, minimum: 0 }
+
+    ClientErrorFrame:
+      type: object
+      additionalProperties: false
+      required: [file, line, column, function, original]
+      description: >-
+        One stack frame as the browser reported it (client-events.md section 8: file, line,
+        column, function only) and, when a private sourcemap of the event's deployment matched,
+        its original position. `original` is null when none matched; the raw position is always kept.
+      properties:
+        file: { type: string, minLength: 1, maxLength: 2048 }
+        line: { type: integer, minimum: 0 }
+        column: { type: integer, minimum: 0 }
+        function: { type: [string, "null"], maxLength: 256 }
+        original:
+          anyOf:
+            - { type: "null" }
+            - { $ref: "#/components/schemas/OriginalPosition" }
+
+    ClientErrorDeploymentCount:
+      type: object
+      additionalProperties: false
+      required: [deployment_hash, count]
+      properties:
+        deployment_hash: { $ref: "#/components/schemas/Sha256" }
+        count: { type: integer, minimum: 1 }
+
+    ClientErrorGroup:
+      type: object
+      additionalProperties: false
+      required: [fingerprint, kind, message, status, first_seen, last_seen, count, regressed, deployments, top_frame]
+      properties:
+        fingerprint: { $ref: "#/components/schemas/ClientErrorFingerprint" }
+        kind: { $ref: "#/components/schemas/ClientErrorKind" }
+        message: { type: string, maxLength: 2048, description: "Message of the most recent event, already redacted." }
+        status: { $ref: "#/components/schemas/ClientErrorStatus" }
+        first_seen: { $ref: "#/components/schemas/UnixMs" }
+        last_seen: { $ref: "#/components/schemas/UnixMs" }
+        count: { type: integer, minimum: 1, description: "Events in the group, all deployments." }
+        regressed: { type: boolean, description: "True while the group is open again after having been resolved on an older deployment." }
+        deployments:
+          type: array
+          maxItems: 100
+          description: Count per deployment, newest deployment first (the sparkline of the Logs screen).
+          items: { $ref: "#/components/schemas/ClientErrorDeploymentCount" }
+        top_frame:
+          anyOf:
+            - { type: "null" }
+            - { $ref: "#/components/schemas/ClientErrorFrame" }
+
+    ClientErrorGroupList:
+      type: object
+      additionalProperties: false
+      required: [groups, next_cursor]
+      properties:
+        groups: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ClientErrorGroup" } }
+        next_cursor: { type: [string, "null"], maxLength: 256 }
+
+    ClientErrorUa:
+      type: object
+      additionalProperties: false
+      required: [browser, os, device]
+      description: The user-agent family the gateway derived (client-events.md section 3); never the full string.
+      properties:
+        browser: { type: string, maxLength: 64 }
+        os: { type: string, maxLength: 64 }
+        device: { type: string, maxLength: 64 }
+
+    ClientErrorEvent:
+      type: object
+      additionalProperties: false
+      required: [ts, client_ts, deployment_hash, request_id, message, url, ua, frames]
+      properties:
+        ts: { $ref: "#/components/schemas/UnixMs", description: "Gateway receive time." }
+        client_ts: { $ref: "#/components/schemas/UnixMs", description: "Browser clock." }
+        deployment_hash: { $ref: "#/components/schemas/Sha256" }
+        request_id: { type: [string, "null"], pattern: "^[0-9A-Za-z_-]{8,64}$", description: "Links the event to the server log lines of the same request." }
+        message: { type: string, maxLength: 2048 }
+        url: { type: string, maxLength: 2048 }
+        ua: { $ref: "#/components/schemas/ClientErrorUa" }
+        frames: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/ClientErrorFrame" } }
+
+    ClientErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [group, events]
+      properties:
+        group: { $ref: "#/components/schemas/ClientErrorGroup" }
+        events: { type: array, maxItems: 20, items: { $ref: "#/components/schemas/ClientErrorEvent" } }
+
+    SetClientErrorStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { $ref: "#/components/schemas/ClientErrorStatus" }
 
     ActivateRequest:
       type: object
