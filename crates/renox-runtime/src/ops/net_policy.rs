@@ -464,10 +464,34 @@ pub fn blocked_reason(ip: IpAddr) -> Option<&'static str> {
 }
 
 /// Extra addresses blocked per node: the node's own public addresses and
-/// the control plane's (`ops.md` section 2, last paragraph). Configured by
-/// the cell, never by tenants.
+/// the control plane's node-facing ones (`ops.md` section 2, last
+/// paragraph). Configured by the cell, never by tenants.
+///
+/// There is no exemption from this list or from the ranges, for any tenant
+/// (ADR D23): an internal tenant such as the dashboard reaches the control
+/// API at its public hostname, whose address is not listed here, through
+/// the same checks as every other host.
 #[derive(Debug, Clone, Default)]
 pub struct ExtraBlocked(pub Vec<IpAddr>);
+
+impl ExtraBlocked {
+    /// Is `ip` listed? Both sides are compared after reducing an IPv6
+    /// address that embeds an IPv4 one ([`embedded_v4`]), so a listed
+    /// `::ffff:a.b.c.d` also refuses `a.b.c.d`, and a listed `a.b.c.d` also
+    /// refuses its mapped, NAT64, and 6to4 forms.
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        let want = reduce(ip);
+        self.0.iter().any(|e| *e == ip || reduce(*e) == want)
+    }
+}
+
+/// `ip`, or the IPv4 address it embeds.
+fn reduce(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => embedded_v4(v6).map(IpAddr::V4).unwrap_or(ip),
+        IpAddr::V4(_) => ip,
+    }
+}
 
 /// Step 2 of every hop: every resolved address must be allowed. Fails
 /// closed: one blocked address refuses the whole set, so the outcome does
@@ -477,13 +501,7 @@ pub fn check_addresses(addrs: &[IpAddr], extra: &ExtraBlocked) -> Result<(), Blo
         return Err(BlockReason::BlockedAddress);
     }
     for ip in addrs {
-        if blocked_reason(*ip).is_some() || extra.0.contains(ip) {
-            return Err(BlockReason::BlockedAddress);
-        }
-        if let IpAddr::V6(v6) = ip
-            && let Some(v4) = embedded_v4(*v6)
-            && extra.0.contains(&IpAddr::V4(v4))
-        {
+        if blocked_reason(*ip).is_some() || extra.contains(*ip) {
             return Err(BlockReason::BlockedAddress);
         }
     }
@@ -933,6 +951,39 @@ mod tests {
             check_addresses(&[ip("::ffff:93.184.216.34")], &extra),
             Err(BlockReason::BlockedAddress)
         );
+    }
+
+    /// ADR D23 and `docs/24-threat-model.md` B, "SSRF to metadata,
+    /// loopback, private ranges": the control plane's node-facing address
+    /// is refused in every form it can be written or resolved in, whichever
+    /// form the operator listed; the public API address is not listed and
+    /// passes like any public host.
+    #[test]
+    fn listed_control_plane_address_is_refused_in_every_form() {
+        let node_facing = ["93.184.216.40", "::ffff:93.184.216.40"];
+        let forms = [
+            "93.184.216.40",
+            "::ffff:93.184.216.40",
+            "64:ff9b::5db8:d828",
+            "2002:5db8:d828::1",
+        ];
+        for listed in node_facing {
+            let extra = ExtraBlocked(vec![ip(listed)]);
+            for form in forms {
+                assert_eq!(
+                    check_addresses(&[ip(form)], &extra),
+                    Err(BlockReason::BlockedAddress),
+                    "{form} with {listed} listed"
+                );
+            }
+            assert_eq!(check_addresses(&[ip("93.184.216.34")], &extra), Ok(()));
+        }
+        let v6 = ExtraBlocked(vec![ip("2606:4700::40")]);
+        assert_eq!(
+            check_addresses(&[ip("2606:4700::40")], &v6),
+            Err(BlockReason::BlockedAddress)
+        );
+        assert_eq!(check_addresses(&[ip("2606:4700::41")], &v6), Ok(()));
     }
 
     #[test]

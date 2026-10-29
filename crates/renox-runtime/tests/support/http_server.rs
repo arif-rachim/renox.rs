@@ -18,6 +18,10 @@ pub struct Seen {
     pub body_len: usize,
 }
 
+/// The scoped tenant token the `/v1/apps` stand-in accepts (`renox_pat_`
+/// + 32 base32 characters, `docs/contracts/deploy-api.md` section 2).
+pub const API_TOKEN: &str = "renox_pat_abcdefghijklmnopqrstuvwxyz234567";
+
 pub struct TestServer {
     pub addr: SocketAddr,
     pub seen: Arc<Mutex<Vec<Seen>>>,
@@ -35,6 +39,8 @@ impl TestServer {
 /// - `/redirect?status=302&to=<url>` -> redirect to `<url>`
 /// - `/big` -> 200 with a 10 MB body
 /// - `/slow` -> answers after 10 s
+/// - `/v1/apps` -> a stand-in for the control API's tenant endpoint: 200
+///   with one app for `Authorization: Bearer <API_TOKEN>`, 401 otherwise
 pub async fn start() -> TestServer {
     start_on("127.0.0.1:0").await
 }
@@ -168,6 +174,25 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
                 sent += block.len();
             }
             Ok(())
+        }
+        "/v1/apps" => {
+            if authorization.as_deref() == Some(&format!("Bearer {API_TOKEN}")) {
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    &[("content-type", "application/json")],
+                    br#"{"apps":[{"name":"shop","active_deployment":null}]}"#,
+                )
+                .await
+            } else {
+                respond(
+                    &mut stream,
+                    "401 Unauthorized",
+                    &[("content-type", "application/json")],
+                    br#"{"error":{"code":"RENOX_UNAUTHENTICATED"}}"#,
+                )
+                .await
+            }
         }
         "/slow" => {
             tokio::time::sleep(Duration::from_secs(10)).await;
