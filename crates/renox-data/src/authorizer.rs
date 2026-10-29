@@ -90,6 +90,11 @@ impl AuthorizerPolicy {
     /// dependency's public view: SQLite's `count(*)` over a view reads the
     /// base table once more with no column and no view as accessor, which
     /// is allowed only for a table the statement reached through such a view.
+    /// It also records an allowed `alter table` of the module's own table
+    /// (`ALTERED`): SQLite then checks the table itself with a nested
+    /// `select ... from pragma_quick_check(...)` (adding a column to a
+    /// STRICT table, or one with `not null` or `check`), and only that read
+    /// passes (#264).
     pub(crate) fn check(
         &self,
         ctx: &AuthContext<'_>,
@@ -110,6 +115,18 @@ impl AuthorizerPolicy {
             AuthAction::Function { function_name } => {
                 !matches!(function_name, "load_extension" | "fts3_tokenizer")
             }
+            // SQLite's own check inside an allowed `alter table` of an own
+            // table; the module cannot write it: a statement that reads
+            // `pragma_quick_check` itself is never an `alter table`.
+            AuthAction::Read { table_name, .. }
+                if ddl && main_db && table_name == "pragma_quick_check" =>
+            {
+                via_view.iter().any(|t| t == ALTERED)
+            }
+            AuthAction::Pragma {
+                pragma_name: "quick_check",
+                ..
+            } if ddl => via_view.iter().any(|t| t == ALTERED),
             AuthAction::Read {
                 table_name,
                 column_name,
@@ -158,7 +175,13 @@ impl AuthorizerPolicy {
             AuthAction::AlterTable {
                 database_name,
                 table_name,
-            } => ddl && database_name == "main" && self.owns(table_name),
+            } => {
+                let ok = ddl && database_name == "main" && self.owns(table_name);
+                if ok && !via_view.iter().any(|t| t == ALTERED) {
+                    via_view.push(ALTERED.to_string());
+                }
+                ok
+            }
             AuthAction::DropTrigger {
                 trigger_name,
                 table_name,
@@ -170,6 +193,10 @@ impl AuthorizerPolicy {
         if ok { Ok(()) } else { Err(Denial::of(ctx)) }
     }
 }
+
+/// Marks, in the per-statement list, an allowed `alter table` of an own
+/// table. Not a table name: SQLite names never contain a NUL byte.
+const ALTERED: &str = "\0alter_table";
 
 fn has_prefix(name: &str, module: &str, sep: &str) -> bool {
     name.len() > module.len() + sep.len()
