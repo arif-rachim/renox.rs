@@ -523,7 +523,24 @@ async fn point_in_time_restore_into_a_new_database() {
     for n in 4..=5 {
         assert_eq!(hits(worker.addr, true).await, n);
     }
-    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    // The replica must cover `at` before the restore asks for it: the WAL
+    // segment of rows 4 and 5 ships within the sync interval, but on a slow
+    // runner a fixed sleep was not always enough (`PointUnknown`, CI on #300).
+    let config = repl.config_for("t_repl").unwrap();
+    let source = repl.file_of("t_repl");
+    let start = Instant::now();
+    loop {
+        let gens = renox_cell::replication::restore::generations(repl.section(), &config, &source)
+            .unwrap_or_default();
+        if gens.iter().any(|g| g.start_ms <= at && at <= g.end_ms) {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "the replica never covered {at}: {gens:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 
     let r2 = repl.clone();
     let restored = tokio::task::spawn_blocking(move || {
