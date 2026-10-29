@@ -18,11 +18,18 @@
 //!   exits.
 //! - **Eviction.** When the last cell closes the file, the sidecar keeps
 //!   running for `stop_grace_ms` so the last frames ship, then stops.
-//! - **Restore before open.** A missing file whose replica exists, or a
-//!   file that fails `PRAGMA quick_check` (quarantined as
-//!   `<file>.corrupt-<ts>`), is restored before the cell opens it
-//!   ([`restore`]). A node in `controlled` mode never opens a missing file
-//!   before that restore answered.
+//! - **Restore before open.** A missing file whose replica exists is
+//!   restored before the cell opens it ([`restore`]). A node in
+//!   `controlled` mode never opens a missing file before that restore
+//!   answered.
+//! - **A damaged file** (#103): one that fails the time-bounded
+//!   `PRAGMA quick_check` on open, or that the idle-file sweep finds
+//!   (`crate::pruning`), is marked unavailable, moved aside as
+//!   `<file>.corrupt-<ts>` (never deleted) and restored in the background
+//!   ([`Replication::recover_corrupt`]). While the mark holds, the node
+//!   answers 503 `RENOX_DB_UNAVAILABLE` for the tenant
+//!   ([`Replication::unavailable`]); the first request after the restore
+//!   opens the restored file.
 //! - **Status** ([`status`]) for the node listener and `getBackups`.
 
 use std::collections::HashMap;
@@ -92,6 +99,10 @@ struct Inner {
     dbs: Mutex<HashMap<String, Db>>,
     /// Sidecars started since start (tests, operator).
     spawned: std::sync::atomic::AtomicU64,
+    /// Databases being restored after damage (#103): never opened.
+    unavailable: Mutex<HashMap<String, &'static str>>,
+    /// Restores of damaged files completed since start (tests, operator).
+    recovered: std::sync::atomic::AtomicU64,
     handle: tokio::runtime::Handle,
 }
 
@@ -137,6 +148,8 @@ impl Replication {
                 run_dir: run_dir.to_path_buf(),
                 dbs: Mutex::new(HashMap::new()),
                 spawned: Default::default(),
+                unavailable: Mutex::new(HashMap::new()),
+                recovered: Default::default(),
                 handle: tokio::runtime::Handle::current(),
             }),
         };
@@ -202,6 +215,79 @@ impl Replication {
             timestamp,
             now_ms(),
         )
+    }
+
+    /// Why `tenant_id` cannot be served now (`restoring`), when one of its
+    /// databases (`<tenant_id>` or `<tenant_id>.<app>`) is being restored
+    /// after damage (`errors.md` `RENOX_DB_UNAVAILABLE`).
+    pub fn unavailable(&self, tenant_id: &str) -> Option<&'static str> {
+        let marks = self.inner.unavailable.lock().expect("unavailable lock");
+        marks.iter().find_map(|(db, why)| {
+            (db == tenant_id
+                || db
+                    .strip_prefix(tenant_id)
+                    .is_some_and(|rest| rest.starts_with('.')))
+            .then_some(*why)
+        })
+    }
+
+    /// Restores of damaged files completed since start.
+    pub fn recovered(&self) -> u64 {
+        self.inner.recovered.load(Ordering::SeqCst)
+    }
+
+    /// A damaged `database` (#103): marked unavailable, its file moved
+    /// aside, and restored from the replica on a thread of its own, retried
+    /// with a backoff until it succeeds. The mark is cleared when the
+    /// restored file passed its check. A second call while the restore runs
+    /// does nothing.
+    pub fn recover_corrupt(&self, database: &str) {
+        {
+            let mut marks = self.inner.unavailable.lock().expect("unavailable lock");
+            if marks.contains_key(database) {
+                return;
+            }
+            marks.insert(database.to_string(), "restoring");
+        }
+        let file = self.file_of(database);
+        match restore::quarantine(&file, now_ms()) {
+            Ok(to) => {
+                tracing::error!(%database, quarantined = %to.display(), "damaged tenant file moved aside; restoring from the replica")
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                tracing::error!(%database, error = %e, "damaged tenant file could not be moved aside; it stays unavailable");
+                return;
+            }
+        }
+        let me = self.clone();
+        let database = database.to_string();
+        std::thread::spawn(move || {
+            let mut attempt: u32 = 0;
+            loop {
+                match me.restore_blocking(&database, None, None) {
+                    Ok(r) => {
+                        me.inner
+                            .unavailable
+                            .lock()
+                            .expect("unavailable lock")
+                            .remove(&database);
+                        me.inner.recovered.fetch_add(1, Ordering::SeqCst);
+                        tracing::warn!(%database, generation = ?r.generation, elapsed_ms = r.elapsed_ms, "damaged tenant file restored");
+                        return;
+                    }
+                    Err(e) => {
+                        attempt += 1;
+                        if attempt == 1 || attempt.is_power_of_two() {
+                            tracing::error!(%database, attempt, error = %e, "restore of a damaged tenant file failed; retrying");
+                        }
+                        std::thread::sleep(Duration::from_millis(
+                            (500u64 << attempt.min(7)).min(60_000),
+                        ));
+                    }
+                }
+            }
+        });
     }
 
     fn spawn_watcher(&self) {
@@ -373,23 +459,33 @@ impl DbLifecycle for Replication {
             .and_then(|n| n.to_str())
             .unwrap_or(tenant_id)
             .to_string();
+        if let Some(why) = self.unavailable(&database) {
+            return Err(format!("unavailable: {why}"));
+        }
         let missing = !file.exists();
-        let corrupt = !missing && restore::quick_check(file).is_err();
-        if !missing && !corrupt {
-            return Ok(());
+        if !missing {
+            return match renox_data::integrity::check_file(
+                file,
+                renox_data::integrity::QUICK_CHECK_LIMIT,
+            ) {
+                renox_data::integrity::Integrity::Corrupt(why) => {
+                    tracing::error!(%database, finding = %why, "tenant file failed quick_check on open");
+                    self.recover_corrupt(&database);
+                    Err(format!("integrity: {why}"))
+                }
+                _ => Ok(()),
+            };
         }
         match self.restore_blocking(&database, None, None) {
             Ok(r) => {
                 tracing::info!(%database, source = r.source, generation = ?r.generation, elapsed_ms = r.elapsed_ms, "tenant file restored before open");
                 Ok(())
             }
-            Err(restore::RestoreError::Unavailable(why))
-                if missing && why.contains("no generation") =>
-            {
+            Err(restore::RestoreError::Unavailable(why)) if why.contains("no generation") => {
                 // A new tenant: nothing to restore.
                 Ok(())
             }
-            Err(e) if missing && self.inner.mode == Mode::Local => {
+            Err(e) if self.inner.mode == Mode::Local => {
                 tracing::warn!(%database, error = %e, "no restore; the file starts empty (local mode)");
                 Ok(())
             }

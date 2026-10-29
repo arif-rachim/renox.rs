@@ -61,15 +61,43 @@ enum Dispatch {
     Tiers(Supervisor<GuardedDispatcher>),
 }
 
-/// The dispatcher, with the moving check in front of either process tier
-/// (#259): a tenant being moved answers 503 `RENOX_TENANT_MOVING`.
+/// The dispatcher, with the node's checks in front of either process tier:
+/// a tenant being moved answers 503 `RENOX_TENANT_MOVING` (#259); a tenant
+/// whose file is being restored after damage answers 503
+/// `RENOX_DB_UNAVAILABLE`, and the disk watermarks refuse new cells and
+/// writes with 503 `RENOX_UNAVAILABLE` (#103).
 struct NodeDispatcher {
     inner: Dispatch,
     manager: CellManager,
+    replication: Option<crate::replication::Replication>,
+    disk: crate::disk::DiskMonitor,
 }
 
 /// `errors.md`, `RENOX_TENANT_MOVING`.
 const MOVING_MESSAGE: &str = "The service is being moved. Try again shortly.";
+
+/// `errors.md`, `RENOX_DB_UNAVAILABLE` and `RENOX_UNAVAILABLE`.
+const UNAVAILABLE_MESSAGE: &str = "The service is temporarily unavailable.";
+
+fn unavailable(
+    code: &'static str,
+    retry_after: &'static str,
+    ctx: &renox_gateway::RequestCtx,
+    headers: &http::HeaderMap,
+) -> Response<axum::body::Body> {
+    let mut res = renox_gateway::limits::platform_error(
+        http::StatusCode::SERVICE_UNAVAILABLE,
+        code,
+        UNAVAILABLE_MESSAGE,
+        &ctx.request_id,
+        headers,
+    );
+    res.headers_mut().insert(
+        http::header::RETRY_AFTER,
+        http::HeaderValue::from_static(retry_after),
+    );
+    res
+}
 
 impl renox_gateway::CellDispatcher for NodeDispatcher {
     async fn dispatch(
@@ -91,10 +119,32 @@ impl renox_gateway::CellDispatcher for NodeDispatcher {
             );
             return res;
         }
-        match &self.inner {
-            Dispatch::Shared(d) => d.dispatch(ctx, req).await,
-            Dispatch::Tiers(s) => s.dispatch(ctx, req).await,
+        let restoring = |ctx: &renox_gateway::RequestCtx| {
+            self.replication
+                .as_ref()
+                .and_then(|r| r.unavailable(&ctx.tenant_id))
+        };
+        if restoring(&ctx).is_some() {
+            return unavailable("RENOX_DB_UNAVAILABLE", "30", &ctx, req.headers());
         }
+        if let Some(refusal) = self
+            .disk
+            .refuses(req.method(), self.manager.db_open(&ctx.tenant_id))
+        {
+            tracing::warn!(tenant_id = %ctx.tenant_id, ?refusal, level = self.disk.level().as_str(), "refused at the disk watermark");
+            return unavailable("RENOX_UNAVAILABLE", "30", &ctx, req.headers());
+        }
+        let headers = req.headers().clone();
+        let res = match &self.inner {
+            Dispatch::Shared(d) => d.dispatch(ctx.clone(), req).await,
+            Dispatch::Tiers(s) => s.dispatch(ctx.clone(), req).await,
+        };
+        // The request that found the damage failed opening the file (500):
+        // it answers what the following ones answer while the restore runs.
+        if res.status() == http::StatusCode::INTERNAL_SERVER_ERROR && restoring(&ctx).is_some() {
+            return unavailable("RENOX_DB_UNAVAILABLE", "30", &ctx, &headers);
+        }
+        res
     }
 }
 
@@ -191,6 +241,10 @@ pub struct Worker {
     pub node_addr: Option<SocketAddr>,
     /// Litestream per tenant file (#255), with `[replication] enabled`.
     pub replication: Option<crate::replication::Replication>,
+    /// The data directory's disk watermarks (#103).
+    pub disk: crate::disk::DiskMonitor,
+    /// Dead-letter pruning, the idle-file sweep, the log volume limit (#103).
+    pub pruning: crate::pruning::Pruning,
     pub manager: CellManager,
     pub routes: Arc<RouteTable>,
     routes_file: PathBuf,
@@ -260,6 +314,12 @@ impl Worker {
             }
             None => Arc::new(NdjsonLogSink::new(Box::new(log_file))),
         };
+        // The per-tenant log volume limit (#103) in front of either sink.
+        let prune_counters = Arc::new(crate::pruning::Counters::default());
+        let log_sink: Arc<dyn renox_runtime::LogSink> = Arc::new(crate::pruning::LogVolume::new(
+            log_sink,
+            prune_counters.clone(),
+        ));
         let runtime = Runtime::new(RuntimeConfig {
             log_sink: log_sink.clone(),
             fetch,
@@ -420,14 +480,47 @@ impl Worker {
         } else {
             None
         };
+        // Disk watermarks and pruning (#103).
+        let disk = crate::disk::DiskMonitor::new(
+            &config.data_dir,
+            crate::disk::Watermarks::default(),
+            Some(health.clone()),
+        );
+        disk.set_enforcing(config.mode == Mode::Controlled);
+        let pruning = crate::pruning::Pruning::new(
+            crate::pruning::Sweeper {
+                data_dir: config.data_dir.clone(),
+                is_open: {
+                    let m = manager.clone();
+                    Arc::new(move |db| m.db_open(db))
+                },
+                on_corrupt: replication.clone().map(|r| {
+                    Arc::new(move |db: &str, _file: &Path| r.recover_corrupt(db))
+                        as crate::pruning::OnCorrupt
+                }),
+                retention: crate::pruning::DEAD_LETTER_RETENTION,
+                check_limit: crate::pruning::SWEEP_CHECK_LIMIT,
+            },
+            control.as_ref().map(|_| spool[1].clone()),
+            prune_counters,
+        );
+        {
+            let p = pruning.clone();
+            disk.on_pressure(move |level| p.on_pressure(level));
+        }
+        let mut tasks = vec![
+            disk.spawn(crate::disk::POLL_INTERVAL),
+            pruning.spawn(crate::pruning::SWEEP_INTERVAL),
+        ];
         let dispatcher = Arc::new(NodeDispatcher {
             inner: match &supervisor {
                 Some(s) => Dispatch::Tiers(s.clone()),
                 None => Dispatch::Shared(guarded),
             },
             manager: manager.clone(),
+            replication: replication.clone(),
+            disk: disk.clone(),
         });
-        let mut tasks = Vec::new();
         let mut http_addr = None;
         let server = match (&config.tls, &certs) {
             (Some(tls), Some(store)) => {
@@ -551,6 +644,8 @@ impl Worker {
             health_addr,
             node_addr,
             replication,
+            disk,
+            pruning,
             manager,
             routes,
             routes_file: config.routes_file.clone(),
