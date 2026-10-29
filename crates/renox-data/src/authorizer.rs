@@ -86,7 +86,15 @@ impl AuthorizerPolicy {
     }
 
     /// Decide one authorizer call; `Err` carries the object and the action.
-    pub(crate) fn check(&self, ctx: &AuthContext<'_>) -> Result<(), Denial> {
+    /// `via_view` collects, per statement, the tables read through a
+    /// dependency's public view: SQLite's `count(*)` over a view reads the
+    /// base table once more with no column and no view as accessor, which
+    /// is allowed only for a table the statement reached through such a view.
+    pub(crate) fn check(
+        &self,
+        ctx: &AuthContext<'_>,
+        via_view: &mut Vec<String>,
+    ) -> Result<(), Denial> {
         let ddl = self.allow_ddl;
         // Only the main database; `temp` objects are refused (the migration
         // runner's `alter table ... rename` reads `sqlite_temp_master`).
@@ -102,8 +110,19 @@ impl AuthorizerPolicy {
             AuthAction::Function { function_name } => {
                 !matches!(function_name, "load_extension" | "fts3_tokenizer")
             }
-            AuthAction::Read { table_name, .. } => {
+            AuthAction::Read {
+                table_name,
+                column_name,
+            } => {
+                let through_view = main_db && ctx.accessor.is_some_and(|a| self.is_dep_public(a));
+                if through_view && !via_view.iter().any(|t| t == table_name) {
+                    via_view.push(table_name.to_string());
+                }
                 (main_db && (self.owns(table_name) || self.is_dep_public(table_name)))
+                    || (main_db
+                        && column_name.is_empty()
+                        && ctx.accessor.is_none()
+                        && via_view.iter().any(|t| t == table_name))
                     // A column read inside a dependency's public view.
                     || (main_db && ctx.accessor.is_some_and(|a| self.is_dep_public(a)))
                     || (ddl && is_schema_table(table_name))
@@ -266,10 +285,11 @@ impl Denial {
 pub(crate) fn decide(
     policy: Option<&AuthorizerPolicy>,
     ctx: &AuthContext<'_>,
+    via_view: &mut Vec<String>,
 ) -> (Authorization, Option<Denial>) {
     match policy {
         None => (Authorization::Allow, None),
-        Some(p) => match p.check(ctx) {
+        Some(p) => match p.check(ctx, via_view) {
             Ok(()) => (Authorization::Allow, None),
             Err(d) => (Authorization::Deny, Some(d)),
         },

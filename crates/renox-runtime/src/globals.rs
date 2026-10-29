@@ -8,7 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use deno_core::{OpDecl, OpState, op2};
 
 use crate::ops::db::{
-    op_db_execute, op_db_query, op_db_query_one, op_db_tx_begin, op_db_tx_commit, op_db_tx_rollback,
+    op_db_execute, op_db_query, op_db_query_one, op_db_savepoint_begin, op_db_savepoint_release,
+    op_db_savepoint_rollback, op_db_tx_begin, op_db_tx_commit, op_db_tx_rollback,
 };
 use crate::ops::deadline::op_deadline_remaining_ms;
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
@@ -76,6 +77,9 @@ deno_core::extension!(
         op_db_tx_begin,
         op_db_tx_commit,
         op_db_tx_rollback,
+        op_db_savepoint_begin,
+        op_db_savepoint_release,
+        op_db_savepoint_rollback,
         op_secrets_get_all,
         op_log,
         op_deadline_remaining_ms,

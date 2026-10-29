@@ -98,6 +98,9 @@ struct Hooks {
     policy: Mutex<Option<Arc<AuthorizerPolicy>>>,
     /// First action the authorizer refused since the last prepare.
     denial: Mutex<Option<Denial>>,
+    /// Tables the statement being prepared read through a dependency's
+    /// public view (`AuthorizerPolicy::check`).
+    via_view: Mutex<Vec<String>>,
     /// Limit of the running statement, checked by the progress handler.
     clock: StatementClock,
     /// Pages in the WAL after the last commit (writer only).
@@ -201,7 +204,8 @@ impl Conn {
         let h = Arc::clone(&hooks);
         inner
             .authorizer(Some(move |ctx: rusqlite::hooks::AuthContext<'_>| {
-                let (answer, denial) = decide(lock(&h.policy).as_deref(), &ctx);
+                let (answer, denial) =
+                    decide(lock(&h.policy).as_deref(), &ctx, &mut lock(&h.via_view));
                 if let Some(d) = denial {
                     let mut slot = lock(&h.denial);
                     // Keep the first denial, but prefer the object a DDL
@@ -274,6 +278,7 @@ impl Conn {
     /// Start a new statement: forget a denial left from an earlier one.
     pub(crate) fn clear_denial(&self) {
         lock(&self.hooks.denial).take();
+        lock(&self.hooks.via_view).clear();
     }
 
     fn prepare(&self, sql: &str) -> Result<CachedStatement<'_>> {

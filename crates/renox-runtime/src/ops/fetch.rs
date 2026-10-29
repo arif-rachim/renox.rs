@@ -55,7 +55,10 @@ pub const MAX_HEADER_BYTES: usize = 16 * 1024;
 
 /// What `op_renox_fetch` needs from the isolate, put into its `OpState` at creation.
 pub(crate) struct FetchEnv {
+    /// The app's allowlist (`manifest.permissions.network`).
     pub allowlist: Allowlist,
+    /// Each module's own list (ops.md 1.3.0 section 2, `FetchRequest.module`).
+    pub modules: Arc<crate::ops::modules::ModuleRegistry>,
     pub config: FetchConfig,
     pub tls: Arc<rustls::ClientConfig>,
     pub tenant_id: String,
@@ -70,10 +73,12 @@ impl FetchEnv {
         tenant_id: String,
         deployment_hash: String,
         log_sink: Arc<dyn LogSink>,
+        modules: Arc<crate::ops::modules::ModuleRegistry>,
     ) -> FetchEnv {
         let tls = config.tls();
         FetchEnv {
             allowlist,
+            modules,
             config,
             tls,
             tenant_id,
@@ -233,6 +238,7 @@ pub(crate) struct FetchResult {
 
 async fn fetch_with_policy(
     env: &FetchEnv,
+    allowlist: &Allowlist,
     req: FetchRequest,
     counter: Arc<EgressCounter>,
 ) -> Result<FetchResult, FetchFailure> {
@@ -262,8 +268,7 @@ async fn fetch_with_policy(
     let mut hop = 0usize;
     loop {
         // Step 1.
-        let target = env
-            .allowlist
+        let target = allowlist
             .check_url(&url)
             .map_err(|Blocked { host, reason }| FetchFailure::Blocked { host, reason, hop })?;
         // Step 2.
@@ -304,7 +309,7 @@ async fn fetch_with_policy(
             response.status,
             location.as_deref(),
             hop,
-            &env.allowlist,
+            allowlist,
         )
         .map_err(|e| match e {
             RedirectError::BadLocation => FetchFailure::Failed {
@@ -345,6 +350,9 @@ pub(crate) struct FetchRequest {
     headers: Vec<(ByteString, ByteString)>,
     body: Option<JsBuffer>,
     redirect: String,
+    /// ops.md 1.3.0: whose allowlist applies; `None` = the app.
+    #[serde(default)]
+    module: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -457,8 +465,28 @@ pub(crate) async fn op_renox_fetch(
             r.request_id.clone(),
         )
     };
+    // A module's fetch is checked against its own list only (ops.md 1.3.0
+    // section 2); an unknown module name gets nothing.
+    let module_list = match req.module.as_deref() {
+        None | Some(crate::ops::modules::APP) => None,
+        Some(m) => match env.modules.allowlist(m) {
+            Ok(list) => list,
+            Err(_) => {
+                request.borrow_mut().fetches_in_flight -= 1;
+                return Err(failure_error(FetchFailure::Blocked {
+                    host: Url::parse(&req.url)
+                        .ok()
+                        .and_then(|u| u.host_str().map(str::to_string))
+                        .unwrap_or_default(),
+                    reason: BlockReason::NotAllowlisted,
+                    hop: 0,
+                }));
+            }
+        },
+    };
+    let allowlist: &Allowlist = module_list.as_deref().unwrap_or(&env.allowlist);
     let result = bounded(
-        fetch_with_policy(&env, req, counter.clone()),
+        fetch_with_policy(&env, allowlist, req, counter.clone()),
         deadline,
         cancel,
     )

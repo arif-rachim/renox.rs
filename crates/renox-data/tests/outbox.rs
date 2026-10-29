@@ -501,6 +501,17 @@ fn public_views_need_the_versioned_name() {
             .len(),
         1
     );
+    // An aggregate over the view reads no column of it: still allowed.
+    let n = org
+        .query_one("select count(*) as n from auth__public_users_v1", &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(n.get("n"), Some(&Value::Integer(1)));
+    // ...but a count of the base table itself is not.
+    let e = org
+        .query_one("select count(*) as n from auth__users", &[])
+        .unwrap_err();
+    assert!(matches!(e, DbError::Auth { .. }), "{e:?}");
     for table in [
         "auth__users",
         "auth__public_users",

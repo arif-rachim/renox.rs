@@ -4,6 +4,7 @@
 pub mod db;
 pub mod fetch_connector;
 pub mod log;
+pub mod modules;
 pub mod net_policy;
 pub mod secrets;
 

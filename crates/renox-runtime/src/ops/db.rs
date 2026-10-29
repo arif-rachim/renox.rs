@@ -23,10 +23,10 @@
 //! without V8; the ops themselves are behind the `v8` feature.
 
 use std::collections::VecDeque;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use renox_data::{DbError, ExecResult, QueryCtx, Row, TenantDb, Value};
+use renox_data::{AuthorizerPolicy, DbError, ExecResult, QueryCtx, Row, TenantDb, Value};
 use tokio::sync::oneshot;
 
 /// SQL text longer than this is refused (`RENOX_DB_PARAM`).
@@ -73,8 +73,17 @@ enum Job {
         params: Vec<Value>,
         /// Transaction handle; `None` runs outside any transaction.
         tx: Option<u32>,
+        /// The calling module's authorizer (`ops.md` 1.3.0 section 1,
+        /// "Module argument"); `None` keeps the handle's own (the app's).
+        policy: Option<Arc<AuthorizerPolicy>>,
         deadline: Instant,
         reply: Reply<Measured>,
+    },
+    /// A savepoint of the open transaction `tx` (`ops.md` 1.3.0 section 1).
+    Savepoint {
+        tx: u32,
+        op: SavepointOp,
+        reply: Reply<Result<u32, DbError>>,
     },
     Begin {
         deadline: Instant,
@@ -89,6 +98,14 @@ enum Job {
     Close(Reply<Result<(), DbError>>),
     /// Answered once the file is open ([`DbHandle::ready`]).
     Ready(Reply<Result<(), DbError>>),
+}
+
+/// What a savepoint job does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SavepointOp {
+    Begin,
+    Release(u32),
+    Rollback(u32),
 }
 
 /// A job waiting for the writer, with the time it gives up.
@@ -149,13 +166,14 @@ impl DbHandle {
         rx.await.unwrap_or_else(|_| Err(closed()))
     }
 
-    /// Run one statement.
+    /// Run one statement, under `policy` when it is a module's.
     pub async fn statement(
         &self,
         kind: StmtKind,
         sql: String,
         params: Vec<Value>,
         tx: Option<u32>,
+        policy: Option<Arc<AuthorizerPolicy>>,
         deadline: Instant,
     ) -> Measured {
         let (reply, rx) = oneshot::channel();
@@ -164,6 +182,7 @@ impl DbHandle {
             sql,
             params,
             tx,
+            policy,
             deadline,
             reply,
         };
@@ -183,6 +202,16 @@ impl DbHandle {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(Job::Begin { deadline, reply })
+            .map_err(|_| closed())?;
+        rx.await.unwrap_or_else(|_| Err(closed()))
+    }
+
+    /// Begin, release, or roll back to a savepoint of the open transaction
+    /// `tx`; `Begin` answers the savepoint handle, the others `0`.
+    pub async fn savepoint(&self, tx: u32, op: SavepointOp) -> Result<u32, DbError> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(Job::Savepoint { tx, op, reply })
             .map_err(|_| closed())?;
         rx.await.unwrap_or_else(|_| Err(closed()))
     }
@@ -251,6 +280,24 @@ fn run_stmt(
         value,
         ms: d.db_ms(),
         rows: d.db_rows(),
+    }
+}
+
+/// Run `f` under the module's policy, or the handle's own for `None`.
+fn with_module(
+    db: &TenantDb,
+    policy: Option<&Arc<AuthorizerPolicy>>,
+    f: impl FnOnce() -> Measured,
+) -> Measured {
+    match policy {
+        None => f(),
+        Some(p) => db
+            .with_policy(Some((**p).clone()), f)
+            .unwrap_or_else(|e| Measured {
+                value: Err(e),
+                ms: 0.0,
+                rows: 0,
+            }),
     }
 }
 
@@ -407,10 +454,24 @@ impl DbLoop {
                         sql,
                         params,
                         tx: Some(t),
+                        policy,
                         deadline,
                         reply,
                     } if t == id => {
-                        let _ = reply.send(on_tx(db, tx, kind, &sql, &params, deadline));
+                        let _ = reply.send(with_module(db, policy.as_ref(), || {
+                            on_tx(db, tx, kind, &sql, &params, deadline)
+                        }));
+                    }
+                    Job::Savepoint { tx: t, op, reply } if t == id => {
+                        let r = match op {
+                            SavepointOp::Begin => tx.savepoint_begin(),
+                            SavepointOp::Release(sp) => tx.savepoint_release(sp).map(|()| 0),
+                            SavepointOp::Rollback(sp) => tx.savepoint_rollback(sp).map(|()| 0),
+                        };
+                        let _ = reply.send(r);
+                    }
+                    Job::Savepoint { reply, .. } => {
+                        let _ = reply.send(Err(tx_state("the transaction is not open")));
                     }
                     Job::Stmt {
                         tx: Some(_), reply, ..
@@ -426,11 +487,14 @@ impl DbLoop {
                         sql,
                         params,
                         tx: None,
+                        policy,
                         deadline,
                         reply,
                     } => {
                         // Reads outside the transaction run on a reader.
-                        let _ = reply.send(on_db(db, kind, &sql, &params, deadline));
+                        let _ = reply.send(with_module(db, policy.as_ref(), || {
+                            on_db(db, kind, &sql, &params, deadline)
+                        }));
                     }
                     job @ (Job::Stmt { .. } | Job::Begin { .. } | Job::Call(_)) => {
                         self.defer(db, job);
@@ -488,7 +552,7 @@ fn failed_thread(e: DbError, rx: mpsc::Receiver<Job>) {
                     rows: 0,
                 });
             }
-            Job::Begin { reply, .. } => {
+            Job::Begin { reply, .. } | Job::Savepoint { reply, .. } => {
                 let _ = reply.send(Err(e.clone()));
             }
             Job::End { reply, .. } => {
@@ -529,10 +593,16 @@ fn db_thread(db: TenantDb, rx: mpsc::Receiver<Job>) {
                 sql,
                 params,
                 tx: None,
+                policy,
                 deadline,
                 reply,
             } => {
-                let _ = reply.send(on_db(&db, kind, &sql, &params, deadline));
+                let _ = reply.send(with_module(&db, policy.as_ref(), || {
+                    on_db(&db, kind, &sql, &params, deadline)
+                }));
+            }
+            Job::Savepoint { reply, .. } => {
+                let _ = reply.send(Err(tx_state("the transaction is not open")));
             }
             Job::Stmt { reply, .. } => {
                 let _ = reply.send(Measured {
@@ -761,6 +831,8 @@ mod v8_ops {
     pub(crate) struct DbEnv {
         pub db: Option<DbHandle>,
         pub redactor: Arc<Redactor>,
+        /// The installed modules: their authorizer policies (ops.md 1.3.0).
+        pub modules: Arc<crate::ops::modules::ModuleRegistry>,
     }
 
     /// `[tag, number, string]`, with the bytes of tag 5 in a separate list.
@@ -847,6 +919,7 @@ mod v8_ops {
         state.borrow().borrow::<Rc<DbEnv>>().clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn statement(
         state: Rc<RefCell<OpState>>,
         token: u32,
@@ -855,12 +928,22 @@ mod v8_ops {
         params: Vec<WireParam>,
         bytes: Vec<JsBuffer>,
         tx: u32,
+        module: Option<String>,
     ) -> Result<StmtOut, JsErrorBox> {
         let request = live_request(&state.borrow(), token)?;
         let env = env(&state);
         let Some(db) = env.db.clone() else {
             return Err(db_error(&env.redactor, &DbError::Open(String::new())));
         };
+        // ops.md 1.3.0 section 1, "Module argument": checked before the
+        // statement is prepared.
+        let policy = env.modules.policy(module.as_deref()).map_err(|_| {
+            op_error(
+                "RENOX_DB_PARAM",
+                serde_json::json!({ "reason": "module" }),
+                "unknown module",
+            )
+        })?;
         let params = convert_params(&sql, decode(params, bytes)).map_err(usage)?;
         let tx = if tx == 0 {
             None
@@ -876,7 +959,7 @@ mod v8_ops {
             let r = request.borrow();
             (r.deadline, r.cancel.clone())
         };
-        let fut = db.statement(kind, sql, params, tx, deadline);
+        let fut = db.statement(kind, sql, params, tx, policy, deadline);
         let measured = match fut.or_cancel(cancel).await {
             Ok(m) => m,
             Err(_) => {
@@ -892,7 +975,17 @@ mod v8_ops {
             r.db_ms += measured.ms;
             r.db_rows += measured.rows;
         }
-        measured.value.map_err(|e| db_error(&env.redactor, &e))
+        measured.value.map_err(|e| match (&e, module.as_deref()) {
+            // ops.md 1.3.0: a module's refused statement names the module.
+            (DbError::Auth { table, action }, Some(m)) if m != crate::ops::modules::APP => {
+                op_error(
+                    e.code(),
+                    serde_json::json!({ "table": table, "action": action, "module": m }),
+                    &env.redactor.redact(&error_message(&e)),
+                )
+            }
+            _ => db_error(&env.redactor, &e),
+        })
     }
 
     #[op2]
@@ -904,8 +997,20 @@ mod v8_ops {
         #[serde] params: Vec<WireParam>,
         #[serde] bytes: Vec<JsBuffer>,
         tx: u32,
+        #[string] module: Option<String>,
     ) -> Result<WireRows, JsErrorBox> {
-        match statement(state, token, StmtKind::Query, sql, params, bytes, tx).await? {
+        match statement(
+            state,
+            token,
+            StmtKind::Query,
+            sql,
+            params,
+            bytes,
+            tx,
+            module,
+        )
+        .await?
+        {
             StmtOut::Rows(rows) => rows_out(rows, MAX_ROWS).map(wire_rows).map_err(usage),
             _ => unreachable!("query returns rows"),
         }
@@ -920,8 +1025,20 @@ mod v8_ops {
         #[serde] params: Vec<WireParam>,
         #[serde] bytes: Vec<JsBuffer>,
         tx: u32,
+        #[string] module: Option<String>,
     ) -> Result<WireRows, JsErrorBox> {
-        match statement(state, token, StmtKind::QueryOne, sql, params, bytes, tx).await? {
+        match statement(
+            state,
+            token,
+            StmtKind::QueryOne,
+            sql,
+            params,
+            bytes,
+            tx,
+            module,
+        )
+        .await?
+        {
             StmtOut::Row(row) => rows_out(row.into_iter().collect(), 1)
                 .map(wire_rows)
                 .map_err(usage),
@@ -938,8 +1055,20 @@ mod v8_ops {
         #[serde] params: Vec<WireParam>,
         #[serde] bytes: Vec<JsBuffer>,
         tx: u32,
+        #[string] module: Option<String>,
     ) -> Result<WireExec, JsErrorBox> {
-        match statement(state, token, StmtKind::Execute, sql, params, bytes, tx).await? {
+        match statement(
+            state,
+            token,
+            StmtKind::Execute,
+            sql,
+            params,
+            bytes,
+            tx,
+            module,
+        )
+        .await?
+        {
             StmtOut::Exec(e) => Ok(WireExec {
                 changes: e.changes as f64,
                 last_insert_rowid: WireCell(rowid_out(e.last_insert_rowid)),
@@ -1028,6 +1157,63 @@ mod v8_ops {
         db.end(tx, commit)
             .await
             .map_err(|e| db_error(&env.redactor, &e))
+    }
+
+    /// Savepoints of the request's open transaction (ops.md 1.3.0 section
+    /// 1, "Savepoints"): the nested `db.transaction`.
+    async fn savepoint(
+        state: Rc<RefCell<OpState>>,
+        token: u32,
+        tx: u32,
+        op: SavepointOp,
+    ) -> Result<u32, JsErrorBox> {
+        let request = live_request(&state.borrow(), token)?;
+        let env = env(&state);
+        let Some(db) = env.db.clone() else {
+            return Err(db_error(&env.redactor, &DbError::Open(String::new())));
+        };
+        if request.borrow().resources.db_tx != Some(tx) {
+            return Err(db_error(
+                &env.redactor,
+                &DbError::TxState("the transaction is not open".into()),
+            ));
+        }
+        db.savepoint(tx, op)
+            .await
+            .map_err(|e| db_error(&env.redactor, &e))
+    }
+
+    #[op2]
+    pub(crate) async fn op_db_savepoint_begin(
+        state: Rc<RefCell<OpState>>,
+        token: u32,
+        tx: u32,
+    ) -> Result<u32, JsErrorBox> {
+        savepoint(state, token, tx, SavepointOp::Begin).await
+    }
+
+    #[op2]
+    pub(crate) async fn op_db_savepoint_release(
+        state: Rc<RefCell<OpState>>,
+        token: u32,
+        tx: u32,
+        sp: u32,
+    ) -> Result<(), JsErrorBox> {
+        savepoint(state, token, tx, SavepointOp::Release(sp))
+            .await
+            .map(|_| ())
+    }
+
+    #[op2]
+    pub(crate) async fn op_db_savepoint_rollback(
+        state: Rc<RefCell<OpState>>,
+        token: u32,
+        tx: u32,
+        sp: u32,
+    ) -> Result<(), JsErrorBox> {
+        savepoint(state, token, tx, SavepointOp::Rollback(sp))
+            .await
+            .map(|_| ())
     }
 
     #[op2]
@@ -1146,6 +1332,7 @@ mod tests {
             "select 1".into(),
             vec![],
             None,
+            None,
             deadline,
         ));
         assert!(m.value.is_ok());
@@ -1162,7 +1349,14 @@ mod tests {
         let e = block_on(db.ready()).unwrap_err();
         assert_eq!(e, DbError::Open("disk full".into()));
         let deadline = Instant::now() + Duration::from_secs(5);
-        let m = block_on(db.statement(StmtKind::Query, "select 1".into(), vec![], None, deadline));
+        let m = block_on(db.statement(
+            StmtKind::Query,
+            "select 1".into(),
+            vec![],
+            None,
+            None,
+            deadline,
+        ));
         assert_eq!(m.value.unwrap_err(), DbError::Open("disk full".into()));
         assert_eq!(
             block_on(db.begin(deadline)).unwrap_err(),

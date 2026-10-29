@@ -249,7 +249,13 @@ pub struct Manifest {
     #[serde(default)]
     pub limits: Option<LimitOverrides>,
     #[serde(default)]
-    pub modules: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Artifact 1.1: the installed modules, an array in lock order
+    /// (`artifact.md` section 3, "Modules"); versions 0 and 1: `{}`.
+    /// Parsed and checked by `ops::modules::ModuleRegistry`.
+    pub modules: Option<serde_json::Value>,
+    /// Artifact 1.1: slot name -> fillers (rendered by the cell).
+    #[serde(default)]
+    pub slots: Option<serde_json::Value>,
     /// Version 1: template id -> kind and fragment map.
     #[serde(default)]
     pub templates: Option<BTreeMap<String, TemplateDef>>,
@@ -435,6 +441,14 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         let allowed = match top {
             "manifest.json" | "code" | "migrations" | "public" => true,
             "templates" | "public.json" => version >= 1,
+            // Artifact 1.1 (`artifact.md` section 1): only with installed modules.
+            "policies" | "overrides" | "overrides.json" => {
+                version >= 1
+                    && manifest
+                        .modules
+                        .as_ref()
+                        .is_some_and(|m| m.as_array().is_some_and(|a| !a.is_empty()))
+            }
             _ => false,
         };
         if !allowed {
@@ -530,11 +544,19 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
             ));
         }
     }
+    // Artifact 1.1 (V7 extended): `modules/<name>/services` and
+    // `modules/<name>/hooks` are used by the broker, not by a route.
+    let broker_entry = |id: &str| {
+        id.strip_prefix("modules/")
+            .and_then(|r| r.split_once('/'))
+            .is_some_and(|(_, part)| part == "services" || part == "hooks")
+    };
     for id in manifest.code.entry.keys() {
-        if !manifest
-            .routes
-            .iter()
-            .any(|r| !r.module.is_empty() && &r.module == id)
+        if !broker_entry(id)
+            && !manifest
+                .routes
+                .iter()
+                .any(|r| !r.module.is_empty() && &r.module == id)
         {
             return Err(load_err(
                 "V7",

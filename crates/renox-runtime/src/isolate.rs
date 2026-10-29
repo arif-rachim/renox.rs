@@ -55,6 +55,7 @@ use crate::manifest::{Artifact, CodeFormat, LoadError, RouteKind};
 use crate::ops::db::{DbEnv, DbHandle};
 use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
+use crate::ops::modules::ModuleRegistry;
 use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
 use crate::ops::response::{ResponseSinks, StreamEvent, StreamEvents};
@@ -504,6 +505,9 @@ enum ThreadReply {
     Render {
         data_json: String,
         fragments: Vec<String>,
+        /// `setLocale` (ops.md 1.3.0 section 14, "Locale").
+        locale: Option<String>,
+        dir: Option<String>,
         meter: InvocationMeter,
     },
     /// The request ended with a platform error.
@@ -592,8 +596,11 @@ pub struct Pool {
     artifact: Arc<Artifact>,
     router: Arc<Router>,
     allowlist: Arc<Allowlist>,
-    /// The declared secrets (`IsolateSpec::secrets` filtered).
-    secrets: Arc<BTreeMap<String, String>>,
+    /// The declared secrets (`IsolateSpec::secrets` filtered), per module
+    /// (`app` for the app; ops.md 1.3.0 section 3).
+    secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
+    /// The installed modules (ops.md 1.3.0 section 15).
+    modules: Arc<ModuleRegistry>,
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
@@ -633,8 +640,27 @@ impl IsolateHandle {
         let limits = spec
             .limits
             .with_overrides(artifact.manifest.limits.as_ref());
-        // ops.md section 3: only declared secrets; short values refused by name.
-        let declared = secrets::select(&artifact.manifest.permissions.secrets, &spec.secrets);
+        // ops.md 1.3.0 section 15: the installed modules (fail closed).
+        let modules = ModuleRegistry::from_manifest(artifact.manifest.modules.as_ref())
+            .map_err(CreateError::Manifest)?;
+        // ops.md section 3: only declared secrets, per module; short values
+        // refused by name.
+        let mut by_module = BTreeMap::new();
+        by_module.insert(
+            crate::ops::modules::APP.to_string(),
+            secrets::select(&artifact.manifest.permissions.secrets, &spec.secrets),
+        );
+        for m in modules.modules() {
+            by_module.insert(
+                m.name.clone(),
+                secrets::select(&m.permissions.secrets, &spec.secrets),
+            );
+        }
+        let declared: BTreeMap<String, String> = by_module
+            .values()
+            .flatten()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         let redactor = Arc::new(Redactor::new(spec.secrets.values()));
         let sink: Arc<dyn LogSink> = Arc::new(RedactingSink {
             inner: runtime.inner.config.log_sink.clone(),
@@ -665,7 +691,8 @@ impl IsolateHandle {
             artifact,
             router: Arc::new(router),
             allowlist: Arc::new(allowlist),
-            secrets: Arc::new(declared),
+            secrets: Arc::new(by_module),
+            modules: Arc::new(modules),
             sink,
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
@@ -786,6 +813,7 @@ impl Pool {
             limits: self.limits,
             allowlist: self.allowlist.clone(),
             secrets: self.secrets.clone(),
+            modules: self.modules.clone(),
             sink: self.sink.clone(),
             shared: shared.clone(),
         };
@@ -1290,6 +1318,8 @@ impl Pool {
             ThreadReply::Render {
                 data_json,
                 fragments,
+                locale,
+                dir,
                 mut meter,
             } => {
                 meter.route = Some(route_name.clone());
@@ -1332,8 +1362,8 @@ impl Pool {
                         fragment,
                         data_json,
                         oob_fragments: if htmx { fragments } else { Vec::new() },
-                        locale: None,
-                        dir: None,
+                        locale,
+                        dir,
                     }),
                     page: true,
                     body: None,
@@ -1379,7 +1409,8 @@ struct ThreadContext {
     artifact: Arc<Artifact>,
     limits: Limits,
     allowlist: Arc<Allowlist>,
-    secrets: Arc<BTreeMap<String, String>>,
+    secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
+    modules: Arc<ModuleRegistry>,
     sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
 }
@@ -1395,6 +1426,9 @@ struct Platform {
     /// Per route: action name -> function, from the page module's
     /// `export const actions` (empty for every other route).
     actions: Vec<BTreeMap<String, v8::Global<v8::Function>>>,
+    /// Per route: the module that owns it (`app` or an installed module;
+    /// `artifact.md` section 3, "Route merge").
+    owners: Vec<String>,
 }
 
 /// The limit machinery of one isolate thread.
@@ -1486,7 +1520,14 @@ async fn create_worker(
                     .map_err(|e| CreateError::ModuleLoad(e.to_string()))?,
             ),
         }
-        .with_code_cache(&ctx.spec.tenant_id, &ctx.spec.deployment_hash),
+        .with_code_cache(&ctx.spec.tenant_id, &ctx.spec.deployment_hash)
+        .with_modules(
+            ctx.modules
+                .modules()
+                .iter()
+                .map(|m| m.name.clone())
+                .collect(),
+        ),
     );
     let fs: Arc<dyn deno_fs::FileSystem> = Arc::new(deno_fs::RealFs);
     // Step 1: every Deno permission denied, without prompting.
@@ -1548,10 +1589,12 @@ async fn create_worker(
             ctx.spec.tenant_id.clone(),
             ctx.spec.deployment_hash.clone(),
             ctx.sink.clone(),
+            ctx.modules.clone(),
         )));
         state.put(Rc::new(DbEnv {
             db: ctx.spec.db.clone(),
             redactor: Arc::new(Redactor::new(ctx.spec.secrets.values())),
+            modules: ctx.modules.clone(),
         }));
         state.put(LogEnv {
             sink: ctx.sink.clone(),
@@ -1560,8 +1603,13 @@ async fn create_worker(
             deployment_hash: ctx.spec.deployment_hash.clone(),
             lines_per_min: ctx.limits.log_lines_per_min,
         });
-        // Step 3: consumed once by `harden` (op_secrets_get_all).
-        state.put(SecretsState(Some((*ctx.secrets).clone())));
+        // Step 3: consumed once per module by `harden` (op_secrets_get_all).
+        state.put(SecretsState(
+            ctx.secrets
+                .iter()
+                .map(|(m, s)| (m.clone(), Some(s.clone())))
+                .collect(),
+        ));
     }
     let guards = Guards {
         watchdog,
@@ -1569,7 +1617,7 @@ async fn create_worker(
     };
 
     // Step 2: take the bootstrap's functions, remove the handle, harden.
-    let (dispatch, harden) = {
+    let (dispatch, harden, register) = {
         let internal = worker
             .js_runtime
             .execute_script(
@@ -1593,9 +1641,20 @@ async fn create_worker(
             })?;
             Ok(v8::Global::new(scope, f))
         };
-        (get(scope, "dispatch")?, get(scope, "harden")?)
+        (
+            get(scope, "dispatch")?,
+            get(scope, "harden")?,
+            get(scope, "register")?,
+        )
     };
-    let harden_call = worker.js_runtime.call_with_args(&harden, &[]);
+    // Step 3: the module list (ops.md 1.3.0 section 11) goes to `harden`.
+    let modules_json = {
+        deno_core::scope!(scope, &mut worker.js_runtime);
+        let s = v8::String::new(scope, &ctx.modules.to_json())
+            .ok_or_else(|| CreateError::Internal("module list".into()))?;
+        v8::Global::new(scope, v8::Local::<v8::Value>::from(s))
+    };
+    let harden_call = worker.js_runtime.call_with_args(&harden, &[modules_json]);
     worker
         .js_runtime
         .with_event_loop_promise(harden_call, PollEventLoopOptions::default())
@@ -1626,6 +1685,35 @@ async fn create_worker(
         Ok(r) => r?,
     };
     let module_time = module_start.elapsed();
+
+    // Step 5 for modules (ops.md 1.3.0 section 11): the bootstrap checks each
+    // module's services and hooks against its manifest (fail closed).
+    if !ctx.modules.is_empty() {
+        let arg = {
+            deno_core::scope!(scope, &mut worker.js_runtime);
+            let obj = v8::Object::new(scope);
+            for m in ctx.modules.modules() {
+                let entry = v8::Object::new(scope);
+                for part in ["services", "hooks"] {
+                    if let Some(ns) = namespaces.get(&format!("modules/{}/{part}", m.name)) {
+                        let k = v8::String::new(scope, part).expect("short ASCII string");
+                        let v = v8::Local::new(scope, ns);
+                        entry.set(scope, k.into(), v.into());
+                    }
+                }
+                let k = v8::String::new(scope, &m.name)
+                    .ok_or_else(|| CreateError::Manifest("module name".into()))?;
+                obj.set(scope, k.into(), entry.into());
+            }
+            v8::Global::new(scope, v8::Local::<v8::Value>::from(obj))
+        };
+        let call = worker.js_runtime.call_with_args(&register, &[arg]);
+        worker
+            .js_runtime
+            .with_event_loop_promise(call, PollEventLoopOptions::default())
+            .await
+            .map_err(|e| CreateError::ModuleLoad(format!("modules: {}", tenant_safe(&e))))?;
+    }
 
     // Step 5: every route's export must be a function, and every declared
     // action a function of `export const actions` (fail closed).
@@ -1702,16 +1790,34 @@ async fn create_worker(
         }
         (handlers, actions)
     };
+    let owners = manifest.routes.iter().map(route_owner).collect();
     Ok((
         worker,
         Platform {
             dispatch,
             handlers,
             actions,
+            owners,
         },
         guards,
         module_time,
     ))
+}
+
+/// The owner of a route: the module of its `module` id, or of its template
+/// id for an `.html`-only page; else the app.
+fn route_owner(r: &crate::manifest::RouteDef) -> String {
+    let id = if r.module.is_empty() {
+        r.page()
+            .and_then(|p| p.template.clone())
+            .unwrap_or_default()
+    } else {
+        r.module.clone()
+    };
+    id.strip_prefix("modules/")
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or(crate::ops::modules::APP)
+        .to_string()
 }
 
 async fn load_modules(
@@ -1760,6 +1866,9 @@ struct JsOutcome {
     reason: Option<String>,
     /// `KIND_RENDER` after an action: the out-of-band fragment names.
     fragments: Option<Vec<String>>,
+    /// `KIND_RENDER`: `setLocale` (ops.md 1.3.0 section 14, "Locale").
+    locale: Option<String>,
+    dir: Option<String>,
     /// `KIND_OK`: the body streams through `op_response_write` (`ops.md`
     /// section 6).
     stream: Option<bool>,
@@ -2498,8 +2607,9 @@ fn build_args(
         )?,
         None => v8::null(scope).into(),
     };
+    let owner: v8::Local<v8::Value> = serde_v8::to_v8(scope, &platform.owners[job.route])?;
     Ok([
-        handler, token_v, method, url, headers, body, params, want, page, action,
+        handler, token_v, method, url, headers, body, params, want, page, action, owner,
     ]
     .into_iter()
     .map(|l| v8::Global::new(scope, l))
@@ -2564,6 +2674,8 @@ fn finish_dispatch(
             Some(data_json) => ThreadReply::Render {
                 data_json,
                 fragments: o.fragments.unwrap_or_default(),
+                locale: o.locale,
+                dir: o.dir,
                 meter: flight.meter(ctx, MeterStatus::Ok),
             },
             None => page_internal("data_not_serialisable", None),
