@@ -50,7 +50,7 @@ Labels come from `i18n/en.json` and `i18n/ar.json`, keys `gcc.*`. An app overrid
 
 ## Data
 
-The seed (`migrations/002_seed_areas.sql`, as of 2026-10-29) is a starter list of well-known areas per emirate, names in English and Arabic, written for this module. It is not an official registry, and it is not complete. For a full list, use the emirates' official address data (Dubai Municipality's community list and Makani, the Abu Dhabi and Sharjah municipalities). Add areas with your app's own migration through `gcc__public_areas_v1` consumers, or with a later version of this module.
+The seed (`migrations/002_seed_areas.sql`, as of 2026-10-29) is a starter list of well-known areas per emirate, names in English and Arabic, written for this module. It is not an official registry, and it is not complete. For a full list, use the emirates' official address data (Dubai Municipality's community list and Makani, the Abu Dhabi and Sharjah municipalities). Areas are added by a later version of this module (a new migration): an app cannot write `gcc__` tables.
 
 ## Permissions
 
