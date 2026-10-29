@@ -7076,6 +7076,8 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tower",
+ "tracing",
+ "tracing-subscriber",
  "ulid",
 ]
 

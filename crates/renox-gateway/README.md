@@ -72,6 +72,8 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 
 **CORS.** Closed by default: no `Access-Control-*` header for any origin. `cors.origins` lists origins (never `*`); `methods` (default `GET, HEAD, POST`), `headers`, `credentials`, `max_age_s` (600) shape the preflight answer. Same-origin requests need no CORS headers. With `credentials` the session cookie may be `SameSite=None` (`renox-cell`).
 
+**Cookies (#207).** A tenant response's `Set-Cookie` may not reach another tenant's host (`src/security/cookies.rs`; `docs/24-threat-model.md` C, "Cookie tossing between tenants"). A `Domain=` attribute is kept only when it names the request host itself (a leading dot and case are ignored), so on a custom domain the tenant may scope a cookie to that hostname. Any other `Domain=` (the `renox.app` apex, `.renox.app`, a parent of a custom domain, another tenant's host) is removed and the cookie becomes host-only; the response is rewritten, never refused. Each header is rewritten on its own; a malformed one (no `name=`, a name that is not a token, control characters) is dropped. The gateway logs one `warn` per deployment and cookie name with the name and the removed domain, never the value. This holds until `renox.app` is on the Public Suffix List (`ops/psl/README.md`) and stays for custom domains after that. Applies to function and page responses; static files carry no cookies.
+
 `renox check --security` prints the same set per route (`cli/src/check/security.ts`); both test suites assert the same default CSP string.
 
 ## TLS

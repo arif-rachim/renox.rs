@@ -205,6 +205,7 @@ struct Inner {
     connections: Arc<ConnectionLimiter>,
     counters: Counters,
     client_events: client_events::ClientEvents,
+    cookie_warnings: security::cookies::WarnOnce,
 }
 
 /// The gateway. Cheap to clone; clones share the route table and state.
@@ -244,6 +245,7 @@ impl Gateway {
                 connections,
                 counters: Counters::default(),
                 client_events,
+                cookie_warnings: security::cookies::WarnOnce::default(),
             }),
         }
     }
@@ -617,8 +619,8 @@ async fn route<D: CellDispatcher>(
     };
 
     let ctx = RequestCtx {
-        tenant_id: entry.tenant_id,
-        deployment_hash: entry.deployment_hash,
+        tenant_id: entry.tenant_id.clone(),
+        deployment_hash: entry.deployment_hash.clone(),
         request_id: request_id.to_owned(),
         deadline: Instant::now() + inner.config.wall_clock_limit,
         client_ip,
@@ -628,7 +630,44 @@ async fn route<D: CellDispatcher>(
     counters.dispatched.fetch_add(1, Ordering::Relaxed);
     let mut resp = state.dispatcher.dispatch(ctx, req).await;
     security::cors::apply(&info.security.cors, &request_headers, resp.headers_mut());
+    // #207: no tenant cookie may reach another tenant's host.
+    let rewrites = security::cookies::apply(resp.headers_mut(), &host);
+    log_cookie_rewrites(&inner.cookie_warnings, &entry, &rewrites);
     resp
+}
+
+/// One `warn` per cell (deployment) and cookie name, with the name and the
+/// removed domain only: cookie values never reach the log.
+fn log_cookie_rewrites(
+    once: &security::cookies::WarnOnce,
+    entry: &RouteEntry,
+    rewrites: &[security::cookies::Rewrite],
+) {
+    use security::cookies::Rewrite;
+    for r in rewrites {
+        match r {
+            Rewrite::DomainRemoved { name, domain } => {
+                if once.first(&entry.deployment_hash, name) {
+                    tracing::warn!(
+                        tenant_id = %entry.tenant_id,
+                        deployment_hash = %entry.deployment_hash,
+                        cookie = %name,
+                        removed_domain = %domain,
+                        "tenant Set-Cookie Domain removed; the cookie is host-only"
+                    );
+                }
+            }
+            Rewrite::Dropped => {
+                if once.first(&entry.deployment_hash, "") {
+                    tracing::warn!(
+                        tenant_id = %entry.tenant_id,
+                        deployment_hash = %entry.deployment_hash,
+                        "malformed tenant Set-Cookie dropped"
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Paths the gateway answers itself, for every app.

@@ -12,8 +12,11 @@
 //!   gateway overwrites whatever tenant code set for these names.
 //! - `cors.rs`: preflights answered in the gateway; listed origins get the
 //!   `Access-Control-*` headers, everything else none (closed by default).
+//! - `cookies.rs`: tenant `Set-Cookie` rewrite (#207): a `Domain=` other
+//!   than the request host is removed, a malformed cookie is dropped.
 
 pub mod config;
+pub mod cookies;
 pub mod cors;
 pub mod headers;
 
