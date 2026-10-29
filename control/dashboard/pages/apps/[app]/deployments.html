@@ -1,0 +1,42 @@
+<r-layout use="main">
+  <r-group slot="title">Deployments · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
+  <section id="page" r-fragment="page">
+    <h1>Deployments</h1>
+    <x-problem :problem="problem" r-if="problem" />
+    <p class="notice" r-if="notice">{{ notice }}</p>
+    <x-problem :problem="action_problem" r-if="action_problem" />
+    <table class="list" r-if="!problem">
+      <thead><tr><th>Hash</th><th>When</th><th>Status</th><th>Size</th><th>Notes</th><th>Actions</th></tr></thead>
+      <tbody>
+        <tr r-for="d in deployments">
+          <td><a href="?hash={{ d.hash }}"><code>{{ d.short }}</code></a></td>
+          <td>{{ d.when }}</td>
+          <td :class="{ ok: d.state == 'active', bad: d.state == 'rejected' }">{{ d.label }}</td>
+          <td>{{ d.size }}</td>
+          <td>{{ d.error ?? "" }}</td>
+          <td><x-deployment-actions :d="d" /> <a href="?hash={{ d.hash }}">Details</a></td>
+        </tr>
+        <tr r-empty="deployments"><td colspan="6">No deployments yet: run <code>renox deploy</code>.</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Promote makes a validated or earlier deployment live; Rollback makes the previous one live again. Both are a pointer switch after the owning node has prepared the cell, and both are audit-logged.</p>
+    <x-problem :problem="detail_problem" r-if="detail_problem" />
+    <article class="detail" r-if="detail">
+      <h2>Deployment <code>{{ detail.hash }}</code></h2>
+      <dl>
+        <dt>Status</dt><dd>{{ detail.state }}</dd>
+        <dt>Uploaded</dt><dd>{{ detail.uploaded }}</dd>
+        <dt>Activated</dt><dd>{{ detail.activated }}</dd>
+        <dt>Size</dt><dd>{{ detail.size }}</dd>
+        <dt>Network</dt><dd>{{ detail.network }}</dd>
+        <dt>Secrets</dt><dd>{{ detail.secrets }} (set {{ detail.secrets_version }})</dd>
+        <dt r-if="detail.last_error">Activation error</dt><dd class="bad" r-if="detail.last_error">{{ detail.last_error }}</dd>
+      </dl>
+      <r-group r-if="detail.violations">
+        <h3>Violations</h3>
+        <ul><li r-for="v in detail.violations">{{ v }}</li></ul>
+      </r-group>
+    </article>
+  </section>
+</r-layout>

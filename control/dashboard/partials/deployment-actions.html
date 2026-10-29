@@ -1,0 +1,8 @@
+<r-props d="DeploymentRow" />
+<x-form action="activate" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="d.can_activate">
+  <input type="hidden" name="hash" :value="d.hash">
+  <button type="submit" title="Make {{ d.short }} the live deployment">Promote</button>
+</x-form>
+<x-form action="rollback" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="d.can_rollback">
+  <button type="submit" title="Make the previous deployment live again">Rollback</button>
+</x-form>
