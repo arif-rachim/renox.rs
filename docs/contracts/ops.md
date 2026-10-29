@@ -2,13 +2,13 @@
 
 | | |
 | --- | --- |
-| Version | **1.2.0** (F2, #206: streamed response bodies; sections 0, 6, 7, 10, 11, 14). 1.0.0 is implemented by the F1 runtime (#25–#28) and SDK (#31); the additions of 1.1.0 (#153: section 14, the blocked ranges of section 2) are implemented by #40, #41, #44, and #170; the additions of 1.2.0 are implemented by #161. History: "Changelog" at the bottom |
+| Version | **1.3.0** (F4, #226: modules — per-module `ctx`, `renox:modules`, service, hook and event semantics, the event envelope, savepoints, `ctx.config`, passwords, the page locale; sections 1–4, 6–8, 11, 13–16). 1.0.0 is implemented by the F1 runtime (#25–#28) and SDK (#31); the additions of 1.1.0 (#153: section 14, the blocked ranges of section 2) are implemented by #40, #41, #44, and #170; the additions of 1.2.0 are implemented by #161; the additions of 1.3.0 by #229, #230, #231, #233, and #236. History: "Changelog" at the bottom |
 | Producer | `crates/renox-runtime` (P1): implements the ops |
-| Consumers | `sdk/` (P10): types and the `ctx` wrapper; `crates/renox-cell` (P5): request envelope, page dispatch and rendering, meter record |
+| Consumers | `sdk/` (P10): types and the `ctx` wrapper; `crates/renox-cell` (P5): request envelope, page dispatch and rendering, meter record, the module broker's outbox worker (P9, section 15) |
 | TypeScript view | [`ctx.d.ts`](ctx.d.ts): the same surface, one to one |
 | Machine-readable | [`ops.schema.json`](ops.schema.json): arguments, results, and errors of every op; examples under [`examples/ops/`](examples/ops/) (checked by `validate.ts`) |
 | Error catalogue | `errors.md`: HTTP status, tenant guidance, and logged fields for every code in section 13 |
-| Sources | `docs/07-app-model.md` ("The `ctx` surface", "Pages"), `docs/06-data.md` ("The `db` API"), `docs/04-isolation-security.md` (limits, secrets, `fetch`, CSRF), `docs/05-tenant-lifecycle.md` (metering), `crates/renox-runtime/README.md` (how the runtime is built on `deno_runtime`) |
+| Sources | `docs/10-modules.md` (the five mechanisms, cross-module transactions), [`manifest.md`](manifest.md) (what a module declares and the tenant approves), `docs/07-app-model.md` ("The `ctx` surface", "Pages"), `docs/06-data.md` ("The `db` API"), `docs/04-isolation-security.md` (limits, secrets, `fetch`, CSRF), `docs/05-tenant-lifecycle.md` (metering), `crates/renox-runtime/README.md` (how the runtime is built on `deno_runtime`) |
 
 Ops are the only way tenant JavaScript reaches anything outside its isolate. Tenant code never calls an op directly: the runtime's bootstrap script wraps them into `ctx` (and into `console`, `fetch`). The op names are therefore a contract between Rust and the SDK, not a tenant API. A tenant sees only `ctx.d.ts`.
 
@@ -19,6 +19,7 @@ Every limit below is enforced in Rust (`AGENTS.md`, "Per-tenant limits must be e
 - **How ops are exposed.** Every op is a `deno_core` `#[op2]` function in one extension, `renox`, defined in `crates/renox-runtime` and added to the `deno_runtime` worker the crate creates for each deployment. The crate uses `deno_runtime` from crates.io directly, not the Supabase Edge Runtime crates (D3; `crates/renox-runtime/README.md`, "Upstream consumption mode"), so no upstream patch is needed. Not a JavaScript shim over upstream APIs: upstream has no per-request deadline, no egress byte limit, and no DNS-checked allowlist, and SQLite has no upstream op at all. The extension's ESM bootstrap (section 11) is part of the platform snapshot.
 - **Naming.** `op_<area>_<verb>`, snake_case, as registered with `deno_core`.
 - **Async.** Every op that can wait on I/O returns a `Promise`. The runtime may resolve it synchronously when the work is already done; tenant code must not rely on that. `op_log`, `op_deadline_remaining_ms`, `op_secrets_get_all`, and `op_response_end` are synchronous.
+- **Module (1.3.0).** Ops that act for a module (`op_db_*`, `op_fetch`, `op_secrets_get_all`, `op_log`, `op_events_emit`) take the module's name as an argument, `null` meaning the app. The bootstrap fills it from the `ctx` the call came through (section 15.1); tenant code never passes it, and Rust checks it against the artifact's `modules` list.
 - **Request scope.** Every op call is tied to the request whose handler made it. The dispatch wrapper (section 11, step 6) runs each handler inside a fresh **async context** that carries an opaque request token. The mechanism is V8's continuation-preserved embedder data, which `deno_core` exposes and Deno's `AsyncLocalStorage` uses. The token therefore follows every `await`, promise continuation, and timer created by that handler. The bootstrap reads the token from the current async context and hands it to the op; the ops are held in the bootstrap's closures and are unreachable from tenant code, so tenant code can neither supply a token nor act on behalf of another request. Rust keeps the set of live tokens per isolate. **A request ends when its response has ended**: for a static body when the handler's `Response` is handed back, for a streamed body when the stream ends for any reason (section 6, "Response body"). Until then its token is live, so a stream's `pull` may call `ctx.db` or `fetch`. An op called with no token (module top level) or with the token of a request that has ended (a timer that fires after the response) rejects with `RENOX_NO_REQUEST`. The one exception is `op_log`, which then logs with `request_id: null`. `op_secrets_get_all` is consumed by the bootstrap before tenant code runs (section 3). #25 proved that the token follows `await`, timers, and promise continuations (`deno_core` `AsyncVariable`), so concurrent requests share one isolate.
 - **Errors.** An op that fails rejects with a `RenoxError` whose `code` is one of the codes in section 13. Every code there also appears in `errors.md`, which owns HTTP status and tenant guidance, and `validate.ts` checks the sets. The SDK maps codes to the error subclasses in `ctx.d.ts`. An error message never contains a file path, an internal hostname or IP, a stack frame from Rust, or a secret value (`docs/23-failure-modes.md` rule 2).
 - **Cancellation.** When the request's deadline passes or the CPU watchdog fires, every pending op of that request is cancelled. So are they when a streamed response stops early (egress limit, client gone; section 6). Pending promises reject with `RENOX_DEADLINE`, or are dropped with the isolate after `RENOX_CPU_LIMIT` or `RENOX_OOM` (section 10).
@@ -32,18 +33,21 @@ interface RenoxErrorShape { name: string; code: string; message: string; details
 
 ## 1. Database: `op_db_*`
 
-Backs `ctx.db` (`docs/06-data.md`, "The `db` API"). The connection is bound by the runtime to the tenant's own SQLite file and to the calling module's authorizer (`<module>__*` tables, read access to `<dep>__public_*` views). Neither the file nor the module is an argument.
+Backs `ctx.db` (`docs/06-data.md`, "The `db` API"). The connection is bound by the runtime to the tenant's own SQLite file, which is never an argument. Each statement runs under the authorizer of the module it is made for: that module's `<module>__*` tables, and read access to the `<dep>__public_*` views of its declared dependencies (`manifest.md` MF7). From 1.3.0 that module is the op's last argument ("Module argument", below).
 
 ### Signatures
 
 | Op | Arguments | Result |
 | --- | --- | --- |
-| `op_db_query` | `sql: string, params: Param[], tx: number \| null` | `Row[]` |
-| `op_db_query_one` | `sql: string, params: Param[], tx: number \| null` | `Row \| null` (first row; the statement stops after it) |
-| `op_db_execute` | `sql: string, params: Param[], tx: number \| null` | `{ changes: number, lastInsertRowid: number \| bigint }` |
+| `op_db_query` | `sql: string, params: Param[], tx: number \| null, module?: string \| null` | `Row[]` |
+| `op_db_query_one` | `sql: string, params: Param[], tx: number \| null, module?: string \| null` | `Row \| null` (first row; the statement stops after it) |
+| `op_db_execute` | `sql: string, params: Param[], tx: number \| null, module?: string \| null` | `{ changes: number, lastInsertRowid: number \| bigint }` |
 | `op_db_tx_begin` | `mode: "deferred" \| "immediate"` | `number` (transaction handle) |
 | `op_db_tx_commit` | `tx: number` | `void` |
 | `op_db_tx_rollback` | `tx: number` | `void` |
+| `op_db_savepoint_begin` (1.3.0) | `tx: number` | `number` (savepoint handle) |
+| `op_db_savepoint_release` (1.3.0) | `tx: number, sp: number` | `void` |
+| `op_db_savepoint_rollback` (1.3.0) | `tx: number, sp: number` | `void` (rolls back to the savepoint, then releases it) |
 
 ```ts
 type Param = null | number | bigint | string | Uint8Array | boolean;
@@ -59,7 +63,21 @@ We pick explicit `op_db_tx_begin`/`commit`/`rollback` with a handle over a singl
 - One open write transaction per tenant file at a time (SQLite's own rule). `immediate` takes the write lock at `begin`; the SDK uses `immediate` for `db.transaction` so a read-then-write never fails with a busy upgrade.
 - A handle belongs to one request. Statements with `tx = null` while a transaction is open on the same request run outside it on a reader connection.
 - **Every open transaction of a request is rolled back by Rust when the request ends for any reason**: handler returned without commit, throw, deadline, CPU watchdog, or isolate disposal (`docs/23-failure-modes.md`, "Watchdog fires while a DB transaction is open", #89). The writer connection is released before the next request is admitted.
-- Nesting: `tx_begin` while the request already holds a transaction rejects with `RENOX_DB_TX_STATE`. Savepoints are reserved (F4, module broker).
+- Nesting: `tx_begin` while the request already holds a transaction rejects with `RENOX_DB_TX_STATE`. A nested `db.transaction` is a savepoint (1.3.0, below).
+
+### Module argument (1.3.0)
+
+- The fourth argument of `op_db_query`, `op_db_query_one`, and `op_db_execute` names the module the statement is made for; `null` or absent means the app (`app__*` tables). The bootstrap passes the module of the `ctx` whose `db` was called (section 15.1). A name that is neither `app` nor in the artifact's `modules` list rejects with `RENOX_DB_PARAM` (`details.reason: "module"`), before the statement is prepared.
+- The authorizer is chosen **per statement**, so one transaction carries statements of several modules, each under its own authorizer. That is how a cross-module transaction (`docs/10-modules.md`, "Cross-module transactions") stays inside the prefix rule: the broker passes the transaction, never a wider authorizer.
+- A module reads a public view only of a module in its own `dependencies` (the artifact's `modules[].dependencies`); the app may read the public views of every installed module.
+- **The current transaction.** The SDK keeps the handle of the innermost open transaction in the request's async context: the action's (section 14), a `db.transaction` callback's, or the caller's of a service (section 15.2). A callee's `ctx.db` statements run inside the current transaction, so a service called from an action writes in the action's transaction. The app's own `ctx.db` statements keep the 1.2 rule: with `tx = null` they run outside an open transaction on a reader connection; tenant code uses the `tx` argument of `db.transaction` to write inside it.
+
+### Savepoints (1.3.0)
+
+- `db.transaction(fn)` called while a transaction is current (above) does not begin a new one: the SDK calls `op_db_savepoint_begin(tx)`, runs `fn`, then `op_db_savepoint_release` when `fn` resolves, or `op_db_savepoint_rollback` and rethrows when it throws. The outer transaction goes on either way; only the savepoint's statements are undone.
+- Rust names the savepoints (`renox_sp_<n>`); no tenant text reaches a `SAVEPOINT` statement. Tenant SQL that names a savepoint starting with `renox_` is refused by the authorizer (`RENOX_DB_AUTH`, `details.action: "savepoint"`).
+- Savepoints nest last-in, first-out. Releasing or rolling back a savepoint that is not the innermost open one, using a savepoint of another transaction, or opening more than 32 at once rejects with `RENOX_DB_TX_STATE`. Committing or rolling back the transaction ends its open savepoints with it.
+- The end-of-request rule above applies unchanged: Rust rolls back the whole transaction, savepoints included.
 
 ### Parameters and values
 
@@ -110,7 +128,7 @@ We pick explicit `op_db_tx_begin`/`commit`/`rollback` with a handle over a singl
 | `RENOX_DB_QUOTA` | `DbQuotaError` | `SQLITE_FULL` from `max_page_count` |
 | `RENOX_DB_CONSTRAINT` | `DbConstraintError` (`details.kind`: `unique`, `foreign_key`, `not_null`, `check`, `primary_key`) | Constraint violation |
 | `RENOX_DB_SQL` | `DbSqlError` | Syntax error, unknown column, other `SQLITE_ERROR`; message is SQLite's text with no file path |
-| `RENOX_DB_PARAM`, `RENOX_DB_COLUMN_NAME`, `RENOX_DB_MULTI_STATEMENT`, `RENOX_DB_RESULT_LIMIT`, `RENOX_DB_TX_STATE` | `DbUsageError` | See above |
+| `RENOX_DB_PARAM`, `RENOX_DB_COLUMN_NAME`, `RENOX_DB_MULTI_STATEMENT`, `RENOX_DB_RESULT_LIMIT`, `RENOX_DB_TX_STATE` | `DbUsageError` | See above, including the module argument and savepoints (1.3.0) |
 
 ### Example
 
@@ -144,6 +162,7 @@ interface FetchRequest {
   headers: [string, string][];
   body: Uint8Array | null;               // streamed request bodies are reserved (F2)
   redirect: "follow" | "manual" | "error";
+  module?: string | null;                // 1.3.0: whose allowlist applies; null or absent = the app (section 15.1)
 }
 interface FetchResponseHead {
   status: number;
@@ -159,7 +178,7 @@ The SDK builds a standard `Response` from the head and a `ReadableStream` over `
 
 ### Allowlist
 
-Declared in `renox.toml` (per app; a module declares its own in its manifest and the tenant approves it at install):
+Declared in `renox.toml` (per app; a module declares its own in its manifest and the tenant approves it at install, `manifest.md` section 3). From 1.3.0 `FetchRequest.module` selects the list: a module's `fetch` is checked against its own approved list only, never the app's or another module's, and the app's against `manifest.permissions.network`:
 
 ```toml
 [fetch]
@@ -250,11 +269,11 @@ await fetch("http://169.254.169.254/latest/meta-data/");
 
 | Op | Arguments | Result |
 | --- | --- | --- |
-| `op_secrets_get_all` | — | `Readonly<Record<string, string>>` |
+| `op_secrets_get_all` | `module?: string \| null` (1.3.0; `null` or absent = the app) | `Readonly<Record<string, string>>` |
 
-- Called **once** by the runtime bootstrap at isolate creation, before any tenant module is evaluated (section 11, step 3; `docs/04-isolation-security.md`, "Secrets"). The bootstrap freezes the object and exposes it as `ctx.secrets` on every request. Top-level module code has no `ctx` and therefore no secrets. A second call rejects with `RENOX_SECRETS_CONSUMED`. The op table itself is unreachable from tenant code (section 11, step 2), so this is defence in depth.
+- Called **once per module** by the runtime bootstrap at isolate creation, before any tenant module is evaluated (section 11, step 3; `docs/04-isolation-security.md`, "Secrets"): once for the app and, from 1.3.0, once for each module of the artifact's `modules` list. The bootstrap freezes each object and exposes it as `ctx.secrets` on every `ctx` of that module (section 15.1). Top-level module code has no `ctx` and therefore no secrets. A second call for the same module, or a call for a module that is not in the list, rejects with `RENOX_SECRETS_CONSUMED`. The op table itself is unreachable from tenant code (section 11, step 2), so this is defence in depth.
 - Secret values shorter than 8 bytes are refused when secrets are loaded: by the worker in F1, which fails isolate creation with `RENOX_INTERNAL` and logs the secret's **name**, and by `renox secrets set` from F3 (#115). Redacting very short strings would mangle every log line, and refusing them keeps the redaction rule exact.
-- Contains only the secrets the app (or module) declares in `renox.toml` and the tenant has set. A declared but unset secret is absent: no `undefined` key, no empty string. A marketplace module sees only its own declared and approved secrets.
+- Contains only the secrets the app declares in `renox.toml`, or the module's approved `secrets` (`artifact.md` section 3, `modules[].permissions.secrets`), that the tenant has set. A declared but unset secret is absent: no `undefined` key, no empty string. A module sees only its own approved secrets, whose names start with its own prefix (`manifest.md` MF4); the app does not see a module's secrets.
 - Values are decrypted in Rust from the deployment's secret bundle. They never appear in the artifact, the bundle, or any op argument.
 - **Redaction.** Rust keeps the set of secret values of the isolate. Every string that leaves the isolate towards a log or error sink is scanned before it is written: `op_log` message and fields, uncaught errors and their stacks, and `RenoxError` messages built from tenant input. Each occurrence of a secret value is replaced with `[redacted]`. Matching is on exact substrings of the UTF-8 value. Encoded forms (base64, URL-encoded, split across lines) are **not** caught, and this is a documented limitation of version 1, not an open point: tenant code that encodes a secret before logging it is logging it on purpose. Responses to end users are not scanned (cost). The dispatch wrapper never puts error text into a response: the `RENOX_INTERNAL` body has only the fixed message from `errors.md`.
 
@@ -268,10 +287,10 @@ console.log(`key=${ctx.secrets.STRIPE_KEY}`);  // tenant log sink receives "key=
 
 | Op | Arguments | Result |
 | --- | --- | --- |
-| `op_log` | `level: "debug" \| "info" \| "warn" \| "error", message: string, fields: Record<string, JsonValue> \| null` | `void` (never throws) |
+| `op_log` | `level: "debug" \| "info" \| "warn" \| "error", message: string, fields: Record<string, JsonValue> \| null, module?: string \| null` | `void` (never throws) |
 
 - Backs `ctx.log.{debug,info,warn,error}` and `console.*` (`console.log` → `info`, `console.debug` → `debug`, `console.warn` → `warn`, `console.error` → `error`). Non-string `console` arguments are formatted by the bootstrap before the op is called.
-- Rust adds `ts`, `tenant_id`, `deployment_hash`, `request_id`, `module`, and `level`. Tenant fields with those names are moved under `fields.user_<name>`, so tenant code cannot spoof them.
+- Rust adds `ts`, `tenant_id`, `deployment_hash`, `request_id`, `module`, and `level`. `module` is the op's fourth argument (1.3.0: the module of the `ctx` whose `log` or `console` was called, section 15.1; `app` when `null` or absent). Tenant fields with those names are moved under `fields.user_<name>`, so tenant code cannot spoof them.
 - Secret values are redacted as in section 3.
 - Limits: message 8 KB, serialized fields 16 KB. Longer values are truncated with a `…[truncated N bytes]` suffix.
 - Rate limit per tenant: 1,000 lines per minute free / 10,000 paid. Over the limit, lines are **dropped**, not queued. `logs_dropped` in the meter record counts them, and one summary line `{"dropped": N}` is written when the window resets. Dropping never blocks or fails the handler.
@@ -355,7 +374,7 @@ await op_response_write(new Uint8Array([104, 105]));  // resolves once Rust hold
 op_response_end(null);                                // the body is complete
 ```
 
-Page modules export `load` and `actions` (section 14). Reserved exports: `guard` for pages (F5, with `authz`); `ws` for WebSocket (F5); `sse` (F5); `schedule` for jobs (F6); `cors` and `frame` options (F2, `artifact.md` Open 6).
+Page modules export `load` and `actions` (section 14). Module trees add `services.ts` and `hooks.ts` (section 15), and an event handler is invoked with the event envelope of section 15.4, not a `Request`. Reserved exports: `guard` for pages (F5, with `authz`); `ws` for WebSocket (F5); `sse` (F5); `schedule` for jobs (F6); `cors` and `frame` options (F2, `artifact.md` Open 6).
 
 ## 7. Meter record (emitted, not an op)
 
@@ -380,6 +399,8 @@ Types, units, and the `status` values are defined in [`meter.md`](meter.md) sect
 - `http_status` is the status sent in the head, even when the stream was cut later;
 - `status` is the cause of the end: `ok` for the normal end and for a client that went away, `timeout`, `cpu_limit` or `oom` for a kill mid-stream, `error` for the egress limit and for a failed stream (section 10, "Mid-stream").
 
+**Modules (1.3.0).** A service call, a hook, and an in-memory event handler run inside the invocation that made them, so their CPU, `db_*`, and `fetch_*` are part of that invocation's one record. Each **event delivery** attempt (section 15.4) is an invocation of its own and gets its own record (`meter.md` 0.2, section 2, "Event records"): `kind: "event"`, `route` = `EVENT <module> <name>` (the handling module and the event name), `request_id` = `<event id>_<module>_<attempt>`, and `status` from section 10 (`ok` when the handler resolved, `error` when it threw). Each password op adds 1 ms to `cpu_ms` (section 16).
+
 ## 8. Reserved ops and `ctx` fields
 
 Not available yet. Names are reserved so nothing else takes them. `form`, `session.id`, `fragment`, and `action` are available to pages since 1.1.0 (section 14).
@@ -388,7 +409,7 @@ Not available yet. Names are reserved so nothing else takes them. `form`, `sessi
 | --- | --- |
 | `render` (`op_render_*`), `webhook` (`verify`), streamed `fetch` request bodies | F2 |
 | `kv` (`op_kv_*`) | F2 |
-| `auth`, session data beyond `session.id` (from the `auth` module), `config`, `events` (`op_events_emit`), `hooks` (`op_hooks_run`), savepoints in `db` | F4 |
+| `op_hooks_run` and the other cross-isolate broker ops of `isolate` mode (section 15.6). `config`, `events`, `hooks`, `services`, `password`, savepoints, and `setLocale` are available since 1.3.0; `auth` and session data beyond `session.id` are services of the `auth` module (`manifest.md`), not ops, so nothing is reserved for them | F4 (later issue) |
 | `authz` (`op_authz_*`), `realtime` (`op_realtime_*`), `db.scoped()` | F5 |
 | `datasource(name)` (`op_datasource_*`) | F6–F7 |
 | `ai` (`op_ai_*`), `domains` (`op_domains_*`) | F7 |
@@ -461,12 +482,12 @@ The sequence from an empty worker to a dispatched request. Each step finishes be
    - No environment variables, no remote modules, no npm resolution at runtime (dependencies are inside the artifact). The module loader serves the artifact's `code/` under a virtual root (`file:///<path>`), so no path of the machine is visible.
    - The isolate starts from the platform snapshot, built once per process: Web APIs plus the `renox` extension's ESM bootstrap.
 2. **Capture and harden.** The bootstrap takes the op functions it needs into private closures, then changes the global scope as in the table below. After this step tenant code cannot reach `Deno.core` or the op table.
-3. **Secrets.** The bootstrap calls `op_secrets_get_all` once, freezes the result, and keeps it in a closure (section 3).
-4. **Tenant modules.** The runtime imports every module listed in `manifest.code.entry` (`artifact.md` section 3): files under `code/` for `esm-dir`, or `file:///<path>` inside `bundle.eszip` for `eszip`. Top-level module code runs here, outside any request: `console` works (logged with `request_id: null`); `fetch`, `ctx.db` and the other ops reject with `RENOX_NO_REQUEST`. The module-evaluation limits of section 10 apply.
-5. **Handler lookup.** For each `manifest.routes[]` entry, the bootstrap checks that the module's `export` is a function and builds the matcher of `artifact.md` section 3 ("Route objects"). A missing or non-function export fails the deployment as a whole (fail closed, `RENOX_INTERNAL`, logged with the route). `renox check` catches it before deploy.
+3. **Modules and secrets.** Rust passes the artifact's module list to the bootstrap's init function (1.3.0; `ops.schema.json` `$defs/moduleInfo`: each module's name, isolation, dependencies, resolved config, approved permissions, and exports, copied from `artifact.md` section 3, "Modules"). For the app and for each module the bootstrap calls `op_secrets_get_all` once, freezes the result, and keeps it in a closure (section 3).
+4. **Tenant modules.** The runtime imports every module listed in `manifest.code.entry` (`artifact.md` section 3), including each installed module's `services` and `hooks` entries (1.3.0), in the order of the `modules` list, then the app's: files under `code/` for `esm-dir`, or `file:///<path>` inside `bundle.eszip` for `eszip`. Top-level module code runs here, outside any request: `console` works (logged with `request_id: null`); `fetch`, `ctx.db` and the other ops reject with `RENOX_NO_REQUEST`. The module-evaluation limits of section 10 apply.
+5. **Handler lookup.** For each `manifest.routes[]` entry, the bootstrap checks that the module's `export` is a function and builds the matcher of `artifact.md` section 3 ("Route objects"). A missing or non-function export fails the deployment as a whole (fail closed, `RENOX_INTERNAL`, logged with the route). `renox check` catches it before deploy. From 1.3.0 the same rule covers modules (section 15): every name in a module's `exports.services` must be a function export of its `services.ts`; every key of its `hooks.ts` `hooks` export must be a hook in its approved `permissions.hooks`, with a `handle` function (a filler the manifest does not declare is refused); every value of its `on` export must be a function. A key of `on` naming an event that no installed module exports is logged once and never called.
 6. **Request dispatch.** For each request, Rust calls the bootstrap's dispatch function with a fresh request token, the matched route, the route parameters, and the request head and body stream. The bootstrap:
    - enters a new async context carrying the token;
-   - builds the `Request` and a frozen per-request `ctx` (section 6);
+   - builds the `Request` and a frozen per-request `ctx` (section 6) for the route's owner: the app, or the module whose route it is (section 15.1);
    - calls the handler and awaits a `Response`;
    - checks it, hands back the head (with a static body, or `body: "stream"`), and, for a streamed body, writes it chunk by chunk with `op_response_write` and ends it with `op_response_end` (section 6, "Response body").
    When the request ends for any reason (for a streamed body: when the stream ends, section 0), Rust:
@@ -533,6 +554,9 @@ One table, shared by Rust (`crates/renox-runtime`, `crates/renox-cell`) and Type
 | `RENOX_FETCH_EGRESS_LIMIT` | thrown | `op_fetch`, `op_fetch_body_read` | `FetchEgressLimitError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
 | `RENOX_NO_REQUEST` | thrown | any op outside a live request | `RenoxError` | — (there is no request to end) | — |
 | `RENOX_SECRETS_CONSUMED` | thrown | `op_secrets_get_all` after bootstrap | `RenoxError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
+| `RENOX_MODULE_UNDECLARED` | thrown | broker (section 15): a service call, hook run, or event emit the caller's manifest does not allow | `ModuleUndeclaredError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
+| `RENOX_MODULE_SERVICE` | thrown | broker: a service, hook filler, or in-memory event handler of another module threw (section 15.2) | `ModuleServiceError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
+| `RENOX_EVENT_PAYLOAD` | thrown | `op_events_emit`: the payload does not match the event's exported schema, is not JSON, or is too large (section 15.4) | `EventPayloadError` | uncaught → 500 `RENOX_INTERNAL` | `error` |
 | `RENOX_DEADLINE` | both | deadline (section 10) | `DeadlineError` | 504 `RENOX_DEADLINE` | `timeout` |
 | `RENOX_CPU_LIMIT` | response | CPU watchdog | — | 503 `RENOX_CPU_LIMIT` | `cpu_limit` |
 | `RENOX_OOM` | response | heap limit | — | 503 `RENOX_OOM` | `oom` |
@@ -560,6 +584,7 @@ export async function load(ctx: LoaderContext): Promise<object | Response>;
 | --- | --- | --- |
 | `fragment` | `string \| null` | The fragment the cell will render (`artifact.md` section 3, "Fragment selection"), or `null` for a full page. A loader may skip queries the fragment does not need |
 | `session` | `Session` | Below |
+| `setLocale(locale, dir?)` | method (1.3.0) | Sets the page's locale and direction ("Locale", below) |
 
 - `params` are the route parameters, as for functions. `db` is the plain `Db` (no implicit transaction).
 - Returning a `Response` sends it as is: nothing is rendered (a redirect, JSON, custom HTML, a 404).
@@ -581,6 +606,7 @@ export const actions: Record<string, (ctx: ActionContext) => Promise<ActionResul
 | `fragment` | `string \| null` | As for the loader: the fragment selected by `HX-Target`, if any |
 | `session` | `Session` | Below |
 | `db` | `DbStatements` | **The action's transaction** (below). No `transaction()` method |
+| `setLocale(locale, dir?)` | method (1.3.0) | As for the loader |
 
 **CSRF, before the action.** The cell checks the token before the request reaches the isolate (`docs/04-isolation-security.md`, CSRF). The token comes from the `x-renox-csrf` header (htmx, through the platform client script) or from the `_csrf` form field (`<x-form>`, `<x-csrf>`, `docs/08-template-engine.md`). It must match the double-submit cookie `__Host-renox_csrf`, which is bound to the session. A missing or wrong token is 403 `RENOX_CSRF` and no tenant code runs. Tenant code never sees or handles the token. Function routes are not CSRF-checked: they are APIs, and webhooks under `functions/webhooks/` verify signatures instead.
 
@@ -623,10 +649,10 @@ interface Session { readonly id: string }
 
 `ops.schema.json` (`$defs/page_dispatch`) fixes the exchange between the cell and the bootstrap for one page invocation. It is not an op: Rust calls the bootstrap's dispatch function, as for functions (section 11, step 6).
 
-- **Invocation** (Rust → bootstrap): `route` (the pattern), `phase` (`"load"` or `"action"`), `action` (the name, or `null` for `load`), `fragment` (name or `null`), `params`, and `session` (`{ id }`).
+- **Invocation** (Rust → bootstrap): `route` (the pattern), `phase` (`"load"` or `"action"`), `action` (the name, or `null` for `load`), `fragment` (name or `null`), `params`, and `session` (`{ id }`). From 1.3.0, optionally `module`: the installed module whose page it is (absent for the app's pages), so the bootstrap builds that module's `ctx` (section 15.1).
 - **Result** (bootstrap → Rust), one of:
   - `{ "type": "response" }`: the handler returned a `Response`; its head and body go back as for functions (section 6, "Response body"), a streamed body included.
-  - `{ "type": "render", "data_json": "...", "fragments": [...] }`: the template data and the out-of-band fragment names (`[]` after `load`). The bootstrap serialises the data with `JSON.stringify` inside V8, and the cell parses the string straight into the renderer's values (the B9 path, #10). Serialisation rules: `bigint` becomes a decimal string, `Date` its ISO string (`toJSON`), `undefined` and functions are dropped, a `Uint8Array` or a cycle is 500 `RENOX_INTERNAL`, and so is data over 8 MiB of JSON *proposed*.
+  - `{ "type": "render", "data_json": "...", "fragments": [...], "locale"?: "...", "dir"?: "ltr" | "rtl" }`: the template data, the out-of-band fragment names (`[]` after `load`), and, from 1.3.0, the locale and direction set with `setLocale` (absent = `en`, `ltr`; "Locale", below). The bootstrap serialises the data with `JSON.stringify` inside V8, and the cell parses the string straight into the renderer's values (the B9 path, #10). Serialisation rules: `bigint` becomes a decimal string, `Date` its ISO string (`toJSON`), `undefined` and functions are dropped, a `Uint8Array` or a cycle is 500 `RENOX_INTERNAL`, and so is data over 8 MiB of JSON *proposed*.
   - `{ "type": "internal", "reason": "..." }`: the handler threw (`threw`), or its result broke a rule above (`load_result`, `action_result`, `data_not_serialisable`, `data_too_large`, `no_template` for an object from a `.ts`-only page). The client gets 500 `RENOX_INTERNAL`; the reason and the redacted error go to the tenant log only.
 
 ### Rendering
@@ -635,6 +661,15 @@ interface Session { readonly id: string }
 - A render limit ends the request with 500 `RENOX_RENDER_LIMIT` (meter `status: render_limit`), answered with the error page of `errors.md` section 1.
 - The cell adds two values to the template data that tenant code cannot set: the CSP nonce for `<x-script>` and the platform's `<script>`/`<style>` tags, and the CSRF token for `<x-form>` and `<x-csrf>`. They live outside the tenant's data object, so a loader key with the same name cannot replace them.
 - Page responses get `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store` unless the loader returned a `Response`, and `Vary: HX-Request, HX-Target`.
+
+### Locale (1.3.0)
+
+The renderer needs the page's language and direction for `<html lang dir>`, for the `money`, `date`, and `number` filters, and for RTL (`docs/08-template-engine.md`, "RTL"; #233 reads them).
+
+- `setLocale(locale: string, dir?: "ltr" | "rtl")` on `LoaderContext` and `ActionContext` sets them for the current page invocation. `locale` is a BCP 47 tag of at most 35 characters matching `^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`; anything else throws a `RangeError` in the bootstrap. Without `dir`, the direction is `rtl` for the languages `ar`, `fa`, `he`, `ur`, `ps`, `sd`, `ug`, `yi`, `dv`, `ckb`, and `ltr` otherwise. The last call wins.
+- Defaults when nothing calls it: `en` and `ltr`. The `i18n` module (`manifest.md` section 8) does not set them behind the loader's back: its `detectLocale` service returns `{ locale, dir }`, and the loader passes them on.
+- They cross in the page result (above), are platform values outside the tenant's data object like the CSP nonce (section 14, "Rendering"), and apply to the error page of the same request. For a streamed page (below) the shell is rendered with the values set before the shell delay ends.
+- `ratelimit[].key = "user"` (`artifact.md` section 3, "Security") stays reserved: it needs the `auth` module's user, which F4 delivers as a service, not as a platform value.
 
 ### Streaming the shell (1.2.0)
 
@@ -650,7 +685,151 @@ interface Session { readonly id: string }
 
 ### TypeScript view
 
-`ctx.d.ts`: `LoaderContext`, `ActionContext`, `ActionResult`, `Session`, `Loader`, `Action`, `PageModule`, and the dispatch types `PageInvocation` and `PageResult`.
+`ctx.d.ts`: `LoaderContext`, `ActionContext`, `ActionResult`, `Session`, `Loader`, `Action`, `PageModule`, `TextDirection`, and the dispatch types `PageInvocation` and `PageResult`.
+
+## 15. Modules (1.3.0)
+
+The runtime side of `docs/10-modules.md`: what the bootstrap and the cell do with the modules an artifact carries (`artifact.md` section 3, "Modules", which copies `renox.lock`, `manifest.md` section 5). The app itself is the module `app`: it has the app's `permissions`, no `config` (an empty object), no dependencies, and may call every installed module.
+
+Each mechanism of `docs/10-modules.md` maps to one rule here or in a sibling contract:
+
+| `docs/10-modules.md` | Where |
+| --- | --- |
+| Isolation modes `shared` / `isolate` (D12) | 15.6 |
+| Service call (`renox:modules`, the broker supplies the callee's `ctx`) | 15.1, 15.2 |
+| Event, in-process and durable (D14) | 15.4; the envelope in 15.4, "Delivery" |
+| Hook | 15.3 |
+| Public view | Section 1, "Module argument"; `manifest.md` MF6, MF7 |
+| Slot | `artifact.md` section 3, "Modules" (the slot registry); rendered by the cell like a partial (section 14, "Rendering") |
+| Cross-module transactions | Section 1, "Module argument" (the current transaction) and "Savepoints"; 15.2 |
+| Overrides | `artifact.md` section 3, "Modules" (`overrides/`, V20) |
+| Migrations in topological order | `artifact.md` section 3, "Modules" (the `modules` order); `manifest.md` section 5 |
+| `renox-modules.d.ts` | `manifest.md` section 1; #236 |
+
+The failure modes of the broker and the outbox are testable by these rules:
+
+| `docs/23-failure-modes.md` row | Rule |
+| --- | --- |
+| "Module service throws" | 15.2, "Errors": `RENOX_MODULE_SERVICE` with `module` and `service`, the enclosing transaction rolled back |
+| "Event handler fails repeatedly" | 15.4, "Delivery": 8 attempts with backoff, then dead-letter |
+| "Outbox or logs grow unbounded" | 15.4, "Outbox limits": the payload cap, pruning of delivered rows, the dead-letter cap, the tenant file quota |
+| "Module contract broken on upgrade" | `manifest.md` MF7 at build; at run time 15.2: a call outside the caller's dependencies is `RENOX_MODULE_UNDECLARED`, never a silent call. `docs/24-threat-model.md`, "Module calling a service or hook it did not declare", is the same rule |
+
+### 15.1 Per-module `ctx`
+
+For each request, the bootstrap builds a frozen `ctx` for each module that runs in it: the route's owner (section 11, step 6) and every module reached by a service call, hook, or in-memory event during the request. A module's `ctx` is built once per request and reused. It differs from the app's `ctx` only in what is bound to the module:
+
+| Field | Bound to the module |
+| --- | --- |
+| `db` | Every statement carries the module's name as its `module` argument (section 1), so it runs under that module's authorizer; inside a current transaction it runs in that transaction |
+| `fetch` | `FetchRequest.module` is the module: its own approved `network` list, nothing else (section 2) |
+| `secrets` | The frozen object of `op_secrets_get_all(module)` (section 3) |
+| `log`, `console` | Lines carry `module` (section 4). `console` is shared by every module of a `shared` context, so its lines are attributed to the module of the `ctx` the current async context runs for (below) |
+| `config` | The module's resolved config from the artifact (`modules[].config`), frozen. The app's is `{}` |
+| `module` | The module's name (`"app"` for the app) |
+| `services`, `events`, `hooks` | The caller-side objects of 15.2–15.4, checked against this module's manifest |
+
+The request's `req`, `url`, `params`, `headers`, `deadline`, `session`, `fragment`, and `setLocale` are the same objects in every module's `ctx`. The deadline and the CPU limit are the request's: a service call does not get a budget of its own.
+
+The bootstrap marks the async context with the module whose code runs (as it marks the request, section 0), so code that runs without a `ctx` in hand (`console`, `renox:modules` members called from a helper) is attributed to the right module.
+
+**What this boundary is.** In `shared` mode every module runs in one JavaScript context with shared globals (D12). The per-module `ctx` makes the declared permissions the ones that apply: the authorizer, the allowlist, and the secrets are enforced in Rust from the `module` argument. It does not stop module code from reaching another module's `ctx` through shared globals (a patched prototype sees the objects passed through it). That is the reason D12 runs other people's modules `isolate`, and why `shared` is for the tenant's own and the official modules.
+
+### 15.2 Service calls: `renox:modules` and `ctx.services`
+
+```ts
+import { billing } from "renox:modules";             // or ctx.services.billing
+const plan = await billing.getActivePlan(user.id);   // the broker supplies billing's ctx
+```
+
+- **Resolution.** `renox:modules` is a virtual module served by the runtime's module loader. It is resolved **per importing module**: the loader knows the referrer's path (`code/modules/<name>/…`, or the app's code), so each module gets its own instance, bound to it as the caller. It has one named export per installed module; each export is a frozen object with one function per name in that module's `exports.services`, and nothing else. `ctx.services` holds the same objects. Calling a member outside a request rejects with `RENOX_NO_REQUEST`.
+- **Dependency check.** A call to a module that is not in the caller's `dependencies` rejects with `RENOX_MODULE_UNDECLARED` (`details: { module: <caller>, target: <callee> }`) before any callee code runs. The app may call every installed module. `manifest.md` MF7 finds the same mistake at build; this check is the run-time guarantee. Cycles are rejected at build (`manifest.md` MF5), not at call.
+- **The call.** The broker calls the callee's `services.ts` export as `fn(calleeCtx, ...args)` and returns its result. `calleeCtx` is the callee's `ctx` for this request (15.1): same user (`session`), request id, deadline, and **current transaction** (section 1). In `shared` mode the arguments and the result are passed by reference, with no copy and no serialisation (D12); a callee must not keep them past the call.
+- **Errors.** When the callee throws (or its promise rejects), the caller gets a `ModuleServiceError` with `code: "RENOX_MODULE_SERVICE"`, `details: { module, service, cause_code }`: `module` and `service` name the callee, `cause_code` is the callee error's `code` when it was a `RenoxError` and `null` otherwise. The error also carries `module` and `service` as fields of its own (`service` is `null` when a hook filler or an event handler threw, whose `details` name the `hook` or `event` instead of `service`). The callee's error (redacted, section 3) goes to the tenant log with the callee's `module`; the caller's `message` is `"<module>.<service> failed"` plus the callee error's message. **If the call was made inside a transaction, Rust rolls that transaction back at once**: later statements on it and its commit reject with `RENOX_DB_TX_STATE`, so a caller that catches the error can still answer, but nothing of the transaction is kept (`docs/23-failure-modes.md`, "Module service throws"). A `RENOX_MODULE_SERVICE` from a nested call is wrapped again by each module it passes through.
+- **Limits.** Calls nest at most 16 deep; a deeper call rejects with `RENOX_MODULE_SERVICE` (`cause_code: null`, message `"call depth"`) without running. Recursion inside a module is ordinary JavaScript.
+
+### 15.3 Hooks: `ctx.hooks.run`
+
+```ts
+const r = await ctx.hooks.run("auth.after_login", { user_id });   // in auth
+if (r.halt) return r.response;
+```
+
+- **Who may run.** Only the module that exports the hook point (`exports.hooks`) may run it; any other caller gets `RENOX_MODULE_UNDECLARED`.
+- **Fillers.** The fillers are the modules whose approved `permissions.hooks` lists the hook and whose `hooks.ts` exports `hooks[name] = { priority?, handle(ctx, args) }` (section 11, step 5 refuses a filler the manifest does not declare). They run one after another in ascending `priority` (default 100, 0–1000), ties by module name. Each runs with its own module's `ctx`, in the caller's current transaction.
+- **Results.** A filler returns `undefined` to continue, or `{ halt: true, response }` (`response` a `Response`) to stop: the remaining fillers are skipped and `run` resolves to `{ halt: true, response, module }`. When every filler continued, `run` resolves to `{ halt: false }`. Any other return value is treated as a throw (`TypeError`).
+- **Errors.** A filler that throws ends the run: the caller gets `RENOX_MODULE_SERVICE` with `details: { module: <filler>, hook: <name>, cause_code }`, and the current transaction is rolled back, as for a service (15.2).
+- `args` are passed by reference in `shared` mode. The exported `args` schema is documentation and the source of the types in #236; it is not validated at run time.
+
+### 15.4 Events: `ctx.events.emit` and `op_events_emit`
+
+```ts
+const id = await ctx.events.emit("billing.invoice_paid", { invoice_id, user_id, amount });   // durable
+await ctx.events.emit("billing.cart_changed", { cart_id }, { durable: false });              // in-memory
+```
+
+| Op | Arguments | Result |
+| --- | --- | --- |
+| `op_events_emit` | `name: string, payload_json: string, durable: boolean, module: string \| null, tx: number \| null` | `string`: the event id (a ULID) |
+
+- **Who may emit.** A module emits only the events it exports (`exports.events`, names `<module>.<event>`). Any other name rejects with `RENOX_MODULE_UNDECLARED`. The app exports no events in F4 (Open 8).
+- **Payload.** The bootstrap serialises the payload with `JSON.stringify` (rules of section 14, "Page dispatch"). Rust parses it and validates it against the event's exported `payload` schema. A payload that is not JSON-serialisable, does not match, or is over 64 KiB of JSON rejects with `RENOX_EVENT_PAYLOAD`, `details: { event, reason }` (`reason`: `"schema"`, `"not_json"`, `"too_large"`), and nothing is written or run.
+- **Durable** (default, D14). Rust inserts the event into the platform table `renox__outbox` **in the current transaction** (`tx`; with `tx = null`, as its own autocommit write), so a transaction that rolls back never delivers its events, and a committed one always does. The op resolves with the id once the row is written; handlers run later, after the commit, by the cell's outbox worker ("Delivery").
+- **In-memory** (`{ durable: false }`). Rust validates the payload and returns an id; nothing is stored. The bootstrap then runs, before `emit` resolves, the `on[name]` handler of every installed module that has one, in the `modules` order (the app last), each with its own module's `ctx` and the emitter's current transaction. A handler that throws fails the `emit` with `RENOX_MODULE_SERVICE` (`details: { module: <handler>, event: <name>, cause_code }`) and rolls back the current transaction; uncaught, it fails the request (`docs/10-modules.md`, "Handler fails: request fails").
+- **Handlers** are the `on` export of each module's `hooks.ts`: `on[name] = async (ctx, e) => void`, with `e = { id, name, payload, attempt }`. A module may handle any exported event without a declared dependency.
+
+#### Delivery (durable events)
+
+The outbox worker of the cell is woken by SQLite's `update_hook` on `renox__outbox` (D14), not by polling. For each event and each module with an `on` handler for it, there is **one delivery**, with its own attempts: one failing handler does not re-run the others. Deliveries go to the deployment that is active when they run, not the one that emitted.
+
+The cell invokes the bootstrap with the **event envelope** (`ops.schema.json` `$defs/event_dispatch`), alongside the request envelope of section 6:
+
+```json
+{ "kind": "event", "id": "01JBQ3Z7MA0000000000000001", "name": "billing.invoice_paid", "payload": { "invoice_id": "inv_1", "user_id": "u_1", "amount": 4200 }, "attempt": 1, "module": "email" }
+```
+
+- The handler runs with a **fresh `ctx`** of its module: `db` is its own `IMMEDIATE` transaction opened by the bootstrap (a `DbStatements`, like an action's), and there is no `req`, `url`, `params`, `headers`, `session`, or user. `ctx.event` holds `{ id, name, attempt }`.
+- It runs under the tier's CPU and wall-clock limits per attempt (section 10), with the same token and cancellation rules as a request.
+- When the handler resolves, the bootstrap commits its transaction, and Rust records the delivery as done **in the same transaction**, so the handler's writes and its acknowledgement commit together. A throw, a limit, or a crash before the commit is a **failed attempt**: the transaction rolls back, and nothing of the attempt is kept.
+- The result crosses back as `{ "type": "ok" }` or `{ "type": "failed", "reason": "threw" | "no_handler" }` (`no_handler`: the active deployment has no `on` handler for it any more; the delivery is dropped and logged, not retried).
+- **Retries.** A failed attempt is retried after 10 s × 2^(attempt − 1), capped at 1 h, with ± 20 % jitter; after the 8th failed attempt the delivery is **dead-lettered**: kept with its last error (redacted), shown in the dashboard and in the `jobs` module (F6), never retried on its own (`docs/23-failure-modes.md`, "Event handler fails repeatedly"). The numbers are *proposed* (Open 5).
+- **Guarantee.** At-least-once per (event, module): a handler may see the same `id` again after a crash between its commit and the worker's bookkeeping, or after a deadline. Handlers are idempotent using `e.id` (`docs/10-modules.md`).
+- Each attempt gets its own meter record and log lines with `module`, `event`, `event_id`, `attempt` (section 7).
+
+#### Outbox limits
+
+- A payload is at most 64 KiB of JSON (above).
+- Delivered and dropped rows are pruned 7 days after delivery. Dead letters are kept up to 10,000 per tenant; past that the oldest is deleted and one log line says so (`docs/23-failure-modes.md`, "Outbox or logs grow unbounded").
+- The outbox lives in the tenant's SQLite file and counts against its quota: an `emit` into a full file rejects with `RENOX_DB_QUOTA`, like any write.
+
+### 15.5 Config: `ctx.config`
+
+`ctx.config` is the module's resolved `[config]` (`manifest.md` section 2): every declared key that has a value, from `renox.toml` or the default, typed `string`, `number` (an `int` key), or `boolean`, frozen. It is the same object for every request of a deployment. A config change is a new lock, so a new artifact and deployment: there is no run-time reload. Secrets are never in config.
+
+### 15.6 Isolation modes (D12)
+
+- **`shared`** (default): what this section describes. Every `shared` module and the app run in the deployment's one JavaScript context; calls are plain function calls.
+- **`isolate`**: the module runs in an isolate of its own, with its own heap limit, inside the tenant's process. Service calls, hooks, and in-memory events then cross between isolates with structured-clone semantics (no functions, no shared objects; a `Response` crosses as status, headers, and body bytes), through broker ops reserved here (`op_hooks_run` and the call ops, section 8). The checks of 15.2–15.4 are the same. Not implemented in F4 (Open 7).
+- Whatever the mode, table permissions are enforced by the authorizer and network permissions by `op_fetch`, from the `module` argument, never by JavaScript convention (`docs/10-modules.md`).
+
+## 16. Passwords: `op_password_hash`, `op_password_verify` (1.3.0)
+
+Argon2id with the parameters of `docs/24-threat-model.md` needs 64 MiB per hash: more than a free-tier tenant heap (128 MB) can give, and seconds of CPU the tenant's limit does not have. So password hashing is a Rust op, for the `auth` module and any tenant code, as `ctx.password`.
+
+| Op | Arguments | Result |
+| --- | --- | --- |
+| `op_password_hash` | `password: string` | `string`: a PHC string `$argon2id$v=19$m=65536,t=3,p=1$<salt>$<hash>` |
+| `op_password_verify` | `password: string, hash: string` | `boolean` |
+
+- **Parameters.** Argon2id, version 0x13, m = 65,536 KiB (64 MiB), t = 3, p = 1, a 16-byte random salt from the OS, a 32-byte output. `verify` reads the parameters from the PHC string, so hashes made with other parameters keep verifying; it accepts only `argon2id` and parameters no larger than the platform's (a hash asking for more memory or time resolves `false`, so a crafted hash cannot exhaust the pool). A malformed hash resolves `false`. Comparison is constant-time.
+- **Input.** `password` is a string of 1 to 1,024 UTF-8 bytes with no lone surrogates; the bootstrap throws a `RangeError` before the op for anything else, so it never crosses. A password is never logged, never in an error message, and never in a meter record.
+- **Off the isolate thread.** The hash runs on the platform's password pool (one thread per two cores *proposed*, outside the tenant's isolate and heap). At most 2 password ops of one tenant run at once *proposed*; further calls wait. The wait and the hash count against the request's **wall-clock deadline** (a pending op rejects with `RENOX_DEADLINE` and its pool slot is released when the hash ends).
+- **Metering.** Each call adds **1 ms to the request's `cpu_ms`** and to the CPU limit check, whatever the hash really took; the pool's real CPU is platform time (Open 6).
+- **Rate guidance for `auth`** (and #100): each login, registration, or reset attempt costs one op, so the `auth` module must rate-limit them before calling `verify`: per account (5 failed attempts per 15 minutes, then a delay) in its own tables, and per IP with a `security.ratelimit` bucket on its login route (`artifact.md` section 3; `key = "user"` stays reserved). A tenant that calls `hash` in a loop is bounded by its CPU limit (50 calls per free request) and by the per-tenant concurrency above.
+
+`ctx.password` in `ctx.d.ts`: `hash(password): Promise<string>`, `verify(password, hash): Promise<boolean>`.
+
+Types for section 15 in `ctx.d.ts`: `Ctx.module`, `Ctx.config` (`ModuleConfig`), `Ctx.services` (`Services`), `Ctx.events` (`Events`, `EmitOptions`), `Ctx.hooks` (`Hooks`, `HookRunResult`), `ServicesModule`, `HooksModule` (`HookFiller`, `HookFillerResult`, `EventHandler`, `EventContext`, `EventInfo`, `DeliveredEvent`), the dispatch types `EventEnvelope`, `EventResult`, `ModuleInfo`, and the errors `ModuleUndeclaredError`, `ModuleServiceError`, `EventPayloadError`.
 
 ## Verification by implementing issues
 
@@ -664,6 +843,8 @@ These are not open design questions. Each is a decided rule with a decided fallb
 6. **Blocked ranges** (section 2): #170 adds one test per range added in 1.1.0.
 7. **Streamed bodies** (sections 0, 6, 7, 10, 14): #161 tests that the head and the first chunk of a streamed body reach the client before the stream ends, that the egress limit truncates the body and logs `egress_limit`, that a CPU kill mid-stream truncates it and records `cpu_limit` with the bytes sent, that the meter record is written at the end of the stream, that the shell of a page reaches the client before a slow loader finishes, and that a loader error after the shell is rendered inside the stream; B6 is re-run before and after.
 
+8. **Modules** (sections 1, 3, 11, 15, 16): #230 tests the per-module `ctx` (a module's statement on another module's table is `RENOX_DB_AUTH`; its `fetch` to a host only the app allows is `RENOX_FETCH_BLOCKED`; its `ctx.secrets` holds only its own), `RENOX_MODULE_UNDECLARED` for an undeclared call, `RENOX_MODULE_SERVICE` with the rollback of the enclosing transaction, hook order and halt, and the refusal of an undeclared filler at load; #229 tests savepoints (rollback of the inner part only, the `renox_` name refusal, the depth limit); #231 tests the outbox (a rolled-back transaction delivers nothing, a delivered handler's writes and its acknowledgement commit together, retries with backoff, dead-letter after the last attempt, the event meter record); #229 also tests the password ops (parameters read back from the PHC string, 1 ms charged per call, wall time against the deadline); #233 tests `locale` and `dir` in the rendered page; #236 tests that the SDK types are assignable to `ctx.d.ts`.
+
 ## Future (additive, not scheduled)
 
 - `op_db_query_raw` returning `{ columns, rows: Value[][] }` if B9/B10 show that building row objects dominates.
@@ -673,11 +854,16 @@ These are not open design questions. Each is a decided rule with a decided fallb
 
 ## Open
 
-Values of 1.2.0 that #161 checks by measurement. #161 does not edit this file: a measured reason to change one goes to a new `type:contract` issue, as a minor version (section 9).
+Values of 1.2.0 that #161 checks by measurement, and of 1.3.0 that #229–#231 check. The implementing issues do not edit this file: a measured reason to change one goes to a new `type:contract` issue, as a minor version (section 9).
 
 1. **Shell delay** (section 14): 50 ms *proposed*. Shorter flushes more pages early but commits status 200 for more slow loaders that would have redirected; #161 re-runs B6 before and after.
 2. **Chunk buffer** (section 6, "Backpressure"): 16 chunks per response. A byte bound may replace it if a tenant's large chunks hold too much memory between the isolate and the connection.
 3. **Static body limit** (section 10, "Response egress"): none beyond the heap limit; listed under "Future".
+4. **Event meter records** (section 7): settled in this version: `meter.md` 0.2 adds `kind: "request" | "event"` and the event route form `EVENT <module> <name>`.
+5. **Retry schedule and outbox caps** (section 15.4): 8 attempts, 10 s doubling to 1 h, 7 days of delivered rows, 10,000 dead letters per tenant are *proposed*; #231 measures and may change them.
+6. **Password parameters and pool** (section 16): m = 64 MiB, t = 3, p = 1 come from `docs/24-threat-model.md`; the pool size and the per-tenant concurrency of 2 are *proposed*; #229 measures hash time on `node-small` (B-series in `docs/14-benchmarks.md`).
+7. **`isolate` mode** (section 15.6): the semantics are fixed here; the runtime that runs a module in its own isolate is not scheduled in F4. Until it exists, a build that asks for `isolate` fails (`manifest.md` Open 2).
+8. **App events and hooks**: the app has no manifest, so it can neither export events nor expose hook points (`manifest.md` Open 5).
 
 ## Changelog
 
@@ -687,4 +873,5 @@ Values of 1.2.0 that #161 checks by measurement. #161 does not edit this file: a
 | 1.0.0-f1 | #17 | **Exposure:** `op2` extension `renox` in `crates/renox-runtime` (section 0). **Request scope:** carried by the async context, with the one-request-per-isolate fallback; only `op_log` works outside a request (section 0). **Secrets:** consumed before tenant code runs; values under 8 bytes refused; exact-substring redaction stated as a limitation (section 3). **New sections:** limits per tier and behaviour on each limit (section 10), isolate bootstrap and global hardening (section 11), serialisation rules (section 12), shared error code table, with response codes `RENOX_CPU_LIMIT`, `RENOX_OOM`, `RENOX_BUSY`, `RENOX_INTERNAL`, `RENOX_BODY_TOO_LARGE` alongside the thrown codes (section 13). **Numbers:** every "proposed" value is now the F1 value. **Meter fields:** section 7 renamed to the names in `meter.md` (`route`, `fetch_sent_bytes`, `fetch_received_bytes`, `http_status`, `ingress_bytes`). **Versioning:** moved to `MAJOR.MINOR.PATCH` (section 9). **Open list:** replaced by "Verification by implementing issues" and "Future" |
 | 1.1.0 | #153 | **Pages (section 14):** `LoaderContext`, `ActionContext` (`form`, `action`, `fragment`, `session`, `db` as the action's transaction), `ActionResult`, `Session`, CSRF before actions, the page dispatch exchange (`ops.schema.json` `$defs/page_dispatch`), rendering off the isolate thread; response codes `RENOX_CSRF` and `RENOX_RENDER_LIMIT` (section 13). **Termination bound and collateral rule** stated for tenants (section 10). **Blocked ranges (section 2):** SIIT, NAT64 network-specific prefixes, `192.88.99.0/24`, `3fff::/20`, `5f00::/16`, `fec0::/10`, and the refused names. **Stale text removed:** the Edge Runtime per-worker options and user-worker wording (sections 0, 10, 11), the semaphore's location, the async-context fallback, the `node:` row; `op_fetch` is registered as `op_renox_fetch`. Meter fields `render_fuel` and `render_ms` filled by the cell (section 7) |
 | 1.2.0 | #206 | Minor (additive). **Streamed response bodies (section 6):** head first; a static body crosses with the head as before, a `ReadableStream` body crosses chunk by chunk through the new ops `op_response_write` (async, backpressure at 16 chunks) and `op_response_end` (sync, explicit end, or the failure message); a stopped stream is truncated so the client can tell; `Content-Length` removed from streamed bodies; per-chunk gateway compression. **Request scope (section 0):** a request ends when its response ends. **Meter (section 7):** written at the end of the stream, with `wall_ms`, `egress_bytes` and `status` of the whole stream. **Limits (section 10):** response egress per request, 10 MB free / 100 MB paid, counted per chunk before compression, separate from the `fetch` counter; the mid-stream table (egress limit, stream failure, deadline, CPU, heap, client gone). **Pages (section 14):** the shell is flushed after a 50 ms *proposed* shell delay for full-page `GET`s with a loader; errors after the shell are rendered inside the stream; a loader `Response` after the shell is `response_after_shell`. No new error code; `ctx.d.ts` unchanged except its version line |
+| 1.3.0 | #226 | Minor (additive). **Modules (new section 15):** per-module `ctx` built by the bootstrap from the artifact's `modules` list (db under the module's authorizer, its own secrets, `fetch` allowlist, and config); `renox:modules` and `ctx.services` (service calls checked against the caller's dependencies, run in the callee's `ctx` with the same user, request, deadline, and current transaction; a callee error reaches the caller as `RENOX_MODULE_SERVICE` and rolls back the enclosing transaction); `ctx.hooks.run` (fillers in priority order, halt, undeclared fillers refused at load); `ctx.events.emit` and `op_events_emit` (durable into `renox__outbox` in the current transaction, or in-memory in the same request; payload checked against the exported schema); the event envelope and delivery (own transaction committed with the acknowledgement, retries, dead-letter); `ctx.config`; isolation modes. **Ops:** a trailing `module` argument on `op_db_*`, `op_secrets_get_all` (now once per module), `op_log`, and `FetchRequest.module` (sections 0–4); savepoint ops `op_db_savepoint_begin`/`_release`/`_rollback` (section 1); `op_events_emit` (section 15.4); `op_password_hash`, `op_password_verify` (argon2id off the isolate thread, new section 16). **Pages:** `setLocale`, `locale` and `dir` in the render result, optional `module` in the page invocation (section 14). **Errors:** `RENOX_MODULE_UNDECLARED`, `RENOX_MODULE_SERVICE`, `RENOX_EVENT_PAYLOAD` (section 13). **Meter:** event delivery records (section 7, Open 4). Section 8 reserves only `op_hooks_run` and the `isolate`-mode ops for F4 |
 | 1.1.1 | #201 | Patch, wording only: section 10 states what #155 and #156 implement. **CPU attribution** per async context: a request is charged the CPU of its own continuations, unattributed CPU is split among the requests in flight, and CPU used before a request was admitted is never split onto it. **Collateral rule** per pool member: one bad request ends the in-flight requests on its own member only; the pool size is per tier (`IsolateSpec::max_isolates`); collateral meter records carry the same `status` and are indistinguishable from the request that hit the limit. `ctx.d.ts` and `ops.schema.json` unchanged |

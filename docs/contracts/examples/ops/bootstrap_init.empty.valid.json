@@ -1,0 +1,5 @@
+{
+  "$comment": "valid: an app with no modules",
+  "dispatch": "init",
+  "modules": []
+}

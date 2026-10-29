@@ -1,0 +1,82 @@
+{
+  "$comment": "valid (1.3.0): the module list the bootstrap receives at isolate creation, in the artifact's modules order (ops.md section 11, step 3)",
+  "dispatch": "init",
+  "modules": [
+    {
+      "name": "auth",
+      "isolation": "shared",
+      "dependencies": [],
+      "config": {
+        "session_idle_hours": 24,
+        "password_min_length": 12
+      },
+      "permissions": {
+        "tables": "auth__*",
+        "network": [],
+        "secrets": [],
+        "slots": [
+          "app.header"
+        ],
+        "hooks": []
+      },
+      "exports": {
+        "services": [
+          "register",
+          "login",
+          "logout",
+          "currentUser",
+          "requireUser"
+        ],
+        "events": {
+          "auth.user_registered": {
+            "type": "object",
+            "required": [
+              "user_id"
+            ],
+            "properties": {
+              "user_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "hooks": [
+          "auth.after_login",
+          "auth.before_register"
+        ],
+        "views": [
+          "auth__public_users_v1"
+        ]
+      }
+    },
+    {
+      "name": "org",
+      "isolation": "shared",
+      "dependencies": [
+        "auth"
+      ],
+      "config": {},
+      "permissions": {
+        "tables": "org__*",
+        "network": [],
+        "secrets": [],
+        "slots": [
+          "app.header"
+        ],
+        "hooks": [
+          "auth.after_login"
+        ]
+      },
+      "exports": {
+        "services": [
+          "currentOrg"
+        ],
+        "events": {},
+        "hooks": [],
+        "views": [
+          "org__public_members_v1"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "$comment": "valid: billing emitting an event it does not export",
+  "op": "op_events_emit",
+  "args": [
+    "auth.login",
+    "{}",
+    true,
+    "billing",
+    null
+  ],
+  "error": {
+    "name": "ModuleUndeclaredError",
+    "code": "RENOX_MODULE_UNDECLARED",
+    "message": "module billing does not export event auth.login",
+    "details": {
+      "module": "billing",
+      "target": "auth.login"
+    }
+  }
+}

@@ -27,7 +27,7 @@ function counting(db: Db): { db: Db; count: () => number } {
 function loaderCtx(sqlite: ReturnType<typeof shopDb>, path: string, fragment: string | null, params = {}): { c: LoaderContext; count: () => number } {
   const base = ctx(sqlite, "GET", `${BASE}${path}`, { params });
   const { db, count } = counting(base.db);
-  return { c: { ...base, db, fragment, session: SESSION }, count };
+  return { c: { ...base, db, fragment, session: SESSION, setLocale: () => {} }, count };
 }
 
 test("B6: the products page loads 100 products with exactly five queries", async () => {
@@ -67,7 +67,7 @@ function actionCtx(sqlite: ReturnType<typeof shopDb>, id: string, quantity: stri
   const base = ctx(sqlite, "POST", `${BASE}/products/${id}?/addToCart`, { params: { id } });
   const form = new FormData();
   form.set("quantity", quantity);
-  return { ...base, db: fakeDb(sqlite), action: "addToCart", form, fragment: "product", session: SESSION };
+  return { ...base, db: fakeDb(sqlite), action: "addToCart", form, fragment: "product", session: SESSION, setLocale: () => {} };
 }
 
 test("addToCart: inserts into the session's cart and names the cart badge fragment", async () => {

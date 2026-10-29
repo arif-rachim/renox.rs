@@ -1,0 +1,19 @@
+{
+  "$comment": "invalid: there is no 9th attempt; after the 8th the delivery is dead-lettered",
+  "dispatch": "event",
+  "envelope": {
+    "kind": "event",
+    "id": "01JBQ3Z7MA0000000000000001",
+    "name": "billing.invoice_paid",
+    "payload": {
+      "invoice_id": "inv_1",
+      "user_id": "u_1",
+      "amount": 4200
+    },
+    "attempt": 9,
+    "module": "email"
+  },
+  "result": {
+    "type": "ok"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$comment": "valid (1.3.0): the billing module's fetch, checked against billing's own network list",
+  "op": "op_fetch",
+  "args": [
+    {
+      "method": "GET",
+      "url": "https://api.stripe.com/v1/charges",
+      "headers": [],
+      "body": null,
+      "redirect": "follow",
+      "module": "billing"
+    }
+  ],
+  "result": {
+    "status": 200,
+    "statusText": "OK",
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ]
+    ],
+    "url": "https://api.stripe.com/v1/charges",
+    "redirected": false,
+    "body": 1
+  }
+}

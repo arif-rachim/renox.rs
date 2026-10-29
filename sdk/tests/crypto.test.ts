@@ -39,7 +39,9 @@ test("inputs of different lengths are never equal", () => {
 test("signature and token checks use a constant-time compare", () => {
   const src = join(import.meta.dir, "../src");
   for (const f of readdirSync(src)) {
-    const text = readFileSync(join(src, f), "utf8");
+    // `Password.verify` (ctx.ts) is only the type of the argon2id op, which
+    // compares in constant time in Rust (ops.md section 16).
+    const text = readFileSync(join(src, f), "utf8").replace(/^\s*verify\(password: string, hash: string\): Promise<boolean>;$/gmu, "");
     if (/\b(verify|signature|hmac)\b/iu.test(text) && f !== "crypto.ts") expect([f, text.includes("timingSafeEqual")]).toEqual([f, true]);
   }
   const pages = join(import.meta.dir, "../../crates/renox-cell/src/pages");

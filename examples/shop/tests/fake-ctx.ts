@@ -75,5 +75,11 @@ export function ctx(sqlite: Database, method: string, url: string, init: { body?
     secrets: Object.freeze({}),
     log: { debug: noop, info: noop, warn: noop, error: noop },
     deadline: { remainingMs: () => 30_000 },
+    module: "app",
+    config: Object.freeze({}),
+    services: Object.freeze({}),
+    events: { emit: () => Promise.reject(new Error("no events in unit tests")) },
+    hooks: { run: () => Promise.resolve({ halt: false }) },
+    password: { hash: () => Promise.reject(new Error("no password op in unit tests")), verify: () => Promise.resolve(false) },
   };
 }

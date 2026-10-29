@@ -1,0 +1,13 @@
+{
+  "$comment": "valid (1.3.0): a line from the auth module's ctx.log",
+  "op": "op_log",
+  "args": [
+    "info",
+    "login",
+    {
+      "user_id": "u_1"
+    },
+    "auth"
+  ],
+  "result": null
+}

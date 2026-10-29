@@ -1,0 +1,9 @@
+{
+  "$comment": "valid: the inner part threw; the outer transaction goes on",
+  "op": "op_db_savepoint_rollback",
+  "args": [
+    7,
+    1
+  ],
+  "result": null
+}

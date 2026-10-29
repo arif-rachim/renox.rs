@@ -1,0 +1,20 @@
+{
+  "$comment": "valid: the payload misses a required field of the exported schema; the payload itself is never in the error",
+  "op": "op_events_emit",
+  "args": [
+    "billing.invoice_paid",
+    "{\"invoice_id\":\"inv_1\"}",
+    false,
+    "billing",
+    null
+  ],
+  "error": {
+    "name": "EventPayloadError",
+    "code": "RENOX_EVENT_PAYLOAD",
+    "message": "payload of billing.invoice_paid does not match its schema",
+    "details": {
+      "event": "billing.invoice_paid",
+      "reason": "schema"
+    }
+  }
+}

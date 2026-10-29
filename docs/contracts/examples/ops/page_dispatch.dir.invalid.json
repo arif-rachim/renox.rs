@@ -1,0 +1,21 @@
+{
+  "$comment": "invalid: dir is ltr or rtl",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": [],
+    "locale": "ar",
+    "dir": "auto"
+  }
+}

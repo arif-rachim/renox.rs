@@ -1,0 +1,18 @@
+{
+  "$comment": "valid (1.3.0): the auth module's ctx.db, run under auth's authorizer (ops.md section 1, \"Module argument\")",
+  "op": "op_db_query",
+  "args": [
+    "select id, email from auth__users where id = ?",
+    [
+      "u_1"
+    ],
+    7,
+    "auth"
+  ],
+  "result": [
+    {
+      "id": "u_1",
+      "email": "a@example.com"
+    }
+  ]
+}

@@ -94,16 +94,22 @@ function base(d: Dash, method: string, path: string, params: Ctx["params"]): Ctx
     secrets: d.secrets,
     log: { debug: noop, info: noop, warn: noop, error: noop },
     deadline: { remainingMs: () => 30_000 },
+    module: "app",
+    config: Object.freeze({}),
+    services: Object.freeze({}),
+    events: { emit: () => Promise.reject(new Error("no events in unit tests")) },
+    hooks: { run: () => Promise.resolve({ halt: false }) },
+    password: { hash: () => Promise.reject(new Error("no password op in unit tests")), verify: () => Promise.resolve(false) },
   };
 }
 
 export function loaderCtx(d: Dash, path: string, opts: { params?: Ctx["params"]; fragment?: string | null } = {}): LoaderContext {
-  return { ...base(d, "GET", path, opts.params ?? {}), fragment: opts.fragment ?? null, session: { id: d.sessionId } };
+  return { ...base(d, "GET", path, opts.params ?? {}), fragment: opts.fragment ?? null, session: { id: d.sessionId }, setLocale: noop };
 }
 
 export function actionCtx(d: Dash, path: string, action: string, fields: Record<string, string>, opts: { params?: Ctx["params"] } = {}): ActionContext {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.set(k, v);
   const c = base(d, "POST", `${path}?/${action}`, opts.params ?? {});
-  return { ...c, db: statements(d.sqlite), action, form, fragment: "page", session: { id: d.sessionId } };
+  return { ...c, db: statements(d.sqlite), action, form, fragment: "page", session: { id: d.sessionId }, setLocale: noop };
 }
