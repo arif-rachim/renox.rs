@@ -237,7 +237,11 @@ impl TcpProxy {
 
 /// A running control API.
 pub struct Stack {
+    /// The public listener (tenant, account and operator endpoints).
     pub addr: SocketAddr,
+    /// The node listener (`/v1/nodes/*`, `/v1/ingest/*`; #218): the
+    /// worker's `[control] url`.
+    pub node_addr: SocketAddr,
     pub url: String,
     pub pg: String,
     pub s3: Option<String>,
@@ -288,13 +292,16 @@ impl Stack {
             .unwrap()
             .success();
         assert!(ok, "could not reset RENOX_TEST_PG");
-        let port = {
+        let free_port = || {
             let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             l.local_addr().unwrap().port()
         };
+        let port = free_port();
+        let node_port = free_port();
         let mut stack = Stack {
             addr: SocketAddr::from(([127, 0, 0, 1], port)),
-            url: format!("http://127.0.0.1:{port}"),
+            node_addr: SocketAddr::from(([127, 0, 0, 1], node_port)),
+            url: format!("http://127.0.0.1:{node_port}"),
             pg,
             s3: s3.or_else(|| std::env::var("RENOX_TEST_S3").ok()),
             operator: token("renox_op_"),
@@ -317,6 +324,11 @@ impl Stack {
         cmd.arg(repo().join("control/api/src/main.ts"))
             .env("CONTROL_DATABASE_URL", &self.pg)
             .env("CONTROL_LISTEN_PORT", self.addr.port().to_string())
+            .env("CONTROL_NODE_LISTEN_HOST", "127.0.0.1")
+            .env(
+                "CONTROL_NODE_LISTEN_PORT",
+                self.node_addr.port().to_string(),
+            )
             .env(
                 "CONTROL_OPERATOR_TOKEN_SHA256",
                 hex(&Sha256::digest(self.operator.as_bytes())),

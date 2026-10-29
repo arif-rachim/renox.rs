@@ -239,3 +239,61 @@ async fn bad_node_token_files_refuse_to_start() {
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// ADR D23 follow-up (#218), `docs/24-threat-model.md` B, "Tenant code
+/// reaches the control plane's node-facing endpoints": a controlled worker
+/// whose `[control] url` resolves to an address tenant `fetch` could reach
+/// refuses to start, naming the address and the config key; the same URL
+/// with the address listed in `fetch_blocked_addresses` starts. `1.2.3.4` is
+/// a public address outside every blocked range (the RFC 5737 documentation
+/// ranges, such as `203.0.113.0/24`, are blocked already); plain `http://` is
+/// refused for a non-loopback host by `WorkerConfig::parse`, so the URL is
+/// `https://`.
+#[tokio::test]
+async fn control_url_reachable_by_tenant_fetch_refuses_to_start() {
+    let dir = std::env::temp_dir().join(format!("renox-controlled-url-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("node.token");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(&file, stack::token("renox_node_")).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let toml = |url: &str, blocked: &str| {
+        format!(
+            "mode = \"controlled\"\nlisten = \"127.0.0.1:0\"\nnode_id = \"n1\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\nfetch_blocked_addresses = [{blocked}]\n[control]\nurl = \"{url}\"\nnode_token_file = \"{}\"\n",
+            file.display()
+        )
+    };
+    let url = "https://1.2.3.4:8443";
+
+    let err = Worker::start(WorkerConfig::parse(&toml(url, "\"203.0.113.250\""), &dir).unwrap())
+        .await
+        .err()
+        .expect("a control URL tenant fetch can reach must refuse to start")
+        .to_string();
+    assert!(err.contains("control.url"), "{err}");
+    assert!(err.contains("1.2.3.4"), "{err}");
+    assert!(err.contains("fetch_blocked_addresses"), "{err}");
+
+    // Its IPv4-mapped IPv6 form on the list counts as the same address.
+    for blocked in ["\"203.0.113.250\", \"1.2.3.4\"", "\"::ffff:1.2.3.4\""] {
+        let worker = Worker::start(WorkerConfig::parse(&toml(url, blocked), &dir).unwrap())
+            .await
+            .unwrap_or_else(|e| panic!("listed {blocked}: {e}"));
+        worker.shutdown().await;
+    }
+
+    // A host that does not resolve cannot be checked: refused.
+    let err = Worker::start(
+        WorkerConfig::parse(
+            &toml("https://control.renox-218.invalid", "\"203.0.113.250\""),
+            &dir,
+        )
+        .unwrap(),
+    )
+    .await
+    .err()
+    .expect("an unresolvable control URL must refuse to start")
+    .to_string();
+    assert!(err.contains("does not resolve"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

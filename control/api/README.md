@@ -18,7 +18,9 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CONTROL_LISTEN_PORT` | `8787` | HTTP port |
+| `CONTROL_LISTEN_PORT` | `8787` | Port of the public listener (tenant, account, operator, MCP endpoints) |
+| `CONTROL_NODE_LISTEN_HOST` | `0.0.0.0` | Address the node listener binds; set it to the private address only nodes reach |
+| `CONTROL_NODE_LISTEN_PORT` | `8788` | Port of the node listener (`/v1/nodes/*`, `/v1/ingest/*`, `/v1/healthz`); must differ from `CONTROL_LISTEN_PORT` |
 | `CONTROL_DATABASE_URL` | `pglite:memory` | `postgres://…`, `pglite:memory`, or `pglite:<dir>` |
 | `CONTROL_OPERATOR_TOKEN_SHA256` | unset (operator endpoints answer 401) | SHA-256 hex of the `renox_op_…` token |
 | `CONTROL_MASTER_KEY` | unset (secret endpoints disabled) | Base64 of the 32-byte master key that wraps the per-tenant data keys |
@@ -29,11 +31,26 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 
 The start sequence is: open the database, apply the migrations in `migrations/`, then serve. A migration file that changed after it was applied stops the start.
 
+### Two listeners: the node-facing surface stays off the public edge (ADR D23, #218)
+
+`main.ts` serves the API as two surfaces (`createApp(deps, [], surface)` in `src/app.ts`):
+
+| Listener | Serves | Who reaches it |
+| --- | --- | --- |
+| Public, `CONTROL_LISTEN_PORT` | Everything except `/v1/nodes/*` and `/v1/ingest/*`, which answer `404 RENOX_NOT_FOUND` before any handler or auth middleware runs | The internet: the CLI, the MCP server, browsers, and internal tenants such as the dashboard (D23) |
+| Node, `CONTROL_NODE_LISTEN_HOST`:`CONTROL_NODE_LISTEN_PORT` | Only `/v1/nodes/*`, `/v1/ingest/*` (all `renox_node_` tokens: route tables, secret bundles, artifacts, certificates, prepare results, meters, logs) and `/v1/healthz`; everything else is 404 | Worker nodes only |
+
+The node paths are matched lower-cased and with repeated slashes collapsed, on the path the router uses. Deployment rules:
+
+- The public edge (load balancer, reverse proxy, `api.<platform domain>`) forwards to the public listener only. It never forwards to the node listener, whatever the host or path.
+- The node listener binds a private address, or an address of its own that only the nodes' network reaches. Each node's `[control] url` points at it, and the address is in that node's `fetch_blocked_addresses` unless it is in a private range already. A controlled worker refuses to start otherwise (`crates/renox-cell/src/worker.rs`).
+- The public listener's address is never listed in `fetch_blocked_addresses` and never exempt: internal tenants reach it like any internet client.
+
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `src/app.ts` | The Hono app: request id, access log, error handling, route modules |
+| `src/app.ts` | The Hono app: request id, access log, error handling, route modules; the public and node surfaces |
 | `src/contract.ts` | Schemas and state machines from `docs/contracts` (Ajv, JSON Schema 2020-12) |
 | `src/auth/` | Token values and hashes, scopes, sessions, passwords, buckets, account emails; the tenant, account, node and operator middleware; the account routes (#113) |
 | `src/tenancy/` | Roles and the permission matrix, the operation table, `withTenant`, the team routes (#113) |

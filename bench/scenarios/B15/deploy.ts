@@ -84,6 +84,8 @@ process.on("exit", () => {
 const root = mkdtempSync(join(tmpdir(), "renox-b15-"));
 const apiPort = await freePort();
 const api = `http://127.0.0.1:${apiPort}`;
+// The node-facing listener (#218): the worker's [control] url.
+const nodePort = await freePort();
 const operator = `renox_op_${b32(32)}`;
 procs.push(
   Bun.spawn(["bun", join(repo, "control/api/src/main.ts")], {
@@ -91,6 +93,8 @@ procs.push(
       ...process.env,
       CONTROL_DATABASE_URL: process.env.RENOX_TEST_PG ?? "pglite:memory",
       CONTROL_LISTEN_PORT: String(apiPort),
+      CONTROL_NODE_LISTEN_HOST: "127.0.0.1",
+      CONTROL_NODE_LISTEN_PORT: String(nodePort),
       CONTROL_OPERATOR_TOKEN_SHA256: sha256(operator),
       CONTROL_MASTER_KEY: randomBytes(32).toString("base64"),
       CONTROL_PLATFORM_DOMAIN: "renox.test",
@@ -123,7 +127,7 @@ rate_limit_per_ip = 100000.0
 rate_limit_burst = 100000
 max_connections_per_ip = 1000
 [control]
-url = "${api}"
+url = "http://127.0.0.1:${nodePort}"
 node_token_file = "${root}/node.token"
 health_listen = "127.0.0.1:${health}"
 `,

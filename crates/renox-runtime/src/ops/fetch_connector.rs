@@ -95,7 +95,8 @@ impl Resolve for HickoryResolver {
 #[derive(Clone)]
 pub struct FetchConfig {
     pub resolver: Arc<dyn Resolve>,
-    /// The node's own public addresses and the control plane's.
+    /// The node's own public addresses and the control plane's node-facing
+    /// ones (`ExtraBlocked`; never the public API address, ADR D23).
     pub extra_blocked: ExtraBlocked,
     /// Trust anchors added to the webpki roots (an operator's egress CA).
     /// There is no way to disable verification.
