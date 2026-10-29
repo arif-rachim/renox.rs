@@ -6,12 +6,20 @@
 // preference, the page session's stored preference, the organisation's
 // default, `Accept-Language`, then the configured default. Each candidate
 // counts only when it is one of the offered locales.
+//
+// Digits (#266, ops.md 1.4.0 "Locale"): an Arabic page gets the tag
+// `<locale>-u-nu-arab` when the config says `arab`, or says `auto` and the
+// stored choice asked for Arabic digits. The renderer's number, money and
+// date filters then write Eastern Arabic digits.
 
 export interface Options {
   locales: string[];
   fallback: string;
-  digits: "latin" | "arabic_indic";
+  digits: Digits;
 }
+
+/** The `digits` config: always Latin, always Arabic-Indic, or the stored choice. */
+export type Digits = "latn" | "arab" | "auto";
 
 export type Source = "query" | "user" | "session" | "org" | "accept_language" | "default";
 
@@ -35,14 +43,25 @@ export function options(config: Readonly<Record<string, unknown>>): Options {
   if (locales.length === 0) locales.push("en");
   const want = typeof config.default_locale === "string" ? config.default_locale : "en";
   const fallback = match(want, locales) ?? (locales[0] as string);
-  return { locales, fallback, digits: config.digits === "arabic_indic" ? "arabic_indic" : "latin" };
+  return { locales, fallback, digits: config.digits === "arab" || config.digits === "auto" ? config.digits : "latn" };
+}
+
+/** A tag split into its language part and the `nu` value of its `-u-` extension (if any). */
+export function splitTag(tag: string): { base: string; nu: "latn" | "arab" | null } {
+  const t = tag.trim();
+  const i = t.toLowerCase().indexOf("-u-");
+  if (i < 0) return { base: t, nu: null };
+  const nu = /(?:^|-)nu-(latn|arab)(?:-|$)/u.exec(t.slice(i + 3).toLowerCase())?.[1] as "latn" | "arab" | undefined;
+  return { base: t.slice(0, i), nu: nu ?? null };
 }
 
 /** `tag` when offered, else an offered locale with its language (`ar-AE` -> `ar`), else null. */
 export function match(tag: string | null | undefined, locales: readonly string[]): string | null {
-  // BCP 47 tags are case-insensitive: `EN`, `ar-ae` match too.
-  if (typeof tag !== "string" || !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/u.test(tag.trim())) return null;
-  const t = tag.trim();
+  if (typeof tag !== "string") return null;
+  // BCP 47 tags are case-insensitive: `EN`, `ar-ae` match too; a `-u-`
+  // extension (`ar-u-nu-arab`) is not part of the match.
+  const t = splitTag(tag).base;
+  if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/u.test(t)) return null;
   return locales.find((l) => l.toLowerCase() === t.toLowerCase()) ?? locales.find((l) => primary(l) === primary(t)) ?? null;
 }
 
@@ -81,5 +100,12 @@ export function pick(c: Candidates, o: Options): { locale: string; source: Sourc
   return { locale: o.fallback, source: "default" };
 }
 
-/** `digits` applies to Arabic only. */
-export const digitsOf = (locale: string, o: Options): "latin" | "arabic_indic" => (primary(locale) === "ar" ? o.digits : "latin");
+/** The digits of a page in `locale`: Latin except on Arabic pages, where the config (or, with `auto`, the stored choice) decides. */
+export function digitsOf(locale: string, o: Options, stored: "latn" | "arab" | null = null): "latn" | "arab" {
+  if (primary(locale) !== "ar") return "latn";
+  if (o.digits === "auto") return stored ?? "latn";
+  return o.digits;
+}
+
+/** The tag the page sets: the locale, with `-u-nu-arab` for Eastern Arabic digits. */
+export const tagOf = (locale: string, digits: "latn" | "arab"): string => (digits === "arab" ? `${locale}-u-nu-arab` : locale);

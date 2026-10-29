@@ -47,4 +47,15 @@ describe.skipIf(!worker)("auth in Arabic", () => {
     await phone.action("/auth/login", "default", { email: "amal@example.com", password: "correct horse battery" });
     expect((await phone.page("/auth/account")).html).toContain('<html lang="ar" dir="rtl">');
   });
+
+  test("in both digit sets (#266): ar-u-nu-arab carries Eastern Arabic digits in the page tag", async () => {
+    const v = t.as("digits-visitor");
+    const arab = await v.page("/auth/login?lang=ar-u-nu-arab");
+    expect(arab.html).toContain('<html lang="ar-u-nu-arab" dir="rtl">');
+    expect(arab.html).toContain("<h1>تسجيل الدخول</h1>");
+    snapshot(stable(arab.html), { role: "login ar-u-nu-arab" });
+    const latn = await t.as("digits-latn").page("/auth/login?lang=ar-u-nu-latn");
+    expect(latn.html).toContain('<html lang="ar" dir="rtl">');
+    snapshot(stable(latn.html), { role: "login ar latn" });
+  });
 });

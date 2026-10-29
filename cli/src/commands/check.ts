@@ -24,6 +24,7 @@ import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/r
 import { TemplateError } from "../lib/templates-compile.ts";
 import { projectProblems } from "../lib/modules/resolve.ts";
 import { contractProblems, installedModules } from "../lib/modules/build.ts";
+import { exportProblems } from "../check/exports.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
 
@@ -82,6 +83,11 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     else throw e;
   }
   if (options.secretsOnly) return { errors, findings };
+  // Handlers and services that are missing or not functions (#265): the
+  // runtime evaluates route modules lazily, so this is caught here.
+  if (errors.length === 0) {
+    for (const p of exportProblems(project)) errors.push(new CliError(p.message, EXIT.VALIDATION, { file: p.file }));
+  }
   // Modules and renox.lock (docs/contracts/manifest.md section 6): each problem names its rule.
   if (existsSync(join(project, "renox.toml"))) {
     const problems = projectProblems(project);

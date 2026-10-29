@@ -364,3 +364,113 @@ fn runs_on_a_module_handle_and_keeps_its_policy() {
     ));
     db.query("select * from app__products", &[]).unwrap();
 }
+
+/// #264: SQLite checks a STRICT table with its own nested
+/// `select ... from pragma_quick_check(...)` while it adds a column; that
+/// internal read is part of an `alter table` the authorizer already
+/// allowed, so it passes. Renaming and dropping a column work too.
+#[test]
+fn ddl_on_an_own_strict_table_passes_the_authorizer() {
+    let (_dir, db) = db();
+    let files = [
+        file(
+            "001_init.sql",
+            "create table app__orders (id integer primary key, user_id text not null, \
+               amount_fils integer not null check (amount_fils >= 0)) strict;",
+        ),
+        file(
+            "002_org.sql",
+            "alter table app__orders add column org_id text;",
+        ),
+        file(
+            "003_flag.sql",
+            "alter table app__orders add column paid integer not null default 0 check (paid in (0, 1));",
+        ),
+        file(
+            "004_rename.sql",
+            "alter table app__orders rename column org_id to team_id;",
+        ),
+        file("005_drop.sql", "alter table app__orders drop column paid;"),
+    ];
+    let report = migrate(&db, "app", &files).unwrap();
+    assert_eq!(report.applied.len(), 5);
+    let sql: String = match db
+        .query_one(
+            "select sql from sqlite_schema where name = 'app__orders'",
+            &[],
+        )
+        .unwrap()
+        .and_then(|r| r.get("sql").cloned())
+    {
+        Some(Value::Text(s)) => s,
+        other => panic!("{other:?}"),
+    };
+    assert!(
+        sql.contains("team_id text") && !sql.contains("paid"),
+        "{sql}"
+    );
+}
+
+/// #264; docs/24-threat-model.md "Module migration touching another
+/// module's tables": the internal pragma read is allowed only inside an
+/// allowed `alter table`, so altering another module's STRICT table is
+/// still refused.
+#[test]
+fn ddl_on_another_modules_strict_table_is_still_refused() {
+    let (_dir, db) = db();
+    db.execute("create table other__t (id integer primary key) strict", &[])
+        .unwrap();
+    let e = migrate(
+        &db,
+        "app",
+        &[file("001_x.sql", "alter table other__t add column x text;")],
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            &e,
+            MigrationError::Failed {
+                source: DbError::Auth { table, action },
+                ..
+            } if table == "other__t" && action == "ALTER_TABLE"
+        ),
+        "{e:?}"
+    );
+}
+
+/// #264; docs/24-threat-model.md "Module migration touching another
+/// module's tables": a pragma the module writes itself is still refused,
+/// as a statement and as a table-valued function, also on its own table.
+#[test]
+fn a_pragma_the_module_writes_is_still_refused() {
+    for sql in [
+        "pragma quick_check;",
+        "pragma quick_check(app__t);",
+        "create table app__copy as select * from pragma_quick_check('app__t');",
+        "select * from pragma_quick_check('app__t');",
+    ] {
+        let (_dir, db) = db();
+        let e = migrate(
+            &db,
+            "app",
+            &[
+                file(
+                    "001_init.sql",
+                    "create table app__t (id integer primary key) strict;",
+                ),
+                file("002_x.sql", sql),
+            ],
+        )
+        .expect_err(sql);
+        assert!(
+            matches!(
+                e,
+                MigrationError::Failed {
+                    source: DbError::Auth { .. },
+                    ..
+                }
+            ),
+            "{sql}: {e:?}"
+        );
+    }
+}

@@ -309,6 +309,7 @@ impl LocalArtifactStore {
             check_relative_path(p).map_err(|r| invalid("V1", format!("code.entry {p:?}: {r}")))?;
         }
         check_migrations(&path)?;
+        check_entries(&path, &manifest.inner)?;
         Ok(ArtifactDir {
             hash: hash.to_string(),
             path,
@@ -337,6 +338,151 @@ impl ArtifactStore for LocalArtifactStore {
     }
 }
 
+/// V23 at prepare (`artifact.md` 1.2, "Entries"; ops.md 1.4.0 section 11,
+/// step 5): when the manifest records `entries`, they name exactly the
+/// `code.entry` modules, a module's `services` and `hooks` entries stay
+/// eager, and each recorded export list equals the module's static exports
+/// read from its code. A deployment whose lazy module lacks a route's export
+/// is refused here, before any isolate.
+fn check_entries(dir: &Path, m: &renox_runtime::manifest::Manifest) -> Result<(), ArtifactError> {
+    let Some(entries) = &m.entries else {
+        return Ok(());
+    };
+    for id in m.code.entry.keys() {
+        if !entries.contains_key(id) {
+            return Err(invalid(
+                "V23",
+                format!("code.entry {id:?} has no entries record"),
+            ));
+        }
+    }
+    for (id, e) in entries {
+        if !m.code.entry.contains_key(id) {
+            return Err(invalid(
+                "V23",
+                format!("entries {id:?} is not a key of code.entry"),
+            ));
+        }
+        let always =
+            id.starts_with("modules/") && (id.ends_with("/services") || id.ends_with("/hooks"));
+        if always && e.eager == Some(false) {
+            return Err(invalid("V23", format!("entries {id:?} must be eager")));
+        }
+    }
+    if m.code.format != renox_runtime::manifest::CodeFormat::EsmDir {
+        // The CLI builds esm-dir only; an eszip artifact may not defer
+        // modules until its exports can be read here too.
+        if entries.values().any(|e| e.eager == Some(false)) {
+            return Err(invalid("V23", "lazy entries need code.format esm-dir"));
+        }
+        return Ok(());
+    }
+    for (id, path) in &m.code.entry {
+        let source = std::fs::read_to_string(dir.join("code").join(path))
+            .map_err(|_| invalid("V6", format!("code.entry {id:?}: {path} cannot be read")))?;
+        let actual = static_exports(&source).map_err(|r| invalid("V23", format!("{path}: {r}")))?;
+        let mut recorded: Vec<&str> = entries[id].exports.iter().map(String::as_str).collect();
+        recorded.sort_unstable();
+        recorded.dedup();
+        let actual: Vec<&str> = actual.iter().map(String::as_str).collect();
+        if recorded != actual {
+            return Err(invalid(
+                "V23",
+                format!("{path}: recorded exports {recorded:?}, the module exports {actual:?}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The export names of an ES module, from its syntax alone (nothing runs):
+/// `export function f`, `export const { a, b: [c] } = …`, `export { x as
+/// y }`, `export default …` (`default`). `export * from` is refused: what it
+/// exports depends on another module, and `renox build` never emits it.
+pub fn static_exports(source: &str) -> Result<std::collections::BTreeSet<String>, String> {
+    use deno_ast::swc::ast::{Decl, ModuleDecl, ModuleExportName, ModuleItem, ObjectPatProp, Pat};
+    fn binding(p: &Pat, out: &mut std::collections::BTreeSet<String>) {
+        match p {
+            Pat::Ident(i) => {
+                out.insert(i.id.sym.to_string());
+            }
+            Pat::Array(a) => a.elems.iter().flatten().for_each(|e| binding(e, out)),
+            Pat::Object(o) => {
+                for prop in &o.props {
+                    match prop {
+                        ObjectPatProp::KeyValue(kv) => binding(&kv.value, out),
+                        ObjectPatProp::Assign(a) => {
+                            out.insert(a.key.sym.to_string());
+                        }
+                        ObjectPatProp::Rest(r) => binding(&r.arg, out),
+                    }
+                }
+            }
+            Pat::Assign(a) => binding(&a.left, out),
+            Pat::Rest(r) => binding(&r.arg, out),
+            _ => {}
+        }
+    }
+    let name = |n: &ModuleExportName| match n {
+        ModuleExportName::Ident(i) => i.sym.to_string(),
+        ModuleExportName::Str(s) => s.value.to_string_lossy().into_owned(),
+    };
+    let parsed = deno_ast::parse_module(deno_ast::ParseParams {
+        specifier: deno_ast::ModuleSpecifier::parse("file:///entry.js").expect("static URL"),
+        text: source.into(),
+        media_type: deno_ast::MediaType::JavaScript,
+        capture_tokens: false,
+        scope_analysis: false,
+        maybe_syntax: None,
+    })
+    .map_err(|e| format!("not an ES module: {}", e))?;
+    let deno_ast::ProgramRef::Module(module) = parsed.program_ref() else {
+        return Err("not an ES module".into());
+    };
+    let mut out = std::collections::BTreeSet::new();
+    for item in &module.body {
+        let ModuleItem::ModuleDecl(decl) = item else {
+            continue;
+        };
+        match decl {
+            ModuleDecl::ExportDecl(e) => match &e.decl {
+                Decl::Fn(f) => {
+                    out.insert(f.ident.sym.to_string());
+                }
+                Decl::Class(c) => {
+                    out.insert(c.ident.sym.to_string());
+                }
+                Decl::Var(v) => v.decls.iter().for_each(|d| binding(&d.name, &mut out)),
+                _ => {}
+            },
+            ModuleDecl::ExportNamed(n) => {
+                for spec in &n.specifiers {
+                    use deno_ast::swc::ast::ExportSpecifier;
+                    match spec {
+                        ExportSpecifier::Named(s) => {
+                            out.insert(name(s.exported.as_ref().unwrap_or(&s.orig)));
+                        }
+                        ExportSpecifier::Default(d) => {
+                            out.insert(d.exported.sym.to_string());
+                        }
+                        ExportSpecifier::Namespace(ns) => {
+                            out.insert(name(&ns.name));
+                        }
+                    }
+                }
+            }
+            ModuleDecl::ExportDefaultDecl(_) | ModuleDecl::ExportDefaultExpr(_) => {
+                out.insert("default".into());
+            }
+            ModuleDecl::ExportAll(_) => {
+                return Err("`export * from` cannot be checked statically".into());
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +498,92 @@ mod tests {
         let paths: Vec<&str> = l.lines().map(|line| &line[66..]).collect();
         assert_eq!(paths, ["B", "a/b", "b"]);
         assert!(l.starts_with(&format!("{}  B\n", hex(&Sha256::digest(b"1")))));
+    }
+
+    #[test]
+    fn static_exports_read_every_export_form() {
+        let src = r#"
+            import x from "./x.js";
+            export function GET() {}
+            export async function POST() {}
+            export class Widget {}
+            export const a = 1, { b, c: [d], ...rest } = {};
+            const load = () => ({}), hidden = 2;
+            export { load, hidden as actions };
+            export { y as "quoted name" } from "./y.js";
+            export default 42;
+        "#;
+        let names: Vec<String> = static_exports(src).unwrap().into_iter().collect();
+        assert_eq!(
+            names,
+            [
+                "GET",
+                "POST",
+                "Widget",
+                "a",
+                "actions",
+                "b",
+                "d",
+                "default",
+                "load",
+                "quoted name",
+                "rest"
+            ]
+        );
+        assert!(static_exports("export * from './z.js';").is_err());
+        assert!(static_exports("export function (").is_err());
+    }
+
+    /// #265 (artifact.md V23, ops.md 1.4.0 section 11 step 5): an artifact
+    /// whose recorded exports differ from its module's is refused at prepare,
+    /// before any isolate; the matching one is accepted.
+    #[test]
+    fn recorded_exports_must_match_the_module_at_prepare() {
+        let store_dir =
+            std::env::temp_dir().join(format!("renox-cell-entries-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&store_dir);
+        let write = |exports: &[&str], eager: bool| -> String {
+            let tmp = store_dir.join("tmp");
+            let _ = std::fs::remove_dir_all(&tmp);
+            std::fs::create_dir_all(tmp.join("code/functions")).unwrap();
+            std::fs::write(
+                tmp.join("code/functions/pay.js"),
+                "export async function POST() { return new Response('ok'); }\n",
+            )
+            .unwrap();
+            let manifest = serde_json::json!({
+                "artifact": { "version": 1 },
+                "app": { "name": "pay", "timezone": "Asia/Dubai" },
+                "code": { "format": "esm-dir", "entry": { "functions/pay": "functions/pay.js" } },
+                "entries": { "functions/pay": { "exports": exports, "eager": eager } },
+                "routes": [{ "kind": "function", "method": "POST", "path": "/pay", "module": "functions/pay", "export": "POST" }],
+                "permissions": { "network": [], "secrets": [] }
+            });
+            std::fs::write(
+                tmp.join("manifest.json"),
+                serde_json::to_vec_pretty(&manifest).unwrap(),
+            )
+            .unwrap();
+            let hash = content_hash(&tmp).unwrap();
+            let _ = std::fs::remove_dir_all(store_dir.join(&hash));
+            std::fs::rename(&tmp, store_dir.join(&hash)).unwrap();
+            hash
+        };
+        let ok = write(&["POST"], false);
+        let missing = write(&["GET"], false);
+        let extra = write(&["POST", "load"], true);
+        let store = LocalArtifactStore::new(&store_dir);
+        assert!(store.get(&ok).is_ok());
+        for hash in [missing, extra] {
+            match store.get(&hash) {
+                Err(ArtifactError::Invalid { rule, reason }) => {
+                    assert_eq!(rule, "V23");
+                    assert!(reason.contains("functions/pay.js"), "{reason}");
+                }
+                other => panic!("expected V23, got {other:?}"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&store_dir);
     }
 
     #[test]

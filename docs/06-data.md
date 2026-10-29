@@ -27,6 +27,7 @@ Tenant data lives in SQLite, one file per tenant, on the same node as the tenant
 - **Per-module permissions via `sqlite3_set_authorizer`**: Rust installs a callback per module connection that only allows `<module>__*` tables plus read access to views `<dep>__public_*` of declared dependencies. SQLite checks this when compiling each statement; no SQL parsing in Rust.
 - **Platform tables in the tenant file**: `renox__migrations`, `renox__outbox`, `renox__sessions`, `renox__role_assignments`, `renox__audit`.
 - **Migrations** per module, forward-only, expand/contract pattern. Checksums are recorded so old migration files cannot be changed silently.
+- **DDL in a migration** runs under the module's authorizer with DDL allowed, on the module's own `<module>__*` objects only. A module may `create` and `drop` its tables, views and indexes, and run `alter table <module>__t` with `rename to`, `add column`, `rename column` and `drop column`, STRICT tables included. SQLite checks a table itself with a nested `pragma_quick_check` read while it alters it. That read is allowed only inside an `alter table` of the module's own table (#264). A `pragma` the module writes itself, `attach`, triggers, virtual tables and any object of another module or of the platform are refused.
 
 ```sql
 -- modules/billing/migrations/001_init.sql

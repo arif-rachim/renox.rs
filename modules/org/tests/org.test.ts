@@ -280,6 +280,15 @@ describe.skipIf(!worker)("org", () => {
     expect((await mo.action("/org/members", "locale", { locale: "en" })).status).toBe(403);
   });
 
+  test("in both digit sets (#266): the members page with ar-u-nu-arab and with plain ar", async () => {
+    const arab = await olive.page("/org/members?lang=ar-u-nu-arab");
+    expect(arab.html).toContain('<html lang="ar-u-nu-arab" dir="rtl">');
+    snapshot(stable(arab.html), { role: "members owner ar-u-nu-arab" });
+    const latn = await olive.page("/org/members?lang=ar");
+    expect(latn.html).toContain('<html lang="ar" dir="rtl">');
+    snapshot(stable(latn.html), { role: "members owner ar latn" });
+  });
+
   test("the public view has the three columns; another module may read it", () => {
     const cols = t.db.query<{ name: string }>("select name from pragma_table_info('org__public_members_v1')").map((c) => c.name);
     expect(cols).toEqual(["org_id", "user_id", "role"]);

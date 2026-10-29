@@ -1,0 +1,22 @@
+{
+  "$comment": "invalid (1.4.0): only the ca and nu extension keys are allowed, not hc [expect: pattern]",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/auth/login",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "auth"
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": [],
+    "locale": "ar-AE-u-hc-h23",
+    "dir": "rtl"
+  }
+}

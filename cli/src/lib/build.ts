@@ -69,6 +69,8 @@ export interface Manifest {
   artifact: { version: 1 };
   app: { name: string; timezone: string };
   code: { format: "esm-dir"; entry: Record<string, string> };
+  /** Artifact 1.2 (#265): each entry's static exports and whether it is evaluated at isolate creation. */
+  entries?: Record<string, EntryInfo>;
   routes: Route[];
   templates?: Record<string, { kind: CompiledTemplate["kind"]; fragments?: CompiledTemplate["fragments"] }>;
   permissions: { network: string[]; secrets: string[] };
@@ -82,6 +84,33 @@ export interface Manifest {
 type JsonObjectLike = Record<string, Json>;
 
 /** A file of public/ that the build left out, and why. */
+/** One `entries` record (`artifact.md` 1.2, "Entries"). */
+export interface EntryInfo {
+  exports: string[];
+  eager?: boolean;
+}
+
+/**
+ * The `entries` field (ops.md 1.4.0 section 11): the export names of each
+ * bundled entry, read from its code, and `eager: false` for route modules,
+ * which the runtime then evaluates on their first request. A module's
+ * `services` and `hooks`, and the error page's module, stay eager.
+ */
+export function entriesOf(entry: Record<string, string>, code: ReadonlyMap<string, string>): Record<string, EntryInfo> {
+  const scanner = new Bun.Transpiler({ loader: "js" });
+  const out: Record<string, EntryInfo> = {};
+  for (const [id, path] of Object.entries(entry).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const source = code.get(path);
+    if (source === undefined) throw new BuildError(`${path}: no bundled module for code.entry ${id}`);
+    const exports = [...new Set(scanner.scan(source).exports)].sort();
+    // RENOX_BUILD_EAGER=1 keeps every entry eager (the 1.1 behaviour): the
+    // baseline of B1's lazy-route comparison (#265), not a user setting.
+    const eager = process.env.RENOX_BUILD_EAGER === "1" || /^modules\/[a-z][a-z0-9_]*\/(services|hooks)$/u.test(id) || /(^|\/)pages\/_error$/u.test(id);
+    out[id] = eager ? { exports } : { exports, eager: false };
+  }
+  return out;
+}
+
 export interface Skipped {
   path: string;
   reason: string;
@@ -391,6 +420,7 @@ export async function buildFiles(
     artifact: { version: 1 },
     app: config.app,
     code: { format: "esm-dir", entry },
+    entries: entriesOf(entry, bundled.code),
     routes,
     ...(Object.keys(manifestTemplates).length ? { templates: manifestTemplates } : {}),
     permissions: config.permissions,

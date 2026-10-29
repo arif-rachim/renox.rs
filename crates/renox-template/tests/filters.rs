@@ -178,3 +178,66 @@ fn missing_values_render_empty() {
     );
     assert!(bad.is_err());
 }
+
+/// #266 (ops.md 1.4.0 "Locale"): the locale tag's `-u-nu-` decides the
+/// digits of `number`, `money` and `date`; `nu-latn` (or no extension) is
+/// unchanged; `nu` after `ca` counts too; `arabext` is not `arab`; the sign
+/// and the separators are the locale's, digits only are mapped.
+#[test]
+fn nu_from_the_locale_tag() {
+    let d = json!({"n": 123.45, "neg": -7.5, "p": 1234.5, "t": NOW});
+    let arab = Locale::parse("ar-AE-u-nu-arab");
+    let ca_arab = Locale::parse("ar-u-ca-islamic-umalqura-nu-arab");
+    let latn = Locale::parse("ar-AE-u-nu-latn");
+    let plain = Locale::parse("ar-AE");
+    let arabext = Locale::parse("ar-u-nu-arabext");
+    assert!(arab.arabic_digits && ca_arab.arabic_digits);
+    assert!(!latn.arabic_digits && !plain.arabic_digits && !arabext.arabic_digits);
+    assert_eq!(render("n | number", arab, d.clone()), "١٢٣٫٤٥");
+    assert_eq!(render("n | number", ca_arab, d.clone()), "١٢٣٫٤٥");
+    // The Arabic letter mark before the minus is the locale's (CLDR), as with Latin digits.
+    assert_eq!(render("neg | number", arab, d.clone()), "\u{61c}-٧٫٥");
+    assert_eq!(render("p | money", arab, d.clone()), "١٬٢٣٤٫٥٠\u{a0}د.إ.");
+    for l in [latn, plain, arabext] {
+        assert_eq!(render("n | number", l, d.clone()), "123.45");
+        assert_eq!(render("p | money", l, d.clone()), "1,234.50\u{a0}د.إ.");
+    }
+    let date_arab = render("t | date", arab, d.clone());
+    let date_latn = render("t | date", latn, d);
+    assert!(
+        date_arab.chars().any(|c| ('٠'..='٩').contains(&c)),
+        "{date_arab}"
+    );
+    assert!(
+        !date_arab.chars().any(|c| c.is_ascii_digit()),
+        "{date_arab}"
+    );
+    assert!(date_latn.chars().any(|c| c.is_ascii_digit()), "{date_latn}");
+}
+
+/// The renderer accepts exactly the 1.4.0 tags (`valid_locale`, used by
+/// the cell for the page's `locale`).
+#[test]
+fn valid_locale_follows_ops_1_4_0() {
+    use renox_template::render::i18n::valid_locale;
+    for ok in [
+        "ar",
+        "ar-AE",
+        "ar-AE-u-nu-arab",
+        "ar-u-ca-islamic-umalqura-nu-arab",
+        "en-u-nu-latn",
+        "ar-AE-u-ca-gregory",
+    ] {
+        assert!(valid_locale(ok), "{ok}");
+    }
+    for bad in [
+        "ar-u-nu-deva",
+        "ar-AE-u-hc-h23",
+        "ar-u-nu-arab-ca-gregory",
+        "ar-u",
+        "ar-u-nu",
+        "AR",
+    ] {
+        assert!(!valid_locale(bad), "{bad}");
+    }
+}

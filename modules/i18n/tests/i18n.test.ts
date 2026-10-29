@@ -63,7 +63,32 @@ describe.skipIf(!worker)("i18n", () => {
     const html = (await t.as("links").page("/?lang=en&x=1")).html;
     expect(html).toContain('<a href="/?lang=ar&amp;x=1" lang="ar">العربية</a>');
     expect(html).toContain('<strong lang="en">English</strong>');
-    // digits: latin by default (the renderer gets Arabic digits only through a -u-nu-arab tag, see the README).
-    expect(/<p id="digits"[^>]*>([^<]*)</u.exec(html)?.[1]).toBe("latin");
+    expect(/<p id="digits"[^>]*>([^<]*)</u.exec(html)?.[1]).toBe("latn");
+  });
+
+  test("digits = auto (#266): Arabic digits when the choice asked for them, Latin otherwise; numbers, money, dates", async () => {
+    const price = (h: string) => /<p id="price"[^>]*>([^<]*)</u.exec(h)?.[1];
+    const number = (h: string) => /<p id="number"[^>]*>([^<]*)</u.exec(h)?.[1];
+    const date = (h: string) => /<p id="date"[^>]*>([^<]*)</u.exec(h)?.[1];
+    // A choice made with -u-nu-arab: the page tag carries it, digits are Eastern Arabic.
+    const arab = t.as("digits-arab");
+    const a = (await arab.page("/?lang=ar-u-nu-arab")).html;
+    expect(a).toContain('<html lang="ar-u-nu-arab" dir="rtl">');
+    expect(number(a)).toBe("١٢٣٫٤٥");
+    expect(price(a)).toMatch(/^١٬٢٣٤٫٥٠\u00a0د\.إ\.$/u);
+    expect(date(a)).toMatch(/[٠-٩]/u);
+    expect(date(a)).not.toMatch(/[0-9]/u);
+    // Stored: the next page without ?lang= keeps the digits.
+    expect(number((await arab.page("/")).html)).toBe("١٢٣٫٤٥");
+    // Plain ar: Latin digits.
+    const latn = (await t.as("digits-latn").page("/?lang=ar")).html;
+    expect(latn).toContain('<html lang="ar" dir="rtl">');
+    expect(number(latn)).toBe("123.45");
+    // A user's stored choice with digits follows them (auto reads the row).
+    const u = t.as("digits-user");
+    await u.action("/auth/register", "default", { email: "d@example.com", password: "correct horse battery", display_name: "D" });
+    await u.action("/auth/login", "default", { email: "d@example.com", password: "correct horse battery" });
+    expect(await t.service("i18n").setLocale("ar-u-nu-arab", { user_id: t.db.query<{ id: string }>("select id from auth__public_users_v1 where email = 'd@example.com'")[0]?.id })).toEqual({ locale: "ar-u-nu-arab", dir: "rtl" });
+    expect(number((await u.page("/")).html)).toBe("١٢٣٫٤٥");
   });
 });

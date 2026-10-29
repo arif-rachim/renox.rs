@@ -24,6 +24,10 @@ renox-runtime = { path = "../renox-runtime" }
 renox-template = { path = "../renox-template" }
 
 axum = { version = "0.8.9", default-features = false }
+# The static export names of each code entry, checked at prepare against
+# the artifact's `entries` (artifact 1.2, V23; #265). Already in the tree
+# through eszip.
+deno_ast = "0.53"
 # Page sessions and CSRF (#41): HKDF per tenant, HMAC-signed cookies,
 # constant-time comparison, form field lookup.
 base64 = "0.22"

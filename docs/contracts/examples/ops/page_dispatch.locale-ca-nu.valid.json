@@ -1,0 +1,22 @@
+{
+  "$comment": "valid (1.4.0): both extension keys, ca before nu",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/auth/login",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "auth"
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": [],
+    "locale": "ar-AE-u-ca-islamic-umalqura-nu-arab",
+    "dir": "rtl"
+  }
+}

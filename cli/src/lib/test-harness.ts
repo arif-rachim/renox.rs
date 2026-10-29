@@ -67,9 +67,12 @@ export function testArtifact(artifactDir: string, out: string): string {
   const enc = new TextEncoder();
   const manifest = JSON.parse(new TextDecoder().decode(files.get("manifest.json"))) as {
     code: { entry: Record<string, string> };
+    entries?: Record<string, { exports: string[]; eager?: boolean }>;
     routes: unknown[];
   };
   manifest.code.entry["functions/__renox_test/service"] = "functions/__renox_test/service.js";
+  // Artifact 1.2 (V23): every code entry has its exports recorded.
+  if (manifest.entries) manifest.entries["functions/__renox_test/service"] = { exports: ["POST"], eager: false };
   manifest.routes.push({ kind: "function", method: "POST", path: SERVICE_PATH, module: "functions/__renox_test/service", export: "POST" });
   files.set("code/functions/__renox_test/service.js", enc.encode(SERVICE_JS));
   files.set("manifest.json", enc.encode(`${JSON.stringify(manifest, null, 2)}\n`));

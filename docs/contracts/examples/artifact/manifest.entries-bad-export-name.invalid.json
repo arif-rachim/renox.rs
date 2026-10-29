@@ -1,0 +1,72 @@
+{
+  "$comment": "invalid: an export name that is not an identifier [expect: pattern]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/products/[id]": "pages/products/[id].js",
+      "functions/api/checkout": "functions/api/checkout.js"
+    }
+  },
+  "entries": {
+    "functions/api/checkout": {
+      "exports": [
+        "POST",
+        "not-a-name"
+      ],
+      "eager": false
+    },
+    "pages/products/[id]": {
+      "exports": [
+        "actions",
+        "load"
+      ],
+      "eager": false
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/products/:id",
+      "module": "pages/products/[id]",
+      "load": true,
+      "actions": [
+        "addToCart"
+      ],
+      "template": "pages/products/[id]"
+    },
+    {
+      "kind": "function",
+      "method": "POST",
+      "path": "/api/checkout",
+      "module": "functions/api/checkout",
+      "export": "POST"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/products/[id]": {
+      "kind": "page",
+      "fragments": {
+        "product": {
+          "target": "product"
+        },
+        "cart_badge": {
+          "target": "cart-badge"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}

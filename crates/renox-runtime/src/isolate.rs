@@ -1613,6 +1613,22 @@ struct Platform {
     /// Per route: the module that owns it (`app` or an installed module;
     /// `artifact.md` section 3, "Route merge").
     owners: Vec<String>,
+    /// Per route: `Some` when its module is evaluated on first use (ops.md
+    /// 1.4.0 section 11, step 4); `handlers` and `actions` are then empty
+    /// and the bootstrap resolves them inside the request.
+    lazy: Vec<Option<LazyRoute>>,
+}
+
+/// A route whose module is lazy: what the bootstrap imports and looks up.
+#[derive(Debug, Clone)]
+struct LazyRoute {
+    /// The module's specifier (`file:///…`), passed to `import()`.
+    lazy: String,
+    /// The `code.entry` id, for the log line.
+    module: String,
+    /// The handler export (`load` or the method), or none for an action on
+    /// a page without `load`.
+    export: Option<String>,
 }
 
 /// The limit machinery of one isolate thread.
@@ -1730,6 +1746,23 @@ async fn create_worker(
         .first()
         .map(|e| e.1.clone())
         .ok_or_else(|| CreateError::Manifest("no code.entry".into()))?;
+    // Step 4 (1.4.0): every entry must exist in the module graph, lazy ones
+    // included; only the eager ones are evaluated now.
+    for (id, specifier) in &entries {
+        if !loader.has(specifier) {
+            return Err(CreateError::ModuleLoad(format!("{id}: module not found")));
+        }
+    }
+    let lazy_specifiers: BTreeMap<String, String> = entries
+        .iter()
+        .filter(|(id, _)| !manifest.is_eager(id))
+        .map(|(id, s)| (id.clone(), s.to_string()))
+        .collect();
+    let eager: Vec<(String, ModuleSpecifier)> = entries
+        .iter()
+        .filter(|(id, _)| !lazy_specifiers.contains_key(id))
+        .cloned()
+        .collect();
     let services = WorkerServiceOptions {
         module_loader: loader,
         permissions,
@@ -1854,7 +1887,7 @@ async fn create_worker(
         .begin_slice(Duration::from_millis(ctx.limits.module_cpu_ms));
     let loaded = tokio::time::timeout(
         Duration::from_millis(ctx.limits.module_wall_ms),
-        load_modules(&mut worker, &entries),
+        load_modules(&mut worker, &eager),
     )
     .await;
     guards.watchdog.end_slice(slice);
@@ -1918,11 +1951,25 @@ async fn create_worker(
 
     // Step 5: every route's export must be a function, and every declared
     // action a function of `export const actions` (fail closed).
-    let (handlers, actions) = {
+    let (handlers, actions, lazy) = {
         deno_core::scope!(scope, &mut worker.js_runtime);
         let mut handlers = Vec::with_capacity(manifest.routes.len());
         let mut actions = Vec::with_capacity(manifest.routes.len());
+        let mut lazy = Vec::with_capacity(manifest.routes.len());
         for r in &manifest.routes {
+            // A lazy module's exports are checked at prepare (artifact
+            // V23) and again after its first evaluation, in the request.
+            if let Some(spec) = lazy_specifiers.get(&r.module) {
+                handlers.push(None);
+                actions.push(BTreeMap::new());
+                lazy.push(Some(LazyRoute {
+                    lazy: spec.clone(),
+                    module: r.module.clone(),
+                    export: r.handler_export().map(str::to_string),
+                }));
+                continue;
+            }
+            lazy.push(None);
             let mut route_actions = BTreeMap::new();
             let declared = r.page().map(|p| p.actions.as_slice()).unwrap_or(&[]);
             if !declared.is_empty() {
@@ -1989,7 +2036,7 @@ async fn create_worker(
                 })?;
             handlers.push(Some(v8::Global::new(scope, f)));
         }
-        (handlers, actions)
+        (handlers, actions, lazy)
     };
     let owners = manifest.routes.iter().map(route_owner).collect();
     Ok((
@@ -2000,6 +2047,7 @@ async fn create_worker(
             handlers,
             actions,
             owners,
+            lazy,
         },
         guards,
         module_time,
@@ -2076,6 +2124,8 @@ struct JsOutcome {
     stream: Option<bool>,
     /// `KIND_EVENT`: `ok`, `threw`, or `no_handler`.
     result: Option<String>,
+    /// `KIND_MODULE_EVAL`: the first failure of that module on this isolate.
+    first: Option<bool>,
 }
 
 const KIND_OK: u8 = 0;
@@ -2087,6 +2137,9 @@ const KIND_RENDER: u8 = 3;
 const KIND_PAGE_INTERNAL: u8 = 4;
 /// An event delivery ended (`result`: ok, threw, no_handler).
 const KIND_EVENT: u8 = 5;
+/// A lazy route module failed its first evaluation, or lacks the route's
+/// export (ops.md 1.4.0 section 11, steps 4-5): 500 `RENOX_MODULE_EVAL`.
+const KIND_MODULE_EVAL: u8 = 6;
 
 type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
 type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
@@ -2789,13 +2842,28 @@ fn build_args(
     job: &DispatchJob,
 ) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
     let action_name = job.page.as_ref().and_then(|p| p.action.as_ref());
-    let handler: v8::Local<v8::Value> = match &platform.handlers[job.route] {
-        Some(h) => v8::Local::new(scope, h).into(),
-        // An action on a page without `load`.
-        None if action_name.is_some() => v8::null(scope).into(),
-        None => return Err(serde_v8::Error::Message("route has no handler".into())),
+    // A lazy route (ops.md 1.4.0): the bootstrap imports the module in the
+    // request and looks up the handler and the action itself.
+    let lazy = platform.lazy[job.route].as_ref();
+    let handler: v8::Local<v8::Value> = match (&platform.handlers[job.route], lazy) {
+        (_, Some(l)) => serde_v8::to_v8(
+            scope,
+            serde_json::json!({
+                "lazy": l.lazy,
+                "module": l.module,
+                "export": l.export,
+                "action": action_name,
+            }),
+        )?,
+        (h, None) => match h {
+            Some(h) => v8::Local::new(scope, h).into(),
+            // An action on a page without `load`.
+            None if action_name.is_some() => v8::null(scope).into(),
+            None => return Err(serde_v8::Error::Message("route has no handler".into())),
+        },
     };
     let action: v8::Local<v8::Value> = match action_name {
+        Some(_) if lazy.is_some() => v8::null(scope).into(),
         Some(name) => match platform.actions[job.route].get(name) {
             Some(f) => v8::Local::new(scope, f).into(),
             None => return Err(serde_v8::Error::Message("unknown action".into())),
@@ -2998,6 +3066,36 @@ fn finish_dispatch(
                 .clone()
                 .map(|n| format!("the page handler returned {n}"));
             page_internal(&reason, detail)
+        }
+        Ok(o) if o.kind == KIND_MODULE_EVAL => {
+            // Logged once per isolate (`first`); the failure is cached by
+            // the bootstrap, so later requests to the route get the same 500.
+            if o.first == Some(true) {
+                let mut f = serde_json::Map::new();
+                f.insert("code".into(), "RENOX_MODULE_EVAL".into());
+                f.insert("route".into(), route_name.clone().into());
+                f.insert("module".into(), o.reason.clone().unwrap_or_default().into());
+                f.insert(
+                    "cause_name".into(),
+                    o.name.clone().unwrap_or_default().into(),
+                );
+                f.insert(
+                    "cause_message".into(),
+                    o.message.clone().unwrap_or_default().into(),
+                );
+                f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+                log_line(
+                    ctx,
+                    "error",
+                    Some(&flight.ctx.request_id),
+                    "route module failed to evaluate",
+                    f,
+                );
+            }
+            ThreadReply::Failed {
+                code: ErrorCode::ModuleEval,
+                meter: flight.meter(ctx, MeterStatus::Error),
+            }
         }
         Ok(o) if o.kind == KIND_OK => ThreadReply::Ok {
             status: o.status.unwrap_or(200),

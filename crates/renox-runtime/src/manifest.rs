@@ -263,12 +263,43 @@ pub struct Manifest {
     /// gateway and the cell, kept opaque here.
     #[serde(default)]
     pub security: Option<serde_json::Value>,
+    /// Artifact 1.2: code entry id -> its recorded exports and `eager`
+    /// flag (`artifact.md` section 3, "Entries"; ops.md 1.4.0 section 11).
+    /// Absent: every entry is eager.
+    #[serde(default)]
+    pub entries: Option<BTreeMap<String, EntryInfo>>,
     /// Free-text note the schema allows at the top level; ignored (#147).
     #[serde(rename = "$comment", default)]
     pub comment: Option<String>,
 }
 
+/// One `entries` record (artifact 1.2).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntryInfo {
+    /// The module's static export names, as `renox build` recorded them.
+    pub exports: Vec<String>,
+    /// `false`: evaluated on the first request that needs it. Default true.
+    #[serde(default)]
+    pub eager: Option<bool>,
+}
+
 impl Manifest {
+    /// Whether code entry `id` is evaluated at isolate creation (ops.md
+    /// 1.4.0 section 11, step 4). A module's `services` and `hooks` entries
+    /// are always eager.
+    pub fn is_eager(&self, id: &str) -> bool {
+        let always =
+            id.starts_with("modules/") && (id.ends_with("/services") || id.ends_with("/hooks"));
+        always
+            || self
+                .entries
+                .as_ref()
+                .and_then(|e| e.get(id))
+                .and_then(|e| e.eager)
+                .unwrap_or(true)
+    }
+
     /// The templates of a version 1 manifest (empty otherwise).
     pub fn template_defs(&self) -> impl Iterator<Item = (&String, &TemplateDef)> {
         self.templates.iter().flatten()

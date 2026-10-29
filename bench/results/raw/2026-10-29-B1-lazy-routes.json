@@ -1,0 +1,58 @@
+{
+  "id": "B1",
+  "scenario": "renox-worker (release), N tenants per app each with one warm isolate after one request; shop, hello at N = 1, 10, 100; esm-dir artifacts from the CLI; median of 3 runs; judged: shop at N = 100",
+  "notes": "shop N=1: RSS 23.26 MB, PSS 23.26 MB, V8 heap 4.25 MB per isolate; shop N=10: RSS 8.5 MB, PSS 8.5 MB, V8 heap 4.25 MB per isolate; shop N=100: RSS 7.33 MB, PSS 7.33 MB, V8 heap 4.25 MB per isolate; hello N=1: RSS 19.8 MB, PSS 19.8 MB, V8 heap 4.05 MB per isolate; hello N=10: RSS 7.62 MB, PSS 7.62 MB, V8 heap 4.05 MB per isolate; hello N=100: RSS 6.32 MB, PSS 6.32 MB, V8 heap 4.05 MB per isolate",
+  "samples": {
+    "shop_n1_rss_delta_mb": [
+      23.3,
+      23.13,
+      23.26
+    ],
+    "shop_n10_rss_delta_mb": [
+      8.5,
+      8.51,
+      8.46
+    ],
+    "shop_n100_rss_delta_mb": [
+      7.33,
+      7.28,
+      7.34
+    ],
+    "hello_n1_rss_delta_mb": [
+      19.74,
+      19.92,
+      19.8
+    ],
+    "hello_n10_rss_delta_mb": [
+      7.59,
+      7.62,
+      8.05
+    ],
+    "hello_n100_rss_delta_mb": [
+      6.32,
+      6.34,
+      6.32
+    ]
+  },
+  "summary": {
+    "rss_delta_mb": 7.33,
+    "shop_n1_rss_delta_mb": 23.26,
+    "shop_n1_pss_delta_mb": 23.26,
+    "shop_n1_v8_heap_mb": 4.25,
+    "shop_n10_rss_delta_mb": 8.5,
+    "shop_n10_pss_delta_mb": 8.5,
+    "shop_n10_v8_heap_mb": 4.25,
+    "shop_n100_rss_delta_mb": 7.33,
+    "shop_n100_pss_delta_mb": 7.33,
+    "shop_n100_v8_heap_mb": 4.25,
+    "hello_n1_rss_delta_mb": 19.8,
+    "hello_n1_pss_delta_mb": 19.8,
+    "hello_n1_v8_heap_mb": 4.05,
+    "hello_n10_rss_delta_mb": 7.62,
+    "hello_n10_pss_delta_mb": 7.62,
+    "hello_n10_v8_heap_mb": 4.05,
+    "hello_n100_rss_delta_mb": 6.32,
+    "hello_n100_pss_delta_mb": 6.32,
+    "hello_n100_v8_heap_mb": 4.05
+  }
+}

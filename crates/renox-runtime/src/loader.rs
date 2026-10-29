@@ -395,6 +395,21 @@ impl ArtifactLoader {
         self
     }
 
+    /// Whether the artifact holds `specifier` (ops.md 1.4.0 section 11,
+    /// step 4: every entry is checked at isolate creation, lazy ones too).
+    pub fn has(&self, specifier: &ModuleSpecifier) -> bool {
+        let Ok(rel) = relative_path(specifier) else {
+            return false;
+        };
+        match &self.source {
+            Source::Dir(root) => root
+                .join(&rel)
+                .canonicalize()
+                .is_ok_and(|c| c.starts_with(root) && c.is_file()),
+            Source::Memory(map) => map.contains_key(specifier.as_str()),
+        }
+    }
+
     fn read(&self, specifier: &ModuleSpecifier) -> Result<ModuleSource, JsErrorBox> {
         if specifier.scheme() == "node" {
             return Err(JsErrorBox::generic("unknown node: built-in"));

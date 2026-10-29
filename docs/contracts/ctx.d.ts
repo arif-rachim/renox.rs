@@ -48,7 +48,9 @@ export type ResponseErrorCode =
   | "RENOX_INTERNAL"
   | "RENOX_BODY_TOO_LARGE"
   | "RENOX_CSRF"
-  | "RENOX_RENDER_LIMIT";
+  | "RENOX_RENDER_LIMIT"
+  /** 1.4.0: a lazy route module failed its first evaluation (ops.md section 11). */
+  | "RENOX_MODULE_EVAL";
 
 /** Body of a platform error response on an API route (errors.md, "Response body"). */
 export interface ErrorResponseBody {
@@ -389,12 +391,24 @@ export interface Session {
 
 export type TextDirection = "ltr" | "rtl";
 
+/**
+ * A BCP 47 tag as `setLocale` accepts it (ops.md section 14, "Locale";
+ * `ops.schema.json` `$defs/locale`): `ar`, `ar-AE`, and from 1.4.0 one `-u-`
+ * extension with `ca` (calendar) and `nu` (digits), e.g. `ar-AE-u-nu-arab`.
+ */
+export type LocaleTag = string;
+
 export interface LoaderContext extends Ctx {
   /** The fragment the cell will render for this request, or null for the full page. */
   readonly fragment: string | null;
   readonly session: Session;
-  /** Sets the page's locale and direction (section 14, "Locale", 1.3.0); `dir` defaults from the language. */
-  setLocale(locale: string, dir?: TextDirection): void;
+  /**
+   * Sets the page's locale and direction (section 14, "Locale", 1.3.0); `dir`
+   * defaults from the language subtag. From 1.4.0 the tag may carry one `-u-`
+   * extension with `ca` and `nu` (`"ar-AE-u-nu-arab"`); anything else throws a
+   * `RangeError`.
+   */
+  setLocale(locale: LocaleTag, dir?: TextDirection): void;
 }
 
 /** The template data a loader returns: a plain object (section 14, "Loader"). */
@@ -412,7 +426,7 @@ export interface ActionContext extends Omit<Ctx, "db"> {
   readonly fragment: string | null;
   readonly session: Session;
   /** As for the loader. */
-  setLocale(locale: string, dir?: TextDirection): void;
+  setLocale(locale: LocaleTag, dir?: TextDirection): void;
 }
 
 /**

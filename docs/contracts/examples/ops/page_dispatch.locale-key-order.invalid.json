@@ -1,0 +1,22 @@
+{
+  "$comment": "invalid (1.4.0): extension keys in canonical order, ca before nu [expect: pattern]",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/auth/login",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "auth"
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{}",
+    "fragments": [],
+    "locale": "ar-u-nu-arab-ca-gregory",
+    "dir": "rtl"
+  }
+}

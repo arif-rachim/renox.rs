@@ -48,6 +48,7 @@ import { writeTypes } from "../lib/types/generate.ts";
 import { DOWNLOAD_HINT, workerPath } from "../lib/worker.ts";
 import { verifyExternal } from "../worker/verify.ts";
 import { clearDevState, type DevState, problemOf, writeDevState } from "../mcp/devstate.ts";
+import { decodedResponse } from "../dev/proxy.ts";
 
 export { workerPath };
 
@@ -317,7 +318,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
           return new Response("renox dev: the worker is not reachable (restarting?)\n", { status: 502 });
         }
         // Full HTML documents get the dev client; htmx fragments do not.
-        if (req.method === "HEAD" || headers.get("hx-request") === "true" || !(res.headers.get("content-type") ?? "").startsWith("text/html")) return res;
+        if (req.method === "HEAD" || headers.get("hx-request") === "true" || !(res.headers.get("content-type") ?? "").startsWith("text/html")) return decodedResponse(res);
         const csp = res.headers.get("content-security-policy");
         const nonce = csp ? /'nonce-([A-Za-z0-9+/=_-]+)'/u.exec(csp)?.[1] : undefined;
         // First in <head>: the dev marker the client script reads, and the Browser tab, which must listen before it.

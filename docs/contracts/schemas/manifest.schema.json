@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/artifact/v1/manifest.schema.json",
-  "title": "Renox artifact manifest, artifact contract versions 0, 1 and 1.1",
-  "description": "manifest.json at the root of an artifact. Prose: docs/contracts/artifact.md section 3. Semantic rules the schema cannot express (route conflicts, entry files exist, tier bounds, page field combinations, templates, security, modules) are V4-V22 in section 6. Version 1.1 (artifact.version 1) adds modules, slots, and module-prefixed ids.",
+  "title": "Renox artifact manifest, artifact contract versions 0, 1, 1.1 and 1.2",
+  "description": "manifest.json at the root of an artifact. Prose: docs/contracts/artifact.md section 3. Semantic rules the schema cannot express (route conflicts, entry files exist, tier bounds, page field combinations, templates, security, modules) are V4-V23 in section 6. Version 1.1 (artifact.version 1) adds modules, slots, and module-prefixed ids. Version 1.2 (artifact.version 1) adds entries: the export names of each code entry and its eager flag (ops.md 1.4.0, lazy route modules).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -74,6 +74,17 @@
             "$ref": "#/$defs/modulePath"
           }
         }
+      }
+    },
+    "entries": {
+      "type": "object",
+      "description": "Version 1.2: code.entry id -> { exports, eager }. exports are the module's static export names, recorded by renox build; the worker refuses an artifact whose recorded exports differ from the module's (V23, ops.md 1.4.0 section 11). eager false lets the runtime evaluate a route module on its first request. Absent: every entry is eager and the exports are checked at isolate creation (1.1 behaviour).",
+      "maxProperties": 10000,
+      "propertyNames": {
+        "$ref": "#/$defs/moduleId"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/entryInfo"
       }
     },
     "routes": {
@@ -798,6 +809,30 @@
               }
             }
           }
+        }
+      }
+    },
+    "entryInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exports"
+      ],
+      "description": "Version 1.2: what renox build recorded for one code entry (artifact.md section 3, \"Entries\").",
+      "properties": {
+        "exports": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,127}$"
+          },
+          "description": "The module's static export names, sorted."
+        },
+        "eager": {
+          "type": "boolean",
+          "description": "true: evaluated at isolate creation. false (route modules only): evaluated on the first request that needs it. Default true."
         }
       }
     }
