@@ -70,8 +70,13 @@ test("checkout needs a user (auth, #241); signed in it builds a Stripe PaymentIn
   expect(body.payment_intent.metadata).toEqual({ cart_id: "c_2", items: "1" });
   expect(body.sdk.create).toBe("function");
   expect((await checkout(ctx(db, "POST", `${BASE}/api/checkout`, { body: { cart_id: "none" } }))).status).toBe(404);
-  expect(db.query("select user_id, cart_id from app__orders").all()).toEqual([{ user_id: "u_test", cart_id: "c_2" }]);
+  expect(db.query("select user_id, org_id, cart_id from app__orders").all()).toEqual([{ user_id: "u_test", org_id: null, cart_id: "c_2" }]);
+  // With an active organisation (the org module, #242) the order carries it.
+  (globalThis as { __shopTestOrg?: unknown }).__shopTestOrg = { id: "o_test", slug: "t", name: "T", role: "member", scope: { org_id: "o_test", role: "member" } };
+  expect((await checkout(ctx(db, "POST", `${BASE}/api/checkout`, { body: { cart_id: "c_2" } }))).status).toBe(200);
+  expect(db.query("select org_id from app__orders order by id").all()).toEqual([{ org_id: null }, { org_id: "o_test" }]);
   delete (globalThis as { __shopTestUser?: unknown }).__shopTestUser;
+  delete (globalThis as { __shopTestOrg?: unknown }).__shopTestOrg;
 });
 
 test("the seed endpoint is dev only and idempotent", async () => {

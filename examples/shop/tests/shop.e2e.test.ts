@@ -23,10 +23,12 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   const out = mkdtempSync(join(tmpdir(), "renox-shop-build-"));
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
-  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql", "003_orders_org.sql"]);
   // auth (#241): its migrations before the app's, its pages under /auth.
   expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql"]);
-  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["auth"]);
+  // org (#242): after auth, its dependency; its pages under /org.
+  expect(readdirSync(join(r.dir, "migrations/org")).sort()).toEqual(["001_init.sql"]);
+  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["auth", "org"]);
   expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${x.path}`).sort()).toEqual([
     "GET /api/products",
     "GET /api/products/:id",
@@ -40,6 +42,9 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
     "PAGE /auth/register",
     "PAGE /auth/reset",
     "PAGE /auth/reset/confirm",
+    "PAGE /org",
+    "PAGE /org/accept/:token",
+    "PAGE /org/members",
     "PAGE /products",
     "PAGE /products/:id",
     "POST /api/cart",
@@ -81,8 +86,17 @@ test.skipIf(!worker)(
     expect(co.currency).toBe("aed");
     const order = t.db.query<{ user_id: string }>("select user_id from app__orders where id = ?", [co.order_id])[0];
     expect(order?.user_id).toBe(t.db.query<{ id: string }>("select id from auth__public_users_v1 where email = 'buyer@example.com'")[0]?.id as string);
+    expect(t.db.query<{ org_id: string | null }>("select org_id from app__orders where id = ?", [co.order_id])[0]?.org_id).toBeNull();
     // The header's user menu, through the app.header slot.
     expect((await buyer.page("/products/42")).html).toContain('<a href="/auth/account" dir="auto">Buyer</a>');
+    // With an organisation (org, #242): the order carries the active one; the header shows the switcher.
+    expect((await buyer.action("/org", "create", { name: "Buyer Trading LLC", slug: "" })).status).toBe(303);
+    const orgId = t.db.query<{ org_id: string }>("select org_id from org__public_members_v1")[0]?.org_id as string;
+    const co2 = (await buyer.request("POST", "/api/checkout", { body: { cart_id: "c_e2e" } })).json<{ order_id: number }>();
+    expect(t.db.query<{ org_id: string }>("select org_id from app__orders where id = ?", [co2.order_id])[0]?.org_id).toBe(orgId);
+    const header = (await buyer.page("/products/42")).html;
+    expect(header).toContain('action="/org?/switch"');
+    expect(header).toContain("Buyer Trading LLC · owner");
 
     // Pages (#45). B6: the list page, 100 items, 20-30 KB. `page` keeps the session's cookies.
     const page = await t.page("/products");

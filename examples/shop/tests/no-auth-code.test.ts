@@ -1,5 +1,6 @@
-// #241 / docs/15-roadmap.md (F4 done): the shop uses the auth module and has
-// no auth code of its own: no password handling, no auth session, no
+// #241 / docs/15-roadmap.md (F4 done): the shop uses the auth and org
+// modules and has no auth or org code of its own (#242: no org tables,
+// roles, memberships or invitations either): no password handling, no auth session, no
 // cookies of its own in functions/, pages/, lib/ (the cart keeps the
 // platform's page `session.id`, which is not a user session).
 import { expect, test } from "bun:test";
@@ -14,9 +15,9 @@ function sources(dir: string): string[] {
     .map((d) => join(d.parentPath, d.name));
 }
 
-const FORBIDDEN = [/password/iu, /set-cookie/iu, /document\.cookie/iu, /headers\.get\(\s*["']cookie["']/iu, /__Host-/u, /\bauth__(?!public_)/u, /argon2|bcrypt|scrypt/iu, /\bjwt\b/iu];
+const FORBIDDEN = [/password/iu, /set-cookie/iu, /document\.cookie/iu, /headers\.get\(\s*["']cookie["']/iu, /__Host-/u, /\bauth__(?!public_)/u, /argon2|bcrypt|scrypt/iu, /\bjwt\b/iu, /\borg__(?!public_)/u, /\binvit/iu, /\bmembers?hip/iu, /\brole\s*[=:!]==?\s*["']/u];
 
-test("no auth code in the shop: auth is a module", () => {
+test("no auth or org code in the shop: both are modules", () => {
   const hits: string[] = [];
   for (const dir of ["functions", "pages", "lib", "partials"]) {
     for (const f of sources(dir)) {

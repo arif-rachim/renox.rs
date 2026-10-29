@@ -46,6 +46,7 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | Service | Result |
 | --- | --- |
 | `currentUser()` | The signed-in user of this request, or `null` |
+| `currentSession()` | `{ id, user }` of the live session, or `null`. `id` is not the cookie token: other modules key per-session state by it (org's active organisation) |
 | `requireUser()` | The user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`; through the broker, `RENOX_MODULE_SERVICE`) |
 | `loginUrl(next?)` | `/auth/login?next=…`; `next` kept only when it is a path of the app |
 | `register({ email, password, display_name? })` | `{ message }` (a confirmation link is mailed; the same message when the email already has an account, which gets a mail saying so) or `{ error }` for a bad email or password |

@@ -2,14 +2,15 @@
 //   -> {"amount": n, "currency": "aed", "order_id": n, "payment_intent": {...}}
 //
 // Needs a signed-in user (the auth module, #241): 401 without one. The
-// order carries the user's id; the shop has no auth code of its own.
+// order carries the user's id and the active organisation's (the org
+// module, #242), if any; the shop has no auth or org code of its own.
 //
 // Builds the Stripe PaymentIntent request for a cart with the official SDK
 // and makes no network call: `renox.toml` declares no outbound host. The
 // import is here so that B1 measures a realistic dependency set (zod plus
 // one payment SDK; F0 finding in #14, F1 gate condition #37).
 import type { Handler } from "renox";
-import { auth } from "renox:modules";
+import { auth, org } from "renox:modules";
 import Stripe from "stripe";
 import { z } from "zod";
 
@@ -36,14 +37,16 @@ export const POST: Handler = async ({ req, db }) => {
     [parsed.data.cart_id],
   );
   if (!cart || cart.items === 0) return notFound("cart");
+  const active = await org.currentOrg();
   const params: Stripe.PaymentIntentCreateParams = {
     amount: cart.total_fils,
     currency: "aed",
     automatic_payment_methods: { enabled: true },
     metadata: { cart_id: parsed.data.cart_id, items: String(cart.items) },
   };
-  const order = await db.execute("insert into app__orders (user_id, cart_id, amount_fils, created_at) values (?, ?, ?, ?)", [
+  const order = await db.execute("insert into app__orders (user_id, org_id, cart_id, amount_fils, created_at) values (?, ?, ?, ?, ?)", [
     user.id,
+    active?.id ?? null,
     parsed.data.cart_id,
     cart.total_fils,
     Math.floor(Date.now() / 1000),

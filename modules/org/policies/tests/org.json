@@ -1,0 +1,144 @@
+[
+  {
+    "description": "a member reads their organisation",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "member"
+      ]
+    },
+    "action": "org.read",
+    "resource": {
+      "type": "Org",
+      "id": "o_a"
+    },
+    "expected": "allow"
+  },
+  {
+    "description": "a member of org A cannot read org B",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "member"
+      ]
+    },
+    "action": "org.read",
+    "resource": {
+      "type": "Org",
+      "id": "o_b"
+    },
+    "expected": "deny"
+  },
+  {
+    "description": "a non-member cannot read the organisation",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": []
+    },
+    "action": "org.read",
+    "resource": {
+      "type": "Org",
+      "id": "o_a"
+    },
+    "expected": "deny"
+  },
+  {
+    "description": "an admin invites",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "admin"
+      ]
+    },
+    "action": "org.invite",
+    "resource": {
+      "type": "Org",
+      "id": "o_a"
+    },
+    "expected": "allow"
+  },
+  {
+    "description": "an owner invites",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "owner"
+      ]
+    },
+    "action": "org.invite",
+    "resource": {
+      "type": "Org",
+      "id": "o_a"
+    },
+    "expected": "allow"
+  },
+  {
+    "description": "a member cannot invite",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "member"
+      ]
+    },
+    "action": "org.invite",
+    "resource": {
+      "type": "Org",
+      "id": "o_a"
+    },
+    "expected": "deny"
+  },
+  {
+    "description": "an admin manages members",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "admin"
+      ]
+    },
+    "action": "org.manage_members",
+    "resource": {
+      "type": "Org",
+      "id": "o_a"
+    },
+    "expected": "allow"
+  },
+  {
+    "description": "a member cannot manage members",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "member"
+      ]
+    },
+    "action": "org.manage_members",
+    "resource": {
+      "type": "Org",
+      "id": "o_a"
+    },
+    "expected": "deny"
+  },
+  {
+    "description": "an owner of org A cannot manage org B",
+    "principal": {
+      "type": "User",
+      "id": "u_alice",
+      "roles": [
+        "owner"
+      ]
+    },
+    "action": "org.manage_members",
+    "resource": {
+      "type": "Org",
+      "id": "o_b"
+    },
+    "expected": "deny"
+  }
+]

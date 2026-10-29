@@ -1,0 +1,19 @@
+<r-layout use="org">
+  <r-group slot="title">Your organisations</r-group>
+  <h1>Your organisations</h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <ul id="orgs" r-if="has_orgs">
+    <li r-for="o in orgs">
+      <strong>{{ o.name }}</strong> · {{ o.role }}
+      <em r-if="o.current">(active)</em>
+      <x-form action="switch" r-else><input type="hidden" name="org" :value="o.id"><input type="hidden" name="next" :value="members_url"><button type="submit">Switch</button></x-form>
+    </li>
+  </ul>
+  <p r-else>You are not a member of an organisation yet.</p>
+  <h2>Create an organisation</h2>
+  <x-form action="create">
+    <label>Name <input name="name" :value="name" maxlength="100" required></label>
+    <label>Address (optional) <input name="slug" maxlength="50" pattern="[a-z0-9-]+"></label>
+    <button type="submit">Create</button>
+  </x-form>
+</r-layout>

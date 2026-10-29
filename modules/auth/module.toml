@@ -27,6 +27,7 @@ register = "Create a user and mail a confirmation link: { email, password, displ
 login = "Sign in: { email, password } -> { user, cookie } or { error }"
 logout = "End the current session (server side) -> { cookie }"
 currentUser = "The signed-in user of this request, or null"
+currentSession = "The request's live session { id, user } (id is not the cookie token), or null: the key for other modules' per-session state"
 requireUser = "The signed-in user; throws AUTH_REQUIRED when there is none"
 loginUrl = "The module's login page with a safe `next`"
 sendMagicLink = "Mail a one-time sign-in link: { email } -> the same message whether or not the account exists"

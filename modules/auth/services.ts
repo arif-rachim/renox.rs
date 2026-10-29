@@ -24,6 +24,15 @@ export async function logout(ctx: AuthCtx): Promise<{ cookie: string }> {
   return { cookie: core.clearCookie() };
 }
 
+/**
+ * The request's live session: its id (not the cookie token) and the user,
+ * or null. Other modules key per-session state by `id` (org's active
+ * organisation, #242); it ends when the session is revoked or expires.
+ */
+export async function currentSession(ctx: AuthCtx): Promise<{ id: string; user: User } | null> {
+  return core.currentSession(ctx);
+}
+
 export async function currentUser(ctx: AuthCtx): Promise<User | null> {
   return core.currentUser(ctx);
 }

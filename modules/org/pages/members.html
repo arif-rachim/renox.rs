@@ -1,0 +1,45 @@
+<r-layout use="org">
+  <r-group slot="title">{{ org.name }} · Members</r-group>
+  <h1>{{ org.name }}</h1>
+  <p id="role">Your role: {{ org.role }}</p>
+  <p class="notice" r-if="notice">{{ notice }}</p>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <h2>Members</h2>
+  <ul id="members">
+    <li r-for="m in members">
+      {{ m.display_name }} &lt;{{ m.email }}&gt; · {{ m.role }}
+      <strong r-if="m.self">(you)</strong>
+      <r-group r-if="m.manageable">
+        <x-form action="role">
+          <input type="hidden" name="user" :value="m.user_id">
+          <select name="role" aria-label="Role">
+            <option value="owner" r-if="can_grant_owner" :selected="m.role == 'owner'">owner</option>
+            <option value="admin" :selected="m.role == 'admin'">admin</option>
+            <option value="member" :selected="m.role == 'member'">member</option>
+          </select>
+          <button type="submit">Change role</button>
+        </x-form>
+        <x-form action="remove"><input type="hidden" name="user" :value="m.user_id"><button type="submit">Remove</button></x-form>
+      </r-group>
+    </li>
+  </ul>
+  <r-group r-if="can_invite">
+    <h2>Invitations</h2>
+    <ul id="invites" r-if="has_invites">
+      <li r-for="i in invites">
+        {{ i.email }} · {{ i.role }}
+        <x-form action="revoke"><input type="hidden" name="invite" :value="i.id"><button type="submit">Withdraw</button></x-form>
+      </li>
+    </ul>
+    <x-form action="invite">
+      <label>Email <input type="email" name="email" required></label>
+      <select name="role" aria-label="Role">
+        <option value="member">member</option>
+        <option value="admin">admin</option>
+        <option value="owner" r-if="can_grant_owner">owner</option>
+      </select>
+      <button type="submit">Invite</button>
+    </x-form>
+  </r-group>
+  <x-form action="leave"><button type="submit">Leave {{ org.name }}</button></x-form>
+</r-layout>
