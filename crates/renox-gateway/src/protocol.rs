@@ -14,17 +14,26 @@
 //!   `Content-Length` when `Transfer-Encoding` is present, folds equal
 //!   duplicate lengths, and accepts bare LF), so the check cannot live in the
 //!   service: by then the evidence is gone.
-//! - [`H2ResetBudget`] counts `RST_STREAM` frames per connection and closes
-//!   the connection when a client resets more than
-//!   [`ProtocolLimits::h2_max_resets_per_second`] streams within a second
-//!   (CVE-2023-44487). hyper's `max_pending_accept_reset_streams` only covers
-//!   streams reset before the server accepted them.
+//! - [`H2FloodBudget`] reads the HTTP/2 frame headers in both directions
+//!   and closes the connection when a client goes over one of three budgets
+//!   (#166): resets per connection in any one-second interval (client
+//!   `RST_STREAM`, CVE-2023-44487, plus server resets the client provoked,
+//!   "MadeYouReset"), the same resets summed over every connection of the
+//!   client IP ([`crate::limits::IpResetLimiter`]), and control frames
+//!   (`PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY`). hyper's
+//!   `max_pending_accept_reset_streams` only covers streams reset before the
+//!   server accepted them, and `max_local_error_reset_streams` is a lifetime
+//!   total, not a rate. Two floods are refused by h2 0.4.20 itself, with
+//!   `GOAWAY ENHANCE_YOUR_CALM`: `CONTINUATION` (at most
+//!   `max(5, 1.25 × header list / frame size)` frames per header block) and
+//!   empty non-final `DATA` (at most 100 per connection).
 //!
 //! A refused request never reaches routing or the [`crate::CellDispatcher`]. If it is
 //! the first request on the connection, the client gets a fixed `400` and
 //! the connection is closed; otherwise (a response for an earlier request
 //! may be in flight) the connection is closed without a response.
 
+use std::collections::VecDeque;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -34,15 +43,26 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::limits::IpResetSlot;
+
 /// HTTP/2 limits and the HTTP/1 guard's line buffer. The HTTP/1 header,
 /// timeout, and connection limits are in [`crate::GatewayLimits`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProtocolLimits {
     /// `SETTINGS_MAX_CONCURRENT_STREAMS` advertised to HTTP/2 clients.
     pub h2_max_concurrent_streams: u32,
-    /// `RST_STREAM` frames a client may send within one second before the
-    /// connection is closed.
+    /// Stream resets on one connection in any one-second interval (sliding
+    /// window) before it is closed: client `RST_STREAM` frames plus server
+    /// resets the client provoked.
     pub h2_max_resets_per_second: u32,
+    /// The same resets summed over all connections of one client IP (IPv6
+    /// by /64), in any one-second interval. Over it, the connection that
+    /// sent or provoked the reset is closed.
+    pub h2_max_resets_per_ip_per_second: u32,
+    /// `PING`, `SETTINGS`, `WINDOW_UPDATE`, and `PRIORITY` frames per
+    /// connection: a token bucket with this burst, refilled at
+    /// this rate per second. Over it, the connection is closed.
+    pub h2_max_control_frames_per_second: u32,
     /// Streams reset by the client before the server accepted them (hyper /
     /// `h2`); over it the connection gets `GOAWAY ENHANCE_YOUR_CALM`.
     pub h2_max_pending_accept_reset_streams: usize,
@@ -60,6 +80,8 @@ impl Default for ProtocolLimits {
         Self {
             h2_max_concurrent_streams: 128,
             h2_max_resets_per_second: 100,
+            h2_max_resets_per_ip_per_second: 200,
+            h2_max_control_frames_per_second: 2000,
             h2_max_pending_accept_reset_streams: 20,
             h2_max_local_error_reset_streams: 1024,
             h2_keep_alive_interval: Duration::from_secs(30),
@@ -563,35 +585,169 @@ impl<I: AsyncWrite + Unpin> AsyncWrite for Http1Guard<I> {
 /// The HTTP/2 client connection preface (RFC 9113 section 3.4).
 const H2_PREFACE_LEN: usize = 24;
 const H2_FRAME_HEADER_LEN: usize = 9;
+const H2_PRIORITY: u8 = 0x2;
 const H2_RST_STREAM: u8 = 0x3;
+const H2_SETTINGS: u8 = 0x4;
+const H2_PING: u8 = 0x6;
+const H2_WINDOW_UPDATE: u8 = 0x8;
+/// `RST_STREAM` error codes the server sends without a client fault:
+/// `NO_ERROR` (response done before the request body), `INTERNAL_ERROR` (a
+/// response body failed, for example a tenant stream), and `CANCEL`.
+const H2_NO_ERROR: u32 = 0x0;
+const H2_INTERNAL_ERROR: u32 = 0x2;
+const H2_CANCEL: u32 = 0x8;
 
-/// Counts `RST_STREAM` frames in an HTTP/2 client byte stream.
+/// At most `max` events in any one-second interval: the timestamps of the
+/// events of the last second, oldest first. Unlike a fixed window, a client
+/// cannot fit two budgets around a window boundary. Holds at most `max`
+/// entries, allocated only as events arrive.
 #[derive(Debug)]
-pub struct H2FrameCounter {
+pub struct SlidingWindow {
+    max: usize,
+    base: Instant,
+    /// Milliseconds since `base`.
+    times: VecDeque<u64>,
+}
+
+impl SlidingWindow {
+    pub fn new(max: u32, now: Instant) -> Self {
+        Self {
+            max: max as usize,
+            base: now,
+            times: VecDeque::new(),
+        }
+    }
+
+    fn prune(&mut self, now: Instant) -> u64 {
+        let t = now.saturating_duration_since(self.base).as_millis() as u64;
+        while self
+            .times
+            .front()
+            .is_some_and(|&f| t.saturating_sub(f) >= 1000)
+        {
+            self.times.pop_front();
+        }
+        t
+    }
+
+    /// Records an event; `false` (and nothing recorded) if `max` events
+    /// already happened within the last second.
+    pub fn hit(&mut self, now: Instant) -> bool {
+        let t = self.prune(now);
+        if self.times.len() >= self.max {
+            return false;
+        }
+        self.times.push_back(t);
+        true
+    }
+
+    /// Events still allowed now.
+    pub fn remaining(&mut self, now: Instant) -> usize {
+        self.prune(now);
+        self.max.saturating_sub(self.times.len())
+    }
+
+    /// No event within the last second.
+    pub fn is_idle(&mut self, now: Instant) -> bool {
+        self.prune(now);
+        self.times.is_empty()
+    }
+}
+
+/// A token bucket: `per_second` tokens of burst, refilled continuously at
+/// `per_second` per second. Constant memory, for budgets too large to keep
+/// one timestamp per event.
+#[derive(Clone, Copy, Debug)]
+pub struct TokenBucket {
+    per_second: f64,
+    tokens: f64,
+    last: Instant,
+}
+
+impl TokenBucket {
+    pub fn new(per_second: u32, now: Instant) -> Self {
+        Self {
+            per_second: f64::from(per_second),
+            tokens: f64::from(per_second),
+            last: now,
+        }
+    }
+
+    /// Takes one token; `false` if the bucket is empty.
+    pub fn take(&mut self, now: Instant) -> bool {
+        let dt = now.saturating_duration_since(self.last).as_secs_f64();
+        self.tokens = (self.tokens + dt * self.per_second).min(self.per_second);
+        self.last = self.last.max(now);
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Which HTTP/2 budget closed a connection. Only used in logs and tests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum H2Flood {
+    /// Client `RST_STREAM` plus server resets the client provoked, on this
+    /// connection ([`ProtocolLimits::h2_max_resets_per_second`]).
+    Resets,
+    /// The same resets summed over every connection of the client IP
+    /// ([`ProtocolLimits::h2_max_resets_per_ip_per_second`]).
+    IpResets,
+    /// `PING`, `SETTINGS`, `WINDOW_UPDATE`, and `PRIORITY` frames
+    /// ([`ProtocolLimits::h2_max_control_frames_per_second`]).
+    ControlFrames,
+}
+
+/// One frame header seen by [`FrameParser`]; `code` is the error code of a
+/// `RST_STREAM` (0 for other kinds).
+#[derive(Clone, Copy, Debug)]
+struct FrameHead {
+    kind: u8,
+    len: u32,
+    code: u32,
+    /// Offset of the frame's first byte in the bytes of this
+    /// [`FrameParser::feed`] call; `None` if it began in an earlier call.
+    start: Option<usize>,
+}
+
+/// Splits an HTTP/2 byte stream into frame headers without buffering
+/// payloads (only the 4-byte error code of a `RST_STREAM`).
+#[derive(Clone, Debug)]
+struct FrameParser {
     preface_left: usize,
     header: [u8; H2_FRAME_HEADER_LEN],
     header_len: usize,
     payload_left: u64,
-    max_per_second: u32,
-    window_start: Option<Instant>,
-    in_window: u32,
+    /// A `RST_STREAM` whose error code is still being read.
+    rst: Option<(FrameHead, usize)>,
 }
 
-impl H2FrameCounter {
-    pub fn new(max_per_second: u32) -> Self {
+impl FrameParser {
+    fn new(preface: usize) -> Self {
         Self {
-            preface_left: H2_PREFACE_LEN,
+            preface_left: preface,
             header: [0; H2_FRAME_HEADER_LEN],
             header_len: 0,
             payload_left: 0,
-            max_per_second,
-            window_start: None,
-            in_window: 0,
+            rst: None,
         }
     }
 
-    /// Feeds bytes; `false` once the reset budget is exceeded.
-    pub fn feed(&mut self, mut data: &[u8], now: Instant) -> bool {
+    /// Feeds bytes and calls `on_frame` for each frame; stops at the first
+    /// `Err`.
+    fn feed<E>(
+        &mut self,
+        mut data: &[u8],
+        mut on_frame: impl FnMut(FrameHead) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let total = data.len();
+        if let Some((head, _)) = &mut self.rst {
+            head.start = None;
+        }
+        let mut start = None;
         while !data.is_empty() {
             if self.preface_left > 0 {
                 let n = self.preface_left.min(data.len());
@@ -599,9 +755,23 @@ impl H2FrameCounter {
                 data = &data[n..];
             } else if self.payload_left > 0 {
                 let n = self.payload_left.min(data.len() as u64) as usize;
+                if let Some((head, got)) = &mut self.rst {
+                    for &b in data.iter().take(n.min(4 - *got)) {
+                        head.code = (head.code << 8) | u32::from(b);
+                        *got += 1;
+                    }
+                    if *got == 4 {
+                        let head = *head;
+                        self.rst = None;
+                        on_frame(head)?;
+                    }
+                }
                 self.payload_left -= n as u64;
                 data = &data[n..];
             } else {
+                if self.header_len == 0 {
+                    start = Some(total - data.len());
+                }
                 let n = (H2_FRAME_HEADER_LEN - self.header_len).min(data.len());
                 self.header[self.header_len..self.header_len + n].copy_from_slice(&data[..n]);
                 self.header_len += n;
@@ -609,68 +779,199 @@ impl H2FrameCounter {
                 if self.header_len == H2_FRAME_HEADER_LEN {
                     self.header_len = 0;
                     let h = self.header;
-                    self.payload_left = u64::from(u32::from_be_bytes([0, h[0], h[1], h[2]]));
-                    if h[3] == H2_RST_STREAM && !self.count_reset(now) {
-                        return false;
+                    let head = FrameHead {
+                        kind: h[3],
+                        len: u32::from_be_bytes([0, h[0], h[1], h[2]]),
+                        code: 0,
+                        start,
+                    };
+                    self.payload_left = u64::from(head.len);
+                    // A malformed `RST_STREAM` (not 4 bytes) is h2's to
+                    // refuse; it is counted at its header.
+                    if head.kind == H2_RST_STREAM && head.len == 4 {
+                        self.rst = Some((head, 0));
+                    } else {
+                        on_frame(head)?;
                     }
                 }
             }
         }
-        true
-    }
-
-    fn count_reset(&mut self, now: Instant) -> bool {
-        match self.window_start {
-            Some(start) if now.duration_since(start) < Duration::from_secs(1) => {
-                self.in_window += 1;
-            }
-            _ => {
-                self.window_start = Some(now);
-                self.in_window = 1;
-            }
-        }
-        self.in_window <= self.max_per_second
+        Ok(())
     }
 }
 
-/// An HTTP/2 connection's IO with [`H2FrameCounter`] applied: over the
-/// reset budget, the read fails and hyper closes the connection.
+/// Counts the frames of one HTTP/2 connection against its budgets: client
+/// bytes through [`H2FrameCounter::feed`], server bytes through
+/// [`H2FrameCounter::feed_server`].
 #[derive(Debug)]
-pub struct H2ResetBudget<I> {
+pub struct H2FrameCounter {
+    client: FrameParser,
+    server: FrameParser,
+    resets: SlidingWindow,
+    control: TokenBucket,
+    ip: Option<IpResetSlot>,
+}
+
+impl H2FrameCounter {
+    pub fn new(limits: &ProtocolLimits, ip: Option<IpResetSlot>, now: Instant) -> Self {
+        Self {
+            client: FrameParser::new(H2_PREFACE_LEN),
+            server: FrameParser::new(0),
+            resets: SlidingWindow::new(limits.h2_max_resets_per_second, now),
+            control: TokenBucket::new(limits.h2_max_control_frames_per_second, now),
+            ip,
+        }
+    }
+
+    /// Bytes the client sent.
+    pub fn feed(&mut self, data: &[u8], now: Instant) -> Result<(), H2Flood> {
+        let Self {
+            client,
+            resets,
+            control,
+            ip,
+            ..
+        } = self;
+        client.feed(data, |f| {
+            // Empty `DATA` (CVE-2019-9518) and `CONTINUATION` floods are
+            // refused by h2 itself (module docs).
+            let is_control = matches!(
+                f.kind,
+                H2_PING | H2_SETTINGS | H2_WINDOW_UPDATE | H2_PRIORITY
+            );
+            if is_control && !control.take(now) {
+                return Err(H2Flood::ControlFrames);
+            }
+            if f.kind == H2_RST_STREAM {
+                count_reset(resets, ip.as_ref(), now)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Bytes the server wrote. A `RST_STREAM` with an error code other than
+    /// `NO_ERROR`, `INTERNAL_ERROR`, or `CANCEL` is a reset the client provoked (a malformed
+    /// frame on an open stream, "MadeYouReset") and costs the same budget as
+    /// a client reset.
+    pub fn feed_server(&mut self, data: &[u8], now: Instant) -> Result<(), H2Flood> {
+        let Self {
+            server, resets, ip, ..
+        } = self;
+        server.feed(data, |f| {
+            if is_provoked_reset(f) {
+                count_reset(resets, ip.as_ref(), now)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// How much of `data` the server may write: `None` for all of it, or
+    /// the offset of the first provoked reset that is over a budget (`0` if
+    /// nothing more may be written). Lets [`H2FloodBudget`] stop before that
+    /// reset reaches the client instead of noticing it after the write.
+    fn server_cut(&mut self, data: &[u8], now: Instant) -> Option<(usize, H2Flood)> {
+        let conn = self.resets.remaining(now);
+        let ip = self.ip.as_ref().map_or(usize::MAX, |ip| ip.remaining(now));
+        let (mut left, flood) = if conn <= ip {
+            (conn, H2Flood::Resets)
+        } else {
+            (ip, H2Flood::IpResets)
+        };
+        let mut probe = self.server.clone();
+        probe
+            .feed(data, |f| {
+                if !is_provoked_reset(f) {
+                    return Ok(());
+                }
+                if left == 0 {
+                    return Err((f.start.unwrap_or(0), flood));
+                }
+                left -= 1;
+                Ok(())
+            })
+            .err()
+    }
+}
+
+/// A server `RST_STREAM` the client caused (module docs).
+fn is_provoked_reset(f: FrameHead) -> bool {
+    f.kind == H2_RST_STREAM && ![H2_NO_ERROR, H2_INTERNAL_ERROR, H2_CANCEL].contains(&f.code)
+}
+
+fn count_reset(
+    resets: &mut SlidingWindow,
+    ip: Option<&IpResetSlot>,
+    now: Instant,
+) -> Result<(), H2Flood> {
+    if !resets.hit(now) {
+        return Err(H2Flood::Resets);
+    }
+    if ip.is_some_and(|ip| !ip.hit(now)) {
+        return Err(H2Flood::IpResets);
+    }
+    Ok(())
+}
+
+fn flood_error(flood: H2Flood) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("HTTP/2 flood budget exceeded: {flood:?}"),
+    )
+}
+
+/// An HTTP/2 connection's IO with [`H2FrameCounter`] applied to both
+/// directions. Over a budget, the read or write fails and hyper closes the
+/// connection; every later read or write fails too.
+#[derive(Debug)]
+pub struct H2FloodBudget<I> {
     inner: I,
     counter: H2FrameCounter,
     refused: Option<Arc<AtomicU64>>,
+    closed: Option<H2Flood>,
 }
 
-impl<I> H2ResetBudget<I> {
-    pub fn new(inner: I, max_per_second: u32, refused: Option<Arc<AtomicU64>>) -> Self {
+impl<I> H2FloodBudget<I> {
+    pub fn new(
+        inner: I,
+        limits: &ProtocolLimits,
+        ip: Option<IpResetSlot>,
+        refused: Option<Arc<AtomicU64>>,
+    ) -> Self {
         Self {
             inner,
-            counter: H2FrameCounter::new(max_per_second),
+            counter: H2FrameCounter::new(limits, ip, Instant::now()),
             refused,
+            closed: None,
         }
+    }
+
+    fn close(&mut self, flood: H2Flood) -> io::Error {
+        if self.closed.is_none() {
+            self.closed = Some(flood);
+            if let Some(counter) = &self.refused {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        flood_error(flood)
     }
 }
 
-impl<I: AsyncRead + Unpin> AsyncRead for H2ResetBudget<I> {
+impl<I: AsyncRead + Unpin> AsyncRead for H2FloodBudget<I> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        if let Some(flood) = this.closed {
+            return Poll::Ready(Err(flood_error(flood)));
+        }
         let before = buf.filled().len();
         match Pin::new(&mut this.inner).poll_read(cx, buf) {
             Poll::Ready(Ok(())) => {
-                if !this.counter.feed(&buf.filled()[before..], Instant::now()) {
+                if let Err(flood) = this.counter.feed(&buf.filled()[before..], Instant::now()) {
                     buf.set_filled(before);
-                    if let Some(counter) = &this.refused {
-                        counter.fetch_add(1, Ordering::Relaxed);
-                    }
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "HTTP/2 stream reset budget exceeded",
-                    )));
+                    return Poll::Ready(Err(this.close(flood)));
                 }
                 Poll::Ready(Ok(()))
             }
@@ -679,13 +980,29 @@ impl<I: AsyncRead + Unpin> AsyncRead for H2ResetBudget<I> {
     }
 }
 
-impl<I: AsyncWrite + Unpin> AsyncWrite for H2ResetBudget<I> {
+impl<I: AsyncWrite + Unpin> AsyncWrite for H2FloodBudget<I> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         data: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write(cx, data)
+        let this = self.get_mut();
+        if let Some(flood) = this.closed {
+            return Poll::Ready(Err(flood_error(flood)));
+        }
+        let now = Instant::now();
+        let limit = match this.counter.server_cut(data, now) {
+            Some((0, flood)) => return Poll::Ready(Err(this.close(flood))),
+            Some((cut, _)) => cut,
+            None => data.len(),
+        };
+        match Pin::new(&mut this.inner).poll_write(cx, &data[..limit]) {
+            Poll::Ready(Ok(n)) => match this.counter.feed_server(&data[..n], now) {
+                Ok(()) => Poll::Ready(Ok(n)),
+                Err(flood) => Poll::Ready(Err(this.close(flood))),
+            },
+            other => other,
+        }
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -696,17 +1013,8 @@ impl<I: AsyncWrite + Unpin> AsyncWrite for H2ResetBudget<I> {
         Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
     }
 
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.inner.is_write_vectored()
-    }
+    // Not vectored: every write goes through `poll_write`, where the
+    // server's frames are checked before they are written.
 }
 
 #[cfg(test)]
@@ -881,23 +1189,159 @@ mod tests {
         f
     }
 
+    fn rst(code: u32) -> Vec<u8> {
+        let mut f = vec![0, 0, 4, H2_RST_STREAM, 0, 0, 0, 0, 1];
+        f.extend(code.to_be_bytes());
+        f
+    }
+
+    fn limits(resets: u32, ip: u32, control: u32) -> ProtocolLimits {
+        ProtocolLimits {
+            h2_max_resets_per_second: resets,
+            h2_max_resets_per_ip_per_second: ip,
+            h2_max_control_frames_per_second: control,
+            ..ProtocolLimits::default()
+        }
+    }
+
+    const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
     #[test]
     fn reset_budget_counts_rst_stream_frames_per_second() {
         let now = Instant::now();
-        let mut c = H2FrameCounter::new(3);
-        let mut bytes = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".to_vec();
-        bytes.extend(frame(0x4, 6)); // SETTINGS
+        let mut c = H2FrameCounter::new(&limits(3, 100, 100), None, now);
+        let mut bytes = PREFACE.to_vec();
+        bytes.extend(frame(H2_SETTINGS, 6));
         for _ in 0..3 {
             bytes.extend(frame(0x1, 10)); // HEADERS
-            bytes.extend(frame(H2_RST_STREAM, 4));
+            bytes.extend(rst(H2_CANCEL));
         }
         // Byte by byte, so frame headers split across reads are handled.
-        assert!(bytes.iter().all(|b| c.feed(std::slice::from_ref(b), now)));
-        assert!(!c.feed(&frame(H2_RST_STREAM, 4), now));
+        assert!(
+            bytes
+                .iter()
+                .all(|b| c.feed(std::slice::from_ref(b), now).is_ok())
+        );
+        assert_eq!(c.feed(&rst(H2_CANCEL), now), Err(H2Flood::Resets));
 
-        // A new second starts a new window.
-        let mut c = H2FrameCounter::new(3);
-        assert!(c.feed(&bytes, now));
-        assert!(c.feed(&frame(H2_RST_STREAM, 4), now + Duration::from_millis(1001)));
+        // A second later the window has moved on.
+        let mut c = H2FrameCounter::new(&limits(3, 100, 100), None, now);
+        assert!(c.feed(&bytes, now).is_ok());
+        assert!(
+            c.feed(&rst(H2_CANCEL), now + Duration::from_millis(1001))
+                .is_ok()
+        );
+    }
+
+    /// Finding 1 of #166: a fixed window let a client send twice the budget
+    /// around a window boundary. The sliding window allows `max` in any
+    /// one-second interval.
+    #[test]
+    fn reset_budget_has_no_window_boundary() {
+        let t0 = Instant::now();
+        let mut w = SlidingWindow::new(10, t0);
+        // First reset at 0, then nine at 0.99 s.
+        assert!(w.hit(t0));
+        let late = t0 + Duration::from_millis(990);
+        assert!((0..9).all(|_| w.hit(late)));
+        // Just after the old window's boundary: only the slot of the reset
+        // at 0 is free again, not a whole new budget.
+        let next = t0 + Duration::from_millis(1010);
+        assert!(w.hit(next));
+        assert!(!w.hit(next));
+        assert!(!w.is_idle(next));
+        assert!(w.is_idle(t0 + Duration::from_millis(2011)));
+    }
+
+    #[test]
+    fn token_bucket_refills_at_its_rate() {
+        let t0 = Instant::now();
+        let mut b = TokenBucket::new(4, t0);
+        assert!((0..4).all(|_| b.take(t0)));
+        assert!(!b.take(t0));
+        // A quarter second refills one token.
+        assert!(b.take(t0 + Duration::from_millis(250)));
+        assert!(!b.take(t0 + Duration::from_millis(250)));
+        // Never more than the burst.
+        let later = t0 + Duration::from_secs(60);
+        assert!((0..4).all(|_| b.take(later)));
+        assert!(!b.take(later));
+    }
+
+    #[test]
+    fn server_resets_count_unless_the_server_is_at_fault() {
+        let now = Instant::now();
+        let mut c = H2FrameCounter::new(&limits(2, 100, 100), None, now);
+        // The server's own frames: SETTINGS, then resets.
+        for f in [rst(H2_NO_ERROR), rst(H2_CANCEL), rst(H2_INTERNAL_ERROR)] {
+            assert!(c.feed_server(&f, now).is_ok());
+        }
+        let protocol_error = rst(0x1);
+        let mut bytes = frame(H2_SETTINGS, 0);
+        bytes.extend(&protocol_error);
+        bytes.extend(rst(0x3)); // FLOW_CONTROL_ERROR
+        assert!(
+            bytes
+                .iter()
+                .all(|b| c.feed_server(std::slice::from_ref(b), now).is_ok())
+        );
+        assert_eq!(c.feed_server(&protocol_error, now), Err(H2Flood::Resets));
+
+        // The write is cut before the reset over the budget: two fit, the
+        // third starts at byte 26 (each is 13 bytes).
+        let mut c = H2FrameCounter::new(&limits(2, 100, 100), None, now);
+        let three = [rst(H2_CANCEL), rst(0x1), rst(0x1), rst(0x1)].concat();
+        assert_eq!(c.server_cut(&three, now), Some((39, H2Flood::Resets)));
+        assert!(c.feed_server(&three[..39], now).is_ok());
+        assert_eq!(c.server_cut(&three[39..], now), Some((0, H2Flood::Resets)));
+        // A reset whose header was written earlier is cut at 0 too.
+        assert!(c.feed_server(&three[39..44], now).is_ok());
+        assert_eq!(c.server_cut(&three[44..], now), Some((0, H2Flood::Resets)));
+
+        // Server and client resets share the connection budget.
+        let mut c = H2FrameCounter::new(&limits(2, 100, 100), None, now);
+        assert!(c.feed(PREFACE, now).is_ok());
+        assert!(c.feed(&rst(H2_CANCEL), now).is_ok());
+        assert!(c.feed_server(&protocol_error, now).is_ok());
+        assert_eq!(c.feed(&rst(H2_CANCEL), now), Err(H2Flood::Resets));
+    }
+
+    #[test]
+    fn control_frames_share_one_budget() {
+        let now = Instant::now();
+        let mut c = H2FrameCounter::new(&limits(100, 100, 5), None, now);
+        let mut bytes = PREFACE.to_vec();
+        for kind in [H2_PING, H2_SETTINGS, H2_WINDOW_UPDATE, H2_PRIORITY] {
+            bytes.extend(frame(kind, 4));
+        }
+        // Not control frames: DATA (empty or not; h2 limits empty ones),
+        // HEADERS, CONTINUATION.
+        bytes.extend(frame(0x0, 3));
+        bytes.extend(frame(0x0, 0));
+        bytes.extend(frame(0x1, 3));
+        bytes.extend(frame(0x9, 3));
+        assert!(c.feed(&bytes, now).is_ok());
+        assert!(c.feed(&frame(H2_PRIORITY, 5), now).is_ok());
+        assert_eq!(c.feed(&frame(H2_PING, 8), now), Err(H2Flood::ControlFrames));
+    }
+
+    #[test]
+    fn ip_budget_is_shared_by_connections() {
+        let now = Instant::now();
+        let ips = crate::limits::IpResetLimiter::new(3);
+        let ip = "192.0.2.7".parse().unwrap();
+        let mut a = H2FrameCounter::new(&limits(100, 3, 100), Some(ips.slot(ip)), now);
+        let mut b = H2FrameCounter::new(&limits(100, 3, 100), Some(ips.slot(ip)), now);
+        assert!(a.feed(PREFACE, now).is_ok());
+        assert!(b.feed(PREFACE, now).is_ok());
+        assert!(a.feed(&rst(H2_CANCEL), now).is_ok());
+        assert!(a.feed(&rst(H2_CANCEL), now).is_ok());
+        assert!(b.feed(&rst(H2_CANCEL), now).is_ok());
+        assert_eq!(b.feed(&rst(H2_CANCEL), now), Err(H2Flood::IpResets));
+        assert_eq!(
+            a.feed_server(&rst(0x1), now),
+            Err(H2Flood::IpResets),
+            "server resets count per IP too"
+        );
     }
 }

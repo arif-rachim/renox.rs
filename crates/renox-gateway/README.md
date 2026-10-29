@@ -4,7 +4,7 @@ The data plane's front door (P3, `docs/03-architecture.md` Gateway row): hostnam
 
 ## Request path
 
-Below the HTTP parser, the **protocol guards** (see "Protocol limits") refuse an HTTP/1 request with ambiguous framing before hyper parses it, and close an HTTP/2 connection that is over its stream-reset budget. Then, per request:
+Below the HTTP parser, the **protocol guards** (see "Protocol limits") refuse an HTTP/1 request with ambiguous framing before hyper parses it, and close an HTTP/2 connection that is over its reset or control-frame budget. Then, per request:
 
 1. A ULID request id is assigned (`src/request_id.rs`). It is on every response, including the fixed `503` at the connection cap and the guard's `400` and `431`, which are written below hyper.
 2. **Rate limit**: token bucket per client IP (IPv6 by /64). Over the limit → `429` with `Retry-After` and an empty body (no error code: under a flood the gateway spends no bytes on a body; `docs/contracts/errors.md` "Open" 2). The cell is not called and nothing is metered.
@@ -123,7 +123,13 @@ The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.x only 
 
 A refused first request on a connection gets a fixed `400 Bad Request` with `connection: close`. A violation later on the connection closes it without a response, because a response to an earlier request may still be in flight. A head longer than the header limit is left to hyper, which answers `431`.
 
-**HTTP/2.** `H2ResetBudget` wraps every HTTP/2 connection and counts the client's `RST_STREAM` frames (rapid reset, CVE-2023-44487). hyper's own limit only covers streams reset before the server accepted them.
+**HTTP/2.** `H2FloodBudget` wraps every HTTP/2 connection and reads the frame headers in both directions (#166). It closes the connection when the client goes over one of three budgets:
+
+- **Resets per connection**, a sliding window (at most N in any one-second interval, so no double budget around a window boundary). It counts the client's `RST_STREAM` frames (rapid reset, CVE-2023-44487) and the server's `RST_STREAM` frames with an error code other than `NO_ERROR`, `INTERNAL_ERROR` (a failed response body, the server's own fault), or `CANCEL`: resets the client provoked with a malformed frame on an open stream ("MadeYouReset"). A provoked reset over the budget is never written; the write stops before it.
+- **Resets per client IP** (IPv6 by /64), the same count summed over all of the IP's HTTP/2 connections (`IpResetLimiter` in `src/limits.rs`). Its state lives while the IP has an open HTTP/2 connection or a reset in the last second, so reconnecting does not refill it.
+- **Control frames**: `PING`, `SETTINGS`, `WINDOW_UPDATE`, and `PRIORITY` (CVE-2019-9512, -9515, -9517, -9513), a token bucket per connection.
+
+hyper's own reset limits are not rates: `max_pending_accept_reset_streams` only covers streams reset before the server accepted them, and `max_local_error_reset_streams` is a lifetime total. Two floods are left to h2 0.4.20, which refuses them with `GOAWAY ENHANCE_YOUR_CALM`; a test pins each (`tests/protocol.rs`): `CONTINUATION` (more than `max(5, 1.25 × header list size / frame size)` frames in one header block, CVE-2024-27316 class) and empty non-final `DATA` (more than 100 per connection, CVE-2019-9518).
 
 **SNI / Host** is described under "Request path", step 5. The SNI is taken from the TLS session (`TlsSni` request extension). On plain HTTP there is no SNI and no check.
 
@@ -144,7 +150,11 @@ Every knob, its default, and where it is set. `GatewayConfig.protocol` is `Proto
 | h2c / cleartext upgrade | refused | fixed | plain listener is HTTP/1 only; `Upgrade: h2c` refused by the guard; `Upgrade` stripped before dispatch |
 | HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` | 128 | `protocol.h2_max_concurrent_streams` | hyper `http2::Builder::max_concurrent_streams` |
 | HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` | 16 KiB | `limits.max_header_bytes` | hyper `max_header_list_size` |
-| HTTP/2 client resets per second | 100 | `protocol.h2_max_resets_per_second` | `H2ResetBudget`: over it, the connection is closed |
+| HTTP/2 resets per connection, any one second | 100 | `protocol.h2_max_resets_per_second` | `H2FloodBudget`, sliding window over client `RST_STREAM` and provoked server resets: over it, the connection is closed |
+| HTTP/2 resets per client IP, any one second | 200 | `protocol.h2_max_resets_per_ip_per_second` | `H2FloodBudget` with `IpResetLimiter`, same count over all connections of the IP (IPv6 /64): over it, the connection is closed |
+| HTTP/2 control frames per connection | 2,000 burst, 2,000 per second | `protocol.h2_max_control_frames_per_second` | `H2FloodBudget`, token bucket over `PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY`: over it, the connection is closed |
+| HTTP/2 `CONTINUATION` frames per header block | `max(5, 1.25 × header list size / frame size)` (5 with the defaults) | not exposed | h2 0.4.20: over it, `GOAWAY ENHANCE_YOUR_CALM` |
+| HTTP/2 empty non-final `DATA` frames per connection | 100 | not exposed | h2 0.4.20 (`MAX_RECV_EMPTY_DATA_FRAMES`): over it, `GOAWAY ENHANCE_YOUR_CALM` |
 | HTTP/2 resets before accept | 20 | `protocol.h2_max_pending_accept_reset_streams` | hyper / `h2`: over it, `GOAWAY ENHANCE_YOUR_CALM` |
 | HTTP/2 server resets caused by client errors | 1,024 | `protocol.h2_max_local_error_reset_streams` | hyper / `h2`: over it, `GOAWAY ENHANCE_YOUR_CALM` |
 | HTTP/2 keep-alive `PING` interval | 30 s | `protocol.h2_keep_alive_interval` | hyper `keep_alive_interval` |
@@ -186,9 +196,9 @@ The CSP carries `report-uri /__renox/events?kind=csp; report-to renox-csp`, and 
 | `rate_limit.burst` | 200 | Bucket size |
 | `rate_limit.max_tracked_clients` | 100,000 | When reached, fully refilled buckets are dropped |
 | `limits` | see "Input limits" | Header, body, timeout, and connection limits |
-| `protocol` | see "Protocol limits" | HTTP/2 stream and reset limits |
+| `protocol` | see "Protocol limits" | HTTP/2 stream, reset, and control-frame limits |
 | `client_events` | see "Client events" | `/__renox/events` limits (`ClientEventLimits`) |
 
 ## Tests
 
-`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/protocol.rs` sends hand-written bytes (smuggling, h2c), drives an `h2` client (rapid reset, `:authority`), and checks SNI vs `Host` over TLS; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client; `tests/client_events.rs` posts the contract's examples to `/__renox/events` and checks the request id on every response kind.
+`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/protocol.rs` sends hand-written bytes (smuggling, h2c), drives an `h2` client (rapid reset, `:authority`) and hand-written HTTP/2 frames (per-IP resets, provoked resets, control-frame floods), and checks SNI vs `Host` over TLS; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client; `tests/client_events.rs` posts the contract's examples to `/__renox/events` and checks the request id on every response kind.

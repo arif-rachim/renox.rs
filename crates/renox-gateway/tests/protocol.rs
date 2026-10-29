@@ -1,12 +1,13 @@
-//! Protocol hardening at the gateway (#107), proven with raw TCP clients
-//! that send hand-written bytes (not a well-behaved HTTP client), an `h2`
-//! client for HTTP/2, and a `rustls` client for SNI. Every refused request is
+//! Protocol hardening at the gateway (#107, and the HTTP/2 flood budgets of
+//! #166), proven with raw TCP clients that send hand-written bytes (not a
+//! well-behaved HTTP client), an `h2` client and hand-written HTTP/2 frames
+//! for HTTP/2, and a `rustls` client for SNI. Every refused request is
 //! also checked against the fake dispatcher: it never reaches a cell.
 //!
 //! Rows proven (`docs/24-threat-model.md` section C): "HTTP request
 //! smuggling, `Transfer-Encoding` tricks, h2c upgrade", "HTTP/2 rapid reset
-//! and stream floods", "Host/SNI confusion", "Cache poisoning of static
-//! assets".
+//! and stream floods" (with the control-frame floods of #166), "Host/SNI
+//! confusion", "Cache poisoning of static assets".
 
 mod common;
 
@@ -449,6 +450,7 @@ async fn rapid_reset(tls: &TlsServer) -> usize {
 /// process RSS grows by less than 10 MB.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn h2_rapid_reset_closes_the_connection_within_the_budget() {
+    let _rss = RSS_LOCK.lock().await;
     let protocol = ProtocolLimits::default();
     let tls = start_tls(protocol).await;
     let s = &tls.server;
@@ -526,6 +528,391 @@ async fn h2_advertises_max_concurrent_streams() {
         .unwrap();
     resp.await.unwrap();
     assert_eq!(client.current_max_send_streams(), 128);
+}
+
+// ---------------------------------------------------------------------------
+// HTTP/2 flood budgets beyond RST_STREAM (#166), with hand-written frames
+// ---------------------------------------------------------------------------
+
+/// Serialises the tests that measure RSS, so one flood's allocations are not
+/// counted against another.
+static RSS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+const FRAME_DATA: u8 = 0x0;
+const FRAME_HEADERS: u8 = 0x1;
+const FRAME_PRIORITY: u8 = 0x2;
+const FRAME_RST_STREAM: u8 = 0x3;
+const FRAME_SETTINGS: u8 = 0x4;
+const FRAME_PING: u8 = 0x6;
+const FRAME_GOAWAY: u8 = 0x7;
+const FRAME_WINDOW_UPDATE: u8 = 0x8;
+const FRAME_CONTINUATION: u8 = 0x9;
+const END_HEADERS: u8 = 0x4;
+const ENHANCE_YOUR_CALM: u32 = 0xb;
+
+fn raw_frame(kind: u8, flags: u8, stream: u32, payload: &[u8]) -> Vec<u8> {
+    let len = (payload.len() as u32).to_be_bytes();
+    let mut f = vec![len[1], len[2], len[3], kind, flags];
+    f.extend(stream.to_be_bytes());
+    f.extend(payload);
+    f
+}
+
+/// `GET https://a.test/` in HPACK, static-table indexes only.
+fn get_block() -> Vec<u8> {
+    let mut b = vec![0x82, 0x87, 0x84, 0x01, 6];
+    b.extend(b"a.test");
+    b
+}
+
+/// A request whose body never comes (no `END_STREAM`): the stream stays
+/// open and the gateway waits for the body before any dispatch.
+fn open_stream(stream: u32) -> Vec<u8> {
+    raw_frame(FRAME_HEADERS, END_HEADERS, stream, &get_block())
+}
+
+/// A frame the server sent, as the raw client saw it.
+#[derive(Debug)]
+struct ServerFrame {
+    kind: u8,
+    /// Error code of a `RST_STREAM` or `GOAWAY`.
+    code: u32,
+}
+
+/// What the raw client saw before the server closed the connection.
+struct Seen {
+    frames: Vec<ServerFrame>,
+    /// The server closed the connection within 10 s.
+    closed: bool,
+}
+
+impl Seen {
+    fn count(&self, kind: u8, code: impl Fn(u32) -> bool) -> usize {
+        self.frames
+            .iter()
+            .filter(|f| f.kind == kind && code(f.code))
+            .count()
+    }
+}
+
+/// An HTTP/2 client that writes hand-written frames over TLS (ALPN `h2`)
+/// and records every frame the server sends until it closes the connection.
+struct RawH2 {
+    write: tokio::io::WriteHalf<tokio_rustls::client::TlsStream<TcpStream>>,
+    reader: tokio::task::JoinHandle<Seen>,
+}
+
+impl RawH2 {
+    async fn connect(tls: &TlsServer) -> RawH2 {
+        let conn = tls_connect(tls.server.addr, &tls.connector_h2, "a.test").await;
+        let (mut read, mut write) = tokio::io::split(conn);
+        let mut hello = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".to_vec();
+        hello.extend(raw_frame(FRAME_SETTINGS, 0, 0, &[]));
+        write.write_all(&hello).await.unwrap();
+        let reader = tokio::spawn(async move {
+            let mut frames = Vec::new();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let left = deadline.saturating_duration_since(Instant::now());
+                let mut head = [0u8; 9];
+                match tokio::time::timeout(left, read.read_exact(&mut head)).await {
+                    Err(_) => {
+                        return Seen {
+                            frames,
+                            closed: false,
+                        };
+                    }
+                    Ok(Err(_)) => {
+                        return Seen {
+                            frames,
+                            closed: true,
+                        };
+                    }
+                    Ok(Ok(_)) => {}
+                }
+                let len = u32::from_be_bytes([0, head[0], head[1], head[2]]) as usize;
+                let mut payload = vec![0; len];
+                if read.read_exact(&mut payload).await.is_err() {
+                    return Seen {
+                        frames,
+                        closed: true,
+                    };
+                }
+                let code = match head[3] {
+                    FRAME_RST_STREAM if len == 4 => {
+                        u32::from_be_bytes(payload[..4].try_into().unwrap())
+                    }
+                    FRAME_GOAWAY if len >= 8 => {
+                        u32::from_be_bytes(payload[4..8].try_into().unwrap())
+                    }
+                    _ => 0,
+                };
+                frames.push(ServerFrame {
+                    kind: head[3],
+                    code,
+                });
+            }
+        });
+        RawH2 { write, reader }
+    }
+
+    /// Writes `bytes`; `false` once the server has closed the connection.
+    async fn send(&mut self, bytes: &[u8]) -> bool {
+        self.write.write_all(bytes).await.is_ok() && self.write.flush().await.is_ok()
+    }
+
+    /// Writes each batch until the server closes the connection, then waits
+    /// for the reader.
+    async fn flood(mut self, batches: impl IntoIterator<Item = Vec<u8>>) -> Seen {
+        for batch in batches {
+            if !self.send(&batch).await {
+                break;
+            }
+        }
+        self.reader.await.unwrap()
+    }
+}
+
+/// Waits up to 2 s for the server-side counter: it is bumped before the
+/// socket is dropped, but the client can see the close first.
+async fn wait_refused(gateway: &Gateway, want: u64) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while gateway.stats().protocol_refused < want && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(gateway.stats().protocol_refused, want);
+}
+
+/// Opens one stream and runs a simple request, so one-time TLS and HTTP/2
+/// allocations are not counted against a flood.
+async fn warm_up(tls: &TlsServer) {
+    let conn = tls_connect(tls.server.addr, &tls.connector_h2, "a.test").await;
+    let (client, connection) = h2::client::handshake(conn).await.unwrap();
+    tokio::spawn(connection);
+    let mut client = client.ready().await.unwrap();
+    let (resp, _) = client
+        .send_request(Request::get("https://a.test/api").body(()).unwrap(), true)
+        .unwrap();
+    assert_eq!(resp.await.unwrap().status(), StatusCode::OK);
+}
+
+/// HTTP/2 rapid reset and stream floods row (#166 finding 1): the reset
+/// budget is per client IP as well as per connection. Two connections from
+/// one IP, each under the per-connection budget, together go over the
+/// per-IP budget; the second connection is closed. Nothing is dispatched
+/// (no request body ever arrives).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_resets_across_connections_hit_the_per_ip_budget() {
+    let protocol = ProtocolLimits {
+        h2_max_resets_per_second: 50,
+        h2_max_resets_per_ip_per_second: 60,
+        h2_max_pending_accept_reset_streams: 100_000,
+        ..ProtocolLimits::default()
+    };
+    let tls = start_tls(protocol).await;
+    let resets = |count: u32| {
+        let mut b = Vec::new();
+        for i in 0..count {
+            let id = 2 * i + 1;
+            b.extend(open_stream(id));
+            b.extend(raw_frame(FRAME_RST_STREAM, 0, id, &8u32.to_be_bytes()));
+        }
+        b
+    };
+
+    let mut first = RawH2::connect(&tls).await;
+    assert!(first.send(&resets(40)).await);
+    let second = RawH2::connect(&tls).await;
+    let seen = second.flood([resets(40)]).await;
+    assert!(seen.closed, "second connection still open");
+    wait_refused(&tls.server.gateway, 1).await;
+    // The first connection is under both budgets and still open.
+    assert!(first.send(&raw_frame(FRAME_PING, 0, 0, &[0; 8])).await);
+    assert!(!first.reader.is_finished());
+    assert_eq!(tls.server.cell.count(), 0);
+}
+
+/// HTTP/2 rapid reset and stream floods row (#166 finding 2,
+/// "MadeYouReset"): the client never sends `RST_STREAM`; it sends a frame
+/// that makes the server reset the stream (a `WINDOW_UPDATE` that overflows
+/// the stream's send window, `FLOW_CONTROL_ERROR`). Those server resets cost
+/// the same budget: the connection is closed after
+/// `h2_max_resets_per_second` of them, long before h2's lifetime limit
+/// (`h2_max_local_error_reset_streams`, set out of the way here), and RSS
+/// stays bounded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_server_provoked_resets_close_the_connection() {
+    let _rss = RSS_LOCK.lock().await;
+    let protocol = ProtocolLimits {
+        h2_max_resets_per_second: 20,
+        h2_max_local_error_reset_streams: 100_000,
+        h2_max_pending_accept_reset_streams: 100_000,
+        ..ProtocolLimits::default()
+    };
+    let tls = start_tls(protocol).await;
+    warm_up(&tls).await;
+    let rss_before = rss_bytes();
+
+    let raw = RawH2::connect(&tls).await;
+    let batches = (0..1000u32).map(|i| {
+        let id = 2 * i + 1;
+        let mut b = open_stream(id);
+        b.extend(raw_frame(
+            FRAME_WINDOW_UPDATE,
+            0,
+            id,
+            &0x7fff_ffffu32.to_be_bytes(),
+        ));
+        b
+    });
+    let seen = raw.flood(batches).await;
+    assert!(seen.closed, "connection still open");
+    let provoked = seen.count(FRAME_RST_STREAM, |c| ![0x0, 0x2, 0x8].contains(&c));
+    assert!(provoked > 0, "no server reset seen: {:?}", seen.frames);
+    // The reset over the budget is never written.
+    assert!(provoked <= 20, "{provoked} server resets");
+    wait_refused(&tls.server.gateway, 1).await;
+    assert_eq!(
+        tls.server.cell.count(),
+        1,
+        "only the warm-up was dispatched"
+    );
+    let grown = rss_bytes().saturating_sub(rss_before);
+    assert!(grown < 10 * 1024 * 1024, "RSS grew by {grown} bytes");
+}
+
+/// One control-frame flood with the default limits: `prefix`, then 10,000
+/// frames of one kind, sent as fast as the socket takes them. The
+/// connection is closed by the control-frame budget (2,000 frames burst),
+/// nothing is dispatched, and RSS grows by less than 10 MB.
+async fn control_flood(what: &str, prefix: Vec<u8>, frame: Vec<u8>) {
+    let _rss = RSS_LOCK.lock().await;
+    let tls = start_tls(ProtocolLimits::default()).await;
+    warm_up(&tls).await;
+    let dispatched = tls.server.cell.count();
+    let rss_before = rss_bytes();
+
+    let raw = RawH2::connect(&tls).await;
+    let batch: Vec<u8> = frame.repeat(500);
+    let batches = std::iter::once(prefix).chain(std::iter::repeat_n(batch, 20));
+    let seen = raw.flood(batches).await;
+    assert!(seen.closed, "{what}: connection still open");
+    wait_refused(&tls.server.gateway, 1).await;
+    assert_eq!(tls.server.cell.count(), dispatched, "{what}");
+    let grown = rss_bytes().saturating_sub(rss_before);
+    assert!(
+        grown < 10 * 1024 * 1024,
+        "{what}: RSS grew by {grown} bytes"
+    );
+}
+
+/// HTTP/2 rapid reset and stream floods row, control frames (#166 finding
+/// 3): `PING` (CVE-2019-9512).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_ping_flood_closes_the_connection() {
+    control_flood("PING", vec![], raw_frame(FRAME_PING, 0, 0, &[7; 8])).await;
+}
+
+/// HTTP/2 rapid reset and stream floods row, control frames: empty `SETTINGS` (CVE-2019-9515).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_settings_flood_closes_the_connection() {
+    control_flood("SETTINGS", vec![], raw_frame(FRAME_SETTINGS, 0, 0, &[])).await;
+}
+
+/// HTTP/2 rapid reset and stream floods row, control frames: connection-level `WINDOW_UPDATE` of one
+/// byte each (CVE-2019-9517 style).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_window_update_flood_closes_the_connection() {
+    let frame = raw_frame(FRAME_WINDOW_UPDATE, 0, 0, &1u32.to_be_bytes());
+    control_flood("WINDOW_UPDATE", vec![], frame).await;
+}
+
+/// HTTP/2 rapid reset and stream floods row, control frames: `PRIORITY` frames on idle streams
+/// (CVE-2019-9513).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_priority_flood_closes_the_connection() {
+    let frame = raw_frame(FRAME_PRIORITY, 0, 3, &[0, 0, 0, 0, 16]);
+    control_flood("PRIORITY", vec![], frame).await;
+}
+
+/// A flood that h2 0.4.20 refuses itself, before the gateway's budgets:
+/// `prefix`, then 10,000 copies of `frame`. The connection gets `GOAWAY
+/// ENHANCE_YOUR_CALM` and is closed, nothing is dispatched, and RSS grows
+/// by less than 10 MB. These tests pin h2's behaviour: if an h2 upgrade
+/// drops a limit, they fail.
+async fn h2_refused_flood(what: &str, prefix: Vec<u8>, frame: Vec<u8>) {
+    let _rss = RSS_LOCK.lock().await;
+    let tls = start_tls(ProtocolLimits::default()).await;
+    warm_up(&tls).await;
+    let rss_before = rss_bytes();
+
+    let raw = RawH2::connect(&tls).await;
+    let batches = std::iter::once(prefix).chain(std::iter::repeat_n(frame.repeat(500), 20));
+    let seen = raw.flood(batches).await;
+    assert!(seen.closed, "{what}: connection still open");
+    assert_eq!(
+        seen.count(FRAME_GOAWAY, |c| c == ENHANCE_YOUR_CALM),
+        1,
+        "{what}: {:?}",
+        seen.frames
+    );
+    // h2's limit, not the gateway's budgets.
+    assert_eq!(tls.server.gateway.stats().protocol_refused, 0, "{what}");
+    assert_eq!(
+        tls.server.cell.count(),
+        1,
+        "{what}: only the warm-up was dispatched"
+    );
+    let grown = rss_bytes().saturating_sub(rss_before);
+    assert!(
+        grown < 10 * 1024 * 1024,
+        "{what}: RSS grew by {grown} bytes"
+    );
+}
+
+/// HTTP/2 rapid reset and stream floods row, control frames: `CONTINUATION`
+/// (CVE-2024-27316 class). h2 refuses a header block of more than
+/// `max(5, 1.25 × header list size / frame size)` frames.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_continuation_flood_is_refused_by_h2() {
+    let block = get_block();
+    let mut start = raw_frame(FRAME_HEADERS, 0, 1, &block[..1]);
+    start.extend(raw_frame(FRAME_CONTINUATION, 0, 1, &block[1..2]));
+    let frame = raw_frame(FRAME_CONTINUATION, 0, 1, &[]);
+    h2_refused_flood("CONTINUATION", start, frame).await;
+}
+
+/// HTTP/2 rapid reset and stream floods row, control frames: empty `DATA`
+/// frames on an open stream (CVE-2019-9518). h2 refuses more than 100 empty
+/// non-final `DATA` frames per connection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_empty_data_flood_is_refused_by_h2() {
+    let frame = raw_frame(FRAME_DATA, 0, 1, &[]);
+    h2_refused_flood("empty DATA", open_stream(1), frame).await;
+}
+
+/// The budgets do not fire on normal traffic: 300 requests on one
+/// connection, each with a body sent in several `DATA` frames, all answered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_normal_traffic_stays_within_the_budgets() {
+    let tls = start_tls(ProtocolLimits::default()).await;
+    let conn = tls_connect(tls.server.addr, &tls.connector_h2, "a.test").await;
+    let (client, connection) = h2::client::handshake(conn).await.unwrap();
+    tokio::spawn(connection);
+    let mut client = client.ready().await.unwrap();
+    for _ in 0..300 {
+        let req = Request::post("https://a.test/api").body(()).unwrap();
+        let (resp, mut body) = client.send_request(req, false).unwrap();
+        for chunk in [&b"a"[..], b"b", b"c"] {
+            body.send_data(bytes::Bytes::from_static(chunk), false)
+                .unwrap();
+        }
+        body.send_data(bytes::Bytes::new(), true).unwrap();
+        assert_eq!(resp.await.unwrap().status(), StatusCode::OK);
+        client = client.ready().await.unwrap();
+    }
+    assert_eq!(tls.server.gateway.stats().protocol_refused, 0);
+    assert_eq!(tls.server.cell.count(), 300);
 }
 
 // ---------------------------------------------------------------------------
