@@ -16,6 +16,7 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
 | F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198, Y2 #204 (#201, #157, #111), Y3 #210 (#207, #139 Linux arm64), Y4 #211 | — | Y5 (#170, #182) and P (#94, #112) now; O3 after the owner's two bench hosts (#158); gate #49 after P and O3. #212 (macOS CPU clock) needs a Mac and blocks no gate |
 | F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221 | — | V3 (#222, #223, #128) now; U3 (#219) after the owner tags `worker-v0.2.0`; W after P and V3; gate #61 after W and O3 |
+| F4 | — | — | F4-0 (contracts) now, alongside V3, P and Y5; then R1, R2, T1 in parallel; T2; M1 and M2 in parallel; M3; P4; gate #68. Epics #63–#67 are split into #225–#244 (2026-10-29) |
 
 Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), #222 and #223 (the contract and the `streamLogs` endpoint that #128 and the dashboard's Logs screen need), all placed in the batches below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
@@ -340,13 +341,99 @@ Work on batch W of arif-rachim/renox.rs: issues #99, #116 in that order. Follow 
 Run the gate review issue #61 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
-## F4 to F7: what can run in parallel
+## F4 (9 sessions + gate)
 
-These phases are still epics (one issue per block). The gate review before each phase proposes the task split; then this file gets that phase's batches with the same method. The dependencies already recorded on the epics give the shape:
+The gate reviews of F2 and F3 are still open, but the split of the F4 epics is planning work and was done on 2026-10-29 so F4 can start the day the gates close, and so the contract batch, which is documentation only, runs now. Every F4 task issue carries the full Files list it needs (the lesson of #139 and #161). Batches are longer than in F2 and F3 on purpose: one session takes a whole crate's worth of work. Each epic (#63 to #67) stays open as the index of its tasks and closes with its last task.
+
+Dependencies, from the issues: contracts first; the Rust and TypeScript tracks then run in parallel; the modules need both; `org` and `i18n` need `auth`; the checklists and the gate come last. Owner prerequisite for the gate (#68): the booking product repository, which is not a Renox issue.
+
+### Batch F4-0 — now, alongside V3, P and Y5 — the F4 contracts (3 issues)
+
+```
+Work on batch F4-0 of arif-rachim/renox.rs: issues #225, #226, #227 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for `type:contract` issues. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Special case `type:contract` for all three; #227 builds on #225 in the same batch. Documentation and the shared validator only. The one file it shares with V3's #222 is `docs/contracts/README.md` (one row each): if the PR conflicts there, keep both rows. #226 also settles what `auth` needs from the platform (argon2id as an op, savepoints, the event envelope), so read `docs/10-modules.md` and the F4 rows of `docs/23-failure-modes.md` and `docs/24-threat-model.md` before writing.
+
+### Batch R1 — after F4-0, alongside R2 and T1 — i18n filters, slots and overrides, module pages (2 issues)
+
+```
+Work on batch R1 of arif-rachim/renox.rs: issues #233, #232 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+`renox-template` plus the page side of `renox-cell` (`pages/**`, `render.rs`, `loader.rs`). R2 owns `manager.rs`, `cell.rs` and the new `outbox.rs` in the same crate; do not touch those here. #232's slot fillers run with the page's `ctx` until R2's #230 is in (noted on both issues).
+
+### Batch R2 — after F4-0, alongside R1 and T1 — outbox tables and migrations, module contexts and broker, events and password ops, outbox delivery (4 issues)
+
+```
+Work on batch R2 of arif-rachim/renox.rs: issues #228, #230, #231, #229 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+The long pole of F4: `renox-data` (#228), then `renox-runtime` (#230, #231), then the cell's delivery worker (#229). #231 needs #228 and #230, #229 needs #231; all four are in this batch in that order. The only shared file with T2 is `crates/renox-cell/src/bin/renox-worker.rs` (#235 adds a `migrate` subcommand), which T2 runs after R2.
+
+### Batch T1 — after F4-0, alongside R1 and R2 — resolver and lock, `renox:modules` types, query-builder drivers (3 issues)
+
+```
+Work on batch T1 of arif-rachim/renox.rs: issues #234, #236, #237 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+`cli/src/lib/modules/**` and `cli/src/commands/{add,remove}.ts` (#234); `cli/src/lib/types/modules.ts` and `sdk/src/modules.ts` (#236); `sdk/src/{kysely,drizzle}.ts` (#237). No file overlap between the three or with R1 and R2. #237's cross-module refusal test can use today's single-module authorizer (any table outside the app's prefix); it does not wait for #230.
+
+### Batch T2 — after R2 and T1 — build with modules, `renox check` contracts, `renox migrate`, `renox test` (2 issues)
+
+```
+Work on batch T2 of arif-rachim/renox.rs: issues #235, #238 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+#235 needs `migrate_all` (#228, R2) and the resolver (#234, T1); #238 needs #235. Both edit `cli/src/commands/**` and `cli/src/lib/**`; the shop tests move to the harness in #238.
+
+### Batch M1 — after T2 — the `auth` module (4 issues)
+
+```
+Work on batch M1 of arif-rachim/renox.rs: issues #239, #240, #241, #100 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+One session, one module, in order: core, then passwordless and OAuth, then the shop integration with README and snapshots, then the negative tests. `modules/auth/**` and `examples/shop/**`. If the batch runs long, stop after #241 and give #100 its own batch M1b; it blocks #101 and #117, not M2 or M3.
+
+### Batch M2 — after T2, alongside M1 — the `gcc-data` module (1 issue)
+
+```
+Work on batch M2 of arif-rachim/renox.rs: issues #243 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+`modules/gcc-data/**` only; needs the filters of #233 (R1) and the build of #235 (T2). No dependency on `auth`.
+
+### Batch M3 — after M1 and M2 — the `org` module and `i18n` core (2 issues)
+
+```
+Work on batch M3 of arif-rachim/renox.rs: issues #242, #244 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+`org` needs `auth` and the slots of #232; `i18n` needs `auth` and `org` for its RTL snapshots, so it is second. #244 also adds catalogs under `modules/{auth,org,gcc-data}/i18n/` and `examples/shop/i18n/`, which no other batch edits at that point. Arabic review of the catalogs is an owner task (native speaker); machine-translated strings stay marked until then.
+
+### Batch P4 — after M1 and M3 — the two checklists (2 issues)
+
+```
+Work on batch P4 of arif-rachim/renox.rs: issues #101, #117 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Checklist special case. #117 also carries whatever #116 (F3) moved here.
+
+### Gate F4 — after P4
+
+```
+Work on issue #68 of arif-rachim/renox.rs: the F4 gate review. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for `type:review` issues. Do not ask me questions.
+```
+
+Needs the booking product repository running on Renox with `auth` and `org` (owner), the kill criterion evaluated and recorded, and the F5 epics split the way this section split F4.
+
+## F5 to F7: what can run in parallel
+
+These phases are still epics (one issue per block). The gate review before each phase proposes the task split; then this file gets that phase's batches with the same method (F4 was split ahead of its gates, see above). The dependencies already recorded on the epics give the shape:
 
 | Phase | Starts after | Parallel sessions inside the phase | Why not more |
 | --- | --- | --- | --- |
-| F4 modules | gates F2 **and** F3 (#63 needs both) | 1 → 2 → 1: broker #63 first; then migrations #64 and module SDK #65 side by side; then `auth` #66, then `org` #67 and auth negative tests #100 | every module depends on the broker, and `org` depends on `auth` |
+| F4 modules | split into batches above (contracts now; code after gates F2 and F3) | 3 → 1 → 2 → 1: R1, R2, T1; then T2; then M1 and M2; then M3 | the broker (#230, #231) and the build (#235) are what every module waits for |
 | F5 authz and realtime | gate F4 (#68) | 2 → 3: `renox-authz` #69 and `renox-realtime` #70 side by side; then `2fa`/`audit` #71, App MCP #73, hardening #118 side by side; `notifications`/`whatsapp` #72 after both crates | two new crates, no overlap |
 | F6 reliability | gate F5 (#74) as recorded; the roadmap allows F6 alongside F4–F5 | 3: sandbox #75, replication #76, observability #77 side by side; then integrity #103, keys #120, security process #121, `jobs` #78; chaos harness #104 last | mostly ops work on nodes; the only code dependency is `jobs` on the broker |
 | F7 external customers | gate F6 (#79) | 4: `billing` #80, `storage` #81, registry #84, go-to-market #85 side by side; then `email`/`reports`/`booking` #82 and `admin` #83 | modules are independent apps; `admin` needs `billing` and `storage` |
@@ -354,7 +441,7 @@ These phases are still epics (one issue per block). The gate review before each 
 Two observations for the F2 gate to settle:
 
 - F6's three epics only need F1 and F3 infrastructure. If the F5 gate turns out to be the bottleneck, change their "Blocked by" from #74 to #61 and start them with F4.
-- F4 is the narrowest phase: one broker that everything waits for. The F3 gate report should split #63 so that the service-call part lands first and the outbox and hooks parts can follow in parallel.
+- F4 was split on 2026-10-29 (above). The broker is #230 (contexts, services, hooks) with the events and password ops in #231, so the service-call part lands first as suggested.
 
 ## Optional: review a PR before you merge
 
