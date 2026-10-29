@@ -661,6 +661,9 @@ pub struct Pool {
     secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
     /// The installed modules (ops.md 1.3.0 section 15).
     modules: Arc<ModuleRegistry>,
+    /// Event name -> the modules with an `on` handler for it, by name
+    /// (filled when a member registers the modules).
+    event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
@@ -753,6 +756,7 @@ impl IsolateHandle {
             allowlist: Arc::new(allowlist),
             secrets: Arc::new(by_module),
             modules: Arc::new(modules),
+            event_handlers: Arc::default(),
             sink,
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
@@ -794,6 +798,19 @@ impl IsolateHandle {
     /// [`EventEnvelope::request_id`].
     pub async fn deliver_event(&self, ctx: RequestCtx, ev: EventEnvelope) -> EventDelivered {
         self.inner.deliver_event(ctx, ev).await
+    }
+
+    /// The modules whose `hooks.ts` has an `on` handler for `event`, by
+    /// module name: the targets of a durable event's fan-out (ops.md 1.3.0
+    /// section 15.4, "Delivery").
+    pub fn event_handlers(&self, event: &str) -> Vec<String> {
+        self.inner
+            .event_handlers
+            .lock()
+            .expect("handlers lock")
+            .get(event)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -883,6 +900,7 @@ impl Pool {
             allowlist: self.allowlist.clone(),
             secrets: self.secrets.clone(),
             modules: self.modules.clone(),
+            event_handlers: self.event_handlers.clone(),
             sink: self.sink.clone(),
             shared: shared.clone(),
         };
@@ -1574,6 +1592,7 @@ struct ThreadContext {
     allowlist: Arc<Allowlist>,
     secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
     modules: Arc<ModuleRegistry>,
+    event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
     sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
 }
@@ -1874,11 +1893,27 @@ async fn create_worker(
             v8::Global::new(scope, v8::Local::<v8::Value>::from(obj))
         };
         let call = worker.js_runtime.call_with_args(&register, &[arg]);
-        worker
+        let handled = worker
             .js_runtime
             .with_event_loop_promise(call, PollEventLoopOptions::default())
             .await
             .map_err(|e| CreateError::ModuleLoad(format!("modules: {}", tenant_safe(&e))))?;
+        // `register` answers module -> the event names of its `on` map.
+        let handled: BTreeMap<String, Vec<String>> = {
+            deno_core::scope!(scope, &mut worker.js_runtime);
+            let local = v8::Local::new(scope, handled);
+            serde_v8::from_v8(scope, local).unwrap_or_default()
+        };
+        let mut by_event: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (module, events) in handled {
+            for e in events {
+                by_event.entry(e).or_default().push(module.clone());
+            }
+        }
+        for list in by_event.values_mut() {
+            list.sort();
+        }
+        *ctx.event_handlers.lock().expect("handlers lock") = by_event;
     }
 
     // Step 5: every route's export must be a function, and every declared

@@ -56,6 +56,8 @@ pub struct Cell {
     evicted: AtomicBool,
     /// Wakes the eviction task: a request ended, or the cell started draining.
     pub(crate) wake: Notify,
+    /// The outbox delivery task (#229); dropped (stopped) at eviction.
+    outbox: Mutex<Option<crate::outbox::OutboxWorker>>,
 }
 
 impl Cell {
@@ -69,7 +71,18 @@ impl Cell {
             draining: AtomicBool::new(false),
             evicted: AtomicBool::new(false),
             wake: Notify::new(),
+            outbox: Mutex::new(None),
         }
+    }
+
+    /// Attach the cell's outbox worker; it stops when the cell is evicted.
+    pub(crate) fn set_outbox(&self, w: crate::outbox::OutboxWorker) {
+        *self.outbox.lock().expect("cell lock") = Some(w);
+    }
+
+    /// Stop the outbox worker (eviction).
+    pub(crate) fn stop_outbox(&self) {
+        self.outbox.lock().expect("cell lock").take();
     }
 
     pub fn inflight(&self) -> usize {

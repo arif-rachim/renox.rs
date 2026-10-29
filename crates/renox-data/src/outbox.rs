@@ -21,6 +21,9 @@ use crate::value::{Row, Value};
 /// Payload cap: 64 KiB of JSON (`ops.md` section 15.4, "Payload").
 pub const MAX_PAYLOAD_BYTES: usize = 64 * 1024;
 
+/// The pending deliveries table (its inserts wake the outbox worker).
+pub const TABLE: &str = "renox__outbox";
+
 /// A durable event as `op_events_emit` writes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboxEvent {

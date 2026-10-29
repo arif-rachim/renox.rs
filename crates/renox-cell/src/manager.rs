@@ -168,6 +168,8 @@ struct Inner {
     /// Cells created and evicted since start (operator metrics, tests).
     created: std::sync::atomic::AtomicU64,
     evicted: std::sync::atomic::AtomicU64,
+    /// Outbox delivery settings for new cells (#229).
+    outbox: Mutex<crate::outbox::OutboxConfig>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -203,6 +205,7 @@ impl CellManager {
                 dbs: Mutex::new(HashMap::new()),
                 created: Default::default(),
                 evicted: Default::default(),
+                outbox: Mutex::new(crate::outbox::OutboxConfig::default()),
                 trim_scheduled: Default::default(),
                 trims: Default::default(),
                 #[cfg(feature = "test-support")]
@@ -252,6 +255,51 @@ impl CellManager {
             .filter_map(|s| s.get())
             .map(|c| c.inflight())
             .sum()
+    }
+
+    /// Outbox delivery settings for cells created from now on (retries,
+    /// backoff, dead-letter cap; ops.md 1.3.0 section 15.4).
+    pub fn set_outbox_config(&self, config: crate::outbox::OutboxConfig) {
+        *self.inner.outbox.lock().expect("outbox lock") = config;
+    }
+
+    /// Pending deliveries and dead letters of a tenant whose database is
+    /// open on this node (the per-tenant gauge of #229); `None` otherwise.
+    pub async fn outbox_stats(&self, tenant_id: &str) -> Option<renox_data::OutboxStats> {
+        let slot = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .cloned()?;
+        let handle = slot.lock().await.handle.clone()?;
+        handle.call(renox_data::outbox::stats).await.ok()?.ok()
+    }
+
+    /// Statement counters of a tenant's open database (tests: the outbox
+    /// worker does not poll an idle tenant).
+    pub async fn db_stats(&self, tenant_id: &str) -> Option<renox_data::DbStats> {
+        let slot = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .cloned()?;
+        let handle = slot.lock().await.handle.clone()?;
+        handle.call(|db| db.stats()).await.ok()
+    }
+
+    /// Admit an outbox delivery on `cell` under the map lock, like a request
+    /// (`admit`): a cell is never evicted while a delivery is in flight.
+    fn admit_delivery(&self, cell: &Arc<Cell>) -> bool {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        let current = cells
+            .get(&cell.key)
+            .and_then(|s| s.get())
+            .is_some_and(|c| Arc::ptr_eq(c, cell));
+        current && cell.try_admit()
     }
 
     pub fn runtime(&self) -> &Runtime {
@@ -476,6 +524,14 @@ impl CellManager {
             "cell ready"
         );
         self.spawn_eviction(cell.clone());
+        let this = self.clone();
+        cell.set_outbox(crate::outbox::spawn(crate::outbox::Delivery {
+            cell: Arc::downgrade(&cell),
+            db,
+            meter: self.inner.meter.clone(),
+            config: *self.inner.outbox.lock().expect("outbox lock"),
+            admit: Box::new(move |c| this.admit_delivery(c)),
+        }));
         Ok(cell)
     }
 
@@ -584,6 +640,7 @@ impl CellManager {
             draining = cell.is_draining(),
             "cell evicted"
         );
+        cell.stop_outbox();
         cell.isolate.terminate();
         let tenant = cell.key.tenant_id.clone();
         drop(cell);

@@ -524,3 +524,40 @@ fn public_views_need_the_versioned_name() {
         assert!(matches!(e, DbError::Auth { .. }), "{table}: {e:?}");
     }
 }
+
+/// D14 (#229): the wake-up fires after a commit that inserted into the
+/// outbox, once per commit, and never for a rollback or other writes.
+#[test]
+fn outbox_commit_hook_fires_after_commit_only() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (_dir, db) = open();
+    let woken = Arc::new(AtomicUsize::new(0));
+    let w = woken.clone();
+    db.on_outbox_commit(Some(Arc::new(move || {
+        w.fetch_add(1, Ordering::SeqCst);
+    })));
+    db.execute("create table app__x (a)", &[]).unwrap();
+    db.execute("insert into app__x values (1)", &[]).unwrap();
+    assert_eq!(woken.load(Ordering::SeqCst), 0, "other tables do not wake");
+    let r: Result<(), DbError> = db.transaction(|tx| {
+        outbox::emit(&db, tx, &event("01ROLLBACK"))?;
+        Err(DbError::Param("abort".into()))
+    });
+    assert!(r.is_err());
+    db.execute("insert into app__x values (2)", &[]).unwrap();
+    assert_eq!(woken.load(Ordering::SeqCst), 0, "a rollback does not wake");
+    db.transaction(|tx| {
+        outbox::emit(&db, tx, &event("01A"))?;
+        outbox::emit(&db, tx, &event("01B"))
+    })
+    .unwrap();
+    assert_eq!(woken.load(Ordering::SeqCst), 1, "one wake per commit");
+    outbox::emit_autocommit(&db, &event("01C")).unwrap();
+    assert_eq!(woken.load(Ordering::SeqCst), 2);
+    outbox::failed(&db, "01C", "", 1, 5_000, "e").unwrap();
+    assert_eq!(woken.load(Ordering::SeqCst), 2, "an update does not wake");
+    db.on_outbox_commit(None);
+    outbox::emit_autocommit(&db, &event("01D")).unwrap();
+    assert_eq!(woken.load(Ordering::SeqCst), 2);
+}

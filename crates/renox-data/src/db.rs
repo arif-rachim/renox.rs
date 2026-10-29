@@ -6,7 +6,7 @@
 
 use std::cell::{Cell, OnceCell};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -107,7 +107,17 @@ struct Hooks {
     wal_pages: AtomicU64,
     /// WAL size (pages) at which a commit checkpoints by itself (writer only).
     wal_safety_net: AtomicU64,
+    /// A row was inserted into `renox__outbox` since the last commit or
+    /// rollback (writer only, SQLite's update hook).
+    outbox_dirty: AtomicBool,
+    /// Called after a commit that inserted into `renox__outbox`
+    /// ([`TenantDb::on_outbox_commit`], D14: the outbox worker's wake-up).
+    on_outbox: Mutex<Option<OutboxWake>>,
 }
+
+/// The outbox worker's wake-up: called on the committing thread, so it must
+/// not block (send on a channel).
+pub type OutboxWake = Arc<dyn Fn() + Send + Sync>;
 
 thread_local! {
     /// The writer whose commit is running on this thread. rusqlite 0.40's
@@ -132,6 +142,11 @@ fn wal_hook(wal: &rusqlite::hooks::Wal, pages: std::os::raw::c_int) -> rusqlite:
                 pages = 0;
             }
             h.wal_pages.store(pages, Ordering::Relaxed);
+            if h.outbox_dirty.swap(false, Ordering::SeqCst)
+                && let Some(wake) = lock(&h.on_outbox).clone()
+            {
+                wake();
+            }
         }
     });
     Ok(())
@@ -229,6 +244,24 @@ impl Conn {
                 Ordering::Relaxed,
             );
             inner.wal_hook(Some(wal_hook));
+            // The outbox worker is woken after a commit that inserted into
+            // renox__outbox, never by polling (D14); a rollback forgets it.
+            let h = Arc::clone(&hooks);
+            inner
+                .update_hook(Some(
+                    move |action: rusqlite::hooks::Action, _db: &str, table: &str, _rowid: i64| {
+                        if action == rusqlite::hooks::Action::SQLITE_INSERT
+                            && table == crate::outbox::TABLE
+                        {
+                            h.outbox_dirty.store(true, Ordering::SeqCst);
+                        }
+                    },
+                ))
+                .map_err(open_error)?;
+            let h = Arc::clone(&hooks);
+            inner
+                .rollback_hook(Some(move || h.outbox_dirty.store(false, Ordering::SeqCst)))
+                .map_err(open_error)?;
         }
         Ok(Conn {
             inner,
@@ -468,6 +501,13 @@ impl TenantDb {
         }
         self.policy = Some(policy);
         Ok(self)
+    }
+
+    /// Call `wake` after every commit on the writer that inserted into
+    /// `renox__outbox` (an emit or a fan-out), never after a rollback; `None`
+    /// removes it. The cell's outbox worker uses it instead of polling (D14).
+    pub fn on_outbox_commit(&self, wake: Option<OutboxWake>) {
+        *lock(&self.writer.hooks.on_outbox) = wake;
     }
 
     /// The policy installed by `with_authorizer`, if any.

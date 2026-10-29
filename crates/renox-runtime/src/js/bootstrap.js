@@ -681,6 +681,10 @@ function register(namespaces) {
   for (const list of new SafeArrayIterator([...hookFillers.values()])) {
     ArrayPrototypeSort(list, (a, b) => a.priority - b.priority || (a.module < b.module ? -1 : a.module > b.module ? 1 : 0));
   }
+  // Module -> the events it handles: the cell fans durable events out to them.
+  const handled = {};
+  for (const [name, on] of new SafeArrayIterator([...eventHandlers])) handled[name] = ObjectKeys(on);
+  return handled;
 }
 
 /**
