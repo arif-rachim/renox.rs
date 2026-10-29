@@ -1,0 +1,45 @@
+# renox-worker on a production node (ops/README.md). bootstrap-node.sh writes
+# /etc/renox/worker.toml from this file once, replacing the @…@ values, and
+# never overwrites an existing worker.toml. Every key is documented in
+# crates/renox-cell/README.md, "Configuration".
+
+mode = "controlled"
+listen = "0.0.0.0:443"
+node_id = "@NODE_ID@"
+data_dir = "/var/lib/renox/data"
+artifacts_dir = "/var/lib/renox/artifacts"
+meters_dir = "/var/lib/renox/meters"
+logs_dir = "/var/lib/renox/logs"
+platform_key_file = "/etc/renox/platform.key"
+idle_timeout_secs = 600
+# The node's own public addresses and the control plane's node-facing ones
+# (ADR D23, #218): tenant fetch is refused to them on top of the private ranges.
+fetch_blocked_addresses = [@BLOCKED_ADDRESSES@]
+
+[tls]
+cert_dir = "/var/lib/renox/data/_certs"
+http_listen = "0.0.0.0:80"
+
+[control]
+url = "@CONTROL_URL@"
+node_token_file = "/etc/renox/node.token"
+region = "@REGION@"
+max_cells = 2000
+health_listen = "@HEALTH_LISTEN@"
+
+# The sections below arrive with F6 (#253 sandbox, #254 process tiers, #255
+# replication); see crates/renox-cell/README.md for their keys and defaults.
+# [sandbox]
+# enabled = true
+# mode = "enforce"
+#
+# [process]
+# launcher = "systemd"
+# run_dir = "/run/renox"
+#
+# [replication]
+# enabled = true
+# replica = "s3"
+# bucket = "renox-replica-me-central-1"
+# region = "me-central-1"
+# litestream_bin = "/opt/renox/bin/litestream"

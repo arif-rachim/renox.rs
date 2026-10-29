@@ -1,0 +1,50 @@
+# One Litestream sidecar per tenant file (#255): `%i` is the tenant's database
+# id (docs/contracts/deploy-api.md section 3). The worker starts it on the
+# first write of a cell and stops it after eviction plus a grace period;
+# ops/polkit/50-renox.rules lets the renox user start and stop these units.
+# The config file is written by the worker to /run/renox/litestream/%i.yml.
+[Unit]
+Description=Renox Litestream sidecar for %i
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/README.md
+PartOf=renox-node.target
+After=renox-worker.service
+
+[Service]
+Type=exec
+User=renox
+Group=renox
+DynamicUser=no
+Slice=renox-free.slice
+ExecStart=/opt/renox/bin/litestream replicate -config /run/renox/litestream/%i.yml
+Restart=on-failure
+RestartSec=1s
+# Let the last WAL frames ship before the process is killed.
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0027
+# Read-only except the replica dir; the tenant file is read (and its WAL
+# checkpointed) through /var/lib/renox/data, which Litestream needs to write
+# its -litestream shadow directory next to the file.
+ReadWritePaths=/var/lib/renox/replica /var/lib/renox/data
+ReadOnlyPaths=/run/renox/litestream /etc/renox
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=renox-node.target

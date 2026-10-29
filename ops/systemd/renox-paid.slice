@@ -1,0 +1,18 @@
+# Paid tier: one child worker process per paid tenant (renox-child@.service,
+# #254) and the Litestream sidecars of paid tenants. Each child has its own
+# cgroup with the paid limits (512 MB heap per isolate, so 1 GiB per child
+# with the process overhead; docs/04-isolation-security.md "Per-tenant
+# limits"); this slice caps all paid tenants together.
+[Unit]
+Description=Renox paid tier (one process per tenant)
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/README.md
+Before=slices.target
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes
+CPUWeight=200
+MemoryHigh=75%
+MemoryMax=80%
+TasksMax=32768

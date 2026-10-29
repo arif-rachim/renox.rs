@@ -123,6 +123,16 @@ jobs:
       - name: docs
         if: (success() || failure()) && steps.filter.outputs.docs == 'true'
         run: make docs-check
+      # ops/ (#252): the systemd units verify, the scripts pass shellcheck
+      # (warnings and errors; the runner image ships it), and the Litestream
+      # fetcher refuses a tarball whose SHA-256 differs from ops/litestream.lock.
+      - name: ops
+        if: success() || failure()
+        run: |
+          ops/scripts/verify-units.sh
+          shellcheck --version | head -2
+          shellcheck --severity=warning ops/scripts/*.sh
+          ops/scripts/fetch-litestream.test.sh
       # RustSec advisories, licences, sources (deny.toml).
       - name: Rust toolchain for cargo-deny
         if: success() || failure()
@@ -166,6 +176,12 @@ jobs:
         run: |
           archive=$(ops/v8-archive.sh fetch x86_64-unknown-linux-gnu "$RUNNER_TEMP/rusty_v8")
           echo "RUSTY_V8_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      # The pinned Litestream (ops/litestream.lock, SHA-256 verified) on PATH,
+      # so the replication tests of renox-cell run instead of skipping (#252, #255).
+      - name: Fetch and verify Litestream
+        run: |
+          bin=$(ops/scripts/fetch-litestream.sh x86_64-unknown-linux-gnu "$RUNNER_TEMP/bin")
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       # Caches ~/.cargo and target/. The key is the job, the rustc version
       # (rust-toolchain.toml), Cargo.lock and the Cargo.toml files.
@@ -207,6 +223,11 @@ jobs:
           cargo build --locked -p renox-cell --bin renox-worker
           mkdir -p "$RUNNER_TEMP/worker"
           cp target/debug/renox-worker "$RUNNER_TEMP/worker/"
+      # ops/scripts/bootstrap-node.sh in an ubuntu:24.04 container booted with
+      # systemd, with the worker just built (#252); skips with a reason where
+      # systemd cannot run in a container.
+      - name: Node bootstrap in a systemd container
+        run: ops/scripts/bootstrap-node.test.sh "$RUNNER_TEMP/worker/renox-worker"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: renox-worker-ci

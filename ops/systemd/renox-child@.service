@@ -1,0 +1,43 @@
+# One paid tenant's child worker (#254): `%i` is the tenant id. The
+# supervisor starts it when the tenant's route entry says `process = "own"`
+# (launcher = "systemd" in [process]) and talks to it over
+# /run/renox/children/%i.sock. Its cgroup carries the paid limits.
+[Unit]
+Description=Renox child worker for %i
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/README.md
+PartOf=renox-worker.service
+After=renox-worker.service
+
+[Service]
+Type=exec
+User=renox
+Group=renox
+DynamicUser=no
+Slice=renox-paid.slice
+ExecStart=/opt/renox/bin/renox-worker --config /etc/renox/worker.toml --child %i --socket /run/renox/children/%i.sock
+Restart=no
+TimeoutStopSec=130s
+KillMode=mixed
+CPUQuota=200%
+MemoryMax=1G
+TasksMax=512
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0027
+ReadWritePaths=/var/lib/renox/data/%i /var/lib/renox/meters /var/lib/renox/logs /var/lib/renox/replica /run/renox/children
+ReadOnlyPaths=/var/lib/renox/artifacts /etc/renox

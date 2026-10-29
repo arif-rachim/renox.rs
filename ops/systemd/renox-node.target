@@ -1,0 +1,10 @@
+# A Renox worker node (ops/README.md): the worker and everything it starts.
+# `systemctl enable --now renox-node.target` after ops/scripts/bootstrap-node.sh.
+[Unit]
+Description=Renox worker node
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/README.md
+Wants=network-online.target renox-worker.service
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+# Litestream release pinned for the worker's replication sidecars (#252, #255).
+# Read by ops/scripts/fetch-litestream.sh, which refuses a download whose
+# SHA-256 differs. One line per Rust target the worker builds for:
+#   <rust target>  <sha256 of the release tarball>  <tarball name>
+# 0.3.x is pinned on purpose: deploy-api.md 0.3 exposes Litestream
+# generations, which 0.5 replaced with LTX files.
+# How to bump: ops/README.md, "Litestream".
+version 0.3.13
+x86_64-unknown-linux-gnu  eb75a3de5cab03875cdae9f5f539e6aedadd66607003d9b1e7a9077948818ba0  litestream-v0.3.13-linux-amd64.tar.gz
+aarch64-unknown-linux-gnu  9585f5a508516bd66af2b2376bab4de256a5ef8e2b73ec760559e679628f2d59  litestream-v0.3.13-linux-arm64.tar.gz

@@ -1,0 +1,9 @@
+# Parent of the two tier slices: the node's share of the host for Renox.
+[Unit]
+Description=Renox tenants (both tiers)
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/README.md
+
+[Slice]
+# Leave room for sshd, journald and the kernel: 90 % of RAM for Renox.
+MemoryMax=90%
+TasksMax=65536
