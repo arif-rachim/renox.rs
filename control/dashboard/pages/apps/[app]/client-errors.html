@@ -22,7 +22,7 @@
             <td>{{ g.last }}</td>
             <td>
               <svg viewBox="0 0 {{ spark.width }} {{ spark.height }}" role="img" aria-label="Events per deployment" preserveAspectRatio="none" width="{{ spark.width }}" height="{{ spark.height }}">
-                <rect r-for="b in g.spark" :x="b.x" :y="b.y" :width="b.width" :height="b.height"><title>{{ b.label }}</title></rect>
+                <rect r-for="b in g.spark" :x="b.x" :y="b.y" :width="b.width" :height="b.height" fill="#4a7bb7"><title>{{ b.label }}</title></rect>
               </svg>
             </td>
             <td>{{ g.status }}</td>

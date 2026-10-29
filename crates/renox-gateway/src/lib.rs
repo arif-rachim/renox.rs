@@ -24,8 +24,10 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, Response, StatusCode, header};
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
-use limits::{BodyCheck, ConnectionLimiter, IdleTimeout, connection_limit_response};
-use protocol::{H2ResetBudget, Http1Guard};
+use limits::{
+    BodyCheck, ConnectionLimiter, IdleTimeout, IpResetLimiter, connection_limit_response,
+};
+use protocol::{H2FloodBudget, Http1Guard};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
@@ -203,6 +205,7 @@ struct Inner {
     security: security::SecurityStore,
     limiter: RateLimiter,
     connections: Arc<ConnectionLimiter>,
+    h2_resets: Arc<IpResetLimiter>,
     counters: Counters,
     client_events: client_events::ClientEvents,
     cookie_warnings: security::cookies::WarnOnce,
@@ -234,6 +237,7 @@ impl Gateway {
         let security = security::SecurityStore::new(config.artifact_root.clone());
         let limiter = RateLimiter::new(config.rate_limit);
         let connections = ConnectionLimiter::new(config.limits.max_connections_per_ip);
+        let h2_resets = IpResetLimiter::new(config.protocol.h2_max_resets_per_ip_per_second);
         let client_events = client_events::ClientEvents::new(config.client_events);
         Self {
             inner: Arc::new(Inner {
@@ -243,6 +247,7 @@ impl Gateway {
                 security,
                 limiter,
                 connections,
+                h2_resets,
                 counters: Counters::default(),
                 client_events,
                 cookie_warnings: security::cookies::WarnOnce::default(),
@@ -344,6 +349,7 @@ impl Gateway {
             limits: self.inner.config.limits,
             protocol: self.inner.config.protocol,
             connections: self.inner.connections.clone(),
+            h2_resets: self.inner.h2_resets.clone(),
             refused: self.inner.counters.protocol_refused.clone(),
         }
     }
@@ -355,6 +361,7 @@ struct ConnSettings {
     limits: GatewayLimits,
     protocol: ProtocolLimits,
     connections: Arc<ConnectionLimiter>,
+    h2_resets: Arc<IpResetLimiter>,
     refused: Arc<AtomicU64>,
 }
 
@@ -460,9 +467,10 @@ async fn serve_connection<I>(
     let header_bytes = limits.max_header_bytes.max(8 * 1024);
     let refused = Some(settings.refused.clone());
     if alpn.as_deref() == Some(b"h2") {
-        let io = TokioIo::new(H2ResetBudget::new(
+        let io = TokioIo::new(H2FloodBudget::new(
             io,
-            protocol.h2_max_resets_per_second,
+            protocol,
+            Some(settings.h2_resets.slot(peer.ip())),
             refused,
         ));
         let mut builder = hyper::server::conn::http2::Builder::new(TokioExecutor::new());

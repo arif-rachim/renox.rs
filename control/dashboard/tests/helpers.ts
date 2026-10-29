@@ -4,13 +4,15 @@
 // host is refused the way the runtime refuses it (`RENOX_FETCH_BLOCKED`).
 // `db` is bun:sqlite with the dashboard's own migration.
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { FetchBlockedError, type ActionContext, type Ctx, type DbStatements, type ExecuteResult, type LoaderContext, type Param, type Row } from "renox";
 
 import { logIngest, type StoredLine } from "../../api/src/ingest/logs.ts";
 import { harness, type Harness } from "../../api/tests/helpers.ts";
+import { startDev } from "../../../cli/src/commands/dev.ts";
 
 export const API_ORIGIN = "https://api.renox.app";
 export const DASH = "https://dashboard.renox.test";
@@ -106,4 +108,83 @@ export function actionCtx(d: Dash, path: string, action: string, fields: Record<
   for (const [k, v] of Object.entries(fields)) form.set(k, v);
   const c = base(d, "POST", `${path}?/${action}`, opts.params ?? {});
   return { ...c, db: statements(d.sqlite), action, form, fragment: "page", session: { id: d.sessionId } };
+}
+
+const APP = join(import.meta.dir, "..");
+
+/**
+ * The dashboard under `renox dev` on the real worker, with the loaders of
+ * `stubs` (page file → data) replaced by one that returns `data`: what the
+ * real loader returned in process against the real control API. The worker
+ * cannot reach a local control API (tenant `fetch` blocks loopback, ADR D23),
+ * so only that hop is replaced; the templates, layout, partials, assets, CSP
+ * and the renderer are the real ones. The rest of each page module (its
+ * actions, its other exports) is kept as it is.
+ */
+export async function devWithData(stubs: Record<string, unknown>): Promise<{ base: string; stop: () => Promise<void> }> {
+  const dir = mkdtempSync(join(tmpdir(), "renox-dashboard-render-"));
+  cpSync(APP, dir, { recursive: true, filter: (p) => !/\/(node_modules|\.renox|tests)(\/|$)/u.test(p.slice(APP.length)) });
+  cpSync(join(APP, "node_modules/renox"), join(dir, "node_modules/renox"), { recursive: true, dereference: true });
+  writeFileSync(join(dir, ".env"), `DASHBOARD_KEY=${SECRETS.DASHBOARD_KEY}\nRENOX_API_URL=${API_ORIGIN}\n`);
+  for (const [page, data] of Object.entries(stubs)) {
+    const file = join(dir, page);
+    const source = readFileSync(file, "utf8");
+    if (!source.includes("export async function load(")) throw new Error(`${page} has no load to stub`);
+    writeFileSync(
+      file,
+      `${source.replace("export async function load(", "async function liveLoad(")}\n` +
+        `// Test stub (tests/helpers.ts, devWithData): the loader's data, captured in process.\n` +
+        `void liveLoad;\nexport async function load() {\n  return JSON.parse(${JSON.stringify(JSON.stringify(data))});\n}\n`,
+    );
+  }
+  const port = 20000 + Math.floor(Math.random() * 20000);
+  const dev = await startDev({ project: dir, port, log: () => {} });
+  return { base: `http://localhost:${port}`, stop: () => dev.stop() };
+}
+
+/** Node with Playwright's Chromium (`PLAYWRIGHT_PATH`, or a `playwright` package Node resolves), or null without one. */
+function playwright(): string | null {
+  const name = process.env.PLAYWRIGHT_PATH ?? "playwright";
+  if (Bun.which("node") === null) return null;
+  const r = Bun.spawnSync(["node", "-e", `require.resolve(${JSON.stringify(name)})`], { stdout: "ignore", stderr: "ignore" });
+  return r.exitCode === 0 ? name : null;
+}
+
+const SHOOT = `
+const { chromium } = require(process.argv[2]);
+const [out, base, ...shots] = process.argv.slice(3);
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  page.on("pageerror", (e) => errors.push(String(e)));
+  for (const shot of shots) {
+    const [name, path] = shot.split("=");
+    const r = await page.goto(base + path, { waitUntil: "networkidle" });
+    if (r === null || r.status() !== 200) errors.push(path + ": HTTP " + (r === null ? "none" : r.status()));
+    await page.screenshot({ path: out + "/" + name + ".png", fullPage: true });
+  }
+  await browser.close();
+  console.log(JSON.stringify({ errors }));
+})().catch((e) => { console.log(JSON.stringify({ errors: [String(e)] })); });
+`;
+
+/**
+ * Full-page Chromium screenshots of `shots` (name → path under `base`) into
+ * `out`/<name>.png, with every console error and uncaught exception
+ * (CSP violations included). Null when Node or Playwright is missing; the
+ * caller's HTML assertions still run.
+ */
+export async function screenshots(base: string, shots: Record<string, string>, out: string): Promise<{ errors: string[]; files: string[] } | null> {
+  const pw = playwright();
+  if (pw === null) return null;
+  const script = join(mkdtempSync(join(tmpdir(), "renox-shoot-")), "shoot.cjs");
+  writeFileSync(script, SHOOT);
+  // Async spawn: the dev proxy runs in this process and must keep serving.
+  const p = Bun.spawn(["node", script, pw, out, base, ...Object.entries(shots).map(([n, path]) => `${n}=${path}`)], { stdout: "pipe", stderr: "inherit" });
+  const text = await new Response(p.stdout).text();
+  await p.exited;
+  const { errors } = JSON.parse(text.trim().split("\n").pop() ?? "{}") as { errors: string[] };
+  return { errors, files: Object.keys(shots).map((n) => join(out, `${n}.png`)).filter((f) => existsSync(f)) };
 }
