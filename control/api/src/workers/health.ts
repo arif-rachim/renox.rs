@@ -7,14 +7,14 @@
 // change), not by a bare reassign; reassign() still moves tenants when a node
 // joins or returns, and leaves pinned tenants on their pin.
 
-import type { Db } from "../db/db.ts";
+import { jsonb, num, type Db } from "../db/db.ts";
 import type { Deps } from "../context.ts";
 import { DRAIN_MS } from "../routes/activation.ts";
 import { routeService } from "../routes/service.ts";
 import { entriesWhere, lockRoutes, removeEntry, upsertEntry } from "../routes/table.ts";
 import { ownerFor } from "./assign.ts";
 import { failover, type MoveResult } from "./failover.ts";
-import { healthyNodes, UNHEALTHY_AFTER_MS } from "./repo.ts";
+import { HEARTBEAT_INTERVAL_MS, healthyNodes, UNHEALTHY_AFTER_MS } from "./repo.ts";
 
 /** Moves every tenant whose owner changed to its new owner; returns how many entries moved. */
 export async function reassign(tx: Db, now: number): Promise<number> {
@@ -70,4 +70,53 @@ export async function sweep(deps: Deps, now = deps.now()): Promise<SweepResult> 
     drained: result.drained,
     failovers: moves,
   };
+}
+
+// ---- Replication as nodes last reported it (getOpsTenant, #296) ----
+
+/** The node listener's `replication_status` fields the console shows. */
+export interface ReplicationReport {
+  replication: "none" | "litestream";
+  state: "off" | "starting" | "replicating" | "stopped";
+  replica: { kind: "file" | "s3"; region?: string } | null;
+  last_sync_at: number | null;
+  lag_seconds: number | null;
+}
+
+/** One `OpsReplication` of deploy-api.yaml 0.3.1. */
+export interface OpsReplication extends ReplicationReport {
+  database: string;
+  reported_at: number;
+  stale: boolean;
+}
+
+/** A report older than this is `stale` (two heartbeats, section 7). */
+export const REPORT_STALE_MS = 2 * HEARTBEAT_INTERVAL_MS;
+
+/** Keeps the last replication status `node` answered for `database`. */
+export async function recordReplication(db: Db, tenantId: string, database: string, node: string, r: ReplicationReport, now: number): Promise<void> {
+  const report: ReplicationReport = {
+    replication: r.replication,
+    state: r.state,
+    replica: r.replica === null ? null : { kind: r.replica.kind, ...(r.replica.region === undefined ? {} : { region: r.replica.region }) },
+    last_sync_at: r.last_sync_at,
+    lag_seconds: r.lag_seconds,
+  };
+  await db.query(
+    `insert into replication_reports (tenant_id, database, node_id, report, reported_at) values ($1, $2, $3, $4::text::jsonb, $5)
+     on conflict (tenant_id, database) do update set node_id = excluded.node_id, report = excluded.report, reported_at = excluded.reported_at`,
+    [tenantId, database, node, jsonb(report), now],
+  );
+}
+
+/** The last report of each database of the tenant, by database id (at most 64). */
+export async function replicationOf(db: Db, tenantId: string, now: number): Promise<OpsReplication[]> {
+  const rows = await db.query<{ database: string; report: ReplicationReport; reported_at: unknown }>(
+    "select database, report, reported_at from replication_reports where tenant_id = $1 order by database limit 64",
+    [tenantId],
+  );
+  return rows.map((r) => {
+    const at = num(r.reported_at);
+    return { database: r.database, ...r.report, reported_at: at, stale: now - at > REPORT_STALE_MS };
+  });
 }

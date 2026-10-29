@@ -1,6 +1,7 @@
 // Operator actions on a tenant (docs/contracts/deploy-api.md 0.3 section 17,
 // #259): change its tier, move it to a named node, or move it to a microVM
-// through the owning node's hook. Every request carries a reason (10 to 500
+// through the owning node's hook; and the read of 0.3.1 (#296) that the
+// console's status panel shows, served from Postgres only and audited. Every request carries a reason (10 to 500
 // characters), kept in the audit row with the operator and the result; every
 // action also writes one `source: platform` line per app, without the
 // reason.
@@ -8,7 +9,8 @@
 // docs/24-threat-model.md section E, "Operator console abuse".
 
 import type { Context, Hono } from "hono";
-import { operation } from "../audit.ts";
+import { operation, writeAudit } from "../audit.ts";
+import { clientIp } from "../auth/ip.ts";
 import { num, type Db } from "../db/db.ts";
 import { ApiError, conflict, notFound } from "../errors.ts";
 import { jsonBody, pathParam } from "../http.ts";
@@ -18,6 +20,7 @@ import type { Deps, Env } from "../context.ts";
 import { entriesWhere, lockRoutes, processOf, upsertEntry } from "../routes/table.ts";
 import { routeService } from "../routes/service.ts";
 import { moveTenant, nodeCall, nodeTarget } from "../workers/failover.ts";
+import { replicationOf } from "../workers/health.ts";
 import { findWorker } from "../workers/repo.ts";
 import { accountRef, operatorOf, opsAuth } from "./auth.ts";
 
@@ -88,7 +91,66 @@ function result(tenantId: string, action: "setTenantTier" | "moveTenant", change
   return { tenant_id: tenantId, action, changed, tier, process: processOf(tier), node_id: node ?? "none", route_version: version, audit_id: auditId, ...extra };
 }
 
+/** One `OpsAction` per audit row of the tenant's operator actions, newest first. */
+async function lastActions(db: Db, tenantId: string): Promise<{ audit_id: string; at: number; action: string; operator: string; reason: string; result: string }[]> {
+  const rows = await db.query<{ at: unknown; action: string; target: Record<string, string> }>(
+    "select at, action, target from audit where tenant_id = $1 and action in ('setTenantTier', 'moveTenant') and target->>'audit_id' is not null and target->>'result' is not null order by id desc limit 5",
+    [tenantId],
+  );
+  return rows.map((r) => ({
+    audit_id: r.target.audit_id as string,
+    at: num(r.at),
+    action: r.action,
+    operator: accountRef(r.target.operator ?? "operator"),
+    reason: r.target.reason as string,
+    result: r.target.result as string,
+  }));
+}
+
 export function registerOps(app: Hono<Env>, deps: Deps): void {
+  app.get("/v1/ops/tenants/:tenant_id", operation(deps, "getOpsTenant"), opsAuth(deps, "ops:read"), async (c) => {
+    const tenantId = pathParam(c, "tenant_id", "TenantId");
+    const rows = await deps.db.query<{ name: string; tier: Tier; state: "active" | "suspended"; moving_since: unknown; microvm_at: unknown }>(
+      "select name, tier, state, moving_since, microvm_at from tenants where id = $1",
+      [tenantId],
+    );
+    const t = rows[0];
+    const now = deps.now();
+    // A read of operator data is audited too (section 2), found or not.
+    const auditRead = (status: number) =>
+      writeAudit(deps.db, {
+        at: now,
+        tenantId: t === undefined ? null : tenantId,
+        actor: "operator",
+        action: "getOpsTenant",
+        target: { tenant_id: tenantId, operator: accountRef(operatorOf(c)) },
+        status,
+        requestId: c.get("requestId"),
+        ip: clientIp(c),
+      });
+    if (t === undefined) {
+      await auditRead(404);
+      throw notFound();
+    }
+    const pins = await deps.db.query<{ node_id: string }>("select node_id from tenant_pins where tenant_id = $1", [tenantId]);
+    const body = {
+      tenant_id: tenantId,
+      name: t.name,
+      tier: t.tier,
+      state: t.state,
+      process: processOf(t.tier),
+      node_id: await currentNode(deps.db, tenantId),
+      pinned_node: pins[0]?.node_id ?? null,
+      moving: t.moving_since !== null,
+      moving_since: t.moving_since === null ? null : num(t.moving_since),
+      microvm_at: t.microvm_at === null ? null : num(t.microvm_at),
+      replication: await replicationOf(deps.db, tenantId, now),
+      actions: await lastActions(deps.db, tenantId),
+    };
+    await auditRead(200);
+    return c.json(body);
+  });
+
   app.post("/v1/ops/tenants/:tenant_id/tier", operation(deps, "setTenantTier"), opsAuth(deps), async (c) => {
     const tenantId = pathParam(c, "tenant_id", "TenantId");
     // The reason is checked first, so even a refused request has it in its audit row.

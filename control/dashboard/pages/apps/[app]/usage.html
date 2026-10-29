@@ -16,6 +16,7 @@
           <rect r-for="b in c.bars" :x="b.x" :y="b.y" :width="b.width" :height="b.height"><title>{{ b.label }}</title></rect>
         </svg>
       </figure>
+      <p class="muted">Latency is the mean per request of each hour; percentiles (p50, p95) and realtime connections appear when the usage API carries them.</p>
       <h2>Monthly quota ({{ quota.tier }}, {{ quota.period }})</h2>
       <table class="list">
         <tbody>

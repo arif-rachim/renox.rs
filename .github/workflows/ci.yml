@@ -134,6 +134,28 @@ jobs:
           shellcheck --severity=warning ops/scripts/*.sh
           ops/scripts/fetch-litestream.test.sh
           ops/scripts/move-to-microvm.test.sh
+      # ops/observability (#296): promtool from the Prometheus release pinned
+      # in ops/observability/prometheus.lock, its SHA-256 checked before the
+      # one file is extracted, then `promtool check rules`.
+      - name: promtool
+        if: success() || failure()
+        run: |
+          lock=ops/observability/prometheus.lock
+          version=$(awk '$1 == "version" { print $2 }' "$lock")
+          read -r sum tarball < <(awk '$1 == "x86_64-unknown-linux-gnu" { print $2, $3 }' "$lock")
+          curl --fail --silent --show-error --location --proto '=https' --retry 3 \
+            --output "$RUNNER_TEMP/$tarball" "https://github.com/prometheus/prometheus/releases/download/v$version/$tarball"
+          echo "$sum  $RUNNER_TEMP/$tarball" | sha256sum --check --strict
+          dir=${tarball%.tar.gz}
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" --no-same-owner --no-same-permissions "$dir/promtool"
+          "$RUNNER_TEMP/$dir/promtool" check rules ops/observability/rules/*.yml
+      # The dashboards and rules against ops/observability/README.md (families,
+      # docs/23 rows, panel layout), and the laptop compose file.
+      - name: observability
+        if: success() || failure()
+        run: |
+          bun ops/observability/check.ts
+          docker compose -f ops/observability/docker-compose.observability.yml config -q
       # RustSec advisories, licences, sources (deny.toml).
       - name: Rust toolchain for cargo-deny
         if: success() || failure()

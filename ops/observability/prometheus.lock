@@ -1,0 +1,5 @@
+# The Prometheus release whose `promtool` CI's lint job runs (#296), and the
+# SHA-256 of its tarball from the release's sha256sums.txt. Same format as
+# ops/litestream.lock: `version <v>`, then `<rust target> <sha256> <tarball>`.
+version 3.5.0
+x86_64-unknown-linux-gnu e811827af26d822afb09a4f28314f61b618b12cff5369835a67f674d8b46f39a prometheus-3.5.0.linux-amd64.tar.gz

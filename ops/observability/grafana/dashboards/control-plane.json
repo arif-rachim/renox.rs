@@ -1,0 +1,349 @@
+{
+  "uid": "renox-control-plane",
+  "title": "Renox \u00b7 Control plane",
+  "tags": [
+    "renox",
+    "control-plane"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "utc",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_up",
+          "legendFormat": "Postgres answers"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "up{job=\"renox-control-plane\"}",
+          "legendFormat": "scrape"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Nodes healthy",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(renox_cp_node_healthy)",
+          "legendFormat": "healthy"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "count(renox_cp_node_healthy)",
+          "legendFormat": "registered"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Tenants by tier and state",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_tenants",
+          "legendFormat": "{{tier}} {{state}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Cells per node",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_node_cells",
+          "legendFormat": "{{node_id}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Heartbeat age per node",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_node_heartbeat_age_seconds",
+          "legendFormat": "{{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Replication: max lag, lagging databases",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_replication_lag_max_seconds",
+          "legendFormat": "max lag (s)"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_replication_lagging_databases",
+          "legendFormat": "databases over 10 s"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Replicated databases / stale reports",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_replication_databases",
+          "legendFormat": "replicated"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_replication_stale_reports",
+          "legendFormat": "stale reports"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Failovers and moves (1 h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum by (reason, status) (increase(renox_cp_failovers_total[1h]))",
+          "legendFormat": "{{reason}} {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Alert rows (1 h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum by (kind) (increase(renox_cp_alerts_total[1h]))",
+          "legendFormat": "{{kind}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Tenants moving to a microVM",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_tenants_moving"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Deployments by state",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "renox_cp_deployments",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    }
+  ]
+}

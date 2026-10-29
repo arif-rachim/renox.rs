@@ -144,6 +144,13 @@ psql -h localhost -U renox -c 'create database renox_harness'
 CONTROL_TEST_HARNESS_URL=postgres://renox:renox-dev@localhost:5432/renox_harness bun test
 ```
 
+## Operator read and metrics (#296)
+
+- `GET /v1/ops/tenants/{tenant_id}` (`getOpsTenant`, deploy-api.md 0.3.1 section 17, `src/ops/tenants.ts`): the tenant as the operator console's status panel shows it, from Postgres only. `replication` is what each database's owning node last answered to the API (`replication_reports`, written whenever `getBackups` reads a node's status; `stale` after two heartbeats); `actions` are the last five `setTenantTier` / `moveTenant` audit rows. Every read writes a `getOpsTenant` audit row with the operator, found or not. `ops:read` or `ops:write`; an `ops:read`-only token cannot be minted yet (`src/tokens/routes.ts` creates `ops:write` tokens only).
+- `GET /v1/ops/metrics` (`src/ops/metrics.ts`): the control plane's Prometheus families (`renox_cp_*`: node health, heartbeat age, cells, tenants by tier and state, tenants moving, replication lag from the last reports, failovers, alert rows, deployments) for `ops/observability/prometheus.yml`. Same credential and scope as the read; no tenant id in any label, so a scrape is not audited (a refused credential is). Not a deploy API operation: listed in `test/idor/idor.test.ts` `EXTRA_ROUTES`.
+
+Tests: `tests/ops-read.test.ts` (non-operators refused and audited, the 0.3.1 shape validated against `OpsTenant`, no node call, the read audited, a stale report; the metrics text and its refusals).
+
 ## Reading logs (`GET /v1/apps/{app}/logs`, #223)
 
 `streamLogs` (`logs:read`) serves the lines `POST /v1/ingest/logs` stored, as SSE: `event: log`, `id: <ts>-<n>`, `data:` one `log_line` of the contract. `n` is the line's place in the tenant's ingestion order; it is what a reconnect resumes from.

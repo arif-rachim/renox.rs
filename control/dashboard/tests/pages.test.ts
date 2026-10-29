@@ -13,7 +13,7 @@ import { load as appsLoad, actions as appsActions } from "../pages/apps/index.ts
 import { load as overviewLoad, actions as overviewActions } from "../pages/apps/[app]/index.ts";
 import { load as deploymentsLoad, actions as deploymentsActions } from "../pages/apps/[app]/deployments.ts";
 import { load as logsLoad } from "../pages/apps/[app]/logs.ts";
-import { load as usageLoad } from "../pages/apps/[app]/usage.ts";
+import { load as usageLoad, meanLatencyMs } from "../pages/apps/[app]/usage.ts";
 import { load as secretsLoad, actions as secretsActions } from "../pages/apps/[app]/secrets.ts";
 import { load as signinLoad, actions as signinActions } from "../pages/signin.ts";
 import { actions as signoutActions } from "../pages/signout.ts";
@@ -262,7 +262,8 @@ describe("usage (3.13, per app)", () => {
     const r = data(await usageLoad(loaderCtx(d, "/apps/hello/usage", { params: HELLO })));
     expect(r.problem).toBeNull();
     const charts = r.charts as { title: string; bars: { height: number; label: string }[] }[];
-    expect(charts.map((c) => c.bars.length)).toEqual([24, 24, 24]);
+    expect(charts.map((c) => c.bars.length)).toEqual([24, 24, 24, 24]);
+    expect(charts[3]?.title).toBe("Average latency per hour (ms)");
     expect(charts[0]?.bars.every((b) => b.height === 0)).toBe(true);
     expect(r.totals).toMatchObject({ requests: "0" });
     expect((r.quota as { tier: string; rows: unknown[] }).tier).toBe("free");
@@ -270,6 +271,12 @@ describe("usage (3.13, per app)", () => {
     // An unknown range is the default.
     expect(data(await usageLoad(loaderCtx(d, "/apps/hello/usage?range=1y", { params: HELLO }))).range).toBe("24h");
   });
+});
+
+test("the latency chart is the mean wall time per request of each hour (#296)", () => {
+  const hour = { hour_start: 0, requests: 4, cpu_ms: 10, wall_ms: 90, egress_bytes: 0, fetch_sent_bytes: 0, db_ms: 0, db_rows: 0, render_fuel: 0 };
+  expect(meanLatencyMs(hour)).toBe(22.5);
+  expect(meanLatencyMs({ ...hour, requests: 0, wall_ms: 0 })).toBe(0);
 });
 
 describe("secrets (3.9)", () => {

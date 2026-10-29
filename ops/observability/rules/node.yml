@@ -1,0 +1,62 @@
+# Node alerts (#296). Each rule names the docs/23-failure-modes.md row it
+# detects; the README's table says which metric family each reads and
+# whether that family exists today (control plane) or comes with #295
+# (worker).
+groups:
+  - name: renox-node
+    rules:
+      - alert: RenoxNodeUnhealthy
+        expr: renox_cp_node_healthy == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Node {{ $labels.node_id }} is unhealthy: no heartbeat for 30 s; its tenants fail over"
+          failure_mode: "Node dies"
+      - alert: RenoxNodeHeartbeatLate
+        expr: renox_cp_node_heartbeat_age_seconds > 20 and on (node_id) renox_cp_node_healthy == 1
+        for: 30s
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Node {{ $labels.node_id }} is late with its heartbeats ({{ $value | humanize }} s)"
+          failure_mode: "Node dies"
+      - alert: RenoxNodeNearlyFull
+        expr: renox_cp_node_cells / renox_cp_node_max_cells > 0.9
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Node {{ $labels.node_id }} holds more than 90 % of its cells"
+          failure_mode: "Node dies"
+      - alert: RenoxDiskWatermarkWarn
+        expr: renox_worker_disk_level == 1
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Node {{ $labels.instance }} disk above 80 %: pruning runs"
+          failure_mode: "Disk full on node"
+      - alert: RenoxDiskWatermarkStop
+        expr: renox_worker_disk_level >= 2
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Node {{ $labels.instance }} disk above 90 %: no new cells (95 %: no writes)"
+          failure_mode: "Disk full on node"
+      - alert: RenoxObjectStorageUnreachable
+        expr: renox_worker_degraded{component="object_storage"} == 1
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Node {{ $labels.instance }} cannot reach object storage: cold starts of uncached artifacts fail"
+          failure_mode: "Object storage unreachable"
+      - alert: RenoxSandboxDenialsSpike
+        expr: sum by (instance) (increase(renox_worker_sandbox_denials_total[5m])) > 20
+        labels:
+          severity: page
+        annotations:
+          summary: "Node {{ $labels.instance }}: {{ $value | humanize }} sandbox denials in 5 minutes (seccomp or Landlock)"
+          failure_mode: "Worker process crashes (a paid tenant's child process, #254)"

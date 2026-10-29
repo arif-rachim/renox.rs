@@ -1,0 +1,28 @@
+# Replication and failover alerts (#296; deploy-api.md section 16 FO6).
+groups:
+  - name: renox-replication
+    rules:
+      - alert: RenoxReplicationLag
+        # FO6: an alert above 10 s. The worker's own gauge (#295) when it exists,
+        # otherwise the control plane's view of the nodes' last reports.
+        expr: (max by (instance) (renox_worker_replication_lag_seconds) > 10) or (renox_cp_replication_lag_max_seconds > 10)
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Replication lag {{ $value | humanize }} s (FO6 alert above 10 s)"
+          failure_mode: "Replica lagging / Litestream behind"
+      - alert: RenoxFailoverRestoreFailed
+        expr: increase(renox_cp_alerts_total{kind="failover_restore_failed"}[15m]) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "A failover could not restore a tenant on any candidate: it stays on its dead node until an operator acts"
+          failure_mode: "Node dies, restore fails"
+      - alert: RenoxFailoverFailed
+        expr: increase(renox_cp_failovers_total{status="failed"}[15m]) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value | humanize }} tenant move(s) failed in 15 minutes ({{ $labels.reason }})"
+          failure_mode: "Node dies, restore fails"

@@ -5,13 +5,20 @@
 // no inline style, so the strict CSP holds.
 import type { LoaderContext } from "renox";
 
-import { apiBase } from "../../../lib/api.ts";
+import { apiBase, type UsageHour } from "../../../lib/api.ts";
 import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { bytes, CHART, clock, hourlyBars, percent, round } from "../../../lib/view.ts";
 
 const HOUR = 3_600_000;
 export const RANGES = { "24h": 24, "7d": 7 * 24, "30d": 30 * 24 } as const;
 type Range = keyof typeof RANGES;
+
+/**
+ * #296: the mean wall time per request of one hour. The hourly rollup has no
+ * percentiles and no realtime fields (deploy-api.yaml `UsageHour`), so p50,
+ * p95 and realtime connections wait for the contract to carry them.
+ */
+export const meanLatencyMs = (h: UsageHour): number => (h.requests === 0 ? 0 : h.wall_ms / h.requests);
 
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
@@ -47,6 +54,7 @@ export async function load(ctx: LoaderContext) {
       { title: "Requests per hour", bars: hourlyBars(u.hours, last, slots, (h) => h.requests, "requests") },
       { title: "CPU ms per hour", bars: hourlyBars(u.hours, last, slots, (h) => h.cpu_ms, "ms CPU") },
       { title: "Egress per hour (KB)", bars: hourlyBars(u.hours, last, slots, (h) => h.egress_bytes / 1024, "KB") },
+      { title: "Average latency per hour (ms)", bars: hourlyBars(u.hours, last, slots, meanLatencyMs, "ms per request") },
     ],
     quota: {
       tier: q.tier,

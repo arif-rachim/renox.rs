@@ -24,6 +24,7 @@ import { pathParam } from "../http.ts";
 import { requireApp } from "../apps/repo.ts";
 import { tenantDb } from "../tenancy/scope.ts";
 import { lastFailover, nodeCall, nodeTarget } from "../workers/failover.ts";
+import { recordReplication } from "../workers/health.ts";
 
 /** How long getBackups waits for the node. */
 export const STATUS_TIMEOUT_MS = 2_000;
@@ -67,7 +68,10 @@ export async function nodeStatus(deps: Deps, db: Db, tenantId: string, database:
   try {
     const res = await nodeCall(deps)(target, "GET", `/nodes/${node}/tenants/${tenantId}/replication?database=${encodeURIComponent(database)}`, undefined, STATUS_TIMEOUT_MS);
     if (res.status !== 200) return null;
-    return res.body as NodeStatus;
+    const status = res.body as NodeStatus;
+    // The last report, for the operator console (getOpsTenant, #296).
+    await recordReplication(db, tenantId, database, node, status, deps.now());
+    return status;
   } catch {
     return null;
   }
