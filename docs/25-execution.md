@@ -14,10 +14,10 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | --- | --- | --- | --- |
 | F0 | A #130, B #131 #132, gate #133 (GO) | — | — |
 | F1 | C #134, D #136, E #137, F #138, G #135, G2 #140, H #148, H2 #151, I (checklists), gate #165 (GO) | — | — |
-| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195 | Y (PR #198, conflicts to resolve) | Y2 after Y; O3 after Y and the owner's two bench hosts (#158); P after N, Y2, O3; gate #49 |
-| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194 | — | R2 now; T2 after Y; U after R2, T2; V after U and gate F2; W; gate #61 |
+| F2 | J0 #172, H3 #171, H4 #190, J #178, K #176, L #177, M #185, N #191, O #197 (#42 only), O2 #195, Y #198 | — | Y2 now; O3 after the owner's two bench hosts (#158); P after Y2 and O3; gate #49 |
+| F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194 | — | R2 and T2 now; U after R2, T2; V after U and gate F2; W; gate #61 |
 
-Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), all placed in the batches below. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
+Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), all placed in the batches below. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
 ## F0 (done: 2 sessions + gate)
 
@@ -104,7 +104,7 @@ J, K, L ran at the same time (PRs #178, #176, #177, merged 2026-10-28). K landed
 Work on batch Y of arif-rachim/renox.rs: issues #155, #156, #157, #159 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-PR #198 open, #157 skipped (Y2 takes it). The PR conflicts with T (#162) and M in `Cargo.lock`, `crates/renox-gateway/{README.md,src/lib.rs}` and `crates/renox-runtime/src/isolate.rs`: rebase it on `main` and keep both sides. All four touch `crates/renox-runtime/src/isolate.rs`, `src/limits/**` and `crates/renox-cell/src/manager.rs`; M (merged first) changed the same files for page dispatch, so expect conflicts in `manager.rs`, `cell.rs` and `isolate.rs` when the PR opens and rebase Y on `main`. #159 moved here from K: it compresses in `manager.rs` before the meter record.
+Done: PR #198 (#155, #156, #159; #157 skipped, Y2 takes it). Two documents it could not edit are #201: the §10 collateral rule is now per pool member, and the runtime README still describes F1 CPU accounting. All four touch `crates/renox-runtime/src/isolate.rs`, `src/limits/**` and `crates/renox-cell/src/manager.rs`; M (merged first) changed the same files for page dispatch, so expect conflicts in `manager.rs`, `cell.rs` and `isolate.rs` when the PR opens and rebase Y on `main`. #159 moved here from K: it compresses in `manager.rs` before the meter record.
 
 ### Batch M — after J, K, L — pages: routing, loaders, actions, CLI transpile, shop pages, web-layer protections (4 issues)
 
@@ -130,13 +130,13 @@ Work on batch O of arif-rachim/renox.rs: issues #158, #42 in that order. Follow 
 
 Done: PR #197, #42 only. #158 was skipped by rule 13: a session cannot provision the `node-small` host and the load-generator host. The owner provides both (SSH addresses in the issue), then O3 runs #158 and #46.
 
-### Batch Y2 — after Y — cold-start levers, macOS builds, CSRF hardening, streaming (4 issues)
+### Batch Y2 — after Y — ops 1.1.1, cold-start levers, macOS builds, CSRF hardening, streaming (5 issues)
 
 ```
-Work on batch Y2 of arif-rachim/renox.rs: issues #157, #139, #111, #161 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+Work on batch Y2 of arif-rachim/renox.rs: issues #201, #157, #139, #111, #161 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Everything Y and N could not take: #157 and #139 were blocked by #154 when Y started (H4 closed it, PR #190); #111 was blocked by #159 when N ran; #161 touches `isolate.rs` and `manager.rs` like Y. #161 is not an F2 gate blocker; skip it if the batch runs long.
+#201 first (special case `type:contract`; it is the only contract edit in this batch). Then everything Y and N could not take: #157 and #139 were blocked by #154 when Y started (H4 closed it, PR #190); #111 was blocked by #159 when N ran; #161 touches `isolate.rs` and `manager.rs` like Y. #161 is not an F2 gate blocker; skip it if the batch runs long.
 
 ### Batch O3 — after Y and the owner's bench hosts — benchmark environment and the F2 benchmarks (2 issues)
 
@@ -202,7 +202,7 @@ Work on batch T of arif-rachim/renox.rs: issues #162, #55, #98, #96, #97 in that
 
 Done: PR #196, #162 only. #55 was skipped by rule 6: its `SecretsSource` hook and per-route tier need `crates/renox-cell/src/manager.rs` and `cell.rs`, which batch Y held; #98, #96 and #97 depend on it. T also found three control-plane endpoints the worker calls that nothing implements, now #199. All of it is batch T2.
 
-### Batch T2 — after Y — node endpoints, control-plane client, degraded mode, activation and route-table consistency (5 issues)
+### Batch T2 — after Y (now) — node endpoints, control-plane client, degraded mode, activation and route-table consistency (5 issues)
 
 ```
 Work on batch T2 of arif-rachim/renox.rs: issues #199, #55, #98, #96, #97 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
