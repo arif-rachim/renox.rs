@@ -78,6 +78,8 @@ export async function load(ctx: LoaderContext) {
       module: l.module,
       message: l.message,
       fields: l.fields === null ? "" : JSON.stringify(l.fields).slice(0, 2000),
+      // A browser error links to its group (the control plane adds `fields.fingerprint` at ingestion).
+      group_url: l.source === "client" && typeof l.fields?.fingerprint === "string" && /^[0-9a-f]{16}$/u.test(l.fields.fingerprint) ? `/apps/${name}/client-errors?fp=${l.fields.fingerprint}` : null,
     })),
   };
 }

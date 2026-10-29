@@ -19,6 +19,7 @@ import { checkMessage } from "../contract.ts";
 import type { Deps, Env } from "../context.ts";
 import { ApiError, invalid } from "../errors.ts";
 import { JSON_LIMIT, readBody } from "../http.ts";
+import { recordClientEvents } from "../logs/client-events.ts";
 
 /** ops.md section 4: lines per tenant per minute. */
 export const LOG_LINES_PER_MINUTE = { free: 1_000, paid: 10_000 } as const;
@@ -268,7 +269,14 @@ export function registerLogIngest(app: Hono<Env>, deps: Deps): void {
       else if (!cap.take(line.tenant_id, d.tier, now)) continue;
       accepted.push({ ...line, node_id: node, app: d.app });
     }
-    await store.append(accepted);
+    // Browser errors are grouped by fingerprint (#128); a grouping failure never fails the ingest.
+    const fingerprints = await recordClientEvents(db, accepted).catch((e: unknown) => {
+      deps.log.error("client error grouping failed", { request_id: c.get("requestId"), node_id: node, error: String(e) });
+      return new Map<StoredLine, string>();
+    });
+    // The fingerprint travels with the stored line (deploy-api.md section 11): the node's line has none.
+    const stored = accepted.map((l) => (fingerprints.has(l) ? { ...l, fields: { ...l.fields, fingerprint: fingerprints.get(l) } } : l));
+    await store.append(stored);
     const dropped = batch.lines.length - duplicates - accepted.length;
     if (dropped > 0) deps.log.warn("log lines sampled over the tenant cap", { request_id: c.get("requestId"), node_id: node, dropped });
     return c.json({ accepted: accepted.length, duplicates }, 202);

@@ -19,6 +19,7 @@ import { registerSecrets } from "./secrets/routes.ts";
 import { registerIngest } from "./ingest/routes.ts";
 import { registerLogIngest } from "./ingest/logs.ts";
 import { registerLogStream } from "./logs/stream.ts";
+import { registerClientErrors } from "./logs/client-events.ts";
 import { registerNodeArtifacts } from "./nodes/artifacts.ts";
 import { registerPrepareResults } from "./nodes/prepare_results.ts";
 import { registerActivation } from "./deployments/activate.ts";
@@ -98,6 +99,6 @@ export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surf
     await next();
   });
 
-  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerTeam, registerDomains, registerMcp, ...modules]) register(app, deps);
+  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerClientErrors, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerTeam, registerDomains, registerMcp, ...modules]) register(app, deps);
   return app;
 }
