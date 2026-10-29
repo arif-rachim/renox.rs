@@ -14,7 +14,16 @@ name: Release CLI
 #   worker-version.txt   the renox-worker version this CLI pins
 #                        (WORKER_VERSION in cli/scripts/fetch-worker.ts)
 #   install.sh           cli/scripts/install.sh
-# Signing and provenance are #129.
+#   SHA256SUMS           the sha256 of every binary and install.sh
+#   <asset>.sigstore.json
+#       cosign keyless signature of each binary, install.sh and SHA256SUMS
+#       (sigstore bundle), identity this workflow on the cli-v* tag (#129)
+#   renox-<version>.provenance.sigstore.json
+#       SLSA v1 build provenance for the same files
+# Every file is verified with cosign in a fresh container before publishing.
+# The CLI bakes in the sha256 of the pinned worker per target
+# (PINNED_WORKER in cli/src/worker/verify.ts); the build job refuses a
+# release whose pins differ from that worker release's .sha256 assets.
 on:
   push:
     tags:
@@ -80,6 +89,47 @@ jobs:
           echo "worker=$worker" >> "$GITHUB_OUTPUT"
           echo "renox ${version:-0.0.0-dev}, pinned renox-worker $worker" | tee -a "$GITHUB_STEP_SUMMARY"
       - run: bun install --frozen-lockfile
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+      # #129: the worker sha256 the CLI checks before running a worker must be
+      # the pinned release's. A tag fails on any difference, a dry run warns.
+      # A worker release with SHA256SUMS.sigstore.json has its signature
+      # verified too (releases before #129 have none).
+      - name: Check the pinned worker hashes
+        env:
+          WORKER: ${{ steps.version.outputs.worker }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          fail() {
+            if [[ -n "$VERSION" ]]; then echo "::error::$1"; exit 1; else echo "::warning::$1"; fi
+          }
+          pins=$(bun -e 'import { PINNED_WORKER as p } from "./cli/src/worker/verify.ts"; console.log(p.version); for (const [t, h] of Object.entries(p.sha256)) console.log(`${t} ${h}`)')
+          pinned_version=$(head -n 1 <<< "$pins")
+          [[ "$pinned_version" == "$WORKER" ]] || fail "PINNED_WORKER.version is $pinned_version, WORKER_VERSION is $WORKER"
+          dir=$RUNNER_TEMP/pins
+          mkdir -p "$dir"
+          if gh release download "worker-v$WORKER" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+              --pattern 'renox-worker-*.sha256' --pattern 'SHA256SUMS*'; then
+            if [[ -f "$dir/SHA256SUMS.sigstore.json" ]]; then
+              id="^https://github\.com/$(printf %s "$GITHUB_REPOSITORY" | sed "s/\./\\\\./g")/\.github/workflows/release-worker\.yml@refs/tags/worker-v"
+              cosign verify-blob --bundle "$dir/SHA256SUMS.sigstore.json" --certificate-identity-regexp "$id" \
+                --certificate-oidc-issuer https://token.actions.githubusercontent.com "$dir/SHA256SUMS" \
+                || fail "SHA256SUMS of worker-v$WORKER does not verify"
+              (cd "$dir" && for f in renox-worker-*.sha256; do grep -qxF "$(cat "$f")" SHA256SUMS || fail "$f is not in the signed SHA256SUMS"; done)
+            else
+              echo "::warning::worker-v$WORKER predates signed releases (#129): its .sha256 assets are not signed"
+            fi
+            tail -n +2 <<< "$pins" | while read -r target hash; do
+              f="$dir/renox-worker-$WORKER-$target.sha256"
+              [[ -f "$f" ]] || fail "worker-v$WORKER has no $target build, but PINNED_WORKER pins one"
+              released=$(cut -d ' ' -f 1 "$f")
+              [[ "$released" == "$hash" ]] || fail "PINNED_WORKER pins $hash for $target, worker-v$WORKER has $released"
+              echo "pinned $target $hash = worker-v$WORKER"
+            done
+          else
+            fail "no release worker-v$WORKER to check PINNED_WORKER against"
+          fi
       - name: Compile
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -178,24 +228,76 @@ jobs:
     if: needs.build.outputs.version != ''
     runs-on: ubuntu-24.04
     permissions:
-      # Creating a release and uploading assets; nothing else.
+      # Creating a release and uploading assets.
       contents: write
+      # Keyless signing (the OIDC token is the signing identity) and the
+      # provenance attestation (#129).
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: renox-cli
           path: dist
+      - name: SHA256SUMS
+        run: |
+          cd dist
+          { cat renox-*.sha256; sha256sum install.sh; } > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+      - name: Sign
+        run: |
+          cd dist
+          for f in SHA256SUMS $(cut -d ' ' -f 3 SHA256SUMS); do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+      - name: Provenance
+        id: provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Attach the provenance
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: cp "$BUNDLE" "dist/renox-$VERSION.provenance.sigstore.json"
+      # #129: the published files verify with cosign alone, in a container
+      # that has neither this checkout nor the signing token.
+      - name: Verify in a fresh container
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" -v "$(command -v cosign):/usr/local/bin/cosign:ro" \
+            -e REPO="$GITHUB_REPOSITORY" -e V="$VERSION" ubuntu:24.04 bash -euo pipefail -c '
+              apt-get update -qq >/dev/null && apt-get install -y -qq ca-certificates >/dev/null
+              cd /dist
+              id="^https://github\.com/$(printf %s "$REPO" | sed "s/\./\\\\./g")/\.github/workflows/release-cli\.yml@refs/tags/cli-v"
+              sha256sum -c SHA256SUMS
+              for f in SHA256SUMS $(cut -d " " -f 3 SHA256SUMS); do
+                cosign verify-blob --bundle "$f.sigstore.json" --certificate-identity-regexp "$id" \
+                  --certificate-oidc-issuer https://token.actions.githubusercontent.com "$f"
+              done
+              for f in $(cut -d " " -f 3 SHA256SUMS); do
+                cosign verify-blob-attestation --bundle "renox-$V.provenance.sigstore.json" --new-bundle-format \
+                  --type slsaprovenance1 --certificate-identity-regexp "$id" \
+                  --certificate-oidc-issuer https://token.actions.githubusercontent.com "$f"
+              done
+            '
+          echo "fresh container: SHA256SUMS, cosign signatures and provenance verify" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.build.outputs.version }}
         run: |
           tag="cli-v$VERSION"
           worker=$(cat dist/worker-version.txt)
+          # A version with a suffix (0.2.0-rc.1) is a pre-release.
+          pre=()
+          [[ "$VERSION" == *-* ]] && pre=(--prerelease)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" dist/* --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            gh release create "$tag" dist/* "${pre[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "renox CLI $VERSION" \
-              --notes "renox CLI $VERSION built from $GITHUB_SHA; pins renox-worker $worker. Install: curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/install.sh | sh. Verify by hand with: sha256sum -c <asset>.sha256"
+              --notes "renox CLI $VERSION built from $GITHUB_SHA, signed with sigstore, with SLSA provenance; pins renox-worker $worker. Install: curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/install.sh | sh (verifies the checksums, and the signatures when cosign is installed). Verify by hand: docs/12-developer-experience.md, \"Installing the CLI\"."
           fi

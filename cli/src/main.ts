@@ -19,6 +19,8 @@ const USAGE = `renox <command>
   new <name> [--template blank|hello]   create an app
   build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
   dev [--port 8787]                     run the app on the local worker, rebuild on change
+  dev --worker <path>                   run another renox-worker; it must be the pinned release or carry
+                                        a sigstore signature and provenance that cosign verifies
   check [--secrets] [--security]        validate config, routes, templates, manifest; lint SQL, fetch, global state; scan for secrets; --security prints the effective headers per route
   mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
   login [--api <url>] [--with-token]    sign in to the control plane (device code; --with-token reads a token from stdin)
@@ -33,7 +35,7 @@ const USAGE = `renox <command>
                                         app secrets; set reads the value from stdin and never prints it
 
 Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
-Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev;
+Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev (not verified: for a worker you built);
 RENOX_TOKEN and RENOX_API_URL override the credentials saved by login.`;
 
 const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, mcp, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a) };
