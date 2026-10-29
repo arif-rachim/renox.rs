@@ -389,6 +389,21 @@ async fn node_listener_restores_before_serving() {
         1,
         "served from the restored file"
     );
+    // FO4: a drop drains the tenant's cells and answers tenant_dropped.
+    let (status, answer) = http(
+        addr,
+        "DELETE",
+        "node",
+        "/nodes/node-local/tenants/t_repl",
+        &[auth],
+        "",
+    )
+    .await;
+    assert_eq!(status, 200, "{answer}");
+    let dropped: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(dropped["type"], "tenant_dropped");
+    assert_eq!(dropped["cells_drained"], 1);
+    assert!(!worker.manager.db_open("t_repl"));
 
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&root);

@@ -209,6 +209,7 @@ impl NodeListener {
                 Ok(body) => self.restore(&tenant, body).await,
                 Err(r) => *r,
             },
+            (Method::DELETE, "") => self.drop_tenant(&tenant).await,
             (Method::GET, "replication") => {
                 let database = query_param(&query, "database").unwrap_or_else(|| tenant.clone());
                 if !database_of(&tenant, &database) {
@@ -218,6 +219,34 @@ impl NodeListener {
             }
             _ => not_found(),
         }
+    }
+
+    /// FO4 (#257): the tenant moved away while this node was gone. Its cells
+    /// drain; the node serves only entries that name it, so it refuses the
+    /// tenant until one does again. The file is kept (never served from
+    /// here) and its sidecar stops after the grace period.
+    async fn drop_tenant(&self, tenant: &str) -> Resp {
+        let drained = self.manager.drain_tenant(tenant);
+        let deadline = Instant::now() + Duration::from_secs(25);
+        while self.manager.db_open(tenant) && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tracing::info!(
+            tenant_id = tenant,
+            cells_drained = drained,
+            "tenant dropped on request of the control plane (moved away)"
+        );
+        json_response(
+            StatusCode::OK,
+            json!({
+                "type": "tenant_dropped",
+                "schema_version": 0,
+                "node_id": self.node_id,
+                "tenant_id": tenant,
+                "cells_drained": drained,
+                "file": "kept",
+            }),
+        )
     }
 
     fn replication_status(&self, tenant: &str, database: &str) -> Resp {
