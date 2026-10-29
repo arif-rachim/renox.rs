@@ -28,3 +28,4 @@ readlinkat      same: Go's runtime reads /proc/self/exe
 fchownat        same: replica files take the owner of the database file (the worker's own user; no CAP_CHOWN)
 statfs          same: the file system of the database
 getrlimit       same: Go's runtime reads RLIMIT_NOFILE
+getpeername     the Litestream sidecars (#255): read-only socket query the Go runtime makes on CI's kernel (audit type=1326, syscall 52, on the rust job)

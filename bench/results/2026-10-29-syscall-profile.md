@@ -39,7 +39,7 @@ Amended for the Litestream sidecars (#255). In CI's `enforce` run, a sidecar sta
 - `clone` with `CLONE_THREAD` (Go's threads). It is added in `src/sandbox/seccomp.rs` as an argument rule, not as a list entry, so `clone` without that flag (a fork) is still killed.
 - `epoll_pwait`, `mkdirat`, `renameat`, `readlinkat`, `fchownat`, `statfs`, `getrlimit`, added to `baseline.txt` with their reasons.
 
-x86_64 now has 103 calls and aarch64 100. Under `RENOX_TEST_SANDBOX=enforce` with Litestream on `PATH`: `cargo test -p renox-cell` passed 126, failed 0, including all 6 tests of `tests/replication.rs`.
+Then CI's runner killed the sidecar on one more call, `getpeername`, which this host's trace never showed. The kernel's audit record (type=1326, syscall 52) named it; the rust job now prints those records when it fails. x86_64 now has 104 calls and aarch64 101. Under `RENOX_TEST_SANDBOX=enforce` with Litestream on `PATH`: `cargo test -p renox-cell` passed 126, failed 0, including all 6 tests of `tests/replication.rs`.
 
 Never in either list (a unit test enforces it): `ptrace`, `process_vm_readv`/`writev`, `bpf`, `mount`, `umount2`, `init_module`, `finit_module`, `kexec_load`, `setns`, `unshare`, `pivot_root`, `chroot`, `keyctl`, `add_key`, `perf_event_open`, `userfaultfd`, `open_by_handle_at`, and `seccomp` itself (a second filter cannot be loaded once the first is in place).
 
