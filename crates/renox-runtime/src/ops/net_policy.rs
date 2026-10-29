@@ -367,6 +367,11 @@ const BLOCKED_V4: &[Range4] = &[
         24,
         "documentation TEST-NET-3 (RFC 5737)",
     ),
+    Range4(
+        Ipv4Addr::new(192, 88, 99, 0),
+        24,
+        "former 6to4 relay anycast (RFC 7526, deprecated)",
+    ),
     Range4(Ipv4Addr::new(224, 0, 0, 0), 4, "multicast"),
     Range4(Ipv4Addr::new(240, 0, 0, 0), 4, "reserved (RFC 1112)"),
     Range4(Ipv4Addr::new(255, 255, 255, 255), 32, "limited broadcast"),
@@ -397,6 +402,16 @@ const BLOCKED_V6: &[Range6] = &[
         Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 0),
         7,
         "unique local (RFC 4193); includes the AWS metadata endpoint fd00:ec2::254",
+    ),
+    Range6(
+        Ipv6Addr::new(0x3fff, 0, 0, 0, 0, 0, 0, 0),
+        20,
+        "documentation (RFC 9637)",
+    ),
+    Range6(
+        Ipv6Addr::new(0x5f00, 0, 0, 0, 0, 0, 0, 0),
+        16,
+        "Segment Routing (SRv6) SIDs (RFC 9602)",
     ),
     Range6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0), 10, "link-local"),
     Range6(
@@ -439,6 +454,10 @@ pub fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     if bits >> 32 == 0 && bits > 1 {
         return Some(low32);
     }
+    // IPv4-translated (SIIT, RFC 7915): ::ffff:0:a.b.c.d.
+    if in_v6(ip, Ipv6Addr::new(0, 0, 0, 0, 0xffff, 0, 0, 0), 96) {
+        return Some(low32);
+    }
     if in_v6(ip, Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, 0, 0), 96)
         || in_v6(ip, Ipv6Addr::new(0x64, 0xff9b, 1, 0, 0, 0, 0, 0), 48)
     {
@@ -448,6 +467,51 @@ pub fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
         return Some(Ipv4Addr::from(((bits >> 80) & 0xffff_ffff) as u32));
     }
     None
+}
+
+/// A NAT64 network-specific prefix (RFC 6052): `addr`/`len` with `len` one
+/// of 32, 40, 48, 56, 64, 96.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Nat64Prefix {
+    pub addr: Ipv6Addr,
+    pub len: u8,
+}
+
+/// The node's NAT64 network-specific prefixes (`ops.md` section 2). Set
+/// by the cell, never by tenants; empty by default.
+#[derive(Debug, Clone, Default)]
+pub struct Nat64Prefixes(pub Vec<Nat64Prefix>);
+
+impl Nat64Prefixes {
+    /// The IPv4 address `ip` embeds under one of the prefixes, read at the
+    /// RFC 6052 position for the prefix length (bits 64..72 are skipped).
+    pub fn embedded(&self, ip: Ipv6Addr) -> Option<Ipv4Addr> {
+        let p = self
+            .0
+            .iter()
+            .find(|p| matches!(p.len, 32 | 40 | 48 | 56 | 64 | 96) && in_v6(ip, p.addr, p.len))?;
+        let b = ip.octets();
+        let mut out = [0u8; 4];
+        let mut i = usize::from(p.len / 8);
+        for o in out.iter_mut() {
+            if i == 8 {
+                i += 1;
+            }
+            *o = b[i];
+            i += 1;
+        }
+        Some(Ipv4Addr::from(out))
+    }
+
+    /// [`blocked_reason`] after reducing an address under one of the prefixes.
+    pub fn blocked_reason(&self, ip: IpAddr) -> Option<&'static str> {
+        if let IpAddr::V6(v6) = ip
+            && let Some(v4) = self.embedded(v6)
+        {
+            return blocked_reason(IpAddr::V4(v4));
+        }
+        blocked_reason(ip)
+    }
 }
 
 /// `Some(why)` when `ip` must never be connected to from tenant code.
@@ -497,11 +561,20 @@ fn reduce(ip: IpAddr) -> IpAddr {
 /// closed: one blocked address refuses the whole set, so the outcome does
 /// not depend on which address a connection attempt would pick.
 pub fn check_addresses(addrs: &[IpAddr], extra: &ExtraBlocked) -> Result<(), BlockReason> {
+    check_addresses_nat64(addrs, extra, &Nat64Prefixes::default())
+}
+
+/// [`check_addresses`] with the node's NAT64 network-specific prefixes.
+pub fn check_addresses_nat64(
+    addrs: &[IpAddr],
+    extra: &ExtraBlocked,
+    nat64: &Nat64Prefixes,
+) -> Result<(), BlockReason> {
     if addrs.is_empty() {
         return Err(BlockReason::BlockedAddress);
     }
     for ip in addrs {
-        if blocked_reason(*ip).is_some() || extra.contains(*ip) {
+        if nat64.blocked_reason(*ip).is_some() || extra.contains(*ip) {
             return Err(BlockReason::BlockedAddress);
         }
     }
@@ -541,6 +614,16 @@ pub async fn resolve_and_check(
     extra: &ExtraBlocked,
     target: &Target,
 ) -> Result<Vec<SocketAddr>, ResolveError> {
+    resolve_and_check_nat64(resolver, extra, &Nat64Prefixes::default(), target).await
+}
+
+/// [`resolve_and_check`] with the node's NAT64 network-specific prefixes.
+pub async fn resolve_and_check_nat64(
+    resolver: &dyn Resolve,
+    extra: &ExtraBlocked,
+    nat64: &Nat64Prefixes,
+    target: &Target,
+) -> Result<Vec<SocketAddr>, ResolveError> {
     let ips = match &target.host {
         TargetHost::Ip(ip) => vec![*ip],
         TargetHost::Domain(d) => resolver.lookup(d).await.map_err(|_| ResolveError::Dns)?,
@@ -548,7 +631,7 @@ pub async fn resolve_and_check(
     if ips.is_empty() {
         return Err(ResolveError::Dns);
     }
-    check_addresses(&ips, extra).map_err(ResolveError::Blocked)?;
+    check_addresses_nat64(&ips, extra, nat64).map_err(ResolveError::Blocked)?;
     Ok(socket_addrs(&ips, target.port))
 }
 
@@ -837,6 +920,117 @@ mod tests {
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
+    }
+
+    /// `docs/24-threat-model.md` section B, SSRF row: `ops.md` 1.1.0 ranges.
+    /// Former 6to4 relay anycast `192.88.99.0/24`.
+    #[test]
+    fn former_6to4_relay_anycast_is_blocked() {
+        let a = [ip("192.88.99.1")];
+        assert_eq!(
+            check_addresses(&a, &ExtraBlocked::default()),
+            Err(BlockReason::BlockedAddress)
+        );
+    }
+
+    /// `docs/24-threat-model.md` section B, SSRF row: `3fff::/20` (RFC 9637).
+    #[test]
+    fn documentation_3fff_is_blocked() {
+        let a = [ip("3fff::1")];
+        assert_eq!(
+            check_addresses(&a, &ExtraBlocked::default()),
+            Err(BlockReason::BlockedAddress)
+        );
+        assert!(blocked_reason(ip("3fff:fff:ffff::1")).is_some());
+        assert!(blocked_reason(ip("3fff:1000::1")).is_none());
+    }
+
+    /// `docs/24-threat-model.md` section B, SSRF row: `5f00::/16` (SRv6 SIDs).
+    #[test]
+    fn srv6_sids_5f00_are_blocked() {
+        let a = [ip("5f00::1")];
+        assert_eq!(
+            check_addresses(&a, &ExtraBlocked::default()),
+            Err(BlockReason::BlockedAddress)
+        );
+        assert!(blocked_reason(ip("5f01::1")).is_none());
+    }
+
+    /// `docs/24-threat-model.md` section B, SSRF row: IPv4-translated (SIIT)
+    /// `::ffff:0:a.b.c.d` is checked as the embedded IPv4 address; the
+    /// IPv4-mapped form keeps working.
+    #[test]
+    fn siit_is_checked_as_the_embedded_v4() {
+        let blocked = [ip("::ffff:0:a9fe:a9fe")];
+        assert_eq!(
+            check_addresses(&blocked, &ExtraBlocked::default()),
+            Err(BlockReason::BlockedAddress)
+        );
+        assert!(blocked_reason(ip("::ffff:0:808:808")).is_none());
+        assert!(blocked_reason(ip("::ffff:169.254.169.254")).is_some());
+        assert!(blocked_reason(ip("::ffff:8.8.8.8")).is_none());
+    }
+
+    /// `docs/24-threat-model.md` section B, SSRF row: site-local `fec0::/10`.
+    #[test]
+    fn site_local_is_blocked() {
+        assert!(blocked_reason(ip("fec0::1")).is_some());
+    }
+
+    fn nat64(addr: &str, len: u8) -> Nat64Prefixes {
+        Nat64Prefixes(vec![Nat64Prefix {
+            addr: addr.parse().unwrap(),
+            len,
+        }])
+    }
+
+    /// `docs/24-threat-model.md` section B, SSRF row: a /96 network-specific
+    /// prefix; the address sits in the low 32 bits.
+    #[test]
+    fn nat64_nsp_96_embedded_v4_is_checked() {
+        let p = nat64("2001:db9:0:0:0:0::", 96);
+        let meta = [ip("2001:db9::a9fe:a9fe")];
+        assert_eq!(
+            check_addresses_nat64(&meta, &ExtraBlocked::default(), &p),
+            Err(BlockReason::BlockedAddress)
+        );
+        let public = [ip("2001:db9::808:808")];
+        assert!(check_addresses_nat64(&public, &ExtraBlocked::default(), &p).is_ok());
+    }
+
+    /// `docs/24-threat-model.md` section B, SSRF row: a /48 prefix; the
+    /// address is in bits 48..64 and 72..88 (bits 64..72 are skipped).
+    #[test]
+    fn nat64_nsp_48_embedded_v4_is_checked() {
+        let p = nat64("2001:db9:1::", 48);
+        // 169.254.169.254 = a9 fe a9 fe: bytes 6,7 then 9,10.
+        let meta = [ip("2001:db9:1:a9fe:a9:fe00::")];
+        assert_eq!(
+            check_addresses_nat64(&meta, &ExtraBlocked::default(), &p),
+            Err(BlockReason::BlockedAddress)
+        );
+        // 8.8.8.8
+        let public = [ip("2001:db9:1:808:8:800::")];
+        assert!(check_addresses_nat64(&public, &ExtraBlocked::default(), &p).is_ok());
+        // Without the prefix configured the same address is just public.
+        assert!(check_addresses(&meta, &ExtraBlocked::default()).is_ok());
+    }
+
+    #[test]
+    fn nat64_nsp_positions_follow_rfc_6052() {
+        let want = Ipv4Addr::new(192, 0, 2, 33);
+        // RFC 6052 section 2.4 examples for 2001:db8::/32 .. /96.
+        for (pfx, len, addr) in [
+            ("2001:db8::", 32, "2001:db8:c000:221::"),
+            ("2001:db8:100::", 40, "2001:db8:1c0:2:21::"),
+            ("2001:db8:122::", 48, "2001:db8:122:c000:2:2100::"),
+            ("2001:db8:122:300::", 56, "2001:db8:122:3c0:0:221::"),
+            ("2001:db8:122:344::", 64, "2001:db8:122:344:c0:2:2100:0"),
+            ("2001:db8:122:344::", 96, "2001:db8:122:344::192.0.2.33"),
+        ] {
+            let p = nat64(pfx, len);
+            assert_eq!(p.embedded(addr.parse().unwrap()), Some(want), "/{len}");
+        }
     }
 
     /// `docs/24-threat-model.md` section B, SSRF row: every range in the
