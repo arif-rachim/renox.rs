@@ -119,6 +119,34 @@ Not yet in `docs/contracts/deploy-api.md` (a contract issue adds them); request 
 
 Passwords are argon2id (19 MiB, 2 iterations), 10 to 256 bytes. Account emails go through a `Mailer`; only a file outbox exists so far.
 
+### Second factors (#293)
+
+`src/auth/mfa.ts`: TOTP and passkeys for control-plane accounts, using the SDK's primitives (`sdk/src/totp.ts`, `sdk/src/webauthn.ts`), with ten single-use recovery codes. These endpoints are not in `docs/contracts/deploy-api.md` yet, like the other account endpoints.
+
+| Route | Who | What |
+| --- | --- | --- |
+| `GET /v1/account/mfa` | session | `{totp, passkeys, recovery_left, enrolled, required, grace_until, session_state, verified_at}` |
+| `POST /v1/account/mfa/totp`, `POST …/totp/confirm` | session | Start: `{secret, otpauth_uri}`; the secret is sealed at rest under a key derived from `CONTROL_MASTER_KEY`. Confirm: `{code}`. Answers the recovery codes once, when there are none yet |
+| `POST /v1/account/mfa/passkeys/options`, `POST …/passkeys` | session | WebAuthn registration options; `{client_data, attestation_object, name?}` |
+| `POST /v1/account/mfa/challenge` | session | Assertion options for the user's passkeys |
+| `POST /v1/account/mfa/verify` | session | `{method: "totp" \| "recovery" \| "passkey", code \| credential_id + client_data + authenticator_data + signature}`. On success the session counts as verified now (`mfa_at`). Attempts take from the login bucket of the address. A TOTP code works once |
+| `POST /v1/account/mfa/recovery-codes` | session, stepped up | A new set; the old one stops working |
+| `POST /v1/account/mfa/disable` | session | `{password, code}`: the password and a current TOTP or recovery code |
+| `POST /v1/team/mfa-required` | `team:write`, stepped up | `{required}`: every member of the team needs a factor, once their grace period has passed |
+
+- **Sign-in.** For a user with a factor, `POST /v1/account/login` answers `mfa: "verify"`. Its session reaches only the MFA endpoints and logout until `verify` passes; any other request is 401 with `details: [{field: "mfa", reason: "required"}]`.
+- **Grace period.** An owner or admin of any team, or a member of a team that set `mfa_required`, who has no factor `MFA_GRACE_DAYS` (default 14) after signing up, starts in `mfa: "enrol"` (`reason: "enrol"`) until they set one up.
+- **Step-up.** For a user with a factor, a session needs a verification in the last 15 minutes to:
+  - put, delete or bump secrets;
+  - create or revoke tokens, or approve a device login;
+  - change a member's role, remove a member, or propose an owner transfer;
+  - change the team requirement, or make new recovery codes.
+
+  Otherwise the request is 403 `details: [{field: "mfa", reason: "step_up_required"}]`. Tokens are not stepped up: a token is a credential of its own, created by a session.
+- **Notices.** Adding a factor and turning two-step verification off each send the account a notice (mail kind `new_device`).
+- **Passkey relying party.** It is the dashboard's host by default (`CONTROL_DASHBOARD_URL`); `MFA_RP_ID` and `MFA_ORIGIN` override it.
+- **Tests.** `tests/mfa.test.ts`; the IDOR matrix (`test/idor/idor.test.ts`) has a case for every MFA route.
+
 ### GitHub secret scanning for `renox_pat_`
 
 Tokens have a fixed prefix so a leaked one can be found. Registering it with GitHub's secret scanning partner program is an operations task; the steps:

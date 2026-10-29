@@ -19,6 +19,7 @@ import { bucketsOf, RULES } from "./buckets.ts";
 import { clientIp } from "./ip.ts";
 import { CSRF_HEADER, csrfMatches, findSession, readCookie, SESSION_COOKIE } from "./sessions.ts";
 import { allows, parseBearer, sameDigest, sha256hex } from "./tokens.ts";
+import { MFA_ROUTE_PERMISSIONS, needsStepUp, PENDING_ACTIONS, STEP_UP_ACTIONS } from "./mfa.ts";
 
 const unauthenticated = (): ApiError => new ApiError("RENOX_UNAUTHENTICATED");
 const forbidden = (field?: string, reason?: string): ApiError =>
@@ -44,8 +45,10 @@ function limitToken(deps: Deps, c: Context<Env>, tokenId: string): void {
 /** The operation's row in ROUTE_PERMISSIONS must be `expected`: a route registered with another permission is a bug. */
 function assertTable(c: Context<Env>, expected: string): void {
   const action = c.get("action");
-  if (action === undefined || ROUTE_PERMISSIONS[action] !== expected) {
-    throw new Error(`route ${c.req.routePath} (${action ?? "no operation"}) is registered with ${expected}, the table says ${action === undefined ? "nothing" : String(ROUTE_PERMISSIONS[action])}`);
+  // #293: the MFA operations keep their own table (src/auth/mfa.ts).
+  const table = action === undefined ? undefined : (ROUTE_PERMISSIONS[action] ?? MFA_ROUTE_PERMISSIONS[action]);
+  if (action === undefined || table !== expected) {
+    throw new Error(`route ${c.req.routePath} (${action ?? "no operation"}) is registered with ${expected}, the table says ${action === undefined ? "nothing" : String(table)}`);
   }
 }
 
@@ -84,7 +87,10 @@ async function fromToken(deps: Deps, c: Context<Env>, value: string): Promise<{ 
   };
 }
 
-/** The session of the cookie, with CSRF checked on mutating requests; null when there is no live session. */
+/**
+ * The session of the cookie, with CSRF checked on mutating requests; null when there is no live session.
+ * #293: a session whose second factor is outstanding (`mfa_state`) reaches only the MFA operations and logout.
+ */
 async function sessionOf(deps: Deps, c: Context<Env>): Promise<{ id: string; userId: string; tenantId: string | null } | null> {
   const value = readCookie(c.req.header("cookie"), SESSION_COOKIE);
   if (value === null) return null;
@@ -93,6 +99,9 @@ async function sessionOf(deps: Deps, c: Context<Env>): Promise<{ id: string; use
   c.set("attempt", { tenantId: s.tenant_id, actor: `user:${s.user_id}` });
   // SameSite=Strict is the first defence; the header is the second.
   if (MUTATING.has(c.req.method) && !csrfMatches(value, c.req.header(CSRF_HEADER))) throw forbidden(CSRF_HEADER, "missing or wrong");
+  if (s.mfa_state !== null && !PENDING_ACTIONS.has(c.get("action") ?? "")) {
+    throw new ApiError("RENOX_UNAUTHENTICATED", [{ field: "mfa", reason: s.mfa_state === "verify" ? "required" : "enrol" }]);
+  }
   return { id: s.id, userId: s.user_id, tenantId: s.tenant_id };
 }
 
@@ -125,6 +134,8 @@ export function tenantAuth(deps: Deps, permission: Permission): MiddlewareHandle
       verified = m.verified;
       c.set("principal", principal);
       if (!roleAllows(m.role, permission)) throw forbidden("role", m.role);
+      // #293: secrets, tokens and the team need a recent second factor from a user who has one.
+      if (STEP_UP_ACTIONS.has(c.get("action") ?? "") && (await needsStepUp(deps.db, s.userId, s.id, deps.now()))) throw forbidden("mfa", "step_up_required");
     }
     // #113: the email address is verified before the first deploy.
     if (permission === "deploy" && !verified) throw forbidden("email", "verify the email address before deploying");
