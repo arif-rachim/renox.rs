@@ -134,6 +134,8 @@ max_connections_per_ip = 1000
 url = "http://127.0.0.1:${nodePort}"
 node_token_file = "${tokenFile}"
 health_listen = "127.0.0.1:${health}"
+[sandbox]
+allow_unsandboxed = true
 `,
       );
       const workerProc = Bun.spawn([worker as string, "--config", join(root, "worker.toml")], { stdout: "ignore", stderr: Bun.file(join(root, "worker.log")) });

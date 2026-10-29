@@ -64,6 +64,8 @@ pub enum WorkerError {
     Tls(String),
     /// Controlled mode: the node token or the control client (never the token).
     Control(String),
+    /// `[sandbox]` could not be applied (#253).
+    Sandbox(String),
 }
 
 impl std::fmt::Display for WorkerError {
@@ -74,6 +76,7 @@ impl std::fmt::Display for WorkerError {
             WorkerError::Key(e) => write!(f, "platform key: {e}"),
             WorkerError::Tls(e) => write!(f, "tls: {e}"),
             WorkerError::Control(e) => write!(f, "control plane: {e}"),
+            WorkerError::Sandbox(e) => write!(f, "{e}"),
         }
     }
 }
@@ -383,6 +386,29 @@ impl Worker {
             }
             _ => None,
         };
+        // #253: the listeners are bound and every file read at start (config,
+        // keys, token, route table) is open; from here on only the allowlist.
+        if config.sandbox.enabled {
+            let exe = std::env::current_exe().ok();
+            let profile = crate::sandbox::Profile::from_config(
+                &config,
+                exe.as_deref().and_then(Path::parent),
+            );
+            if !crate::sandbox::landlock_applied() {
+                tracing::warn!(
+                    "sandbox: Landlock was not applied before the runtime started; only seccomp applies (renox-worker applies Landlock in main)"
+                );
+            }
+            crate::sandbox::restrict_syscalls(&profile)
+                .map_err(|e| WorkerError::Sandbox(e.to_string()))?;
+        } else {
+            if config.mode == Mode::Controlled {
+                tracing::warn!(
+                    "[sandbox] is off (allow_unsandboxed = true): this controlled node runs without seccomp and Landlock"
+                );
+            }
+            crate::sandbox::apply_test_sandbox();
+        }
         tracing::info!(%addr, ?http_addr, ?health_addr, tls = certs.is_some(), controlled = controller.is_some(), routes = routes.len(), "renox-worker listening");
         Ok(Worker {
             addr,

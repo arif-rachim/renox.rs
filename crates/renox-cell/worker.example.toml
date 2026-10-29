@@ -45,3 +45,14 @@ t_paid_example = "paid"
 
 [tiers.paid]
 # cpu_ms = 500
+
+# The worker's own seccomp allowlist and Landlock rules (#253, README
+# "Sandbox"). Required in controlled mode unless allow_unsandboxed = true.
+# Linux only. Try it with: renox-worker --sandbox-selftest --config <file>
+[sandbox]
+enabled = false
+# mode = "enforce"            # or "audit": misses are logged by the kernel, not fatal
+# extra_syscalls = []
+# extra_read_paths = []
+# extra_connect_ports = [80]  # fetch allowlist entries with http:// or an explicit port
+# allow_unsandboxed = false

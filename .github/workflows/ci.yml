@@ -214,7 +214,11 @@ jobs:
           fi
           echo "CRATES=$crates" >> "$GITHUB_ENV"
           echo "rust tests: ${crates:-the whole workspace}" | tee -a "$GITHUB_STEP_SUMMARY"
+      # #253: renox-cell's suite runs under the worker's seccomp allowlist
+      # (enforce: a syscall outside it kills the test process).
       - run: make rust-test
+        env:
+          RENOX_TEST_SANDBOX: enforce
       # The worker the ts job runs the CLI template, shop build and dev e2e
       # tests with (#186): built from this commit, without the test-hooks
       # feature that `cargo test` turns on in renox-runtime.

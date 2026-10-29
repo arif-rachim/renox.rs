@@ -30,6 +30,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[gateway]` | 100 / 200 / 100 | `rate_limit_per_ip` (req/s), `rate_limit_burst`, `max_connections_per_ip`: the gateway's per-client limits (`renox-gateway` README). Benchmarks that send all load from one address raise them |
 | `[tenant_tiers]` | — | `tenant_id = "free" \| "paid"` (F1 stand-in for the control plane) |
 | `[tiers.free]`, `[tiers.paid]` | see "Tiers" | Overrides of single tier fields |
+| `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 
 Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`). They name tenants, hashes, and request ids, never secret values or request content.
 
@@ -123,6 +124,22 @@ Since #161 the cell implements `docs/contracts/ops.md` 1.2.0 (`src/manager.rs`, 
 - **Meter at the end of the stream** (section 7, "When"): the record is written when the stream ends, whatever ended it. `wall_ms` runs to the end, `egress_bytes` counts the bytes handed to the connection after compression up to the stop, `http_status` is the status sent in the head, `status` the cause of the end.
 - **Shell before the loader resolves** (section 14, "Streaming the shell"): a full-page `GET` whose `load` is slower than `SHELL_DELAY` (50 ms, proposed) gets status 200, the page headers, and the shell (`PageRenderer::shell_of`: the output up to the template's first data read, cut back to the last complete tag) at once; the rest of the page follows when `load` returns. An error after the shell is rendered inside the stream (`error page rendered inside the stream`, `streamed: true`); a `Response` from `load` after the shell is `RENOX_INTERNAL` with `reason: "response_after_shell"`. Fragments, actions, `HEAD`, and loaders that finish within the delay are sent in one piece as before.
 
+## Sandbox
+
+With `[sandbox] enabled = true` (#253, ADR D6, `docs/04-isolation-security.md` "Defense in depth") the worker restricts itself after start, so code that escapes an isolate reaches no more than the worker needs:
+
+| Mechanism | When | What it allows |
+| --- | --- | --- |
+| Landlock (file system) | In `main`, after the config is read and before the async runtime starts a thread (Landlock reaches only threads created after it) | Read and execute: `artifacts_dir`, the binary's dir. Read and write: `data_dir` (with the spool), `meters_dir`, `logs_dir`, the temp dir, `/dev/null`. Read: the route table file, `[tls]` dirs, the platform key, the node token, `extra_read_paths`, and the few system files name resolution and the runtime need (`SYSTEM_READ` in `src/sandbox/mod.rs`: `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, the shared libraries, `/proc/self`, CPU and cgroup information). Nothing else: not `/etc/passwd`, not `/root`, not another tenant's files outside `data_dir` |
+| Landlock (network, ABI 4, Linux 6.7) | Same | TCP `bind` to the configured listeners; TCP `connect` to 443, 53, the control plane's port and `extra_connect_ports` only, so the metadata address `169.254.169.254:80` is refused even without the `fetch` op |
+| seccomp | In `Worker::start`, once the listeners are bound, with `TSYNC` (every thread) and `no_new_privs` | The syscalls in `sandbox/syscalls.<arch>.txt` plus `extra_syscalls`. Any other kills the process (`enforce`) or is logged by the kernel (`audit`) |
+
+- The allowlist is produced by `ops/scripts/trace-syscalls.sh` (`strace -f -c` around every test binary of this crate, the CLI's e2e tests and the bench scenarios that drive `renox-worker`), plus `sandbox/baseline.txt` (calls on paths no trace reaches, each with its reason). The run is recorded in `bench/results/*-syscall-profile.md`. `syscalls.aarch64.txt` is derived from the x86_64 list until a trace on an arm64 host replaces it. A unit test compiles both lists and keeps `ptrace`, `bpf`, `mount`, `unshare`, `setns`, `keyctl`, `userfaultfd` and the like out of them.
+- A kernel without Landlock logs one warning and runs with seccomp only; one without seccomp refuses to start in `enforce`.
+- Children inherit both. The Litestream sidecars (#255) are a Go binary with calls of their own: start them through systemd (`ops/systemd/renox-litestream@.service`), or add their calls with `extra_syscalls`.
+- `renox-worker --sandbox-selftest --config worker.toml` applies the profile, then tries `open("/etc/passwd")`, `connect(169.254.169.254:80)` and `connect` to the control plane's port, lists the artifacts dir and writes in the data dir; it prints a table and exits non-zero if either of the first two got through. Run it on every new node.
+- Tests: `tests/sandbox.rs` (the self-test, and a tenant with a database served by the real binary under `enforce`); `RENOX_TEST_SANDBOX=enforce cargo test -p renox-cell` loads the allowlist into the test process (seccomp only; the `test-support` feature) so the whole suite runs under it, as CI's rust job does.
+
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the process sandbox (F6), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).
+Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).

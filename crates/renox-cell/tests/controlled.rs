@@ -197,7 +197,7 @@ async fn bad_node_token_files_refuse_to_start() {
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("node.token");
     let toml = format!(
-        "mode = \"controlled\"\nlisten = \"127.0.0.1:0\"\nnode_id = \"n1\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\nfetch_blocked_addresses = [\"203.0.113.250\"]\n[control]\nurl = \"http://127.0.0.1:1\"\nnode_token_file = \"{}\"\n",
+        "mode = \"controlled\"\nlisten = \"127.0.0.1:0\"\nnode_id = \"n1\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\nfetch_blocked_addresses = [\"203.0.113.250\"]\n[control]\nurl = \"http://127.0.0.1:1\"\nnode_token_file = \"{}\"\n[sandbox]\nallow_unsandboxed = true\n",
         file.display()
     );
     use std::os::unix::fs::PermissionsExt;
@@ -259,7 +259,7 @@ async fn control_url_reachable_by_tenant_fetch_refuses_to_start() {
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     let toml = |url: &str, blocked: &str| {
         format!(
-            "mode = \"controlled\"\nlisten = \"127.0.0.1:0\"\nnode_id = \"n1\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\nfetch_blocked_addresses = [{blocked}]\n[control]\nurl = \"{url}\"\nnode_token_file = \"{}\"\n",
+            "mode = \"controlled\"\nlisten = \"127.0.0.1:0\"\nnode_id = \"n1\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\nfetch_blocked_addresses = [{blocked}]\n[control]\nurl = \"{url}\"\nnode_token_file = \"{}\"\n[sandbox]\nallow_unsandboxed = true\n",
             file.display()
         )
     };

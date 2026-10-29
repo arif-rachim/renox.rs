@@ -7,6 +7,17 @@
 //! `{ "files": { path: source } }` on stdin and writes the result of
 //! `renox_template::transpile::compile_json` to stdout; nothing else runs
 //! (no V8, no config).
+//!
+//! `renox-worker --sandbox-selftest --config worker.toml`: applies the
+//! `[sandbox]` profile of that config to itself (#253), then tries to read
+//! `/etc/passwd` and to connect to the metadata address and the control
+//! plane's port; prints a table and exits non-zero if either of the first
+//! two got through.
+//!
+//! With `[sandbox] enabled = true` the Landlock rules are applied here,
+//! before the async runtime starts any thread (Landlock reaches only the
+//! threads created after it); the seccomp allowlist follows in
+//! `Worker::start` once the listeners are bound.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -14,7 +25,9 @@ use std::process::ExitCode;
 use renox_cell::{Worker, WorkerConfig};
 
 fn usage() -> ExitCode {
-    eprintln!("usage: renox-worker --config <worker.toml> | renox-worker transpile");
+    eprintln!(
+        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker transpile"
+    );
     ExitCode::from(2)
 }
 
@@ -38,14 +51,19 @@ fn transpile() -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    if std::env::args().nth(1).as_deref() == Some("transpile") {
-        return transpile();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    match args.as_slice() {
+        ["transpile"] => transpile(),
+        ["--sandbox-selftest", "--config", p] | ["--config", p, "--sandbox-selftest"] => {
+            sandbox_selftest(PathBuf::from(p))
+        }
+        ["--config", p] => serve(PathBuf::from(p)),
+        _ => usage(),
     }
-    serve()
 }
 
-#[tokio::main]
-async fn serve() -> ExitCode {
+fn init_tracing() {
     tracing_subscriber::fmt()
         .json()
         .with_writer(std::io::stderr)
@@ -54,18 +72,91 @@ async fn serve() -> ExitCode {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
-    let mut args = std::env::args().skip(1);
-    let config_path = match (args.next().as_deref(), args.next()) {
-        (Some("--config"), Some(p)) => PathBuf::from(p),
-        _ => return usage(),
-    };
-    let config = match WorkerConfig::load(&config_path) {
-        Ok(c) => c,
+}
+
+fn load(config_path: &std::path::Path) -> Option<WorkerConfig> {
+    match WorkerConfig::load(config_path) {
+        Ok(c) => Some(c),
         Err(e) => {
             tracing::error!(error = %e, "config");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn sandbox_selftest(config_path: PathBuf) -> ExitCode {
+    init_tracing();
+    let Some(config) = load(&config_path) else {
+        return ExitCode::FAILURE;
+    };
+    match renox_cell::sandbox::selftest(&config) {
+        Ok((landlock, syscalls, probes)) => {
+            println!(
+                "sandbox: landlock fs {}, landlock net {}, seccomp {} syscalls ({:?})",
+                landlock.fs.as_str(),
+                landlock.net.as_str(),
+                syscalls,
+                config.sandbox.mode
+            );
+            for p in &probes {
+                let verdict = match (p.must_refuse, p.refused) {
+                    (true, true) | (false, false) => "ok",
+                    (true, false) => "FAIL",
+                    (false, true) => "warn",
+                };
+                println!("{verdict:<4} {:<60} {}", p.what, p.outcome);
+            }
+            if renox_cell::sandbox::selftest_failed(&probes) {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sandbox_selftest(_config_path: PathBuf) -> ExitCode {
+    eprintln!("renox-worker --sandbox-selftest: the sandbox needs Linux");
+    ExitCode::FAILURE
+}
+
+fn serve(config_path: PathBuf) -> ExitCode {
+    init_tracing();
+    let Some(config) = load(&config_path) else {
+        return ExitCode::FAILURE;
+    };
+    // #253: Landlock before the runtime's threads exist.
+    if config.sandbox.enabled {
+        let exe = std::env::current_exe().ok();
+        let profile = renox_cell::sandbox::Profile::from_config(
+            &config,
+            exe.as_deref().and_then(std::path::Path::parent),
+        );
+        if let Err(e) = renox_cell::sandbox::restrict_paths_and_ports(&profile) {
+            tracing::error!(error = %e, "start");
+            return ExitCode::FAILURE;
+        }
+    }
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "start the async runtime");
             return ExitCode::FAILURE;
         }
     };
+    runtime.block_on(run(config))
+}
+
+async fn run(config: WorkerConfig) -> ExitCode {
     let worker = match Worker::start(config).await {
         Ok(w) => w,
         Err(e) => {

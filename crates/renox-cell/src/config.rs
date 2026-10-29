@@ -74,6 +74,45 @@ pub struct WorkerConfig {
     /// The control plane (`mode = "controlled"` only).
     #[serde(default)]
     pub control: Option<ControlSection>,
+    /// The seccomp allowlist and Landlock rules the worker applies to
+    /// itself (#253, `src/sandbox/`). Required in controlled mode unless
+    /// `allow_unsandboxed`.
+    #[serde(default)]
+    pub sandbox: SandboxSection,
+}
+
+/// `[sandbox]` (#253): what the worker may do after start. Linux only; on
+/// other systems `enabled = true` refuses to start.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct SandboxSection {
+    /// Apply the profile at start. Default false; a controlled worker
+    /// refuses to start without it unless `allow_unsandboxed = true`.
+    pub enabled: bool,
+    /// `enforce`: a syscall outside the allowlist kills the process.
+    /// `audit`: it is logged by the kernel (`SECCOMP_RET_LOG`) and allowed.
+    /// Landlock always enforces.
+    pub mode: SandboxMode,
+    /// Syscall names allowed on top of `sandbox/syscalls.<arch>.txt`.
+    pub extra_syscalls: Vec<String>,
+    /// Paths readable on top of the profile (files or directories).
+    pub extra_read_paths: Vec<PathBuf>,
+    /// TCP ports `connect` may reach on top of 443 and the control
+    /// plane's port (Landlock ABI 4): for `fetch` allowlist entries with
+    /// `http://` (80) or an explicit port.
+    pub extra_connect_ports: Vec<u16>,
+    /// Lets a controlled worker run with `enabled = false` (a kernel or a
+    /// host where the profile cannot apply; tests). Logged at start.
+    pub allow_unsandboxed: bool,
+}
+
+/// `[sandbox] mode`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxMode {
+    #[default]
+    Enforce,
+    Audit,
 }
 
 /// Where routes, artifacts and secrets come from, and where meters and
@@ -268,6 +307,11 @@ impl WorkerConfig {
         {
             control.node_token_file = base.join(&control.node_token_file);
         }
+        for p in &mut c.sandbox.extra_read_paths {
+            if p.is_relative() {
+                *p = base.join(&*p);
+            }
+        }
         match c.mode {
             Mode::Local => {
                 if c.control.is_some() {
@@ -296,6 +340,12 @@ impl WorkerConfig {
                 if c.fetch_blocked_addresses.is_empty() {
                     return Err(ConfigError::Invalid(
                         "fetch_blocked_addresses must list the node's own addresses and the control plane's node-facing ones in controlled mode".into(),
+                    ));
+                }
+                // #253: a production node cannot forget the sandbox.
+                if !c.sandbox.enabled && !c.sandbox.allow_unsandboxed {
+                    return Err(ConfigError::Invalid(
+                        "[sandbox] enabled = true is required in controlled mode (set [sandbox] allow_unsandboxed = true to run without it)".into(),
                     ));
                 }
             }
@@ -394,7 +444,7 @@ mod tests {
         let base = "listen = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
         // Local mode needs the route table file.
         assert!(WorkerConfig::parse(base, Path::new("/srv")).is_err());
-        let control = "[control]\nurl = \"https://control.renox.test\"\nnode_token_file = \"node.token\"\nhealth_listen = \"127.0.0.1:9090\"\n";
+        let control = "[control]\nurl = \"https://control.renox.test\"\nnode_token_file = \"node.token\"\nhealth_listen = \"127.0.0.1:9090\"\n[sandbox]\nallow_unsandboxed = true\n";
         let blocked = "fetch_blocked_addresses = [\"203.0.113.10\"]\n";
         let ok = format!("mode = \"controlled\"\n{blocked}{base}{control}");
         let c = WorkerConfig::parse(&ok, Path::new("/srv")).unwrap();
@@ -433,11 +483,49 @@ mod tests {
             "https://control.renox.test:8443",
         ] {
             let text = format!(
-                "mode = \"controlled\"\n{blocked}{base}[control]\nurl = \"{url}\"\nnode_token_file = \"t\"\n"
+                "mode = \"controlled\"\n{blocked}{base}[control]\nurl = \"{url}\"\nnode_token_file = \"t\"\n[sandbox]\nenabled = true\n"
             );
             assert!(
                 WorkerConfig::parse(&text, Path::new("/srv")).is_ok(),
                 "{url}"
+            );
+        }
+    }
+
+    /// #253: `[sandbox]` parses, and a controlled worker without it refuses
+    /// to start unless `allow_unsandboxed` (docs/24-threat-model.md,
+    /// "Isolate escape (V8 bug)").
+    #[test]
+    fn sandbox_section() {
+        let base = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+        let c = WorkerConfig::parse(base, Path::new("/srv")).unwrap();
+        assert!(!c.sandbox.enabled);
+        assert_eq!(c.sandbox.mode, SandboxMode::Enforce);
+        let text = format!(
+            "{base}[sandbox]\nenabled = true\nmode = \"audit\"\nextra_syscalls = [\"io_uring_setup\"]\nextra_read_paths = [\"ca\"]\nextra_connect_ports = [80]\n"
+        );
+        let s = WorkerConfig::parse(&text, Path::new("/srv"))
+            .unwrap()
+            .sandbox;
+        assert!(s.enabled);
+        assert_eq!(s.mode, SandboxMode::Audit);
+        assert_eq!(s.extra_syscalls, ["io_uring_setup"]);
+        assert_eq!(s.extra_read_paths, [PathBuf::from("/srv/ca")]);
+        assert_eq!(s.extra_connect_ports, [80]);
+        let bad = format!("{base}[sandbox]\nmode = \"off\"\n");
+        assert!(WorkerConfig::parse(&bad, Path::new("/")).is_err());
+
+        let controlled = "mode = \"controlled\"\nfetch_blocked_addresses = [\"203.0.113.10\"]\nlisten = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n[control]\nurl = \"https://control.renox.test\"\nnode_token_file = \"t\"\n";
+        let e = WorkerConfig::parse(controlled, Path::new("/srv")).unwrap_err();
+        assert!(e.to_string().contains("[sandbox]"), "{e}");
+        for extra in [
+            "[sandbox]\nenabled = true\n",
+            "[sandbox]\nallow_unsandboxed = true\n",
+        ] {
+            let ok = format!("{controlled}{extra}");
+            assert!(
+                WorkerConfig::parse(&ok, Path::new("/srv")).is_ok(),
+                "{extra}"
             );
         }
     }
