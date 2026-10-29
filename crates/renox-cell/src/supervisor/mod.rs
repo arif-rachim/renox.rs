@@ -85,6 +85,9 @@ pub struct Prepare {
     pub tier: String,
     pub app: Option<String>,
     pub secrets_version: u64,
+    /// The app's own database, if any (deploy-api.md 0.3 section 3).
+    #[serde(default)]
+    pub database: Option<String>,
     /// Name → value; in memory only, never logged.
     pub secrets: BTreeMap<String, String>,
 }
@@ -488,6 +491,7 @@ impl<D: CellDispatcher> Supervisor<D> {
             },
             app: meta.app,
             secrets_version: meta.secrets_version,
+            database: meta.database,
             secrets,
         };
         let body = serde_json::to_vec(&prepare).map_err(|e| e.to_string())?;

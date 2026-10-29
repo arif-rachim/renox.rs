@@ -424,3 +424,125 @@ async fn replication_off_never_spawns_litestream() {
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// #258: the node listener's snapshot (a consistent copy with its SHA-256)
+/// and import (checks before the swap) work without Litestream.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_listener_snapshot_and_import() {
+    let root = scratch("snapshot");
+    let worker = Worker::start(worker_config(&root, false)).await.unwrap();
+    assert_eq!(hits(worker.addr, true).await, 1);
+    assert_eq!(hits(worker.addr, true).await, 2);
+    let token = Arc::new(renox_cell::control::node_listener::CallbackToken::default());
+    token.set(Some("renox_cb_abcdefghijklmnopqrstuvwxyz234567".into()));
+    let listener = Arc::new(renox_cell::control::node_listener::NodeListener {
+        node_id: "node-local".into(),
+        token,
+        replication: None,
+        manager: worker.manager.clone(),
+    });
+    let (addr, _task) = listener
+        .serve("127.0.0.1:0".parse().unwrap())
+        .await
+        .unwrap();
+    let auth = "Bearer renox_cb_abcdefghijklmnopqrstuvwxyz234567";
+
+    // Snapshot: raw bytes, so a raw request.
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    s.write_all(format!("POST /nodes/node-local/tenants/t_repl/snapshot HTTP/1.1\r\nHost: node\r\nAuthorization: {auth}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+    let mut buf = Vec::new();
+    s.read_to_end(&mut buf).await.unwrap();
+    let split = buf.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&buf[..split]).to_string();
+    let body = &buf[split + 4..];
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    let sha = head
+        .lines()
+        .find_map(|l| l.strip_prefix("x-renox-sha256: "))
+        .unwrap()
+        .trim()
+        .to_string();
+    use sha2::Digest;
+    let actual: String = sha2::Sha256::digest(body)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(
+        actual, sha,
+        "the x-renox-sha256 header is the SHA-256 of the body"
+    );
+    let body = body.to_vec();
+    let copy = root.join("copy.db");
+    std::fs::write(&copy, &body).unwrap();
+    let db = renox_data::TenantDb::open(&copy, renox_data::DbOptions::default()).unwrap();
+    let n = db
+        .query_one("select count(*) as n from app__hits", &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(n.get("n"), Some(&renox_data::Value::Integer(2)));
+    let _ = db.close();
+
+    let put = |path: &'static str, bytes: Vec<u8>| async move {
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        s.write_all(format!("PUT {path} HTTP/1.1\r\nHost: node\r\nAuthorization: {auth}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len()).as_bytes()).await.unwrap();
+        s.write_all(&bytes).await.unwrap();
+        let mut buf = Vec::new();
+        s.read_to_end(&mut buf).await.unwrap();
+        let text = String::from_utf8_lossy(&buf).to_string();
+        let status: u16 = text
+            .split(' ')
+            .nth(1)
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(0);
+        (
+            status,
+            text.split_once("\r\n\r\n")
+                .map(|(_, b)| b.to_string())
+                .unwrap_or_default(),
+        )
+    };
+    // Into the tenant's shared file: refused.
+    let (status, answer) = put(
+        "/nodes/node-local/tenants/t_repl/import?database=t_repl",
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, 422, "{answer}");
+    assert!(answer.contains("RENOX_IMPORT_REJECTED"));
+    // Into a staging database: swapped in.
+    let (status, answer) = put(
+        "/nodes/node-local/tenants/t_repl/import?database=t_repl.staging",
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, 200, "{answer}");
+    let r: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(r["type"], "import_result");
+    assert_eq!(
+        r["tables"],
+        serde_json::json!(["renox__migrations", "app__hits"])
+    );
+    assert!(root.join("data/t_repl.staging/app.db").exists());
+    // A table outside the naming rules, and a file that is not SQLite: refused.
+    let bad = root.join("bad.db");
+    let db = renox_data::TenantDb::open(&bad, renox_data::DbOptions::default()).unwrap();
+    db.execute("create table notes (id integer primary key)", &[])
+        .unwrap();
+    db.checkpoint(renox_data::CheckpointMode::Truncate).unwrap();
+    let _ = db.close();
+    let (status, answer) = put(
+        "/nodes/node-local/tenants/t_repl/import?database=t_repl.staging",
+        std::fs::read(&bad).unwrap(),
+    )
+    .await;
+    assert_eq!(status, 422, "{answer}");
+    assert!(answer.contains("notes"), "{answer}");
+    let (status, _) = put(
+        "/nodes/node-local/tenants/t_repl/import?database=t_repl.staging",
+        vec![0xAB; 4096],
+    )
+    .await;
+    assert_eq!(status, 422);
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

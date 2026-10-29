@@ -65,14 +65,102 @@ pub struct NodeListener {
     pub manager: CellManager,
 }
 
-type Resp = Response<Full<Bytes>>;
+/// Answers are JSON, or a file streamed from disk (`snapshot`).
+pub type NodeBody = http_body_util::combinators::BoxBody<Bytes, std::io::Error>;
+type Resp = Response<NodeBody>;
+
+fn full(bytes: Bytes) -> NodeBody {
+    Full::new(bytes).map_err(|never| match never {}).boxed()
+}
+
+/// A file read in 64 KiB frames, deleted when the body is dropped.
+struct FileBody {
+    file: tokio::fs::File,
+    path: std::path::PathBuf,
+    buf: Vec<u8>,
+}
+
+impl hyper::body::Body for FileBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, std::io::Error>>> {
+        use tokio::io::AsyncRead;
+        let this = &mut *self;
+        if this.buf.is_empty() {
+            this.buf = vec![0; 64 * 1024];
+        }
+        let mut rb = tokio::io::ReadBuf::new(&mut this.buf);
+        match std::pin::Pin::new(&mut this.file).poll_read(cx, &mut rb) {
+            std::task::Poll::Ready(Ok(())) => {
+                let n = rb.filled().len();
+                if n == 0 {
+                    std::task::Poll::Ready(None)
+                } else {
+                    std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(
+                        Bytes::copy_from_slice(&this.buf[..n]),
+                    ))))
+                }
+            }
+            std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Some(Err(e))),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl Drop for FileBody {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// The largest file `import` takes: the paid tier's database quota.
+pub const IMPORT_LIMIT: u64 = renox_data::PAID_QUOTA_BYTES;
+
+/// An import refused (`RENOX_IMPORT_REJECTED`, `deploy-api.md` section 14).
+fn import_rejected(field: &str, reason: &str) -> Resp {
+    error(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "RENOX_IMPORT_REJECTED",
+        "The database file cannot be imported.",
+        Some(json!([{ "field": field, "reason": reason }])),
+    )
+}
+
+/// Every table, view, index and trigger name follows the authorizer's
+/// rules (`<module>__<name>`), or is SQLite's own (`sqlite_…`).
+pub fn import_names_ok(names: &[String]) -> Result<Vec<String>, String> {
+    let mut tables = Vec::new();
+    for n in names {
+        if n.starts_with("sqlite_") {
+            continue;
+        }
+        let ok = n.split_once("__").is_some_and(|(m, rest)| {
+            !m.is_empty()
+                && m.as_bytes()[0].is_ascii_lowercase()
+                && m.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                && !rest.is_empty()
+                && rest
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        });
+        if !ok {
+            return Err(format!("{n} has no <module>__ prefix"));
+        }
+        tables.push(n.clone());
+    }
+    Ok(tables)
+}
 
 fn json_response(status: StatusCode, body: Value) -> Resp {
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::CACHE_CONTROL, "no-store")
-        .body(Full::new(Bytes::from(body.to_string())))
+        .body(full(Bytes::from(body.to_string())))
         .expect("static response")
 }
 
@@ -210,6 +298,28 @@ impl NodeListener {
                 Err(r) => *r,
             },
             (Method::DELETE, "") => self.drop_tenant(&tenant).await,
+            (Method::POST, "snapshot") => {
+                let database = query_param(&query, "database").unwrap_or_else(|| tenant.clone());
+                if !database_of(&tenant, &database) {
+                    return validation("database", "not a database of this tenant");
+                }
+                self.snapshot(&database).await
+            }
+            (Method::PUT, "import") => {
+                let Some(database) = query_param(&query, "database") else {
+                    return validation("database", "required");
+                };
+                if !database_of(&tenant, &database) {
+                    return validation("database", "not a database of this tenant");
+                }
+                if database == tenant {
+                    return import_rejected(
+                        "database",
+                        "the tenant's shared file is never replaced by an import",
+                    );
+                }
+                self.import(&tenant, &database, req).await
+            }
             (Method::GET, "replication") => {
                 let database = query_param(&query, "database").unwrap_or_else(|| tenant.clone());
                 if !database_of(&tenant, &database) {
@@ -245,6 +355,193 @@ impl NodeListener {
                 "tenant_id": tenant,
                 "cells_drained": drained,
                 "file": "kept",
+            }),
+        )
+    }
+
+    /// `VACUUM INTO` a temporary file next to the tenant file (the cells
+    /// keep serving), streamed back with its SHA-256; deleted after.
+    async fn snapshot(&self, database: &str) -> Resp {
+        let dir = self.manager.config().data_dir.join(database);
+        let file = dir.join("app.db");
+        if !file.exists() {
+            return not_found();
+        }
+        let tmp = dir.join(format!(
+            ".snapshot-{}.db",
+            std::process::id() as u128 * 1_000_000 + Instant::now().elapsed().as_nanos()
+        ));
+        let (f, t) = (file.clone(), tmp.clone());
+        let made = tokio::task::spawn_blocking(move || -> Result<String, String> {
+            let db = renox_data::TenantDb::open(
+                &f,
+                renox_data::DbOptions {
+                    readers: 1,
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            db.execute(
+                "vacuum into ?",
+                &[renox_data::Value::Text(t.display().to_string())],
+            )
+            .map_err(|e| e.to_string())?;
+            let _ = db.close();
+            crate::replication::restore::file_sha256(&t).map_err(|e| e.to_string())
+        })
+        .await;
+        let sha = match made {
+            Ok(Ok(s)) => s,
+            other => {
+                let _ = std::fs::remove_file(&tmp);
+                tracing::error!(database, error = ?other.map(|r| r.err()), "snapshot failed");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "RENOX_INTERNAL",
+                    "Internal error. Quote the request id when reporting it.",
+                    None,
+                );
+            }
+        };
+        let len = std::fs::metadata(&tmp).map_or(0, |m| m.len());
+        let f = match tokio::fs::File::open(&tmp).await {
+            Ok(f) => f,
+            Err(_) => return not_found(),
+        };
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/vnd.sqlite3")
+            .header(header::CONTENT_LENGTH, len)
+            .header(header::CACHE_CONTROL, "no-store")
+            .header("x-renox-sha256", sha)
+            .body(
+                FileBody {
+                    file: f,
+                    path: tmp,
+                    buf: Vec::new(),
+                }
+                .boxed(),
+            )
+            .expect("static response")
+    }
+
+    /// Writes the upload to a temporary file, checks it (`PRAGMA
+    /// quick_check`, the authorizer's naming rules), drains the staging
+    /// database's cells and renames the file over it.
+    async fn import(
+        &self,
+        tenant: &str,
+        database: &str,
+        req: Request<hyper::body::Incoming>,
+    ) -> Resp {
+        use tokio::io::AsyncWriteExt;
+        let dir = self.manager.config().data_dir.join(database);
+        if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+            tracing::error!(database, error = %e, "import dir");
+            return backup_unavailable("database", "not writable");
+        }
+        let tmp = dir.join(".import.db");
+        let mut out = match tokio::fs::File::create(&tmp).await {
+            Ok(f) => f,
+            Err(_) => return backup_unavailable("database", "not writable"),
+        };
+        let mut body = req.into_body();
+        let mut size: u64 = 0;
+        while let Some(frame) = body.frame().await {
+            let Ok(frame) = frame else {
+                let _ = std::fs::remove_file(&tmp);
+                return validation("body", "the upload was cut off");
+            };
+            if let Ok(data) = frame.into_data() {
+                size += data.len() as u64;
+                if size > IMPORT_LIMIT {
+                    drop(out);
+                    let _ = std::fs::remove_file(&tmp);
+                    return error(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "RENOX_BODY_TOO_LARGE",
+                        "The request body is too large.",
+                        None,
+                    );
+                }
+                if out.write_all(&data).await.is_err() {
+                    let _ = std::fs::remove_file(&tmp);
+                    return backup_unavailable("database", "not writable");
+                }
+            }
+        }
+        let _ = out.flush().await;
+        drop(out);
+        let t = tmp.clone();
+        let checked = tokio::task::spawn_blocking(
+            move || -> Result<(Vec<String>, String), (String, String)> {
+                crate::replication::restore::quick_check(&t)
+                    .map_err(|e| ("integrity".to_string(), e))?;
+                let db = renox_data::TenantDb::open(
+                    &t,
+                    renox_data::DbOptions {
+                        readers: 1,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| ("file".to_string(), e.to_string()))?;
+                let rows = db
+                    .query("select name from sqlite_master", &[])
+                    .map_err(|e| ("file".to_string(), e.to_string()))?;
+                let _ = db.close();
+                let names: Vec<String> = rows
+                    .iter()
+                    .filter_map(|r| {
+                        r.get("name").and_then(|v| match v {
+                            renox_data::Value::Text(t) => Some(t.clone()),
+                            _ => None,
+                        })
+                    })
+                    .collect();
+                let tables = import_names_ok(&names).map_err(|e| ("table".to_string(), e))?;
+                let sha = crate::replication::restore::file_sha256(&t)
+                    .map_err(|e| ("file".to_string(), e.to_string()))?;
+                Ok((tables, sha))
+            },
+        )
+        .await;
+        let (tables, sha) = match checked {
+            Ok(Ok(v)) => v,
+            Ok(Err((field, reason))) => {
+                let _ = std::fs::remove_file(&tmp);
+                return import_rejected(&field, &reason);
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(&tmp);
+                return import_rejected("file", "not a SQLite database");
+            }
+        };
+        // The staging app's cells let go of the old file first.
+        self.manager.drain_database(database);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while self.manager.db_open(database) && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let target = dir.join("app.db");
+        for suffix in ["-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", target.display()));
+        }
+        if std::fs::rename(&tmp, &target).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+            return backup_unavailable("database", "not writable");
+        }
+        tracing::info!(tenant_id = tenant, database, size, "database imported");
+        json_response(
+            StatusCode::OK,
+            json!({
+                "type": "import_result",
+                "schema_version": 0,
+                "node_id": self.node_id,
+                "tenant_id": tenant,
+                "database": database,
+                "size_bytes": size,
+                "sha256": sha,
+                "tables": tables,
             }),
         )
     }
@@ -383,6 +680,18 @@ async fn read_json(req: Request<hyper::body::Incoming>) -> Result<Value, Box<Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn import_names_follow_the_authorizer() {
+        let ok = |n: &[&str]| import_names_ok(&n.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(
+            ok(&["app__notes", "sqlite_autoindex_app__notes_1", "auth__users"]).unwrap(),
+            ["app__notes", "auth__users"]
+        );
+        assert!(ok(&["notes"]).unwrap_err().contains("notes"));
+        assert!(ok(&["App__x"]).is_err());
+        assert!(ok(&["app__"]).is_err());
+    }
 
     #[test]
     fn databases_belong_to_their_tenant() {

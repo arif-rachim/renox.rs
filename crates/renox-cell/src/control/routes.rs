@@ -320,6 +320,7 @@ impl DeploymentLookup for RouteState {
                 tier: e.tier,
                 app: Some(e.app.clone()),
                 secrets_version: e.secrets_version,
+                database: e.database.clone(),
             },
             // Being prepared (#96): what the prepare message said.
             None if self.is_expected(tenant_id, deployment_hash) => self
@@ -335,6 +336,7 @@ impl DeploymentLookup for RouteState {
                 tier: TierName::Free,
                 app: None,
                 secrets_version: 0,
+                database: None,
             },
         }
     }

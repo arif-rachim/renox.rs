@@ -160,6 +160,7 @@ impl Preparer {
                 tier: p.tier,
                 app: Some(p.app.clone()),
                 secrets_version: p.secrets_version,
+                database: None,
             },
         );
         let store = self.store.clone();

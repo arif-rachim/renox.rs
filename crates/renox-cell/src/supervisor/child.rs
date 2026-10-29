@@ -61,11 +61,13 @@ impl DeploymentLookup for Handover {
                 },
                 app: p.app.clone(),
                 secrets_version: p.secrets_version,
+                database: p.database.clone(),
             },
             None => DeploymentMeta {
                 tier: TierName::Free,
                 app: None,
                 secrets_version: 0,
+                database: None,
             },
         }
     }
