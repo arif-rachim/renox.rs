@@ -24,7 +24,7 @@ All three files are TOML. The schemas validate the document a TOML parser produc
 
 Generated from these files and defined elsewhere:
 
-- `renox-modules.d.ts` (#236): the types of `renox:modules` and `ctx.services` for the app and each module, from `[exports.services]` and the services' TypeScript signatures (`ops.md` section 15).
+- `renox-modules.d.ts` (#236): the types of `renox:modules` and `ctx.services` for the app and each module, from `[exports.services]` and the services' TypeScript signatures (`ops.md` 1.3.0, #226).
 - The artifact's `modules` field (#227, `artifact.md` section 3): the lock entries, in lock order, with each module's exports.
 
 ## 2. `module.toml`
@@ -79,7 +79,7 @@ No other tables or keys are allowed at any level (`additionalProperties: false`)
 | --- | --- | --- | --- |
 | `name` | `^[a-z][a-z0-9_]{0,31}$`, no `__`, no trailing `_`, not `app` or `renox` (MF1) | yes | The module's name **and its table prefix** `<name>__`. `app` is the tenant's own code (`artifact.md` section 1); `renox` is the platform (`renox__*` tables). The catalog name in `docs/18-build-plan.md` may differ where it is not a valid name: `gcc-data` is installed as `gcc` (tables `gcc__*`), `2fa` as `twofa` |
 | `version` | semver `MAJOR.MINOR.PATCH[-pre]`, no build metadata | yes | The version of this tree. Public API changes follow semver (`docs/10-modules.md`, rule 3) |
-| `isolation` | `"shared"` \| `"isolate"` | no, default `"shared"` | D12. The least isolation the module accepts; a tenant may raise it, never lower it (MF11). `shared`: one context with the app and other modules; `isolate`: its own isolate (`ops.md` section 15) |
+| `isolation` | `"shared"` \| `"isolate"` | no, default `"shared"` | D12. The least isolation the module accepts; a tenant may raise it, never lower it (MF11). `shared`: one context with the app and other modules; `isolate`: its own isolate (`ops.md` 1.3.0, #226) |
 | `description` | string, ≤ 200 | no | One line for `renox add` and the dashboard |
 
 ### `[dependencies]`
@@ -99,7 +99,7 @@ A pre-release version (`1.3.0-rc.1`) satisfies only an exact range naming it. No
 
 ### `[config]`
 
-Key (`^[a-z][a-z0-9_]{0,63}$`) → declaration. The tenant sets values in `renox.toml`; the module reads the resolved object as `ctx.config` (`ops.md` section 15).
+Key (`^[a-z][a-z0-9_]{0,63}$`) → declaration. The tenant sets values in `renox.toml`; the module reads the resolved object as `ctx.config` (`ops.md` 1.3.0, #226).
 
 | Field | Applies to | Meaning |
 | --- | --- | --- |
@@ -120,10 +120,10 @@ What the module asks the tenant to approve (section 3). Every key is optional; a
 | Key | Type | Meaning | Enforced by |
 | --- | --- | --- | --- |
 | `tables` | exactly `"<name>__*"` (MF4) | The module owns tables, views, indexes, and triggers named `<name>__…` and may write them. Absent: the module has no tables and no migrations | SQLite authorizer (`docs/06-data.md`); `artifact.md` V19 |
-| `network` | allowlist entries, syntax of `ops.md` section 2 | Hosts the module's `fetch` may reach. Separate from the app's `[fetch] allow` and from every other module's | `op_fetch` with the module's list (`ops.md` section 15) |
-| `secrets` | names `^[A-Z][A-Z0-9_]{0,63}$` that start with `<NAME>_`, the module name in upper case (MF4) | The secrets the module reads as `ctx.secrets`. The prefix keeps one module from asking for the app's or another module's secret by name | `op_secrets_get_all` per module (`ops.md` section 3) |
+| `network` | allowlist entries, syntax of `ops.md` section 2 | Hosts the module's `fetch` may reach. Separate from the app's `[fetch] allow` and from every other module's | `op_fetch` with the module's list (`ops.md` 1.3.0, #226) |
+| `secrets` | names `^[A-Z][A-Z0-9_]{0,63}$` that start with `<NAME>_`, the module name in upper case (MF4) | The secrets the module reads as `ctx.secrets`. The prefix keeps one module from asking for the app's or another module's secret by name | `op_secrets_get_all` (`ops.md` section 3), once per module from 1.3.0 (#226) |
 | `slots` | slot names | The slots the module fills; must be exactly the names of its `[[slots]]` (MF8) | Renderer slot registry (`artifact.md` section 3) |
-| `hooks` | hook names | The hook points the module fills from `hooks.ts`; each must be exported by another installed module (MF8). A filler can halt another module's flow (`auth.after_login`), so filling is approved | Broker (`ops.md` section 15) |
+| `hooks` | hook names | The hook points the module fills from `hooks.ts`; each must be exported by another installed module (MF8). A filler can halt another module's flow (`auth.after_login`), so filling is approved | Broker (`ops.md` 1.3.0, #226) |
 
 Reading another module's public view needs no permission: it follows from `[dependencies]` and `[imports]` (MF7), and the authorizer allows `SELECT` on `<dep>__public_*` for declared dependencies only.
 
@@ -135,7 +135,7 @@ The module's public API, versioned with `version` (`docs/10-modules.md`, rule 3)
 | --- | --- | --- |
 | `views` | `["<name>__public_<id>_v<n>"]` | Views the module creates in its migrations for dependants (D17). `<name>` is this module (MF6); `<id>` matches `[a-z0-9_]+`; `v<n>` starts at `v1` |
 | `services` | `{ <export name> = "<one-line doc>" }` | Named exports of `services.ts`. The name is a JavaScript identifier; the signature comes from the TypeScript source (#236) |
-| `events` | `{ "<name>.<event>" = { payload = <schema>, description? } }` | Events the module emits. The name starts with this module's name (MF6). The payload schema is JSON Schema with the keyword subset of `validate.ts` (`README.md`, "Checking"); `op_events_emit` validates against it (`ops.md` section 15) |
+| `events` | `{ "<name>.<event>" = { payload = <schema>, description? } }` | Events the module emits. The name starts with this module's name (MF6). The payload schema is JSON Schema with the keyword subset of `validate.ts` (`README.md`, "Checking"); `op_events_emit` validates against it (`ops.md` 1.3.0, #226) |
 | `hooks` | `{ "<name>.<hook>" = { args = <schema>, result? = <schema>, description? } }` | Hook points the module runs with `ctx.hooks.run`. Same naming and schema rules as events (MF6) |
 
 ### `[imports]`
@@ -170,7 +170,7 @@ MCP tools (`docs/20-ai-agents-mcp.md`): `name` (`^[a-z][a-z0-9_]{0,63}$`), `file
 
 - **At install** (`renox add <module>`) and at every upgrade, the CLI shows the module's `[permissions]` and asks the tenant to approve them. The approved set is written to the module's lock entry as `approved` (section 5).
 - **A changed request needs a new approval.** When a manifest's `[permissions]` differ from its lock entry's `approved` in any way (a host added, a secret removed, a hook filled), `renox check` and `renox build` fail with MF12 until the tenant runs `renox approve <module>`. Removing a permission also needs approval, so the lock always says exactly what runs. `docs/23-failure-modes.md`, "Marketplace module unsigned or permission diff on upgrade", is the F7 registry form of the same rule.
-- **What runs is what was approved.** The artifact copies `approved`, not the manifest's request (`artifact.md` V22), and the runtime enforces the artifact (`ops.md` section 15). A module that asks for more after approval gets nothing more until the tenant approves.
+- **What runs is what was approved.** The artifact copies `approved`, not the manifest's request (`artifact.md` V22), and the runtime enforces the artifact (`ops.md` 1.3.0, #226). A module that asks for more after approval gets nothing more until the tenant approves.
 - **Approval in the control plane.** The control plane records the artifact's module permissions as approved at upload, as it does for the app's (`deploy-api.md` section 4, "Outcomes"). Dashboard approval of module upgrades is F7.
 
 ## 4. `renox.toml [modules]`
@@ -251,7 +251,7 @@ Every rejection names the rule (`MF1`–`MF12`), the file and key, and a one-lin
 | Consumer | Takes | Where |
 | --- | --- | --- |
 | Artifact 1.1 (#227) | The lock entries, in order, plus each module's `exports` and `[[slots]]` | `artifact.md` section 3, "Modules" |
-| Ops 1.3.0 (#226) | Per-module `ctx` from `approved` and `config`; dependency checks from `dependencies`; export checks from `exports` | `ops.md` section 15 |
+| Ops 1.3.0 (#226) | Per-module `ctx` from `approved` and `config`; dependency checks from `dependencies`; export checks from `exports` | `ops.md` 1.3.0 (#226, not merged yet) |
 | SDK (#236) | `[exports.services]` and the services' signatures | `renox-modules.d.ts` |
 | Migrations (#234) | Lock order as migration order; `permissions.tables` for which modules must have migrations | `artifact.md` V19 |
 
@@ -275,7 +275,7 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 ## Open
 
 1. **Official module distribution.** A `renox.toml` entry without `source` is an official module "from the CLI's release". Whether the CLI embeds `modules/*` or downloads them from the release assets (signed like the worker, #129) is decided by #235; the lock records `source = "official"` either way, and the hash pins the tree.
-2. **`isolate` mode.** The manifest accepts `isolation = "isolate"` now (D12), but the F4 runtime runs every module `shared` (`ops.md` Open). A tenant who asks for `isolate` before it exists gets a build error from #235, not a silent `shared`.
+2. **`isolate` mode.** The manifest accepts `isolation = "isolate"` now (D12), but the F4 runtime runs every module `shared` (`ops.md` 1.3.0, #226). A tenant who asks for `isolate` before it exists gets a build error from #235, not a silent `shared`.
 3. **Registry sources (F7).** `registry = "<publisher>/<name>"` from `docs/10-modules.md` is rejected until the registry contract defines publishers, signatures, and the permission-diff flow of `docs/23-failure-modes.md`.
 4. **Slot exports.** A slot is filled by name; nothing declares which module renders `<r-slot name="admin.sidebar">`. A filled slot that nothing renders is harmless (it never appears). An `[exports].slots` list can be added as a minor change if `renox check` needs to warn about it.
 5. **App events.** The app has no manifest, so it cannot export events or hook points in F4. `renox.toml [exports]` can be added as a minor change.
