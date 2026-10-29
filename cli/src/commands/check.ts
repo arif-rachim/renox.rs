@@ -18,6 +18,7 @@ import { artifactsDir, buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
 import { type Finding, lintFetch, lintGlobalState, lintRedirect, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
+import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
 import { securityReport } from "../check/security.ts";
 import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
@@ -73,6 +74,7 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     else throw e;
   }
   if (options.secretsOnly) return { errors, findings };
+  findings.push(...noPublicSourcemaps(project));
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");

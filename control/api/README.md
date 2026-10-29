@@ -61,7 +61,9 @@ The node paths are matched lower-cased and with repeated slashes collapsed, on t
 | `src/deployments/` | Upload, validation and storage (#52) |
 | `src/routes/`, `src/workers/` | Activation, rollback, the route table, nodes (#53) |
 | `src/secrets/` | Secrets (#54) |
-| `src/ingest/` | Meter ingestion and the per-app usage view (#56; rollup and quotas in `control/billing`) |
+| `src/ingest/` | Meter ingestion and the per-app usage view (#56; rollup and quotas in `control/billing`); log ingestion, the log store and the daily client-event counter (`logs.ts`, #199, #223) |
+| `src/logs/` | `GET /v1/apps/{app}/logs` as Server-Sent Events (`stream.ts`, #223); browser error groups: ingestion, fingerprints, the three `client-errors` routes (`client-events.ts`, `grouping.ts`, #128) |
+| `src/sourcemaps/` | Symbolication of browser frames against the private sourcemaps of a deployment (#128) |
 | `migrations/` | Forward-only SQL, `NNNN_<name>.sql` |
 
 ## Accounts, roles, and tenant scoping (#113)
@@ -141,6 +143,34 @@ To run the whole suite on Postgres instead of PGlite, point `CONTROL_TEST_HARNES
 psql -h localhost -U renox -c 'create database renox_harness'
 CONTROL_TEST_HARNESS_URL=postgres://renox:renox-dev@localhost:5432/renox_harness bun test
 ```
+
+## Reading logs (`GET /v1/apps/{app}/logs`, #223)
+
+`streamLogs` (`logs:read`) serves the lines `POST /v1/ingest/logs` stored, as SSE: `event: log`, `id: <ts>-<n>`, `data:` one `log_line` of the contract. `n` is the line's place in the tenant's ingestion order; it is what a reconnect resumes from.
+
+| Query / header | Effect |
+| --- | --- |
+| none | The last 100 lines, then the stream closes |
+| `since=<ms>` | The lines at or after it (at most 10,000), then closes |
+| `source=all\|server\|client`, `deployment=<hash>` | Filters, applied before the last 100 are taken |
+| `follow=true` | Stays open, sends new lines, `: keep-alive` every 15 s |
+| `Last-Event-ID` | Only lines after that id (follow or not) |
+
+A tenant holds at most **5** follow streams (`FOLLOW_STREAMS_PER_TENANT`); the sixth is 429 `RENOX_RATE_LIMITED` with `Retry-After`. A stream ends and frees its slot when the client disconnects. Another tenant's app is 404.
+
+**The cap rule.** Lines with `source: client` (browser events) are not counted by the per-minute volume cap (1,000 lines free, 10,000 paid, then sampled); they count toward a per-tenant **daily** counter (`DailyClientCounter`, since 00:00 UTC) that the usage view reads for the 80 % warning (client-events.md section 7, #128). The store is in memory (`MemoryLogStore`, 7 days, 50,000 lines per tenant): lines do not survive a restart (deploy-api.md Open 8).
+
+## Browser errors (`client-errors`, #128)
+
+Client events arrive as log lines with `source: client` (client-events.md section 9). At ingestion (`POST /v1/ingest/logs`) each accepted one is assigned to a **group** by fingerprint (`src/logs/grouping.ts`: kind, top frame without content hashes, message without numbers and ids), stored in `client_error_groups` with counts per deployment (`client_error_deployments`) and the last 20 events (`client_error_events`; migration `0006`), and its line gets `fields.fingerprint` so the Logs page can link it. A grouping failure never fails the ingest. A `resolved` group that receives an event from a deployment created after the one active when it was resolved reopens with `regressed: true`.
+
+| Route | Permission | |
+| --- | --- | --- |
+| `GET /v1/apps/{app}/client-errors` | `logs:read` | Groups, most recently seen first; `status`, `since`, `deployment`, `limit`, `cursor` |
+| `GET /v1/apps/{app}/client-errors/{fingerprint}` | `logs:read` | The group and its last 20 events |
+| `POST /v1/apps/{app}/client-errors/{fingerprint}` | `apps:write` | `{ "status": "open" \| "resolved" \| "ignored" }` |
+
+**Symbolication** is done when a group or event is read, not stored: the raw frames are kept and `original` is looked up in the private map `public/<path>.map` (or `<path>.map`) of the event's deployment, from the tar `PUT …/deployments/{hash}/sourcemaps` stored under `sourcemaps/<tenant>/<hash>.tar` (`src/sourcemaps/symbolicate.ts`). No route serves a map; the original path is shown relative, without `..`. **Quota:** `GET /v1/apps/{app}/usage` reports `client_events { used_today, daily_cap, warning }` from the daily counter of the log ingest (warning from 80 % of 144,000 free / 1,440,000 paid, *proposed*).
 
 ## Logs
 

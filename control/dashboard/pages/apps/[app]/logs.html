@@ -27,7 +27,7 @@
             <td class="level">{{ l.level }}</td>
             <td><code>{{ l.request_id }}</code></td>
             <td class="muted">{{ l.source }} · {{ l.deployment }} · {{ l.module }}</td>
-            <td class="msg">{{ l.message }}<br r-if="l.fields"><small class="muted" r-if="l.fields">{{ l.fields }}</small></td>
+            <td class="msg">{{ l.message }}<br r-if="l.fields"><small class="muted" r-if="l.fields">{{ l.fields }}</small><br r-if="l.group_url"><a r-if="l.group_url" :href="l.group_url">Error group</a></td>
           </tr>
           <tr r-empty="lines"><td class="muted">No log lines match.</td></tr>
         </tbody>

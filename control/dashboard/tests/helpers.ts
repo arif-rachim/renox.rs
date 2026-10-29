@@ -7,12 +7,8 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Hono } from "hono";
 import { FetchBlockedError, type ActionContext, type Ctx, type DbStatements, type ExecuteResult, type LoaderContext, type Param, type Row } from "renox";
 
-import { operation } from "../../api/src/audit.ts";
-import { tenantAuth } from "../../api/src/auth/middleware.ts";
-import type { Deps, Env } from "../../api/src/context.ts";
 import { logIngest, type StoredLine } from "../../api/src/ingest/logs.ts";
 import { harness, type Harness } from "../../api/tests/helpers.ts";
 
@@ -21,35 +17,13 @@ export const DASH = "https://dashboard.renox.test";
 /** A test-only key; long enough for lib/session.ts. */
 export const SECRETS = Object.freeze({ DASHBOARD_KEY: "test-dashboard-key-0123456789abcdef" });
 
-/**
- * `GET /v1/apps/{app}/logs` (streamLogs, deploy-api.md section 11, "Reading
- * logs") is in the contract but not served by control/api yet; this test
- * stand-in answers it from the API's own log store in the contract's shape
- * (non-follow: the lines since `since`, or the last 100, then close), so the
- * Logs page is tested against the documented response.
- */
-export function logsStandIn(app: Hono<Env>, deps: Deps): void {
-  app.get("/v1/apps/:app/logs", operation(deps, "streamLogs"), tenantAuth(deps, "logs:read"), async (c) => {
-    const p = c.get("principal") as { tenantId: string };
-    const since = c.req.query("since");
-    const source = c.req.query("source") ?? "all";
-    const deployment = c.req.query("deployment");
-    const lines = await logIngest(deps).store.read(p.tenantId, c.req.param("app"), { ...(since === undefined ? {} : { since: Number(since) }), limit: since === undefined ? 100 : 10_000 });
-    const body = lines
-      .filter((l) => (source === "all" || l.source === source) && (deployment === undefined || l.deployment_hash === deployment))
-      .map(({ node_id: _n, app: _a, ...line }, i) => `event: log\nid: ${line.ts}-${i}\ndata: ${JSON.stringify(line)}\n\n`)
-      .join("");
-    return new Response(body, { headers: { "content-type": "text/event-stream" } });
-  });
-}
-
 /** Appends lines to the API's log store, as `POST /v1/ingest/logs` would. */
 export async function addLogs(h: Harness, lines: Omit<StoredLine, "node_id">[]): Promise<void> {
   await logIngest(h.deps).store.append(lines.map((l) => ({ ...l, node_id: "node-1" })));
 }
 
 export async function apiHarness(): Promise<Harness> {
-  return harness([logsStandIn]);
+  return harness();
 }
 
 export function dashDb(): Database {
