@@ -197,7 +197,9 @@ fn table_outside_the_prefix_is_refused_and_rolled_back() {
     assert_eq!(
         e,
         MigrationError::Failed {
+            module: "app".into(),
             name: "001_init.sql".into(),
+            statement: Some("create table other__t (id integer primary key);".into()),
             source: DbError::Auth {
                 table: "other__t".into(),
                 action: "CREATE_TABLE".into()
@@ -285,7 +287,7 @@ fn failing_statement_leaves_renox_migrations_unchanged() {
     ));
     let e = migrate(&db, "app", &files).unwrap_err();
     match e {
-        MigrationError::Failed { name, source } => {
+        MigrationError::Failed { name, source, .. } => {
             assert_eq!(name, "003_broken.sql");
             assert_eq!(source.code(), "RENOX_DB_SQL");
         }

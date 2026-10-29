@@ -1,8 +1,9 @@
 //! Forward-only migration runner with checksums (ADR D17, `docs/06-data.md`,
 //! "Layout inside a tenant file"; `docs/contracts/artifact.md` section 4).
 //!
-//! In F1 only the app's own migrations (module `app`) run; ordering across
-//! modules arrives with the resolver in F4.
+//! `migrate` runs one module's files; `migrate_all` runs an artifact's plan
+//! (`docs/contracts/artifact.md` section 3, "Modules": the `modules` order,
+//! the app last), each module under its own DDL authorizer.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -47,8 +48,15 @@ pub enum MigrationError {
     #[error("migration {name} left {object} outside the module prefix")]
     OutsidePrefix { name: String, object: String },
     /// A statement of the file failed; the file's transaction was rolled back.
-    #[error("migration {name} failed: {source}")]
-    Failed { name: String, source: DbError },
+    /// `module` is the file's module and `statement` the failing statement
+    /// (clipped to 200 characters) when it could be told apart.
+    #[error("migration {module}/{name} failed{}: {source}", statement.as_deref().map(|s| format!(" at `{s}`")).unwrap_or_default())]
+    Failed {
+        module: String,
+        name: String,
+        statement: Option<String>,
+        source: DbError,
+    },
     #[error(transparent)]
     Db(#[from] DbError),
 }
@@ -88,6 +96,26 @@ fn run(
     module: &str,
     files: &[MigrationFile],
     expected: Option<&BTreeMap<String, String>>,
+) -> Result<MigrationReport, MigrationError> {
+    run_inner(db, module, files, expected, None)
+}
+
+fn run_with_policy(
+    db: &TenantDb,
+    module: &str,
+    files: &[MigrationFile],
+    expected: Option<&BTreeMap<String, String>>,
+    policy: Arc<AuthorizerPolicy>,
+) -> Result<MigrationReport, MigrationError> {
+    run_inner(db, module, files, expected, Some(policy))
+}
+
+fn run_inner(
+    db: &TenantDb,
+    module: &str,
+    files: &[MigrationFile],
+    expected: Option<&BTreeMap<String, String>>,
+    policy: Option<Arc<AuthorizerPolicy>>,
 ) -> Result<MigrationReport, MigrationError> {
     validate_module_name(module)?;
     if module == PLATFORM_MODULE {
@@ -129,7 +157,8 @@ fn run(
                 });
             }
         }
-        let policy = Arc::new(AuthorizerPolicy::module(module).with_ddl(true));
+        let policy =
+            policy.unwrap_or_else(|| Arc::new(AuthorizerPolicy::module(module).with_ddl(true)));
         let mut report = MigrationReport::default();
         for (f, sum) in files.iter().zip(&sums) {
             if applied.contains_key(&f.name) {
@@ -168,13 +197,25 @@ fn apply(
     sum: &str,
 ) -> Result<(), MigrationError> {
     let before = schema(tx)?;
-    db.with_writer_policy(Some(Arc::clone(policy)), || {
-        tx.execute_batch(&file.sql, MIGRATION_FILE_TIMEOUT)
-    })
-    .map_err(|source| MigrationError::Failed {
-        name: file.name.clone(),
-        source,
-    })?;
+    // One statement at a time, so a failure names its statement; the file
+    // keeps one time limit and one transaction.
+    let started = std::time::Instant::now();
+    for statement in split_statements(&file.sql) {
+        let left = MIGRATION_FILE_TIMEOUT.saturating_sub(started.elapsed());
+        db.with_writer_policy(Some(Arc::clone(policy)), || {
+            if left.is_zero() {
+                Err(DbError::Timeout)
+            } else {
+                tx.execute_batch(statement, left)
+            }
+        })
+        .map_err(|source| MigrationError::Failed {
+            module: module.to_owned(),
+            name: file.name.clone(),
+            statement: Some(clip(statement.trim())),
+            source,
+        })?;
+    }
     // `alter table ... rename to` reports only the old name to the
     // authorizer: check every new or renamed object here.
     let prefix = format!("{module}__");
@@ -224,4 +265,190 @@ fn valid_name(name: &str) -> bool {
         && rest[1..]
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// One module of a migration plan: its files and the modules whose public
+/// views its migrations may read (its declared dependencies).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleMigrations {
+    pub module: String,
+    pub dependencies: Vec<String>,
+    pub files: Vec<MigrationFile>,
+}
+
+/// What `migrate_all` did, per module in plan order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlanReport {
+    pub modules: Vec<(String, MigrationReport)>,
+}
+
+/// `migrate_all` stopped at `module`; the modules before it are reported in
+/// `done` and stay applied (forward-only).
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[error("migrations of module {module} failed: {error}")]
+pub struct PlanError {
+    pub module: String,
+    pub error: MigrationError,
+    pub done: PlanReport,
+}
+
+/// Run an artifact's migration plan: the modules in the given order (the
+/// artifact's `modules` order, every module after its dependencies, the app
+/// last), each file in its own transaction under
+/// `module(m).with_read_deps(deps).with_ddl(true)`, so DDL on another prefix
+/// fails naming the module, the file, and the statement
+/// (`docs/24-threat-model.md`, "Module migration touching another module's
+/// tables"). The first failure stops the plan. With `checksums`
+/// (`migrations/checksums.json` `files`, keys `<module>/<name>`), every file
+/// is checked before anything runs.
+pub fn migrate_all(
+    db: &TenantDb,
+    plan: &[ModuleMigrations],
+    checksums: Option<&BTreeMap<String, String>>,
+) -> Result<PlanReport, Box<PlanError>> {
+    let mut done = PlanReport::default();
+    let mut seen = BTreeSet::new();
+    for m in plan {
+        let fail = |error: MigrationError, done: &PlanReport| {
+            Box::new(PlanError {
+                module: m.module.clone(),
+                error,
+                done: done.clone(),
+            })
+        };
+        if !seen.insert(m.module.as_str()) {
+            return Err(fail(
+                DbError::Param(format!("module {} is twice in the plan", m.module)).into(),
+                &done,
+            ));
+        }
+        if let Some(dep) = m.dependencies.iter().find(|d| !seen.contains(d.as_str())) {
+            return Err(fail(
+                DbError::Param(format!(
+                    "module {} runs before its dependency {dep}",
+                    m.module
+                ))
+                .into(),
+                &done,
+            ));
+        }
+    }
+    for m in plan {
+        match run_module(db, m, checksums) {
+            Ok(report) => done.modules.push((m.module.clone(), report)),
+            Err(error) => {
+                return Err(Box::new(PlanError {
+                    module: m.module.clone(),
+                    error,
+                    done,
+                }));
+            }
+        }
+    }
+    Ok(done)
+}
+
+fn run_module(
+    db: &TenantDb,
+    m: &ModuleMigrations,
+    expected: Option<&BTreeMap<String, String>>,
+) -> Result<MigrationReport, MigrationError> {
+    let policy = AuthorizerPolicy::module(m.module.as_str())
+        .with_read_deps(m.dependencies.iter().cloned())
+        .with_ddl(true);
+    policy.validate()?;
+    run_with_policy(db, &m.module, &m.files, expected, Arc::new(policy))
+}
+
+fn clip(s: &str) -> String {
+    match s.char_indices().nth(200) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_owned(),
+    }
+}
+
+/// Split a migration file into statements at `;` outside quotes, comments,
+/// and `create trigger ... end` bodies. Only used to name the failing
+/// statement and run one at a time: every piece is still compiled by SQLite
+/// under the authorizer, so a wrong split can only fail, never widen access.
+pub(crate) fn split_statements(sql: &str) -> Vec<&str> {
+    let b = sql.as_bytes();
+    let mut out = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    let mut words: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, words: &mut Vec<String>| {
+        if !word.is_empty() {
+            words.push(std::mem::take(word).to_ascii_lowercase());
+        }
+    };
+    while i < b.len() {
+        let c = b[i];
+        match c {
+            b'\'' | b'"' | b'`' => {
+                flush(&mut word, &mut words);
+                let q = c;
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    i += 1;
+                }
+            }
+            b'[' => {
+                flush(&mut word, &mut words);
+                while i < b.len() && b[i] != b']' {
+                    i += 1;
+                }
+            }
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                flush(&mut word, &mut words);
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                flush(&mut word, &mut words);
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            b';' => {
+                flush(&mut word, &mut words);
+                let trigger = words.len() >= 2
+                    && words[0] == "create"
+                    && (words[1] == "trigger" || words.get(2).is_some_and(|w| w == "trigger"));
+                if !trigger || words.last().is_some_and(|w| w == "end") {
+                    let piece = &sql[start..=i];
+                    if !piece.trim_end_matches(';').trim().is_empty() {
+                        out.push(piece);
+                    }
+                    start = i + 1;
+                    words.clear();
+                }
+            }
+            c if c.is_ascii_alphanumeric() || c == b'_' => word.push(c as char),
+            _ => flush(&mut word, &mut words),
+        }
+        i += 1;
+    }
+    let rest = &sql[start.min(sql.len())..];
+    if has_code(rest) {
+        out.push(rest);
+    }
+    out
+}
+
+/// Whether `s` holds anything but whitespace and comments.
+fn has_code(s: &str) -> bool {
+    let mut rest = s.trim_start();
+    loop {
+        if let Some(r) = rest.strip_prefix("--") {
+            rest = r.find('\n').map_or("", |n| &r[n..]).trim_start();
+        } else if let Some(r) = rest.strip_prefix("/*") {
+            rest = r.find("*/").map_or("", |n| &r[n + 2..]).trim_start();
+        } else {
+            return !rest.is_empty();
+        }
+    }
 }
