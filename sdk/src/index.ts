@@ -37,6 +37,20 @@ export type {
 export { defineHandlers } from "./ctx.ts";
 export type { Action, ActionContext, ActionResult, Loader, LoaderContext, PageData, PageModule, Session, TextDirection } from "./pages.ts";
 export { definePage } from "./pages.ts";
+export type {
+  EventHandlerOf,
+  HookFillerOf,
+  HooksDefinition,
+  ModuleCtx,
+  ModuleMap,
+  ModuleSpec,
+  ServiceDefinitions,
+  ServiceProxy,
+  ServicesOf,
+  TypedEvents,
+  TypedHooks,
+} from "./modules.ts";
+export { defineHooks, defineServices, on } from "./modules.ts";
 export type { StandardSchemaV1, ValidateInput, ValidationIssue } from "./validate.ts";
 export { formToObject, validate, ValidationError } from "./validate.ts";
 export { timingSafeEqual } from "./crypto.ts";
