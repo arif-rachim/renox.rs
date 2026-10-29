@@ -1,0 +1,92 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`auth in Arabic login and register: lang=ar, dir=rtl, the Arabic catalog; the session keeps the choice: role: login ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تسجيل الدخول</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>تسجيل الدخول</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>البريد الإلكتروني <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>كلمة المرور <input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit">تسجيل الدخول</button>
+  </form>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">المتابعة باستخدام Google</a></li>
+  </ul>
+  <p><a href="register">إنشاء حساب</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`auth in Arabic login and register: lang=ar, dir=rtl, the Arabic catalog; the session keeps the choice: role: register ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إنشاء حساب</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>إنشاء حساب</h1>
+  
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>الاسم <input type="text" name="display_name" autocomplete="name" value="" dir="auto"></label>
+    <label>البريد الإلكتروني <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>كلمة المرور <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">إنشاء الحساب</button>
+  </form>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">المتابعة باستخدام Google</a></li>
+  </ul>
+  <p><a href="login">تسجيل الدخول بدلاً من ذلك</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`auth in Arabic account: the user's stored choice follows them to another browser: role: account ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>حسابك</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1 dir="auto">Amal</h1>
+  <p id="email" dir="auto">amal@example.com</p>
+  
+  
+  <h2>كلمة المرور</h2>
+  <form method="post" action="?/password" hx-post="?/password"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>كلمة المرور الحالية <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>كلمة المرور الجديدة <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">تغيير كلمة المرور</button>
+  </form>
+  <h2>الجلسات</h2>
+  <ul id="sessions">
+    <li dir="auto">
+      Other · منذ <time>
+      <strong>(هذا المتصفح)</strong>
+      
+    </li>
+  </ul>
+  <form method="post" action="?/everywhere" hx-post="?/everywhere"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج من كل الأجهزة</button></form>
+  <form method="post" action="?/logout" hx-post="?/logout"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+</main>
+
+
+</body></html>"
+`;

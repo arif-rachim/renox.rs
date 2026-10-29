@@ -1,0 +1,18 @@
+/* The i18n module's RTL baseline (#244; docs/08-template-engine.md, RTL):
+   logical properties, so one stylesheet serves `dir="ltr"` and `dir="rtl"`.
+   Copy it into the app's public/ (modules ship no public files yet). */
+:where(body) { text-align: start; }
+:where(ul, ol) { padding-inline-start: 1.5em; margin-inline: 0; }
+:where(label) { margin-inline-end: 0.5em; }
+:where(input, select, textarea, button) { margin-inline-end: 0.25em; }
+:where(blockquote, figure) { margin-inline: 1.5em 0; }
+:where(th, td) { text-align: start; }
+/* Numbers, phone numbers, codes: always left to right, aligned to the start. */
+:where(input[type="tel"], input[type="email"], input[type="url"], input[inputmode="numeric"], code, kbd, samp) { direction: ltr; text-align: start; unicode-bidi: plaintext; }
+/* htmx indicators sit after the control in reading order. */
+.htmx-indicator { margin-inline-start: 0.5em; }
+[dir="rtl"] .htmx-indicator { margin-inline-start: 0.5em; margin-inline-end: 0; }
+/* Icons that point (arrows, chevrons) mirror in RTL. */
+[dir="rtl"] .i18n-mirror { transform: scaleX(-1); }
+.i18n-language a[aria-current="true"] { font-weight: bold; }
+.i18n-language a + a { margin-inline-start: 0.75em; }

@@ -42,6 +42,7 @@ export const actions = {
   }),
   role: guarded(async (ctx) => done(ctx, await core.setRole(ctx, { org: await active(ctx), user: ctx.form.get("user"), role: ctx.form.get("role") }), "Role changed.")),
   remove: guarded(async (ctx) => done(ctx, await core.removeMember(ctx, { org: await active(ctx), user: ctx.form.get("user") }), "Member removed.")),
+  locale: guarded(async (ctx) => done(ctx, await core.setOrgLocale(ctx, { org: await active(ctx), locale: ctx.form.get("locale") }), "Default language saved.")),
   leave: guarded(async (ctx) => {
     const s = await core.requireSession();
     const r = await core.removeMember(ctx, { org: await active(ctx), user: s.user.id });

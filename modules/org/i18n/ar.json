@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "status": "Machine translated; not yet reviewed by a native speaker (owner task, #244)"
+  },
+  "org": {
+    "role": "{role, select, owner {مالك} admin {مشرف} other {عضو}}",
+    "list": {
+      "title": "مؤسساتك",
+      "active": "(النشطة)",
+      "switch": "تبديل",
+      "none": "لست عضواً في أي مؤسسة بعد.",
+      "create": "إنشاء مؤسسة",
+      "name": "الاسم",
+      "slug": "العنوان (اختياري)",
+      "submit": "إنشاء"
+    },
+    "members": {
+      "title": "الأعضاء",
+      "your_role": "دورك:",
+      "you": "(أنت)",
+      "role": "الدور",
+      "change": "تغيير الدور",
+      "remove": "إزالة",
+      "invitations": "الدعوات",
+      "withdraw": "سحب",
+      "email": "البريد الإلكتروني",
+      "invite": "دعوة",
+      "leave": "مغادرة {org}",
+      "language": "اللغة الافتراضية",
+      "language_none": "بدون (لغة كل عضو)",
+      "save": "حفظ"
+    },
+    "accept": {
+      "title": "الانضمام إلى {org}",
+      "as": "أنت مدعو بصفة {role, select, owner {مالك} admin {مشرف} other {عضو}}.",
+      "submit": "قبول الدعوة"
+    },
+    "switcher": {
+      "label": "المؤسسة",
+      "switch": "تبديل",
+      "members": "الأعضاء",
+      "create": "إنشاء مؤسسة"
+    },
+    "admin": {
+      "members": "الأعضاء والدعوات"
+    }
+  }
+}

@@ -2,11 +2,12 @@
 
 Organisations for any app (`docs/18-build-plan.md` M2): a user belongs to one or more organisations with a role, invites others by email, and switches the active organisation. The app gets the active organisation and the user's role from one service call, with no org code of its own.
 
-It depends on `auth ^1.0` (users and sessions). It has no network and no secrets.
+It depends on `auth ^1.0` (users and sessions) and `i18n ^1.0` (the page locale). It has no network and no secrets.
 
 ## Install
 
 ```sh
+renox add i18n
 renox add auth
 renox add org
 ```
@@ -56,6 +57,10 @@ Through `import { org } from "renox:modules"`. A call the signed-in user's membe
 ## Active organisation
 
 The active organisation is kept per auth session. It is stored in `org__active`, keyed by the session id from `auth.currentSession()`, so it ends when the session ends. Without a choice, or after the user leaves the chosen organisation, the active one is the first organisation the user joined.
+
+## Language
+
+Each organisation may have a default locale (`org__orgs.locale`), set by an admin or owner on the members page or with `setOrgLocale({ org, locale })`. org's pages pass it to `i18n.detectLocale` with the user. A member's own choice (`?lang=`) wins over it. The labels come from `i18n/en.json` and `i18n/ar.json`, keys `org.*`.
 
 ## Pages
 

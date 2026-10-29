@@ -17,6 +17,9 @@ plugin({
           currentOrg: async () => (globalThis as { __shopTestOrg?: unknown }).__shopTestOrg ?? null,
           switcher: async () => null,
         },
+        i18n: {
+          detectLocale: async () => ({ locale: "en", dir: "ltr", digits: "latin", source: "default", alternates: [] }),
+        },
       },
     }));
   },

@@ -1,0 +1,45 @@
+{
+  "org": {
+    "role": "{role, select, owner {owner} admin {admin} other {member}}",
+    "list": {
+      "title": "Your organisations",
+      "active": "(active)",
+      "switch": "Switch",
+      "none": "You are not a member of an organisation yet.",
+      "create": "Create an organisation",
+      "name": "Name",
+      "slug": "Address (optional)",
+      "submit": "Create"
+    },
+    "members": {
+      "title": "Members",
+      "your_role": "Your role:",
+      "you": "(you)",
+      "role": "Role",
+      "change": "Change role",
+      "remove": "Remove",
+      "invitations": "Invitations",
+      "withdraw": "Withdraw",
+      "email": "Email",
+      "invite": "Invite",
+      "leave": "Leave {org}",
+      "language": "Default language",
+      "language_none": "None (each member's own)",
+      "save": "Save"
+    },
+    "accept": {
+      "title": "Join {org}",
+      "as": "You are invited as {role, select, owner {owner} admin {admin} other {member}}.",
+      "submit": "Accept the invitation"
+    },
+    "switcher": {
+      "label": "Organisation",
+      "switch": "Switch",
+      "members": "Members",
+      "create": "Create an organisation"
+    },
+    "admin": {
+      "members": "Members and invitations"
+    }
+  }
+}

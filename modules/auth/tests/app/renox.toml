@@ -4,6 +4,7 @@ name = "authtest"
 timezone = "Asia/Dubai"
 
 [modules]
+i18n = { version = "^1.0", source = "path:../../../i18n" }
 auth = { version = "^1.0", source = "path:../..", mount = "/auth", config = { google_client_id = "test-google-client.apps.example" } }
 mailer = { version = "^1.0", source = "path:../fixtures/mailer" }
 reader = { version = "^1.0", source = "path:../fixtures/reader" }

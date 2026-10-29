@@ -1,12 +1,12 @@
 <r-layout use="main">
-  <h1>Products</h1>
+  <h1><r-t key="shop.list.title" /></h1>
   <form class="search" action="/products" hx-get="/products" hx-target="#product-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
-    <input type="search" name="q" :value="q" placeholder="Search products" autocomplete="off">
-    <button type="submit">Search</button>
+    <input type="search" name="q" :value="q" :placeholder="'shop.list.search' | t" autocomplete="off">
+    <button type="submit"><r-t key="shop.list.submit" /></button>
   </form>
   <p class="facets"><span r-for="c in categories">{{ c.category }} ({{ c.n }}) </span>· {{ total }} products, {{ price_min | money }} to {{ price_max | money }}</p>
   <ul id="product-list" class="grid" r-fragment="product_list">
     <li r-for="p in products"><x-product-card :product="p" /></li>
-    <li class="empty" r-empty="products">No products match "{{ q }}".</li>
+    <li class="empty" r-empty="products"><r-t key="shop.list.empty" :q="q" /></li>
   </ul>
 </r-layout>

@@ -3,7 +3,7 @@
 // back with the cart badge out of band.
 import type { ActionContext, LoaderContext } from "renox";
 
-import { auth, org } from "renox:modules";
+import { auth, i18n, org } from "renox:modules";
 
 import type { Product } from "../../lib/http.ts";
 
@@ -14,7 +14,17 @@ const productId = (raw: string | string[] | undefined): number | null => {
 
 const notFound = (): Response => new Response("Product not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
 
-export async function load({ db, params, session, url }: LoaderContext) {
+/** The page's locale (i18n, #244) from the user's and the organisation's choice, set; the header's data. */
+async function header({ url, setLocale }: Pick<LoaderContext, "url" | "setLocale">) {
+  const user = await auth.currentUser();
+  const switcher = await org.switcher(url.pathname);
+  const locale = await i18n.detectLocale({ user_id: user?.id ?? null, org_locale: switcher?.current?.locale ?? null });
+  setLocale(locale.locale, locale.dir);
+  return { user, switcher, locale };
+}
+
+export async function load({ db, params, session, url, setLocale }: LoaderContext) {
+  const { user, switcher, locale } = await header({ url, setLocale });
   const id = productId(params.id);
   if (id === null) return notFound();
   const p = await db.queryOne<Product>("select id, name, description, price_fils, stock from app__products where id = ?", [id]);
@@ -25,14 +35,17 @@ export async function load({ db, params, session, url }: LoaderContext) {
     cart_count: cart?.n ?? 0,
     added: null,
     error: null,
-    // The header: auth's user menu and org's switcher (the app.header slot).
-    auth_user: await auth.currentUser(),
-    org_switcher: await org.switcher(url.pathname),
+    // The header: auth's user menu and org's switcher (the app.header
+    // slot), the language links (i18n).
+    auth_user: user,
+    org_switcher: switcher,
+    i18n_links: locale.alternates,
   };
 }
 
 export const actions = {
-  async addToCart({ db, form, params, session }: ActionContext) {
+  async addToCart({ db, form, params, session, url, setLocale }: ActionContext) {
+    await header({ url, setLocale });
     const id = productId(params.id);
     const quantity = Number(form.get("quantity") ?? 1);
     if (id === null) return notFound();

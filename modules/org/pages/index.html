@@ -1,19 +1,19 @@
 <r-layout use="org">
-  <r-group slot="title">Your organisations</r-group>
-  <h1>Your organisations</h1>
+  <r-group slot="title"><r-t key="org.list.title" /></r-group>
+  <h1><r-t key="org.list.title" /></h1>
   <p class="error" id="error" r-if="error">{{ error }}</p>
   <ul id="orgs" r-if="has_orgs">
     <li r-for="o in orgs">
-      <strong>{{ o.name }}</strong> · {{ o.role }}
-      <em r-if="o.current">(active)</em>
-      <x-form action="switch" r-else><input type="hidden" name="org" :value="o.id"><input type="hidden" name="next" :value="members_url"><button type="submit">Switch</button></x-form>
+      <strong>{{ o.name }}</strong> · <r-t key="org.role" :role="o.role" />
+      <em r-if="o.current"><r-t key="org.list.active" /></em>
+      <x-form action="switch" r-else><input type="hidden" name="org" :value="o.id"><input type="hidden" name="next" :value="members_url"><button type="submit"><r-t key="org.list.switch" /></button></x-form>
     </li>
   </ul>
-  <p r-else>You are not a member of an organisation yet.</p>
-  <h2>Create an organisation</h2>
+  <p r-else><r-t key="org.list.none" /></p>
+  <h2><r-t key="org.list.create" /></h2>
   <x-form action="create">
-    <label>Name <input name="name" :value="name" maxlength="100" required></label>
-    <label>Address (optional) <input name="slug" maxlength="50" pattern="[a-z0-9-]+"></label>
-    <button type="submit">Create</button>
+    <label><r-t key="org.list.name" /> <input name="name" :value="name" maxlength="100" required></label>
+    <label><r-t key="org.list.slug" /> <input name="slug" maxlength="50" pattern="[a-z0-9-]+" dir="ltr"></label>
+    <button type="submit"><r-t key="org.list.submit" /></button>
   </x-form>
 </r-layout>

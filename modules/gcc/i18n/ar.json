@@ -1,4 +1,5 @@
 {
+  "_meta": { "status": "Machine translated; not yet reviewed by a native speaker (owner task, #244)" },
   "gcc": {
     "address": { "legend": "العنوان", "emirate": "الإمارة", "area": "المنطقة", "po_box": "صندوق البريد", "makani": "رقم مكاني" },
     "phone": { "label": "رقم الهاتف المتحرك" },

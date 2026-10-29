@@ -3,6 +3,13 @@ name = "auth"
 version = "1.0.0"
 description = "Users, passwords (argon2id), sessions, and the login, register and account pages"
 
+# The page locale of auth's pages (#244): auth passes the user to i18n.
+[dependencies]
+i18n = "^1.0"
+
+[imports]
+services = ["i18n.detectLocale"]
+
 [config]
 session_idle_hours = { type = "int", min = 1, max = 720, default = 24, description = "A session ends after this many hours without a request" }
 session_absolute_days = { type = "int", min = 1, max = 365, default = 30, description = "A session ends this many days after sign-in, whatever its use" }

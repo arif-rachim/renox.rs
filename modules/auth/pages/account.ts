@@ -2,6 +2,7 @@
 // sessions with revoke, sign out everywhere. Signed out: a 303 to the
 // login page with `next` back here.
 import { type AuthCtx, changePassword, clearCookie, currentSession, logout, redirectWith, revokeAll, revokeSession, sessions } from "../lib/core.ts";
+import { localized } from "../lib/locale.ts";
 
 type Page = AuthCtx & { url: URL; form: FormData };
 
@@ -17,31 +18,31 @@ async function view(ctx: Page, notice: string | null, error: string | null) {
   return { user: s.user, sessions: await sessions(ctx, s.user.id, s.id), notice, error };
 }
 
-export async function load(ctx: Page) {
+export const load = localized(async (ctx: Page) => {
   return view(ctx, null, null);
-}
+});
 
 export const actions = {
-  async password(ctx: Page) {
+  password: localized(async (ctx: Page) => {
     const r = await changePassword(ctx, String(ctx.form.get("current") ?? ""), String(ctx.form.get("password") ?? ""));
     if (!r.ok) return view(ctx, null, r.error);
     // Rotated: this browser gets the new session, every other one is signed out.
     return redirectWith(ctx.url.pathname, [r.cookie]);
-  },
-  async revoke(ctx: Page) {
+  }),
+  revoke: localized(async (ctx: Page) => {
     const s = await currentSession(ctx);
     if (s === null) return toLogin(ctx);
     await revokeSession(ctx, s.user.id, String(ctx.form.get("session") ?? ""));
     return view(ctx, "Session signed out.", null);
-  },
-  async everywhere(ctx: Page) {
+  }),
+  everywhere: localized(async (ctx: Page) => {
     const s = await currentSession(ctx);
     if (s === null) return toLogin(ctx);
     await revokeAll(ctx, s.user.id);
     return redirectWith("/", [clearCookie()]);
-  },
-  async logout(ctx: Page) {
+  }),
+  logout: localized(async (ctx: Page) => {
     await logout(ctx);
     return redirectWith("/", [clearCookie()]);
-  },
+  }),
 };

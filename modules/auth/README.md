@@ -5,6 +5,7 @@ Users, passwords, sessions, and the sign-in pages for a Renox app, as a module (
 ## Install
 
 ```sh
+renox add i18n          # auth's pages take their locale from i18n (#244)
 renox add auth          # shows the tables, hosts, secrets and slot it asks for; approve with y
 renox migrate           # creates auth__* (renox dev does it on start)
 ```
@@ -128,3 +129,7 @@ Override a template, never the code: put a copy at `overrides/auth/pages/login.h
 | `brute-force.test.ts` | 10 failures per account, 30 per IP in 15 minutes | Locked with the generic message, which is snapshotted with the register, reset and magic-link messages; unlocked in the next window |
 | `password-hashing.test.ts` | The stored hash | argon2id v19, m = 65536, t = 3, p = 1, 16-byte salt, 32-byte digest, a different salt per user |
 | `cookies.test.ts` | The session, logout and OAuth flow cookies | `__Host-`, `Path=/`, no `Domain`, `HttpOnly`, `Secure`, `SameSite=Lax` |
+
+## Language
+
+auth's pages ask `i18n.detectLocale` for the locale, passing the signed-in user, and set it. Their text comes from `i18n/en.json` and `i18n/ar.json`, keys `auth.*`. An app re-words a label with the same key in its own catalog. Messages computed in code (errors, notices) are English for now.

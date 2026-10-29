@@ -21,7 +21,7 @@ function nextVersion(): string {
   const dir = join(mkdtempSync(join(tmpdir(), "renox-org-next-")), "org");
   cpSync(MODULE, dir, { recursive: true, filter: (p) => !p.slice(MODULE.length).startsWith("/tests") });
   writeFileSync(join(dir, "module.toml"), readFileSync(join(dir, "module.toml"), "utf8").replace('version = "1.0.0"', 'version = "1.1.0"'));
-  writeFileSync(join(dir, "migrations/002_orgs_logo.sql"), "-- 1.1.0: expand only (D17).\nalter table org__orgs add column logo_url text;\n");
+  writeFileSync(join(dir, "migrations/003_orgs_logo.sql"), "-- 1.1.0: expand only (D17).\nalter table org__orgs add column logo_url text;\n");
   return dir;
 }
 
@@ -32,14 +32,15 @@ describe.skipIf(!worker)("install and upgrade", () => {
     const v1 = await installModule("org", source(SHOP, MODULE), { project: SHOP });
     expect(v1.check.errors).toEqual([]);
     expect(v1.migrate?.modules.map((m) => [m.module, m.applied])).toEqual([
+      ["i18n", ["001_prefs.sql"]],
       ["auth", ["001_init.sql", "002_tokens_user_agent.sql"]],
-      ["org", ["001_init.sql"]],
+      ["org", ["001_init.sql", "002_orgs_locale.sql"]],
       ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql"]],
     ]);
     const v2 = await v1.upgrade(source(SHOP, nextVersion()));
     expect(v2.check.errors).toEqual([]);
     expect(v2.check.findings.filter((f) => f.rule === "override-drift")).toEqual([]);
-    expect(v2.migrate?.modules.find((m) => m.module === "org")).toEqual({ module: "org", applied: ["002_orgs_logo.sql"], skipped: ["001_init.sql"] });
+    expect(v2.migrate?.modules.find((m) => m.module === "org")).toEqual({ module: "org", applied: ["003_orgs_logo.sql"], skipped: ["001_init.sql", "002_orgs_locale.sql"] });
     const db = new Database(join(v2.project, ".renox", "test", "module.db"), { readonly: true });
     try {
       expect(db.query("select name from pragma_table_info('org__public_members_v1')").all().map((c) => (c as { name: string }).name)).toEqual(["org_id", "user_id", "role"]);

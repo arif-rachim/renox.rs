@@ -62,6 +62,12 @@ export async function removeMember(ctx: OrgCtx, input: { org: string; user: stri
   return r.ok ? { ok: true } : { error: r.error };
 }
 
+/** The organisation's default locale, for the i18n module (#244); null clears it. */
+export async function setOrgLocale(ctx: OrgCtx, input: { org: string; locale: string | null }): Promise<{ ok: true } | { error: string }> {
+  const r = await core.setOrgLocale(ctx, input);
+  return r.ok ? { ok: true } : { error: r.error };
+}
+
 /** For a page's load: `org_switcher: await org.switcher(url.pathname)` feeds the switcher partial. */
 export async function switcher(ctx: OrgCtx, next?: string): Promise<Switcher | null> {
   return core.switcher(ctx, next);

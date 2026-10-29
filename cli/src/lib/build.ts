@@ -337,6 +337,11 @@ export async function buildFiles(
   const migDir = join(project, "migrations");
   const migs = listFiles(migDir);
   for (const [p, b] of mods?.files ?? []) files.set(p, b);
+  // The app's translation catalogs (`i18n/<locale>.json`, #233, #244):
+  // `code/i18n/`, where the cell reads them; they override the modules'.
+  for (const c of listFiles(join(project, "i18n")).filter((n) => /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*\.json$/u.test(n))) {
+    files.set(`code/i18n/${c}`, new Uint8Array(readFileSync(join(project, "i18n", c))));
+  }
   if (migs.length || Object.keys(mods?.checksums ?? {}).length) {
     const sums: Record<string, string> = { ...(mods?.checksums ?? {}) };
     const numbers: number[] = [];

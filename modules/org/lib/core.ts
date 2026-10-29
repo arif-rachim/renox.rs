@@ -44,6 +44,8 @@ export interface Org {
   slug: string;
   name: string;
   role: Role;
+  /** The default locale (#244), or null. */
+  locale: string | null;
 }
 
 /** `currentOrg`: the organisation, the user's role, and `scope` for the F5 authz context. */
@@ -122,7 +124,7 @@ export async function requireRole(ctx: OrgCtx, orgId: string, userId: string, mi
 
 export async function listOrgs(ctx: OrgCtx, userId: string): Promise<Org[]> {
   return ctx.db.query<Org>(
-    "select o.id, o.slug, o.name, m.role from org__members m join org__orgs o on o.id = m.org_id where m.user_id = ? order by o.name, o.id",
+    "select o.id, o.slug, o.name, m.role, o.locale from org__members m join org__orgs o on o.id = m.org_id where m.user_id = ? order by o.name, o.id",
     [String(userId)],
   );
 }
@@ -135,7 +137,7 @@ export async function listOrgs(ctx: OrgCtx, userId: string): Promise<Org[]> {
 export async function currentOrg(ctx: OrgCtx): Promise<CurrentOrg | null> {
   const s = await session();
   if (s === null) return null;
-  const sql = "select o.id, o.slug, o.name, m.role from org__members m join org__orgs o on o.id = m.org_id where m.user_id = ?";
+  const sql = "select o.id, o.slug, o.name, m.role, o.locale from org__members m join org__orgs o on o.id = m.org_id where m.user_id = ?";
   const org =
     (await ctx.db.queryOne<Org>(`${sql} and o.id = (select org_id from org__active where session_id = ?)`, [s.user.id, s.id])) ??
     (await ctx.db.queryOne<Org>(`${sql} order by m.created_at, o.id limit 1`, [s.user.id]));
@@ -189,7 +191,7 @@ export async function createOrg(ctx: OrgCtx, input: { name?: unknown; slug?: unk
   await setActive(ctx, s.id, id);
   await ctx.events.emit("org.created", { org_id: id, user_id: s.user.id, at: t });
   await ctx.events.emit("org.member_added", { org_id: id, user_id: s.user.id, role: "owner", at: t });
-  return { ok: true, org: { id, slug, name, role: "owner" } };
+  return { ok: true, org: { id, slug, name, role: "owner", locale: null } };
 }
 
 export interface Member {
@@ -315,6 +317,19 @@ export async function acceptInvite(ctx: OrgCtx, token: string): Promise<{ ok: tr
   await setActive(ctx, s.id, inv.org_id);
   const org = (await listOrgs(ctx, s.user.id)).find((o) => o.id === inv.org_id) as Org;
   return { ok: true, org };
+}
+
+const LOCALE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/u;
+
+/** Set `org`'s default locale (admin or owner); null or "" clears it. */
+export async function setOrgLocale(ctx: OrgCtx, input: { org?: unknown; locale?: unknown }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const s = await requireSession();
+  const orgId = String(input?.org ?? "");
+  await requireRole(ctx, orgId, s.user.id, "admin");
+  const locale = input?.locale === null || input?.locale === "" ? null : String(input?.locale ?? "");
+  if (locale !== null && (!LOCALE.test(locale) || locale.length > 35)) return { ok: false, error: "Choose a language such as en or ar." };
+  await ctx.db.execute("update org__orgs set locale = ? where id = ?", [locale, orgId]);
+  return { ok: true };
 }
 
 export const LAST_OWNER = "An organisation keeps at least one owner: make someone else owner first.";

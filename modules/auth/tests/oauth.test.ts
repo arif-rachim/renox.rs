@@ -173,6 +173,13 @@ describe("renox add shows the OAuth hosts and secrets for approval", () => {
     let prompt = "";
     const log = console.log;
     const lines: string[] = [];
+    // auth depends on i18n (#244): install it first, approved.
+    console.log = () => {};
+    try {
+      expect(await addModule(dir, "i18n", { source: `path:${relative(dir, join(MODULE, "../i18n"))}`, yes: true }, async () => true)).toBe(0);
+    } finally {
+      console.log = log;
+    }
     console.log = (...a: unknown[]) => lines.push(a.join(" "));
     try {
       const code = await addModule(dir, "auth", { source: `path:${relative(dir, MODULE)}` }, async (q) => ((prompt = q), false));
@@ -183,7 +190,8 @@ describe("renox add shows the OAuth hosts and secrets for approval", () => {
     const shown = `${lines.join("\n")}\n${prompt}`;
     for (const host of ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com"]) expect(shown).toContain(host);
     for (const secret of ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"]) expect(shown).toContain(secret);
-    expect(Bun.file(join(dir, "renox.lock")).size).toBe(0);
+    // Only i18n is in the lock: without approval auth was not installed.
+    expect(await Bun.file(join(dir, "renox.lock")).text()).not.toContain('name = "auth"');
   });
 });
 

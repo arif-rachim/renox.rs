@@ -22,7 +22,7 @@ function nextVersion(): string {
   cpSync(MODULE, dir, { recursive: true, filter: (p) => !p.slice(MODULE.length).startsWith("/tests") });
   writeFileSync(join(dir, "module.toml"), readFileSync(join(dir, "module.toml"), "utf8").replace('version = "1.0.0"', 'version = "1.1.0"'));
   writeFileSync(join(dir, "migrations/003_users_locale.sql"), "-- 1.1.0: expand only (D17).\nalter table auth__users add column locale text;\n");
-  writeFileSync(join(dir, "pages/login.html"), readFileSync(join(dir, "pages/login.html"), "utf8").replace("<h1>Sign in</h1>", "<h1>Sign in</h1>\n  <p class=\"lede\">Welcome back.</p>"));
+  writeFileSync(join(dir, "pages/login.html"), readFileSync(join(dir, "pages/login.html"), "utf8").replace("<h1><r-t key=\"auth.login.title\" /></h1>", "<h1><r-t key=\"auth.login.title\" /></h1>\n  <p class=\"lede\">Welcome back.</p>"));
   return dir;
 }
 
@@ -34,8 +34,9 @@ describe.skipIf(!worker)("install and upgrade", () => {
     const v1 = await installModule("auth", source(SHOP, MODULE), { project: SHOP });
     expect(v1.check.errors).toEqual([]);
     expect(v1.migrate?.modules.map((m) => [m.module, m.applied])).toEqual([
+      ["i18n", ["001_prefs.sql"]],
       ["auth", ["001_init.sql", "002_tokens_user_agent.sql"]],
-      ["org", ["001_init.sql"]],
+      ["org", ["001_init.sql", "002_orgs_locale.sql"]],
       ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql"]],
     ]);
     const v2 = await v1.upgrade(source(SHOP, next));
@@ -58,7 +59,7 @@ describe.skipIf(!worker)("install and upgrade", () => {
     writeFileSync(join(app, "overrides.json"), "");
     const { mkdirSync } = await import("node:fs");
     mkdirSync(join(app, "overrides/auth/pages"), { recursive: true });
-    writeFileSync(join(app, "overrides/auth/pages/login.html"), readFileSync(join(MODULE, "pages/login.html"), "utf8").replace("<h1>Sign in</h1>", "<h1>Sign in to Renox Shop</h1>"));
+    writeFileSync(join(app, "overrides/auth/pages/login.html"), readFileSync(join(MODULE, "pages/login.html"), "utf8").replace("<h1><r-t key=\"auth.login.title\" /></h1>", "<h1>Sign in to Renox Shop</h1>"));
     cpSync(join(SHOP, "node_modules"), join(app, "node_modules"), { recursive: true, dereference: true });
     const v1 = await installModule("auth", source(app, MODULE), { project: app });
     expect(v1.check.errors).toEqual([]);

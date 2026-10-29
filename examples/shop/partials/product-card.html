@@ -2,6 +2,6 @@
 <article class="card">
   <h3><a href="/products/{{ product.id }}">{{ product.name }}</a></h3>
   <p class="meta">{{ product.category }} · <span class="price">{{ product.price | money }}</span></p>
-  <p class="out" r-if="product.stock == 0">Out of stock</p>
-  <p class="stock" r-else>{{ product.stock }} in stock</p>
+  <p class="out" r-if="product.stock == 0"><r-t key="shop.card.out" /></p>
+  <p class="stock" r-else><r-t key="shop.card.in_stock" :n="product.stock" /></p>
 </article>

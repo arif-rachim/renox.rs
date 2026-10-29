@@ -2,13 +2,24 @@
 version = 1
 
 [[module]]
+name = "i18n"
+version = "1.0.0"
+source = "official"
+hash = "8e532b1d8c9fc5880cb70b7d7ba131e902d48b519278c4b22d719bcb91f6dff8"
+isolation = "shared"
+mount = "/i18n"
+dependencies = []
+config = { locales = "en,ar", default_locale = "en", digits = "latin" }
+approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "011221b7a1dc5f790fe3b01c1d0ba7c17cd63e6be17d53735d93a959c2ab3bb1"
+hash = "a47d98d39e37ca1c69e208c97b65b2c5ccde694c3e653c23fd5d59e0102d346d"
 isolation = "shared"
 mount = "/auth"
-dependencies = []
+dependencies = ["i18n"]
 config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "" }
 approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
 
@@ -16,9 +27,9 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "a6c897f9ead78f6ff518d8be7fd7df2426ff91841d04be8f27b4bacf5a030b6a"
+hash = "2cf67da4161a9f2d88390843feada1e98bd6f5697c0e37a3b405fc46297d38b6"
 isolation = "shared"
 mount = "/org"
-dependencies = ["auth"]
+dependencies = ["auth", "i18n"]
 config = { base_path = "/org", invite_days = 7 }
 approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = [] }

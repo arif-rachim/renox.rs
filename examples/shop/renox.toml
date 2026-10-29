@@ -9,5 +9,6 @@ network = []
 secrets = []
 
 [modules]
+i18n = { version = "^1.0.0" }
 auth = { version = "^1.0.0" }
 org = { version = "^1.0.0" }

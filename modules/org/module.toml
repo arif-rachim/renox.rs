@@ -5,6 +5,7 @@ description = "Organisations, memberships with roles, invitations, and the activ
 
 [dependencies]
 auth = "^1.0"
+i18n = "^1.0"
 
 [config]
 base_path = { type = "string", max_length = 200, default = "/org", description = "Where the app mounts org's pages (the switcher posts there)" }
@@ -15,7 +16,7 @@ tables = "org__*"
 slots = ["app.header", "admin.sidebar"]
 
 [imports]
-services = ["auth.currentSession", "auth.loginUrl"]
+services = ["auth.currentSession", "auth.loginUrl", "i18n.detectLocale"]
 views = ["auth__public_users_v1"]
 
 [exports]
@@ -24,7 +25,7 @@ views = ["org__public_members_v1"]
 [exports.services]
 createOrg = "Create an organisation; the signed-in user is its owner and it becomes active: { name, slug? } -> { org } or { error }"
 listOrgs = "The organisations of a user, with the user's role: (user_id) -> [{ id, slug, name, role }]"
-currentOrg = "The active organisation of this session and the user's role, with `scope` ({ org_id, role }) for the authz context; or null"
+currentOrg = "The active organisation of this session (with its default `locale`) and the user's role, with `scope` ({ org_id, role }) for the authz context; or null"
 requireMember = "The active organisation; throws ORG_FORBIDDEN unless the user is a member with at least `role` (member < admin < owner)"
 switchOrg = "Make one of the user's organisations the active one: (org_id) -> { org } or { error }"
 members = "The members of an organisation (the caller must be one): (org_id) -> [{ user_id, display_name, email, role }]"
@@ -33,6 +34,7 @@ revokeInvite = "Withdraw a pending invitation (admin or owner): { org, invite } 
 acceptInvite = "Accept an invitation as the signed-in user (once, before it expires, for the invited email): (token) -> { org } or { error }"
 setRole = "Change a member's role (admin or owner; only an owner grants or removes owner): { org, user, role } -> { ok } or { error }"
 removeMember = "Remove a member, or leave (any member for themselves); the last owner stays: { org, user } -> { ok } or { error }"
+setOrgLocale = "Set the organisation's default locale (admin or owner): { org, locale } (null clears it) -> { ok } or { error }"
 switcher = "What the switcher partial renders, for a page's load: (next?) -> { orgs, current, action, ... } or null"
 
 [exports.events."org.created"]

@@ -1,9 +1,9 @@
 <r-layout use="auth">
-  <r-group slot="title">Reset your password</r-group>
-  <h1>Reset your password</h1>
+  <r-group slot="title"><r-t key="auth.reset.title" /></r-group>
+  <h1><r-t key="auth.reset.title" /></h1>
   <p class="notice" id="notice" r-if="message">{{ message }}</p>
   <x-form action="default">
-    <label>Email <input type="email" name="email" autocomplete="username" :value="email" required></label>
-    <button type="submit">Send me a reset link</button>
+    <label><r-t key="auth.field.email" /> <input type="email" name="email" autocomplete="username" :value="email" required></label>
+    <button type="submit"><r-t key="auth.reset.submit" /></button>
   </x-form>
 </r-layout>

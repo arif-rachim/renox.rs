@@ -11,3 +11,10 @@ main { padding: 1.5rem; max-width: 72rem; margin-inline: auto; }
 .out { color: #a00; }
 .search { display: flex; gap: .5rem; margin-block-end: 1rem; }
 .notice { background: #e8f5e9; padding: .5rem .75rem; border-radius: .25rem; }
+/* RTL (#244): the layout already uses logical properties; prices and
+   counts stay left to right inside Arabic text, and Arabic text gets a
+   font with Arabic glyphs and a little more line height. */
+.price, #cart-badge, .stock { unicode-bidi: isolate; }
+[dir="rtl"] body { font-family: system-ui, "Noto Naskh Arabic", "Segoe UI", Tahoma, sans-serif; line-height: 1.7; }
+.site-header .i18n-language a { color: inherit; }
+.site-header .i18n-language a + a, .site-header .i18n-language strong + a, .site-header .i18n-language a + strong { margin-inline-start: .75em; }

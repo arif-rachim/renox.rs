@@ -259,6 +259,27 @@ describe.skipIf(!worker)("org", () => {
     expect(switcherOf((await nora.page("/")).html)).toContain("Create an organisation");
   });
 
+  test("Arabic (#244): the members page is rtl; the organisation's default applies until a member chooses", async () => {
+    const ar = await olive.page("/org/members?lang=ar");
+    expect(ar.html).toContain('<html lang="ar" dir="rtl">');
+    expect(ar.html).toContain("<h2>الأعضاء</h2>");
+    expect(ar.html).toContain("دورك: مالك");
+    snapshot(stable(ar.html), { role: "members owner ar" });
+    // Olive's choice is stored for her: no ?lang= next time.
+    expect((await olive.page("/org")).html).toContain('<html lang="ar" dir="rtl">');
+    // The organisation's default: Arabic for Mo, who has no choice of his own.
+    expect((await mo.page("/org/members")).html).toContain('<html lang="en" dir="ltr">');
+    const saved = await olive.action("/org/members", "locale", { locale: "ar" });
+    expect(saved.html).toContain("Default language saved.");
+    expect(((await org(mo).currentOrg()) as { locale: string }).locale).toBe("ar");
+    expect((await mo.page("/org/members")).html).toContain('<html lang="ar" dir="rtl">');
+    // His own choice wins over the organisation's.
+    expect((await mo.page("/org/members?lang=en")).html).toContain('<html lang="en" dir="ltr">');
+    expect((await mo.page("/org/members")).html).toContain('<html lang="en" dir="ltr">');
+    // A member cannot set it.
+    expect((await mo.action("/org/members", "locale", { locale: "en" })).status).toBe(403);
+  });
+
   test("the public view has the three columns; another module may read it", () => {
     const cols = t.db.query<{ name: string }>("select name from pragma_table_info('org__public_members_v1')").map((c) => c.name);
     expect(cols).toEqual(["org_id", "user_id", "role"]);

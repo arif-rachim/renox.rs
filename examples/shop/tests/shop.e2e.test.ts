@@ -27,8 +27,10 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   // auth (#241): its migrations before the app's, its pages under /auth.
   expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql"]);
   // org (#242): after auth, its dependency; its pages under /org.
-  expect(readdirSync(join(r.dir, "migrations/org")).sort()).toEqual(["001_init.sql"]);
-  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["auth", "org"]);
+  expect(readdirSync(join(r.dir, "migrations/org")).sort()).toEqual(["001_init.sql", "002_orgs_locale.sql"]);
+  // i18n (#244): first, auth and org depend on it; the shop's catalogs under code/i18n/.
+  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["i18n", "auth", "org"]);
+  expect(readdirSync(join(r.dir, "code/i18n")).sort()).toEqual(["ar.json", "en.json"]);
   expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${x.path}`).sort()).toEqual([
     "GET /api/products",
     "GET /api/products/:id",
@@ -108,6 +110,18 @@ test.skipIf(!worker)(
     expect(kb).toBeLessThanOrEqual(30);
     const token = (page.headers.getSetCookie().map((c) => c.split(";")[0] as string).find((c) => c.startsWith("__Host-renox_csrf=")) ?? "").split("=")[1] ?? "";
     expect(token.length).toBeGreaterThan(20);
+
+    // Arabic (i18n, #244): the list page with ?lang=ar is rtl, from the
+    // shop's catalog, and stays Arabic for this session without ?lang=.
+    const ar = t.as("arabic");
+    const arPage = await ar.page("/products?lang=ar");
+    expect(arPage.html).toContain('<html lang="ar" dir="rtl">');
+    expect(arPage.html).toContain("<h1>المنتجات</h1>");
+    expect(arPage.html).toContain('<a href="/products?lang=en" lang="en">English</a>');
+    // Digits: latin (the config default); money in Arabic order with the dirham sign.
+    expect(arPage.html).toMatch(/<span class="price" dir="auto">[0-9.,]+\sد\.إ\.<\/span>/u);
+    expect((await ar.page("/products/42")).html).toContain('<html lang="ar" dir="rtl">');
+    expect((await t.as("english").page("/products")).html).toContain('<html lang="en" dir="ltr">');
 
     // B7: the search box's fragment request, one block.
     const frag = (await get("/products?q=saffron", { "hx-request": "true", "hx-target": "product-list" })).html;

@@ -1,45 +1,55 @@
 <r-layout use="org">
-  <r-group slot="title">{{ org.name }} · Members</r-group>
+  <r-group slot="title">{{ org.name }} · <r-t key="org.members.title" /></r-group>
   <h1>{{ org.name }}</h1>
-  <p id="role">Your role: {{ org.role }}</p>
+  <p id="role"><r-t key="org.members.your_role" /> <r-t key="org.role" :role="org.role" /></p>
   <p class="notice" r-if="notice">{{ notice }}</p>
   <p class="error" id="error" r-if="error">{{ error }}</p>
-  <h2>Members</h2>
+  <h2><r-t key="org.members.title" /></h2>
   <ul id="members">
     <li r-for="m in members">
-      {{ m.display_name }} &lt;{{ m.email }}&gt; · {{ m.role }}
-      <strong r-if="m.self">(you)</strong>
+      {{ m.display_name }} &lt;{{ m.email }}&gt; · <r-t key="org.role" :role="m.role" />
+      <strong r-if="m.self"><r-t key="org.members.you" /></strong>
       <r-group r-if="m.manageable">
         <x-form action="role">
           <input type="hidden" name="user" :value="m.user_id">
-          <select name="role" aria-label="Role">
-            <option value="owner" r-if="can_grant_owner" :selected="m.role == 'owner'">owner</option>
-            <option value="admin" :selected="m.role == 'admin'">admin</option>
-            <option value="member" :selected="m.role == 'member'">member</option>
+          <select name="role" :aria-label="'org.members.role' | t">
+            <option value="owner" r-if="can_grant_owner" :selected="m.role == 'owner'"><r-t key="org.role" role="owner" /></option>
+            <option value="admin" :selected="m.role == 'admin'"><r-t key="org.role" role="admin" /></option>
+            <option value="member" :selected="m.role == 'member'"><r-t key="org.role" role="member" /></option>
           </select>
-          <button type="submit">Change role</button>
+          <button type="submit"><r-t key="org.members.change" /></button>
         </x-form>
-        <x-form action="remove"><input type="hidden" name="user" :value="m.user_id"><button type="submit">Remove</button></x-form>
+        <x-form action="remove"><input type="hidden" name="user" :value="m.user_id"><button type="submit"><r-t key="org.members.remove" /></button></x-form>
       </r-group>
     </li>
   </ul>
   <r-group r-if="can_invite">
-    <h2>Invitations</h2>
+    <h2><r-t key="org.members.invitations" /></h2>
     <ul id="invites" r-if="has_invites">
       <li r-for="i in invites">
-        {{ i.email }} · {{ i.role }}
-        <x-form action="revoke"><input type="hidden" name="invite" :value="i.id"><button type="submit">Withdraw</button></x-form>
+        {{ i.email }} · <r-t key="org.role" :role="i.role" />
+        <x-form action="revoke"><input type="hidden" name="invite" :value="i.id"><button type="submit"><r-t key="org.members.withdraw" /></button></x-form>
       </li>
     </ul>
     <x-form action="invite">
-      <label>Email <input type="email" name="email" required></label>
-      <select name="role" aria-label="Role">
-        <option value="member">member</option>
-        <option value="admin">admin</option>
-        <option value="owner" r-if="can_grant_owner">owner</option>
+      <label><r-t key="org.members.email" /> <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" :aria-label="'org.members.role' | t">
+        <option value="member"><r-t key="org.role" role="member" /></option>
+        <option value="admin"><r-t key="org.role" role="admin" /></option>
+        <option value="owner" r-if="can_grant_owner"><r-t key="org.role" role="owner" /></option>
       </select>
-      <button type="submit">Invite</button>
+      <button type="submit"><r-t key="org.members.invite" /></button>
+    </x-form>
+    <x-form action="locale">
+      <label><r-t key="org.members.language" />
+        <select name="locale">
+          <option value="" :selected="!org.locale"><r-t key="org.members.language_none" /></option>
+          <option value="en" lang="en" :selected="org.locale == 'en'">English</option>
+          <option value="ar" lang="ar" :selected="org.locale == 'ar'">العربية</option>
+        </select>
+      </label>
+      <button type="submit"><r-t key="org.members.save" /></button>
     </x-form>
   </r-group>
-  <x-form action="leave"><button type="submit">Leave {{ org.name }}</button></x-form>
+  <x-form action="leave"><button type="submit"><r-t key="org.members.leave" :org="org.name" /></button></x-form>
 </r-layout>
