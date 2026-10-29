@@ -118,4 +118,17 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   proposeOwnerTransfer: "team:write",
   acceptOwnerTransfer: "team:read",
   cancelOwnerTransfer: "team:write",
+  // Remote platform MCP and its OAuth server (src/mcp, #62). They authenticate
+  // themselves (an MCP access token; the session cookie on the consent page),
+  // not through the tenant middleware, so the table lists them as public. Each
+  // tool runs as an internal request to one of the operations above, with the
+  // agent's token, and is governed by that operation's row.
+  getProtectedResourceMetadata: "public",
+  getAuthorizationServerMetadata: "public",
+  registerOAuthClient: "public",
+  showOAuthConsent: "public",
+  decideOAuthConsent: "public",
+  exchangeOAuthCode: "public",
+  callMcp: "public",
+  mcpMethodNotAllowed: "public",
 };

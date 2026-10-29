@@ -13,7 +13,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 
-import { EnvironmentError, EXIT, UserError } from "../errors.ts";
+import { type CliError, EnvironmentError, EXIT, UserError, ValidationError } from "../errors.ts";
 
 export const DEFAULT_API = "https://api.renox.app";
 const TOKEN = /^renox_pat_[a-z2-7]{32}$/u;
@@ -86,6 +86,62 @@ export async function post(io: Io, url: string, body: unknown, token?: string): 
     });
   } catch (e) {
     throw new EnvironmentError(`cannot reach ${new URL(url).origin}: ${(e as Error).message}`, { hint: "check the address (--api or RENOX_API_URL) and your network" });
+  }
+}
+
+/** The error body of the deploy API (deploy-api.md section 1). */
+export interface ApiErrorBody {
+  code: string;
+  message: string;
+  request_id?: string;
+  deployment?: string;
+  details?: Record<string, unknown>[];
+}
+
+/** The `error` object of a non-2xx answer, or a stand-in when the body is not one. */
+export async function errorBody(res: Response): Promise<ApiErrorBody> {
+  try {
+    const body = (await res.json()) as { error?: Partial<ApiErrorBody> };
+    if (typeof body.error?.code === "string") return { message: `HTTP ${res.status}`, ...body.error } as ApiErrorBody;
+  } catch {
+    // not JSON: keep the status
+  }
+  return { code: "", message: `HTTP ${res.status}` };
+}
+
+/**
+ * The CLI error for an API error, by the exit code contract (cli/README.md,
+ * "Exit codes"): 401, 403, 404, 409 and 400 are the caller's (1); a rejected
+ * artifact or a failed activation is the app's (2); 5xx, 429 and an
+ * unreachable API are the environment's (3).
+ */
+export function cliErrorOf(status: number, e: ApiErrorBody): CliError {
+  const details = (e.details ?? []).map((d) =>
+    Object.entries(d)
+      .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
+      .join(" "),
+  );
+  const text = `${e.message}${e.code === "" ? "" : ` (${e.code})`}${details.length === 0 ? "" : `\n    ${details.join("\n    ")}`}`;
+  if (status === 401) return new UserError(text, { hint: "the token expired or was revoked: run `renox login`" });
+  if (status === 403) return new UserError(text, { hint: "the token or your role does not allow this" });
+  if (e.code === "RENOX_DEPLOY_REJECTED" || e.code === "RENOX_ACTIVATION_FAILED") return new ValidationError(text);
+  if (status >= 500 || status === 429) return new EnvironmentError(text);
+  return new UserError(text);
+}
+
+/** One authenticated request to the control API; a network failure is an environment error (exit 3). */
+export async function apiRequest(io: Io, method: string, path: string, init: { json?: unknown; body?: Uint8Array<ArrayBuffer>; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<Response> {
+  const { api, token } = apiAuth(io.env);
+  const headers: Record<string, string> = { authorization: `Bearer ${token}`, ...init.headers };
+  let body: BodyInit | undefined;
+  if (init.json !== undefined) {
+    headers["content-type"] = "application/json";
+    body = JSON.stringify(init.json);
+  } else if (init.body !== undefined) body = init.body;
+  try {
+    return await io.fetch(`${api}${path}`, { method, headers, ...(body === undefined ? {} : { body }), ...(init.signal === undefined ? {} : { signal: init.signal }) });
+  } catch (e) {
+    throw new EnvironmentError(`cannot reach ${api}: ${(e as Error).message}`, { hint: "check the address (RENOX_API_URL or `renox login --api`) and your network" });
   }
 }
 
