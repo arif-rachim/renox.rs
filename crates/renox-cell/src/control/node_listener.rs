@@ -630,19 +630,22 @@ impl NodeListener {
                 )
                 .map_err(|e| ("file".to_string(), e.to_string()))?;
                 let rows = db
-                    .query("select name from sqlite_master", &[])
+                    .query("select type, name from sqlite_master", &[])
                     .map_err(|e| ("file".to_string(), e.to_string()))?;
                 let _ = db.close();
-                let names: Vec<String> = rows
+                let text = |r: &renox_data::Row, k: &str| match r.get(k) {
+                    Some(renox_data::Value::Text(t)) => Some(t.clone()),
+                    _ => None,
+                };
+                let names: Vec<String> = rows.iter().filter_map(|r| text(r, "name")).collect();
+                // Every name is checked (views, indexes and triggers too); the answer lists the tables.
+                let checked = import_names_ok(&names).map_err(|e| ("table".to_string(), e))?;
+                let tables: Vec<String> = rows
                     .iter()
-                    .filter_map(|r| {
-                        r.get("name").and_then(|v| match v {
-                            renox_data::Value::Text(t) => Some(t.clone()),
-                            _ => None,
-                        })
-                    })
+                    .filter(|r| text(r, "type").as_deref() == Some("table"))
+                    .filter_map(|r| text(r, "name"))
+                    .filter(|n| checked.contains(n))
                     .collect();
-                let tables = import_names_ok(&names).map_err(|e| ("table".to_string(), e))?;
                 let sha = crate::replication::restore::file_sha256(&t)
                     .map_err(|e| ("file".to_string(), e.to_string()))?;
                 Ok((tables, sha))

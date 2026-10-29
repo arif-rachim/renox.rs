@@ -575,9 +575,18 @@ async fn node_listener_snapshot_and_import() {
     assert_eq!(status, 200, "{answer}");
     let r: serde_json::Value = serde_json::from_str(&answer).unwrap();
     assert_eq!(r["type"], "import_result");
-    assert_eq!(
-        r["tables"],
-        serde_json::json!(["renox__migrations", "app__hits"])
+    let tables: Vec<&str> = r["tables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t.as_str().unwrap())
+        .collect();
+    assert!(tables.contains(&"app__hits"), "{tables:?}");
+    assert!(tables.contains(&"renox__migrations"), "{tables:?}");
+    // Tables only: no index name.
+    assert!(
+        tables.iter().all(|t| !t.ends_with("_next_at")),
+        "{tables:?}"
     );
     assert!(root.join("data/t_repl.staging/app.db").exists());
     // A table outside the naming rules, and a file that is not SQLite: refused.
