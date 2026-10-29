@@ -195,7 +195,12 @@ renox <command>
   dev [--port 8787]                     run the app on the local worker, rebuild on change
   dev --worker <path>                   run another renox-worker; it must be the pinned release or carry
                                         a sigstore signature and provenance that cosign verifies
-  check [--secrets] [--security]        validate config, routes, templates, manifest; lint SQL, fetch, global state; scan for secrets; --security prints the effective headers per route
+  check [--secrets] [--security] [--json]
+                                        validate config, routes, templates, manifest, modules and renox.lock; lint SQL, fetch, global state;
+                                        scan for secrets; --security prints the effective headers per route; --json prints the report as JSON
+  add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]
+                                        install a module: resolve it, show the permissions it asks for, write renox.toml and renox.lock
+  remove <module>                       uninstall a module (its tables stay: migrations are forward-only)
   mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
   login [--api <url>] [--with-token]    sign in to the control plane (device code; --with-token reads a token from stdin)
   tokens list | create <name> --scope <s>... [--expires-days n] | revoke <id>

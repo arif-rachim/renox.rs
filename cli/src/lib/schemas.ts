@@ -47,6 +47,9 @@ export const renoxTomlSchema: Json = {
         ratelimit: { type: "array" },
       },
     },
+    // [modules] (docs/contracts/manifest.md section 4): checked in depth by
+    // src/lib/modules/resolve.ts against module-manifest.schema.json.
+    modules: { type: "object" },
     limits: {
       type: "object",
       additionalProperties: false,

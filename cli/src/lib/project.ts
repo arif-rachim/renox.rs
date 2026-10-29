@@ -94,7 +94,8 @@ function unknownKeys(raw: Record<string, unknown>, lines: string[]): ConfigError
       );
       continue;
     }
-    if (!isObject(v)) continue;
+    // [modules] keys are module names, checked by src/lib/modules/resolve.ts.
+    if (!isObject(v) || k === "modules") continue;
     const allowed = SCHEMA_KEYS(props[k] as Json);
     for (const key of Object.keys(v)) {
       if (allowed.includes(key)) continue;

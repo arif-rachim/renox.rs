@@ -22,6 +22,7 @@ import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
 import { securityReport } from "../check/security.ts";
 import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
+import { projectProblems } from "../lib/modules/resolve.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
 
@@ -74,6 +75,10 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     else throw e;
   }
   if (options.secretsOnly) return { errors, findings };
+  // Modules and renox.lock (docs/contracts/manifest.md section 6): each problem names its rule.
+  if (existsSync(join(project, "renox.toml"))) {
+    for (const p of projectProblems(project)) errors.push(new CliError(`${p.rule}: ${p.message}`, EXIT.VALIDATION, { file: p.file }));
+  }
   findings.push(...noPublicSourcemaps(project));
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
@@ -147,12 +152,12 @@ export function securityOutput(project: string): string {
 }
 
 export async function run(args: string[]): Promise<number> {
-  const flags = new Set(["--secrets", "--security"]);
+  const flags = new Set(["--secrets", "--security", "--json"]);
   const t = args.indexOf("--target");
   const target = t >= 0 ? args[t + 1] : undefined;
   const rest = t >= 0 ? [...args.slice(0, t), ...args.slice(t + 2)] : args;
   if ((t >= 0 && (target === undefined || target.startsWith("-"))) || rest.some((a) => !flags.has(a)) || new Set(rest).size !== rest.length) {
-    console.error("usage: renox check [--secrets] [--security] [--target <hash | artifact dir>]");
+    console.error("usage: renox check [--secrets] [--security] [--json] [--target <hash | artifact dir>]");
     return EXIT.USER;
   }
   const security = args.includes("--security");
@@ -166,6 +171,17 @@ export async function run(args: string[]): Promise<number> {
       console.error(`error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
       return e.exitCode;
     }
+  }
+  const failedCount = errors.length + findings.filter((f) => f.severity === "error").length;
+  if (args.includes("--json")) {
+    const rule = (m: string): string | undefined => /^(MF[0-9]+):/u.exec(m)?.[1];
+    const report = {
+      ok: failedCount === 0,
+      errors: errors.map((e) => ({ ...(rule(e.message) ? { rule: rule(e.message) } : {}), ...(e.file ? { file: e.file } : {}), ...(e.line ? { line: e.line } : {}), message: e.message })),
+      findings,
+    };
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return failedCount ? EXIT.VALIDATION : EXIT.OK;
   }
   if (security && errors.length === 0) process.stdout.write(securityOutput(process.cwd()));
   for (const e of errors) console.error(`${location(e) ? `${location(e)}  ` : ""}error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);

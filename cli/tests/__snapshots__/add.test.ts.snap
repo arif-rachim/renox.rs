@@ -1,0 +1,16 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the approval prompt shows what the module asks for 1`] = `
+"auth 1.0.0 (path:<tree>)
+It asks for:
+  tables   auth__*
+  network  accounts.google.com
+  secrets  AUTH_GOOGLE_CLIENT_SECRET
+  slots    (none)
+  hooks    (none)
+  tools    (none)
+  config   registration = "open", session_days = 30
+Dependencies: (none)
+Mount: /auth   Isolation: shared
+auth not installed: renox.toml and renox.lock are unchanged"
+`;
