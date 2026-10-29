@@ -104,7 +104,7 @@ class DeploymentMaps {
   constructor(private readonly files: Map<string, Uint8Array>) {}
 
   mapFor(path: string): Decoded | null {
-    for (const key of [`public/${path}.map`, `${path}.map`]) {
+    for (const key of [`public/${path}.map`, `${path}.map`, `code/${path}.map`]) {
       const hit = this.decoded.get(key);
       if (hit !== undefined) {
         if (hit !== null) return hit;
@@ -150,6 +150,21 @@ export class Symbolicator {
     this.cache.set(key, loaded);
     if (this.cache.size > MAX_CACHED_DEPLOYMENTS) this.cache.delete(this.cache.keys().next().value as string);
     return loaded;
+  }
+
+  /**
+   * A synchronous lookup over the maps of `hash`, or null when the deployment
+   * has none (shared with the server-stack symbolicator, #261: the maps are
+   * loaded once, then each frame is a lookup that a time budget can bound).
+   */
+  async lookupFor(tenant: string, hash: string): Promise<((file: string, line: number, column: number) => Original | null) | null> {
+    const maps = await this.maps(tenant, hash);
+    if (maps === null) return null;
+    return (file, line, column) => {
+      if (!file.startsWith("/") || file.startsWith("//") || line < 1) return null;
+      const map = maps.mapFor(file.replace(/[?#].*$/u, "").slice(1));
+      return map === null ? null : lookup(map, line, column);
+    };
   }
 
   /** The original position of `file:line:column` in `hash`, or null when no map of that deployment covers it. */

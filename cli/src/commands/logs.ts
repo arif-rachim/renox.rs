@@ -1,5 +1,5 @@
 // renox logs [--follow] [--since <time>] [--source all|server|client]
-//            [--deployment <hash>] [--app <name>] [--json]
+//            [--deployment <hash>] [--app <name>] [--json] [--raw]
 //
 // Reads GET /v1/apps/{app}/logs (docs/contracts/deploy-api.md section 11), a
 // Server-Sent Events stream of `log` events whose data is one `log_line`
@@ -9,12 +9,17 @@
 // reconnects with `Last-Event-ID`, backing off from 1 s to 30 s, so no line
 // is lost or shown twice. 401, 403 and 404 end it at once; 10 failed
 // reconnects in a row end it with exit 3.
+//
+// A server line with a stack carries `fields.frames` (#261): each frame is
+// printed on its own line at its original TypeScript position when the
+// deployment's sourcemaps had one, else at the bundled position. --raw adds
+// the bundled position under each original one, dimmed (plain with NO_COLOR).
 
 import { EnvironmentError, EXIT, UserError } from "../errors.ts";
 import { readProject } from "../lib/project.ts";
 import { apiAuth, apiRequest, cliErrorOf, defaultIo, errorBody, type Io } from "./login.ts";
 
-const USAGE = "usage: renox logs [--follow] [--since <ms|10m|2h|1d>] [--source all|server|client] [--deployment <hash>] [--app <name>] [--json]";
+const USAGE = "usage: renox logs [--follow] [--since <ms|10m|2h|1d>] [--source all|server|client] [--deployment <hash>] [--app <name>] [--json] [--raw]";
 const APP = /^[a-z][a-z0-9-]{0,49}$/u;
 /** Silence after which the stream is taken for dead (three keep-alives missed). */
 export const IDLE_MS = 45_000;
@@ -31,11 +36,50 @@ export interface LogLine {
   source: "server" | "client";
 }
 
-/** One line for the terminal: time, level, module, message, request id. */
-export function formatLine(l: LogLine): string {
-  const fields = l.fields === null || Object.keys(l.fields).length === 0 ? "" : ` ${JSON.stringify(l.fields)}`;
+/** A stack frame of `fields.frames` (deploy-api.md section 11; the client-events frame shape). */
+export interface Frame {
+  file: string;
+  line: number;
+  column: number;
+  function: string | null;
+  original: { file: string; line: number; column: number } | null;
+}
+
+export interface FormatOptions {
+  /** Also print each frame's bundled position under its original one. */
+  raw?: boolean;
+  /** ANSI dim for the bundled position (off with NO_COLOR). */
+  color?: boolean;
+}
+
+const isFrame = (f: unknown): f is Frame => {
+  const o = f as Frame;
+  return typeof o === "object" && o !== null && typeof o.file === "string" && typeof o.line === "number" && typeof o.column === "number";
+};
+
+/** One line for the terminal: time, level, module, message, request id; then the stack frames, if any. */
+export function formatLine(l: LogLine, opts: FormatOptions = {}): string {
+  const frames = Array.isArray(l.fields?.frames) ? (l.fields.frames as unknown[]).filter(isFrame) : [];
+  let shown = l.fields;
+  if (frames.length > 0 && l.fields !== null) {
+    // The frames replace the raw stack text on screen; --json keeps both.
+    const { frames: _f, stack: _s, ...rest } = l.fields;
+    shown = rest;
+  }
+  const fields = shown === null || Object.keys(shown).length === 0 ? "" : ` ${JSON.stringify(shown)}`;
   const id = l.request_id === null ? "" : `  (${l.request_id})`;
-  return `${new Date(l.ts).toISOString()}  ${l.level.padEnd(5)}  ${l.source === "client" ? "[browser] " : ""}${l.module}  ${l.message}${fields}${id}`;
+  const head = `${new Date(l.ts).toISOString()}  ${l.level.padEnd(5)}  ${l.source === "client" ? "[browser] " : ""}${l.module}  ${l.message}${fields}${id}`;
+  const dim = (s: string) => (opts.color === false ? s : `\u001b[2m${s}\u001b[22m`);
+  const out = [head];
+  for (const f of frames) {
+    const at = (file: string, line: number, column: number) => `${f.function === null ? "" : `${f.function} `}(${file}:${line}:${column})`;
+    if (f.original === null) out.push(`    at ${at(f.file, f.line, f.column)}`);
+    else {
+      out.push(`    at ${at(f.original.file, f.original.line, f.original.column)}`);
+      if (opts.raw === true) out.push(dim(`       bundled ${f.file}:${f.line}:${f.column}`));
+    }
+  }
+  return out.join("\n");
 }
 
 /** `--since`: Unix ms, or a duration back from now (`30s`, `10m`, `2h`, `1d`). */
@@ -93,6 +137,8 @@ interface Options {
   source: string;
   deployment: string | undefined;
   json: boolean;
+  raw: boolean;
+  color: boolean;
 }
 
 function query(o: Options): string {
@@ -130,7 +176,7 @@ async function stream(io: Io, o: Options, lastId: string | undefined): Promise<{
       if (o.json) io.out(e.data);
       else {
         try {
-          io.out(formatLine(JSON.parse(e.data) as LogLine));
+          io.out(formatLine(JSON.parse(e.data) as LogLine, { raw: o.raw, color: o.color }));
         } catch {
           io.out(e.data);
         }
@@ -148,12 +194,13 @@ async function stream(io: Io, o: Options, lastId: string | undefined): Promise<{
 }
 
 export async function run(args: string[], io: Io = defaultIo(), project: string = process.cwd()): Promise<number> {
-  const o: Options = { app: "", follow: false, since: undefined, source: "all", deployment: undefined, json: false };
+  const o: Options = { app: "", follow: false, since: undefined, source: "all", deployment: undefined, json: false, raw: false, color: io.env.NO_COLOR === undefined };
   let app: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i] as string;
     if (a === "--follow" || a === "-f") o.follow = true;
     else if (a === "--json") o.json = true;
+    else if (a === "--raw") o.raw = true;
     else if (a === "--since") o.since = parseSince(args[++i] ?? "", Date.now());
     else if (a === "--source") {
       o.source = args[++i] ?? "";

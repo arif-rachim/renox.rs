@@ -3,7 +3,8 @@
 // `log_lines` fragment every 2 s (htmx); each poll is one non-follow
 // `GET /v1/apps/{app}/logs?since=` (lib/api.ts), so no request outlives the
 // tenant wall-clock limit. Messages are rendered escaped; they were redacted
-// on the node.
+// on the node. A server stack's frames (`fields.frames`, #261) are listed at
+// their original TypeScript position, with the bundled one beside it.
 import type { LoaderContext } from "renox";
 
 import { apiBase, type LogLine } from "../../../lib/api.ts";
@@ -30,6 +31,20 @@ export function filters(url: URL) {
   return { level, source, window, q, deployment, live };
 }
 
+/** A frame of `fields.frames`: the original position first, the bundled one beside it (at most 50, as the API sends). */
+export function frameRows(fields: Record<string, unknown> | null): { fn: string; at: string; bundled: string | null }[] {
+  const raw = fields?.frames;
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 50).flatMap((f) => {
+    const o = f as { file?: unknown; line?: unknown; column?: unknown; function?: unknown; original?: { file?: unknown; line?: unknown; column?: unknown } | null };
+    if (typeof o.file !== "string" || typeof o.line !== "number" || typeof o.column !== "number") return [];
+    const bundled = `${o.file}:${o.line}:${o.column}`;
+    const orig = o.original;
+    const mapped = orig !== null && orig !== undefined && typeof orig.file === "string" && typeof orig.line === "number" && typeof orig.column === "number";
+    return [{ fn: typeof o.function === "string" ? o.function : "(anonymous)", at: mapped ? `${orig.file}:${orig.line}:${orig.column}` : bundled, bundled: mapped ? bundled : null }];
+  });
+}
+
 /** Lines that pass the level (at least) and search filters, newest first. */
 export function visible(lines: LogLine[], f: ReturnType<typeof filters>): LogLine[] {
   const min = f.level === "all" ? 0 : LEVELS.indexOf(f.level);
@@ -38,6 +53,14 @@ export function visible(lines: LogLine[], f: ReturnType<typeof filters>): LogLin
     .filter((l) => LEVELS.indexOf(l.level) >= min && (q === "" || l.message.toLowerCase().includes(q) || (l.request_id ?? "").toLowerCase().includes(q)))
     .slice(-MAX_LINES)
     .reverse();
+}
+
+/** The fields as JSON, without the frames and the raw stack when the frames are listed. */
+function fieldsText(fields: Record<string, unknown> | null): string {
+  if (fields === null) return "";
+  if (frameRows(fields).length === 0) return JSON.stringify(fields).slice(0, 2000);
+  const { frames: _f, stack: _s, ...rest } = fields;
+  return Object.keys(rest).length === 0 ? "" : JSON.stringify(rest).slice(0, 2000);
 }
 
 export async function load(ctx: LoaderContext) {
@@ -77,7 +100,8 @@ export async function load(ctx: LoaderContext) {
       deployment: shortHash(l.deployment_hash),
       module: l.module,
       message: l.message,
-      fields: l.fields === null ? "" : JSON.stringify(l.fields).slice(0, 2000),
+      fields: fieldsText(l.fields),
+      frames: frameRows(l.fields),
       // A browser error links to its group (the control plane adds `fields.fingerprint` at ingestion).
       group_url: l.source === "client" && typeof l.fields?.fingerprint === "string" && /^[0-9a-f]{16}$/u.test(l.fields.fingerprint) ? `/apps/${name}/client-errors?fp=${l.fields.fingerprint}` : null,
     })),
