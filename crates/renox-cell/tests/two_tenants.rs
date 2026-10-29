@@ -144,7 +144,9 @@ fn wal_size(db: &Path) -> u64 {
 /// each tenant's WAL is truncated.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_tenants_serve_meter_and_scale_to_zero() {
-    let e = env(1.0);
+    // A long timeout: eviction is forced below, not raced against the cold
+    // starts (#182).
+    let e = env(600.0);
     copy_dir(&hello_artifact(), &e.config.artifacts_dir.join(HELLO_HASH));
     write_routes(
         &e.config.routes_file,
@@ -181,6 +183,7 @@ async fn two_tenants_serve_meter_and_scale_to_zero() {
 
     // Scale to zero: isolates released, files closed with the WAL truncated.
     let manager = worker.manager.clone();
+    manager.set_idle_timeout_for_tests(Some(Duration::ZERO));
     wait_until("idle eviction", Duration::from_secs(5), || {
         manager.cell_count() == 0 && manager.open_databases() == 0
     })
@@ -197,6 +200,7 @@ async fn two_tenants_serve_meter_and_scale_to_zero() {
     })
     .await;
     // A request after eviction gets a fresh cell.
+    manager.set_idle_timeout_for_tests(None);
     let (status, _) = http(worker.addr, "a.test", "/api/hello").await;
     assert_eq!(status, 200);
     assert_eq!(worker.manager.cell_count(), 1);
@@ -271,7 +275,11 @@ async fn deployment_switch_drains_the_old_cell() {
     // A slow request is in flight on v1 when the route switches to v2.
     let addr = worker.addr;
     let slow = tokio::spawn(async move { http(addr, "c.test", "/api/v?slow=800").await });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let manager = worker.manager.clone();
+    wait_until("slow request in flight", Duration::from_secs(5), || {
+        manager.inflight_for_tests() == 1
+    })
+    .await;
     write_routes(
         &e.config.routes_file,
         vec![
@@ -292,7 +300,6 @@ async fn deployment_switch_drains_the_old_cell() {
         serde_json::from_str::<serde_json::Value>(&body).unwrap()["v"],
         1
     );
-    let manager = worker.manager.clone();
     let v2c = v2.clone();
     wait_until(
         "old cell evicted after drain",
@@ -465,7 +472,7 @@ async fn renox_worker_binary_serves_hello() {
 /// cell on the reopened file, which still has the first request's row.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_during_eviction_is_served_by_a_fresh_cell() {
-    let e = env(0.5);
+    let e = env(600.0);
     let v1 = versioned_artifact(&e.config.artifacts_dir, 1);
     write_routes(
         &e.config.routes_file,
@@ -497,6 +504,7 @@ async fn request_during_eviction_is_served_by_a_fresh_cell() {
 
     // The cell leaves the map; its database close is blocked.
     let manager = worker.manager.clone();
+    manager.set_idle_timeout_for_tests(Some(Duration::ZERO));
     wait_until("eviction started", Duration::from_secs(5), || {
         manager.cell_count() == 0
     })
@@ -505,10 +513,14 @@ async fn request_during_eviction_is_served_by_a_fresh_cell() {
     assert_eq!(manager.open_databases(), 1, "database not closing");
 
     let addr = worker.addr;
-    let during = tokio::spawn(async move { http(addr, "e.test", "/api/v").await });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    manager.set_idle_timeout_for_tests(None);
+    let mut during = tokio::spawn(async move { http(addr, "e.test", "/api/v").await });
+    // Nothing can answer before the close ends; a timeout that expires is
+    // the expected outcome and cannot fail a correct run.
     assert!(
-        !during.is_finished(),
+        tokio::time::timeout(Duration::from_millis(200), &mut during)
+            .await
+            .is_err(),
         "served while the old cell was closing"
     );
     release_tx.send(()).unwrap();
