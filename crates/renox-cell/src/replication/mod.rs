@@ -337,8 +337,14 @@ impl Replication {
                 }
             });
         }
+        let db_id = database.to_string();
         tokio::spawn(async move {
-            let _ = child.wait().await;
+            // The exit status names the cause: a signal 31 (SIGSYS) is the
+            // seccomp filter, a code is Litestream's own error.
+            match child.wait().await {
+                Ok(status) => tracing::warn!(database = %db_id, %status, "litestream exited"),
+                Err(e) => tracing::warn!(database = %db_id, error = %e, "litestream wait failed"),
+            }
             running.store(false, Ordering::SeqCst);
         });
     }

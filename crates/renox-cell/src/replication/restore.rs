@@ -117,7 +117,8 @@ pub fn generations(
             .map_err(|e| format!("run litestream: {e}"))?;
         if !out.status.success() {
             return Err(format!(
-                "litestream {sub}: {}",
+                "litestream {sub} ({}): {}",
+                out.status,
                 String::from_utf8_lossy(&out.stderr).trim()
             ));
         }
@@ -201,7 +202,8 @@ pub fn restore(
     if !out.status.success() || !tmp.exists() {
         let _ = std::fs::remove_file(&tmp);
         return Err(RestoreError::Unavailable(format!(
-            "litestream restore: {}",
+            "litestream restore ({}): {}",
+            out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         )));
     }

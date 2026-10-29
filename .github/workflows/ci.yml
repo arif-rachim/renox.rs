@@ -220,6 +220,11 @@ jobs:
       - run: make rust-test
         env:
           RENOX_TEST_SANDBOX: enforce
+      # A process the seccomp filter killed leaves a kernel audit record
+      # (type=1326) naming the syscall; printed when the tests failed.
+      - name: seccomp kills (on failure)
+        if: failure()
+        run: sudo dmesg | grep -E 'type=1326|seccomp' | tail -50 || true
       # The worker the ts job runs the CLI template, shop build and dev e2e
       # tests with (#186): built from this commit, without the test-hooks
       # feature that `cargo test` turns on in renox-runtime.
