@@ -8,7 +8,7 @@
 // handed in: in the module that is `ctx.fetch`, limited to the hosts of
 // `[permissions] network` the app approved.
 
-import { type AuthCtx, GENERIC_LOGIN_ERROR, normalizeEmail, randomHex, startSession, type User } from "./core.ts";
+import { afterLogin, type AuthCtx, GENERIC_LOGIN_ERROR, normalizeEmail, randomHex, startSession, type User } from "./core.ts";
 
 export type ProviderName = "google" | "github" | "microsoft" | "uaepass";
 
@@ -352,7 +352,7 @@ async function recordUaepass(ctx: AuthCtx, userId: string, profile: Profile): Pr
 
 /** After the profile: `auth.after_login`, the session, `auth.login`. */
 export async function finishSignIn(ctx: AuthCtx, user: User): Promise<{ cookie: string; halt?: Response }> {
-  const hook = await ctx.hooks.run("auth.after_login", { user_id: user.id });
+  const hook = await afterLogin(ctx, user.id);
   if (hook.halt) return { cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: Math.floor(Date.now() / 1000) });

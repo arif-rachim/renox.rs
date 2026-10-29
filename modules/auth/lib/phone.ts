@@ -11,7 +11,7 @@
 // both cases. Buckets: 5 codes per phone and 30 per IP address in 15
 // minutes, on top of the 5 attempts per code.
 
-import { type AuthCtx, bucket, clientIp, now, startSession, type User } from "./core.ts";
+import { afterLogin, type AuthCtx, bucket, clientIp, now, startSession, type User } from "./core.ts";
 
 export const CODE_TTL_SECONDS = 5 * 60;
 export const CODE_ATTEMPTS = 5;
@@ -98,7 +98,7 @@ export async function verifyLoginCode(ctx: AuthCtx, phoneInput: unknown, code: u
   if (userId === null) return { ok: false, error: GENERIC_PHONE_ERROR };
   const user = await ctx.db.queryOne<User>("select id, email, display_name, created_at from auth__users where id = ?", [userId]);
   if (user === null) return { ok: false, error: GENERIC_PHONE_ERROR };
-  const hook = await ctx.hooks.run("auth.after_login", { user_id: user.id, ...(next ? { next } : {}) });
+  const hook = await afterLogin(ctx, user.id, next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });

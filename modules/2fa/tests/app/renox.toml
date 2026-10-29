@@ -1,0 +1,14 @@
+# The app the 2fa module's tests run in (renox test, #287). Its TWOFA_KEY
+# is in .env.test (a test value).
+[app]
+name = "twofatest"
+timezone = "Asia/Dubai"
+
+[authz]
+actions = ["invoice.refund"]
+sensitive = ["invoice.refund"]
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+twofa = { version = "^1.0", source = "path:../..", mount = "/2fa", config = { passkey_rp_id = "shop.example", passkey_origin = "https://shop.example", recovery_codes = 4 } }

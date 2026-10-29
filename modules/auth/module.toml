@@ -36,6 +36,7 @@ secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICRO
 views = ["auth__public_users_v1"]
 
 [exports.services]
+resumeLogin = "Resume a sign-in an auth.after_login filler halted: (resume ticket) -> { cookie, session_id, user_id, next } or null (#287)"
 principal = "The request's principal for the cell (ops.md 1.5.0 section 17): { id, attrs: { email_verified, phone_verified, created_at, ... } } of the signed-in user, extended by the auth.principal hook, or null"
 register = "Create a user and mail a confirmation link: { email, password, display_name } -> { message } (the same if the email was taken)"
 login = "Sign in: { email, password } -> { user, cookie } or { error }"
@@ -77,8 +78,8 @@ args = { type = "object", required = ["to", "template", "args"], properties = { 
 description = "Send one mail (auth sends none itself before the email module, F7): fill it to deliver magic and reset links"
 
 [exports.hooks."auth.after_login"]
-args = { type = "object", required = ["user_id"], properties = { user_id = { type = "string" }, next = { type = "string" } } }
-description = "After the password check, before the session cookie is sent; a filler may halt with its own response (2fa)"
+args = { type = "object", required = ["user_id", "resume"], properties = { user_id = { type = "string" }, next = { type = "string" }, resume = { type = "string" } } }
+description = "After the password (or magic link, OAuth, phone, passkey) check, before the session cookie is sent; a filler may halt with its own response (2fa) and later call resumeLogin with `resume`"
 
 [exports.hooks."auth.agent_audit"]
 args = { type = "object", required = ["action", "user_id", "client_name", "scopes", "at"], properties = { action = { enum = ["connect", "revoke"] }, user_id = { type = "string" }, client_name = { type = "string" }, scopes = { type = "array", items = { type = "string" } }, at = { type = "integer" } } }

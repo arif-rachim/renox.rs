@@ -103,6 +103,7 @@ exports[`auth in Arabic account: the user's stored choice follows them to anothe
     </ul>
     <p><a href="passkeys/register">إضافة مفتاح مرور</a></p>
   
+  
   <h2>الوكلاء المتصلون</h2>
   <ul id="agents">
     <li>لا يوجد وكيل متصل.</li>

@@ -110,6 +110,7 @@ exports[`snapshots per role user: the account page and the header: role: user ac
     </ul>
     <p><a href="passkeys/register">Add a passkey</a></p>
   
+  
   <h2>Connected agents</h2>
   <ul id="agents">
     <li>No agent is connected.</li>

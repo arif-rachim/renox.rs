@@ -1,0 +1,22 @@
+<r-layout use="twofa">
+  <r-group slot="title"><r-t key="twofa.totp.add" /></r-group>
+  <h1><r-t key="twofa.totp.add" /></h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <r-group r-if="qr">
+    <p><r-t key="twofa.totp.scan" /></p>
+    <div id="qr" r-html="qr"></div>
+    <p><r-t key="twofa.totp.or_type" /> <code id="secret" dir="ltr">{{ secret }}</code></p>
+    <x-form action="confirm">
+      <label><r-t key="twofa.code" /> <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" dir="ltr" required></label>
+      <button type="submit"><r-t key="twofa.totp.turn_on" /></button>
+    </x-form>
+  </r-group>
+  <p r-if="already"><r-t key="twofa.totp.on" /> <a :href="done_url"><r-t key="twofa.back" /></a></p>
+  <r-group r-if="codes">
+    <p class="notice"><r-t key="twofa.totp.done" /></p>
+    <h2><r-t key="twofa.recovery.title" /></h2>
+    <p><r-t key="twofa.recovery.once" /></p>
+    <ul id="codes"><li r-for="c in codes"><code dir="ltr">{{ c }}</code></li></ul>
+    <p><a :href="done_url"><r-t key="twofa.back" /></a></p>
+  </r-group>
+</r-layout>

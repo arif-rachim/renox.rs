@@ -56,6 +56,7 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `sendMagicLink({ email })`, `requestPasswordReset({ email })` | `{ message }`: the same in every case |
 | `confirmPasswordReset({ token, password })` | `{ cookie }` or `{ error }` |
 | `principal(sessionId)` | `{ id, attrs }` of the signed-in user, or `null` (below, "The principal") |
+| `resumeLogin(ticket)` | `{ cookie, session_id, user_id, next }` for a `resume` ticket of `auth.after_login`, or `null` (unknown, used, or past 10 minutes). Starts the session; the hook does not run again |
 | `verifyAgentToken(token)` | `{ principal, scopes, client: { name } }` for a live agent token, or `null`. The cell calls it for `/mcp` |
 | `oauthMetadata(issuer)` | The RFC 8414 document the cell serves at `/.well-known/oauth-authorization-server<mount>/oauth` |
 | `listAgentTokens()`, `revokeAgentToken(id)` | The signed-in user's connected agents; revoke one of them |
@@ -90,7 +91,7 @@ All durable: written in the transaction of the request, delivered after it commi
 | Hook | When | A filler may |
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
-| `auth.after_login` | After the password, magic link, or OAuth check, before any session starts (`{ user_id, next? }`) | Halt with its own response: a second factor (F5); no session is started |
+| `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, next?, resume }`) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
 | `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org`. Keys outside the platform's user attributes are dropped |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |
 | `auth.send_sms` | Declared for F7 (`{ to, text }`) | Nothing fills it yet |
@@ -135,6 +136,8 @@ The login page offers the password form and, each behind its own switch:
 - a link to phone sign-in (config `phone_login`);
 - a link to passkey sign-in (config `passkeys`);
 - a button per OAuth provider that has a client id and a secret: Google, GitHub, Microsoft, UAE PASS.
+
+The `2fa` module (#287) fills both `auth.after_login` and `auth.principal`. After any of these methods, it halts the sign-in until the second factor. It keeps the `resume` ticket auth hands to `auth.after_login` fillers and redeems it with `resumeLogin` once the factor passed. It also sets `mfa_verified` on the principal.
 
 Every method ends the same way as the password flow. The hook `auth.after_login` runs first; a filler may halt, and then no session starts (2fa). After it come a new session, `auth.login`, and a 303 to `next`.
 

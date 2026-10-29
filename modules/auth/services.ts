@@ -119,3 +119,13 @@ export async function confirmPasswordReset(ctx: AuthCtx, input: { token: string;
   const r = await tokens.confirmReset(ctx, String(input?.token ?? ""), String(input?.password ?? ""));
   return r.ok ? { cookie: r.cookie } : { error: r.error };
 }
+
+/**
+ * Resume a sign-in that a filler of `auth.after_login` halted (#287): the
+ * filler passes the `resume` ticket it was given, once its own check
+ * passed. Starts the session and emits `auth.login`; null for a ticket
+ * that is unknown, used, or older than 10 minutes.
+ */
+export async function resumeLogin(ctx: AuthCtx, ticket: unknown): Promise<{ cookie: string; session_id: string; user_id: string; next: string | null } | null> {
+  return core.resumeLogin(ctx, ticket);
+}

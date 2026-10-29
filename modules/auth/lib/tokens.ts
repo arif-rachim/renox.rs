@@ -4,7 +4,7 @@
 // conditional UPDATE), bound to the user agent family of the request that
 // asked for it.
 
-import { type AuthCtx, normalizeEmail, randomHex, register, sha256Hex, startSession, type User } from "./core.ts";
+import { afterLogin, type AuthCtx, normalizeEmail, randomHex, register, sha256Hex, startSession, type User } from "./core.ts";
 
 export type Purpose = "magic" | "reset";
 
@@ -113,7 +113,7 @@ export async function signInWithMagic(ctx: AuthCtx, token: string): Promise<{ ok
   if (userId === null) return { ok: false };
   // The link proves the mailbox: mark the email verified.
   await ctx.db.execute("update auth__users set email_verified_at = coalesce(email_verified_at, ?) where id = ?", [now(), userId]);
-  const hook = await ctx.hooks.run("auth.after_login", { user_id: userId });
+  const hook = await afterLogin(ctx, userId);
   if (hook.halt) return { ok: true, cookie: "", halt: hook.response };
   const session = await startSession(ctx, userId);
   await ctx.events.emit("auth.login", { user_id: userId, at: now() });
