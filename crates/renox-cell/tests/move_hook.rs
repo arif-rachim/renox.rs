@@ -123,6 +123,12 @@ async fn http(
     (status, body)
 }
 
+/// Writes the hook's exit code whole (the hook polls for the file).
+fn release(root: &Path, code: &str) {
+    std::fs::write(root.join("release.tmp"), format!("{code}\n")).unwrap();
+    std::fs::rename(root.join("release.tmp"), root.join("release")).unwrap();
+}
+
 const TOKEN: &str = "renox_cb_abcdefghijklmnopqrstuvwxyz234567";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -136,12 +142,15 @@ async fn the_hook_runs_with_the_tenant_and_its_file_and_the_tenant_answers_503_w
         "the tenant serves before the move"
     );
 
-    // The hook records its arguments, then waits for `release` and exits with its content.
+    // The hook records its arguments, then waits for `release` and exits with
+    // its content. Builtins only: the hook inherits the worker's seccomp
+    // filter (CI runs this under `RENOX_TEST_SANDBOX=enforce`), which has no
+    // fork, so no `sleep` and no `$(…)`.
     let hook = root.join("hook.sh");
     std::fs::write(
         &hook,
         format!(
-            "#!/bin/sh\nprintf '%s\\n%s\\n' \"$1\" \"$2\" > '{0}/hook.args'\nwhile [ ! -e '{0}/release' ]; do sleep 0.05; done\nexit \"$(cat '{0}/release')\"\n",
+            "#!/bin/sh\nprintf '%s\\n%s\\n' \"$1\" \"$2\" > '{0}/hook.args'\nwhile [ ! -e '{0}/release' ]; do :; done\nread code < '{0}/release'\nexit \"$code\"\n",
             root.display()
         ),
     )
@@ -204,7 +213,7 @@ async fn the_hook_runs_with_the_tenant_and_its_file_and_the_tenant_answers_503_w
     assert!(text.contains("RENOX_TENANT_MOVING"));
 
     // The stub's code (75): failed, and the tenant serves here again.
-    std::fs::write(root.join("release"), "75").unwrap();
+    release(&root, "75");
     let (status, answer) = moving.await.unwrap();
     assert_eq!(status, 200, "{answer}");
     let r: serde_json::Value = serde_json::from_str(&answer).unwrap();
@@ -214,7 +223,7 @@ async fn the_hook_runs_with_the_tenant_and_its_file_and_the_tenant_answers_503_w
     assert_eq!(get(worker.addr).await.0, 200, "the tenant serves again");
 
     // Exit 0: moved; the tenant stays refused here.
-    std::fs::write(root.join("release"), "0").unwrap();
+    release(&root, "0");
     let ok = serde_json::json!({ "type": "move_request", "schema_version": 0, "tenant_id": "t_repl", "target": "microvm", "reason": "abuse report 2026-118: isolate", "operator": "acct_01JBQ40000000000OP" }).to_string();
     let (status, answer) = http(addr, "POST", "node", path, &[auth], &ok).await;
     assert_eq!(status, 200, "{answer}");

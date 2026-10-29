@@ -34,12 +34,17 @@ ftruncate
 futex
 getcwd
 getdents64
+getegid
 geteuid
+getgid
+getpgrp
 getpid
+getppid
 getrandom
 getsockname
 getsockopt
 gettid
+getuid
 ioctl
 kill
 listen

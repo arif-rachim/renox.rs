@@ -29,13 +29,14 @@ if [[ ! $tenant =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]]; then
   exit 64
 fi
 
-cat <<PLAN
-move-to-microvm: plan for tenant $tenant
-  1. snapshot   sqlite3 '$file' "VACUUM INTO '<run>/microvm/$tenant/app.db'" (a consistent copy; the node has drained the tenant)
-  2. start VM   firecracker --config-file <run>/microvm/$tenant/vm.json (the renox-worker image, 1 vCPU, 1 GiB, the copy as a virtio block device)
-  3. register   the VM's worker registers with the control plane as node microvm-$tenant
-  4. route      the control plane pins $tenant to microvm-$tenant and publishes the route delta
-PLAN
+# Builtins only: the hook inherits the worker's seccomp filter ([sandbox],
+# #253), which has no fork. A real launcher is started with `exec`.
+printf '%s\n' \
+  "move-to-microvm: plan for tenant $tenant" \
+  "  1. snapshot   sqlite3 '$file' \"VACUUM INTO '<run>/microvm/$tenant/app.db'\" (a consistent copy; the node has drained the tenant)" \
+  "  2. start VM   firecracker --config-file <run>/microvm/$tenant/vm.json (the renox-worker image, 1 vCPU, 1 GiB, the copy as a virtio block device)" \
+  "  3. register   the VM's worker registers with the control plane as node microvm-$tenant" \
+  "  4. route      the control plane pins $tenant to microvm-$tenant and publishes the route delta"
 
 if [[ $dry_run -eq 1 ]]; then
   echo "move-to-microvm: dry run, nothing done"

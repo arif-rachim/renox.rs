@@ -16,3 +16,8 @@ waitid          child reaping without pidfd
 close_range     Rust std closes inherited descriptors in spawned children
 getcwd          relative paths resolved at start
 nanosleep       std::thread::sleep on older glibc
+getuid          [process] microvm_hook (#259): a shell hook's identity reads at start (read-only; no fork is allowed)
+getgid          same
+getegid         same
+getppid         same
+getpgrp         same

@@ -32,6 +32,8 @@
 | x86_64 | 91 | 81 | 10 (`exit`, `exit_group`, `rt_sigreturn`, `restart_syscall`, `execve`, `wait4`, `kill`, `pidfd_open`, `tgkill`, `pipe2`, `dup3`, `waitid`, `close_range`, `getcwd`, `nanosleep`; some were also traced) |
 | aarch64 | 92 | derived | — |
 
+Amended for #259 (the `[process] microvm_hook`): CI's `RENOX_TEST_SANDBOX=enforce` run showed a hook started by the worker is killed, because it inherits the filter. `sh` reads its identity at start. `baseline.txt` gained `getuid`, `getgid`, `getegid`, `getppid` and `getpgrp`, all read-only, and both lists were updated the way `--from-traces` would update them. x86_64 now has 96 calls and aarch64 97. Fork (`clone` without thread flags, `fork`, `vfork`) stays out, so a hook must use shell builtins or `exec` its launcher. `ops/scripts/move-to-microvm.sh` and the hook of `crates/renox-cell/tests/move_hook.rs` were traced: nothing outside the list.
+
 Never in either list (a unit test enforces it): `ptrace`, `process_vm_readv`/`writev`, `bpf`, `mount`, `umount2`, `init_module`, `finit_module`, `kexec_load`, `setns`, `unshare`, `pivot_root`, `chroot`, `keyctl`, `add_key`, `perf_event_open`, `userfaultfd`, `open_by_handle_at`, and `seccomp` itself (a second filter cannot be loaded once the first is in place).
 
 ## Runs under `enforce`

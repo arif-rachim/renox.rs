@@ -136,4 +136,6 @@ Exit 0 means moved: the node keeps refusing the tenant, and the control plane re
 microvm_hook = "/opt/renox/ops/scripts/move-to-microvm.sh"
 ```
 
+With `[sandbox]` on, the hook inherits the worker's seccomp filter (#253). That filter has no fork: no `fork`, no `vfork`, no `clone` without thread flags. So a hook may use only shell builtins (`printf`, `[ ]`, `read`, `exit`) and must start a launcher with `exec`, never as a child; `sleep`, a pipe, or `$(…)` would kill it. Killed by the filter, the hook exits with 128 + 31 (`SIGSYS`), which counts as failed, so the tenant serves where it was. The stub stays within these rules, and so does the hook of `crates/renox-cell/tests/move_hook.rs`, which CI runs under `RENOX_TEST_SANDBOX=enforce`.
+
 The real launcher (the Firecracker image, its network, and the route to a VM) is F7 work. It replaces this script behind the same interface: two arguments in, one exit code out.

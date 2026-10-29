@@ -129,7 +129,9 @@ pub struct ProcessSection {
     pub child_pids: u64,
     /// The operator hook a move to a microVM runs (#259,
     /// `ops/scripts/move-to-microvm.sh`), with the tenant id and the file
-    /// path. Absent: such a move answers exit code 75.
+    /// path. Absent: such a move answers exit code 75. It inherits the
+    /// `[sandbox]` seccomp filter, which has no fork: builtins or `exec`
+    /// only (ops/README.md, "Moving a tenant to a microVM").
     pub microvm_hook: Option<PathBuf>,
 }
 
