@@ -1,0 +1,75 @@
+{
+  "id": "B15",
+  "scenario": "renox deploy of examples/shop (fresh copy, new hash each run) to a local control plane (control/api on PGlite, in-memory artifact store) and one controlled renox-worker; time to the first 200 of the new version; rollback to the first 200 of the previous one",
+  "notes": "debug renox-worker; the CLI, the API and the worker share the machine",
+  "samples": {
+    "deploy_ms": [
+      413.8756199999998,
+      382.91766199999984,
+      360.3954140000005,
+      360.652145,
+      352.8327019999997
+    ],
+    "cli_ms": [
+      403.1987489999992,
+      373.4579020000001,
+      351.53325099999984,
+      349.4913199999992,
+      345.3826570000001
+    ],
+    "route_ms": [
+      10.676871000000574,
+      9.459759999999733,
+      8.862163000000692,
+      11.160825000000841,
+      7.450044999999591
+    ],
+    "build_ms": [
+      130,
+      112,
+      106,
+      104,
+      103
+    ],
+    "upload_ms": [
+      28,
+      23,
+      26,
+      22,
+      23
+    ],
+    "sourcemaps_ms": [
+      48,
+      44,
+      39,
+      35,
+      37
+    ],
+    "activate_ms": [
+      121,
+      106,
+      95,
+      116,
+      98
+    ],
+    "rollback_ms": [
+      153.73464800000056,
+      135.9544590000005,
+      122.7805900000003,
+      138.4221550000002,
+      127.45085199999994
+    ]
+  },
+  "summary": {
+    "deploy_s": 0.361,
+    "rollback_s": 0.136,
+    "deploy_p99_s": 0.414,
+    "rollback_p99_s": 0.154,
+    "build_ms_p50": 106,
+    "upload_ms_p50": 23,
+    "sourcemaps_ms_p50": 39,
+    "activate_ms_p50": 106,
+    "cli_ms_p50": 352,
+    "route_ms_p50": 9
+  }
+}
