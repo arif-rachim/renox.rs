@@ -3,12 +3,13 @@
 // roles has unit, snapshot-per-role, install/upgrade and policy-case tests.
 
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { addModule } from "../src/commands/add.ts";
 import { runTests } from "../src/commands/test.ts";
+import { treeHash } from "../src/lib/modules/resolve.ts";
 import { write } from "./shop-auth-fixture.ts";
 import { testWorker } from "./worker-env.ts";
 
@@ -131,6 +132,19 @@ test.skipIf(!worker)(
     write(dir, { "tests/fail.test.ts": `import { expect, test } from "bun:test";\ntest("fails", () => expect(1).toBe(2));\n` });
     const r = await runTests(dir, ["tests/fail.test.ts"], "pipe");
     expect(r.code).toBe(2);
+  },
+  120_000,
+);
+
+test.skipIf(!worker)(
+  "in a module folder, renox test leaves the module tree as it was (its hash is in apps' locks, MF12)",
+  async () => {
+    const gcc = join(repo, "modules/gcc");
+    const before = treeHash(gcc);
+    const r = await runTests(gcc, ["tests/validators.test.ts"], "pipe");
+    expect(r.code, r.out).toBe(0);
+    expect(existsSync(join(gcc, ".renox"))).toBe(false);
+    expect(treeHash(gcc)).toBe(before);
   },
   120_000,
 );

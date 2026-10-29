@@ -24,7 +24,9 @@ export async function runTests(project: string, args: string[], output: "inherit
     else patterns.push(a); // patterns, and -u / --update-snapshots for bun test
   }
   const spec = await prepare(project, seeds, workerPath());
-  const specFile = join(project, ".renox", "test", "spec.json");
+  // Next to the artifact: for a module, in its temporary test app, never in
+  // the module tree (its hash covers every file, manifest.md MF12).
+  const specFile = join(spec.project, ".renox", "test", "spec.json");
   await Bun.write(specFile, JSON.stringify(spec));
   const p = Bun.spawn([process.execPath, "test", ...(existsSync(PRELOAD) ? ["--preload", PRELOAD] : []), ...patterns], {
     cwd: project,
