@@ -1,0 +1,77 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`gcc the address and phone partials, English and Arabic: role: address en 1`] = `
+"<!DOCTYPE html><html lang="en-AE" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script><meta charset="utf-8"><title>Address</title></head>
+<body>
+  <form>
+    
+<fieldset class="gcc-address">
+  <legend>Address</legend>
+  <label>Emirate
+    <select name="emirate">
+      <option value="AE-AZ">Abu Dhabi</option>
+      <option value="AE-DU" selected>Dubai</option>
+      <option value="AE-SH">Sharjah</option>
+      <option value="AE-AJ">Ajman</option>
+      <option value="AE-UQ">Umm Al Quwain</option>
+      <option value="AE-RK">Ras Al Khaimah</option>
+      <option value="AE-FU">Fujairah</option>
+    </select>
+  </label>
+  <label>Area
+    <input name="area" value="Dubai Marina" autocomplete="off" hx-get="/gcc/areas" hx-trigger="input changed delay:200ms" hx-target="#gcc-area-list" hx-include="closest fieldset" dir="auto">
+  </label>
+  <ul id="gcc-area-list" class="gcc-areas"></ul>
+  <label>P.O. Box <input name="po_box" value="12345" inputmode="numeric" maxlength="6" dir="auto"></label>
+  <label>Makani number <input name="makani" value="3065495733" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" dir="auto"></label>
+</fieldset>
+
+    
+<label class="gcc-phone">Mobile number
+  <input type="tel" name="phone" value="+971501234567" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="+971 50 123 4567" pattern="[+0-9 ()-]{9,20}">
+  <small class="gcc-phone-display" dir="auto">+971 50 123 4567</small>
+</label>
+
+  </form>
+
+
+</body></html>"
+`;
+
+exports[`gcc the address and phone partials, English and Arabic: role: address ar 1`] = `
+"<!DOCTYPE html><html lang="ar-AE" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script><meta charset="utf-8"><title>Address</title></head>
+<body>
+  <form>
+    
+<fieldset class="gcc-address">
+  <legend>العنوان</legend>
+  <label>الإمارة
+    <select name="emirate">
+      <option value="AE-AZ">أبوظبي</option>
+      <option value="AE-DU" selected>دبي</option>
+      <option value="AE-SH">الشارقة</option>
+      <option value="AE-AJ">عجمان</option>
+      <option value="AE-UQ">أم القيوين</option>
+      <option value="AE-RK">رأس الخيمة</option>
+      <option value="AE-FU">الفجيرة</option>
+    </select>
+  </label>
+  <label>المنطقة
+    <input name="area" value="Dubai Marina" autocomplete="off" hx-get="/gcc/areas" hx-trigger="input changed delay:200ms" hx-target="#gcc-area-list" hx-include="closest fieldset" dir="auto">
+  </label>
+  <ul id="gcc-area-list" class="gcc-areas"></ul>
+  <label>صندوق البريد <input name="po_box" value="12345" inputmode="numeric" maxlength="6" dir="auto"></label>
+  <label>رقم مكاني <input name="makani" value="3065495733" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" dir="auto"></label>
+</fieldset>
+
+    
+<label class="gcc-phone">رقم الهاتف المتحرك
+  <input type="tel" name="phone" value="+971501234567" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="+971 50 123 4567" pattern="[+0-9 ()-]{9,20}">
+  <small class="gcc-phone-display" dir="auto">⁦+971 50 123 4567⁩</small>
+</label>
+
+  </form>
+
+
+</body></html>"
+`;

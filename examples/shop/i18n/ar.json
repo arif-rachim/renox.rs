@@ -1,0 +1,27 @@
+{
+  "_meta": {
+    "status": "Machine translated; not yet reviewed by a native speaker (owner task, #244)"
+  },
+  "shop": {
+    "brand": "متجر رينوكس",
+    "nav": {
+      "products": "المنتجات",
+      "cart": "السلة:"
+    },
+    "footer": "الأسعار بالدرهم الإماراتي وتشمل ضريبة القيمة المضافة.",
+    "list": {
+      "title": "المنتجات",
+      "search": "ابحث عن المنتجات",
+      "submit": "بحث",
+      "empty": "لا توجد منتجات تطابق \"{q}\"."
+    },
+    "card": {
+      "out": "نفد من المخزون",
+      "in_stock": "{n} متوفر في المخزون"
+    },
+    "lang": {
+      "en": "English",
+      "ar": "العربية"
+    }
+  }
+}

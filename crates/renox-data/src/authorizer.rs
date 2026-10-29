@@ -79,26 +79,50 @@ impl AuthorizerPolicy {
                 .is_some_and(|rest| self.owns(rest))
     }
 
+    /// `<dep>__public_<name>_v<n>` of a declared dependency (`manifest.md`
+    /// MF6): only versioned public views pass reads through.
     fn is_dep_public(&self, name: &str) -> bool {
-        self.read_deps
-            .iter()
-            .any(|d| has_prefix(name, d, "__public_"))
+        self.read_deps.iter().any(|d| is_public_view_of(name, d))
     }
 
     /// Decide one authorizer call; `Err` carries the object and the action.
-    pub(crate) fn check(&self, ctx: &AuthContext<'_>) -> Result<(), Denial> {
+    /// `via_view` collects, per statement, the tables read through a
+    /// dependency's public view: SQLite's `count(*)` over a view reads the
+    /// base table once more with no column and no view as accessor, which
+    /// is allowed only for a table the statement reached through such a view.
+    pub(crate) fn check(
+        &self,
+        ctx: &AuthContext<'_>,
+        via_view: &mut Vec<String>,
+    ) -> Result<(), Denial> {
         let ddl = self.allow_ddl;
         // Only the main database; `temp` objects are refused (the migration
         // runner's `alter table ... rename` reads `sqlite_temp_master`).
         let main_db = matches!(ctx.database_name, None | Some("main"));
         let ok = match ctx.action {
             AuthAction::Select | AuthAction::Recursive => true,
-            AuthAction::Transaction { .. } | AuthAction::Savepoint { .. } => !ddl,
+            AuthAction::Transaction { .. } => !ddl,
+            // `renox_sp_<n>` savepoints belong to the platform (`ops.md`
+            // section 1, "Savepoints"): tenant SQL may not name them.
+            AuthAction::Savepoint { savepoint_name, .. } => {
+                !ddl && !is_platform_savepoint(savepoint_name)
+            }
             AuthAction::Function { function_name } => {
                 !matches!(function_name, "load_extension" | "fts3_tokenizer")
             }
-            AuthAction::Read { table_name, .. } => {
+            AuthAction::Read {
+                table_name,
+                column_name,
+            } => {
+                let through_view = main_db && ctx.accessor.is_some_and(|a| self.is_dep_public(a));
+                if through_view && !via_view.iter().any(|t| t == table_name) {
+                    via_view.push(table_name.to_string());
+                }
                 (main_db && (self.owns(table_name) || self.is_dep_public(table_name)))
+                    || (main_db
+                        && column_name.is_empty()
+                        && ctx.accessor.is_none()
+                        && via_view.iter().any(|t| t == table_name))
                     // A column read inside a dependency's public view.
                     || (main_db && ctx.accessor.is_some_and(|a| self.is_dep_public(a)))
                     || (ddl && is_schema_table(table_name))
@@ -151,6 +175,32 @@ fn has_prefix(name: &str, module: &str, sep: &str) -> bool {
     name.len() > module.len() + sep.len()
         && name.starts_with(module)
         && name[module.len()..].starts_with(sep)
+}
+
+/// `^<dep>__public_[a-z0-9_]+_v[0-9]+$` (SQLite hands the stored name, which
+/// may be in any case; schema names are compared lower-case).
+pub(crate) fn is_public_view_of(name: &str, dep: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let Some(rest) = name
+        .strip_prefix(dep)
+        .and_then(|r| r.strip_prefix("__public_"))
+    else {
+        return false;
+    };
+    let Some((stem, version)) = rest.rsplit_once("_v") else {
+        return false;
+    };
+    !stem.is_empty()
+        && stem
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        && !version.is_empty()
+        && version.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn is_platform_savepoint(name: &str) -> bool {
+    name.get(..6)
+        .is_some_and(|p| p.eq_ignore_ascii_case("renox_"))
 }
 
 fn is_schema_table(name: &str) -> bool {
@@ -235,10 +285,11 @@ impl Denial {
 pub(crate) fn decide(
     policy: Option<&AuthorizerPolicy>,
     ctx: &AuthContext<'_>,
+    via_view: &mut Vec<String>,
 ) -> (Authorization, Option<Denial>) {
     match policy {
         None => (Authorization::Allow, None),
-        Some(p) => match p.check(ctx) {
+        Some(p) => match p.check(ctx, via_view) {
             Ok(()) => (Authorization::Allow, None),
             Err(d) => (Authorization::Deny, Some(d)),
         },

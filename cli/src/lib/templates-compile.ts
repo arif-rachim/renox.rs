@@ -100,9 +100,14 @@ export const templatesKey = (files: Record<string, string>): string =>
  * with every diagnostic, or an EnvironmentError (exit 3) when there is no
  * worker binary.
  */
-export async function transpile(files: Record<string, string>, worker = workerPath()): Promise<Record<string, CompiledTemplate>> {
+export async function transpile(
+  files: Record<string, string>,
+  worker = workerPath(),
+  slots?: Record<string, { template: string; requires?: string }[]>,
+): Promise<Record<string, CompiledTemplate>> {
   const p = Bun.spawn([worker, "transpile"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  p.stdin.write(JSON.stringify({ files }));
+  // The slot registry (artifact.md 1.1, "Slots") compiles into the `<r-slot>` includes.
+  p.stdin.write(JSON.stringify(slots && Object.keys(slots).length ? { files, slots } : { files }));
   await p.stdin.end();
   const [text, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   if (code !== 0) throw new ValidationError(`renox-worker transpile failed (exit code ${code}): ${err.trim()}`);

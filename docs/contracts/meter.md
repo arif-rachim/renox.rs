@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0.1** (F2, #152). Batches carry `schema_version: 0`: 0.1 is additive, and every version 0 record is a valid 0.1 record (section 8). History: "Changelog" at the bottom |
+| Version | **0.2** (F4, #226: event delivery records). Batches carry `schema_version: 0`: 0.1 and 0.2 are additive, and every version 0 record is a valid 0.2 record (section 8). History: "Changelog" at the bottom |
 | Producers | `crates/renox-meter` (P4), fed by `crates/renox-runtime` (P1) and `crates/renox-cell` (P5) |
 | Consumers | `control/billing` (P14, F3): aggregation into billing tables; dashboard usage views (P13, F3); abuse detection (`docs/24-threat-model.md`) |
 | Machine-readable | [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json): the batch envelope (root) and the record (`$defs/record`) |
@@ -44,6 +44,21 @@ All fields are required except `render_ms`. Integers are JSON numbers within ±(
 | `logs_dropped` | integer | lines | runtime, `op_log` | Log lines dropped by the tenant log rate limit during this request (`ops.md` section 4) |
 | `http_status` | integer, 100–599 | — | cell | Status code sent to the client. For an invocation ended by client disconnect, the status that was sent or would have been sent |
 | `status` | enum (below) | — | cell | How the invocation ended, from the platform's point of view |
+| `kind` | `"request"` or `"event"`, **optional** (0.2) | — | cell | What was invoked. Absent means `"request"`. `"event"`: one delivery attempt of a durable event ("Event records", below) |
+
+### Event records (0.2)
+
+Each delivery attempt of a durable event to one module's handler (`ops.md` section 15.4) is one invocation and one record, with `kind: "event"`. The fields keep their meaning, with these values:
+
+| Field | Value for an event record |
+| --- | --- |
+| `request_id` | `<event id>_<module>_<attempt>`: unique per attempt, so de-duplication (section 4) never merges two attempts |
+| `route` | `EVENT <module> <event name>`, e.g. `EVENT email billing.invoice_paid`: the handling module and the event; low cardinality like a route pattern |
+| `ingress_bytes`, `egress_bytes` | `0`: there is no client |
+| `http_status` | `200` when `status` is `ok`, `500` otherwise; there is no client response, the field stays required for older consumers |
+| `status` | `ok` (the handler resolved), `error` (it threw), `timeout`, `cpu_limit`, or `oom`; never `busy`, `blocked_fetch` (an uncaught blocked fetch is `error`), or `render_limit` |
+
+A request record (`kind` absent or `"request"`) never has an `EVENT` route, and an event record never has a `<METHOD>` route (`schemas/meter-record.schema.json`, the record's `if`/`then`/`else`). Service calls, hooks, and in-memory event handlers run inside the request that made them and produce no record of their own (`ops.md` section 7).
 
 ### `status`
 
@@ -110,7 +125,7 @@ Not produced in v0. They get their own record kind in a later version. A record 
 | Realtime | F5 | `kind: "realtime"`, `tenant_id`, `deployment_hash`, `period_start`, `period_end`, `connection_seconds`, `peak_connections`, `messages_in`, `messages_out`, `bytes_out` | Per cell per minute |
 | Storage | F5 (SQLite), F7 (object storage) | `kind: "storage"`, `tenant_id`, `measured_at`, `sqlite_bytes`, `wal_bytes`, `object_bytes`, `object_count` | Hourly, end of hour (`docs/05-tenant-lifecycle.md`) |
 | Render | F2 (done in 0.1) | No new record: `render_fuel` and `render_ms` are fields of the invocation record (section 2) | — |
-| Background jobs and events | F4/F6 | Invocation records with a `route` of the form `JOB <name>` / `EVENT <name>` | Per run |
+| Background jobs | F6 | Invocation records with `kind: "job"` and a `route` of the form `JOB <name>` (events are done in 0.2: section 2, "Event records") | Per run |
 
 ## 7. Mapping to billing dimensions
 
@@ -118,7 +133,7 @@ Not produced in v0. They get their own record kind in a later version. A record 
 
 | Billing dimension | Derived from | Notes |
 | --- | --- | --- |
-| Requests | Count of records with `status` ≠ `busy` | `busy` rejections are not charged |
+| Requests | Count of records with `status` ≠ `busy` | `busy` rejections are not charged. Event records (0.2) count as requests: each delivery attempt runs tenant code |
 | CPU-ms | Sum of `cpu_ms + render_ms` (absent `render_ms` = 0) | Rendering runs outside the tenant's CPU limit but is charged to its quota (`docs/04-isolation-security.md`), so it is billed as the CPU time it took. `render_fuel` is not converted: it is kept for the render limits and dashboards |
 | Egress | Sum of `egress_bytes + fetch_sent_bytes` | Bytes leaving our network. `fetch_received_bytes` and `ingress_bytes` are kept for abuse detection and limits, not billed |
 | Storage | Storage meter (reserved, section 6) | Not derived from invocation records |
@@ -145,3 +160,4 @@ Not produced in v0. They get their own record kind in a later version. A record 
 | --- | --- | --- |
 | 0 | #16 | First version (F1): record, batch, delivery, sinks, reserved meters, billing mapping |
 | 0.1 | #152 | `render_fuel` may be non-zero (filled by the cell); new optional `render_ms` (render-pool CPU time, outside `cpu_ms`); new `status` value `render_limit`; billed CPU-ms is `cpu_ms + render_ms`; versioning rules (section 8) |
+| 0.2 | #226 | New optional `kind` (`"request"`, `"event"`; absent = request); event delivery records with the `EVENT <module> <name>` route form and the `<event id>_<module>_<attempt>` request id (section 2, "Event records"), the route form checked per `kind` by the schema; event attempts are billed as requests (section 7); `ops.md` 1.3.0 |

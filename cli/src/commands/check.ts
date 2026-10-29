@@ -22,6 +22,8 @@ import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
 import { securityReport } from "../check/security.ts";
 import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
+import { projectProblems } from "../lib/modules/resolve.ts";
+import { contractProblems, installedModules } from "../lib/modules/build.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
 
@@ -45,6 +47,8 @@ export interface CheckReport {
 export interface CheckOptions {
   /** Only the secret scan. */
   secretsOnly?: boolean;
+  /** Override drift is an error, not a warning (#235). */
+  strict?: boolean;
 }
 
 export async function check(project: string, options: CheckOptions = {}): Promise<CheckReport> {
@@ -62,6 +66,10 @@ export async function check(project: string, options: CheckOptions = {}): Promis
       findings.push({ file: m.file, line: m.line, column: 1, rule: "secret", severity: "error", message: "renox-allow-secret needs a reason (renox-allow-secret: <why this is not a secret>)" });
     }
     if (!options.secretsOnly) {
+      // docs/23-failure-modes.md "Template override drifted": the diff, then go on (or fail with --strict).
+      for (const d of built.drift) {
+        findings.push({ file: `overrides/${d.file}`, line: 1, column: 1, rule: "override-drift", severity: options.strict ? "error" : "warning", message: `the module's original changed since the override was made (${d.stored.slice(0, 12)} -> ${d.current.slice(0, 12)})\n${d.diff}` });
+      }
       for (const k of built.skipped) {
         findings.push({ file: k.path, line: 1, column: 1, rule: "forbidden-file", severity: "warning", message: `left out of the artifact: ${k.reason}` });
       }
@@ -74,6 +82,16 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     else throw e;
   }
   if (options.secretsOnly) return { errors, findings };
+  // Modules and renox.lock (docs/contracts/manifest.md section 6): each problem names its rule.
+  if (existsSync(join(project, "renox.toml"))) {
+    const problems = projectProblems(project);
+    for (const p of problems) errors.push(new CliError(`${p.rule}: ${p.message}`, EXIT.VALIDATION, { file: p.file }));
+    // Module contracts in the code (#235): only on a consistent lock.
+    const { modules } = installedModules(project);
+    if (problems.length === 0 && modules.length) {
+      for (const p of contractProblems(project, modules)) errors.push(new CliError(`${p.rule}: ${p.message}`, EXIT.VALIDATION, { file: p.file, line: p.line }));
+    }
+  }
   findings.push(...noPublicSourcemaps(project));
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
@@ -147,16 +165,16 @@ export function securityOutput(project: string): string {
 }
 
 export async function run(args: string[]): Promise<number> {
-  const flags = new Set(["--secrets", "--security"]);
+  const flags = new Set(["--secrets", "--security", "--json", "--strict"]);
   const t = args.indexOf("--target");
   const target = t >= 0 ? args[t + 1] : undefined;
   const rest = t >= 0 ? [...args.slice(0, t), ...args.slice(t + 2)] : args;
   if ((t >= 0 && (target === undefined || target.startsWith("-"))) || rest.some((a) => !flags.has(a)) || new Set(rest).size !== rest.length) {
-    console.error("usage: renox check [--secrets] [--security] [--target <hash | artifact dir>]");
+    console.error("usage: renox check [--secrets] [--security] [--json] [--strict] [--target <hash | artifact dir>]");
     return EXIT.USER;
   }
   const security = args.includes("--security");
-  const { errors, findings: lint } = await check(process.cwd(), { secretsOnly: args.includes("--secrets") });
+  const { errors, findings: lint } = await check(process.cwd(), { secretsOnly: args.includes("--secrets"), strict: args.includes("--strict") });
   const findings: (Finding | SchemaFinding)[] = lint;
   if (target !== undefined) {
     try {
@@ -166,6 +184,17 @@ export async function run(args: string[]): Promise<number> {
       console.error(`error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);
       return e.exitCode;
     }
+  }
+  const failedCount = errors.length + findings.filter((f) => f.severity === "error").length;
+  if (args.includes("--json")) {
+    const rule = (m: string): string | undefined => /^(MF[0-9]+):/u.exec(m)?.[1];
+    const report = {
+      ok: failedCount === 0,
+      errors: errors.map((e) => ({ ...(rule(e.message) ? { rule: rule(e.message) } : {}), ...(e.file ? { file: e.file } : {}), ...(e.line ? { line: e.line } : {}), message: e.message })),
+      findings,
+    };
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return failedCount ? EXIT.VALIDATION : EXIT.OK;
   }
   if (security && errors.length === 0) process.stdout.write(securityOutput(process.cwd()));
   for (const e of errors) console.error(`${location(e) ? `${location(e)}  ` : ""}error  ${e.message}${e.hint ? `\n  hint: ${e.hint}` : ""}`);

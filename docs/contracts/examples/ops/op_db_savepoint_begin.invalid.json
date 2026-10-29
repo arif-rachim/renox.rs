@@ -1,0 +1,7 @@
+{
+  "$comment": "invalid: a savepoint needs an open transaction handle, not null",
+  "op": "op_db_savepoint_begin",
+  "args": [
+    null
+  ]
+}

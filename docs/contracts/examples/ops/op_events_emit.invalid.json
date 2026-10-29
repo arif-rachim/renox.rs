@@ -1,0 +1,11 @@
+{
+  "$comment": "invalid: an event name is <module>.<event> [expect: pattern]",
+  "op": "op_events_emit",
+  "args": [
+    "invoice_paid",
+    "{}",
+    true,
+    "billing",
+    null
+  ]
+}

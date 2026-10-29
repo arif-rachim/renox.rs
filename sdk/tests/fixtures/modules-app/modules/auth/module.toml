@@ -1,0 +1,21 @@
+[module]
+name = "auth"
+version = "1.0.0"
+
+[config]
+registration = { type = "enum", values = ["open", "invite"], default = "open" }
+session_days = { type = "int", min = 1, max = 365, default = 30 }
+support_email = { type = "string", required = false }
+
+[permissions]
+tables = "auth__*"
+
+[exports.services]
+currentUser = "The signed-in user, or null"
+getUser = "A user by id, or null"
+
+[exports.events."auth.user_registered"]
+payload = { type = "object", additionalProperties = false, required = ["user_id", "at"], properties = { user_id = { type = "string" }, at = { type = "integer" }, source = { enum = ["password", "oauth"] } } }
+
+[exports.hooks."auth.after_login"]
+args = { type = "object", required = ["user_id"], properties = { user_id = { type = "string" } } }

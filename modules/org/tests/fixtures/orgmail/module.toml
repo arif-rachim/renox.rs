@@ -1,0 +1,8 @@
+[module]
+name = "orgmail"
+version = "1.0.0"
+description = "Test fixture: fills org.send_mail with a recorder, org.before_invite with a blocklist, and records org's events"
+
+[permissions]
+tables = "orgmail__*"
+hooks = ["org.send_mail", "org.before_invite"]

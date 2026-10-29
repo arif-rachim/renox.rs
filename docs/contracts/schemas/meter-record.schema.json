@@ -1,25 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/meter/v0/meter-record.schema.json",
-  "title": "Renox meter batch and record, meter contract version 0.1 (schema_version 0)",
-  "description": "Root: one batch envelope (one line of the F1 ndjson sink, one HTTP body in F3). $defs/record: one invocation record. Prose: docs/contracts/meter.md. request_id uniqueness within a batch is rule M1 in validate.ts.",
+  "title": "Renox meter batch and record, meter contract version 0.2 (schema_version 0)",
+  "description": "Root: one batch envelope (one line of the F1 ndjson sink, one HTTP body in F3). $defs/record: one invocation record. Prose: docs/contracts/meter.md. request_id uniqueness within a batch is rule M1 in validate.ts; the route form per kind is the record's if/then/else.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "cell_id", "node_id", "records"],
+  "required": [
+    "schema_version",
+    "cell_id",
+    "node_id",
+    "records"
+  ],
   "properties": {
-    "$comment": { "type": "string" },
-    "schema_version": { "const": 0 },
-    "cell_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.@-]{0,127}$" },
-    "node_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+    "$comment": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 0
+    },
+    "cell_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.@-]{0,127}$"
+    },
+    "node_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$"
+    },
     "records": {
       "type": "array",
       "minItems": 1,
       "maxItems": 1000,
-      "items": { "$ref": "#/$defs/record" }
+      "items": {
+        "$ref": "#/$defs/record"
+      }
     }
   },
   "$defs": {
-    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
     "millis": {
       "type": "number",
       "minimum": 0,
@@ -50,32 +71,139 @@
         "status"
       ],
       "properties": {
-        "request_id": { "type": "string", "pattern": "^[0-9A-Za-z_-]{8,64}$" },
-        "tenant_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$" },
-        "deployment_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z_-]{8,64}$"
+        },
+        "tenant_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+        },
+        "deployment_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "route": {
           "type": "string",
-          "description": "<METHOD> <route pattern from manifest.routes[]>; never a concrete URL.",
+          "description": "<METHOD> <route pattern from manifest.routes[]>, never a concrete URL; or, for kind event (0.2), EVENT <module> <event name>.",
           "maxLength": 1032,
-          "pattern": "^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD) (/|(/([A-Za-z0-9._~-]+|:[a-z_][a-z0-9_]{0,31}|\\*[a-z_][a-z0-9_]{0,31}))+)$"
+          "pattern": "^((GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD) (/|(/([A-Za-z0-9._~-]+|:[a-z_][a-z0-9_]{0,31}|\\*[a-z_][a-z0-9_]{0,31}))+)|EVENT [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_]{0,31}\\.[a-z][a-z0-9_]{0,63})$"
         },
-        "started_at": { "$ref": "#/$defs/count", "description": "Unix time in milliseconds." },
-        "cpu_ms": { "$ref": "#/$defs/millis" },
-        "wall_ms": { "$ref": "#/$defs/millis" },
-        "peak_heap_bytes": { "$ref": "#/$defs/count" },
-        "ingress_bytes": { "$ref": "#/$defs/count" },
-        "egress_bytes": { "$ref": "#/$defs/count" },
-        "fetch_sent_bytes": { "$ref": "#/$defs/count" },
-        "fetch_received_bytes": { "$ref": "#/$defs/count" },
-        "fetch_blocked": { "$ref": "#/$defs/count" },
-        "db_ms": { "$ref": "#/$defs/millis" },
-        "db_rows": { "$ref": "#/$defs/count" },
-        "render_fuel": { "$ref": "#/$defs/count", "description": "Template render fuel of the invocation; 0 when nothing was rendered." },
-        "render_ms": { "$ref": "#/$defs/millis", "description": "Optional (0.1): CPU time of rendering on the render pool, outside cpu_ms. Absent = 0." },
-        "logs_dropped": { "$ref": "#/$defs/count" },
-        "http_status": { "type": "integer", "minimum": 100, "maximum": 599 },
-        "status": { "enum": ["ok", "error", "timeout", "cpu_limit", "oom", "blocked_fetch", "busy", "render_limit"] }
-      }
+        "started_at": {
+          "$ref": "#/$defs/count",
+          "description": "Unix time in milliseconds."
+        },
+        "cpu_ms": {
+          "$ref": "#/$defs/millis"
+        },
+        "wall_ms": {
+          "$ref": "#/$defs/millis"
+        },
+        "peak_heap_bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "ingress_bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "egress_bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "fetch_sent_bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "fetch_received_bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "fetch_blocked": {
+          "$ref": "#/$defs/count"
+        },
+        "db_ms": {
+          "$ref": "#/$defs/millis"
+        },
+        "db_rows": {
+          "$ref": "#/$defs/count"
+        },
+        "render_fuel": {
+          "$ref": "#/$defs/count",
+          "description": "Template render fuel of the invocation; 0 when nothing was rendered."
+        },
+        "render_ms": {
+          "$ref": "#/$defs/millis",
+          "description": "Optional (0.1): CPU time of rendering on the render pool, outside cpu_ms. Absent = 0."
+        },
+        "logs_dropped": {
+          "$ref": "#/$defs/count"
+        },
+        "http_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "error",
+            "timeout",
+            "cpu_limit",
+            "oom",
+            "blocked_fetch",
+            "busy",
+            "render_limit"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "request",
+            "event"
+          ],
+          "description": "Optional (0.2): absent = request."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "event"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "route": {
+                "pattern": "^EVENT "
+              },
+              "ingress_bytes": {
+                "const": 0
+              },
+              "egress_bytes": {
+                "const": 0
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "error",
+                  "timeout",
+                  "cpu_limit",
+                  "oom"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "route": {
+                "not": {
+                  "pattern": "^EVENT "
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

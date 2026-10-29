@@ -1,0 +1,49 @@
+{
+  "auth": {
+    "field": {
+      "email": "Email",
+      "password": "Password",
+      "name": "Name",
+      "new_password": "New password",
+      "current_password": "Current password"
+    },
+    "login": {
+      "title": "Sign in",
+      "submit": "Sign in",
+      "create": "Create an account",
+      "continue_with": "Continue with {provider}"
+    },
+    "register": {
+      "title": "Create an account",
+      "submit": "Create account",
+      "sign_in": "Sign in instead"
+    },
+    "magic": {
+      "title": "Sign in with a link",
+      "submit": "Send me a link",
+      "password": "Sign in with a password"
+    },
+    "reset": {
+      "title": "Reset your password",
+      "submit": "Send me a reset link"
+    },
+    "confirm": {
+      "title": "Choose a new password",
+      "submit": "Set password"
+    },
+    "account": {
+      "title": "Your account",
+      "password": "Password",
+      "change": "Change password",
+      "sessions": "Sessions",
+      "unknown": "Unknown",
+      "since": "since",
+      "this_browser": "(this browser)",
+      "sign_out": "Sign out",
+      "everywhere": "Sign out everywhere"
+    },
+    "menu": {
+      "sign_in": "Sign in"
+    }
+  }
+}

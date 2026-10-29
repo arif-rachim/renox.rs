@@ -23,7 +23,8 @@ use bytes::Bytes;
 use http::{Request, Response};
 use http_body_util::BodyExt;
 use renox_data::{
-    DbError, DbOptions, MigrationError, MigrationFile, TenantDb, migrate_with_checksums,
+    DbError, DbOptions, MigrationError, MigrationFile, ModuleMigrations, TenantDb, migrate_all,
+    migrate_with_checksums,
 };
 use renox_gateway::compress::StreamEncoder;
 use renox_gateway::{CellDispatcher, RequestCtx, RouteEntry, RouteStatus, compress};
@@ -168,6 +169,8 @@ struct Inner {
     /// Cells created and evicted since start (operator metrics, tests).
     created: std::sync::atomic::AtomicU64,
     evicted: std::sync::atomic::AtomicU64,
+    /// Outbox delivery settings for new cells (#229).
+    outbox: Mutex<crate::outbox::OutboxConfig>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -203,6 +206,7 @@ impl CellManager {
                 dbs: Mutex::new(HashMap::new()),
                 created: Default::default(),
                 evicted: Default::default(),
+                outbox: Mutex::new(crate::outbox::OutboxConfig::default()),
                 trim_scheduled: Default::default(),
                 trims: Default::default(),
                 #[cfg(feature = "test-support")]
@@ -252,6 +256,51 @@ impl CellManager {
             .filter_map(|s| s.get())
             .map(|c| c.inflight())
             .sum()
+    }
+
+    /// Outbox delivery settings for cells created from now on (retries,
+    /// backoff, dead-letter cap; ops.md 1.3.0 section 15.4).
+    pub fn set_outbox_config(&self, config: crate::outbox::OutboxConfig) {
+        *self.inner.outbox.lock().expect("outbox lock") = config;
+    }
+
+    /// Pending deliveries and dead letters of a tenant whose database is
+    /// open on this node (the per-tenant gauge of #229); `None` otherwise.
+    pub async fn outbox_stats(&self, tenant_id: &str) -> Option<renox_data::OutboxStats> {
+        let slot = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .cloned()?;
+        let handle = slot.lock().await.handle.clone()?;
+        handle.call(renox_data::outbox::stats).await.ok()?.ok()
+    }
+
+    /// Statement counters of a tenant's open database (tests: the outbox
+    /// worker does not poll an idle tenant).
+    pub async fn db_stats(&self, tenant_id: &str) -> Option<renox_data::DbStats> {
+        let slot = self
+            .inner
+            .dbs
+            .lock()
+            .expect("dbs lock")
+            .get(tenant_id)
+            .cloned()?;
+        let handle = slot.lock().await.handle.clone()?;
+        handle.call(|db| db.stats()).await.ok()
+    }
+
+    /// Admit an outbox delivery on `cell` under the map lock, like a request
+    /// (`admit`): a cell is never evicted while a delivery is in flight.
+    fn admit_delivery(&self, cell: &Arc<Cell>) -> bool {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        let current = cells
+            .get(&cell.key)
+            .and_then(|s| s.get())
+            .is_some_and(|c| Arc::ptr_eq(c, cell));
+        current && cell.try_admit()
     }
 
     pub fn runtime(&self) -> &Runtime {
@@ -476,6 +525,14 @@ impl CellManager {
             "cell ready"
         );
         self.spawn_eviction(cell.clone());
+        let this = self.clone();
+        cell.set_outbox(crate::outbox::spawn(crate::outbox::Delivery {
+            cell: Arc::downgrade(&cell),
+            db,
+            meter: self.inner.meter.clone(),
+            config: *self.inner.outbox.lock().expect("outbox lock"),
+            admit: Box::new(move |c| this.admit_delivery(c)),
+        }));
         Ok(cell)
     }
 
@@ -584,6 +641,7 @@ impl CellManager {
             draining = cell.is_draining(),
             "cell evicted"
         );
+        cell.stop_outbox();
         cell.isolate.terminate();
         let tenant = cell.key.tenant_id.clone();
         drop(cell);
@@ -880,6 +938,7 @@ impl CellManager {
                 cell.isolate
                     .log("error", Some(&ctx.request_id), message, fields.clone());
             }
+            log_i18n_missing(&cell.isolate, &ctx.request_id, &r.i18n_missing);
             render_fuel = r.fuel;
             render_ms = r.ms;
             render_limit = r.limit;
@@ -972,6 +1031,7 @@ impl CellManager {
             } else {
                 meter_status(m.status)
             },
+            kind: None,
         });
     }
 
@@ -1041,6 +1101,7 @@ impl CellManager {
                             .isolate
                             .log("error", Some(&request_id), &message, fields);
                     }
+                    log_i18n_missing(&isolate.isolate, &request_id, &rendered.i18n_missing);
                     let body = rendered.response.body().clone();
                     if rendered.response.status() != http::StatusCode::OK {
                         // The page failed: its error page is the response.
@@ -1157,6 +1218,22 @@ struct RenderUse {
     fuel: u64,
     ms: Option<f64>,
     limit: bool,
+}
+
+/// One `i18n_missing` line per translation key first found missing in this
+/// deployment (#233; `renox_template` reports each once).
+fn log_i18n_missing(
+    isolate: &renox_runtime::isolate::IsolateHandle,
+    request_id: &str,
+    missing: &[(String, String)],
+) {
+    for (locale, key) in missing {
+        let mut fields = serde_json::Map::new();
+        fields.insert("event".into(), "i18n_missing".into());
+        fields.insert("locale".into(), locale.as_str().into());
+        fields.insert("key".into(), key.as_str().into());
+        isolate.log("warn", Some(request_id), "i18n_missing", fields);
+    }
 }
 
 fn add_ms(a: Option<f64>, b: Option<f64>) -> Option<f64> {
@@ -1335,6 +1412,7 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
             ms: None,
             limit: false,
             log: None,
+            i18n_missing: Vec::new(),
         },
     }
 }
@@ -1406,18 +1484,13 @@ fn meter_status(s: RuntimeStatus) -> MeterStatus {
 
 /// Apply the artifact's app migrations (`migrations/app/*.sql`, checked
 /// against `migrations/checksums.json`) on the DB thread.
-async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellError> {
-    let dir = artifact_dir.join("migrations");
-    let app = dir.join("app");
-    if !app.is_dir() {
-        return Ok(());
-    }
-    let sums_text = std::fs::read(dir.join("checksums.json"))
-        .map_err(|_| artifact_err("migrations/checksums.json missing"))?;
-    let sums: ChecksumsFile = serde_json::from_slice(&sums_text)
-        .map_err(|_| artifact_err("migrations/checksums.json invalid"))?;
+/// The `.sql` files of `migrations/<module>/`; none when it is absent.
+fn migration_files(dir: &Path) -> Result<Vec<MigrationFile>, CellError> {
     let mut files = Vec::new();
-    let entries = std::fs::read_dir(&app).map_err(|e| artifact_err(format!("migrations: {e}")))?;
+    if !dir.is_dir() {
+        return Ok(files);
+    }
+    let entries = std::fs::read_dir(dir).map_err(|e| artifact_err(format!("migrations: {e}")))?;
     for entry in entries {
         let entry = entry.map_err(|e| artifact_err(format!("migrations: {e}")))?;
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -1428,14 +1501,97 @@ async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellEr
             .map_err(|e| artifact_err(format!("migration {name}: {e}")))?;
         files.push(MigrationFile { name, sql });
     }
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(files)
+}
+
+/// The installed modules of the artifact, `(name, dependencies)` in the
+/// manifest's (topological) order (`artifact.md` 1.1, "The `modules` field").
+fn installed_modules(artifact_dir: &Path) -> Result<Vec<(String, Vec<String>)>, CellError> {
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        name: String,
+        #[serde(default)]
+        dependencies: Vec<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Modules {
+        #[serde(default)]
+        modules: Option<serde_json::Value>,
+    }
+    let raw = std::fs::read(artifact_dir.join("manifest.json"))
+        .map_err(|_| artifact_err("manifest.json cannot be read"))?;
+    let m: Modules =
+        serde_json::from_slice(&raw).map_err(|_| artifact_err("manifest.json invalid"))?;
+    match m.modules {
+        Some(serde_json::Value::Array(list)) => list
+            .into_iter()
+            .map(|v| {
+                serde_json::from_value::<Entry>(v)
+                    .map(|e| (e.name, e.dependencies))
+                    .map_err(|_| artifact_err("manifest.json: invalid modules entry"))
+            })
+            .collect(),
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// Run the artifact's migration plan (`artifact.md` 1.1): each installed
+/// module in the manifest's order under its own prefix, then the app's
+/// (`renox_data::migrate_all`, #228). Without modules, the app's alone.
+async fn run_migrations(db: &DbHandle, artifact_dir: &Path) -> Result<(), CellError> {
+    let dir = artifact_dir.join("migrations");
+    let modules = installed_modules(artifact_dir)?;
+    let app = dir.join("app");
+    if !app.is_dir() && modules.is_empty() {
+        return Ok(());
+    }
+    let mut plan = Vec::new();
+    for (name, deps) in &modules {
+        plan.push(ModuleMigrations {
+            module: name.clone(),
+            dependencies: deps.clone(),
+            files: migration_files(&dir.join(name))?,
+        });
+    }
+    if plan.iter().all(|m| m.files.is_empty()) && !app.is_dir() {
+        return Ok(());
+    }
+    let sums_text = std::fs::read(dir.join("checksums.json"))
+        .map_err(|_| artifact_err("migrations/checksums.json missing"))?;
+    let sums: ChecksumsFile = serde_json::from_slice(&sums_text)
+        .map_err(|_| artifact_err("migrations/checksums.json invalid"))?;
     let checksums = sums.files;
+    let files = migration_files(&app)?;
+    if modules.is_empty() {
+        let report = db
+            .call(move |db| migrate_with_checksums(db, "app", &files, &checksums))
+            .await
+            .map_err(CellError::Db)?
+            .map_err(CellError::Migration)?;
+        if !report.applied.is_empty() {
+            tracing::info!(applied = ?report.applied, "migrations applied");
+        }
+        return Ok(());
+    }
+    // The app's migrations run last and may read every module's public views.
+    plan.push(ModuleMigrations {
+        module: "app".into(),
+        dependencies: modules.iter().map(|(n, _)| n.clone()).collect(),
+        files,
+    });
     let report = db
-        .call(move |db| migrate_with_checksums(db, "app", &files, &checksums))
+        .call(move |db| migrate_all(db, &plan, Some(&checksums)))
         .await
         .map_err(CellError::Db)?
-        .map_err(CellError::Migration)?;
-    if !report.applied.is_empty() {
-        tracing::info!(applied = ?report.applied, "migrations applied");
+        .map_err(|e| {
+            tracing::error!(module = %e.module, "module migration failed");
+            CellError::Migration(e.error)
+        })?;
+    for (module, r) in &report.modules {
+        if !r.applied.is_empty() {
+            tracing::info!(module = %module, applied = ?r.applied, "migrations applied");
+        }
     }
     Ok(())
 }

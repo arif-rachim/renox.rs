@@ -6,7 +6,7 @@
 
 use std::cell::{Cell, OnceCell};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -39,6 +39,13 @@ create table if not exists renox__migrations (
   primary key (module, name)
 ) strict;
 ";
+
+/// Platform migrations under `migrations/`, applied on open in order. Each
+/// is idempotent (`if not exists`), so reopening a file is a no-op.
+const PLATFORM_MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_outbox.sql")];
+
+/// Savepoints one transaction may hold open at once (`ops.md` section 1).
+pub const MAX_SAVEPOINTS: usize = 32;
 
 /// Settings for one tenant file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,13 +98,26 @@ struct Hooks {
     policy: Mutex<Option<Arc<AuthorizerPolicy>>>,
     /// First action the authorizer refused since the last prepare.
     denial: Mutex<Option<Denial>>,
+    /// Tables the statement being prepared read through a dependency's
+    /// public view (`AuthorizerPolicy::check`).
+    via_view: Mutex<Vec<String>>,
     /// Limit of the running statement, checked by the progress handler.
     clock: StatementClock,
     /// Pages in the WAL after the last commit (writer only).
     wal_pages: AtomicU64,
     /// WAL size (pages) at which a commit checkpoints by itself (writer only).
     wal_safety_net: AtomicU64,
+    /// A row was inserted into `renox__outbox` since the last commit or
+    /// rollback (writer only, SQLite's update hook).
+    outbox_dirty: AtomicBool,
+    /// Called after a commit that inserted into `renox__outbox`
+    /// ([`TenantDb::on_outbox_commit`], D14: the outbox worker's wake-up).
+    on_outbox: Mutex<Option<OutboxWake>>,
 }
+
+/// The outbox worker's wake-up: called on the committing thread, so it must
+/// not block (send on a channel).
+pub type OutboxWake = Arc<dyn Fn() + Send + Sync>;
 
 thread_local! {
     /// The writer whose commit is running on this thread. rusqlite 0.40's
@@ -122,6 +142,11 @@ fn wal_hook(wal: &rusqlite::hooks::Wal, pages: std::os::raw::c_int) -> rusqlite:
                 pages = 0;
             }
             h.wal_pages.store(pages, Ordering::Relaxed);
+            if h.outbox_dirty.swap(false, Ordering::SeqCst)
+                && let Some(wake) = lock(&h.on_outbox).clone()
+            {
+                wake();
+            }
         }
     });
     Ok(())
@@ -194,7 +219,8 @@ impl Conn {
         let h = Arc::clone(&hooks);
         inner
             .authorizer(Some(move |ctx: rusqlite::hooks::AuthContext<'_>| {
-                let (answer, denial) = decide(lock(&h.policy).as_deref(), &ctx);
+                let (answer, denial) =
+                    decide(lock(&h.policy).as_deref(), &ctx, &mut lock(&h.via_view));
                 if let Some(d) = denial {
                     let mut slot = lock(&h.denial);
                     // Keep the first denial, but prefer the object a DDL
@@ -218,6 +244,24 @@ impl Conn {
                 Ordering::Relaxed,
             );
             inner.wal_hook(Some(wal_hook));
+            // The outbox worker is woken after a commit that inserted into
+            // renox__outbox, never by polling (D14); a rollback forgets it.
+            let h = Arc::clone(&hooks);
+            inner
+                .update_hook(Some(
+                    move |action: rusqlite::hooks::Action, _db: &str, table: &str, _rowid: i64| {
+                        if action == rusqlite::hooks::Action::SQLITE_INSERT
+                            && table == crate::outbox::TABLE
+                        {
+                            h.outbox_dirty.store(true, Ordering::SeqCst);
+                        }
+                    },
+                ))
+                .map_err(open_error)?;
+            let h = Arc::clone(&hooks);
+            inner
+                .rollback_hook(Some(move || h.outbox_dirty.store(false, Ordering::SeqCst)))
+                .map_err(open_error)?;
         }
         Ok(Conn {
             inner,
@@ -248,16 +292,26 @@ impl Conn {
         policy: Option<Arc<AuthorizerPolicy>>,
     ) -> Option<Arc<AuthorizerPolicy>> {
         let policy = policy.filter(|p| !p.is_platform());
-        let old = std::mem::replace(&mut *lock(&self.hooks.policy), policy);
+        let mut slot = lock(&self.hooks.policy);
+        let same = match (slot.as_deref(), policy.as_deref()) {
+            (None, None) => true,
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        };
+        let old = std::mem::replace(&mut *slot, policy);
+        drop(slot);
         // The authorizer runs at prepare time: statements cached under the
-        // old policy must not be reused under the new one.
-        self.inner.flush_prepared_statement_cache();
+        // old policy must not be reused under a different one.
+        if !same {
+            self.inner.flush_prepared_statement_cache();
+        }
         old
     }
 
     /// Start a new statement: forget a denial left from an earlier one.
     pub(crate) fn clear_denial(&self) {
         lock(&self.hooks.denial).take();
+        lock(&self.hooks.via_view).clear();
     }
 
     fn prepare(&self, sql: &str) -> Result<CachedStatement<'_>> {
@@ -389,6 +443,9 @@ pub struct TenantDb {
     next_reader: Cell<usize>,
     in_tx: Cell<bool>,
     policy: Option<Arc<AuthorizerPolicy>>,
+    /// Set by `with_policy` while it runs: the policy readers opened in the
+    /// meantime get (`Some(None)` = the platform).
+    policy_override: std::cell::RefCell<Option<Option<Arc<AuthorizerPolicy>>>>,
     stats: Cell<DbStats>,
 }
 
@@ -408,9 +465,11 @@ impl TenantDb {
     pub fn open(path: impl AsRef<Path>, options: DbOptions) -> Result<TenantDb> {
         let path = path.as_ref().to_path_buf();
         let writer = Conn::open(&path, false, &options)?;
-        writer
-            .committing(|| writer.inner.execute_batch(PLATFORM_SCHEMA))
-            .map_err(|e| writer.error(e))?;
+        for sql in std::iter::once(PLATFORM_SCHEMA).chain(PLATFORM_MIGRATIONS.iter().copied()) {
+            writer
+                .committing(|| writer.inner.execute_batch(sql))
+                .map_err(|e| writer.error(e))?;
+        }
         let readers = (0..options.readers.max(1))
             .map(|_| OnceCell::new())
             .collect();
@@ -422,6 +481,7 @@ impl TenantDb {
             next_reader: Cell::new(0),
             in_tx: Cell::new(false),
             policy: None,
+            policy_override: std::cell::RefCell::new(None),
             stats: Cell::new(DbStats::default()),
         })
         .and_then(|db| match db.options.module_prefix.clone() {
@@ -441,6 +501,13 @@ impl TenantDb {
         }
         self.policy = Some(policy);
         Ok(self)
+    }
+
+    /// Call `wake` after every commit on the writer that inserted into
+    /// `renox__outbox` (an emit or a fan-out), never after a rollback; `None`
+    /// removes it. The cell's outbox worker uses it instead of polling (D14).
+    pub fn on_outbox_commit(&self, wake: Option<OutboxWake>) {
+        *lock(&self.writer.hooks.on_outbox) = wake;
     }
 
     /// The policy installed by `with_authorizer`, if any.
@@ -466,6 +533,55 @@ impl TenantDb {
         f()
     }
 
+    /// Run `f` with `policy` on every connection instead of the handle's
+    /// own (`None` = the platform); the handle's policy is back when `f`
+    /// returns or panics. The runtime calls it per statement with the
+    /// calling module's policy (`ops.md` section 1, "Module argument"), so
+    /// one transaction can carry statements of several modules, each under
+    /// its own authorizer. Switching to an equal policy keeps the statement
+    /// cache.
+    pub fn with_policy<T>(
+        &self,
+        policy: Option<AuthorizerPolicy>,
+        f: impl FnOnce() -> T,
+    ) -> Result<T> {
+        if let Some(p) = &policy {
+            p.validate()?;
+        }
+        let policy = policy.map(Arc::new);
+        struct Restore<'a> {
+            db: &'a TenantDb,
+            old: Vec<(&'a Conn, Option<Arc<AuthorizerPolicy>>)>,
+            override_old: Option<Option<Arc<AuthorizerPolicy>>>,
+        }
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                // Readers opened inside `f` got the override: give them the
+                // handle's policy back too.
+                for c in self.db.connections() {
+                    if !self.old.iter().any(|(o, _)| std::ptr::eq(*o, c)) {
+                        c.set_policy(self.db.policy.clone());
+                    }
+                }
+                for (c, p) in self.old.drain(..) {
+                    c.set_policy(p);
+                }
+                *self.db.policy_override.borrow_mut() = self.override_old.take();
+            }
+        }
+        let old = self
+            .connections()
+            .map(|c| (c, c.set_policy(policy.clone())))
+            .collect();
+        let override_old = self.policy_override.replace(Some(policy));
+        let _restore = Restore {
+            db: self,
+            old,
+            override_old,
+        };
+        Ok(f())
+    }
+
     pub fn options(&self) -> &DbOptions {
         &self.options
     }
@@ -488,7 +604,11 @@ impl TenantDb {
             return Ok(c);
         }
         let c = Conn::open(&self.path, true, &self.options)?;
-        c.set_policy(self.policy.clone());
+        let policy = match &*self.policy_override.borrow() {
+            Some(p) => p.clone(),
+            None => self.policy.clone(),
+        };
+        c.set_policy(policy);
         Ok(slot.get_or_init(|| c))
     }
 
@@ -691,6 +811,8 @@ impl TenantDb {
         let tx = Tx {
             db: self,
             rolled_back: Cell::new(false),
+            savepoints: std::cell::RefCell::new(Vec::new()),
+            next_savepoint: Cell::new(1),
         };
         let out = f(&tx)?;
         if tx.rolled_back.get() {
@@ -764,9 +886,102 @@ impl Drop for TxGuard<'_> {
 pub struct Tx<'a> {
     db: &'a TenantDb,
     rolled_back: Cell<bool>,
+    /// Open savepoints, innermost last.
+    savepoints: std::cell::RefCell<Vec<u32>>,
+    next_savepoint: Cell<u32>,
 }
 
 impl Tx<'_> {
+    /// Open a savepoint inside this transaction (`ops.md` section 1,
+    /// "Savepoints"): a nested `db.transaction`. The name is the platform's
+    /// `renox_sp_<n>`, never tenant text; at most `MAX_SAVEPOINTS` at once.
+    pub fn savepoint_begin(&self) -> Result<u32> {
+        self.run(|| {
+            if self.savepoints.borrow().len() >= MAX_SAVEPOINTS {
+                return Err(DbError::TxState(format!(
+                    "more than {MAX_SAVEPOINTS} savepoints are open"
+                )));
+            }
+            let sp = self.next_savepoint.get();
+            self.platform_batch(&format!("savepoint renox_sp_{sp}"))?;
+            self.next_savepoint.set(sp + 1);
+            self.savepoints.borrow_mut().push(sp);
+            Ok(sp)
+        })
+    }
+
+    /// Release the innermost savepoint `sp`: its statements become part of
+    /// the transaction.
+    pub fn savepoint_release(&self, sp: u32) -> Result<()> {
+        self.run(|| {
+            self.innermost(sp)?;
+            self.platform_batch(&format!("release savepoint renox_sp_{sp}"))?;
+            self.savepoints.borrow_mut().pop();
+            Ok(())
+        })
+    }
+
+    /// Undo the statements since the innermost savepoint `sp`, then release
+    /// it; the transaction goes on.
+    pub fn savepoint_rollback(&self, sp: u32) -> Result<()> {
+        self.run(|| {
+            self.innermost(sp)?;
+            self.platform_batch(&format!(
+                "rollback to savepoint renox_sp_{sp}; release savepoint renox_sp_{sp}"
+            ))?;
+            self.savepoints.borrow_mut().pop();
+            Ok(())
+        })
+    }
+
+    /// `f` inside a savepoint: released when it returns `Ok`, rolled back to
+    /// when it returns `Err`; the outer transaction goes on either way.
+    pub fn savepoint<T, E>(&self, f: impl FnOnce(&Self) -> Result<T, E>) -> Result<T, E>
+    where
+        E: From<DbError>,
+    {
+        let sp = self.savepoint_begin()?;
+        match f(self) {
+            Ok(v) => {
+                self.savepoint_release(sp)?;
+                Ok(v)
+            }
+            Err(e) => {
+                // A timeout inside `f` rolled the whole transaction back.
+                if !self.rolled_back.get() {
+                    self.savepoint_rollback(sp)?;
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Savepoints open now.
+    pub fn savepoint_depth(&self) -> usize {
+        self.savepoints.borrow().len()
+    }
+
+    fn innermost(&self, sp: u32) -> Result<()> {
+        match self.savepoints.borrow().last() {
+            Some(&top) if top == sp => Ok(()),
+            Some(_) if self.savepoints.borrow().contains(&sp) => Err(DbError::TxState(format!(
+                "savepoint {sp} is not the innermost open savepoint"
+            ))),
+            _ => Err(DbError::TxState(format!("savepoint {sp} is not open"))),
+        }
+    }
+
+    /// Platform statements on the writer, outside any module policy.
+    fn platform_batch(&self, sql: &str) -> Result<()> {
+        let writer = &self.db.writer;
+        self.db.with_writer_policy(None, || {
+            writer.clear_denial();
+            writer
+                .committing(|| writer.inner.execute_batch(sql))
+                .map_err(|e| writer.error(e))
+        })
+    }
+
     pub fn query(&self, sql: &str, params: &[Value]) -> Result<Vec<Row>> {
         self.query_with(&QueryCtx::default(), sql, params)
     }

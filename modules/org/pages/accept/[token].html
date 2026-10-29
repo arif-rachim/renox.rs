@@ -1,0 +1,6 @@
+<r-layout use="org">
+  <r-group slot="title"><r-t key="org.accept.title" :org="invite.org_name" /></r-group>
+  <h1><r-t key="org.accept.title" :org="invite.org_name" /></h1>
+  <p><r-t key="org.accept.as" :role="invite.role" /></p>
+  <x-form action="accept"><button type="submit"><r-t key="org.accept.submit" /></button></x-form>
+</r-layout>

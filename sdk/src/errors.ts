@@ -1,5 +1,5 @@
 // Error codes and classes of docs/contracts/ops.md section 13 (contract
-// version 1.2.0). tests/errors.test.ts checks the lists below against the
+// version 1.3.0). tests/errors.test.ts checks the lists below against the
 // table in ops.md; tests/contract.test-d.ts checks the types against ctx.d.ts.
 
 /** Codes an op rejects with inside tenant code ("thrown" and "both" in ops.md section 13). */
@@ -21,6 +21,9 @@ export const RENOX_ERROR_CODES = [
   "RENOX_DEADLINE",
   "RENOX_NO_REQUEST",
   "RENOX_SECRETS_CONSUMED",
+  "RENOX_MODULE_UNDECLARED",
+  "RENOX_MODULE_SERVICE",
+  "RENOX_EVENT_PAYLOAD",
 ] as const;
 
 /** Codes the platform answers with when a request ends ("response" and "both"). */
@@ -49,6 +52,9 @@ export type DbErrorCode =
   | "RENOX_DB_TX_STATE";
 
 export type FetchErrorCode = "RENOX_FETCH_BLOCKED" | "RENOX_FETCH_FAILED" | "RENOX_FETCH_EGRESS_LIMIT";
+
+/** Codes of the module broker (ops.md section 15). */
+export type ModuleErrorCode = "RENOX_MODULE_UNDECLARED" | "RENOX_MODULE_SERVICE" | "RENOX_EVENT_PAYLOAD";
 
 export type RenoxErrorCode = (typeof RENOX_ERROR_CODES)[number];
 
@@ -176,5 +182,51 @@ export class DeadlineError extends RenoxError {
   declare readonly code: "RENOX_DEADLINE";
   constructor(message: string) {
     super("RENOX_DEADLINE", message);
+  }
+}
+
+// Modules (ops.md section 15)
+/** A service call, hook run, or event emit the caller's manifest does not allow. */
+export class ModuleUndeclaredError extends RenoxError {
+  declare readonly code: "RENOX_MODULE_UNDECLARED";
+  declare readonly details: { readonly module: string; readonly target: string };
+  constructor(message: string, details: { module: string; target: string }) {
+    super("RENOX_MODULE_UNDECLARED", message, details);
+  }
+}
+
+export type ModuleServiceErrorDetails = {
+  readonly module: string;
+  readonly service?: string;
+  readonly hook?: string;
+  readonly event?: string;
+  readonly cause_code: string | null;
+};
+
+/**
+ * A service, hook filler, or in-memory event handler of another module threw.
+ * `module` names the callee, `service` the service (null for a hook filler or
+ * an event handler). The enclosing transaction has been rolled back.
+ */
+export class ModuleServiceError extends RenoxError {
+  declare readonly code: "RENOX_MODULE_SERVICE";
+  declare readonly details: ModuleServiceErrorDetails;
+  readonly module: string;
+  readonly service: string | null;
+  constructor(message: string, details: ModuleServiceErrorDetails) {
+    super("RENOX_MODULE_SERVICE", message, { ...details });
+    this.module = details.module;
+    this.service = details.service ?? null;
+  }
+}
+
+export type EventPayloadReason = "schema" | "not_json" | "too_large";
+
+/** The payload does not match the event's exported schema; never carries the payload. */
+export class EventPayloadError extends RenoxError {
+  declare readonly code: "RENOX_EVENT_PAYLOAD";
+  declare readonly details: { readonly event: string; readonly reason: EventPayloadReason };
+  constructor(message: string, details: { event: string; reason: EventPayloadReason }) {
+    super("RENOX_EVENT_PAYLOAD", message, details);
   }
 }

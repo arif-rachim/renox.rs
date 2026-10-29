@@ -1,0 +1,52 @@
+{
+  "_meta": {
+    "status": "Machine translated; not yet reviewed by a native speaker (owner task, #244)"
+  },
+  "auth": {
+    "field": {
+      "email": "البريد الإلكتروني",
+      "password": "كلمة المرور",
+      "name": "الاسم",
+      "new_password": "كلمة المرور الجديدة",
+      "current_password": "كلمة المرور الحالية"
+    },
+    "login": {
+      "title": "تسجيل الدخول",
+      "submit": "تسجيل الدخول",
+      "create": "إنشاء حساب",
+      "continue_with": "المتابعة باستخدام {provider}"
+    },
+    "register": {
+      "title": "إنشاء حساب",
+      "submit": "إنشاء الحساب",
+      "sign_in": "تسجيل الدخول بدلاً من ذلك"
+    },
+    "magic": {
+      "title": "تسجيل الدخول برابط",
+      "submit": "أرسل لي رابطاً",
+      "password": "تسجيل الدخول بكلمة المرور"
+    },
+    "reset": {
+      "title": "إعادة تعيين كلمة المرور",
+      "submit": "أرسل لي رابط إعادة التعيين"
+    },
+    "confirm": {
+      "title": "اختر كلمة مرور جديدة",
+      "submit": "تعيين كلمة المرور"
+    },
+    "account": {
+      "title": "حسابك",
+      "password": "كلمة المرور",
+      "change": "تغيير كلمة المرور",
+      "sessions": "الجلسات",
+      "unknown": "غير معروف",
+      "since": "منذ",
+      "this_browser": "(هذا المتصفح)",
+      "sign_out": "تسجيل الخروج",
+      "everywhere": "تسجيل الخروج من كل الأجهزة"
+    },
+    "menu": {
+      "sign_in": "تسجيل الدخول"
+    }
+  }
+}

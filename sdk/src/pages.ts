@@ -11,10 +11,14 @@ export interface Session {
   readonly id: string;
 }
 
+export type TextDirection = "ltr" | "rtl";
+
 export interface LoaderContext extends Ctx {
   /** The fragment the cell will render for this request, or null for the full page. */
   readonly fragment: string | null;
   readonly session: Session;
+  /** Sets the page's locale and direction (ops.md section 14, "Locale"); `dir` defaults from the language. */
+  setLocale(locale: string, dir?: TextDirection): void;
 }
 
 /** The template data a loader returns: a plain object (ops.md section 14, "Loader"). */
@@ -31,6 +35,8 @@ export interface ActionContext extends Omit<Ctx, "db"> {
   readonly form: FormData;
   readonly fragment: string | null;
   readonly session: Session;
+  /** As for the loader. */
+  setLocale(locale: string, dir?: TextDirection): void;
 }
 
 /**

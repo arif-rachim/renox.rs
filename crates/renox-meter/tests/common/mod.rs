@@ -27,6 +27,7 @@ pub fn record(n: u64) -> MeterRecord {
         logs_dropped: 0,
         http_status: 200,
         status: MeterStatus::Ok,
+        kind: None,
     }
 }
 

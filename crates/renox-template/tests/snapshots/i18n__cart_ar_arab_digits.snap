@@ -1,0 +1,21 @@
+---
+source: crates/renox-template/tests/i18n.rs
+expression: "render(&r, \"ar-AE-u-nu-arab\", None)"
+---
+<!DOCTYPE html><html lang="ar-AE-u-nu-arab" dir="rtl"><head><title>Shop</title></head><body>
+<h1>سلة التسوق</h1>
+<p>منتج واحد</p>
+<p>السلة فارغة</p>
+<p>منتجان</p>
+<p>٣ منتجات</p>
+<p>١١ منتجًا</p>
+<p dir="auto">مرحبًا، Mariam &lt;b&gt;</p>
+<p dir="auto">١٬٢٣٤٫٥٠ د.إ.</p>
+<p dir="auto">١٬٢٣٤٬٥٦٧</p>
+<p dir="auto">٢٨ أكتوبر ٢٠٢٦</p>
+<p dir="auto">⁦+971 50 123 4567⁩</p>
+<p dir="auto">⁦784-1980-1234567-1⁩</p>
+<p dir="auto">⁦100 2345 6789 0003⁩</p>
+<p>Signed in</p>
+<p>nope.missing</p>
+</body></html>

@@ -89,6 +89,33 @@ create table if not exists renox__migrations (
 ) strict;
 ```
 
+Platform migrations under `migrations/` run on open after it, each idempotent:
+
+| File | Tables |
+| --- | --- |
+| `0001_outbox.sql` | `renox__outbox` (one row per delivery: `id`, `target` = handling module or `''` while the fan-out is pending, `name`, `payload`, `module` = emitter, `created_at`, `attempts`, `next_at`, `last_error`; index on `next_at`), `renox__outbox_dead` (the same plus `dead_at`), `renox__outbox_meta` (counters) |
+
+### The outbox (`renox_data::outbox`)
+
+The durable events of `docs/contracts/ops.md` section 15.4 (ADR D14). Every function runs as the platform, also on a handle with a module authorizer; module SQL can never name a `renox__*` table.
+
+| Function | Who calls it | What it does |
+| --- | --- | --- |
+| `emit(db, tx, ev)`, `emit_autocommit(db, ev)` | `op_events_emit` (#231) | Insert the event (target `''`) in the emitter's transaction, so a rollback never delivers; payload over 64 KiB is `Param` |
+| `due(db, now, limit)`, `next_due_at(db)` | the delivery worker (#229) | Rows with `next_at <= now`, by `next_at`; the earliest `next_at` for the worker's timer |
+| `fan_out(db, id, targets, now)` | the worker | Replace the pending row with one delivery per handler module (none: the event is dropped) |
+| `delivered(db, tx, id, target)` | the worker, in the handler's transaction | Delete the delivery, so the handler's writes and the acknowledgement commit together |
+| `failed(...)`, `dead_letter(..., cap)` | the worker | Next attempt time and redacted error; move to `renox__outbox_dead` after the last attempt and prune the oldest dead letters past `DeadLetterCap` (10,000 rows or 8 MiB by default) |
+| `stats(db)` → `OutboxStats` | the worker's gauges | `pending`, `dead`, `dead_bytes`, `dead_pruned` |
+
+### Savepoints
+
+`Tx::savepoint_begin`, `savepoint_release`, `savepoint_rollback` (and `Tx::savepoint(f)`) implement nested `db.transaction` (`ops.md` section 1, "Savepoints"): names are the platform's `renox_sp_<n>`, last-in first-out, at most `MAX_SAVEPOINTS` (32) open; any other order is `TxState`. Rolling back a savepoint undoes only its statements. Tenant SQL naming a savepoint `renox_*` is refused by the authorizer.
+
+### Per-statement policy
+
+`TenantDb::with_policy(policy, f)` runs `f` with another authorizer policy on every connection (`None` = the platform) and restores the handle's own afterwards. The runtime uses it per statement with the calling module's policy (`ops.md` section 1, "Module argument"), so one transaction can hold statements of several modules, each under its own authorizer. Switching to an equal policy keeps the prepared-statement cache.
+
 ## Authorizer
 
 ADR D13 and `docs/06-data.md`: every statement from a module passes through a SQLite authorizer limited to that module's prefix. SQLite calls it while compiling a statement, so a refused statement never runs; no SQL is parsed in Rust.
@@ -105,9 +132,9 @@ let db = TenantDb::open(path, DbOptions::default())?
 | Action | Allowed for module `m` |
 | --- | --- |
 | `READ`, `INSERT`, `UPDATE`, `DELETE` | Tables and views named `m__*` in the main database |
-| `READ` | Views `d__public_*` for each `d` in `read_deps`, and the columns those views read (SQLite reports them with the view as accessor) |
+| `READ` | Views `d__public_<name>_v<n>` (exactly `^d__public_[a-z0-9_]+_v[0-9]+$`, `manifest.md` MF6) for each `d` in `read_deps`, and the columns those views read (SQLite reports them with the view as accessor) |
 | `SELECT`, `RECURSIVE` (CTEs), built-in functions | Always, except `load_extension` and `fts3_tokenizer` |
-| `TRANSACTION`, `SAVEPOINT` | When `allow_ddl` is false (the migration runner owns the transaction when it is true) |
+| `TRANSACTION`, `SAVEPOINT` | When `allow_ddl` is false (the migration runner owns the transaction when it is true); never a savepoint named `renox_*`, which belongs to the platform |
 | `CREATE TABLE/INDEX/VIEW`, `ALTER TABLE`, `DROP TABLE/INDEX/VIEW/TRIGGER`, `REINDEX` | Only with `allow_ddl` (migrations), only for `m__*` names. With `allow_ddl` the schema-table reads and writes SQLite reports for DDL are allowed too (`sqlite_master`, and `sqlite_sequence`, which SQLite creates for `autoincrement`) |
 | Everything else | Refused: `PRAGMA` (reads and writes), `ATTACH`, `DETACH`, `CREATE TRIGGER`, temp objects, virtual tables, `ANALYZE`, reads of `sqlite_master` |
 
@@ -163,7 +190,7 @@ The writer replaces SQLite's automatic checkpoint-on-commit with a WAL hook that
 
 ## Migrations
 
-ADR D17 (forward-only, checksums), `docs/06-data.md`, `docs/contracts/artifact.md` section 4. In F1 only the app's own migrations (module `app`) run; ordering across modules arrives in F4.
+ADR D17 (forward-only, checksums), `docs/06-data.md`, `docs/contracts/artifact.md` section 4. `migrate` runs one module's files; `migrate_all` runs an artifact's plan of several modules (below).
 
 ```rust
 use renox_data::{migrate_with_checksums, MigrationFile};
@@ -179,14 +206,32 @@ let report = migrate_with_checksums(&db, "app", &files, &checksums)?;
 | Names | `^\d{3,}_[a-z0-9_]+\.sql$`, sorted by name; gaps allowed, duplicates refused (`InvalidName`, `DuplicateName`) |
 | Checksum | Lower-case SHA-256 hex of the file bytes (`checksum()`). With `migrate_with_checksums`, every file must match its `<module>/<name>` entry of `checksums.json` before anything runs |
 | Applied file changed | `ChecksumMismatch { name }`; nothing runs |
-| One transaction per file | The file runs on the writer, then `(module, name, checksum, applied_at)` is inserted into `renox__migrations`, then commit. A failing statement rolls the file back (`Failed { name, source }`); files before it stay applied |
+| One transaction per file | The file runs on the writer one statement at a time (one 30 s limit for the file), then `(module, name, checksum, applied_at)` is inserted into `renox__migrations`, then commit. A failing statement rolls the file back (`Failed { module, name, statement, source }`, the statement clipped to 200 characters); files before it stay applied |
 | Authorizer | The file runs under `AuthorizerPolicy { module, allow_ddl: true }`: it can create, alter, and drop only `<module>__*` objects, cannot read or write other modules' tables or `renox__*`, and cannot run `PRAGMA`, `ATTACH`, `BEGIN`, or `COMMIT` |
 | Schema check | `alter table ... rename to` reports only the old name to the authorizer, so after each file the runner compares `sqlite_master` with its state before the file: a new or renamed object outside the prefix fails the file (`OutsidePrefix`) and rolls it back |
 | Time | Each file has 30 s (`MIGRATION_FILE_TIMEOUT`) |
 
 Bookkeeping runs on the writer as the platform, so `migrate` works on a module handle too; the handle's own policy is back afterwards.
 
-Known limit: `sqlite_sequence` (autoincrement counters) is shared by every module in the file, and SQLite writes it on rename and drop. A migration can therefore change another module's autoincrement counter. In F1 only `app` migrates; the F4 module resolver has to decide this.
+Known limit: `sqlite_sequence` (autoincrement counters) is shared by every module in the file, and SQLite writes it on rename and drop. A migration can therefore change another module's autoincrement counter (still open: SQLite's authorizer does not tell `sqlite_sequence` rows apart by table).
+
+### Several modules: `migrate_all`
+
+```rust
+use renox_data::{migrate_all, ModuleMigrations};
+
+// In the artifact's `modules` order (every module after its dependencies), the app last.
+let plan = vec![
+    ModuleMigrations { module: "auth".into(), dependencies: vec![], files: auth_files },
+    ModuleMigrations { module: "org".into(), dependencies: vec!["auth".into()], files: org_files },
+    ModuleMigrations { module: "app".into(), dependencies: vec!["auth".into(), "org".into()], files: app_files },
+];
+let report = migrate_all(&db, &plan, Some(&checksums))?; // report.modules: (module, MigrationReport) in order
+```
+
+- The plan order is checked first: a module listed twice, or before one of its dependencies, fails before anything runs.
+- Each module's files run under `module(m).with_read_deps(deps).with_ddl(true)`: DDL and writes only on `<m>__*`, reads of the dependencies' `<dep>__public_*_v<n>` views (a module may build its own views on them). A statement on another module's table fails the file naming the module, the file, and the statement (`docs/24-threat-model.md`, "Module migration touching another module's tables").
+- The first failure stops the plan: `PlanError { module, error, done }`, where `done` lists the modules applied before it (forward-only, they stay).
 
 ### No `down` migrations
 

@@ -1,0 +1,7 @@
+<r-props links="list = []" />
+<nav class="i18n-language" aria-label="Language">
+  <r-group r-for="l in links">
+    <strong r-if="l.current" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="i18n.language.ar" /></r-group><r-group r-else-if="l.locale == 'en'"><r-t key="i18n.language.en" /></r-group><r-group r-else>{{ l.locale }}</r-group></strong>
+    <a r-else :href="l.href" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="i18n.language.ar" /></r-group><r-group r-else-if="l.locale == 'en'"><r-t key="i18n.language.en" /></r-group><r-group r-else>{{ l.locale }}</r-group></a>
+  </r-group>
+</nav>

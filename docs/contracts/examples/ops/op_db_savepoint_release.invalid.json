@@ -1,0 +1,7 @@
+{
+  "$comment": "invalid: the savepoint handle is missing",
+  "op": "op_db_savepoint_release",
+  "args": [
+    7
+  ]
+}

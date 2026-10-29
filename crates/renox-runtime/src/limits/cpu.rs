@@ -367,6 +367,14 @@ impl CpuLedger {
         self.charged.get(&token).copied().unwrap_or(0)
     }
 
+    /// Charge `ns` of CPU spent for a request off this thread (a password
+    /// op on the blocking pool, `ops/password.rs`).
+    pub fn add(&mut self, token: u32, ns: u64) {
+        if let Some(c) = self.charged.get_mut(&token) {
+            *c = c.saturating_add(ns);
+        }
+    }
+
     pub fn running(&self) -> Running {
         self.running
     }

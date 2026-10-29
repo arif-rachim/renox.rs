@@ -1,0 +1,18 @@
+[module]
+name = "billing"
+version = "0.2.0"
+
+[dependencies]
+auth = "^1.0"
+
+[permissions]
+tables = "billing__*"
+
+[exports.services]
+chargeUser = "Charges a user"
+
+[exports.events."billing.invoice_paid"]
+payload = { type = "object", required = ["invoice_id", "user_id"], properties = { invoice_id = { type = "string" }, user_id = { type = "string" }, amount = { type = "integer" } } }
+
+[imports]
+services = ["auth.getUser"]

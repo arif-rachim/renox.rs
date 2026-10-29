@@ -1,0 +1,8 @@
+{
+  "$comment": "invalid: savepoint handles are positive integers",
+  "op": "op_db_savepoint_rollback",
+  "args": [
+    7,
+    "renox_sp_1"
+  ]
+}

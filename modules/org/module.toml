@@ -1,0 +1,70 @@
+[module]
+name = "org"
+version = "1.0.0"
+description = "Organisations, memberships with roles, invitations, and the active organisation of a session"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
+
+[config]
+base_path = { type = "string", max_length = 200, default = "/org", description = "Where the app mounts org's pages (the switcher posts there)" }
+invite_days = { type = "int", min = 1, max = 30, default = 7, description = "An invitation expires this many days after it was sent" }
+
+[permissions]
+tables = "org__*"
+slots = ["app.header", "admin.sidebar"]
+
+[imports]
+services = ["auth.currentSession", "auth.loginUrl", "i18n.detectLocale"]
+views = ["auth__public_users_v1"]
+
+[exports]
+views = ["org__public_members_v1"]
+
+[exports.services]
+createOrg = "Create an organisation; the signed-in user is its owner and it becomes active: { name, slug? } -> { org } or { error }"
+listOrgs = "The organisations of a user, with the user's role: (user_id) -> [{ id, slug, name, role }]"
+currentOrg = "The active organisation of this session (with its default `locale`) and the user's role, with `scope` ({ org_id, role }) for the authz context; or null"
+requireMember = "The active organisation; throws ORG_FORBIDDEN unless the user is a member with at least `role` (member < admin < owner)"
+switchOrg = "Make one of the user's organisations the active one: (org_id) -> { org } or { error }"
+members = "The members of an organisation (the caller must be one): (org_id) -> [{ user_id, display_name, email, role }]"
+invite = "Invite by email (admin or owner): { org, email, role } -> { invite_id, expires_at } or { error }; the link goes out through org.send_mail"
+revokeInvite = "Withdraw a pending invitation (admin or owner): { org, invite } -> { ok }"
+acceptInvite = "Accept an invitation as the signed-in user (once, before it expires, for the invited email): (token) -> { org } or { error }"
+setRole = "Change a member's role (admin or owner; only an owner grants or removes owner): { org, user, role } -> { ok } or { error }"
+removeMember = "Remove a member, or leave (any member for themselves); the last owner stays: { org, user } -> { ok } or { error }"
+setOrgLocale = "Set the organisation's default locale (admin or owner): { org, locale } (null clears it) -> { ok } or { error }"
+switcher = "What the switcher partial renders, for a page's load: (next?) -> { orgs, current, action, ... } or null"
+
+[exports.events."org.created"]
+payload = { type = "object", required = ["org_id", "user_id", "at"], additionalProperties = false, properties = { org_id = { type = "string" }, user_id = { type = "string" }, at = { type = "integer" } } }
+description = "An organisation was created (user_id is its first owner)"
+
+[exports.events."org.member_added"]
+payload = { type = "object", required = ["org_id", "user_id", "role", "at"], additionalProperties = false, properties = { org_id = { type = "string" }, user_id = { type = "string" }, role = { enum = ["owner", "admin", "member"] }, at = { type = "integer" } } }
+description = "A user joined an organisation (as its creator or through an invitation)"
+
+[exports.events."org.member_removed"]
+payload = { type = "object", required = ["org_id", "user_id", "by", "at"], additionalProperties = false, properties = { org_id = { type = "string" }, user_id = { type = "string" }, by = { type = "string" }, at = { type = "integer" } } }
+description = "A member was removed or left (by = who did it)"
+
+[exports.hooks."org.before_invite"]
+args = { type = "object", required = ["org_id", "email", "role", "invited_by"], properties = { org_id = { type = "string" }, email = { type = "string" }, role = { type = "string" }, invited_by = { type = "string" } } }
+description = "Before an invitation is created; a filler may halt (seat limits, domain allowlist)"
+
+[exports.hooks."org.send_mail"]
+args = { type = "object", required = ["to", "template", "args"], properties = { to = { type = "string" }, template = { enum = ["org_invite"] }, args = { type = "object" } } }
+description = "Send one invitation mail (org sends none itself before the email module, F7)"
+
+[[slots]]
+name = "app.header"
+template = "partials/switcher.html"
+
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-nav.html"
+requires = "org.manage_members"
+
+[authz]
+actions = ["org.read", "org.invite", "org.manage_members"]

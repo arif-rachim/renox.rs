@@ -1,0 +1,18 @@
+{
+  "$comment": "invalid: the app's pages carry no module field; \"app\" is not an installed module",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "app"
+  },
+  "result": {
+    "type": "response"
+  }
+}

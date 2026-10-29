@@ -137,7 +137,14 @@ pub const NODE_ALLOWED: &[&str] = &[
     "zlib",
 ];
 
+/// `renox:modules` (ops.md 1.3.0 section 15.2): a virtual module with one
+/// export per installed module, the broker's service proxies.
+pub const RENOX_MODULES: &str = "renox:modules";
+
 fn resolve_common(specifier: &str, referrer: &str) -> Result<ModuleSpecifier, JsErrorBox> {
+    if specifier == RENOX_MODULES {
+        return ModuleSpecifier::parse(RENOX_MODULES).map_err(JsErrorBox::from_err);
+    }
     let bare_node = NODE_ALLOWED.contains(&specifier)
         && !referrer.starts_with("node:")
         && !referrer.starts_with("ext:");
@@ -182,6 +189,8 @@ pub struct ArtifactLoader {
     cache_scope: Option<String>,
     /// Store what V8 compiles (not on a deployment's first isolate).
     cache_store: bool,
+    /// Installed module names, the exports of `renox:modules`.
+    modules: Vec<String>,
 }
 
 /// Upper bound of [`CodeCache`]: an entry that would go over it empties
@@ -354,6 +363,7 @@ impl ArtifactLoader {
             source: Source::Dir(canonical),
             cache_scope: None,
             cache_store: false,
+            modules: Vec::new(),
         })
     }
 
@@ -362,6 +372,7 @@ impl ArtifactLoader {
             source: Source::Memory(modules),
             cache_scope: None,
             cache_store: false,
+            modules: Vec::new(),
         }
     }
 
@@ -378,9 +389,30 @@ impl ArtifactLoader {
         self
     }
 
+    /// The installed modules, for `renox:modules` (in the artifact's order).
+    pub fn with_modules(mut self, names: Vec<String>) -> ArtifactLoader {
+        self.modules = names;
+        self
+    }
+
     fn read(&self, specifier: &ModuleSpecifier) -> Result<ModuleSource, JsErrorBox> {
         if specifier.scheme() == "node" {
             return Err(JsErrorBox::generic("unknown node: built-in"));
+        }
+        if specifier.as_str() == RENOX_MODULES {
+            // The proxies were frozen onto a non-writable global by the
+            // bootstrap's harden(); the caller of each call is the module
+            // whose code runs (the async context), not the importer.
+            let mut code = String::from("const m = globalThis.__renoxModules;\n");
+            for name in &self.modules {
+                code.push_str(&format!("export const {name} = m[{name:?}];\n"));
+            }
+            return Ok(ModuleSource::new(
+                ModuleType::JavaScript,
+                ModuleSourceCode::String(code.into()),
+                specifier,
+                None,
+            ));
         }
         let rel = relative_path(specifier)?;
         let module_type = module_type_for(&rel)?;

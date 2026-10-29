@@ -166,3 +166,17 @@ describe("renox check", () => {
     expect(r.errors.map((e) => e.message).join("\n")).toContain('unknown table "permisions"');
   });
 });
+
+test("the app's catalogs i18n/<locale>.json go to code/i18n/ (#244); other files there do not", async () => {
+  const parent = tmp("i18n");
+  const dir = newApp("x", "hello", parent);
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(join(dir, "i18n"));
+  writeFileSync(join(dir, "i18n/ar.json"), '{ "x": { "hello": "مرحباً" } }\n');
+  writeFileSync(join(dir, "i18n/en.json"), '{ "x": { "hello": "Hello" } }\n');
+  writeFileSync(join(dir, "i18n/notes.txt"), "not a catalog\n");
+  const r = await buildArtifact(dir, join(dir, ".renox/artifact"));
+  expect(readdirSync(join(r.dir, "code/i18n")).sort()).toEqual(["ar.json", "en.json"]);
+  expect(readFileSync(join(r.dir, "code/i18n/ar.json"), "utf8")).toContain("مرحباً");
+  expect(hashDir(r.dir)).toBe(r.hash);
+});

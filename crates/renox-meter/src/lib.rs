@@ -16,6 +16,7 @@ mod sink;
 pub use http_sink::{BatchPoster, HttpMeterSink};
 pub use meter::{Meter, MeterConfig};
 pub use record::{
-    MAX_BATCH_RECORDS, MeterBatch, MeterRecord, MeterStatus, SCHEMA_VERSION, round_millis,
+    MAX_BATCH_RECORDS, MeterBatch, MeterKind, MeterRecord, MeterStatus, SCHEMA_VERSION,
+    round_millis,
 };
 pub use sink::{NdjsonFileSink, Sink, SinkError, StdoutSink};

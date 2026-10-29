@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" dir="ltr">
+<html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,13 +10,17 @@
 </head>
 <body>
   <header class="site-header">
-    <a href="/"><strong>Renox Shop</strong></a>
-    <a href="/products">Products</a>
-    <span class="cart">Cart: <span id="cart-badge" r-fragment="cart_badge">{{ cart_count ?? 0 }}</span></span>
+    <a href="/"><strong><r-t key="shop.brand" /></strong></a>
+    <a href="/products"><r-t key="shop.nav.products" /></a>
+    <span class="cart"><r-t key="shop.nav.cart" /> <span id="cart-badge" r-fragment="cart_badge">{{ cart_count ?? 0 }}</span></span>
+    <r-slot name="app.header" />
+    <nav class="i18n-language" aria-label="Language" r-if="i18n_links">
+      <r-group r-for="l in i18n_links"><strong r-if="l.current" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="shop.lang.ar" /></r-group><r-group r-else><r-t key="shop.lang.en" /></r-group></strong><a r-else :href="l.href" :lang="l.locale"><r-group r-if="l.locale == 'ar'"><r-t key="shop.lang.ar" /></r-group><r-group r-else><r-t key="shop.lang.en" /></r-group></a></r-group>
+    </nav>
   </header>
   <main>
     <slot />
   </main>
-  <footer><small>Prices in AED, VAT included.</small></footer>
+  <footer><small><r-t key="shop.footer" /></small></footer>
 </body>
 </html>

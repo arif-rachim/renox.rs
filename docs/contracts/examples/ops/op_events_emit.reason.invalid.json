@@ -1,0 +1,20 @@
+{
+  "$comment": "invalid: unknown RENOX_EVENT_PAYLOAD reason",
+  "op": "op_events_emit",
+  "args": [
+    "billing.invoice_paid",
+    "{}",
+    true,
+    "billing",
+    null
+  ],
+  "error": {
+    "name": "EventPayloadError",
+    "code": "RENOX_EVENT_PAYLOAD",
+    "message": "x",
+    "details": {
+      "event": "billing.invoice_paid",
+      "reason": "bad"
+    }
+  }
+}

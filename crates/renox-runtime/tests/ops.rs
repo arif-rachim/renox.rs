@@ -183,6 +183,8 @@ async fn no_database_error_shows_a_path() {
                 })(),
                 () => db.query("with recursive c(x) as (select 1 union all select x + 1 from c) select x from c limit 20000"),
                 () => db.query("select randomblob(9000000) as b"),
+                // ops.md 1.3.0 section 1: a nested db.transaction is a
+                // savepoint now, so it succeeds ("none" below).
                 () => db.transaction(async (tx) => db.transaction(async () => {})),
             ];
             const out = [];
@@ -217,7 +219,7 @@ async fn no_database_error_shows_a_path() {
             "RENOX_DB_CONSTRAINT",
             "RENOX_DB_RESULT_LIMIT",
             "RENOX_DB_RESULT_LIMIT",
-            "RENOX_DB_TX_STATE",
+            "none",
         ],
         "{v}"
     );

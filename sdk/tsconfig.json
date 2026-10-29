@@ -4,5 +4,7 @@
     // Runtime-neutral: the package must not depend on Bun or Node globals.
     "types": []
   },
-  "include": ["src/**/*.ts", "tests/**/*.test-d.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.test-d.ts"],
+  // renox/test is Bun-only (bun:test, bun:sqlite): checked by tsconfig.test.json.
+  "exclude": ["src/test.ts"]
 }

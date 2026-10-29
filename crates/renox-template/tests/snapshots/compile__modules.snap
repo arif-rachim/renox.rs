@@ -1,0 +1,28 @@
+---
+source: crates/renox-template/tests/compile.rs
+expression: text
+---
+== modules/auth/pages/_layouts/auth (Layout)
+<!DOCTYPE html><html lang="en"><head><title>Sign in</title></head>
+<body class="auth"><main>{% block content %}{% endblock %}</main>
+</body></html>
+== modules/auth/pages/login (Page)
+{% extends "modules/auth/pages/_layouts/auth" %}{% block content %}<h1>Sign in</h1>{% if error %}<p id="error" dir="auto">{{ error }}</p>{% endif %}<a class="account shop" href="/auth/login" dir="auto">{{ ((user.name) if (user.name) is defined and (user.name) is not none else ("Sign in")) }}</a>
+{% endblock %}
+-- fragments: {}
+== modules/auth/pages/profile (Page)
+{% extends "pages/_layouts/main" %}{% block content %}<h1 dir="auto">Profile of {{ user.name }}</h1>{% endblock %}
+-- fragments: {}
+== modules/auth/partials/account-menu (Partial)
+<a class="account shop" href="/auth/login" dir="auto">{{ ((user.name) if (user.name) is defined and (user.name) is not none else ("Sign in")) }}</a>
+
+== modules/billing/partials/plan (Partial)
+<span class="plan" dir="auto">{{ ((plan) if (plan) is defined and (plan) is not none else ("free")) }}</span>
+
+== pages/_layouts/main (Layout)
+<!DOCTYPE html><html lang="en"><head><title>Shop</title></head>
+<body><header><a href="/">Shop</a>{% include "modules/auth/partials/account-menu" %}{% if can("billing.view", none) %}{% include "modules/billing/partials/plan" %}{% endif %}</header><main>{% block content %}{% endblock %}</main>
+</body></html>
+== pages/index (Page)
+{% extends "pages/_layouts/main" %}{% block content %}<h1 dir="auto">Welcome, {{ ((user.name) if (user.name) is defined and (user.name) is not none else ("guest")) }}</h1>{% endblock %}
+-- fragments: {}

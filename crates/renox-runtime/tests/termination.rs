@@ -87,6 +87,7 @@ async fn assert_writer_free(db: &DbHandle) {
             "insert into app__items (name) values (?)".into(),
             vec![Value::Text("probe".into())],
             None,
+            None,
             Instant::now() + Duration::from_secs(5),
         )
         .await;

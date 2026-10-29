@@ -1,0 +1,104 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`snapshots per role anonymous: login, register, the account redirect, the header: role: anonymous login 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Sign in</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>Email <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">Continue with Google</a></li>
+  </ul>
+  <p><a href="register">Create an account</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`snapshots per role anonymous: login, register, the account redirect, the header: role: anonymous register 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create an account</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Create an account</h1>
+  
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>Name <input type="text" name="display_name" autocomplete="name" value="" dir="auto"></label>
+    <label>Email <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>Password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Create account</button>
+  </form>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">Continue with Google</a></li>
+  </ul>
+  <p><a href="login">Sign in instead</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`snapshots per role anonymous: login, register, the account redirect, the header: role: anonymous account 1`] = `"/auth/login?next=%2Fauth%2Faccount"`;
+
+exports[`snapshots per role anonymous: login, register, the account redirect, the header: role: anonymous header 1`] = `
+"<!DOCTYPE html><html lang="en"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script><title>App</title></head><body><header><span class="renox-user-menu"><a href="/auth/login">Sign in</a></span></header><main><h1>Home</h1></main>
+</body></html>"
+`;
+
+exports[`snapshots per role user: the account page and the header: role: user account 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your account</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1 dir="auto">Sam</h1>
+  <p id="email" dir="auto">sam@example.com</p>
+  
+  
+  <h2>Password</h2>
+  <form method="post" action="?/password" hx-post="?/password"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>New password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Change password</button>
+  </form>
+  <h2>Sessions</h2>
+  <ul id="sessions">
+    <li dir="auto">
+      Other · since <time>
+      <strong>(this browser)</strong>
+      
+    </li>
+  </ul>
+  <form method="post" action="?/everywhere" hx-post="?/everywhere"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out everywhere</button></form>
+  <form method="post" action="?/logout" hx-post="?/logout"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`snapshots per role user: the account page and the header: role: user header 1`] = `
+"<!DOCTYPE html><html lang="en"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script><title>App</title></head><body><header><span class="renox-user-menu"><a href="/auth/account" dir="auto">Sam</a></span></header><main><h1 id="private" dir="auto">Hello Sam</h1></main>
+</body></html>"
+`;
