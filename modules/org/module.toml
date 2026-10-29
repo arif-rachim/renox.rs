@@ -68,3 +68,7 @@ requires = "org.manage_members"
 
 [authz]
 actions = ["org.read", "org.invite", "org.manage_members"]
+
+# The module's entity type (#283; manifest.md 1.1): `org:Org` from the app.
+[authz.entities]
+Org = { table = "org__orgs", attrs = ["id"] }

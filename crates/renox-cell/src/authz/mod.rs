@@ -159,6 +159,39 @@ fn owners(manifest: &serde_json::Value) -> Result<Vec<Owner>, String> {
     Ok(out)
 }
 
+/// The engine of an artifact without its database, for `renox check` and
+/// `renox test` (`renox-worker check-policies`, #283): the same owners,
+/// schema and policies as [`build`], with every declared attribute typed
+/// `String` (the cell types them from the table columns). `policies` are
+/// `(artifact path, text)`; `policies/schema.cedarschema` is the app's
+/// schema.
+pub fn engine_for_check(
+    manifest: &serde_json::Value,
+    policies: &[(String, String)],
+) -> Result<Engine, Vec<renox_authz::PolicyError>> {
+    let one = |message: String| {
+        vec![renox_authz::PolicyError {
+            file: "manifest.json".into(),
+            line: 0,
+            column: 0,
+            message,
+        }]
+    };
+    let owners = owners(manifest).map_err(one)?;
+    let schema_text = policies
+        .iter()
+        .find(|(p, _)| p == "policies/schema.cedarschema")
+        .map(|(_, t)| t.as_str());
+    let files: Vec<(String, String)> = policies
+        .iter()
+        .filter(|(p, _)| p.ends_with(".cedar"))
+        .cloned()
+        .collect();
+    let schema = MergedSchema::build(&owners, schema_text)?;
+    let set = PolicySet::load(&files, &schema)?;
+    Ok(Engine::new(schema, set))
+}
+
 /// Builds the deployment's engine (V24 at load: a policy that does not
 /// parse or validate refuses the deployment, nothing is loaded). Entity
 /// attribute types come from the declared table's columns.

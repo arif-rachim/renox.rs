@@ -63,6 +63,8 @@ export type {
   ServicesModule,
 } from "./ctx.ts";
 export { defineHandlers } from "./ctx.ts";
+export type { ActionName, ScopedDb } from "./authz.ts";
+export { defineGuard, isForbidden, resource, userScope } from "./authz.ts";
 export type { Action, ActionContext, ActionResult, Loader, LoaderContext, PageData, PageModule, Session, TextDirection } from "./pages.ts";
 export { definePage } from "./pages.ts";
 export type {

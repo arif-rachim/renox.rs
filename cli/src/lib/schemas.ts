@@ -50,6 +50,26 @@ export const renoxTomlSchema: Json = {
     // [modules] (docs/contracts/manifest.md section 4): checked in depth by
     // src/lib/modules/resolve.ts against module-manifest.schema.json.
     modules: { type: "object" },
+    // [authz] and [realtime] of the app (manifest.md 1.1, #283): the keys
+    // here; references are V25/V26 (src/lib/policies.ts).
+    authz: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        actions: { type: "array", items: { type: "string", pattern: "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" }, uniqueItems: true },
+        ownership: { type: "object" },
+        entities: { type: "object" },
+        default_roles: { type: "object" },
+        sensitive: { type: "array", items: { type: "string" }, uniqueItems: true },
+      },
+    },
+    realtime: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        feeds: { type: "object" },
+      },
+    },
     limits: {
       type: "object",
       additionalProperties: false,

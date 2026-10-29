@@ -16,7 +16,8 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CliError, EXIT, location, UserError } from "../errors.ts";
 import { artifactsDir, buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
-import { type Finding, lintBody, lintFetch, lintGlobalState, lintRedirect, lintSql } from "../lib/lint.ts";
+import { type Finding, lintBody, lintFetch, lintGlobalState, lintMissingGuard, lintRedirect, lintSql, lintUnscoped, policyActions } from "../lib/lint.ts";
+import { mergedActions, PolicyError } from "../lib/policies.ts";
 import { readProject } from "../lib/project.ts";
 import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
 import { securityReport } from "../check/security.ts";
@@ -56,9 +57,30 @@ export async function check(project: string, options: CheckOptions = {}): Promis
   const errors: CliError[] = [];
   const findings: Finding[] = [];
   let network: string[] = [];
+  // #283: what the build knows about authorization, for the source rules.
+  let owned = new Set<string>();
+  let named = new Set<string>();
   try {
     network = readProject(project).permissions.network;
     const built = await buildFiles(project);
+    const dec = new TextDecoder();
+    const blocks = [built.manifest.authz, ...(built.manifest.modules ?? []).map((m) => (m as { authz?: typeof built.manifest.authz }).authz)];
+    owned = new Set(blocks.flatMap((b) => Object.keys(b?.ownership ?? {})));
+    for (const [p, b] of built.files) if (p.startsWith("policies/") && p.endsWith(".cedar")) for (const a of policyActions(dec.decode(b))) named.add(a);
+    // r-can / r-cannot actions against the merged action set (docs/11, "In templates").
+    if (blocks.some((b) => b !== undefined)) {
+      const actions = mergedActions(built.manifest.authz, (built.manifest.modules ?? []) as { authz?: typeof built.manifest.authz }[]);
+      for (const [id, t] of Object.entries(built.templates)) {
+        for (const m of t.source.matchAll(/\{%[^%]*?\bcan\("([^"]+)"/gu)) {
+          const action = m[1] as string;
+          if (actions.has(action)) continue;
+          const file = `${id}.html`;
+          const html = existsSync(join(project, file)) ? readFileSync(join(project, file), "utf8") : "";
+          const at = html.split("\n").findIndex((l) => l.includes(`"${action}"`));
+          findings.push({ file, line: at + 1 || 1, column: 1, rule: "undeclared-action", severity: "error", message: `RENOX_POLICY_INVALID: r-can names ${action}, which is not in the merged action set ([authz] actions of the app and its modules)` });
+        }
+      }
+    }
     const secrets = scanBundle(built.maps, built.files);
     for (const s of secrets.findings) {
       findings.push({ file: s.file, line: s.line, column: s.column, rule: "secret", severity: "error", message: `${s.description}: ${s.masked}; ${SECRET_HINT}` });
@@ -79,6 +101,8 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     // A missing renox.toml is not a check finding: the folder is not an app (exit 1).
     // Template errors are one error per diagnostic, each with its file and line.
     if (e instanceof TemplateError) for (const d of e.locations()) errors.push(new CliError(d.message, EXIT.VALIDATION, d.where));
+    // V24: every policy problem with its file and line (#283).
+    else if (e instanceof PolicyError) for (const d of e.diagnostics) errors.push(new CliError(`RENOX_POLICY_INVALID: ${d.message}`, EXIT.VALIDATION, { file: d.file, line: d.line, column: d.column }));
     else if (e instanceof CliError && e.exitCode === EXIT.VALIDATION) errors.push(e);
     else throw e;
   }
@@ -103,6 +127,7 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");
     findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f), ...lintRedirect(src, f), ...lintBody(src, f));
+    findings.push(...lintMissingGuard(src, f, named), ...lintUnscoped(src, f, owned));
   }
   return { errors, findings };
 }

@@ -35,6 +35,7 @@ import { checkSecurity, type SecurityConfig } from "../check/security.ts";
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
+import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, PolicyError, readGuard, v25Problems } from "./policies.ts";
 import { moduleParts, type ModuleParts, type OverrideDrift, storedOverrides } from "./modules/build.ts";
 import { readLock } from "./modules/lock.ts";
 import { readProject, type ProjectConfig } from "./project.ts";
@@ -79,6 +80,8 @@ export interface Manifest {
   /** Artifact 1.1: the installed modules (`artifact.md` section 3, "Modules"). */
   modules?: JsonObjectLike[];
   slots?: ModuleParts["slots"];
+  /** Artifact 1.3: the app's `renox.toml [authz]` (#283). */
+  authz?: AuthzBlock;
 }
 
 type JsonObjectLike = Record<string, Json>;
@@ -302,6 +305,31 @@ export async function buildFiles(
   if (fns.length === 0 && pages.length === 0 && !mods?.routes.length)
     throw new BuildError("no routes: functions/ has no module exporting GET, POST, ... and pages/ has no page");
   const routes = [...routesOf(fns, pages), ...(mods?.routes ?? [])];
+  // Artifact 1.3 (#283): each route module's `export const guard`, read
+  // statically, into its route entry.
+  const sourceOf = new Map<string, string>([
+    ...fns.map((f): [string, string] => [f.id, join(project, f.source)]),
+    ...pages.flatMap((p): [string, string][] => (p.source ? [[p.id, join(project, p.source)]] : [])),
+    ...(mods?.entries ?? []).map((e): [string, string] => [e.id, join(e.tree, e.source)]),
+  ]);
+  const guardProblems: string[] = [];
+  const guards = new Map<string, ReturnType<typeof readGuard>>();
+  for (const r of routes) {
+    if (!r.module || guards.has(r.module)) continue;
+    const file = sourceOf.get(r.module);
+    if (file === undefined) continue;
+    try {
+      guards.set(r.module, readGuard(readFileSync(file, "utf8"), relative(project, file) || r.module));
+    } catch (e) {
+      // A syntax error is the bundler's to report, with its position.
+      if (e instanceof GuardError) guardProblems.push(e.message);
+    }
+  }
+  if (guardProblems.length) throw new BuildError("guard exports do not build", guardProblems);
+  for (const r of routes) {
+    const g = r.module ? guards.get(r.module) : null;
+    if (g) r.guard = g;
+  }
   const functions: Entry[] = [...fns, ...pages.flatMap((p) => (p.source ? [{ id: p.id, source: p.source }] : []))];
   if (functions.length === 0 && !mods?.entries.length)
     throw new BuildError("no code: an artifact needs at least one module (artifact.md, code.entry)", [], {
@@ -366,6 +394,8 @@ export async function buildFiles(
   const migDir = join(project, "migrations");
   const migs = listFiles(migDir);
   for (const [p, b] of mods?.files ?? []) files.set(p, b);
+  // The app's policies and schema (#283; artifact.md 1.3, `policies/`).
+  for (const [p, b] of appPolicyFiles(project)) files.set(p, b);
   // The app's translation catalogs (`i18n/<locale>.json`, #233, #244):
   // `code/i18n/`, where the cell reads them; they override the modules'.
   for (const c of listFiles(join(project, "i18n")).filter((n) => /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*\.json$/u.test(n))) {
@@ -413,6 +443,18 @@ export async function buildFiles(
     files.set("public.json", enc.encode(`${JSON.stringify(pm, null, 2)}\n`));
   }
 
+  // Authorization (#283; artifact.md 1.3): the app's and each module's
+  // `[authz]` on the manifest, V25 here, V24 (the policies against the
+  // merged schema) through the worker below.
+  const authz = appAuthz(project);
+  const moduleAuthz = (mods?.modules ?? []).map((m) => ({ name: m.lock.name, authz: (m.manifest.doc as { authz?: AuthzBlock }).authz }));
+  (mods?.field ?? []).forEach((f, i) => {
+    const block = moduleAuthz[i]?.authz;
+    if (block) f.authz = block as unknown as Json;
+  });
+  const v25 = v25Problems(routes, authz, moduleAuthz);
+  if (v25.length) throw new BuildError("authorization references do not resolve", v25);
+
   const manifestTemplates = Object.fromEntries(
     Object.entries(templates).map(([id, t]) => [id, t.fragments ? { kind: t.kind, fragments: t.fragments } : { kind: t.kind }]),
   );
@@ -428,10 +470,16 @@ export async function buildFiles(
     ...(config.security ? { security: config.security } : {}),
     ...(mods ? { modules: mods.field } : {}),
     ...(mods && Object.keys(mods.slots).length ? { slots: mods.slots } : {}),
+    ...(authz ? { authz } : {}),
   };
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);
   files.set("manifest.json", enc.encode(`${JSON.stringify(manifest, null, 2)}\n`));
+  // V24: policies validate against the merged schema (the engine the cell builds).
+  if ([...files.keys()].some((p) => p.startsWith("policies/")) || authz || moduleAuthz.some((m) => m.authz)) {
+    const { errors: policyErrors } = await checkPolicies(files);
+    if (policyErrors.length) throw new PolicyError(policyErrors);
+  }
   return { files, maps: bundled.maps, manifest, templates, rebuilt, cached, skipped, drift: mods?.drift ?? [] };
 }
 

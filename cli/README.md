@@ -33,7 +33,8 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox check [--secrets] [--security] [--json] [--strict]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
 | `renox add <module> [--version <range>] [--source …] [--mount <path>] [--yes]` | Installs a module after showing and approving its permissions; writes `renox.toml` and `renox.lock` (below) |
 | `renox remove <module>` | Uninstalls a module; its tables stay |
-| `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs `tests/*.test.ts` with `renox/test` on the worker, a fresh tenant file per test file (below) |
+| `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs the policy test cases of `policies/tests/*.json`, then `tests/*.test.ts` with `renox/test` on the worker, a fresh tenant file per test file (below) |
+| `renox authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]` | Why the app's policies allow or deny one request: the decision, the deciding policies with their text, evaluation errors. Roles and the resource's declared attributes come from the dev tenant file (below, "Authorization") |
 | `renox migrate [--db <file>]` | Builds, then runs the artifact's migration plan (installed modules in lock order, then the app's) on the dev tenant file `.renox/data/dev/app.db` through `renox-worker migrate` (below) |
 | `renox deploy [--json]` | Builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
 | `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |
@@ -100,6 +101,10 @@ The worker is the faster cold path, needs no Wasm file next to the compiled CLI,
 | `global-state`: inside a function body, a write to `globalThis` (`globalThis.x = …`, `globalThis["x"] = …`, compound assignments, `++`/`--`, `Object.assign(globalThis, …)`, `Object.defineProperty(globalThis, …)`) or an assignment to a module-level `let`/`var` binding that no parameter or local declaration shadows. Module state is shared by every request of the deployment (`docs/07-app-model.md`, "State rules"); `// renox-allow-global` on the line or the line above marks an intentional cache | error |
 
 | `secret`: a credential in what the build ships (below) | error |
+| `RENOX_POLICY_INVALID` (V24): a policy under `policies/` (the app's or a module's) that does not parse or validate against the merged schema, with its file and line | error |
+| `missing-guard`: a page or function module that calls `ctx.authz.require` / `can` / `canBatch` with a literal action a policy names, and has no `guard` export | error |
+| `unscoped-owned-table`: a `db.query` / `queryOne` / `execute` (or `tx.…`) whose SQL names a table of `[authz.ownership]` outside `ctx.db.scoped()`; module code is refused at runtime with `RENOX_DB_SCOPE` | error in `modules/`, warning in app code |
+| `undeclared-action`: an `r-can` / `r-cannot` action that is not in the merged action set (artifacts with an `[authz]` block) | error |
 | `forbidden-file`: a file of `public/` the build leaves out | warning |
 
 **Secret scan** (`renox build`, `renox check`, `renox check --secrets`; #115). Scanned: the project's own sources that went into `code/` (read from the source maps, so findings carry the original file and line; vendored npm code is not scanned) and the files copied as they are (`public/`, `migrations/`). Patterns (`@renox/artifact-validate`, `src/secrets.ts`): private key blocks, AWS access key ids, GitHub tokens, Stripe live secret and restricted keys, Slack tokens and webhooks, Google API keys, unsigned JWTs (`alg: none`), and a high-entropy string assigned to a name containing `secret`, `token`, `key`, `password` (hashes, UUIDs, `data:` URLs, and placeholders pass). A finding prints `file:line:col  pattern  description: <masked prefix> (N chars)`, never the value, with `hint: … renox secrets set <NAME> …`. A line that must keep such a string carries `renox-allow-secret: <reason>` on it or alone on the line above; the reason is required, and `renox build` prints it (`allowed <file>:<line> … renox-allow-secret: <reason>`). The control plane rejects the same patterns in `public/` and `migrations/` of an upload (rule H2); bundled `code/` is checked here only, because bundling removes the markers.
@@ -150,11 +155,33 @@ In a test file, `await app()` starts the worker on a temporary tenant file. The 
 - `db.query(sql)`, read-only;
 - `logs()` and `meters()`.
 
-`snapshot(html, { role })` strips request ids, deployment hashes, nonces, CSRF tokens and ULIDs, then matches the snapshot named `role: <role>`. `policyCases()` registers each case of `policies/tests/*.json` as a pending test (F5 evaluates them). A malformed file fails.
+`snapshot(html, { role })` strips request ids, deployment hashes, nonces, CSRF tokens and ULIDs, then matches the snapshot named `role: <role>`: render a page `as(user)` for each role to keep per-role snapshots. `policyCases(dir?)` (or `policies()` for the project's own) registers one test per case of `policies/tests/*.json` and evaluates it with the engine the cell builds. A malformed file fails.
 
 `installModule(name, "path:…")` runs `renox add` + `renox check` + `renox build` + `renox migrate` on a scratch copy of the app and a scratch tenant file. `.upgrade("path:…")` does it again on the same copy, with the range `^<version>` of the new tree. Each returns the check report (drift, broken contracts) and the migration report.
 
 Without `renox test` (plain `bun test` in CI), `app()` builds the project itself when `RENOX_WORKER_PATH` is set: `examples/shop/tests/shop.e2e.test.ts` runs that way.
+
+### Authorization (#283)
+
+`docs/11-authorization.md`; `docs/contracts/artifact.md` 1.3. `renox build`:
+
+- copies `policies/app/*.cedar` and `policies/schema.cedarschema` into the artifact (module policies come with the module trees);
+- puts `renox.toml [authz]` on the manifest as `authz`, and each module's `[authz]` on its `modules` entry;
+- reads each route module's `export const guard` into its route entry, without running the module. The guard must be an object literal of strings, optionally inside `defineGuard(…)`;
+- checks V25 (guards, sensitive actions and default roles name actions of the merged action set; a guard's `:<param>` is a parameter of its route);
+- checks V24 with `renox-worker check-policies`, the engine the cell builds (every declared attribute typed `String`, which the cell refines from the table columns). A policy error fails with `RENOX_POLICY_INVALID` and the file and line.
+
+**Policy test cases.** A case in `policies/tests/*.json` (an array, or `{ "cases": [...] }`) has these fields:
+
+- `principal`: `{ type: "User" | "System" | "Anonymous", id, roles?, attrs? }`;
+- `action`;
+- `resource?`: `{ type, id, ...declared attributes }`, where `type` is one of the app's types or a module's as `module:Type`;
+- `context?`;
+- `expected`: `allow` or `deny`.
+
+`renox test` evaluates every case before the test files and prints one `(pass)` / `(fail) policy <file>: <description> -> <decision>` line per case. A wrong expectation makes the run exit with code 2.
+
+**`renox authz explain`** builds the app in memory and asks `renox-worker check-policies` for the explanation of one request. The user's roles come from `renox__role_assignments` of `.renox/data/dev/app.db` (or `--db`), plus each `--role`. With `--resource Doc:d1`, the resource's declared attributes come from its entity's table. It prints `ALLOW` / `DENY`, the deciding policies with their text, and evaluation errors; `--json` prints `{ allow, reason, policies }`.
 
 ### `renox deploy`, `renox logs`, `renox secrets` (#58)
 

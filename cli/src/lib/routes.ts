@@ -17,6 +17,14 @@ export interface FunctionRoute {
   /** Module id, e.g. `functions/api/notes/[id]`. */
   module: string;
   export: Method;
+  /** Artifact 1.3: the module's `export const guard` (#283). */
+  guard?: Guard;
+}
+
+/** `export const guard` as the build read it (artifact.md 1.3; ops.md section 17). */
+export interface Guard {
+  action: string;
+  resource?: { type: string; id: string };
 }
 
 /** A page route (artifact version 1): one of the three `.ts`/`.html` pair shapes. */
@@ -31,6 +39,8 @@ export interface PageRoute {
   actions?: string[];
   /** Template id `pages/...` when the page has an `.html` file. */
   template?: string;
+  /** Artifact 1.3: the module's `export const guard` (#283). */
+  guard?: Guard;
 }
 
 export type Route = FunctionRoute | PageRoute;

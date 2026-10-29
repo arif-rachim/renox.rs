@@ -22,6 +22,7 @@ interface Harness {
   prepare(project: string, seeds?: string[], worker?: string): Promise<Spec>;
   startTestWorker(spec: Spec): Promise<Worker>;
   changeModule(project: string, name: string, source: string, scratch?: { project: string; db: string }, worker?: string, version?: string): Promise<ModuleChange & { db: string }>;
+  evaluatePolicies(spec: Spec, casesFrom?: string): Promise<{ file: string; case: PolicyCase; result: { allow: boolean; reason: string }; ok: boolean }[]>;
   SERVICE_PATH: string;
 }
 interface Spec {
@@ -217,24 +218,36 @@ export function snapshot(html: string, options: { role: string }): string {
   return normalized;
 }
 
-/** One policy test case (`policies/tests/*.json`; evaluated from F5, when Cedar is wired). */
+/** One policy test case (`policies/tests/*.json`, #283): evaluated by the engine the cell builds. */
 export interface PolicyCase {
-  principal: { type: string; id: string; roles?: string[] };
+  principal: { type: string; id: string; roles?: string[]; attrs?: Record<string, unknown> };
   action: string;
-  resource: { type: string; id?: string };
+  /** `type` is an entity type of the app (`"Doc"`) or a module's (`"auth:Account"`), with its declared attributes. */
+  resource?: { type: string; id?: string; [attr: string]: unknown };
+  context?: Record<string, unknown>;
   expected: "allow" | "deny";
   description?: string;
 }
 
 const isCase = (v: unknown): v is PolicyCase => {
   const c = v as PolicyCase;
-  return typeof c === "object" && c !== null && typeof c.action === "string" && typeof c.principal?.type === "string" && typeof c.resource?.type === "string" && (c.expected === "allow" || c.expected === "deny");
+  return (
+    typeof c === "object" &&
+    c !== null &&
+    typeof c.action === "string" &&
+    typeof c.principal?.type === "string" &&
+    typeof c.principal?.id === "string" &&
+    (c.resource === undefined || typeof c.resource?.type === "string") &&
+    (c.expected === "allow" || c.expected === "deny")
+  );
 };
 
 /**
  * Reads `policies/tests/*.json` (each an array of cases, or `{ cases: [...] }`)
- * and registers each case as a pending test until F5 evaluates them. A file
- * that is not in this format fails.
+ * and registers one test per case that evaluates it with the engine the
+ * cell builds (`renox-worker check-policies`, #283) and expects its
+ * `expected` decision. A file that is not in this format fails. `renox
+ * test` also runs the project's cases before the test files.
  */
 export function policyCases(dir = join(process.env.RENOX_TEST_PROJECT ?? process.cwd(), "policies", "tests")): PolicyCase[] {
   if (!existsSync(dir)) return [];
@@ -243,13 +256,31 @@ export function policyCases(dir = join(process.env.RENOX_TEST_PROJECT ?? process
     const raw = JSON.parse(readFileSync(join(dir, f), "utf8")) as unknown;
     const list = Array.isArray(raw) ? raw : (raw as { cases?: unknown[] }).cases;
     if (!Array.isArray(list) || !list.every(isCase)) throw new Error(`policies/tests/${f}: expected [{ principal, action, resource, expected: "allow" | "deny" }]`);
-    for (const c of list) {
-      out.push(c);
-      test.todo(`policy ${f}: ${c.principal.type}${c.principal.roles?.length ? ` (${c.principal.roles.join(", ")})` : ""} ${c.action} ${c.resource.type} -> ${c.expected} (F5)`);
-    }
+    for (const c of list) out.push(c);
   }
+  if (out.length === 0) return out;
+  // One evaluation for all the cases of `dir`, shared by their tests.
+  const project = join(dir, "..", "..");
+  let outcomes: Promise<Awaited<ReturnType<Harness["evaluatePolicies"]>>> | undefined;
+  const evaluated = () => {
+    outcomes ??= (async () => {
+      const h = await harness();
+      return h.evaluatePolicies(await spec(h, process.env.RENOX_TEST_PROJECT ?? project), project);
+    })();
+    return outcomes;
+  };
+  out.forEach((c, i) => {
+    const who = `${c.principal.type}::${c.principal.id}${c.principal.roles?.length ? ` (${c.principal.roles.join(", ")})` : ""}`;
+    test(`policy: ${c.description ?? `${who} ${c.action} ${c.resource?.type ?? ""}`} -> ${c.expected}`, async () => {
+      const o = (await evaluated())[i];
+      expect(o?.result.allow ? "allow" : "deny").toBe(c.expected);
+    });
+  });
   return out;
 }
+
+/** `policyCases` of the current project (`policies/tests/*.json`). */
+export const policies = (): PolicyCase[] => policyCases();
 
 /** A module change on a scratch copy of the app: install, then upgrade with the returned handle. */
 export interface ModuleHandle extends ModuleChange {

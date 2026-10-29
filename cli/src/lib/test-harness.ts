@@ -21,6 +21,7 @@ import { EnvironmentError, UserError } from "../errors.ts";
 import { readModulesTable } from "./modules/resolve.ts";
 import { buildArtifact } from "./build.ts";
 import { hashFiles } from "./hash.ts";
+import { checkPolicies, type PolicyCase, type PolicyResult, readPolicyCases } from "./policies.ts";
 import { workerPath } from "./worker.ts";
 
 /** What `renox test` hands to the test process (`RENOX_TEST_SPEC`, a JSON file). */
@@ -123,6 +124,37 @@ export async function prepare(project: string, seeds: string[] = [], worker = wo
   const seedDir = join(project, "seeds");
   const own = existsSync(seedDir) ? readdirSync(seedDir).filter((n) => n.endsWith(".sql")).sort().map((n) => join(seedDir, n)) : [];
   return { project, artifacts, hash, worker, seeds: [...own, ...seeds.map((s) => resolve(project, s))] };
+}
+
+/** One evaluated policy test case (`policies/tests/*.json`, #283). */
+export interface PolicyOutcome {
+  file: string;
+  case: PolicyCase;
+  result: PolicyResult;
+  ok: boolean;
+}
+
+/**
+ * Runs `policies/tests/*.json` of `casesFrom` (the project, or a module's
+ * own tree) against the policies of the
+ * built artifact with `renox-worker check-policies`: the engine the cell
+ * builds, the principal and resource of each case as written.
+ */
+export async function evaluatePolicies(spec: TestSpec, casesFrom = spec.project): Promise<PolicyOutcome[]> {
+  // A module's cases are in its own tree; its tests run in a temporary app.
+  const groups = readPolicyCases(casesFrom);
+  if (groups.length === 0) return [];
+  const files = filesOf(join(spec.artifacts, spec.hash));
+  const cases = groups.flatMap((g) => g.cases);
+  const { errors, results } = await checkPolicies(files, cases, spec.worker);
+  if (errors.length) throw new UserError(`policies do not validate: ${errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join("; ")}`);
+  let i = 0;
+  return groups.flatMap((g) =>
+    g.cases.map((c) => {
+      const result = results[i++] as PolicyResult;
+      return { file: g.file, case: c, result, ok: (result.allow ? "allow" : "deny") === c.expected };
+    }),
+  );
 }
 
 function freePort(): number {

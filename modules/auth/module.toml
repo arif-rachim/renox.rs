@@ -71,3 +71,9 @@ template = "partials/user-menu.html"
 
 [authz]
 actions = ["user.read", "user.update_self", "session.revoke"]
+
+# The module's entity types (#283; manifest.md 1.1): the app names them
+# `auth:Account` and `auth:Session`.
+[authz.entities]
+Account = { table = "auth__users", attrs = ["id"] }
+Session = { table = "auth__sessions", attrs = ["user_id"] }

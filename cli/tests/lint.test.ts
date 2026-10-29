@@ -112,3 +112,23 @@ test("unvalidated-body: validate(schema, req), a validated name, a body inside v
   const src = readFileSync(join(import.meta.dir, "fixtures/lint-body/clean.ts"), "utf8");
   expect(lintBody(src, "clean.ts")).toEqual([]);
 });
+
+test("unvalidated-body: a body assigned to a name declared earlier and then validated is not flagged", () => {
+  const src = `export async function POST({ req }) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response("bad", { status: 400 });
+  }
+  const parsed = Schema.safeParse(body);
+  return Response.json(parsed);
+}
+export async function PUT({ req }) {
+  let raw: unknown;
+  raw = await req.json();
+  return Response.json(raw);
+}`;
+  const f = lintBody(src, "functions/api/cart.ts");
+  expect(f.map((x) => x.line)).toEqual([13]);
+});
