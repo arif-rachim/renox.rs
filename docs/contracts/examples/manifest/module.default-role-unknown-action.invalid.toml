@@ -1,0 +1,14 @@
+# [expect: MF13] a default role grants only actions of [authz].actions
+[module]
+name = "billing"
+version = "1.2.0"
+
+[permissions]
+tables = "billing__*"
+roles = ["finance"]
+
+[authz]
+actions = ["invoice.read"]
+
+[authz.default_roles]
+finance = ["invoice.read", "invoice.delete"]

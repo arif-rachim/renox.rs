@@ -1,0 +1,10 @@
+# [expect: pattern] a feed's topic pattern is a topic with {column} placeholders, no empty segment
+[module]
+name = "billing"
+version = "1.2.0"
+
+[permissions]
+tables = "billing__*"
+
+[realtime.feeds]
+"billing__invoices" = "invoices::{org_id}"

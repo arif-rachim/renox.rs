@@ -30,10 +30,12 @@ export function fakeDb(setup = "create table app__items (id integer primary key,
       return { changes: r.changes, lastInsertRowid: r.lastInsertRowid };
     },
   };
-  return {
+  const db: FakeDb = {
     ...statements,
     log,
     sqlite,
+    // No rewriter in unit tests: a scoped Db is the same Db (ops.md section 17 is enforced in Rust).
+    scoped: () => db,
     async transaction<T>(fn: (tx: DbStatements) => Promise<T>): Promise<T> {
       sqlite.exec("begin immediate");
       try {
@@ -46,4 +48,5 @@ export function fakeDb(setup = "create table app__items (id integer primary key,
       }
     },
   };
+  return db;
 }

@@ -1,0 +1,14 @@
+{
+  "$comment": "valid (1.5.0): a JSON payload with an SSE event name, from an action of the app",
+  "op": "op_realtime_publish",
+  "args": [
+    "orders:o_1",
+    {
+      "type": "json",
+      "json_text": "{\"order\":\"ord_1\",\"status\":\"paid\"}",
+      "event": "order-updated"
+    },
+    null
+  ],
+  "result": 1
+}

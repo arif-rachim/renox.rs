@@ -1,0 +1,42 @@
+{
+  "$comment": "valid (1.5.0): the loader of a page runs with the request's principal, already past the page's guard (ops.md section 17)",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/invoices/:id",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {
+      "id": "inv_123"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "module": "billing",
+    "principal": {
+      "id": "u_1",
+      "kind": "user",
+      "roles": [
+        {
+          "role": "finance",
+          "scope_type": "org",
+          "scope_id": "o_1"
+        },
+        {
+          "role": "viewer",
+          "scope_type": "global",
+          "scope_id": null
+        }
+      ],
+      "attrs": {
+        "org": "o_1",
+        "mfa_verified": true
+      }
+    }
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{\"invoice\":{\"id\":\"inv_123\"}}",
+    "fragments": []
+  }
+}

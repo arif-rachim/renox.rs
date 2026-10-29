@@ -1,0 +1,19 @@
+{
+  "$comment": "valid (1.5.0): the connection's outbound queue is full: it is closed with 1008 and the op rejects (ops.md section 18, Limits)",
+  "op": "op_realtime_send",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    {
+      "type": "text",
+      "text": "x"
+    }
+  ],
+  "error": {
+    "name": "RealtimeBackpressureError",
+    "code": "RENOX_REALTIME_BACKPRESSURE",
+    "message": "the connection fell behind",
+    "details": {
+      "conn": "c_01JBQ3Z7MA00000000000001"
+    }
+  }
+}

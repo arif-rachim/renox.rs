@@ -1,0 +1,6 @@
+// The app's Cedar schema (artifact.md section 3, "Policies"; ops.md section 17).
+// The platform types (Renox::User, Renox::Role, Renox::Action, Renox::Topic, ...)
+// come from the platform; the app declares its own entity types.
+namespace App {
+  entity Order = { amount: Long, org_id: String, status: String };
+}

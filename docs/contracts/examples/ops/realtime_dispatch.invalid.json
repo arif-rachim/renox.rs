@@ -1,0 +1,20 @@
+{
+  "$comment": "invalid: a message phase carries the frame [expect: required]",
+  "dispatch": "realtime",
+  "envelope": {
+    "kind": "realtime",
+    "phase": "message",
+    "transport": "ws",
+    "conn": "c_01JBQ3Z7MA00000000000001",
+    "route": "/ws/chat/:room",
+    "params": {
+      "room": "42"
+    },
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "ok"
+  }
+}

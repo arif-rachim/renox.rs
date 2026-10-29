@@ -1,0 +1,21 @@
+{
+  "$comment": "valid (1.5.0): a module may assign only the roles its [authz.default_roles] names",
+  "op": "op_authz_roles_assign",
+  "args": [
+    "u_2",
+    "owner",
+    "global",
+    null,
+    "billing",
+    null
+  ],
+  "error": {
+    "name": "ModuleUndeclaredError",
+    "code": "RENOX_MODULE_UNDECLARED",
+    "message": "billing may not assign the role owner",
+    "details": {
+      "module": "billing",
+      "target": "role:owner"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$comment": "invalid: a resource needs its type [expect: args[1]]",
+  "op": "op_authz_check",
+  "args": [
+    "invoice.refund",
+    {
+      "id": "inv_123"
+    },
+    null,
+    "billing"
+  ],
+  "result": {
+    "allow": true,
+    "policy": null
+  }
+}

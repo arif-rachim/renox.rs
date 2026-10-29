@@ -1,0 +1,12 @@
+{
+  "$comment": "valid (1.5.0): a text frame to one connection",
+  "op": "op_realtime_send",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    {
+      "type": "text",
+      "text": "welcome"
+    }
+  ],
+  "result": null
+}

@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: unsubscribe takes no module [expect: oneOf]",
+  "op": "op_realtime_unsubscribe",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    "room:42",
+    "chat"
+  ],
+  "result": null
+}

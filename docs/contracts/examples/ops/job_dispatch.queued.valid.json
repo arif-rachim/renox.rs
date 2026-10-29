@@ -1,0 +1,19 @@
+{
+  "$comment": "valid (1.5.0): the second attempt of a queued run of billing's send-reminder",
+  "dispatch": "job",
+  "envelope": {
+    "kind": "job",
+    "id": "01JBQ3Z7MA0000000000000401",
+    "name": "send-reminder",
+    "module": "billing",
+    "tick": 1793404800000,
+    "attempt": 2,
+    "payload": {
+      "invoice_id": "inv_123"
+    }
+  },
+  "result": {
+    "type": "failed",
+    "reason": "threw"
+  }
+}

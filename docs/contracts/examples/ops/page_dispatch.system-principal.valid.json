@@ -1,0 +1,23 @@
+{
+  "$comment": "valid (1.5.0): the System principal shape (ops.md section 17), as a job or an event handler sees ctx.principal; shown on a page invocation for the schema only",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/",
+    "phase": "load",
+    "action": null,
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    },
+    "principal": {
+      "id": "billing",
+      "kind": "system",
+      "roles": [],
+      "attrs": {}
+    }
+  },
+  "result": {
+    "type": "response"
+  }
+}

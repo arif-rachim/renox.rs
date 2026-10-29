@@ -1,5 +1,6 @@
-# The billing manifest of docs/10-modules.md, with permissions.slots (MF8) and
-# imports (MF7) added.
+# The billing manifest of docs/10-modules.md, with permissions.slots (MF8),
+# imports (MF7), and the 1.1 keys: permissions.roles, [[tools]] carried,
+# [authz] sensitive / ownership / entities / default_roles, [realtime.feeds].
 [module]
 name = "billing"
 version = "1.2.0"
@@ -17,6 +18,7 @@ network = ["api.stripe.com", "api.checkout.com", "secure.telr.com", "secure.payt
 tables = "billing__*"
 secrets = ["BILLING_PROVIDER_KEY"]
 slots = ["admin.sidebar"]
+roles = ["finance", "viewer"]
 
 [exports]
 views = ["billing__public_user_plans_v1"]
@@ -43,5 +45,26 @@ file = "tools/create-invoice.ts"
 action = "invoice.create"
 confirm = false
 
+[[tools]]
+name = "refund_invoice"
+file = "tools/refund-invoice.ts"
+action = "invoice.refund"
+confirm = true
+description = "Refund a paid invoice after a preview"
+
 [authz]
-actions = ["invoice.read", "invoice.create"]
+actions = ["invoice.read", "invoice.create", "invoice.refund"]
+sensitive = ["invoice.refund"]
+
+[authz.ownership]
+"billing__invoices" = { owner = "user_id", org = "org_id" }
+
+[authz.entities]
+Invoice = { table = "billing__invoices", attrs = ["amount", "org_id", "status"] }
+
+[authz.default_roles]
+finance = ["invoice.read", "invoice.refund"]
+viewer = ["invoice.read"]
+
+[realtime.feeds]
+"billing__invoices" = "invoices:{org_id}"

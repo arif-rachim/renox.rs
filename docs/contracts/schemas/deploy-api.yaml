@@ -1,4 +1,4 @@
-# Renox deploy API, contract version 0.3 (F6).
+# Renox deploy API, contract version 0.3.1 (F6).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -479,7 +479,9 @@ paths:
         follow=true, keeps the stream open and sends new lines as they arrive. A
         comment line `: keep-alive` is sent every 15 s. Lines were redacted on the node. A line with
         `source: client` carries `fields.fingerprint`, the error group of GET /client-errors/{fingerprint}
-        (deploy-api.md section 11.1).
+        (deploy-api.md section 11.1). A server line whose `fields.stack` holds a stack also carries
+        `fields.frames` (0.3.1, section 11): at most 50 frames of `{ file, line, column, function, original }`,
+        `original` from the deployment's private sourcemaps or null.
       x-renox-scope: logs:read
       parameters:
         - name: follow
@@ -510,6 +512,8 @@ paths:
               examples:
                 two-lines:
                   value: "event: log\nid: 1793318400200-0\ndata: {\"ts\":1793318400200,\"tenant_id\":\"t_hello\",\"deployment_hash\":\"802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a\",\"request_id\":\"01JBQ3Z7M8K5V6W9X2Y4A1B3C5\",\"module\":\"functions/api/hello\",\"level\":\"info\",\"message\":\"hello key=[redacted]\",\"fields\":null,\"source\":\"server\"}\n\n: keep-alive\n\n"
+                frames:
+                  value: "event: log\nid: 1793318400300-0\ndata: {\"ts\":1793318400300,\"tenant_id\":\"t_hello\",\"deployment_hash\":\"802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a\",\"request_id\":\"01JBQ3Z7M8K5V6W9X2Y4A1B3C6\",\"module\":\"functions/api/orders\",\"level\":\"error\",\"message\":\"handler threw\",\"fields\":{\"code\":\"RENOX_INTERNAL\",\"route\":\"POST /api/orders\",\"stack\":\"TypeError: x is not a function\\n    at POST (functions/api/orders.js:1:412)\",\"frames\":[{\"file\":\"functions/api/orders.js\",\"line\":1,\"column\":412,\"function\":\"POST\",\"original\":{\"file\":\"functions/api/orders.ts\",\"line\":18,\"column\":9}}]},\"source\":\"server\"}\n\n"
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1031,6 +1035,7 @@ paths:
             schema: { $ref: "#/components/schemas/CreateTokenRequest" }
             examples:
               ci: { value: { name: github-actions, scopes: ["deploy:hello", "logs:read"], expires_in_days: 90 } }
+              operator-read-only: { value: { name: observability, scopes: ["ops:read"], expires_in_days: 30 } }
             x-renox-invalid-examples:
               forever: { value: { name: ci, scopes: [deploy], expires_in_days: 3650 }, x-expect: maximum }
               bad-scope: { value: { name: ci, scopes: ["root"], expires_in_days: 30 }, x-expect: pattern }
@@ -1047,6 +1052,41 @@ paths:
                     name: github-actions
                     token: renox_pat_abcdefghijklmnopqrstuvwxyz234567
                     scopes: ["deploy:hello", "logs:read"]
+                    created_at: 1793318000000
+                    expires_at: 1801094000000
+                operator:
+                  value:
+                    id: tok_01JBQ40000000000OP
+                    name: console
+                    token: renox_op_abcdefghijklmnopqrstuvwxyz234567
+                    scopes: ["ops:write"]
+                    created_at: 1793318000000
+                    expires_at: 1801094000000
+                operator-read-only:
+                  value:
+                    id: tok_01JBQ40000000000OR
+                    name: observability
+                    token: renox_op_bcdefghijklmnopqrstuvwxyz2345672
+                    scopes: ["ops:read"]
+                    created_at: 1793318000000
+                    expires_at: 1801094000000
+              x-renox-invalid-examples:
+                unknown-kind:
+                  x-expect: pattern
+                  value:
+                    id: tok_01JBQ40000000000CE
+                    name: ci
+                    token: renox_tok_abcdefghijklmnopqrstuvwxyz234567
+                    scopes: ["deploy:hello"]
+                    created_at: 1793318000000
+                    expires_at: 1801094000000
+                node-token-kind:
+                  x-expect: pattern
+                  value:
+                    id: tok_01JBQ40000000000CF
+                    name: ci
+                    token: renox_node_abcdefghijklmnopqrstuvwxyz234567
+                    scopes: ["deploy:hello"]
                     created_at: 1793318000000
                     expires_at: 1801094000000
         "400": { $ref: "#/components/responses/Validation" }
@@ -1718,6 +1758,118 @@ paths:
         "422": { $ref: "#/components/responses/ImportRejected" }
         "503": { $ref: "#/components/responses/TenantMoving" }
 
+  /v1/ops/tenants/{tenant_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: getOpsTenant
+      tags: [ops]
+      summary: A tenant as the operator console shows it (deploy-api.md section 17, 0.3.1)
+      description: >-
+        Tier, process and owning node, the pin, the moving state, when a microVM move last
+        succeeded, the replication each database's node last reported, and the last five
+        operator actions with their reasons. Served from Postgres only: no node call, never 503.
+        Audited as a read of operator data (section 2).
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:read
+      x-renox-audit: getOpsTenant (operator, tenant; a read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: The tenant's state for the console.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpsTenant" }
+              examples:
+                paid-moved:
+                  value:
+                    tenant_id: t_hello
+                    name: Hello Trading LLC
+                    tier: paid
+                    state: active
+                    process: own
+                    node_id: node-dxb-02
+                    pinned_node: node-dxb-02
+                    moving: false
+                    moving_since: null
+                    microvm_at: null
+                    replication:
+                      - database: t_hello
+                        replication: litestream
+                        state: replicating
+                        replica: { kind: s3, region: me-central-1 }
+                        last_sync_at: 1793318406000
+                        lag_seconds: 0.8
+                        reported_at: 1793318410000
+                        stale: false
+                    actions:
+                      - { audit_id: aud_01JBQ40000000000AB, at: 1793318300000, action: moveTenant, operator: acct_01JBQ40000000000OP, reason: "drain node-dxb-01 for kernel upgrade", result: moved }
+                      - { audit_id: aud_01JBQ40000000000AA, at: 1793318200000, action: setTenantTier, operator: operator, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+                moving:
+                  value:
+                    tenant_id: t_hello
+                    name: Hello Trading LLC
+                    tier: paid
+                    state: active
+                    process: own
+                    node_id: node-dxb-01
+                    pinned_node: null
+                    moving: true
+                    moving_since: 1793318500000
+                    microvm_at: null
+                    replication:
+                      - database: t_hello
+                        replication: none
+                        state: "off"
+                        replica: null
+                        last_sync_at: null
+                        lag_seconds: null
+                        reported_at: 1793318100000
+                        stale: true
+                    actions: []
+              x-renox-invalid-examples:
+                six-actions:
+                  x-expect: maxItems
+                  value:
+                    tenant_id: t_hello
+                    name: Hello Trading LLC
+                    tier: free
+                    state: active
+                    process: shared
+                    node_id: node-dxb-01
+                    pinned_node: null
+                    moving: false
+                    moving_since: null
+                    microvm_at: null
+                    replication: []
+                    actions:
+                      - { audit_id: aud_01JBQ40000000000A1, at: 1793318300000, action: setTenantTier, operator: operator, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+                      - { audit_id: aud_01JBQ40000000000A2, at: 1793318300001, action: setTenantTier, operator: operator, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+                      - { audit_id: aud_01JBQ40000000000A3, at: 1793318300002, action: setTenantTier, operator: operator, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+                      - { audit_id: aud_01JBQ40000000000A4, at: 1793318300003, action: setTenantTier, operator: operator, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+                      - { audit_id: aud_01JBQ40000000000A5, at: 1793318300004, action: setTenantTier, operator: operator, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+                      - { audit_id: aud_01JBQ40000000000A6, at: 1793318300005, action: setTenantTier, operator: operator, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+                user-id-form:
+                  x-expect: pattern
+                  value:
+                    tenant_id: t_hello
+                    name: Hello Trading LLC
+                    tier: free
+                    state: active
+                    process: shared
+                    node_id: node-dxb-01
+                    pinned_node: null
+                    moving: false
+                    moving_since: null
+                    microvm_at: null
+                    replication: []
+                    actions:
+                      - { audit_id: aud_01JBQ40000000000A1, at: 1793318300000, action: setTenantTier, operator: usr_01JBQ40000000000OP, reason: "upgrade paid by invoice INV-2026-0042", result: changed }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/ops/tenants/{tenant_id}/tier:
     parameters:
       - $ref: "#/components/parameters/TenantId"
@@ -1861,8 +2013,8 @@ components:
     Tier: { enum: [free, paid] }
     Scope:
       type: string
-      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?|ops:write)$"
-      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those. `ops:write` (0.3, section 17) only on tokens an operator account creates; `*` never includes it."
+      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?|ops:write|ops:read)$"
+      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those. `ops:write` (0.3) and `ops:read` (0.3.1, granted by `ops:write`; section 17) only on tokens an operator account creates; `*` never includes them."
 
     Health:
       type: object
@@ -2286,7 +2438,10 @@ components:
       properties:
         id: { $ref: "#/components/schemas/TokenId" }
         name: { type: string }
-        token: { type: string, pattern: "^renox_pat_[a-z2-7]{32}$" }
+        token:
+          type: string
+          pattern: "^renox_(pat|op)_[a-z2-7]{32}$"
+          description: "`renox_pat_` for a tenant token; `renox_op_` (0.3.1) for the token of an operator account (section 17), whose scopes are `ops:write` or `ops:read` only."
         scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
         created_at: { $ref: "#/components/schemas/UnixMs" }
         expires_at: { $ref: "#/components/schemas/UnixMs" }
@@ -2449,6 +2604,66 @@ components:
         tables: { type: array, maxItems: 1000, items: { type: string, pattern: "^[a-z][a-z0-9]*__[a-z0-9_]+$" } }
 
     OperatorReason: { type: string, minLength: 10, maxLength: 500, description: "Why the operator acts; required on every operator action and kept in the audit row." }
+
+    OperatorId:
+      type: string
+      pattern: "^(operator|acct_[0-9A-Za-z]{16,32})$"
+      description: "0.3.1 (section 2, \"Operator ids\"): `operator` for the bootstrap token, else the operator account's id `acct_<ulid>`; the same form as `move_request.operator` on the node listener. A `usr_` id never appears here."
+
+    OpsReplication:
+      type: object
+      additionalProperties: false
+      description: "0.3.1: the replication of one database of the tenant as its owning node last reported it (node listener `replication_status`, section 15); the full report per app is getBackups."
+      required: [database, replication, state, replica, last_sync_at, lag_seconds, reported_at, stale]
+      properties:
+        database: { $ref: "#/components/schemas/DatabaseId" }
+        replication: { enum: [none, litestream] }
+        state: { enum: ["off", starting, replicating, stopped] }
+        replica:
+          oneOf:
+            - { type: "null" }
+            - type: object
+              additionalProperties: false
+              required: [kind]
+              properties:
+                kind: { enum: [file, s3] }
+                region: { type: string, maxLength: 64 }
+        last_sync_at: { type: [integer, "null"], minimum: 0 }
+        lag_seconds: { type: [number, "null"], minimum: 0 }
+        reported_at: { $ref: "#/components/schemas/UnixMs" }
+        stale: { type: boolean, description: "true when the report is older than two heartbeats (section 7)." }
+
+    OpsAction:
+      type: object
+      additionalProperties: false
+      description: "0.3.1: one operator action on the tenant, from its audit row (section 17)."
+      required: [audit_id, at, action, operator, reason, result]
+      properties:
+        audit_id: { type: string, pattern: "^aud_[0-9A-Za-z]{16,32}$" }
+        at: { $ref: "#/components/schemas/UnixMs" }
+        action: { enum: [setTenantTier, moveTenant] }
+        operator: { $ref: "#/components/schemas/OperatorId" }
+        reason: { $ref: "#/components/schemas/OperatorReason" }
+        result: { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$", description: "The audit row's result: changed, unchanged, moved, restore_failed, hook_failed." }
+
+    OpsTenant:
+      type: object
+      additionalProperties: false
+      description: "0.3.1 (section 17, \"Read\"): a tenant as the operator console and the observability panel show it. Served from Postgres only."
+      required: [tenant_id, name, tier, state, process, node_id, pinned_node, moving, moving_since, microvm_at, replication, actions]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        tier: { $ref: "#/components/schemas/Tier" }
+        state: { enum: [active, suspended] }
+        process: { enum: [shared, own] }
+        node_id: { oneOf: [{ $ref: "#/components/schemas/NodeId" }, { type: "null" }], description: "The owning node, or null while the tenant has no route entry." }
+        pinned_node: { oneOf: [{ $ref: "#/components/schemas/NodeId" }, { type: "null" }], description: "The node a failover or an operator move pinned the tenant to (FO4), or null." }
+        moving: { type: boolean, description: "A microVM move is in progress: requests answer 503 RENOX_TENANT_MOVING (section 17)." }
+        moving_since: { type: [integer, "null"], minimum: 0 }
+        microvm_at: { type: [integer, "null"], minimum: 0, description: "When a microVM move last succeeded (hook exit 0), or null." }
+        replication: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/OpsReplication" } }
+        actions: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/OpsAction" }, description: "The last five operator actions, newest first." }
 
     SetTierRequest:
       type: object

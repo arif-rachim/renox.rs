@@ -1,0 +1,16 @@
+{
+  "$comment": "invalid: a job is dead-lettered after the 8th attempt [expect: maximum]",
+  "dispatch": "job",
+  "envelope": {
+    "kind": "job",
+    "id": "01JBQ3Z7MA0000000000000401",
+    "name": "send-reminder",
+    "module": "billing",
+    "tick": 1793404800000,
+    "attempt": 9,
+    "payload": null
+  },
+  "result": {
+    "type": "ok"
+  }
+}

@@ -41,6 +41,8 @@ Role assignments live in `renox__role_assignments (user_id, role, scope_type, sc
 
 Modules ship default policies under `modules/<module>/policies/`. The app adds policies under `policies/` and may override a module's under `overrides/<module>/policies/`.
 
+**Contract.** The runtime side of this document is `docs/contracts/ops.md` section 17 (1.5.0, #272): the principal reaches Rust through the `auth` module's exported service `auth.principal` (never by the cell reading `auth__sessions`), cached per cell by session id and invalidated by `authz.roles_changed`, `auth.login`, and `auth.logout`; `op_authz_*` and `ctx.authz` (`require`, `can`, `canBatch`, `explain`, `roles`), the `guard` export, `db.scoped()` with `[authz.ownership]`, the append-only `renox__authz_audit` row for sensitive actions, and the evaluation count `authz_evals`. The Cedar schema qualifies the platform types this document writes bare: `Role::"finance"` is `Renox::Role::"finance"`, `Action::"invoice.read"` is `Renox::Action::"invoice.read"`, and a module's `Invoice` is `Billing::Invoice`. The `realtime.authorize` hook of the table below is a policy on `Renox::Topic`, not a hook (`docs/09-htmx-realtime.md`).
+
 ## Enforcement points
 
 | Layer | How | Role |

@@ -1,0 +1,13 @@
+{
+  "$comment": "invalid: a payload is text, json or render [expect: oneOf]",
+  "op": "op_realtime_publish",
+  "args": [
+    "room:42",
+    {
+      "type": "html",
+      "html": "<li>hi</li>"
+    },
+    "chat"
+  ],
+  "result": 0
+}

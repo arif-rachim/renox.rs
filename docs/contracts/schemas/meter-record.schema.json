@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/meter/v0/meter-record.schema.json",
-  "title": "Renox meter batch and record, meter contract version 0.2 (schema_version 0)",
-  "description": "Root: one batch envelope (one line of the F1 ndjson sink, one HTTP body in F3). $defs/record: one invocation record. Prose: docs/contracts/meter.md. request_id uniqueness within a batch is rule M1 in validate.ts; the route form per kind is the record's if/then/else.",
+  "title": "Renox meter batch and record, meter contract version 0.3 (schema_version 0)",
+  "description": "Root: one batch envelope (one line of the F1 ndjson sink, one HTTP body in F3). $defs/record: one invocation record. Prose: docs/contracts/meter.md. request_id uniqueness within a batch is rule M1 in validate.ts; the route form per kind, and which kinds carry the realtime fields, are the record's allOf of if/then/else (0.3).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -85,9 +85,9 @@
         },
         "route": {
           "type": "string",
-          "description": "<METHOD> <route pattern from manifest.routes[]>, never a concrete URL; or, for kind event (0.2), EVENT <module> <event name>.",
+          "description": "<METHOD> <route pattern from manifest.routes[]>, never a concrete URL; for kind event (0.2), EVENT <module> <event name>; from 0.3 WS <pattern> / SSE <pattern> for a realtime connection, TOOL <name> for kind tool, JOB <module> <name> for kind job.",
           "maxLength": 1032,
-          "pattern": "^((GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD) (/|(/([A-Za-z0-9._~-]+|:[a-z_][a-z0-9_]{0,31}|\\*[a-z_][a-z0-9_]{0,31}))+)|EVENT [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_]{0,31}\\.[a-z][a-z0-9_]{0,63})$"
+          "pattern": "^((GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|WS|SSE) (/|(/([A-Za-z0-9._~-]+|:[a-z_][a-z0-9_]{0,31}|\\*[a-z_][a-z0-9_]{0,31}))+)|EVENT [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_]{0,31}\\.[a-z][a-z0-9_]{0,63}|TOOL [a-z][a-z0-9_]{0,63}|JOB [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_-]{0,63})$"
         },
         "started_at": {
           "$ref": "#/$defs/count",
@@ -148,15 +148,31 @@
             "oom",
             "blocked_fetch",
             "busy",
-            "render_limit"
+            "render_limit",
+            "forbidden"
           ]
         },
         "kind": {
           "enum": [
             "request",
-            "event"
+            "event",
+            "tool",
+            "job"
           ],
-          "description": "Optional (0.2): absent = request."
+          "description": "Optional (0.2): absent = request. 0.3: tool (one tools/call through /mcp), job (one attempt of a job)."
+        },
+        "authz_evals": {
+          "$ref": "#/$defs/count",
+          "description": "Optional (0.3): Cedar evaluations of the invocation (ops.md section 17). Absent = 0."
+        },
+        "realtime_conn_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Optional (0.3): the lifetime of a ws or sse connection, on its record only. Absent = 0."
+        },
+        "realtime_messages": {
+          "$ref": "#/$defs/count",
+          "description": "Optional (0.3): frames received plus messages delivered to the connection, on its record only. Absent = 0."
         }
       },
       "allOf": [
@@ -192,13 +208,123 @@
                 ]
               }
             }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "tool"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "route": {
+                "pattern": "^TOOL "
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "error",
+                  "timeout",
+                  "cpu_limit",
+                  "oom",
+                  "blocked_fetch"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "job"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "route": {
+                "pattern": "^JOB "
+              },
+              "ingress_bytes": {
+                "const": 0
+              },
+              "egress_bytes": {
+                "const": 0
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "error",
+                  "timeout",
+                  "cpu_limit",
+                  "oom"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "not": {
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "request"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "route": {
+                "pattern": "^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|WS|SSE) "
+              }
+            }
           },
           "else": {
             "properties": {
+              "realtime_conn_seconds": false,
+              "realtime_messages": false
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "realtime_conn_seconds"
+                ]
+              },
+              {
+                "required": [
+                  "realtime_messages"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
               "route": {
-                "not": {
-                  "pattern": "^EVENT "
-                }
+                "pattern": "^(WS|SSE) "
               }
             }
           }

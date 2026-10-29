@@ -1,0 +1,38 @@
+{
+  "$comment": "valid (1.5.0): run returned more than 256 KB of JSON; the MCP result is isError",
+  "dispatch": "tool",
+  "envelope": {
+    "kind": "tool",
+    "name": "export_orders",
+    "input": {},
+    "principal": {
+      "id": "u_1",
+      "kind": "user",
+      "roles": [
+        {
+          "role": "finance",
+          "scope_type": "org",
+          "scope_id": "o_1"
+        },
+        {
+          "role": "viewer",
+          "scope_type": "global",
+          "scope_id": null
+        }
+      ],
+      "attrs": {
+        "org": "o_1",
+        "mfa_verified": true
+      }
+    },
+    "client": {
+      "name": "claude-desktop"
+    },
+    "preview": false,
+    "request_id": "01JBQ3Z7MA0000000000000303"
+  },
+  "result": {
+    "type": "failed",
+    "reason": "output_too_large"
+  }
+}

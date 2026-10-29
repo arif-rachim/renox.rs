@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: a topic is segments split on ':' with no empty segment [expect: pattern]",
+  "op": "op_realtime_subscribe",
+  "args": [
+    "c_01JBQ3Z7MA00000000000001",
+    "room::42",
+    "chat"
+  ],
+  "result": null
+}

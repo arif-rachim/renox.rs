@@ -1,0 +1,30 @@
+{
+  "$comment": "valid (1.5.0): canBatch in a loader, one boolean per invoice (ops.md section 17)",
+  "op": "op_authz_check_batch",
+  "args": [
+    "invoice.refund",
+    [
+      {
+        "type": "Invoice",
+        "id": "inv_123",
+        "amount": 4200,
+        "org": "o_1",
+        "status": "open",
+        "customer_email": "dropped@example.com"
+      },
+      {
+        "type": "Invoice",
+        "id": "inv_124",
+        "amount": 99999999,
+        "org": "o_1",
+        "status": "open"
+      }
+    ],
+    null,
+    "billing"
+  ],
+  "result": [
+    true,
+    false
+  ]
+}

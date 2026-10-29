@@ -1,0 +1,14 @@
+{
+  "$comment": "invalid: a scope has user_id, org_id and session_id only [expect: args[4]]",
+  "op": "op_db_query",
+  "args": [
+    "select 1",
+    [],
+    null,
+    "shop",
+    {
+      "tenant_id": "t_1"
+    }
+  ],
+  "result": []
+}

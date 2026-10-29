@@ -1,0 +1,21 @@
+{
+  "$comment": "valid (1.5.0): billing asks whether the request's principal may refund an invoice loaded from the database; dev mode names the policy (ops.md section 17)",
+  "op": "op_authz_check",
+  "args": [
+    "invoice.refund",
+    {
+      "type": "Invoice",
+      "id": "inv_123",
+      "amount": 4200,
+      "org": "o_1",
+      "status": "open",
+      "customer_email": "dropped@example.com"
+    },
+    null,
+    "billing"
+  ],
+  "result": {
+    "allow": true,
+    "policy": "billing.finance_refund"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$comment": "valid (1.5.0, dev mode): the forbidding policy of a denied refund (ops.md section 17)",
+  "op": "op_authz_explain",
+  "args": [
+    "invoice.refund",
+    {
+      "type": "Invoice",
+      "id": "inv_123",
+      "amount": 4200,
+      "org": "o_1",
+      "status": "open",
+      "customer_email": "dropped@example.com"
+    },
+    null,
+    "billing"
+  ],
+  "result": {
+    "decision": "deny",
+    "reasons": [
+      "billing.refund_cap"
+    ],
+    "errors": []
+  }
+}

@@ -1,0 +1,11 @@
+# [expect: MF13] sensitive actions are a subset of [authz].actions
+[module]
+name = "billing"
+version = "1.2.0"
+
+[permissions]
+tables = "billing__*"
+
+[authz]
+actions = ["invoice.read"]
+sensitive = ["invoice.refund"]

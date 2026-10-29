@@ -1,0 +1,21 @@
+{
+  "$comment": "valid (1.5.0): explain outside dev mode rejects with RENOX_FORBIDDEN, reason dev_only",
+  "op": "op_authz_explain",
+  "args": [
+    "invoice.refund",
+    null,
+    null,
+    "billing"
+  ],
+  "error": {
+    "name": "ForbiddenError",
+    "code": "RENOX_FORBIDDEN",
+    "message": "explain is available in dev mode only",
+    "details": {
+      "action": "invoice.refund",
+      "resource": null,
+      "reason": "dev_only",
+      "policy": null
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$comment": "valid (1.5.0): an RBAC check without a resource, denied in production (no policy id)",
+  "op": "op_authz_check",
+  "args": [
+    "invoice.create",
+    null,
+    {
+      "channel": "web"
+    },
+    null
+  ],
+  "result": {
+    "allow": false,
+    "policy": null
+  }
+}

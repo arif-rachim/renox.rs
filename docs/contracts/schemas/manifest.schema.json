@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/artifact/v1/manifest.schema.json",
-  "title": "Renox artifact manifest, artifact contract versions 0, 1, 1.1 and 1.2",
-  "description": "manifest.json at the root of an artifact. Prose: docs/contracts/artifact.md section 3. Semantic rules the schema cannot express (route conflicts, entry files exist, tier bounds, page field combinations, templates, security, modules) are V4-V23 in section 6. Version 1.1 (artifact.version 1) adds modules, slots, and module-prefixed ids. Version 1.2 (artifact.version 1) adds entries: the export names of each code entry and its eager flag (ops.md 1.4.0, lazy route modules).",
+  "title": "Renox artifact manifest, artifact contract versions 0, 1, 1.1, 1.2 and 1.3",
+  "description": "manifest.json at the root of an artifact. Prose: docs/contracts/artifact.md section 3. Semantic rules the schema cannot express (route conflicts, entry files exist, tier bounds, page field combinations, templates, security, modules) are V4-V23 in section 6. Version 1.1 (artifact.version 1) adds modules, slots, and module-prefixed ids. Version 1.2 (artifact.version 1) adds entries: the export names of each code entry and its eager flag (ops.md 1.4.0, lazy route modules). Version 1.3 (artifact.version 1) adds the route kinds ws, sse, tool and job, the guard of a route, and the authz and realtime blocks of the app and of each module (ops.md 1.5.0); rules V24-V27.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -206,6 +206,12 @@
           }
         }
       }
+    },
+    "authz": {
+      "$ref": "#/$defs/authz"
+    },
+    "realtime": {
+      "$ref": "#/$defs/realtime"
     }
   },
   "$defs": {
@@ -222,9 +228,9 @@
     },
     "moduleId": {
       "type": "string",
-      "description": "Source path of a code module without extension: functions/... for function routes and pages/... for page routes of the app (version 1); modules/<name>/functions/..., modules/<name>/pages/..., and modules/<name>/services or /hooks for an installed module (version 1.1). V7 and V18 check which prefix each use takes.",
+      "description": "Source path of a code module without extension: functions/... for function routes (functions/ws/, functions/sse/ and functions/tools/ for the version 1.3 kinds), pages/... for page routes, jobs/... for job routes of the app; modules/<name>/functions/..., modules/<name>/pages/..., modules/<name>/tools/..., modules/<name>/jobs/..., and modules/<name>/services or /hooks for an installed module. V7 and V18 check which prefix each use takes.",
       "maxLength": 512,
-      "pattern": "^((modules/[a-z][a-z0-9_]{0,31}/)?(functions|pages)(/(?!\\.\\.?(/|$))[A-Za-z0-9_.\\[\\]-]+)+|modules/[a-z][a-z0-9_]{0,31}/(services|hooks))$"
+      "pattern": "^((modules/[a-z][a-z0-9_]{0,31}/)?(functions|pages|jobs|tools)(/(?!\\.\\.?(/|$))[A-Za-z0-9_.\\[\\]-]+)+|modules/[a-z][a-z0-9_]{0,31}/(services|hooks))$"
     },
     "modulePath": {
       "type": "string",
@@ -245,23 +251,96 @@
       "pattern": "^(http://)?((\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+|[0-9]{1,3}(\\.[0-9]{1,3}){3}|\\[[0-9a-f:.]+\\])(:[0-9]{1,5})?$"
     },
     "route": {
-      "description": "ws and sse (F5) are reserved.",
-      "if": {
-        "required": [
-          "kind"
-        ],
-        "properties": {
-          "kind": {
-            "const": "page"
-          }
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "description": "One route object, by kind (artifact.md section 3). Version 0: function only; 1: page; 1.3: ws, sse, tool, job.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "function",
+            "page",
+            "ws",
+            "sse",
+            "tool",
+            "job"
+          ]
         }
       },
-      "then": {
-        "$ref": "#/$defs/pageRoute"
-      },
-      "else": {
-        "$ref": "#/$defs/functionRoute"
-      }
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "function"
+                ]
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/functionRoute"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "page"
+                ]
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/pageRoute"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "ws",
+                  "sse"
+                ]
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/realtimeRoute"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "tool"
+                ]
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/toolRoute"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "job"
+                ]
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/jobRoute"
+          }
+        }
+      ]
     },
     "templateId": {
       "type": "string",
@@ -361,6 +440,9 @@
         },
         "export": {
           "$ref": "#/$defs/method"
+        },
+        "guard": {
+          "$ref": "#/$defs/guard"
         }
       }
     },
@@ -396,6 +478,9 @@
         },
         "template": {
           "$ref": "#/$defs/templateId"
+        },
+        "guard": {
+          "$ref": "#/$defs/guard"
         }
       }
     },
@@ -641,13 +726,23 @@
           "items": {
             "$ref": "#/$defs/dottedName"
           }
+        },
+        "roles": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "description": "Version 1.3: the roles the module may assign, exactly the keys of its authz.default_roles (V22)."
         }
       }
     },
     "moduleEntry": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One installed module (artifact.md section 3, \"Modules\"). Every field but exports is copied from its renox.lock entry (V17).",
+      "description": "One installed module (artifact.md section 3, \"Modules\"). Every field but exports is copied from its renox.lock entry (V17). Version 1.3 adds authz and realtime, copied from the module's manifest.",
       "required": [
         "name",
         "version",
@@ -766,6 +861,12 @@
               }
             }
           }
+        },
+        "authz": {
+          "$ref": "#/$defs/authz"
+        },
+        "realtime": {
+          "$ref": "#/$defs/realtime"
         }
       }
     },
@@ -835,6 +936,268 @@
           "description": "true: evaluated at isolate creation. false (route modules only): evaluated on the first request that needs it. Default true."
         }
       }
+    },
+    "actionName": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63})+$",
+      "description": "An authorization action, <resource>.<verb> (docs/11-authorization.md; manifest.md [authz])."
+    },
+    "tableName": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]{0,31}__[a-z0-9_]{1,64}$",
+      "description": "A table under a module prefix (app__ for the app); V25 and V26 check the owner."
+    },
+    "columnName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "description": "Version 1.3: the module's export const guard (ops.md section 17), evaluated by the cell before the handler and on fragment requests. resource.id is a literal or :<param> of the route's pattern (V25).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/actionName"
+        },
+        "resource": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "maxLength": 100,
+              "pattern": "^([a-z][a-z0-9_]{0,31}:)?[A-Z][A-Za-z0-9_]{0,63}$"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        }
+      }
+    },
+    "authz": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Version 1.3 (artifact.md section 3, \"Authorization and realtime\"): the resolved [authz] of the app (renox.toml) or of a module (module.toml, on its entry). V25 and V26 check the references.",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/actionName"
+          }
+        },
+        "ownership": {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "$ref": "#/$defs/tableName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "owner"
+            ],
+            "properties": {
+              "owner": {
+                "$ref": "#/$defs/columnName"
+              },
+              "org": {
+                "$ref": "#/$defs/columnName"
+              }
+            }
+          }
+        },
+        "entities": {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attrs"
+            ],
+            "properties": {
+              "table": {
+                "$ref": "#/$defs/tableName"
+              },
+              "id": {
+                "$ref": "#/$defs/columnName"
+              },
+              "attrs": {
+                "type": "array",
+                "maxItems": 64,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/columnName"
+                }
+              }
+            }
+          }
+        },
+        "default_roles": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/actionName"
+            }
+          }
+        },
+        "sensitive": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/actionName"
+          }
+        }
+      }
+    },
+    "realtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Version 1.3: the resolved [realtime] of the app or of a module. feeds: table -> topic pattern with {column} placeholders (ops.md section 18, \"Change feed\"; V26).",
+      "properties": {
+        "feeds": {
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "$ref": "#/$defs/tableName"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^([A-Za-z0-9_.-]|\\{[a-z][a-z0-9_]{0,63}\\})+(:([A-Za-z0-9_.-]|\\{[a-z][a-z0-9_]{0,63}\\})+)*$",
+            "description": "A topic pattern: segments split on ':', none empty, with {column} placeholders (ops.md section 18)."
+          }
+        }
+      }
+    },
+    "realtimeRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "module"
+      ],
+      "description": "Version 1.3: a ws (functions/ws/**) or sse (functions/sse/**) route; GET only in the matcher (V8); the module exports ws or sse (ops.md section 18).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "ws",
+            "sse"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/routePath"
+        },
+        "module": {
+          "$ref": "#/$defs/moduleId"
+        },
+        "guard": {
+          "$ref": "#/$defs/guard"
+        }
+      }
+    },
+    "toolRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "module",
+        "description",
+        "input",
+        "action"
+      ],
+      "description": "Version 1.3: an App MCP tool of the app (functions/tools/*) or of a module ([[tools]], modules/<name>/tools/*); reached through /mcp, no path (ops.md section 19). V25 checks name uniqueness, the action and the input keywords.",
+      "properties": {
+        "kind": {
+          "const": "tool"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "module": {
+          "$ref": "#/$defs/moduleId"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "input": {
+          "type": "object",
+          "description": "JSON Schema (the keyword subset of validate.ts) derived from the tool's input schema."
+        },
+        "action": {
+          "$ref": "#/$defs/actionName"
+        },
+        "confirm": {
+          "type": "boolean"
+        }
+      }
+    },
+    "jobRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "module",
+        "schedule"
+      ],
+      "description": "Version 1.3: a scheduled job of the app (jobs/*) or of a module (modules/<name>/jobs/*); no path (ops.md section 20). V27 checks the schedule and tz.",
+      "properties": {
+        "kind": {
+          "const": "job"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "module": {
+          "$ref": "#/$defs/moduleId"
+        },
+        "schedule": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[0-9*,/-]+ [0-9*,/-]+ [0-9*,/-]+ [0-9*,/-]+ [0-9*,/-]+$",
+          "description": "Five fields: minute hour day-of-month month day-of-week; numbers, *, lists, ranges, steps (V27)."
+        },
+        "tz": {
+          "type": "string",
+          "pattern": "^(UTC|[A-Za-z_]+(/[A-Za-z0-9_+-]+){1,2})$",
+          "description": "IANA zone, checked against Intl by V27; UTC when absent."
+        }
+      }
     }
   },
   "allOf": [
@@ -874,7 +1237,9 @@
           "modules": {
             "type": "object",
             "maxProperties": 0
-          }
+          },
+          "authz": false,
+          "realtime": false
         }
       }
     }

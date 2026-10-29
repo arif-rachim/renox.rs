@@ -1,0 +1,174 @@
+{
+  "$comment": "invalid (V25): a guard resource id :<param> names a parameter of the route [expect: V25]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "Asia/Dubai"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "pages/orders/[id]": "pages/orders/[id].js",
+      "functions/ws/chat/[room]": "functions/ws/chat/[room].js",
+      "functions/sse/orders": "functions/sse/orders.js",
+      "functions/tools/refund-order": "functions/tools/refund-order.js",
+      "jobs/nightly-report": "jobs/nightly-report.js"
+    }
+  },
+  "entries": {
+    "pages/orders/[id]": {
+      "exports": [
+        "guard",
+        "load"
+      ],
+      "eager": false
+    },
+    "functions/ws/chat/[room]": {
+      "exports": [
+        "guard",
+        "ws"
+      ],
+      "eager": false
+    },
+    "functions/sse/orders": {
+      "exports": [
+        "sse"
+      ],
+      "eager": false
+    },
+    "functions/tools/refund-order": {
+      "exports": [
+        "default"
+      ],
+      "eager": false
+    },
+    "jobs/nightly-report": {
+      "exports": [
+        "run",
+        "schedule",
+        "tz"
+      ],
+      "eager": false
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/orders/:id",
+      "module": "pages/orders/[id]",
+      "load": true,
+      "template": "pages/orders/[id]",
+      "guard": {
+        "action": "order.read",
+        "resource": {
+          "type": "Order",
+          "id": ":order"
+        }
+      }
+    },
+    {
+      "kind": "ws",
+      "path": "/ws/chat/:room",
+      "module": "functions/ws/chat/[room]",
+      "guard": {
+        "action": "order.read"
+      }
+    },
+    {
+      "kind": "sse",
+      "path": "/sse/orders",
+      "module": "functions/sse/orders"
+    },
+    {
+      "kind": "tool",
+      "name": "refund_order",
+      "module": "functions/tools/refund-order",
+      "description": "Refund a paid order",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderId"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "action": "order.refund",
+      "confirm": true
+    },
+    {
+      "kind": "job",
+      "name": "nightly-report",
+      "module": "jobs/nightly-report",
+      "schedule": "0 3 * * *",
+      "tz": "Asia/Dubai"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/orders/[id]": {
+      "kind": "page",
+      "fragments": {
+        "order": {
+          "target": "order"
+        }
+      }
+    },
+    "partials/order-row": {
+      "kind": "partial"
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  },
+  "authz": {
+    "actions": [
+      "order.read",
+      "order.refund",
+      "report.read"
+    ],
+    "ownership": {
+      "app__orders": {
+        "owner": "user_id",
+        "org": "org_id"
+      }
+    },
+    "entities": {
+      "Order": {
+        "table": "app__orders",
+        "id": "id",
+        "attrs": [
+          "amount",
+          "org_id",
+          "status"
+        ]
+      }
+    },
+    "default_roles": {
+      "finance": [
+        "order.read",
+        "order.refund"
+      ],
+      "viewer": [
+        "order.read"
+      ]
+    },
+    "sensitive": [
+      "order.refund"
+    ]
+  },
+  "realtime": {
+    "feeds": {
+      "app__orders": "orders:{org_id}"
+    }
+  }
+}

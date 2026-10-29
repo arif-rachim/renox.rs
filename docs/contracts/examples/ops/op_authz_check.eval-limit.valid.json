@@ -1,0 +1,31 @@
+{
+  "$comment": "valid (1.5.0): the request passed its evaluation limit; every further check denies (ops.md section 17, Open 13)",
+  "op": "op_authz_check",
+  "args": [
+    "invoice.read",
+    {
+      "type": "Invoice",
+      "id": "inv_123",
+      "amount": 4200,
+      "org": "o_1",
+      "status": "open",
+      "customer_email": "dropped@example.com"
+    },
+    null,
+    "billing"
+  ],
+  "error": {
+    "name": "ForbiddenError",
+    "code": "RENOX_FORBIDDEN",
+    "message": "invoice.refund was denied",
+    "details": {
+      "action": "invoice.read",
+      "resource": {
+        "type": "Invoice",
+        "id": "inv_123"
+      },
+      "reason": "eval_limit",
+      "policy": null
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$comment": "valid (1.5.0): the billing module queues send-reminder for tomorrow inside transaction 7 (ops.md section 20)",
+  "op": "op_jobs_enqueue",
+  "args": [
+    "send-reminder",
+    "{\"invoice_id\":\"inv_123\"}",
+    1793404800000,
+    "billing",
+    7
+  ],
+  "result": "01JBQ3Z7MA0000000000000401"
+}

@@ -36,8 +36,10 @@ function statements(sqlite: Database): DbStatements {
 export function fakeDb(sqlite: Database): Db {
   const s = statements(sqlite);
   let chain = Promise.resolve();
-  return {
+  const db: Db = {
     ...s,
+    // Unit tests have no rewriter: a scoped Db is the same Db (ops.md section 17 is enforced in Rust).
+    scoped: () => db,
     transaction: <T>(fn: (tx: DbStatements) => Promise<T>): Promise<T> => {
       const run = chain.then(async () => {
         sqlite.exec("begin immediate");
@@ -57,6 +59,7 @@ export function fakeDb(sqlite: Database): Db {
       return run;
     },
   };
+  return db;
 }
 
 export function ctx(sqlite: Database, method: string, url: string, init: { body?: unknown; params?: Ctx["params"] } = {}): Ctx {
@@ -81,5 +84,21 @@ export function ctx(sqlite: Database, method: string, url: string, init: { body?
     events: { emit: () => Promise.reject(new Error("no events in unit tests")) },
     hooks: { run: () => Promise.resolve({ halt: false }) },
     password: { hash: () => Promise.reject(new Error("no password op in unit tests")), verify: () => Promise.resolve(false) },
+    principal: null,
+    authz: {
+      require: () => Promise.reject(new Error("no authz in unit tests")),
+      can: () => Promise.resolve(false),
+      canBatch: (_a, rs) => Promise.resolve(rs.map(() => false)),
+      explain: () => Promise.resolve({ decision: "deny", reasons: [], errors: [] }),
+      roles: { assign: () => Promise.resolve(), revoke: () => Promise.resolve(false), list: () => Promise.resolve([]) },
+    },
+    realtime: {
+      subscribe: () => Promise.resolve(),
+      unsubscribe: () => Promise.resolve(),
+      publish: () => Promise.resolve(0),
+      send: () => Promise.resolve(),
+      close: () => Promise.resolve(),
+    },
+    jobs: { enqueue: () => Promise.reject(new Error("no jobs in unit tests")) },
   };
 }

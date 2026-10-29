@@ -1,5 +1,5 @@
 # renox.toml of a shop with the four F4 catalog modules and billing.
-# Only [modules] is this contract's; [app] belongs to the CLI.
+# [modules], and from 1.1 [authz] and [realtime], are this contract's; [app] belongs to the CLI.
 [app]
 name = "shop"
 timezone = "Asia/Dubai"
@@ -11,3 +11,19 @@ gcc = { version = "~0.1" }
 i18n = { version = ">=0.1.0 <0.3.0", config = { locales = "en,ar" } }
 billing = { version = "^1.2", mount = "/billing", config = { provider = "telr" } }
 acme = { version = "^0.4", source = "git:https://github.com/acme/renox-acme#v0.4.1", isolation = "isolate" }
+
+[authz]
+actions = ["order.read", "order.refund"]
+sensitive = ["order.refund"]
+
+[authz.ownership]
+"app__orders" = { owner = "user_id", org = "org_id" }
+
+[authz.entities]
+Order = { table = "app__orders", attrs = ["amount", "org_id", "status"] }
+
+[authz.default_roles]
+finance = ["order.read", "order.refund"]
+
+[realtime.feeds]
+"app__orders" = "orders:{org_id}"
