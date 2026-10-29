@@ -27,39 +27,143 @@ pub const WATCHDOG_INTERVAL: Duration = Duration::from_millis(1);
 
 const IDLE: u64 = u64::MAX;
 
-/// The CPU clock of one thread (`CLOCK_THREAD_CPUTIME_ID` of that thread),
-/// readable from any thread.
-#[derive(Debug, Clone, Copy)]
+/// The CPU clock of one thread, readable from any thread. Linux:
+/// `CLOCK_THREAD_CPUTIME_ID` of that thread (`pthread_getcpuclockid`).
+/// macOS (#139): the thread's Mach port and `thread_info(THREAD_BASIC_INFO)`,
+/// `user_time + system_time`, at microsecond resolution.
+#[derive(Debug, Clone)]
 pub struct ThreadCpuClock {
-    clock: libc::clockid_t,
+    clock: imp::Clock,
 }
 
 impl ThreadCpuClock {
     /// The clock of the calling thread.
     pub fn current() -> std::io::Result<ThreadCpuClock> {
-        let mut clock: libc::clockid_t = 0;
-        // SAFETY: `pthread_self()` is always a valid handle for the calling
-        // thread, and `clock` is a valid out-pointer for the duration of the
-        // call. The function only writes a clock id; it has no other effect.
-        let rc = unsafe { libc::pthread_getcpuclockid(libc::pthread_self(), &mut clock) };
-        if rc != 0 {
-            return Err(std::io::Error::from_raw_os_error(rc));
-        }
-        Ok(ThreadCpuClock { clock })
+        Ok(ThreadCpuClock {
+            clock: imp::Clock::current()?,
+        })
     }
 
     /// CPU time consumed by the thread so far. Returns `None` once the
-    /// thread has exited (the kernel then reports `EINVAL`).
+    /// thread has exited.
     pub fn now(&self) -> Option<Duration> {
-        let mut ts = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        // SAFETY: `ts` is a valid out-pointer; `clock_gettime` with a clock
-        // id from `pthread_getcpuclockid` reads that thread's CPU time and
-        // fails with EINVAL (no UB) if the thread no longer exists.
-        let rc = unsafe { libc::clock_gettime(self.clock, &mut ts) };
-        (rc == 0).then(|| Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+        self.clock.now()
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod imp {
+    use std::time::Duration;
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct Clock {
+        clock: libc::clockid_t,
+    }
+
+    impl Clock {
+        pub fn current() -> std::io::Result<Clock> {
+            let mut clock: libc::clockid_t = 0;
+            // SAFETY: `pthread_self()` is always a valid handle for the calling
+            // thread, and `clock` is a valid out-pointer for the duration of the
+            // call. The function only writes a clock id; it has no other effect.
+            let rc = unsafe { libc::pthread_getcpuclockid(libc::pthread_self(), &mut clock) };
+            if rc != 0 {
+                return Err(std::io::Error::from_raw_os_error(rc));
+            }
+            Ok(Clock { clock })
+        }
+
+        /// The kernel reports `EINVAL` once the thread has exited.
+        pub fn now(&self) -> Option<Duration> {
+            let mut ts = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            // SAFETY: `ts` is a valid out-pointer; `clock_gettime` with a clock
+            // id from `pthread_getcpuclockid` reads that thread's CPU time and
+            // fails with EINVAL (no UB) if the thread no longer exists.
+            let rc = unsafe { libc::clock_gettime(self.clock, &mut ts) };
+            (rc == 0).then(|| Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod imp {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    // <mach/mach_init.h>, <mach/mach_port.h>. `libc` deprecates its own
+    // declarations of the first two in favour of the `mach2` crate and lacks
+    // the third; three symbols do not warrant a dependency.
+    unsafe extern "C" {
+        static mach_task_self_: libc::mach_port_t;
+        fn mach_thread_self() -> libc::mach_port_t;
+        fn mach_port_deallocate(
+            task: libc::mach_port_t,
+            name: libc::mach_port_t,
+        ) -> libc::kern_return_t;
+    }
+
+    /// A send right to the thread's kernel port, owned by this value. While
+    /// it is held the port name cannot be reused for another thread: once
+    /// the thread exits it turns into a dead name and `thread_info` fails.
+    #[derive(Debug)]
+    struct Port(libc::mach_port_t);
+
+    impl Drop for Port {
+        fn drop(&mut self) {
+            // SAFETY: `mach_task_self_` is set before `main` and never
+            // changes; `self.0` is the send right `mach_thread_self` gave
+            // this value, released exactly once here.
+            unsafe { mach_port_deallocate(mach_task_self_, self.0) };
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Clock {
+        port: Arc<Port>,
+    }
+
+    impl Clock {
+        pub fn current() -> std::io::Result<Clock> {
+            // SAFETY: no arguments; returns the calling thread's port with a
+            // new send-right reference, which `Port` releases on drop.
+            let port = unsafe { mach_thread_self() };
+            if port == 0 {
+                return Err(std::io::Error::other(
+                    "mach_thread_self returned MACH_PORT_NULL",
+                ));
+            }
+            Ok(Clock {
+                port: Arc::new(Port(port)),
+            })
+        }
+
+        /// `thread_info` fails (no UB) once the port is a dead name.
+        pub fn now(&self) -> Option<Duration> {
+            // SAFETY: an all-zero `thread_basic_info` is a valid value (plain
+            // integers).
+            let mut info: libc::thread_basic_info = unsafe { std::mem::zeroed() };
+            let mut count = libc::THREAD_BASIC_INFO_COUNT;
+            // SAFETY: `info` is a valid out-buffer of `count` integers for the
+            // THREAD_BASIC_INFO flavor, and the port is held by `self.port`.
+            let rc = unsafe {
+                libc::thread_info(
+                    self.port.0,
+                    libc::THREAD_BASIC_INFO as libc::thread_flavor_t,
+                    (&mut info as *mut libc::thread_basic_info).cast(),
+                    &mut count,
+                )
+            };
+            if rc != libc::KERN_SUCCESS {
+                return None;
+            }
+            let t = |v: libc::time_value_t| {
+                Duration::from_secs(v.seconds as u64) + Duration::from_micros(v.microseconds as u64)
+            };
+            Some(t(info.user_time) + t(info.system_time))
+        }
     }
 }
 
@@ -80,7 +184,7 @@ pub struct CpuWatch {
 
 impl CpuWatch {
     pub fn clock(&self) -> ThreadCpuClock {
-        self.clock
+        self.clock.clone()
     }
 
     /// Thread CPU time now, in nanoseconds.
@@ -501,6 +605,39 @@ mod tests {
         spin(Duration::from_millis(30));
         let d = c.now().unwrap();
         assert!(d - b >= Duration::from_millis(20), "{:?}", d - b);
+    }
+
+    /// The watchdog reads the isolate thread's clock from its own thread,
+    /// and the clock stops answering once that thread has exited (no reused
+    /// clock id or Mach port reads another thread's CPU). Runs on Linux and
+    /// on the macOS CI job (#139; docs/24-threat-model.md B, "CPU, memory,
+    /// wall-clock exhaustion").
+    #[test]
+    fn thread_clock_reads_another_thread_until_it_exits() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        let t = thread::spawn(move || {
+            tx.send(ThreadCpuClock::current().unwrap()).unwrap();
+            spin(Duration::from_millis(40));
+            go_rx.recv().unwrap();
+        });
+        let c = rx.recv().unwrap();
+        let mine = ThreadCpuClock::current().unwrap();
+        let before = mine.now().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while c.now().unwrap() < Duration::from_millis(30) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            c.now().unwrap() >= Duration::from_millis(30),
+            "{:?}",
+            c.now()
+        );
+        // The other thread's spin is not charged to this one.
+        assert!(mine.now().unwrap() - before < Duration::from_millis(20));
+        go_tx.send(()).unwrap();
+        t.join().unwrap();
+        assert_eq!(c.now(), None);
     }
 
     /// The watchdog fires once a slice uses more than its budget, and not

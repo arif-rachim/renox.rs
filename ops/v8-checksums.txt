@@ -3,3 +3,6 @@
 # Format: <sha256>  v<v8 crate version>/<archive name>, as `sha256sum` prints it.
 # How to add a version or a target: ops/README.md.
 f48762ca10d1f1fc605a441c5ae430ec8ce1e9e80f14d78fbc42cb878c30b476  v150.4.0/librusty_v8_simdutf_release_x86_64-unknown-linux-gnu.a.gz
+5aeffd8d5a0c1b79ac1d70af83d5b19099655fd9c645a794dc43f101f779838c  v150.4.0/librusty_v8_simdutf_release_aarch64-apple-darwin.a.gz
+a750271fec6b211457ed0a5cf7d2eab1924b265621a82da86ab959d6ff0823e4  v150.4.0/librusty_v8_simdutf_release_x86_64-apple-darwin.a.gz
+539e283815a396a5796f32858b42e517b858ebaaeaaad05d03290ee8c864a527  v150.4.0/librusty_v8_simdutf_release_aarch64-unknown-linux-gnu.a.gz
