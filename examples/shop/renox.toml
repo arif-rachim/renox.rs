@@ -7,3 +7,6 @@ timezone = "Asia/Dubai"
 [permissions]
 network = []
 secrets = []
+
+[modules]
+auth = { version = "^1.0.0" }

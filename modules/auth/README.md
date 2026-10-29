@@ -1,0 +1,115 @@
+# auth
+
+Users, passwords, sessions, and the sign-in pages for a Renox app, as a module (`docs/10-modules.md`; M1 of `docs/18-build-plan.md`). An app that installs it has accounts with no auth code of its own: `examples/shop` is the reference (#241).
+
+## Install
+
+```sh
+renox add auth          # shows the tables, hosts, secrets and slot it asks for; approve with y
+renox migrate           # creates auth__* (renox dev does it on start)
+```
+
+`renox.toml`:
+
+```toml
+[modules]
+auth = { version = "^1.0", mount = "/auth", config = { session_idle_hours = 24 } }
+```
+
+The pages are under the mount: `/auth/login`, `/auth/register`, `/auth/account`, `/auth/magic`, `/auth/reset`, and the OAuth routes `/auth/oauth/<provider>/{start,callback}`.
+
+## Config
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `session_idle_hours` | 24 | A session ends after this many hours without a request |
+| `session_absolute_days` | 30 | A session ends this many days after sign-in, used or not; the cookie's `Max-Age` |
+| `password_min_length` | 12 | At register, password change, and reset |
+| `login_path` | `/auth/login` | Where `requireUser` and `loginUrl` send a signed-out visitor; change it with the mount |
+| `google_client_id`, `github_client_id`, `microsoft_client_id` | `""` | OAuth client ids; a provider is on when its id and its secret are set |
+
+## Permissions
+
+| What | Value | Why |
+| --- | --- | --- |
+| Tables | `auth__*` | users, sessions, identities, tokens, attempts |
+| Network | `accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`, `github.com`, `api.github.com`, `login.microsoftonline.com`, `graph.microsoft.com` | OAuth token endpoints, OIDC signing keys, the GitHub API; nothing else |
+| Secrets | `AUTH_GOOGLE_CLIENT_SECRET`, `AUTH_GITHUB_CLIENT_SECRET`, `AUTH_MICROSOFT_CLIENT_SECRET` | Only for the providers you set up |
+| Slots | `app.header` | The user menu |
+
+Other modules read users through the view `auth__public_users_v1` (`id`, `email`, `display_name`, `created_at`), never the tables: the authorizer refuses `auth__users` to them.
+
+## Services
+
+Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
+
+| Service | Result |
+| --- | --- |
+| `currentUser()` | The signed-in user of this request, or `null` |
+| `requireUser()` | The user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`; through the broker, `RENOX_MODULE_SERVICE`) |
+| `loginUrl(next?)` | `/auth/login?next=…`; `next` kept only when it is a path of the app |
+| `register({ email, password, display_name? })` | `{ user, cookie }` or `{ error }` |
+| `login({ email, password })` | `{ user, cookie }` or `{ error }`: the same error for an unknown email, a wrong password, and a locked account |
+| `logout()` | `{ cookie }` (clears it); the session is revoked server side |
+| `sendMagicLink({ email })`, `requestPasswordReset({ email })` | `{ message }`: the same in every case |
+| `confirmPasswordReset({ token, password })` | `{ cookie }` or `{ error }` |
+
+A page that needs a user:
+
+```ts
+import { auth } from "renox:modules";
+import { redirect } from "renox";
+
+export async function load(ctx) {
+  const user = await auth.currentUser();
+  if (user === null) return redirect.safe(await auth.loginUrl(ctx.url.pathname));
+  return { auth_user: user };
+}
+```
+
+## Events
+
+| Event | Payload |
+| --- | --- |
+| `auth.user_registered` | `{ user_id, at, source: "password" \| "oauth" }` |
+| `auth.login` | `{ user_id, at }` |
+| `auth.password_changed` | `{ user_id, at }` (a reset) |
+
+All durable: written in the transaction of the request, delivered after it commits.
+
+## Hooks
+
+| Hook | When | A filler may |
+| --- | --- | --- |
+| `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
+| `auth.after_login` | After the password, magic link, or OAuth check, before any session starts (`{ user_id, next? }`) | Halt with its own response: a second factor (F5); no session is started |
+| `auth.send_mail` | A magic or reset link must be mailed (`{ to, template: "magic_link" \| "password_reset", args: { url, expires_minutes, display_name } }`) | Send it. auth sends no mail itself until the email module (F7). Fill it from a small module of the app (`modules/mailer`, `permissions.hooks = ["auth.send_mail"]`) |
+
+## Slots
+
+`partials/user-menu.html` fills `app.header` when the app's layout has `<r-slot name="app.header" />`. It shows `auth_user.display_name` with a link to the account page, or "Sign in". A page puts `auth_user: await auth.currentUser()` in its data.
+
+## Overrides
+
+Override a template, never the code: put a copy at `overrides/auth/pages/login.html` (or any `pages/` or `partials/` file) in the app. `renox build` compiles it in place of the original and records the original's hash in the app's `overrides.json`. After `renox add auth` brings a new version whose original changed, `renox build` and `renox check` warn with a diff (`--strict` fails). Update the override, then delete its entry from `overrides.json`.
+
+## Sessions and cookies
+
+- `__Host-renox_auth=<32 random bytes, hex>; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=<absolute expiry>`. Only the token's SHA-256 is stored.
+- A new session at every sign-in; the browser's previous one is revoked (fixation). A password change revokes every other session and rotates this one.
+- This is not the platform's page `session.id` (`ops.md` section 14). That one exists before sign-in, lives as long as the browser keeps it, and carries the CSRF token. A user session has its own lifetime and ends at logout.
+- Passwords are argon2id at m = 64 MiB, t = 3, p = 1 through `ctx.password` (a platform op, off the isolate thread). An unknown email is checked against a fixed hash, so it costs the same.
+- Failure buckets: 10 per account and 30 per IP address per 15 minutes; past either, the same generic message. Magic and reset links: 5 per email per 15 minutes, single use, 15 minutes, bound to the user agent family that asked.
+- OAuth: `state` in a 10-minute `__Host-renox_oauth` cookie, compared in constant time; PKCE S256 for Google and Microsoft; ID tokens verified (RS256 against the provider's keys, issuer, audience, expiry, nonce). An existing account is linked only when the provider verified the email.
+
+## Policies
+
+`policies/auth.cedar` (a user reads and updates only their own account and revokes only their own sessions) and `policies/tests/auth.json` hold the default policy and its cases. They are files only until the policy engine (F5); `renox test` lists the cases as pending.
+
+## Tests
+
+`renox test` in this folder runs `tests/*.test.ts` in `tests/app/`, with the `reader` and `mailer` fixture modules: register, login, logout, rotation, expiry, buckets, the public view, magic links, reset, OAuth (a fake provider), install and upgrade into the shop, and per-role snapshots (`tests/__snapshots__/`).
+
+## Security tests
+
+The negative suite is `tests/negative/` (#100), with the `docs/24-threat-model.md` row each test proves.

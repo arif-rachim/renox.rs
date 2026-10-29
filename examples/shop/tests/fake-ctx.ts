@@ -12,7 +12,7 @@ const root = join(import.meta.dir, "..");
 export function shopDb(seed = true): Database {
   const sqlite = new Database(":memory:", { strict: false });
   sqlite.exec("pragma foreign_keys = on");
-  sqlite.exec(readFileSync(join(root, "migrations/001_init.sql"), "utf8"));
+  for (const m of ["001_init.sql", "002_orders.sql"]) sqlite.exec(readFileSync(join(root, "migrations", m), "utf8"));
   if (seed) sqlite.exec(readFileSync(join(root, "seeds/products.sql"), "utf8"));
   return sqlite;
 }

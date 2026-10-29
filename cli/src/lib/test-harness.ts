@@ -275,12 +275,13 @@ export async function changeModule(
 ): Promise<ModuleChange & { db: string }> {
   const work = scratch?.project ?? mkdtempSync(join(tmpdir(), "renox-test-module-"));
   if (!scratch) cpSync(project, work, { recursive: true, filter: (p) => !/\/(\.renox|\.git)(\/|$)/u.test(p.slice(project.length)) });
-  // A `path:` source is relative to the app; the scratch copy has the same tree.
-  const src = source;
+  // A `path:` source is relative to the app; from the scratch copy it is made
+  // relative again (a tree inside the app was copied with it).
+  const src = source.startsWith("path:") ? `path:${relative(work, existsSync(join(work, source.slice(5))) ? join(work, source.slice(5)) : resolve(project, source.slice(5))).split("\\").join("/")}` : source;
   // The range: `^<version>` of the tree's module.toml (an upgrade may cross a major).
   let range = version;
   if (range === undefined && src.startsWith("path:")) {
-    const toml = join(work, src.slice("path:".length), "module.toml");
+    const toml = resolve(work, src.slice("path:".length), "module.toml");
     const v = existsSync(toml) ? /^version\s*=\s*"([^"]+)"/mu.exec(readFileSync(toml, "utf8"))?.[1] : undefined;
     if (v) range = `^${v}`;
   }

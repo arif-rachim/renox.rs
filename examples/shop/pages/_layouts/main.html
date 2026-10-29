@@ -13,6 +13,7 @@
     <a href="/"><strong>Renox Shop</strong></a>
     <a href="/products">Products</a>
     <span class="cart">Cart: <span id="cart-badge" r-fragment="cart_badge">{{ cart_count ?? 0 }}</span></span>
+    <r-slot name="app.header" />
   </header>
   <main>
     <slot />

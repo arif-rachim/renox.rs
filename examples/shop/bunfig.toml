@@ -1,0 +1,3 @@
+[test]
+# The shop's unit tests import handlers that use `renox:modules` (auth, #241).
+preload = ["./tests/fake-modules.ts"]

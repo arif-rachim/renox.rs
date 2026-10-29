@@ -23,11 +23,23 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   const out = mkdtempSync(join(tmpdir(), "renox-shop-build-"));
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
-  expect(readdirSync(join(r.dir, "migrations/app"))).toEqual(["001_init.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql"]);
+  // auth (#241): its migrations before the app's, its pages under /auth.
+  expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql"]);
+  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["auth"]);
   expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${x.path}`).sort()).toEqual([
     "GET /api/products",
     "GET /api/products/:id",
+    "GET /auth/oauth/:provider/callback",
+    "GET /auth/oauth/:provider/start",
     "PAGE /",
+    "PAGE /auth/account",
+    "PAGE /auth/login",
+    "PAGE /auth/magic",
+    "PAGE /auth/magic/:token",
+    "PAGE /auth/register",
+    "PAGE /auth/reset",
+    "PAGE /auth/reset/confirm",
     "PAGE /products",
     "PAGE /products/:id",
     "POST /api/cart",
@@ -59,9 +71,17 @@ test.skipIf(!worker)(
     expect(added.status).toBe(201);
     expect(added.json<{ cart: { total_fils: number } }>().cart.total_fils).toBe(3 * one.price_fils);
     expect((await post("/api/cart", { cart_id: "c_e2e", product_id: "42", quantity: 3 })).status).toBe(400);
-    const co = (await post("/api/checkout", { cart_id: "c_e2e" })).json<{ amount: number; currency: string }>();
+    // Checkout needs a user (auth, #241): 401, then sign up through auth's page and check out.
+    expect((await post("/api/checkout", { cart_id: "c_e2e" })).status).toBe(401);
+    const buyer = t.as("buyer");
+    expect((await buyer.action("/auth/register", "default", { email: "buyer@example.com", password: "correct horse battery", display_name: "Buyer" })).status).toBe(303);
+    const co = (await buyer.request("POST", "/api/checkout", { body: { cart_id: "c_e2e" } })).json<{ amount: number; currency: string; order_id: number }>();
     expect(co.amount).toBe(3 * one.price_fils);
     expect(co.currency).toBe("aed");
+    const order = t.db.query<{ user_id: string }>("select user_id from app__orders where id = ?", [co.order_id])[0];
+    expect(order?.user_id).toBe(t.db.query<{ id: string }>("select id from auth__public_users_v1 where email = 'buyer@example.com'")[0]?.id as string);
+    // The header's user menu, through the app.header slot.
+    expect((await buyer.page("/products/42")).html).toContain('<a href="/auth/account" dir="auto">Buyer</a>');
 
     // Pages (#45). B6: the list page, 100 items, 20-30 KB. `page` keeps the session's cookies.
     const page = await t.page("/products");

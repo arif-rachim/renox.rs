@@ -4,6 +4,8 @@
 // up to 20 matches (B7).
 import type { LoaderContext } from "renox";
 
+import { auth } from "renox:modules";
+
 import type { Product } from "../../lib/http.ts";
 
 /** What a card shows: the price in AED, not fils. */
@@ -51,5 +53,7 @@ export async function load({ db, url, fragment, session }: LoaderContext) {
     price_min: (prices?.lo ?? 0) / 100,
     price_max: (prices?.hi ?? 0) / 100,
     cart_count: cart?.n ?? 0,
+    // The header's user menu (auth's partial in the app.header slot).
+    auth_user: await auth.currentUser(),
   };
 }

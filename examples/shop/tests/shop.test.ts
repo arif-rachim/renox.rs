@@ -57,8 +57,11 @@ test("add to cart: zod validation, stock check, totals", async () => {
   expect((await add({ cart_id: "c_1", product_id: 1, quantity: 36 })).status).toBe(409);
 });
 
-test("checkout builds a Stripe PaymentIntent request without network", async () => {
+test("checkout needs a user (auth, #241); signed in it builds a Stripe PaymentIntent request without network", async () => {
   const db = shopDb();
+  const signedOut = await checkout(ctx(db, "POST", `${BASE}/api/checkout`, { body: { cart_id: "c_2" } }));
+  expect(signedOut.status).toBe(401);
+  (globalThis as { __shopTestUser?: unknown }).__shopTestUser = { id: "u_test", email: "t@example.com", display_name: "T", created_at: 1 };
   await cart(ctx(db, "POST", `${BASE}/api/cart`, { body: { cart_id: "c_2", product_id: 2, quantity: 1 } }));
   const r = await checkout(ctx(db, "POST", `${BASE}/api/checkout`, { body: { cart_id: "c_2" } }));
   const body = await r.json();
@@ -67,6 +70,8 @@ test("checkout builds a Stripe PaymentIntent request without network", async () 
   expect(body.payment_intent.metadata).toEqual({ cart_id: "c_2", items: "1" });
   expect(body.sdk.create).toBe("function");
   expect((await checkout(ctx(db, "POST", `${BASE}/api/checkout`, { body: { cart_id: "none" } }))).status).toBe(404);
+  expect(db.query("select user_id, cart_id from app__orders").all()).toEqual([{ user_id: "u_test", cart_id: "c_2" }]);
+  delete (globalThis as { __shopTestUser?: unknown }).__shopTestUser;
 });
 
 test("the seed endpoint is dev only and idempotent", async () => {

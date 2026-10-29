@@ -3,6 +3,8 @@
 // back with the cart badge out of band.
 import type { ActionContext, LoaderContext } from "renox";
 
+import { auth } from "renox:modules";
+
 import type { Product } from "../../lib/http.ts";
 
 const productId = (raw: string | string[] | undefined): number | null => {
@@ -23,6 +25,8 @@ export async function load({ db, params, session }: LoaderContext) {
     cart_count: cart?.n ?? 0,
     added: null,
     error: null,
+    // The header's user menu (auth's partial in the app.header slot).
+    auth_user: await auth.currentUser(),
   };
 }
 
