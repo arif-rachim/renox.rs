@@ -9,11 +9,16 @@
 //! isolate and its CPU limit. The render's thread CPU time and fuel are the
 //! meter's `render_ms` and `render_fuel`.
 //!
-//! F2 buffers the response; streaming the layout shell is #161.
+//! A slow loader's page gets its shell first (`ops.md` section 14,
+//! "Streaming the shell", #161): [`PageRenderer::shell_of`] renders the
+//! page with template data that records the first read, and the output
+//! before that read is sent while the loader still runs.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
@@ -21,6 +26,7 @@ use http::{HeaderMap, Response};
 use renox_runtime::manifest::{Manifest, TemplateKind};
 use renox_runtime::pages::PageRender;
 use renox_template::minijinja::Value;
+use renox_template::minijinja::value::{Enumerator, Object, ObjectRepr};
 use renox_template::{
     ErrorPage, RenderContext, RenderError, RenderLimits, RenderTarget, Renderer, Shell,
 };
@@ -63,6 +69,60 @@ fn utc_offset_minutes(zone: &str) -> i32 {
         "Asia/Dubai" | "Asia/Muscat" => 240,
         "Asia/Riyadh" | "Asia/Qatar" | "Asia/Bahrain" | "Asia/Kuwait" => 180,
         _ => 0,
+    }
+}
+
+/// The shell of a page (`ops.md` section 14, "Streaming the shell").
+#[derive(Debug)]
+pub struct PageShell {
+    /// The bytes sent first: the page's output before its first read of
+    /// the template data, cut back to the last complete tag, with the shell
+    /// tags. The full page starts with exactly these bytes.
+    pub html: String,
+    pub fuel: u64,
+    pub ms: f64,
+    /// The render time of the shell: the full page renders with the same.
+    pub now_ms: i64,
+}
+
+/// Template data that records its first read, for [`PageRenderer::shell_of`].
+#[derive(Debug, Default)]
+struct Probe(AtomicBool);
+
+impl Object for Probe {
+    fn repr(self: &Arc<Self>) -> ObjectRepr {
+        ObjectRepr::Map
+    }
+
+    fn get_value(self: &Arc<Self>, _key: &Value) -> Option<Value> {
+        self.0.store(true, Ordering::SeqCst);
+        None
+    }
+
+    fn enumerate(self: &Arc<Self>) -> Enumerator {
+        self.0.store(true, Ordering::SeqCst);
+        Enumerator::Empty
+    }
+}
+
+/// Keeps the output written before the probe's first read, then refuses
+/// more, which ends the render.
+struct UntilRead {
+    probe: Arc<Probe>,
+    out: Vec<u8>,
+}
+
+impl Write for UntilRead {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.probe.0.load(Ordering::SeqCst) {
+            return Err(io::Error::other("template data read"));
+        }
+        self.out.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -160,6 +220,47 @@ impl PageRenderer {
         }
     }
 
+    /// The shell of a full-page render of `template` (`ops.md` section 14,
+    /// "Streaming the shell"), or `None` when it is empty: the template
+    /// reads its data before writing a complete tag. Blocking: call on the
+    /// render pool.
+    pub fn shell_of(
+        &self,
+        template: &str,
+        request_id: &str,
+        csp_nonce: Option<&str>,
+        csrf_token: Option<&str>,
+    ) -> Option<PageShell> {
+        let cx = RenderContext {
+            csrf_token: csrf_token.map(str::to_string),
+            ..self.context(csp_nonce)
+        };
+        let probe = Arc::new(Probe::default());
+        let mut out = UntilRead {
+            probe: probe.clone(),
+            out: Vec::new(),
+        };
+        let stats = match self.renderer.render_to(
+            RenderTarget::Page(template),
+            Value::from_dyn_object(probe),
+            &cx,
+            &RenderLimits::DEFAULT,
+            &mut out,
+        ) {
+            Ok(s) => s,
+            Err(e) => e.stats(),
+        };
+        let html = String::from_utf8_lossy(&out.out);
+        let cut = html.rfind('>')? + 1;
+        let html = self.shell(request_id, csp_nonce, None).inject(&html[..cut]);
+        Some(PageShell {
+            html,
+            fuel: stats.fuel_used,
+            ms: stats.ms,
+            now_ms: cx.now_ms,
+        })
+    }
+
     /// Renders a page request: the page, or the selected fragment, then any
     /// out-of-band fragments marked `hx-swap-oob="true"`. A failure is
     /// answered with the error page. Blocking: call on the render pool.
@@ -170,6 +271,7 @@ impl PageRenderer {
         csp_nonce: Option<&str>,
         csrf_token: Option<&str>,
         head: bool,
+        now_ms: Option<i64>,
     ) -> Rendered {
         let Some(template) = page.template.as_deref() else {
             return self.failure(
@@ -207,10 +309,13 @@ impl PageRenderer {
                 None,
             );
         }
-        let cx = RenderContext {
+        let mut cx = RenderContext {
             csrf_token: csrf_token.map(str::to_string),
             ..self.context(csp_nonce)
         };
+        if let Some(now) = now_ms {
+            cx.now_ms = now;
+        }
         let limits = RenderLimits::DEFAULT;
         let main: Vec<&str> = page.fragment.as_deref().into_iter().collect();
         let result = if page.oob_fragments.is_empty() {
@@ -501,6 +606,27 @@ pub fn html_response(status: u16, request_id: &str, body: Bytes) -> Response<Byt
         .expect("static response parts are valid")
 }
 
+/// The markup of an error page rendered inside a stream (`ops.md` section
+/// 14, "Errors after the shell"): from its opening `<body>` tag on, all of
+/// it when it has none.
+pub fn from_body_tag(html: &[u8]) -> &[u8] {
+    let mut from = 0;
+    while let Some(i) = html[from..].iter().position(|&b| b == b'<') {
+        let at = from + i;
+        if html
+            .get(at + 1..at + 5)
+            .is_some_and(|n| n.eq_ignore_ascii_case(b"body"))
+            && html
+                .get(at + 5)
+                .is_some_and(|c| *c == b'>' || *c == b'/' || c.is_ascii_whitespace())
+        {
+            return &html[at..];
+        }
+        from = at + 1;
+    }
+    html
+}
+
 /// The platform default page (`errors.md` section 1) without shell tags,
 /// for paths that have no renderer: see [`crate::pages::errors`].
 pub fn default_page(status: u16, message: &str, request_id: &str) -> Response<Bytes> {
@@ -584,6 +710,22 @@ mod tests {
         );
         assert!(!prefers_html(&h));
         assert!(!prefers_html(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn error_markup_starts_at_the_body_tag() {
+        assert_eq!(
+            from_body_tag(
+                b"<html><head><title>x</title></head><body class=\"e\"><h1>500</h1></body></html>"
+            ),
+            b"<body class=\"e\"><h1>500</h1></body></html>"
+        );
+        assert_eq!(from_body_tag(b"<BODY>x"), b"<BODY>x");
+        assert_eq!(
+            from_body_tag(b"<bodyguard>x</bodyguard>"),
+            b"<bodyguard>x</bodyguard>"
+        );
+        assert_eq!(from_body_tag(b"<p>no body</p>"), b"<p>no body</p>");
     }
 
     #[test]

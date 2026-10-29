@@ -19,6 +19,11 @@
 //! set nor see it. Also left alone: responses that already have a
 //! `Content-Encoding`, `Cache-Control: no-transform`, partial content, and
 //! bodies that would not get smaller.
+//!
+//! Streamed bodies (`docs/contracts/ops.md` section 6, "Compression"): the
+//! cell calls [`apply_streamed`] on the head; the same rules hold except the
+//! minimum size, which a stream does not know, and [`StreamEncoder`]
+//! flushes after each chunk so it reaches the client at once.
 
 use std::io::Write;
 
@@ -161,11 +166,10 @@ fn encode(body: &[u8], encoding: Encoding) -> std::io::Result<Vec<u8>> {
     }
 }
 
-/// Compress `response` with `encoding` when the rules above allow it, and
-/// add `Vary: Accept-Encoding` to every response whose type is compressed.
-/// A strong `ETag` becomes weak on a compressed body (RFC 9110 section
-/// 8.8.1: the bytes differ).
-pub fn apply(mut response: Response<Bytes>, encoding: Option<Encoding>) -> Response<Bytes> {
+/// Whether the rules above allow compressing `response` at all (the
+/// minimum size aside); adds `Vary: Accept-Encoding` when its type is one
+/// the gateway compresses.
+fn compressible<B>(response: &mut Response<B>) -> bool {
     let headers = response.headers();
     if !compressible_type(headers)
         || headers.contains_key(CONTENT_ENCODING)
@@ -173,7 +177,7 @@ pub fn apply(mut response: Response<Bytes>, encoding: Option<Encoding>) -> Respo
         || has_no_transform(headers)
         || response.extensions().get::<NoCompress>().is_some()
     {
-        return response;
+        return false;
     }
     let status = response.status();
     if status == StatusCode::PARTIAL_CONTENT
@@ -181,9 +185,35 @@ pub fn apply(mut response: Response<Bytes>, encoding: Option<Encoding>) -> Respo
         || status == StatusCode::NOT_MODIFIED
         || status.is_informational()
     {
-        return response;
+        return false;
     }
     add_vary(response.headers_mut());
+    true
+}
+
+/// `Content-Encoding`, and a strong `ETag` made weak (RFC 9110 section
+/// 8.8.1: the bytes differ).
+fn mark_encoded(headers: &mut HeaderMap, encoding: Encoding) {
+    headers.insert(
+        CONTENT_ENCODING,
+        HeaderValue::from_static(encoding.as_str()),
+    );
+    if let Some(etag) = headers.get(ETAG).and_then(|v| v.to_str().ok())
+        && etag.starts_with('"')
+        && let Ok(weak) = HeaderValue::from_str(&format!("W/{etag}"))
+    {
+        headers.insert(ETAG, weak);
+    }
+}
+
+/// Compress `response` with `encoding` when the rules above allow it, and
+/// add `Vary: Accept-Encoding` to every response whose type is compressed.
+/// A strong `ETag` becomes weak on a compressed body (RFC 9110 section
+/// 8.8.1: the bytes differ).
+pub fn apply(mut response: Response<Bytes>, encoding: Option<Encoding>) -> Response<Bytes> {
+    if !compressible(&mut response) {
+        return response;
+    }
     let Some(encoding) = encoding else {
         return response;
     };
@@ -197,17 +227,91 @@ pub fn apply(mut response: Response<Bytes>, encoding: Option<Encoding>) -> Respo
         return response;
     }
     let headers = response.headers_mut();
-    headers.insert(
-        CONTENT_ENCODING,
-        HeaderValue::from_static(encoding.as_str()),
-    );
+    mark_encoded(headers, encoding);
     headers.insert(CONTENT_LENGTH, HeaderValue::from(compressed.len()));
-    if let Some(etag) = headers.get(ETAG).and_then(|v| v.to_str().ok())
-        && etag.starts_with('"')
-        && let Ok(weak) = HeaderValue::from_str(&format!("W/{etag}"))
-    {
-        headers.insert(ETAG, weak);
-    }
     *response.body_mut() = Bytes::from(compressed);
     response
+}
+
+/// The head of a streamed response (`ops.md` section 6): when the rules
+/// above allow it, mark it encoded (no `Content-Length`: a stream has
+/// none) and return the encoder its chunks go through. Every response of a
+/// compressed type gets `Vary: Accept-Encoding`, as for [`apply`].
+pub fn apply_streamed<B>(
+    response: &mut Response<B>,
+    encoding: Option<Encoding>,
+) -> Option<StreamEncoder> {
+    if !compressible(response) {
+        return None;
+    }
+    let encoding = encoding?;
+    let headers = response.headers_mut();
+    mark_encoded(headers, encoding);
+    headers.remove(CONTENT_LENGTH);
+    Some(StreamEncoder::new(encoding))
+}
+
+/// Compresses a streamed body chunk by chunk, flushing after each one.
+pub struct StreamEncoder {
+    inner: StreamInner,
+}
+
+enum StreamInner {
+    Gzip(flate2::write::GzEncoder<Vec<u8>>),
+    Br(Box<brotli::CompressorWriter<Vec<u8>>>),
+}
+
+impl std::fmt::Debug for StreamEncoder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let coding = match self.inner {
+            StreamInner::Gzip(_) => Encoding::Gzip,
+            StreamInner::Br(_) => Encoding::Br,
+        };
+        f.debug_struct("StreamEncoder")
+            .field("encoding", &coding)
+            .finish()
+    }
+}
+
+impl StreamEncoder {
+    pub fn new(encoding: Encoding) -> StreamEncoder {
+        let inner = match encoding {
+            Encoding::Gzip => StreamInner::Gzip(flate2::write::GzEncoder::new(
+                Vec::new(),
+                flate2::Compression::default(),
+            )),
+            Encoding::Br => StreamInner::Br(Box::new(brotli::CompressorWriter::new(
+                Vec::new(),
+                4096,
+                BROTLI_QUALITY,
+                BROTLI_WINDOW,
+            ))),
+        };
+        StreamEncoder { inner }
+    }
+
+    /// The compressed bytes of `chunk`, flushed: a client can decode
+    /// everything sent so far. Writing to a `Vec` cannot fail.
+    pub fn encode(&mut self, chunk: &[u8]) -> Bytes {
+        match &mut self.inner {
+            StreamInner::Gzip(e) => {
+                let _ = e.write_all(chunk);
+                let _ = e.flush();
+                Bytes::from(std::mem::take(e.get_mut()))
+            }
+            StreamInner::Br(e) => {
+                let _ = e.write_all(chunk);
+                let _ = e.flush();
+                Bytes::from(std::mem::take(e.get_mut()))
+            }
+        }
+    }
+
+    /// The end of the compressed stream.
+    pub fn finish(self) -> Bytes {
+        match self.inner {
+            StreamInner::Gzip(e) => Bytes::from(e.finish().unwrap_or_default()),
+            StreamInner::Br(e) => Bytes::from(e.into_inner()),
+        }
+    }
 }

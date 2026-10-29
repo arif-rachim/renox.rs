@@ -5,7 +5,9 @@ use std::io::Read;
 
 use axum::http::{HeaderMap, HeaderValue, Response, StatusCode, header};
 use bytes::Bytes;
-use renox_gateway::compress::{Encoding, MIN_BYTES, NoCompress, apply, negotiate};
+use renox_gateway::compress::{
+    Encoding, MIN_BYTES, NoCompress, StreamEncoder, apply, apply_streamed, negotiate,
+};
 
 fn accept(v: &str) -> HeaderMap {
     let mut h = HeaderMap::new();
@@ -234,4 +236,103 @@ fn vary_is_merged_and_strong_etags_become_weak() {
         .insert(header::ETAG, HeaderValue::from_static("W/\"v2\""));
     let r = apply(r, Some(Encoding::Br));
     assert_eq!(r.headers()[header::ETAG], "W/\"v2\"");
+}
+
+/// #161, `ops.md` section 6 ("Compression"): each chunk of a streamed body
+/// is flushed, so what was sent so far decodes before the stream ends; the
+/// whole stream decodes to the original bytes.
+#[test]
+fn streamed_chunks_are_flushed_and_decode_whole() {
+    let chunks: [&[u8]; 3] = [
+        b"<html><head>",
+        b"<title>shop</title></head>",
+        b"<body>ok</body></html>",
+    ];
+    for encoding in [Encoding::Gzip, Encoding::Br] {
+        let mut e = StreamEncoder::new(encoding);
+        let mut sent = Vec::new();
+        let mut plain = Vec::new();
+        for c in chunks {
+            let out = e.encode(c);
+            assert!(!out.is_empty(), "{encoding:?}: a flushed chunk has bytes");
+            sent.extend_from_slice(&out);
+            plain.extend_from_slice(c);
+            // A streaming decoder gets everything written so far.
+            let mut got = vec![0u8; plain.len()];
+            let read = match encoding {
+                Encoding::Gzip => {
+                    let mut d = flate2::read::GzDecoder::new(&sent[..]);
+                    read_some(&mut d, &mut got)
+                }
+                Encoding::Br => {
+                    let mut d = brotli::Decompressor::new(&sent[..], 4096);
+                    read_some(&mut d, &mut got)
+                }
+            };
+            assert_eq!(
+                &got[..read],
+                &plain[..],
+                "{encoding:?}: flushed bytes decode"
+            );
+        }
+        sent.extend_from_slice(&e.finish());
+        let whole = match encoding {
+            Encoding::Gzip => gunzip(&sent),
+            Encoding::Br => unbrotli(&sent),
+        };
+        assert_eq!(whole, plain);
+    }
+}
+
+/// Reads until `buf` is full or the decoder has no more (an unfinished
+/// stream ends in an error, after the flushed bytes).
+fn read_some(r: &mut impl Read, buf: &mut [u8]) -> usize {
+    let mut n = 0;
+    while n < buf.len() {
+        match r.read(&mut buf[n..]) {
+            Ok(0) | Err(_) => break,
+            Ok(k) => n += k,
+        }
+    }
+    n
+}
+
+/// #161: a streamed head follows the static rules except the size: a small
+/// or unknown-length text body is compressed, `Content-Length` removed;
+/// `NoCompress`, images and an existing `Content-Encoding` are left alone.
+#[test]
+fn streamed_heads_follow_the_static_rules_without_the_size() {
+    let mut r = response("text/html; charset=utf-8", Vec::new());
+    r.headers_mut()
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(10));
+    r.headers_mut()
+        .insert(header::ETAG, HeaderValue::from_static("\"v1\""));
+    let e = apply_streamed(&mut r, Some(Encoding::Br));
+    assert!(e.is_some());
+    assert_eq!(r.headers()[header::CONTENT_ENCODING], "br");
+    assert!(r.headers().get(header::CONTENT_LENGTH).is_none());
+    assert_eq!(r.headers()[header::ETAG], "W/\"v1\"");
+    assert_eq!(vary(&r), vec!["accept-encoding"]);
+
+    let mut plain = response("text/csv", Vec::new());
+    assert!(apply_streamed(&mut plain, None).is_none());
+    assert_eq!(
+        vary(&plain),
+        vec!["accept-encoding"],
+        "Vary even when not compressed"
+    );
+
+    let mut marked = response("text/html", Vec::new());
+    marked.extensions_mut().insert(NoCompress);
+    assert!(apply_streamed(&mut marked, Some(Encoding::Gzip)).is_none());
+
+    let mut png = response("image/png", Vec::new());
+    assert!(apply_streamed(&mut png, Some(Encoding::Gzip)).is_none());
+    assert!(png.headers().get(header::VARY).is_none());
+
+    let mut encoded = response("text/plain", Vec::new());
+    encoded
+        .headers_mut()
+        .insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    assert!(apply_streamed(&mut encoded, Some(Encoding::Br)).is_none());
 }

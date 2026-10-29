@@ -57,6 +57,7 @@ use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
 use crate::ops::net_policy::Allowlist;
 use crate::ops::request::{RequestState, RequestTable};
+use crate::ops::response::{ResponseSinks, StreamEvent, StreamEvents};
 use crate::ops::secrets::{self, Redactor, SecretsState};
 use crate::pages::{
     MAX_DATA_JSON_BYTES, PageCall, PageRender, PageSession, page_call, select_fragment,
@@ -175,6 +176,11 @@ pub struct Dispatched {
     /// The request matched a page route: platform errors are answered with
     /// the error page (`errors.md` section 1, "Page (HTML) routes").
     pub page: bool,
+    /// The handler's body is a stream (`ops.md` section 6, "Response body"):
+    /// `response` holds the head and an empty body, the chunks come from
+    /// here, and `meter` is final only when the stream has ended
+    /// ([`ResponseStream::end`]).
+    pub body: Option<ResponseStream>,
 }
 
 impl Dispatched {
@@ -184,6 +190,178 @@ impl Dispatched {
             meter,
             render: None,
             page,
+            body: None,
+        }
+    }
+}
+
+/// How a streamed body ended (`ops.md` section 10, "Mid-stream").
+#[derive(Debug, Clone)]
+pub struct StreamEnd {
+    /// The request's meter record, written at the end of the stream
+    /// (`ops.md` section 7).
+    pub meter: InvocationMeter,
+    /// `op_response_end(null)`: the body is complete. Anything else
+    /// truncates it.
+    pub complete: bool,
+}
+
+/// The body of a streamed response, read by the cell. Holds the request's
+/// concurrency slot and its pool member until the stream ends; the
+/// deadline applies to the whole stream. Dropping it before the end does
+/// not stop the request: call [`ResponseStream::client_gone`].
+pub struct ResponseStream {
+    chunks: mpsc::Receiver<Bytes>,
+    end: Option<oneshot::Receiver<StreamEnd>>,
+    outcome: Option<StreamEnd>,
+    deadline: Instant,
+    seq: u64,
+    member: LoadGuard,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+    pool: Arc<Pool>,
+    request_id: String,
+    route: String,
+    received: u64,
+    /// The request was ended from here ([`Self::client_gone`]).
+    ended: bool,
+}
+
+impl Drop for ResponseStream {
+    /// Dropped before its end: the request ends as if the client went away,
+    /// so it does not hold its slot until the deadline.
+    fn drop(&mut self) {
+        if self.outcome.is_none() && !self.ended {
+            let (meter, _) = oneshot::channel();
+            let _ = self.member.0.tx.send(Command::Cancel {
+                seq: self.seq,
+                meter,
+                reason: CancelReason::ClientGone,
+            });
+        }
+    }
+}
+
+impl std::fmt::Debug for ResponseStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResponseStream")
+            .field("route", &self.route)
+            .field("received", &self.received)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ResponseStream {
+    /// The next chunk, or `None` once the stream has ended; [`Self::end`]
+    /// then says how. The wall-clock deadline ends the stream here.
+    pub async fn next_chunk(&mut self) -> Option<Bytes> {
+        if self.outcome.is_some() {
+            return None;
+        }
+        let deadline = tokio::time::Instant::from_std(self.deadline);
+        tokio::select! {
+            biased;
+            chunk = self.chunks.recv() => {
+                if let Some(b) = chunk {
+                    self.received += b.len() as u64;
+                    return Some(b);
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                self.outcome = Some(self.stop(CancelReason::Deadline).await);
+                return None;
+            }
+        }
+        // Every sender is gone: the request has ended, its record follows.
+        let ended = match self.end.as_mut() {
+            Some(rx) => tokio::select! {
+                r = rx => Some(r.ok()),
+                _ = tokio::time::sleep_until(deadline) => None,
+            },
+            None => Some(None),
+        };
+        self.outcome = Some(match ended {
+            Some(Some(end)) => end,
+            // The member went away without an answer (disposal).
+            Some(None) => StreamEnd {
+                meter: InvocationMeter::new(Some(self.route.clone()), MeterStatus::Error),
+                complete: false,
+            },
+            None => self.stop(CancelReason::Deadline).await,
+        });
+        None
+    }
+
+    /// How the stream ended; `None` until [`Self::next_chunk`] returned `None`.
+    pub fn end(&self) -> Option<&StreamEnd> {
+        self.outcome.as_ref()
+    }
+
+    /// How the stream ended, once [`Self::next_chunk`] returned `None`;
+    /// a truncated `error` record if it has not.
+    pub fn take_end(&mut self) -> StreamEnd {
+        self.outcome.take().unwrap_or_else(|| StreamEnd {
+            meter: InvocationMeter::new(Some(self.route.clone()), MeterStatus::Error),
+            complete: false,
+        })
+    }
+
+    /// Body bytes taken from the isolate so far, before compression.
+    pub fn received_bytes(&self) -> u64 {
+        self.received
+    }
+
+    /// The client went away: end the request now (meter `status` as the
+    /// stream had it, `ok` when nothing else stopped it).
+    pub async fn client_gone(mut self) -> StreamEnd {
+        if let Some(end) = self.outcome.take() {
+            self.ended = true;
+            return end;
+        }
+        let end = self.stop(CancelReason::ClientGone).await;
+        self.ended = true;
+        end
+    }
+
+    /// End the request on the isolate thread and take its meter.
+    async fn stop(&mut self, reason: CancelReason) -> StreamEnd {
+        // The stream may have ended a moment ago.
+        if let Some(Ok(end)) = self.end.as_mut().map(|rx| rx.try_recv()) {
+            return end;
+        }
+        let (meter_tx, meter_rx) = oneshot::channel();
+        let _ = self.member.0.tx.send(Command::Cancel {
+            seq: self.seq,
+            meter: meter_tx,
+            reason,
+        });
+        let meter = tokio::time::timeout(Duration::from_millis(100), meter_rx)
+            .await
+            .ok()
+            .and_then(Result::ok);
+        let mut meter = match (meter, self.end.as_mut().map(|rx| rx.try_recv())) {
+            (Some(m), _) => m,
+            (None, Some(Ok(end))) => return end,
+            (None, _) => InvocationMeter::new(Some(self.route.clone()), reason.status()),
+        };
+        meter.route = Some(self.route.clone());
+        if reason == CancelReason::Deadline {
+            meter.status = MeterStatus::Timeout;
+            let mut f = serde_json::Map::new();
+            f.insert("code".into(), "RENOX_DEADLINE".into());
+            f.insert("route".into(), self.route.clone().into());
+            f.insert("phase".into(), "stream".into());
+            f.insert("sent_bytes".into(), self.received.into());
+            f.insert("limit_ms".into(), self.pool.limits.wall_ms.into());
+            self.pool.log(
+                "warn",
+                Some(&self.request_id),
+                "request deadline passed; stream truncated",
+                f,
+            );
+        }
+        StreamEnd {
+            meter,
+            complete: false,
         }
     }
 }
@@ -281,8 +459,27 @@ enum Command {
     Cancel {
         seq: u64,
         meter: oneshot::Sender<InvocationMeter>,
+        reason: CancelReason,
     },
     Terminate,
+}
+
+/// Why the handle side ends a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CancelReason {
+    /// The wall-clock deadline passed (504, or a truncated stream).
+    Deadline,
+    /// The client stopped reading a streamed body.
+    ClientGone,
+}
+
+impl CancelReason {
+    fn status(self) -> MeterStatus {
+        match self {
+            CancelReason::Deadline => MeterStatus::Timeout,
+            CancelReason::ClientGone => MeterStatus::Ok,
+        }
+    }
 }
 
 /// What the isolate thread answers for one dispatch.
@@ -293,6 +490,14 @@ enum ThreadReply {
         headers: Vec<(ByteString, ByteString)>,
         body: Bytes,
         meter: InvocationMeter,
+    },
+    /// The handler returned a `Response` with a streamed body: the head
+    /// now, the chunks and the meter record at the end of the stream.
+    Stream {
+        status: u16,
+        headers: Vec<(ByteString, ByteString)>,
+        body: mpsc::Receiver<Bytes>,
+        end: oneshot::Receiver<StreamEnd>,
     },
     /// A page loader or action returned an object: the template data as
     /// JSON, and an action's out-of-band fragments.
@@ -500,6 +705,26 @@ impl Pool {
     /// The effective limits (tier limits lowered by the manifest).
     pub fn limits(&self) -> Limits {
         self.limits
+    }
+
+    /// The page template of a request that may get its shell first
+    /// (`ops.md` section 14, "Streaming the shell"): a full-page `GET` (no
+    /// fragment selected) of a page route with `load` and a template.
+    pub fn shell_template(&self, parts: &http::request::Parts) -> Option<String> {
+        if parts.method != http::Method::GET {
+            return None;
+        }
+        let RouteMatch::Found { route, .. } = self.router.find("GET", parts.uri.path()) else {
+            return None;
+        };
+        let r = &self.artifact.manifest.routes[route];
+        if r.kind != RouteKind::Page || r.handler_export().is_none() {
+            return None;
+        }
+        if select_fragment(&self.artifact.manifest, r, &parts.headers).is_some() {
+            return None;
+        }
+        r.page().and_then(|p| p.template.clone())
     }
 
     /// Free concurrency slots of the deployment.
@@ -860,6 +1085,7 @@ impl Pool {
                     oob_fragments: Vec::new(),
                 }),
                 page: true,
+                body: None,
             };
         }
         let deadline = effective_deadline(ctx.deadline, self.limits.wall_ms, admitted);
@@ -876,7 +1102,7 @@ impl Pool {
         };
 
         // Concurrency: queue up to the deadline (ops.md section 10).
-        let Ok(_permit) = self.concurrency.acquire(deadline).await else {
+        let Ok(permit) = self.concurrency.acquire(deadline).await else {
             let mut f = serde_json::Map::new();
             f.insert("code".into(), "RENOX_BUSY".into());
             f.insert("route".into(), route_name.clone().into());
@@ -969,6 +1195,7 @@ impl Pool {
                 let _ = thread.tx.send(Command::Cancel {
                     seq,
                     meter: meter_tx,
+                    reason: CancelReason::Deadline,
                 });
                 let mut meter = tokio::time::timeout(Duration::from_millis(100), meter_rx)
                     .await
@@ -1013,6 +1240,49 @@ impl Pool {
                             is_page,
                         )
                     }
+                }
+            }
+            ThreadReply::Stream {
+                status,
+                headers,
+                body,
+                end,
+            } => {
+                let mut b = http::Response::builder().status(status);
+                for (k, v) in headers {
+                    // ops.md section 6: no length on a streamed body.
+                    if k.as_slice().eq_ignore_ascii_case(b"content-length") {
+                        continue;
+                    }
+                    b = b.header(k.as_slice(), v.as_slice());
+                }
+                let response = b.body(Bytes::new());
+                let stream = ResponseStream {
+                    chunks: body,
+                    end: Some(end),
+                    outcome: None,
+                    deadline,
+                    seq,
+                    member,
+                    _permit: permit,
+                    pool: self.clone(),
+                    request_id: ctx.request_id.clone(),
+                    route: route_name.clone(),
+                    received: 0,
+                    ended: false,
+                };
+                let Ok(response) = response else {
+                    // A head the HTTP types refuse: 500; dropping the
+                    // stream ends the request.
+                    drop(stream);
+                    return fail(ErrorCode::Internal, MeterStatus::Error);
+                };
+                Dispatched {
+                    response,
+                    meter: InvocationMeter::new(Some(route_name), MeterStatus::Ok),
+                    render: None,
+                    page: is_page,
+                    body: Some(stream),
                 }
             }
             ThreadReply::Render {
@@ -1062,6 +1332,7 @@ impl Pool {
                         oob_fragments: if htmx { fragments } else { Vec::new() },
                     }),
                     page: true,
+                    body: None,
                 }
             }
             ThreadReply::Failed { code, mut meter } => {
@@ -1485,6 +1756,9 @@ struct JsOutcome {
     reason: Option<String>,
     /// `KIND_RENDER` after an action: the out-of-band fragment names.
     fragments: Option<Vec<String>>,
+    /// `KIND_OK`: the body streams through `op_response_write` (`ops.md`
+    /// section 6).
+    stream: Option<bool>,
 }
 
 const KIND_OK: u8 = 0;
@@ -1512,6 +1786,12 @@ struct InFlight {
     /// What the ops used, taken when the request ends.
     used: RequestEnd,
     reply: Option<oneshot::Sender<ThreadReply>>,
+    /// The receiving half of the request's streamed body, handed to the
+    /// cell with the head (`ops/response.rs`).
+    body: Option<mpsc::Receiver<Bytes>>,
+    /// Set once the head of a streamed body was sent: the request ends,
+    /// and its meter goes here, when the stream ends.
+    stream_end: Option<oneshot::Sender<StreamEnd>>,
 }
 
 impl InFlight {
@@ -1710,11 +1990,11 @@ async fn serve(
                         }
                     }
                 }
-                Some(Command::Cancel { seq, meter }) => {
+                Some(Command::Cancel { seq, meter, reason }) => {
                     if let Some(mut f) = inflight.remove(&seq) {
                         f.cpu_ns = release_cpu(f.token);
                         f.used = end_request(ctx, worker, f.token, Ended::Terminated);
-                        let _ = meter.send(f.meter(ctx, MeterStatus::Timeout));
+                        let _ = meter.send(f.meter(ctx, reason.status()));
                     }
                 }
                 Some(Command::Terminate) | None => {
@@ -1749,9 +2029,31 @@ async fn serve(
                     inflight.insert(seq, flight);
                     break;
                 }
+                let outcome = read_outcome(worker, result);
+                if let Ok(o) = &outcome
+                    && o.kind == KIND_OK
+                    && o.stream == Some(true)
+                    && let Some(body) = flight.body.take()
+                {
+                    // Head first (ops.md section 6): the request goes on
+                    // until its stream ends (step 3b).
+                    let (end_tx, end_rx) = oneshot::channel();
+                    let head = ThreadReply::Stream {
+                        status: o.status.unwrap_or(200),
+                        headers: o.headers.clone().unwrap_or_default(),
+                        body,
+                        end: end_rx,
+                    };
+                    if let Some(tx) = flight.reply.take() {
+                        let _ = tx.send(head);
+                    }
+                    flight.stream_end = Some(end_tx);
+                    inflight.insert(seq, flight);
+                    continue;
+                }
                 flight.cpu_ns = release_cpu(flight.token);
                 flight.used = end_request(ctx, worker, flight.token, Ended::Finished);
-                let reply = finish_dispatch(ctx, worker, &flight, result);
+                let reply = finish_dispatch(ctx, &flight, outcome);
                 if flight.used.rolled_back_tx {
                     let threw = matches!(reply, ThreadReply::Failed { .. });
                     if threw {
@@ -1777,6 +2079,8 @@ async fn serve(
                     let _ = tx.send(reply);
                 }
             }
+            // 3b. Streamed bodies that ended (ops/response.rs).
+            end_streams(ctx, worker, &mut inflight);
         }
 
         // End of slice: charge the last run, record the heap peak.
@@ -1812,7 +2116,14 @@ async fn serve(
                     "route".into(),
                     flight.meter(ctx, status).route.unwrap_or_default().into(),
                 );
-                f.insert("phase".into(), "request".into());
+                let streaming = flight.stream_end.is_some();
+                f.insert(
+                    "phase".into(),
+                    if streaming { "stream" } else { "request" }.into(),
+                );
+                if streaming {
+                    f.insert("sent_bytes".into(), flight.used.response_sent_bytes.into());
+                }
                 match code {
                     ErrorCode::CpuLimit => {
                         f.insert("cpu_ms".into(), flight.meter(ctx, status).cpu_ms.into());
@@ -1835,7 +2146,14 @@ async fn serve(
                 };
                 log_line(ctx, "error", Some(&flight.ctx.request_id), message, f);
                 let meter = flight.meter(ctx, status);
-                if let Some(tx) = flight.reply.take() {
+                if let Some(end) = flight.stream_end.take() {
+                    // After the head: the body is truncated (ops.md section
+                    // 10, "Mid-stream").
+                    let _ = end.send(StreamEnd {
+                        meter,
+                        complete: false,
+                    });
+                } else if let Some(tx) = flight.reply.take() {
                     let _ = tx.send(ThreadReply::Failed { code, meter });
                 }
             }
@@ -1880,6 +2198,8 @@ struct RequestEnd {
     logs_dropped: u64,
     /// An open transaction was rolled back.
     rolled_back_tx: bool,
+    /// Bytes `op_response_write` took for a streamed body.
+    response_sent_bytes: u64,
 }
 
 /// How a request ended, for the rollback counters.
@@ -1913,8 +2233,17 @@ fn end_request(
 ) -> RequestEnd {
     let state = worker.js_runtime.op_state();
     let mut state = state.borrow_mut();
+    // The body's channel closes once a pending write lets go of it.
+    let response_sent_bytes = state
+        .borrow_mut::<ResponseSinks>()
+        .0
+        .remove(&token)
+        .map_or(0, |s| s.sent_bytes);
     let Some(request) = state.borrow_mut::<RequestTable>().end(token) else {
-        return RequestEnd::default();
+        return RequestEnd {
+            response_sent_bytes,
+            ..RequestEnd::default()
+        };
     };
     let mut request = request.borrow_mut();
     let rolled_back_tx =
@@ -1937,6 +2266,93 @@ fn end_request(
         db_rows: request.db_rows,
         logs_dropped: request.logs_dropped,
         rolled_back_tx,
+        response_sent_bytes,
+    }
+}
+
+/// Step 3b of the serve loop: end the requests whose streamed body ended
+/// (`ops.md` sections 7 and 10, "Mid-stream"). A report for a request whose
+/// head has not been sent yet waits for the next slice.
+fn end_streams(
+    ctx: &ThreadContext,
+    worker: &mut MainWorker,
+    inflight: &mut HashMap<u64, InFlight>,
+) {
+    let events = {
+        let state = worker.js_runtime.op_state();
+        let mut state = state.borrow_mut();
+        std::mem::take(&mut state.borrow_mut::<StreamEvents>().0)
+    };
+    if events.is_empty() {
+        return;
+    }
+    let mut later = Vec::new();
+    for (token, event) in events {
+        let Some(seq) = inflight
+            .iter()
+            .find(|(_, f)| f.token == token)
+            .map(|(seq, _)| *seq)
+        else {
+            continue;
+        };
+        if inflight[&seq].stream_end.is_none() {
+            later.push((token, event));
+            continue;
+        }
+        let Some(mut flight) = inflight.remove(&seq) else {
+            continue;
+        };
+        flight.cpu_ns = release_cpu(token);
+        flight.used = end_request(ctx, worker, token, Ended::Finished);
+        let route = flight.meter(ctx, MeterStatus::Ok).route.unwrap_or_default();
+        let (status, complete) = match event {
+            StreamEvent::End(None) => (MeterStatus::Ok, true),
+            StreamEvent::ClientGone => (MeterStatus::Ok, false),
+            StreamEvent::End(Some(message)) => {
+                let mut f = serde_json::Map::new();
+                f.insert("route".into(), route.into());
+                f.insert("reason".into(), "stream_error".into());
+                f.insert("cause_message".into(), message.into());
+                f.insert("sent_bytes".into(), flight.used.response_sent_bytes.into());
+                log_line(
+                    ctx,
+                    "error",
+                    Some(&flight.ctx.request_id),
+                    "response stream failed; body truncated",
+                    f,
+                );
+                (MeterStatus::Error, false)
+            }
+            StreamEvent::EgressLimit {
+                limit_bytes,
+                sent_bytes,
+            } => {
+                let mut f = serde_json::Map::new();
+                f.insert("route".into(), route.into());
+                f.insert("reason".into(), "egress_limit".into());
+                f.insert("limit_bytes".into(), limit_bytes.into());
+                f.insert("sent_bytes".into(), sent_bytes.into());
+                log_line(
+                    ctx,
+                    "warn",
+                    Some(&flight.ctx.request_id),
+                    "response egress limit reached; body truncated",
+                    f,
+                );
+                (MeterStatus::Error, false)
+            }
+        };
+        if let Some(end) = flight.stream_end.take() {
+            let _ = end.send(StreamEnd {
+                meter: flight.meter(ctx, status),
+                complete,
+            });
+        }
+    }
+    if !later.is_empty() {
+        let state = worker.js_runtime.op_state();
+        let mut state = state.borrow_mut();
+        state.borrow_mut::<StreamEvents>().0.extend(later);
     }
 }
 
@@ -1966,14 +2382,20 @@ fn start_dispatch(
     job: DispatchJob,
 ) -> StartResult {
     let egress_limit_bytes = ctx.limits.egress_bytes;
-    let token = {
+    let (token, body) = {
         let state = worker.js_runtime.op_state();
         let mut state = state.borrow_mut();
-        state.borrow_mut::<RequestTable>().begin(RequestState::new(
+        let token = state.borrow_mut::<RequestTable>().begin(RequestState::new(
             job.ctx.request_id.clone(),
             job.ctx.deadline,
             egress_limit_bytes,
-        ))
+        ));
+        // ops.md section 10: the response egress limit has the tier's
+        // egress value, on a counter of its own.
+        let body = state
+            .borrow_mut::<ResponseSinks>()
+            .open(token, egress_limit_bytes);
+        (token, body)
     };
     let args = {
         deno_core::scope!(scope, &mut worker.js_runtime);
@@ -2007,6 +2429,8 @@ fn start_dispatch(
             peak_heap: 0,
             used: RequestEnd::default(),
             reply: Some(job.reply),
+            body: Some(body),
+            stream_end: None,
         },
     ))
 }
@@ -2078,22 +2502,28 @@ fn build_args(
     .collect())
 }
 
-fn finish_dispatch(
-    ctx: &ThreadContext,
+/// What the bootstrap's `dispatch` resolved to.
+fn read_outcome(
     worker: &mut MainWorker,
-    flight: &InFlight,
     result: JsResult<v8::Global<v8::Value>>,
-) -> ThreadReply {
-    let route = &ctx.artifact.manifest.routes[flight.route];
-    let route_name = format!("{} {}", route.method.as_str(), route.path);
-    let outcome: Result<JsOutcome, String> = match result {
+) -> Result<JsOutcome, String> {
+    match result {
         Ok(v) => {
             deno_core::scope!(scope, &mut worker.js_runtime);
             let local = v8::Local::new(scope, v);
             serde_v8::from_v8(scope, local).map_err(|e| e.to_string())
         }
         Err(e) => Err(tenant_safe(&e)),
-    };
+    }
+}
+
+fn finish_dispatch(
+    ctx: &ThreadContext,
+    flight: &InFlight,
+    outcome: Result<JsOutcome, String>,
+) -> ThreadReply {
+    let route = &ctx.artifact.manifest.routes[flight.route];
+    let route_name = format!("{} {}", route.method.as_str(), route.path);
     let no_template = route.page().is_some_and(|p| p.template.is_none());
     let page_internal = |reason: &str, detail: Option<String>| {
         // ops.md section 14: the reason and detail go to the tenant log only.

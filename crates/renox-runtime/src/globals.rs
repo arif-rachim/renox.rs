@@ -14,6 +14,7 @@ use crate::ops::deadline::op_deadline_remaining_ms;
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
 use crate::ops::log::op_log;
 use crate::ops::request::RequestTable;
+use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_response_write};
 use crate::ops::secrets::op_secrets_get_all;
 
 /// Our own time origin for the coarsened clock ops.
@@ -81,6 +82,8 @@ deno_core::extension!(
         op_renox_fetch,
         op_fetch_body_read,
         op_fetch_body_close,
+        op_response_write,
+        op_response_end,
         op_renox_now,
         op_renox_time_origin,
         op_renox_no_exit,
@@ -91,6 +94,8 @@ deno_core::extension!(
     state = |state| {
         state.put(CoarseClockStart(Instant::now()));
         state.put(RequestTable::default());
+        state.put(ResponseSinks::default());
+        state.put(StreamEvents::default());
     },
 );
 
