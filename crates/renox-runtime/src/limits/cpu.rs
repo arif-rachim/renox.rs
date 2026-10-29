@@ -637,6 +637,13 @@ mod tests {
         assert!(mine.now().unwrap() - before < Duration::from_millis(20));
         go_tx.send(()).unwrap();
         t.join().unwrap();
+        // Linux releases the exited thread's task shortly after the join
+        // returns (glibc wakes the joiner at CLONE_CHILD_CLEARTID); until
+        // then its clock may still answer.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while c.now().is_some() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
         assert_eq!(c.now(), None);
     }
 
