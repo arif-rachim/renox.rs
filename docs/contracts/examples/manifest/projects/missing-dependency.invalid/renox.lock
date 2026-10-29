@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "billing"
+version = "1.0.0"
+source = "path:modules/billing"
+hash = "1eb26fae786f1dea7fbe6d9d91c74786a99d554d2d82b8327b5117896b6e578e"
+isolation = "shared"
+mount = "/billing"
+dependencies = ["auth"]
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

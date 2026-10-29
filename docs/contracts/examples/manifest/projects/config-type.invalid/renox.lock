@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "org"
+version = "1.0.0"
+source = "path:modules/org"
+hash = "4b7f9d205ec76ed44531ca78a4d09c26dfcc91d7931212f63dd89c2719fa93b1"
+isolation = "shared"
+mount = "/org"
+dependencies = []
+config = { max_members = "many" }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

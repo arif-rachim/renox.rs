@@ -1,0 +1,3 @@
+# [expect: pattern] "*" is not one of the accepted range forms
+[modules]
+auth = { version = "*" }

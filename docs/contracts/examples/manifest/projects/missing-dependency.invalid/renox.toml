@@ -1,0 +1,3 @@
+# [expect: MF5] billing depends on auth, which renox.toml does not install
+[modules]
+billing = { version = "^1.0", source = "path:modules/billing" }

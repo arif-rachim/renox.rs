@@ -1,0 +1,13 @@
+# [expect: MF4] the approved tables of a module are its own prefix only
+version = 1
+
+[[module]]
+name = "reports"
+version = "0.1.0"
+source = "official"
+hash = "3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4"
+isolation = "shared"
+mount = "/reports"
+dependencies = []
+config = {}
+approved = { tables = "billing__*", network = [], secrets = [], slots = [], hooks = [] }

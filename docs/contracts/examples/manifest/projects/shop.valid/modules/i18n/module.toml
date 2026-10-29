@@ -1,0 +1,25 @@
+# M12 i18n with the M19 core (docs/18-build-plan.md): locale detection,
+# catalogs, EN/AR, RTL; sets the page locale through ctx.setLocale (ops.md section 14).
+[module]
+name = "i18n"
+version = "0.1.0"
+description = "Locale detection, translation catalogs, EN/AR and RTL"
+
+[config]
+default_locale = { type = "string", default = "en", max_length = 35 }
+locales = { type = "string", default = "en,ar", max_length = 256 }
+digits = { type = "enum", values = ["latin", "arabic_indic"], default = "latin" }
+calendar = { type = "enum", values = ["gregorian", "hijri"], default = "gregorian" }
+
+[permissions]
+tables = "i18n__*"
+
+[exports]
+views = ["i18n__public_catalogs_v1"]
+
+[exports.services]
+detectLocale = "The best locale for the request and its direction: { locale, dir }"
+translate = "The message for a key in a locale, with Arabic plural rules"
+
+[exports.events."i18n.catalog_updated"]
+payload = { type = "object", required = ["locale"], properties = { locale = { type = "string" } } }

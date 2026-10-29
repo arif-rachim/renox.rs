@@ -1,0 +1,4 @@
+# [expect: MF1] "renox" is the platform's own prefix (renox__* tables)
+[module]
+name = "renox"
+version = "1.0.0"

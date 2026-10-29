@@ -1,0 +1,3 @@
+# [expect: MF9] partials/admin-menu.html is not in the billing tree
+[modules]
+billing = { version = "^1.0", source = "path:modules/billing" }

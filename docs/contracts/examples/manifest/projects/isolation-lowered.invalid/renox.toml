@@ -1,0 +1,3 @@
+# [expect: MF11] the manifest asks for isolate; renox.toml may raise isolation, never lower it
+[modules]
+acme = { version = "^0.4", source = "path:modules/acme", isolation = "shared" }

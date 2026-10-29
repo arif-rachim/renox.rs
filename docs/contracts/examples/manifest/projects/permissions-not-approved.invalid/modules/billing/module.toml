@@ -1,0 +1,6 @@
+[module]
+name = "billing"
+version = "1.2.0"
+
+[permissions]
+network = ["secure.telr.com", "api.stripe.com"]

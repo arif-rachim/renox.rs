@@ -1,0 +1,23 @@
+version = 1
+
+[[module]]
+name = "billing"
+version = "1.0.0"
+source = "path:modules/billing"
+hash = "594d88e6195abde513702ac23e57256e65af72c25c23d7e4abe4318d738f3881"
+isolation = "shared"
+mount = "/billing"
+dependencies = []
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "reports"
+version = "0.1.0"
+source = "path:modules/reports"
+hash = "a5b296782c1d77950b9c4cf38205eadf530b1edd16bc9064c7a7e37be9e272ba"
+isolation = "shared"
+mount = "/reports"
+dependencies = []
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

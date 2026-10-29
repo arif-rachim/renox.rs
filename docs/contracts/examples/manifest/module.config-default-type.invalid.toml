@@ -1,0 +1,7 @@
+# [expect: MF10] the default of an int key is a string
+[module]
+name = "storage"
+version = "0.1.0"
+
+[config]
+quota_mb = { type = "int", min = 1, max = 10240, default = "100" }

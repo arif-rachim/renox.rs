@@ -1,0 +1,24 @@
+# [expect: MF5] org is listed before auth, which it depends on
+version = 1
+
+[[module]]
+name = "org"
+version = "1.0.0"
+source = "official"
+hash = "a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+isolation = "shared"
+mount = "/org"
+dependencies = ["auth"]
+config = {}
+approved = { tables = "org__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "auth"
+version = "1.0.0"
+source = "official"
+hash = "3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4"
+isolation = "shared"
+mount = "/auth"
+dependencies = []
+config = {}
+approved = { tables = "auth__*", network = [], secrets = [], slots = [], hooks = [] }

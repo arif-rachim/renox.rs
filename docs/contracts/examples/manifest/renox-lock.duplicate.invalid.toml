@@ -1,0 +1,24 @@
+# [expect: MF3] one name, and so one table prefix, is installed twice
+version = 1
+
+[[module]]
+name = "gcc"
+version = "0.1.0"
+source = "official"
+hash = "3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4"
+isolation = "shared"
+mount = "/gcc"
+dependencies = []
+config = {}
+approved = { tables = "gcc__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "gcc"
+version = "0.2.0"
+source = "path:vendor/gcc"
+hash = "a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+isolation = "shared"
+mount = "/gcc2"
+dependencies = []
+config = {}
+approved = { tables = "gcc__*", network = [], secrets = [], slots = [], hooks = [] }

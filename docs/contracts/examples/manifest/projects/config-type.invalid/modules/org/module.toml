@@ -1,0 +1,6 @@
+[module]
+name = "org"
+version = "1.0.0"
+
+[config]
+max_members = { type = "int", min = 1, default = 50 }

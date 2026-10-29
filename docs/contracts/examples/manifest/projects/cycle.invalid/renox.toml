@@ -1,0 +1,4 @@
+# [expect: MF5] a depends on b and b depends on a
+[modules]
+a = { version = "^1.0", source = "path:modules/a" }
+b = { version = "^1.0", source = "path:modules/b" }

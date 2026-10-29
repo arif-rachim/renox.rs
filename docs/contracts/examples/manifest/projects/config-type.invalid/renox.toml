@@ -1,0 +1,3 @@
+# [expect: MF10] max_members is an int, renox.toml sets a string
+[modules]
+org = { version = "^1.0", source = "path:modules/org", config = { max_members = "many" } }

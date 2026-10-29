@@ -1,0 +1,23 @@
+version = 1
+
+[[module]]
+name = "a"
+version = "1.0.0"
+source = "path:modules/a"
+hash = "3e4cc6fedbe80eeeae0dfc976440b07c38786205026bfd060160110c29c95f3f"
+isolation = "shared"
+mount = "/a"
+dependencies = ["b"]
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "b"
+version = "1.0.0"
+source = "path:modules/b"
+hash = "c2aebaba6cb6cc15f3d85561c09629a8b9e414866b3b352316573e201e658a47"
+isolation = "shared"
+mount = "/b"
+dependencies = ["a"]
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

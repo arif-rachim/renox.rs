@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "billing"
+version = "1.0.0"
+source = "path:modules/billing"
+hash = "a66c029acb42e9c600cefcfb61847bff72c7a5f6b6c4b7c0544951c8d104106f"
+isolation = "shared"
+mount = "/billing"
+dependencies = []
+config = {  }
+approved = { network = [], secrets = [], slots = ["admin.sidebar"], hooks = [] }

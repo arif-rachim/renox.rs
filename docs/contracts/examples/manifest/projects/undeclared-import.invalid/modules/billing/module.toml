@@ -1,0 +1,6 @@
+[module]
+name = "billing"
+version = "1.0.0"
+
+[exports.services]
+getActivePlan = "The user's active plan, or null"

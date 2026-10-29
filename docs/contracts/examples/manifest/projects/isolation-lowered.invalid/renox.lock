@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "acme"
+version = "0.4.0"
+source = "path:modules/acme"
+hash = "dbd811f082b7aaf24cd14b2635f01d3fdd21b41a6066ae2d7617e1074c0f23af"
+isolation = "shared"
+mount = "/acme"
+dependencies = []
+config = {  }
+approved = { network = [], secrets = [], slots = [], hooks = [] }

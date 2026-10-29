@@ -1,0 +1,13 @@
+# [expect: pattern] the hash is 64 lower-case hex characters, without a prefix
+version = 1
+
+[[module]]
+name = "gcc"
+version = "0.1.0"
+source = "official"
+hash = "sha256:3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4"
+isolation = "shared"
+mount = "/gcc"
+dependencies = []
+config = {}
+approved = { tables = "gcc__*", network = [], secrets = [], slots = [], hooks = [] }

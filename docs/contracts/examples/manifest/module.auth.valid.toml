@@ -1,0 +1,57 @@
+# M1 auth (docs/18-build-plan.md): users, passwords (argon2id through ctx.password),
+# sessions, magic links, OAuth/OIDC, password reset, hook points
+# auth.after_login and auth.before_register; ctx.auth is the currentUser service.
+[module]
+name = "auth"
+version = "1.0.0"
+description = "Users, passwords, sessions, magic links, OAuth/OIDC, password reset"
+
+[config]
+registration = { type = "enum", values = ["open", "invite", "closed"], default = "open" }
+session_days = { type = "int", min = 1, max = 365, default = 30 }
+magic_links = { type = "bool", default = true }
+oauth_google_client_id = { type = "string", required = false, max_length = 256 }
+oauth_github_client_id = { type = "string", required = false, max_length = 256 }
+oauth_microsoft_client_id = { type = "string", required = false, max_length = 256 }
+
+[permissions]
+tables = "auth__*"
+network = [
+  "accounts.google.com",
+  "oauth2.googleapis.com",
+  "openidconnect.googleapis.com",
+  "github.com",
+  "api.github.com",
+  "login.microsoftonline.com",
+]
+secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"]
+
+[exports]
+views = ["auth__public_users_v1"]
+
+[exports.services]
+currentUser = "The signed-in user of the request, or null"
+requireUser = "The signed-in user, or a redirect Response to the login page"
+getUser = "A user by id, or null"
+signOut = "Ends the session of the request"
+
+[exports.events."auth.user_registered"]
+description = "A user account was created"
+payload = { type = "object", additionalProperties = false, required = ["user_id", "at"], properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+
+[exports.events."auth.user_logged_in"]
+payload = { type = "object", additionalProperties = false, required = ["user_id", "method"], properties = { user_id = { type = "string" }, method = { enum = ["password", "magic_link", "oauth"] } } }
+
+[exports.events."auth.password_reset_requested"]
+payload = { type = "object", additionalProperties = false, required = ["user_id", "token_id"], properties = { user_id = { type = "string" }, token_id = { type = "string" } } }
+
+[exports.hooks."auth.after_login"]
+description = "Runs after a successful login, before the session cookie is sent; may halt with a Response"
+args = { type = "object", required = ["user_id"], properties = { user_id = { type = "string" } } }
+
+[exports.hooks."auth.before_register"]
+description = "Runs before a user is created; may halt with a Response"
+args = { type = "object", required = ["email"], properties = { email = { type = "string" } } }
+
+[authz]
+actions = ["user.read", "user.update", "user.delete", "session.revoke"]

@@ -1,0 +1,44 @@
+# M2 org (docs/18-build-plan.md): organizations, memberships, invitations,
+# roles per org, org switcher; depends on auth.
+[module]
+name = "org"
+version = "1.0.0"
+description = "Organizations, memberships, invitations, roles per org"
+
+[dependencies]
+auth = "^1.0"
+
+[config]
+max_members = { type = "int", min = 1, max = 10000, default = 50 }
+invitations = { type = "bool", default = true }
+
+[permissions]
+tables = "org__*"
+slots = ["auth.account_menu"]
+hooks = ["auth.after_login"]
+
+[exports]
+views = ["org__public_memberships_v1"]
+
+[exports.services]
+currentOrg = "The active organization of the request, or null"
+listMemberships = "The organizations a user belongs to, with roles"
+requireRole = "Throws unless the user has the role in the active organization"
+
+[exports.events."org.member_added"]
+payload = { type = "object", required = ["org_id", "user_id", "role"], properties = { org_id = { type = "string" }, user_id = { type = "string" }, role = { type = "string" } } }
+
+[exports.events."org.invite_sent"]
+payload = { type = "object", required = ["org_id", "invite_id"], properties = { org_id = { type = "string" }, invite_id = { type = "string" } } }
+
+[imports]
+services = ["auth.currentUser", "auth.getUser"]
+views = ["auth__public_users_v1"]
+
+[[slots]]
+name = "auth.account_menu"
+template = "partials/org-switcher.html"
+requires = "org.read"
+
+[authz]
+actions = ["org.read", "org.update", "member.invite", "member.remove"]
