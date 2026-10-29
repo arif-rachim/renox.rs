@@ -37,7 +37,7 @@ getdents64
 getegid
 geteuid
 getgid
-getpgrp
+getpgid
 getpid
 getppid
 getrandom

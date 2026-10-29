@@ -127,7 +127,7 @@ if [[ $arch == x86_64 ]]; then
         m["epoll_wait"] = "epoll_pwait"; m["mkdir"] = "mkdirat"; m["poll"] = "ppoll"; m["readlink"] = "readlinkat";
         m["rename"] = "renameat"; m["symlink"] = "symlinkat"; m["unlink"] = "unlinkat"; m["open"] = "openat";
         m["stat"] = "newfstatat"; m["lstat"] = "newfstatat"; m["pipe"] = "pipe2"; m["epoll_create"] = "epoll_create1";
-        m["fork"] = "clone"; m["vfork"] = "clone"; m["getdents"] = "getdents64"; m["select"] = "pselect6";
+        m["fork"] = "clone"; m["vfork"] = "clone"; m["getdents"] = "getdents64"; m["getpgrp"] = "getpgid"; m["select"] = "pselect6";
         m["eventfd"] = "eventfd2"; m["signalfd"] = "signalfd4"; m["inotify_init"] = "inotify_init1";
         m["chown"] = "fchownat"; m["lchown"] = "fchownat"; m["link"] = "linkat"; m["rmdir"] = "unlinkat";
         m["time"] = ""; m["alarm"] = ""; m["creat"] = "openat"; m["futimesat"] = ""; m["utimes"] = "utimensat";
