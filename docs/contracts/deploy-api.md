@@ -285,7 +285,7 @@ Every client line with `kind` `js.*`, `htmx.*`, `csp.violation` or `realtime.*` 
 - `POST /v1/apps/{app}/client-errors/{fingerprint}` (`setClientErrorStatus`) with `{ "status": "open" | "resolved" | "ignored" }` sets the status and answers the group. It needs `apps:write`: no `logs:write` scope exists, and the status of a group is app state, like an app's other settings (Open 9). The audit row carries the fingerprint and the new status.
 - **Regression.** An event for a `resolved` group from a deployment created after the one that was active when the group was resolved sets the status back to `open` and `regressed` to `true`; setting a status by hand clears `regressed`. An `ignored` group stays ignored and keeps counting.
 - **Frames.** A frame is `{ file, line, column, function, original }`: the position as the browser reported it (kept always; 1-based, 0 when the browser gave none) and `original`, `{ file, line, column }` in the source file (1-based, a relative path without `..`), or `null` when no private sourcemap of the event's deployment matched (`PUT …/deployments/{hash}/sourcemaps`, section 4). Sourcemaps are never served from the app's origin or by any endpoint of this API.
-- A fingerprint that is not 16 lowercase hex characters is 400 `RENOX_VALIDATION`; an unknown group, or one of another tenant, is 404 `RENOX_NOT_FOUND`.
+- A fingerprint that is not 16 lowercase hex characters cannot exist, so it is 404 `RENOX_NOT_FOUND` like an unknown group or one of another tenant.
 - Event text is untrusted: anyone can post to the client-events endpoint (`client-events.md` section 9). Consumers escape every field.
 
 ## 12. Error codes
