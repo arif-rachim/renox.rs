@@ -1844,6 +1844,26 @@ const foProblems = [
 ];
 report(foRows.length === 6 && foProblems.length === 0, `deploy-api.md failover rules FO1-FO6 each cite B18 (${foRows.length} rows)`, foProblems);
 
+// 6d. deploy-api 0.3.1 (#273): TokenCreated.token takes renox_pat_ and renox_op_ and nothing else;
+//     deploy-api.md section 11 states fields.frames and the streamLogs example carries one.
+{
+  const tokenSchema = resolveRef(api, "#/components/schemas/TokenCreated/properties/token");
+  const token = (prefix: string): Json => `${prefix}abcdefghijklmnopqrstuvwxyz234567`;
+  const problems = [
+    ...["renox_pat_", "renox_op_"].filter((p) => validate(tokenSchema, token(p), api).length > 0).map((p) => `${p} is refused`),
+    ...["renox_tok_", "renox_node_", "renox_cb_"].filter((p) => validate(tokenSchema, token(p), api).length === 0).map((p) => `${p} is accepted`),
+  ];
+  report(problems.length === 0, "deploy-api.yaml TokenCreated.token accepts renox_pat_ and renox_op_ only", problems);
+  const section11 = /\n## 11\. Logs and meters\n([\s\S]*?)\n## 12\./u.exec(deployText)?.[1] ?? "";
+  const logsOp = resolveRef(api, "#/paths/~1v1~1apps~1{app}~1logs/get/responses/200/content/text~1event-stream/examples");
+  const examplesText = JSON.stringify(logsOp);
+  report(
+    section11.includes("`fields.frames`") && examplesText.includes('\\"frames\\":[') && examplesText.includes('\\"original\\":{'),
+    "deploy-api.md section 11 states fields.frames and the streamLogs example carries a symbolicated frame (#261)",
+    [section11.includes("`fields.frames`") ? "" : "section 11 does not mention fields.frames", examplesText.includes('\\"frames\\":[') ? "" : "no frames in the streamLogs example"].filter((x) => x !== ""),
+  );
+}
+
 // 6. errors.md: one row per code; covers ops.md and docs/23-failure-modes.md;
 //    ctx.d.ts matches ops.md section 13.
 const CODE = /RENOX_[A-Z0-9]+(?:_[A-Z0-9]+)*/gu;

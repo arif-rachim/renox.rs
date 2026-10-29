@@ -16,7 +16,7 @@ Rules:
 | Client events | client script (P10) ↔ gateway (P3) ↔ dashboard (P13) | [`client-events.md`](client-events.md), [`schemas/client-event.schema.json`](schemas/client-event.schema.json) | #125 | v0 |
 | Error codes | every component ↔ tenants | [`errors.md`](errors.md) | #91 (v0), #152, #50, #251, #272 | 0.4 |
 | Module manifest, `renox.toml [modules]`, `renox.lock` | broker (P9) ↔ CLI (P11) ↔ modules | [`manifest.md`](manifest.md), [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) | #225, #272 | 1.1 |
-| Deploy API, worker control messages, node listener | CLI (P11), cell (P5), dashboard (P13) ↔ control plane (P12) | [`deploy-api.md`](deploy-api.md), [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml), [`schemas/node-listener.yaml`](schemas/node-listener.yaml), [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) | #50, #184, #222, #251 | 0.3 |
+| Deploy API, worker control messages, node listener | CLI (P11), cell (P5), dashboard (P13) ↔ control plane (P12) | [`deploy-api.md`](deploy-api.md), [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml), [`schemas/node-listener.yaml`](schemas/node-listener.yaml), [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) | #50, #184, #222, #251, #273 | 0.3.1 |
 
 ## Checking
 
