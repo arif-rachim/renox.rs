@@ -205,6 +205,9 @@ fn check_policies() -> ExitCode {
         cases: Vec<Case>,
         #[serde(default)]
         explain: bool,
+        /// Table → column → declared type of the entity tables (#292).
+        #[serde(default)]
+        columns: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     }
     let mut raw = String::new();
     if std::io::stdin().read_to_string(&mut raw).is_err() {
@@ -219,7 +222,11 @@ fn check_policies() -> ExitCode {
         }
     };
     let policies: Vec<(String, String)> = input.policies.into_iter().collect();
-    let engine = match renox_cell::authz::engine_for_check(&input.manifest, &policies) {
+    let engine = match renox_cell::authz::engine_for_check(
+        &input.manifest,
+        &policies,
+        &input.columns,
+    ) {
         Ok(e) => e,
         Err(errs) => {
             let errors: Vec<serde_json::Value> = errs

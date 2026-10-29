@@ -129,3 +129,16 @@ export async function confirmPasswordReset(ctx: AuthCtx, input: { token: string;
 export async function resumeLogin(ctx: AuthCtx, ticket: unknown): Promise<{ cookie: string; session_id: string; user_id: string; next: string | null } | null> {
   return core.resumeLogin(ctx, ticket);
 }
+
+/**
+ * What the principal hook's fillers set changed for `userId` (default: the
+ * signed-in user): org after a switch, 2fa after a verification. Emits
+ * `auth.principal_changed`; the cell drops the cached principal when the
+ * event is delivered (#292).
+ */
+export async function refreshPrincipal(ctx: AuthCtx, userId?: unknown): Promise<boolean> {
+  const id = typeof userId === "string" && userId !== "" ? userId : (await core.currentUser(ctx))?.id;
+  if (id === undefined) return false;
+  await ctx.events.emit("auth.principal_changed", { user_id: id, at: core.now() });
+  return true;
+}

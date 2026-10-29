@@ -157,6 +157,8 @@ async function setActive(ctx: OrgCtx, sessionId: string, orgId: string): Promise
     orgId,
     now(),
   ]);
+  // `org` on the principal changed (#292): the cell recomputes it.
+  await auth.refreshPrincipal();
 }
 
 export async function switchOrg(ctx: OrgCtx, orgId: string): Promise<{ ok: true; org: Org } | { ok: false; error: string }> {
@@ -383,6 +385,7 @@ export async function removeMember(ctx: OrgCtx, input: { org?: unknown; user?: u
   );
   if (r.changes !== 1) return { ok: false, error: LAST_OWNER };
   await ctx.events.emit("org.member_removed", { org_id: orgId, user_id: userId, by: s.user.id, at: now() });
+  await auth.refreshPrincipal(userId);
   return { ok: true };
 }
 

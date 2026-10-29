@@ -11,6 +11,7 @@
 // - V24 and policy test cases through `renox-worker check-policies`, which
 //   builds the same engine the cell builds (crates/renox-cell/src/authz).
 
+import { Database } from "bun:sqlite";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -217,7 +218,8 @@ export async function checkPolicies(
   // A resource without an `id` names a kind of resource, not an entity:
   // the case is a resource-less check (`r-can` without `:resource`).
   const wire = cases.map((c) => (c.resource !== undefined && c.resource.id === undefined ? { ...c, resource: undefined } : c));
-  const input = { manifest: JSON.parse(dec.decode(manifest)), policies, cases: wire, explain };
+  const parsed = JSON.parse(dec.decode(manifest)) as Record<string, unknown>;
+  const input = { manifest: parsed, policies, cases: wire, explain, columns: entityColumns(files, parsed) };
   const p = Bun.spawn([worker, "check-policies"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   p.stdin.write(JSON.stringify(input));
   await p.stdin.end();
@@ -225,6 +227,47 @@ export async function checkPolicies(
   if (code !== 0) throw new ValidationError(`renox-worker check-policies failed (exit code ${code}): ${err.trim()}`);
   const out = JSON.parse(text) as { errors: PolicyDiagnostic[]; results?: PolicyResult[] };
   return { errors: out.errors, results: out.results ?? [] };
+}
+
+/**
+ * The declared columns of every `[authz.entities]` table (#292): the
+ * artifact's migrations applied in an in-memory SQLite in deployment order
+ * (the modules', then the app's), then `pragma table_info`. The cell types
+ * entity attributes from the tenant's real tables; this gives `renox check`
+ * and `renox test` the same types without a database. A migration that
+ * does not apply here is skipped: its tables stay untyped (`String`).
+ */
+export function entityColumns(files: ReadonlyMap<string, Uint8Array>, manifest: Record<string, unknown>): Record<string, Record<string, string>> {
+  const blocks: AuthzBlock[] = [];
+  if (manifest.authz) blocks.push(manifest.authz as AuthzBlock);
+  const modules = Array.isArray(manifest.modules) ? (manifest.modules as { name?: string; authz?: AuthzBlock }[]) : [];
+  for (const m of modules) if (m.authz) blocks.push(m.authz);
+  const tables = new Set<string>();
+  for (const b of blocks) for (const e of Object.values(b.entities ?? {})) if (typeof (e as { table?: unknown }).table === "string") tables.add((e as { table: string }).table);
+  if (tables.size === 0) return {};
+  const dec = new TextDecoder();
+  const db = new Database(":memory:");
+  try {
+    for (const owner of [...modules.map((m) => m.name ?? ""), "app"]) {
+      const prefix = `migrations/${owner}/`;
+      const sql = [...files.keys()].filter((p) => p.startsWith(prefix) && p.endsWith(".sql")).sort();
+      for (const p of sql) {
+        try {
+          db.exec(dec.decode(files.get(p)));
+        } catch {
+          // Not applicable here (an extension, a module's view of another): untyped.
+        }
+      }
+    }
+    const out: Record<string, Record<string, string>> = {};
+    for (const t of tables) {
+      const cols = db.query("select name, type from pragma_table_info(?)").all(t) as { name: string; type: string }[];
+      if (cols.length) out[t] = Object.fromEntries(cols.map((c) => [c.name, c.type]));
+    }
+    return out;
+  } finally {
+    db.close();
+  }
 }
 
 /** Reads `policies/tests/*.json` of a project (an array, or `{ cases: [...] }` per file). */

@@ -14,9 +14,11 @@ invite_days = { type = "int", min = 1, max = 30, default = 7, description = "An 
 [permissions]
 tables = "org__*"
 slots = ["app.header", "admin.sidebar"]
+# #292: `org` on the principal (the session's active organisation).
+hooks = ["auth.principal"]
 
 [imports]
-services = ["auth.currentSession", "auth.loginUrl", "i18n.detectLocale"]
+services = ["auth.currentSession", "auth.loginUrl", "auth.refreshPrincipal", "i18n.detectLocale"]
 views = ["auth__public_users_v1"]
 
 [exports]

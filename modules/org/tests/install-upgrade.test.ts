@@ -32,10 +32,13 @@ describe.skipIf(!worker)("install and upgrade", () => {
     const v1 = await installModule("org", source(SHOP, MODULE), { project: SHOP });
     expect(v1.check.errors).toEqual([]);
     expect(v1.migrate?.modules.map((m) => [m.module, m.applied])).toEqual([
+      ["audit", ["001_events.sql"]],
       ["i18n", ["001_prefs.sql", "002_prefs_digits.sql"]],
       ["auth", ["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql", "004_phone_passkeys_uaepass.sql", "005_login_tickets.sql"]],
+      ["notifications", ["001_init.sql"]],
       ["org", ["001_init.sql", "002_orgs_locale.sql"]],
-      ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql"]],
+      ["twofa", ["001_init.sql"]],
+      ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql", "004_refunds.sql"]],
     ]);
     const v2 = await v1.upgrade(source(SHOP, nextVersion()));
     expect(v2.check.errors).toEqual([]);

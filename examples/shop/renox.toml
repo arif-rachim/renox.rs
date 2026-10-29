@@ -14,3 +14,26 @@ i18n = { version = "^1.0.0" }
 # through auth.send_otp once whatsapp, or an SMS module, is installed).
 auth = { version = "^1.0.0", config = { phone_login = true, passkeys = true } }
 org = { version = "^1.0.0" }
+# F5 (#292): the second factor for refunds, the audit trail, and in-app
+# notifications. twofa reads TWOFA_KEY (renox secrets set; tests: .env.test).
+twofa = { version = "^1.0.0", mount = "/2fa" }
+audit = { version = "^1.0.0" }
+notifications = { version = "^1.0.0", mount = "/notifications" }
+
+# F5 (#292; docs/11-authorization.md): orders are owned rows, a refund is a
+# sensitive action behind roles, an amount threshold and the second factor
+# (policies/app/shop.cedar), and its denials and grants are audited.
+[authz]
+actions = ["order.list", "order.read", "invoice.refund"]
+sensitive = ["invoice.refund"]
+
+[authz.ownership]
+app__orders = { owner = "user_id", org = "org_id" }
+
+[authz.entities]
+Order = { table = "app__orders", attrs = ["amount_fils", "org_id", "user_id"] }
+
+[authz.default_roles]
+viewer = ["order.list", "order.read"]
+finance = ["order.list", "order.read", "invoice.refund"]
+finance_manager = ["order.list", "order.read", "invoice.refund"]

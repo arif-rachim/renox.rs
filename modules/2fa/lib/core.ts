@@ -323,6 +323,8 @@ export async function confirmTotp(ctx: TwofaCtx, s: Session, code: unknown): Pro
 export async function markVerified(ctx: TwofaCtx, sessionId: string, userId: string, method: "totp" | "passkey" | "recovery"): Promise<void> {
   await ctx.db.execute("delete from twofa__sessions where session_id = ?", [sessionId]);
   await ctx.db.execute("insert into twofa__sessions (session_id, user_id, verified_at, method) values (?, ?, ?, ?)", [sessionId, userId, Date.now(), method]);
+  // `mfa_verified` on the principal changed (#292): the cell recomputes it.
+  await auth.refreshPrincipal(userId);
 }
 
 export async function verifiedAt(ctx: TwofaCtx, sessionId: unknown): Promise<number | null> {

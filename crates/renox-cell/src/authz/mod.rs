@@ -39,8 +39,15 @@ impl Default for AuthzConfig {
 }
 
 /// The events that drop a user's cached principal (`ops.md` section 17,
-/// "Cache"): delivered through the cell's own outbox.
-pub const INVALIDATING_EVENTS: [&str; 3] = ["authz.roles_changed", "auth.login", "auth.logout"];
+/// "Cache"): delivered through the cell's own outbox. `auth.principal_changed`
+/// (#292) is auth's, for what its principal hook's fillers changed: the
+/// active organisation (org), a second-factor verification (2fa).
+pub const INVALIDATING_EVENTS: [&str; 4] = [
+    "authz.roles_changed",
+    "auth.login",
+    "auth.logout",
+    "auth.principal_changed",
+];
 
 /// Drops the cached principal of the event's `user_id`; `true` when the
 /// event is one of [`INVALIDATING_EVENTS`].
@@ -161,13 +168,16 @@ fn owners(manifest: &serde_json::Value) -> Result<Vec<Owner>, String> {
 
 /// The engine of an artifact without its database, for `renox check` and
 /// `renox test` (`renox-worker check-policies`, #283): the same owners,
-/// schema and policies as [`build`], with every declared attribute typed
-/// `String` (the cell types them from the table columns). `policies` are
+/// schema and policies as [`build`]. `columns` (table → column → declared
+/// type, from the migrations applied in memory by the CLI, #292) types the
+/// declared attributes as the cell does from the tenant's tables; an
+/// attribute without a known column is `String`. `policies` are
 /// `(artifact path, text)`; `policies/schema.cedarschema` is the app's
 /// schema.
 pub fn engine_for_check(
     manifest: &serde_json::Value,
     policies: &[(String, String)],
+    columns: &BTreeMap<String, BTreeMap<String, String>>,
 ) -> Result<Engine, Vec<renox_authz::PolicyError>> {
     let one = |message: String| {
         vec![renox_authz::PolicyError {
@@ -177,7 +187,31 @@ pub fn engine_for_check(
             message,
         }]
     };
-    let owners = owners(manifest).map_err(one)?;
+    let mut owners = owners(manifest).map_err(one)?;
+    // #292: the declared columns of each entity's table (the CLI applies the
+    // migrations in memory and sends them), typed as the cell types them.
+    for o in owners.iter_mut() {
+        let typed: Vec<(String, String, AttrType)> = o
+            .authz
+            .entities
+            .iter()
+            .filter_map(|(ty, d)| {
+                d.table
+                    .as_ref()
+                    .and_then(|t| columns.get(t))
+                    .map(|cols| (ty, d, cols))
+            })
+            .flat_map(|(ty, d, cols)| {
+                d.attrs.iter().filter_map(move |a| {
+                    cols.get(a)
+                        .map(|decl| (ty.clone(), a.clone(), AttrType::from_sqlite(decl)))
+                })
+            })
+            .collect();
+        for (ty, a, t) in typed {
+            *o = std::mem::take(o).with_type(&ty, &a, t);
+        }
+    }
     let schema_text = policies
         .iter()
         .find(|(p, _)| p == "policies/schema.cedarschema")

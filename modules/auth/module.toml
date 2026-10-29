@@ -36,6 +36,7 @@ secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICRO
 views = ["auth__public_users_v1"]
 
 [exports.services]
+refreshPrincipal = "The user's principal changed (an active organisation, a second factor): (user_id?) -> emits auth.principal_changed, so the cell recomputes it (#292)"
 resumeLogin = "Resume a sign-in an auth.after_login filler halted: (resume ticket) -> { cookie, session_id, user_id, next } or null (#287)"
 principal = "The request's principal for the cell (ops.md 1.5.0 section 17): { id, attrs: { email_verified, phone_verified, created_at, ... } } of the signed-in user, extended by the auth.principal hook, or null"
 register = "Create a user and mail a confirmation link: { email, password, display_name } -> { message } (the same if the email was taken)"
@@ -64,6 +65,10 @@ description = "A user signed in"
 [exports.events."auth.agent_token_revoked"]
 payload = { type = "object", required = ["token_hash", "user_id", "at"], additionalProperties = false, properties = { token_hash = { type = "string" }, user_id = { type = "string" }, at = { type = "integer" } } }
 description = "An agent token was revoked; the cell drops it from its /mcp cache (#286)"
+
+[exports.events."auth.principal_changed"]
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+description = "What the principal hook's fillers set changed for a user (the active organisation, a second factor); the cell drops the cached principal (#292)"
 
 [exports.events."auth.logout"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }

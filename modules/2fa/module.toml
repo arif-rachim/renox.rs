@@ -8,7 +8,7 @@ auth = "^1.0"
 i18n = "^1.0"
 
 [imports]
-services = ["auth.currentSession", "auth.currentUser", "auth.resumeLogin", "auth.loginUrl", "i18n.detectLocale"]
+services = ["auth.currentSession", "auth.currentUser", "auth.resumeLogin", "auth.loginUrl", "auth.refreshPrincipal", "i18n.detectLocale"]
 
 [config]
 step_up_minutes = { type = "int", default = 15, min = 1, max = 1440, description = "How long a verification counts: mfa_verified and requireRecent" }
