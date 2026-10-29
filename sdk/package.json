@@ -8,15 +8,39 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./kysely": {
+      "types": "./src/kysely.ts",
+      "default": "./src/kysely.ts"
+    },
+    "./drizzle": {
+      "types": "./src/drizzle.ts",
+      "default": "./src/drizzle.ts"
     }
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "check": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p client",
     "test": "bun test"
   },
   "devDependencies": {
     "valibot": "1.5.0",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "drizzle-orm": "0.45.4",
+    "kysely": "0.29.6"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=0.45.0 <1.0.0",
+    "kysely": ">=0.29.0 <0.30.0"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    },
+    "kysely": {
+      "optional": true
+    }
   }
 }
