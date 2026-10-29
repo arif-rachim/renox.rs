@@ -16,7 +16,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CliError, EXIT, location, UserError } from "../errors.ts";
 import { artifactsDir, buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
-import { type Finding, lintFetch, lintGlobalState, lintRedirect, lintSql } from "../lib/lint.ts";
+import { type Finding, lintBody, lintFetch, lintGlobalState, lintRedirect, lintSql } from "../lib/lint.ts";
 import { readProject } from "../lib/project.ts";
 import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
 import { securityReport } from "../check/security.ts";
@@ -102,7 +102,7 @@ export async function check(project: string, options: CheckOptions = {}): Promis
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");
-    findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f), ...lintRedirect(src, f));
+    findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f), ...lintRedirect(src, f), ...lintBody(src, f));
   }
   return { errors, findings };
 }

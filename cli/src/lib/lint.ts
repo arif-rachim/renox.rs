@@ -2,8 +2,9 @@
 // check"): SQL built by interpolation or concatenation, literal fetch URLs
 // whose host is not declared in permissions.network, and handlers that write
 // to global scope (docs/16-risks.md, "Global state leaking between requests"),
-// and redirects to a target taken from the request (docs/24-threat-model.md,
-// "Open redirect via `next`/`return_to`").
+// redirects to a target taken from the request (docs/24-threat-model.md,
+// "Open redirect via `next`/`return_to`"), and request bodies used without
+// validation (docs/24-threat-model.md A, "Input validation").
 //
 // A small tokenizer, not a parser: it understands comments, strings, and
 // template literals (with nested `${}`), which is what the rules need. The
@@ -14,7 +15,7 @@ export interface Finding {
   line: number;
   column: number;
   /** `secret` and `forbidden-file` come from the bundle-hygiene rules (#115, secrets.ts and build.ts); `public-sourcemap` from check/no-public-sourcemaps.ts (#128). */
-  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "no-unsafe-redirect" | "secret" | "forbidden-file" | "public-sourcemap" | "override-drift";
+  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "no-unsafe-redirect" | "secret" | "forbidden-file" | "public-sourcemap" | "override-drift" | "unvalidated-body";
   severity: "error" | "warning";
   message: string;
 }
@@ -560,6 +561,84 @@ export function lintRedirect(src: string, file: string): Finding[] {
         if (isTainted(expressionAt(src, tokens, k + 4, true))) report(t, `${t.text}("location")`);
       }
     }
+  }
+  return out;
+}
+
+/** Calls that validate a value: `validate(schema, value)` from "renox" (sdk/src/validate.ts) or a schema's own parse. */
+const BODY_VALIDATORS = new Set(["validate", "parse", "safeParse", "parseAsync", "safeParseAsync", "assert", "is"]);
+/** Names a handler's request goes by: `req` (ctx.req, destructured) and `request`. */
+const REQUEST_NAMES = new Set(["req", "request"]);
+
+/** Every token index inside the argument list of a call to a validator. */
+function validatedSpans(tokens: Token[]): Set<number> {
+  const out = new Set<number>();
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k] as Token;
+    if (t.type !== "ident" || !BODY_VALIDATORS.has(t.text) || tokens[k + 1]?.text !== "(") continue;
+    let depth = 0;
+    for (let j = k + 1; j < tokens.length; j++) {
+      const x = tokens[j] as Token;
+      if (x.type === "punct" && "([{".includes(x.text)) depth++;
+      else if (x.type === "punct" && ")]}".includes(x.text) && --depth === 0) break;
+      out.add(j);
+    }
+  }
+  return out;
+}
+
+/**
+ * `unvalidated-body` (warning in F4/F5): a handler that reads the request
+ * body with `req.json()` or `req.formData()` (also `request.…`, `ctx.req.…`)
+ * and uses the value without passing it to `validate(schema, value)` from
+ * "renox" or a schema's `parse`/`safeParse`. The body read inside a
+ * validator call (`validate(schema, await req.json())`) is validated; a
+ * body assigned to a name is validated when that name is later an argument
+ * of a validator in the same file. `validate(schema, req)` reads no body
+ * here and is never flagged.
+ */
+export function lintBody(src: string, file: string): Finding[] {
+  const tokens = tokenize(src);
+  const inside = validatedSpans(tokens);
+  const out: Finding[] = [];
+  for (let k = 2; k < tokens.length; k++) {
+    const t = tokens[k] as Token;
+    if (t.type !== "ident" || (t.text !== "json" && t.text !== "formData")) continue;
+    if (tokens[k - 1]?.text !== "." || tokens[k + 1]?.text !== "(" || tokens[k + 2]?.text !== ")") continue;
+    const recv = tokens[k - 2] as Token;
+    if (recv.type !== "ident" || !REQUEST_NAMES.has(recv.text)) continue;
+    if (inside.has(k)) continue;
+    // `const body = await req.json()`: the names this statement declares.
+    let names: string[] = [];
+    let depth = 0;
+    for (let j = k - 3; j >= 0; j--) {
+      const x = tokens[j] as Token;
+      if (x.type === "punct") {
+        if (")]}".includes(x.text)) depth++;
+        else if ("([{".includes(x.text)) {
+          if (depth === 0) break;
+          depth--;
+        } else if (x.text === ";" && depth === 0) break;
+        continue;
+      }
+      if (depth === 0 && x.type === "ident" && DECL.has(x.text) && tokens[j - 1]?.text !== ".") {
+        names = declaredNames(src, tokens, j);
+        break;
+      }
+    }
+    const ok =
+      names.length > 0 &&
+      names.every((n) => tokens.some((x, j) => j > k && inside.has(j) && x.type === "ident" && x.text === n && tokens[j - 1]?.text !== "."));
+    if (ok) continue;
+    const { line, column } = position(src, recv.start);
+    out.push({
+      file,
+      line,
+      column,
+      rule: "unvalidated-body",
+      severity: "warning",
+      message: `${recv.text}.${t.text}() is used without validation: pass it to validate(schema, value) from "renox" (or the schema's parse) before reading its fields`,
+    });
   }
   return out;
 }

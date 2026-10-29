@@ -1,0 +1,100 @@
+{
+  "comment": "Reviewed string-built SQL in control/api/src (tests/sql-lint.test.ts, #275; docs/24-threat-model.md E, SQL injection). Each entry: the file, a substring of the SQL argument, and why it is safe. Only constant fragments and $n placeholders are interpolated; every value is a parameter. A new entry needs review.",
+  "allow": [
+    {
+      "file": "src/auth/sessions.ts",
+      "contains": "update sessions set revoked_at = $1 where user_id = $2 and revoked_at is null${onlyId",
+      "reason": "the optional fragment is a constant (' and id = $3'); every value is a parameter"
+    },
+    {
+      "file": "src/deployments/repo.ts",
+      "contains": "select ${COLUMNS} from deployments where tenant_id = $1 and app = $2 and hash = $3${lock",
+      "reason": "COLUMNS is a constant column list; the optional fragment is the constant ' for update'"
+    },
+    {
+      "file": "src/deployments/repo.ts",
+      "contains": "select ${COLUMNS} from deployments where tenant_id = $1 and app = $2 and ($3::text",
+      "reason": "COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/deployments/repo.ts",
+      "contains": "update deployments set ${sets.join(\", \")}",
+      "reason": "sets holds 'column = $n' fragments whose column names are the keys of the Changes type (fixed at compile time); values are parameters"
+    },
+    {
+      "file": "src/domains/jobs.ts",
+      "contains": "select ${DOMAIN_COLUMNS} from domains where state = $1",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/jobs.ts",
+      "contains": "select ${DOMAIN_COLUMNS.split(\", \").map((c) => `d.${c}`)",
+      "reason": "DOMAIN_COLUMNS is a constant column list, prefixed with the table alias"
+    },
+    {
+      "file": "src/domains/ownership.ts",
+      "contains": "update domains set app = $3, detach_reason = 'unverified'",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/ownership.ts",
+      "contains": "insert into domains (id, hostname, tenant_id, app, state, verify_token",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/ownership.ts",
+      "contains": "detached_at <= $2 returning ${DOMAIN_COLUMNS}",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/repo.ts",
+      "contains": "and hostname = $3 and state <> 'released'${forUpdate",
+      "reason": "DOMAIN_COLUMNS is a constant column list; the optional fragment is the constant ' for update'"
+    },
+    {
+      "file": "src/domains/repo.ts",
+      "contains": "select ${DOMAIN_COLUMNS} from domains where tenant_id = $1 and app = $2 and state <> 'released' order by hostname",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/reverify.ts",
+      "contains": "select ${DOMAIN_COLUMNS} from domains where state = 'verified'",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/reverify.ts",
+      "contains": "select ${DOMAIN_COLUMNS} from domains where state = 'detached'",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/routes.ts",
+      "contains": "update domains set state = $3, detached_at = case",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/logs/client-events.ts",
+      "contains": "order by id desc limit ${EVENTS_KEPT})",
+      "reason": "EVENTS_KEPT is the integer constant 20"
+    },
+    {
+      "file": "src/logs/client-events.ts",
+      "contains": "where ${where.join(\" and \")}",
+      "reason": "where holds constant fragments whose values go through bind() as $n parameters; limit is a validated integer 1..100"
+    },
+    {
+      "file": "src/logs/client-events.ts",
+      "contains": "select ${GROUP_COLUMNS} from client_error_groups g where g.tenant_id = $1",
+      "reason": "GROUP_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/logs/client-events.ts",
+      "contains": "order by id desc limit \" + EVENTS_KEPT",
+      "reason": "EVENTS_KEPT is the integer constant 20"
+    },
+    {
+      "file": "src/routes/table.ts",
+      "contains": "select * from route_entries where ${where}",
+      "reason": "every caller of entriesWhere passes a constant predicate with $n parameters"
+    }
+  ]
+}

@@ -253,17 +253,30 @@ export async function revokeAll(ctx: AuthCtx, userId: string): Promise<void> {
   await ctx.db.execute("update auth__sessions set revoked_at = ? where user_id = ? and revoked_at is null", [now(), userId]);
 }
 
+// `redirect.safe()` of "renox" (sdk/src/redirect.ts, #111) decides every
+// redirect below. A module tree has no node_modules (its hash covers every
+// file), so `renox` cannot be bundled into it; `safePath` is
+// `safeRedirectTarget(target)` with no allowed origins, and
+// tests/auth.test.ts holds the two to the same answers on #111's list.
+const CONTROL = /[\u0000-\u001f\u007f]/u;
+
+/** `target` when it is a path of this app (`/…`, not `//…`, no `\`, no control characters, at most 2048 characters), else null. */
+export function safePath(target: unknown): string | null {
+  if (typeof target !== "string" || target.length === 0 || target.length > 2048) return null;
+  if (CONTROL.test(target) || target.includes("\\")) return null;
+  return target.startsWith("/") && !target.startsWith("//") ? target : null;
+}
+
 /** The login page (config `login_path`), with `next` kept only when it is a path of the app. */
 export function loginUrl(ctx: Pick<AuthCtx, "config">, next?: string): string {
-  const base = typeof ctx.config.login_path === "string" && ctx.config.login_path.startsWith("/") ? ctx.config.login_path : "/auth/login";
-  return next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? `${base}?next=${encodeURIComponent(next)}` : base;
+  const base = safePath(ctx.config.login_path) ?? "/auth/login";
+  const safe = safePath(next);
+  return safe === null ? base : `${base}?next=${encodeURIComponent(safe)}`;
 }
 
 /** A 303 to `target` if it is a path of the app (`redirect.safe` rules), else to `fallback`, with `cookies` set. */
 export function redirectWith(target: string | null | undefined, cookies: string[], fallback = "/"): Response {
-  const t = typeof target === "string" ? target : "";
-  const safe = t.startsWith("/") && !t.startsWith("//") && !t.includes("\\") && !/[\u0000-\u001f\u007f]/u.test(t) && t.length <= 2048 ? t : fallback;
-  const headers = new Headers({ location: safe });
+  const headers = new Headers({ location: safePath(target) ?? safePath(fallback) ?? "/" });
   for (const c of cookies) if (c) headers.append("set-cookie", c);
   return new Response(null, { status: 303, headers });
 }

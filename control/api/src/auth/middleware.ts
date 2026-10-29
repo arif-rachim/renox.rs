@@ -15,6 +15,7 @@ import { num } from "../db/db.ts";
 import type { Deps, Env, Principal } from "../context.ts";
 import { isRole, isTokenPermission, roleAllows, ROUTE_PERMISSIONS, type Permission, type Role } from "../tenancy/roles.ts";
 import { requestScope } from "../tenancy/scope.ts";
+import { bucketsOf, RULES } from "./buckets.ts";
 import { clientIp } from "./ip.ts";
 import { CSRF_HEADER, csrfMatches, findSession, readCookie, SESSION_COOKIE } from "./sessions.ts";
 import { allows, parseBearer, sameDigest, sha256hex } from "./tokens.ts";
@@ -24,6 +25,21 @@ const forbidden = (field?: string, reason?: string): ApiError =>
   new ApiError("RENOX_TOKEN_SCOPE", field === undefined ? undefined : [{ field, reason: reason ?? "" }]);
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * deploy-api.md section 2 (proposed numbers; docs/24-threat-model.md E,
+ * "Deploy API abuse"): every request of a token takes from its bucket, an
+ * upload also from its upload bucket; 429 `RENOX_RATE_LIMITED` with
+ * `Retry-After` when either is empty.
+ */
+function limitToken(deps: Deps, c: Context<Env>, tokenId: string): void {
+  const takes: [typeof RULES.token, string][] = [[RULES.token, `token:${tokenId}`]];
+  if (c.get("action") === "uploadDeployment") takes.push([RULES.tokenUpload, `upload:${tokenId}`]);
+  for (const [rule, key] of takes) {
+    const r = bucketsOf(deps).take(rule, key);
+    if (!r.ok) throw new ApiError("RENOX_RATE_LIMITED", undefined, { retryAfter: r.retryAfter });
+  }
+}
 
 /** The operation's row in ROUTE_PERMISSIONS must be `expected`: a route registered with another permission is a bug. */
 function assertTable(c: Context<Env>, expected: string): void {
@@ -94,6 +110,7 @@ export function tenantAuth(deps: Deps, permission: Permission): MiddlewareHandle
       ({ principal, verified } = t);
       const p = t.principal;
       c.set("principal", p);
+      limitToken(deps, c, p.tokenId);
       if (!isTokenPermission(permission) || !allows(p.scopes, permission, c.req.param("app"))) throw forbidden();
       if (p.role !== null && !roleAllows(p.role, permission)) throw forbidden("role", p.role);
       await deps.db.query("update tokens set last_used_at = $1, last_used_ip = $2 where id = $3", [deps.now(), clientIp(c), p.tokenId]);
