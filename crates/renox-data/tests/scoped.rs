@@ -23,8 +23,10 @@
 //! - a scope without the value a table needs [`scope_missing`];
 //! - a module's statement on an owned table outside `db.scoped()` [`unscoped`].
 //!
-//! A trigger reaching an owned table cannot exist: the authorizer refuses
-//! `CREATE TRIGGER` to every module, migrations included.
+//! A trigger reaching an owned table cannot exist: the authorizer allows a
+//! module only triggers on its own tables, and the migration runner only
+//! bodies that are `select raise(...)` with no subquery (#288), so no
+//! trigger writes or reads a table.
 
 use renox_data::scoped::rewrite;
 use renox_data::{AuthorizerPolicy, DbError, DbOptions, Ownership, Scope, TenantDb, Value};

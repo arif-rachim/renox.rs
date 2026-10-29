@@ -243,11 +243,20 @@ impl AuthorizerPolicy {
                 }
                 ok
             }
-            AuthAction::DropTrigger {
+            // A trigger of the module on its own table (#288: the audit
+            // module's append-only triggers). Its body is authorized when a
+            // statement fires it, under that statement's policy; only the
+            // module writes its tables, so the body runs with the module's
+            // own rights and no more.
+            AuthAction::CreateTrigger {
+                trigger_name,
+                table_name,
+            }
+            | AuthAction::DropTrigger {
                 trigger_name,
                 table_name,
             } => ddl && main_db && self.owns(trigger_name) && self.owns(table_name),
-            // Everything else: PRAGMA, ATTACH, DETACH, triggers, temp
+            // Everything else: PRAGMA, ATTACH, DETACH, temp triggers, temp
             // objects, virtual tables, ANALYZE, and unknown codes.
             _ => false,
         };

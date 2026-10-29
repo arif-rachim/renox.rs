@@ -30,6 +30,7 @@ secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICRO
 views = ["auth__public_users_v1"]
 
 [exports.services]
+principal = "The request's principal for the cell (ops.md 1.5.0 section 17): { id, attrs } of the signed-in user, or null"
 register = "Create a user and mail a confirmation link: { email, password, display_name } -> { message } (the same if the email was taken)"
 login = "Sign in: { email, password } -> { user, cookie } or { error }"
 logout = "End the current session (server side) -> { cookie }"

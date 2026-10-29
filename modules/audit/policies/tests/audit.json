@@ -1,0 +1,20 @@
+[
+  {
+    "description": "an auditor reads the trail",
+    "principal": { "type": "User", "id": "u_audrey", "roles": ["auditor"], "attrs": {} },
+    "action": "audit.read",
+    "expected": "allow"
+  },
+  {
+    "description": "a user without the role cannot",
+    "principal": { "type": "User", "id": "u_bob", "roles": [], "attrs": {} },
+    "action": "audit.read",
+    "expected": "deny"
+  },
+  {
+    "description": "another role does not grant it",
+    "principal": { "type": "User", "id": "u_carol", "roles": ["admin"], "attrs": {} },
+    "action": "audit.read",
+    "expected": "deny"
+  }
+]

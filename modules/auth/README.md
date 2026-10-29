@@ -55,6 +55,7 @@ Through `import { auth } from "renox:modules"` (or `ctx.services.auth`):
 | `logout()` | `{ cookie }` (clears it); the session is revoked server side |
 | `sendMagicLink({ email })`, `requestPasswordReset({ email })` | `{ message }`: the same in every case |
 | `confirmPasswordReset({ token, password })` | `{ cookie }` or `{ error }` |
+| `principal(sessionId)` | `{ id, attrs: { email_verified, created_at } }` of the signed-in user, or `null`. The cell calls it once per request for authorization (`ops.md` 1.5.0 section 17); roles come from the platform's role assignments |
 | `verifyAgentToken(token)` | `{ principal, scopes, client: { name } }` for a live agent token, or `null`. The cell calls it for `/mcp` |
 | `oauthMetadata(issuer)` | The RFC 8414 document the cell serves at `/.well-known/oauth-authorization-server<mount>/oauth` |
 | `listAgentTokens()`, `revokeAgentToken(id)` | The signed-in user's connected agents; revoke one of them |

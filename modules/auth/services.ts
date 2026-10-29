@@ -38,6 +38,21 @@ export async function currentUser(ctx: AuthCtx): Promise<User | null> {
   return core.currentUser(ctx);
 }
 
+/**
+ * The request's principal (ops.md 1.5.0 section 17, "Principal"): the cell
+ * calls it once per request, before any guard. `null` when signed out
+ * (the anonymous principal). Roles are the platform's role assignments,
+ * added by the cell. The `auth.principal` hook that lets other modules
+ * extend `attrs` is #291.
+ */
+export async function principal(ctx: AuthCtx, _sessionId?: string | null): Promise<{ id: string; attrs: Record<string, unknown> } | null> {
+  const u = await core.currentUser(ctx);
+  if (u === null) return null;
+  const row = await ctx.db.queryOne<{ email_verified_at: number | null; created_at: number }>("select email_verified_at, created_at from auth__users where id = ?", [u.id]);
+  if (row === null) return null;
+  return { id: u.id, attrs: { email_verified: row.email_verified_at !== null, created_at: row.created_at } };
+}
+
 /** The signed-in user, or throws `AuthRequiredError` (`code: "AUTH_REQUIRED"`, `status: 401`); a page sends `loginUrl(next)` instead. */
 export async function requireUser(ctx: AuthCtx): Promise<User> {
   const u = await core.currentUser(ctx);

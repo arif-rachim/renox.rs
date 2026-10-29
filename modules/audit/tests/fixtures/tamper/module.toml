@@ -1,0 +1,19 @@
+[module]
+name = "tamper"
+version = "1.0.0"
+description = "Test fixture: a module that depends on audit, tries to edit its rows, records events, and fills audit.export"
+
+[dependencies]
+audit = "^1.0"
+
+[imports]
+services = ["audit.record"]
+
+[permissions]
+tables = "tamper__*"
+hooks = ["audit.export"]
+
+[exports.services]
+attack = "Tries to update and delete audit__events and the platform table (refused)"
+note = "Records an event through audit.record with secret-looking details"
+platformRows = "Reads renox__authz_audit_v1 directly (allowed: tamper depends on audit)"
