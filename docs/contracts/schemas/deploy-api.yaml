@@ -656,7 +656,7 @@ paths:
                         request_id: "01JBQ3Z7M8K5V6W9X2Y4A1B3C5"
                         message: "Cannot read properties of undefined (reading 'total')"
                         url: /cart
-                        ua: { browser: chrome, os: android, device: mobile }
+                        ua: chrome
                         frames:
                           - { file: /public/islands/cart.js, line: 1, column: 2043, function: updateTotal, original: { file: islands/cart.ts, line: 57, column: 12 } }
                           - { file: /public/islands/cart.js, line: 1, column: 311, function: null, original: null }
@@ -1790,6 +1790,7 @@ components:
         One stack frame as the browser reported it (client-events.md section 8: file, line,
         column, function only) and, when a private sourcemap of the event's deployment matched,
         its original position. `original` is null when none matched; the raw position is always kept.
+        Lines and columns are 1-based, like the browser's stack; 0 means the browser gave none.
       properties:
         file: { type: string, minLength: 1, maxLength: 2048 }
         line: { type: integer, minimum: 0 }
@@ -1839,16 +1840,6 @@ components:
         groups: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/ClientErrorGroup" } }
         next_cursor: { type: [string, "null"], maxLength: 256 }
 
-    ClientErrorUa:
-      type: object
-      additionalProperties: false
-      required: [browser, os, device]
-      description: The user-agent family the gateway derived (client-events.md section 3); never the full string.
-      properties:
-        browser: { type: string, maxLength: 64 }
-        os: { type: string, maxLength: 64 }
-        device: { type: string, maxLength: 64 }
-
     ClientErrorEvent:
       type: object
       additionalProperties: false
@@ -1860,7 +1851,7 @@ components:
         request_id: { type: [string, "null"], pattern: "^[0-9A-Za-z_-]{8,64}$", description: "Links the event to the server log lines of the same request." }
         message: { type: string, maxLength: 2048 }
         url: { type: string, maxLength: 2048 }
-        ua: { $ref: "#/components/schemas/ClientErrorUa" }
+        ua: { enum: [chrome, edge, firefox, safari, samsung, other], description: "The browser family only (client-events.md section 4)." }
         frames: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/ClientErrorFrame" } }
 
     ClientErrorDetail:
