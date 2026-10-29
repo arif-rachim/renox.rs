@@ -1,0 +1,22 @@
+{
+  "id": "CHAOS-storage-down",
+  "scenario": "storage-down",
+  "title": "Object storage unreachable",
+  "failureModes": [
+    "Object storage unreachable"
+  ],
+  "description": "control/api keeps artifacts in S3 (MinIO); the storage is paused while one tenant is warm and another's artifact is removed from its node's cache, then resumed",
+  "target": "cached tenant 200 throughout; uncached cold start 503 RENOX_UNAVAILABLE while down, 200 after; /healthz reports object_storage",
+  "alerts": [
+    {
+      "rule": "RenoxObjectStorageUnreachable",
+      "observed": "reads renox_worker_degraded{component=\"object_storage\"} (pending #295); the reason is on /healthz"
+    }
+  ],
+  "notes": [],
+  "verdict": "SKIPPED",
+  "skipped": "RENOX_CHAOS_S3_ENDPOINT, RENOX_CHAOS_S3_DOWN and RENOX_CHAOS_S3_UP are not set (CI's chaos workflow sets them with MinIO)",
+  "result": "",
+  "checks": [],
+  "metrics": {}
+}

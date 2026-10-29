@@ -1,0 +1,56 @@
+{
+  "id": "CHAOS-node-kill",
+  "scenario": "node-kill",
+  "title": "Node killed",
+  "failureModes": [
+    "Node dies"
+  ],
+  "description": "two controlled renox-workers, control/api sweeping every 5 s (unhealthy after 30 s), file replica; the owner of a tenant killed with SIGKILL after 10 s of writes (B18)",
+  "verdict": "FAIL",
+  "result": "RTO > 180 s, RPO \u2014 s, 6262 rows lost, bystander 2061\u00d7200",
+  "target": "RTO \u2264 60 s, RPO \u2264 10 s (B18), no error for a tenant on the surviving node",
+  "alerts": [
+    {
+      "rule": "RenoxNodeUnhealthy",
+      "observed": "condition true after 22.7 s"
+    }
+  ],
+  "checks": [
+    {
+      "name": "RTO \u2264 60 s",
+      "ok": false,
+      "detail": "no 200 on node-chaos-1 within 180 s of SIGKILL"
+    },
+    {
+      "name": "the surviving node stays healthy",
+      "ok": false,
+      "detail": "renox_cp_node_healthy 0, heartbeat age 214.2 s"
+    },
+    {
+      "name": "RPO \u2264 10 s",
+      "ok": false,
+      "detail": "nothing restored (6262 rows acknowledged)"
+    },
+    {
+      "name": "no cross-tenant impact",
+      "ok": true,
+      "detail": "bystander t-chaos-b on node-chaos-1: 2061\u00d7200"
+    },
+    {
+      "name": "detected by the control plane",
+      "ok": true,
+      "detail": "renox_cp_node_healthy = 0 after 22.7 s"
+    }
+  ],
+  "metrics": {
+    "rto_s": -1,
+    "rpo_s": -1,
+    "rows_lost": 6262,
+    "rows_acknowledged": 6262,
+    "detection_s": 22.689337522000002
+  },
+  "notes": [
+    "Both nodes run on one host (loopback); the two-host B18 run is O3 (#158).",
+    "Cause (diagnosed in this session): the worker's heartbeat (crates/renox-cell/src/control/mod.rs) has no `sent_at`, which control-messages.schema.json requires, so control/api answers 400 ('heartbeat refused') and every node turns unhealthy 30 s after it registers; failover then has no healthy candidate. With `sent_at` added (a local, uncommitted patch) the same harness gave node-kill PASS (RTO 32.8 s, RPO 0.79 s, bystander 415\u00d7200) and control-plane-down PASS."
+  ]
+}

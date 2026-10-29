@@ -1,0 +1,62 @@
+{
+  "id": "CHAOS-control-plane-down",
+  "scenario": "control-plane-down",
+  "title": "Control plane down",
+  "failureModes": [
+    "Control plane unreachable from the worker"
+  ],
+  "description": "control/api (PGlite in a directory) stopped for 15 s while a warm tenant takes reads and another writes, then started again on the same database",
+  "verdict": "FAIL",
+  "result": "reads 74\u00d7200, writes 74\u00d7200; degraded after 0.0 s; recovered 15.4 s after the restart",
+  "target": "no error for warm tenants during the outage; /healthz degraded; nodes healthy again after the restart without a failover",
+  "alerts": [
+    {
+      "rule": "RenoxControlPlaneDown",
+      "observed": "metrics endpoint down during the outage"
+    }
+  ],
+  "checks": [
+    {
+      "name": "warm tenants keep serving",
+      "ok": true,
+      "detail": "reads on node-chaos-2: 74\u00d7200; writes on node-chaos-1: 74\u00d7200"
+    },
+    {
+      "name": "the worker reports the outage",
+      "ok": true,
+      "detail": "control_plane degraded after 0.0 s"
+    },
+    {
+      "name": "the control plane's metrics stop answering",
+      "ok": true,
+      "detail": "GET /v1/ops/metrics: no answer (RenoxControlPlaneDown)"
+    },
+    {
+      "name": "recovery after restart",
+      "ok": true,
+      "detail": "both nodes healthy and heartbeating, /healthz ok, 15.4 s after the restart"
+    },
+    {
+      "name": "heartbeats accepted after the restart",
+      "ok": false,
+      "detail": "heartbeat age 15 s later: node-chaos-1 15.0 s, node-chaos-2 15.0 s (interval 10 s)"
+    },
+    {
+      "name": "no failover from a short outage",
+      "ok": true,
+      "detail": "after the restart t-chaos-a answers 200 on node-chaos-2; route entry on node-chaos-2"
+    }
+  ],
+  "metrics": {
+    "outage_s": 15,
+    "read_failures": 0,
+    "write_failures": 0,
+    "degraded_after_s": 0.0013545140000060202,
+    "recovered_after_s": 15.395372096000006
+  },
+  "notes": [
+    "Artifacts live in the API's memory in this stack (no S3), so a cold start of an uncached deployment during or after the outage is not exercised here; storage-down covers it with S3.",
+    "An outage longer than the 30 s threshold makes the first sweep after the restart see stale heartbeats and start failovers; that case is the node-kill scenario's.",
+    "Cause (diagnosed in this session): the worker's heartbeat (crates/renox-cell/src/control/mod.rs) has no `sent_at`, which control-messages.schema.json requires, so control/api answers 400 ('heartbeat refused') and every node turns unhealthy 30 s after it registers; failover then has no healthy candidate. With `sent_at` added (a local, uncommitted patch) the same harness gave node-kill PASS (RTO 32.8 s, RPO 0.79 s, bystander 415\u00d7200) and control-plane-down PASS."
+  ]
+}
