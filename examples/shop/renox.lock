@@ -16,7 +16,7 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "ee1d4db870db05d0091abe080f6bc00fc90cf2a380641f853fb13e219c21ddc1"
+hash = "17345adaa13f59c94338a841c726f7645784ffdc23209ee33a927bbdb6f3c123"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -27,7 +27,7 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "c78f8fa10f9b5e28da2bffbfd1fcbcdb62fccf134adfc1a585d6b962e81918eb"
+hash = "27182ed187fbb61728598ff47e4707009ce0f928927875ee4b1c7efbb1b308be"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]

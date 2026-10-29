@@ -173,7 +173,8 @@ pub fn valid_locale(tag: &str) -> bool {
     let base_ok = base.len() <= 35
         && (2..=3).contains(&first.len())
         && first.bytes().all(|b| b.is_ascii_lowercase())
-        && parts.all(|p| (2..=8).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric()));
+        && parts
+            .all(|p| (2..=8).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric()));
     base_ok && ext.is_none_or(valid_extension)
 }
 

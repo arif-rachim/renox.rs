@@ -34,7 +34,7 @@ describe.skipIf(!worker)("install and upgrade", () => {
     const v1 = await installModule("auth", source(SHOP, MODULE), { project: SHOP });
     expect(v1.check.errors).toEqual([]);
     expect(v1.migrate?.modules.map((m) => [m.module, m.applied])).toEqual([
-      ["i18n", ["001_prefs.sql"]],
+      ["i18n", ["001_prefs.sql", "002_prefs_digits.sql"]],
       ["auth", ["001_init.sql", "002_tokens_user_agent.sql"]],
       ["org", ["001_init.sql", "002_orgs_locale.sql"]],
       ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql"]],

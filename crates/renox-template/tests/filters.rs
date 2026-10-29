@@ -204,8 +204,14 @@ fn nu_from_the_locale_tag() {
     }
     let date_arab = render("t | date", arab, d.clone());
     let date_latn = render("t | date", latn, d);
-    assert!(date_arab.chars().any(|c| ('٠'..='٩').contains(&c)), "{date_arab}");
-    assert!(!date_arab.chars().any(|c| c.is_ascii_digit()), "{date_arab}");
+    assert!(
+        date_arab.chars().any(|c| ('٠'..='٩').contains(&c)),
+        "{date_arab}"
+    );
+    assert!(
+        !date_arab.chars().any(|c| c.is_ascii_digit()),
+        "{date_arab}"
+    );
     assert!(date_latn.chars().any(|c| c.is_ascii_digit()), "{date_latn}");
 }
 
@@ -214,10 +220,24 @@ fn nu_from_the_locale_tag() {
 #[test]
 fn valid_locale_follows_ops_1_4_0() {
     use renox_template::render::i18n::valid_locale;
-    for ok in ["ar", "ar-AE", "ar-AE-u-nu-arab", "ar-u-ca-islamic-umalqura-nu-arab", "en-u-nu-latn", "ar-AE-u-ca-gregory"] {
+    for ok in [
+        "ar",
+        "ar-AE",
+        "ar-AE-u-nu-arab",
+        "ar-u-ca-islamic-umalqura-nu-arab",
+        "en-u-nu-latn",
+        "ar-AE-u-ca-gregory",
+    ] {
         assert!(valid_locale(ok), "{ok}");
     }
-    for bad in ["ar-u-nu-deva", "ar-AE-u-hc-h23", "ar-u-nu-arab-ca-gregory", "ar-u", "ar-u-nu", "AR"] {
+    for bad in [
+        "ar-u-nu-deva",
+        "ar-AE-u-hc-h23",
+        "ar-u-nu-arab-ca-gregory",
+        "ar-u",
+        "ar-u-nu",
+        "AR",
+    ] {
         assert!(!valid_locale(bad), "{bad}");
     }
 }

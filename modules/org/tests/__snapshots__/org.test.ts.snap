@@ -355,3 +355,175 @@ exports[`org Arabic (#244): the members page is rtl; the organisation's default 
 
 </body></html>"
 `;
+
+exports[`org in both digit sets (#266): the members page with ar-u-nu-arab and with plain ar: role: members owner ar-u-nu-arab 1`] = `
+"<!DOCTYPE html><html lang="ar-u-nu-arab" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · الأعضاء</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">دورك: مالك</p>
+  
+  
+  <h2>الأعضاء</h2>
+  <ul id="members">
+    <li dir="auto">
+      Olive &lt;olive@example.com&gt; · مالك
+      <strong>(أنت)</strong>
+      
+    </li><li dir="auto">
+      Ann &lt;ann@example.com&gt; · مشرف
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="الدور">
+            <option value="owner">مالك</option>
+            <option value="admin" selected>مشرف</option>
+            <option value="member">عضو</option>
+          </select>
+          <button type="submit">تغيير الدور</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">إزالة</button></form>
+      
+    </li><li dir="auto">
+      Mo &lt;mo@example.com&gt; · عضو
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="الدور">
+            <option value="owner">مالك</option>
+            <option value="admin">مشرف</option>
+            <option value="member" selected>عضو</option>
+          </select>
+          <button type="submit">تغيير الدور</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">إزالة</button></form>
+      
+    </li>
+  </ul>
+  
+    <h2>الدعوات</h2>
+    <ul id="invites">
+      <li dir="auto">
+        carl@example.com · عضو
+        <form method="post" action="?/revoke" hx-post="?/revoke"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="invite" value="<id>"><button type="submit">سحب</button></form>
+      </li>
+    </ul>
+    <form method="post" action="?/invite" hx-post="?/invite"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>البريد الإلكتروني <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" aria-label="الدور">
+        <option value="member">عضو</option>
+        <option value="admin">مشرف</option>
+        <option value="owner">مالك</option>
+      </select>
+      <button type="submit">دعوة</button>
+    </form>
+    <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اللغة الافتراضية
+        <select name="locale">
+          <option value="">بدون (لغة كل عضو)</option>
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar" selected>العربية</option>
+        </select>
+      </label>
+      <button type="submit">حفظ</button>
+    </form>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">مغادرة Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org in both digit sets (#266): the members page with ar-u-nu-arab and with plain ar: role: members owner ar latn 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · الأعضاء</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">دورك: مالك</p>
+  
+  
+  <h2>الأعضاء</h2>
+  <ul id="members">
+    <li dir="auto">
+      Olive &lt;olive@example.com&gt; · مالك
+      <strong>(أنت)</strong>
+      
+    </li><li dir="auto">
+      Ann &lt;ann@example.com&gt; · مشرف
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="الدور">
+            <option value="owner">مالك</option>
+            <option value="admin" selected>مشرف</option>
+            <option value="member">عضو</option>
+          </select>
+          <button type="submit">تغيير الدور</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">إزالة</button></form>
+      
+    </li><li dir="auto">
+      Mo &lt;mo@example.com&gt; · عضو
+      
+      
+        <form method="post" action="?/role" hx-post="?/role"><input type="hidden" name="_csrf" value="<csrf>">
+          <input type="hidden" name="user" value="<id>">
+          <select name="role" aria-label="الدور">
+            <option value="owner">مالك</option>
+            <option value="admin">مشرف</option>
+            <option value="member" selected>عضو</option>
+          </select>
+          <button type="submit">تغيير الدور</button>
+        </form>
+        <form method="post" action="?/remove" hx-post="?/remove"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user" value="<id>"><button type="submit">إزالة</button></form>
+      
+    </li>
+  </ul>
+  
+    <h2>الدعوات</h2>
+    <ul id="invites">
+      <li dir="auto">
+        carl@example.com · عضو
+        <form method="post" action="?/revoke" hx-post="?/revoke"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="invite" value="<id>"><button type="submit">سحب</button></form>
+      </li>
+    </ul>
+    <form method="post" action="?/invite" hx-post="?/invite"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>البريد الإلكتروني <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" aria-label="الدور">
+        <option value="member">عضو</option>
+        <option value="admin">مشرف</option>
+        <option value="owner">مالك</option>
+      </select>
+      <button type="submit">دعوة</button>
+    </form>
+    <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اللغة الافتراضية
+        <select name="locale">
+          <option value="">بدون (لغة كل عضو)</option>
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar" selected>العربية</option>
+        </select>
+      </label>
+      <button type="submit">حفظ</button>
+    </form>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">مغادرة Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;
