@@ -248,6 +248,11 @@ The local platform MCP server (`docs/20-ai-agents-mcp.md`, sections 1 and 6). JS
 | `run_check` | none | `renox check` as data: `ok`, `errors`, `warnings`, `problems` |
 | `run_tests` | `filter?` | `bun test` in the project (120 s timeout): `ok`, `exitCode`, `timedOut`, `pass`, `fail`, `skip`, the last 32 KiB of `output` |
 | `search_docs` | `query`, `limit?` (1–50, default 10) | Lines of the docs that contain every query word: `uri`, `title`, `section`, `line`, `snippet` |
+| `authz_explain` (#294) | `user`, `action`, `resource?` (`{type, id}`), `roles?` | `renox authz explain` as data: `allow`, `reason`, the deciding `policies`, the `explanation` with their text. Roles and resource attributes come from the dev database |
+| `list_policies` | none | The build's policy files, and per owner (app, modules) the actions, sensitive actions, entities (table, attributes) and default roles |
+| `list_tools` | none | The App MCP tools of a build (`/mcp`): name, description, Cedar action, `confirm`, input schema |
+| `list_agent_tokens` | none | The dev app's live agent tokens: id, user email, client, scopes, created, expiry, last use; never a token or its hash |
+| `revoke_agent_token` | `id`, `confirm` | **Destructive, confirmation required**: `confirm` must repeat `id`. Revokes the token in the dev database. The dev `/mcp` cache keeps a verified token for up to 60 s |
 
 A problem has the CLI's shape: `code`, `message`, and `file`, `line`, `column`, `hint` when known. Every result is both `structuredContent` and the same JSON as text. A bad input (an unknown argument, a `filter` outside the allowlist) is a tool result with `isError: true` and `error.code: "invalid_input"`.
 
@@ -257,6 +262,7 @@ A problem has the CLI's shape: `code`, `message`, and `file`, `line`, `column`, 
 | `types://renox/ctx.d.ts` | The contract's `ctx` types (`docs/contracts/ctx.d.ts`), which the `renox` SDK re-exports |
 | `config://effective` | The resolved `renox.toml`, or `{ ok: false, problems }` |
 | `routes://` | The routes `renox build` would emit, in matching order, and route conflicts |
+| `policies://` (#294) | The app's `policies/app/*.cedar`, `policies/schema.cedarschema` and `policies/tests/*.json`, by path |
 
 No prompts, no subscriptions. The docs are embedded at build time by a Bun macro (`src/mcp/embed.ts`): `bun --compile` does not ship `docs/`, and the binary serves the docs it was built with.
 

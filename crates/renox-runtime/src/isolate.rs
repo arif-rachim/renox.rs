@@ -2513,6 +2513,10 @@ struct JsOutcome {
     result: Option<String>,
     /// `KIND_MODULE_EVAL`: the first failure of that module on this isolate.
     first: Option<bool>,
+    /// `KIND_FORBIDDEN`, and `KIND_THROW` of a `RENOX_FORBIDDEN` or
+    /// `RENOX_DB_SCOPE`: the error's details and a principal summary, as
+    /// JSON, for the tenant log (the dev overlay reads them, #294).
+    details_json: Option<String>,
 }
 
 const KIND_OK: u8 = 0;
@@ -3584,6 +3588,20 @@ fn build_event_args(
         .collect())
 }
 
+/// Copies the action, resource, reason, policy and principal of a denial
+/// (`details_json` of the outcome, #294) into a log line's fields.
+fn add_details(f: &mut serde_json::Map<String, serde_json::Value>, details: Option<&str>) {
+    let Some(serde_json::Value::Object(d)) = details.and_then(|j| serde_json::from_str(j).ok())
+    else {
+        return;
+    };
+    for key in ["action", "resource", "reason", "policy", "principal"] {
+        if let Some(v) = d.get(key).filter(|v| !v.is_null()) {
+            f.entry(key).or_insert_with(|| v.clone());
+        }
+    }
+}
+
 /// A realtime run's outcome (ops.md 1.5.0 section 18, "Failures"): a throw
 /// is logged with the phase; a `RENOX_FORBIDDEN` (a denied `guard` at
 /// connect, or an uncaught `ForbiddenError`) is `Forbidden`, which the cell
@@ -3830,6 +3848,11 @@ fn finish_dispatch(
             if let Some(name) = &o.name {
                 f.insert("policy".into(), name.clone().into());
             }
+            // #294: the guard's action and who asked, for the dev overlay.
+            if let Some(g) = &route.guard {
+                f.insert("action".into(), g.action.clone().into());
+            }
+            add_details(&mut f, o.details_json.as_deref());
             log_line(ctx, "info", Some(&flight.ctx.request_id), "guard denied", f);
             ThreadReply::Failed {
                 code: ErrorCode::Forbidden,
@@ -3839,6 +3862,13 @@ fn finish_dispatch(
         // ops.md 1.5.0 section 17: an uncaught ForbiddenError is 403, not
         // 500; the meter status stays `ok` (meter.md 0.3, `forbidden`).
         Ok(o) if o.kind == KIND_THROW && o.code.as_deref() == Some("RENOX_FORBIDDEN") => {
+            // #294: the denied action, resource, reason and (dev) policy,
+            // and who asked: what the dev overlay shows.
+            let mut f = serde_json::Map::new();
+            f.insert("code".into(), "RENOX_FORBIDDEN".into());
+            f.insert("route".into(), route_name.clone().into());
+            add_details(&mut f, o.details_json.as_deref());
+            log_line(ctx, "info", Some(&flight.ctx.request_id), "forbidden", f);
             ThreadReply::Failed {
                 code: ErrorCode::Forbidden,
                 meter: flight.meter(ctx, MeterStatus::Ok),
@@ -3874,6 +3904,14 @@ fn finish_dispatch(
                     o.message.clone().unwrap_or_default().into(),
                 );
                 f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+                // #294: a RENOX_DB_SCOPE names the table and why (never the SQL).
+                if let Some(d) = o
+                    .details_json
+                    .as_deref()
+                    .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+                {
+                    f.insert("details".into(), d);
+                }
                 "handler threw"
             } else {
                 f.insert(

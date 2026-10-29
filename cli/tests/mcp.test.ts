@@ -93,9 +93,13 @@ describe("protocol", () => {
 });
 
 describe("tools", () => {
-  test("the F2 tool set, each with an object input schema", async () => {
+  test("the tool set (F2, and #294's authorization tools), each with an object input schema", async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(["dev_status", "dev_errors", "run_check", "run_tests", "search_docs"]);
+    expect(tools.map((t) => t.name)).toEqual(["dev_status", "dev_errors", "run_check", "run_tests", "search_docs", "authz_explain", "list_policies", "list_tools", "list_agent_tokens", "revoke_agent_token"]);
+    // The one tool that changes state says so, and asks for a confirmation.
+    const revoke = tools.find((t) => t.name === "revoke_agent_token");
+    expect(revoke?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(revoke?.inputSchema.required).toEqual(["id", "confirm"]);
     for (const t of tools) expect(t.inputSchema.type).toBe("object");
   });
 

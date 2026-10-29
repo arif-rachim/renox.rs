@@ -30,6 +30,8 @@ All results are structured JSON with the same error shapes as the CLI (`file`, `
 | Security | `authz_explain(user, action, resource)`, `security_check` | JSON form of `renox check --security` |
 | Local dev | `dev_status`, `dev_errors`, `run_check`, `run_tests`, `generate_types` | The agent sees the same error overlay a human sees in the browser |
 | Docs | `search_docs(query)` | Full-text search over this documentation and module READMEs |
+| Authorization (local, #294) | `authz_explain(user, action, resource?, roles?)`, `list_policies` | Read-only. The deciding policies with their text; the merged set's files, actions, entities and default roles |
+| App MCP (local, #294) | `list_tools`, `list_agent_tokens`, `revoke_agent_token(id, confirm)` | The app's tools from a build; the dev app's agent tokens. Revoking is destructive: `confirm` repeats the id |
 
 ### Resources
 

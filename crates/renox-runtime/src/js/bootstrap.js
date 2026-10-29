@@ -1053,7 +1053,10 @@ async function resolvePrincipal(token, url, headers) {
 async function prelude(token, url, headers) {
   const principal = await resolvePrincipal(token, url, headers);
   const g = await op_authz_guard(token);
-  if (!g.allow) return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined } };
+  if (!g.allow) {
+    const who = principal === null || principal === undefined ? { kind: "anonymous" } : { id: String(principal.id ?? ""), kind: String(principal.kind ?? "user"), roles: ArrayIsArray(principal.roles) ? ArrayPrototypeMap(principal.roles, (r) => (typeof r === "string" ? r : String(r?.role ?? ""))) : [] };
+    return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined, details_json: JSONStringify({ principal: who }) } };
+  }
   return { principal: freezePrincipal(principal) };
 }
 
@@ -1174,17 +1177,34 @@ function safeString(v) {
   }
 }
 
+/** Who the request runs as, for a log line: id, kind and role names, never attributes. */
+function principalSummary() {
+  try {
+    const p = stateVar.get()?.base?.principal ?? null;
+    if (p === null || p === undefined) return { kind: "anonymous" };
+    const roles = ArrayIsArray(p.roles) ? ArrayPrototypeMap(p.roles, (r) => (typeof r === "string" ? r : String(r?.role ?? ""))) : [];
+    return { id: String(p.id ?? ""), kind: String(p.kind ?? "user"), roles };
+  } catch {
+    return null;
+  }
+}
+
 function describeThrow(err) {
   let name = "Error";
   let message = "";
   let stack = "";
   let code = null;
+  let detailsJson = undefined;
   try {
     if (ObjectPrototypeIsPrototypeOf(ErrorPrototype, err)) {
       name = safeString(err.name);
       message = safeString(err.message);
       stack = safeString(err.stack);
       if (typeof err.code === "string" && StringPrototypeStartsWith(err.code, "RENOX_")) code = err.code;
+      // #294: a denial's or a scope refusal's details and who asked, for the tenant log (dev overlay).
+      if ((code === "RENOX_FORBIDDEN" || code === "RENOX_DB_SCOPE") && err.details !== null && typeof err.details === "object") {
+        detailsJson = JSONStringify({ ...err.details, principal: principalSummary() });
+      }
     } else {
       name = typeof err;
       message = safeString(err);
@@ -1192,7 +1212,7 @@ function describeThrow(err) {
   } catch {
     // A hostile getter: keep what we have.
   }
-  return { kind: KIND_THROW, name, message, stack, code };
+  return { kind: KIND_THROW, name, message, stack, code, details_json: detailsJson };
 }
 
 /**

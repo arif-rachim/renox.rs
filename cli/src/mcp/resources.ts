@@ -3,6 +3,9 @@
 // resolved renox.toml, and the project's route table. A URI is looked up in
 // these fixed sets; no part of it reaches the file system.
 
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { type ProjectConfig, readProject } from "../lib/project.ts";
 import { discoverFunctions, discoverPages, routeConflicts, routesOf, sortRoutes } from "../lib/routes.ts";
 import { problemOf } from "./devstate.ts";
@@ -25,6 +28,7 @@ export interface ResourceContents {
 const CONFIG = "config://effective";
 const ROUTES = "routes://";
 const TYPES = "types://renox/ctx.d.ts";
+const POLICIES = "policies://";
 
 export function listResources(): Resource[] {
   const docs = Object.keys(DOCS).map((path) => ({
@@ -47,6 +51,13 @@ export function listResources(): Resource[] {
       name: "routes",
       title: "Route table",
       description: "The routes `renox build` would emit for this project, in matching order, with any route conflicts",
+      mimeType: "application/json",
+    },
+    {
+      uri: POLICIES,
+      name: "policies",
+      title: "Policies",
+      description: "The app's Cedar policies (policies/app/*.cedar), the schema fragment (policies/schema.cedarschema) and the policy test cases (policies/tests/*.json), by path (#294)",
       mimeType: "application/json",
     },
     {
@@ -75,6 +86,7 @@ export function readResource(uri: string, project: string): ResourceContents | n
     return text === undefined ? null : { uri, mimeType: "text/markdown", text };
   }
   if (uri === TYPES) return { uri, mimeType: "text/x-typescript", text: CTX_TYPES };
+  if (uri === POLICIES) return json(uri, { files: policyFiles(project) });
   if (uri === CONFIG) {
     try {
       const config: ProjectConfig = readProject(project);
@@ -92,4 +104,17 @@ export function readResource(uri: string, project: string): ResourceContents | n
     }
   }
   return null;
+}
+
+/** policies/app/*.cedar, policies/schema.cedarschema and policies/tests/*.json of the project (fixed folders, no input). */
+function policyFiles(project: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [dir, ext] of [["policies/app", ".cedar"], ["policies/tests", ".json"]] as const) {
+    const full = join(project, dir);
+    if (!existsSync(full)) continue;
+    for (const f of readdirSync(full).filter((n) => n.endsWith(ext)).sort()) out[`${dir}/${f}`] = readFileSync(join(full, f), "utf8");
+  }
+  const schema = join(project, "policies", "schema.cedarschema");
+  if (existsSync(schema)) out["policies/schema.cedarschema"] = readFileSync(schema, "utf8");
+  return out;
 }

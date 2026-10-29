@@ -54,6 +54,31 @@ const CASES: Record<string, { status: number; lines: ReturnType<typeof line>[]; 
     record: { request_id: ID, route: "GET /throws", cpu_ms: 0.4, peak_heap_bytes: 2_000_000, wall_ms: 1.2 },
   },
   not_found: { status: 404, lines: [], record: null },
+  // #294: authorization and db.scoped() refusals, as the worker logs them.
+  guard_denied: {
+    status: 403,
+    lines: [line("guard denied", { code: "RENOX_FORBIDDEN", route: "GET /orders", reason: "deny", policy: "policies/app/shop.cedar#5", action: "order.list", principal: { id: "u_fatima", kind: "user", roles: ["finance"] } }, "info")],
+    record: { request_id: ID, route: "GET /orders", cpu_ms: 0.3, peak_heap_bytes: 2_000_000, wall_ms: 0.9 },
+  },
+  forbidden_action: {
+    status: 403,
+    lines: [line("forbidden", { code: "RENOX_FORBIDDEN", route: "POST /orders", action: "invoice.refund", resource: { type: "Order", id: "42" }, reason: "deny", principal: { kind: "anonymous" } }, "info")],
+    record: null,
+  },
+  db_scope: {
+    status: 500,
+    lines: [
+      line("handler threw", {
+        code: "RENOX_INTERNAL",
+        route: "GET /notes",
+        phase: "request",
+        cause_code: "RENOX_DB_SCOPE",
+        cause_message: "the statement on app__notes could not be scoped",
+        details: { table: "app__notes", module: "app", reason: "unprovable", principal: { id: "u_1", kind: "user", roles: [] } },
+      }),
+    ],
+    record: null,
+  },
 };
 
 describe("error overlay rows", () => {
@@ -68,6 +93,19 @@ describe("error overlay rows", () => {
     const c = CASES.render_failed as (typeof CASES)[string];
     const d = errorDetails(ID, c.lines, null);
     expect([d.template, d.line]).toEqual(["pages/products/index", 42]);
+  });
+
+  test("a denial names the action, the principal and the deciding policy; a scope refusal the table and the statement shape", () => {
+    const g = CASES.guard_denied as (typeof CASES)[string];
+    const rows = Object.fromEntries(overlayRows(g.status, errorDetails(ID, g.lines, null)).rows);
+    expect(rows).toMatchObject({ code: "RENOX_FORBIDDEN", action: "order.list", principal: "u_fatima (user; roles finance)", policy: "policies/app/shop.cedar#5" });
+    const a = CASES.forbidden_action as (typeof CASES)[string];
+    expect(Object.fromEntries(overlayRows(a.status, errorDetails(ID, a.lines, null)).rows)).toMatchObject({ action: "invoice.refund", resource: "Order:42", principal: "anonymous", policy: "no policy permits it (default deny)" });
+    const s = CASES.db_scope as (typeof CASES)[string];
+    const sr = Object.fromEntries(overlayRows(s.status, errorDetails(ID, s.lines, null)).rows);
+    expect(sr.code).toBe("RENOX_DB_SCOPE");
+    expect(sr.table).toBe("app__notes (module app)");
+    expect(sr.statement).toStartWith("unprovable: a shape the scope cannot be proven for");
   });
 
   test("the line with the platform code wins over the error page's own line", () => {

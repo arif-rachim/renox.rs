@@ -366,6 +366,17 @@ async fn guard_denies_before_the_handler() {
         1,
         "only the allowed request reached the handler"
     );
+    // #294: the tenant log names the guard's action and who asked (the dev overlay reads them).
+    let lines = fx.sink.lines();
+    let denied: Vec<_> = lines
+        .iter()
+        .filter(|l| l.message == "guard denied")
+        .collect();
+    assert!(!denied.is_empty(), "{lines:?}");
+    let f = &denied[0].fields;
+    assert_eq!(f["code"], "RENOX_FORBIDDEN");
+    assert!(f["action"].is_string(), "{f:?}");
+    assert!(f["principal"].is_object(), "{f:?}");
 }
 
 /// `can`, `canBatch`; an unknown action and a resource without its
@@ -406,6 +417,16 @@ async fn require_and_the_audit_row() {
     assert_eq!(v["error"]["details"]["policy"], serde_json::Value::Null);
     let out = fx.call("/?case=require-uncaught", Some(ALICE)).await;
     assert_eq!(out.response.status(), 403);
+    // #294: an uncaught ForbiddenError is logged with its action, resource and principal.
+    let lines = fx.sink.lines();
+    let f = &lines
+        .iter()
+        .rfind(|l| l.message == "forbidden")
+        .unwrap_or_else(|| panic!("{lines:?}"))
+        .fields;
+    assert_eq!(f["code"], "RENOX_FORBIDDEN");
+    assert!(f["action"].is_string(), "{f:?}");
+    assert!(f["principal"]["id"].is_string(), "{f:?}");
     assert_eq!(body_json(&out.response)["error"]["code"], "RENOX_FORBIDDEN");
     assert_eq!(
         out.meter.status,

@@ -1,6 +1,7 @@
-// MCP tools of the local platform server, F2 set (docs/20-ai-agents-mcp.md,
+// MCP tools of the local platform server (docs/20-ai-agents-mcp.md,
 // sections 1 and 6): dev_status, dev_errors, run_check, run_tests,
-// search_docs. Each is a fixed operation on the project folder the server
+// search_docs; from F5 (#294, authz-tools.ts) authz_explain, list_policies,
+// list_tools, list_agent_tokens and revoke_agent_token. Each is a fixed operation on the project folder the server
 // was started in. Model input never becomes a shell command or a path:
 // run_tests spawns `bun test` with a fixed argv (no shell), and its only
 // input, a test-name filter, is checked against a character allowlist and
@@ -13,6 +14,7 @@ import { check } from "../commands/check.ts";
 import { parseDotenv } from "../commands/dev.ts";
 import { type Problem, problemOf, readDevState } from "./devstate.ts";
 import { searchDocs } from "./docs.ts";
+import * as authz from "./authz-tools.ts";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -91,6 +93,61 @@ export const TOOLS: ToolDef[] = [
       additionalProperties: false,
     },
     annotations: readOnly,
+  },
+  // #294: authorization and the App MCP of the dev app.
+  {
+    name: "authz_explain",
+    title: "Explain an authorization decision",
+    description:
+      "Why the app's policies allow or deny one request (`renox authz explain`): the decision, the deciding policies with their text, and evaluation errors. The user's roles and the resource's declared attributes come from the dev database, as the cell reads them; `roles` adds roles for the question.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        user: { type: "string", pattern: "^[A-Za-z0-9_.:@-]{1,128}$", description: "The user id" },
+        action: { type: "string", description: "The action, such as invoice.refund" },
+        resource: { type: "object", properties: { type: { type: "string" }, id: { type: "string" } }, required: ["type", "id"], additionalProperties: false, description: "The resource: an entity type of [authz.entities] and its id" },
+        roles: { type: "array", items: { type: "string" }, description: "Extra roles to assume" },
+      },
+      required: ["user", "action"],
+      additionalProperties: false,
+    },
+    annotations: readOnly,
+  },
+  {
+    name: "list_policies",
+    title: "List the policy set",
+    description: "The policy files of a build of the project, and per owner (the app, each module) the actions, sensitive actions, entities with their table and attributes, and default roles.",
+    inputSchema: noInput,
+    annotations: readOnly,
+  },
+  {
+    name: "list_tools",
+    title: "List the app's MCP tools",
+    description: "The App MCP tools a build of the project carries (served at /mcp): name, description, the Cedar action, whether a confirmation is required, and the input's JSON Schema.",
+    inputSchema: noInput,
+    annotations: readOnly,
+  },
+  {
+    name: "list_agent_tokens",
+    title: "List the dev app's agent tokens",
+    description: "Live agent tokens of the dev app (the auth module's OAuth for agents): id, the user's email, the client, scopes, created, expiry, last use. Never a token or its hash.",
+    inputSchema: noInput,
+    annotations: readOnly,
+  },
+  {
+    name: "revoke_agent_token",
+    title: "Revoke a dev agent token",
+    description: "Revokes one agent token of the dev app. Destructive: `confirm` must repeat the token id. Dev database only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", pattern: "^agt_[0-9a-f]{24}$", description: "The token id from list_agent_tokens" },
+        confirm: { type: "string", description: "The same id again, to confirm" },
+      },
+      required: ["id", "confirm"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   },
 ];
 
@@ -273,7 +330,16 @@ export async function callTool(name: string, args: Record<string, unknown>, proj
     let value: Record<string, unknown>;
     if (name === "run_tests") value = await runTests(project, args);
     else if (name === "search_docs") value = await searchDocsTool(args);
-    else {
+    else if (name === "authz_explain") {
+      onlyKeys(args, ["user", "action", "resource", "roles"]);
+      value = await authz.authzExplain(project, args);
+    } else if (name === "revoke_agent_token") {
+      onlyKeys(args, ["id", "confirm"]);
+      value = authz.revokeAgentToken(project, args);
+    } else if (name === "list_policies" || name === "list_tools" || name === "list_agent_tokens") {
+      onlyKeys(args, []);
+      value = name === "list_policies" ? await authz.listPolicies(project) : name === "list_tools" ? await authz.listTools(project) : authz.listAgentTokens(project);
+    } else {
       onlyKeys(args, []);
       value = name === "dev_status" ? await devStatus(project) : name === "dev_errors" ? await devErrors(project) : await runCheck(project);
     }
