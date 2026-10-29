@@ -45,6 +45,17 @@
         "@electric-sql/pglite": "0.5.12",
       },
     },
+    "control/dashboard": {
+      "name": "@renox/dashboard",
+      "dependencies": {
+        "renox": "workspace:*",
+      },
+      "devDependencies": {
+        "@renox/artifact-validate": "workspace:*",
+        "@renox/control-api": "workspace:*",
+        "hono": "4.13.14",
+      },
+    },
     "examples/evil": {
       "name": "@renox-examples/evil",
       "dependencies": {
@@ -129,6 +140,8 @@
     "@renox/cli": ["@renox/cli@workspace:cli"],
 
     "@renox/control-api": ["@renox/control-api@workspace:control/api"],
+
+    "@renox/dashboard": ["@renox/dashboard@workspace:control/dashboard"],
 
     "@stablelib/base64": ["@stablelib/base64@1.0.1", "", {}, "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ=="],
 

@@ -1,0 +1,9 @@
+<r-props app="string" section="string" />
+<nav class="side" aria-label="App">
+  <p class="side-title"><a href="/apps/{{ app }}">{{ app }}</a></p>
+  <a href="/apps/{{ app }}" :class="{ current: section == 'overview' }">Overview</a>
+  <a href="/apps/{{ app }}/deployments" :class="{ current: section == 'deployments' }">Deployments</a>
+  <a href="/apps/{{ app }}/logs" :class="{ current: section == 'logs' }">Logs</a>
+  <a href="/apps/{{ app }}/usage" :class="{ current: section == 'usage' }">Usage</a>
+  <a href="/apps/{{ app }}/secrets" :class="{ current: section == 'secrets' }">Secrets</a>
+</nav>

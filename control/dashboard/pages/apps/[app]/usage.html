@@ -1,0 +1,33 @@
+<r-layout use="main">
+  <r-group slot="title">Usage · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
+  <section id="page">
+    <div class="title-row">
+      <h1>Usage</h1>
+      <span class="tabs"><a r-for="r in ranges" href="?range={{ r }}" :class="{ current: r == range }">{{ r }}</a></span>
+    </div>
+    <x-problem :problem="problem" r-if="problem" />
+    <r-group r-if="totals">
+      <p class="muted">{{ period }}</p>
+      <p>Requests {{ totals.requests }} · CPU {{ totals.cpu }} · wall {{ totals.wall }} · egress {{ totals.egress }} · fetch sent {{ totals.fetch }} · database {{ totals.db }} · render fuel {{ totals.fuel }}</p>
+      <figure class="chart" r-for="c in charts">
+        <figcaption>{{ c.title }}</figcaption>
+        <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" :aria-label="c.title" preserveAspectRatio="none">
+          <rect r-for="b in c.bars" :x="b.x" :y="b.y" :width="b.width" :height="b.height"><title>{{ b.label }}</title></rect>
+        </svg>
+      </figure>
+      <h2>Monthly quota ({{ quota.tier }}, {{ quota.period }})</h2>
+      <table class="list">
+        <tbody>
+          <tr r-for="row in quota.rows" :class="{ bad: row.over }">
+            <td>{{ row.name }}</td>
+            <td>{{ row.used }} of {{ row.limit }}</td>
+            <td><meter min="0" max="100" :value="row.pct">{{ row.pct }}%</meter> {{ row.pct }}%</td>
+            <td><r-group r-if="row.over">over quota</r-group></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted">In F3 the quota is a signal only: nothing is throttled or suspended when it is exceeded.</p>
+    </r-group>
+  </section>
+</r-layout>

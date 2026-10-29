@@ -1,0 +1,12 @@
+[app]
+name = "dashboard"
+timezone = "Asia/Dubai"
+
+# ADR D23: the dashboard is an ordinary tenant. It reaches the control API at
+# its public hostname, allowlisted here like any other host, with the
+# signed-in user's own token. DASHBOARD_KEY (at least 32 characters) derives
+# the key that encrypts stored sign-ins; RENOX_API_URL (optional, https only)
+# points at another API, whose host must then be added to `network`.
+[permissions]
+network = ["api.renox.app"]
+secrets = ["DASHBOARD_KEY", "RENOX_API_URL"]

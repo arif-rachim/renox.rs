@@ -1,0 +1,37 @@
+<r-layout use="main">
+  <r-group slot="title">Logs · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
+  <section id="page">
+    <h1>Logs</h1>
+    <form class="filters" method="get" action="/apps/{{ app }}/logs">
+      <label>Level <select name="level"><option r-for="v in levels" :value="v" :selected="v == filters.level">{{ v }}</option></select></label>
+      <label>Source <select name="source">
+        <option value="all" :selected="filters.source == 'all'">all</option>
+        <option value="server" :selected="filters.source == 'server'">server</option>
+        <option value="client" :selected="filters.source == 'client'">client</option>
+      </select></label>
+      <label>Window <select name="window"><option r-for="v in windows" :value="v" :selected="v == filters.window">{{ v }}</option></select></label>
+      <input type="search" name="q" :value="filters.q" placeholder="Search message or request id" autocomplete="off">
+      <input type="hidden" name="deployment" :value="filters.deployment" r-if="filters.deployment">
+      <button type="submit">Apply</button>
+      <a class="button" :href="pause_url" r-if="filters.live">Live ● pause</a>
+      <a class="button" :href="live_url" r-else>Live ○</a>
+    </form>
+    <div r-if="filters.live" hx-get="{{ poll_url }}" hx-trigger="every 2s" hx-target="#log-lines" hx-swap="outerHTML"></div>
+    <div id="log-lines" r-fragment="log_lines">
+      <x-problem :problem="problem" r-if="problem" />
+      <table class="list logs">
+        <tbody>
+          <tr r-for="l in lines" :class="l.level_class">
+            <td class="when">{{ l.when }}</td>
+            <td class="level">{{ l.level }}</td>
+            <td><code>{{ l.request_id }}</code></td>
+            <td class="muted">{{ l.source }} · {{ l.deployment }} · {{ l.module }}</td>
+            <td class="msg">{{ l.message }}<br r-if="l.fields"><small class="muted" r-if="l.fields">{{ l.fields }}</small></td>
+          </tr>
+          <tr r-empty="lines"><td class="muted">No log lines match.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</r-layout>

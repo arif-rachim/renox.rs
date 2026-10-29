@@ -1,0 +1,50 @@
+// GET /apps/:app/deployments[?hash=<sha256>]: every deployment with its state
+// and the actions it allows (docs/19-platform-wireframes.md, 3.4); with
+// `hash`, that deployment's validation, permissions, and activation error.
+// POST ?/activate and ?/rollback: lib/deploy-actions.ts.
+import type { LoaderContext } from "renox";
+
+import { apiBase } from "../../../lib/api.ts";
+import { deployActions } from "../../../lib/deploy-actions.ts";
+import { appParam, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { ago, bytes, clock, deploymentRows, STATE_LABEL } from "../../../lib/view.ts";
+
+export async function load(ctx: LoaderContext) {
+  const api = await signedIn(ctx);
+  if (api instanceof Response) return api;
+  const name = appParam(ctx.params.app);
+  if (name === null) return notFound();
+  const selected = hashParam(ctx.url.searchParams.get("hash"));
+  const now = Date.now();
+  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "deployments", notice: null, action_problem: null };
+  const [list, one] = await Promise.all([api.listDeployments(name, 50), selected === null ? null : api.getDeployment(name, selected)]);
+  if (!list.ok) return { ...base, problem: await problem(ctx, list), deployments: [], detail: null, detail_problem: null };
+  let detail = null;
+  let detailProblem = null;
+  if (one !== null) {
+    if (!one.ok) detailProblem = await problem(ctx, one);
+    else {
+      const d = one.value;
+      detail = {
+        hash: d.hash,
+        state: STATE_LABEL[d.state] ?? d.state,
+        uploaded: `${clock(d.created_at)} UTC (${ago(d.created_at, now)})`,
+        activated: d.activated_at === null ? "never" : `${clock(d.activated_at)} UTC`,
+        size: bytes(d.size_bytes),
+        network: d.permissions.network.join(", ") || "none",
+        secrets: d.permissions.secrets.join(", ") || "none",
+        secrets_version: d.secrets_version === null ? "—" : `v${d.secrets_version}`,
+        violations: (d.violations ?? []).map((v) => `${v.rule}${v.path === undefined ? "" : ` ${v.path}`}: ${v.reason}`),
+        last_error:
+          d.last_error === null
+            ? null
+            : [d.last_error.stage, d.last_error.module, d.last_error.file, d.last_error.sqlite_error, d.last_error.http_status === undefined ? undefined : `HTTP ${d.last_error.http_status}`, d.last_error.reason]
+                .filter((x) => x !== undefined)
+                .join(" · "),
+      };
+    }
+  }
+  return { ...base, problem: null, deployments: deploymentRows(list.value.deployments, now), detail, detail_problem: detailProblem };
+}
+
+export const actions = { activate: deployActions.activate, rollback: deployActions.rollback };

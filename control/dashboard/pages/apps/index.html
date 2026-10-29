@@ -1,0 +1,29 @@
+<r-layout use="main">
+  <r-group slot="title">Apps · Renox dashboard</r-group>
+  <section id="page" r-fragment="page">
+    <div class="title-row">
+      <h1>Apps</h1>
+      <span class="muted" r-if="tenant_id">tenant {{ tenant_id }}</span>
+    </div>
+    <x-problem :problem="problem" r-if="problem" />
+    <table class="list" r-if="!problem">
+      <thead><tr><th>App</th><th>Status</th><th>Version</th><th>Hostnames</th></tr></thead>
+      <tbody>
+        <tr r-for="a in apps">
+          <td><a href="/apps/{{ a.name }}">{{ a.name }}</a></td>
+          <td :class="{ ok: a.live }">{{ a.status }}</td>
+          <td><code>{{ a.version }}</code></td>
+          <td><a :href="a.url" r-if="a.url">{{ a.hostnames }}</a></td>
+        </tr>
+        <tr r-empty="apps"><td colspan="4">No apps yet. Create one below, or run <code>renox deploy</code> in a project.</td></tr>
+      </tbody>
+    </table>
+    <h2>New app</h2>
+    <p class="notice" r-if="created">Created {{ created }}. Deploy it with <code>renox deploy</code> from the project folder.</p>
+    <p class="problem" r-if="create_error">{{ create_error }}</p>
+    <x-form action="create" hx-target="#page" hx-swap="outerHTML" class="row">
+      <label>Name <input name="name" required maxlength="50" pattern="[a-z][a-z0-9-]*" autocomplete="off"></label>
+      <button type="submit">Create app</button>
+    </x-form>
+  </section>
+</r-layout>
