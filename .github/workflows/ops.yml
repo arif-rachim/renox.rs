@@ -55,15 +55,24 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      # The image of control/docker-compose.yml; a static KMS key turns on
-      # SSE-KMS (a services container cannot take MinIO's `server` argument).
+      # The release of control/docker-compose.yml, from MinIO's own registry
+      # (Docker Hub refuses the pull: "pull access denied for minio/minio");
+      # a static KMS key turns on SSE-KMS (a services container cannot take
+      # MinIO's `server` argument).
       - name: Start MinIO with a static KMS key
+        env:
+          MINIO_TAG: RELEASE.2025-04-22T22-12-26Z
         run: |
+          image=""
+          for registry in quay.io/minio/minio minio/minio; do
+            if docker pull "$registry:$MINIO_TAG"; then image="$registry:$MINIO_TAG"; break; fi
+          done
+          [ -n "$image" ] || { echo "no registry served minio $MINIO_TAG" >&2; exit 1; }
           key=$(head -c 32 /dev/urandom | base64)
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER="$RENOX_TEST_S3_KEY" -e MINIO_ROOT_PASSWORD="$RENOX_TEST_S3_SECRET" \
             -e MINIO_KMS_SECRET_KEY="$RENOX_TEST_S3_KMS_KEY:$key" \
-            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+            "$image" server /data
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:9000/minio/health/live && break; sleep 1; done
       - run: bun install --frozen-lockfile
       - run: bun test bench/ops
