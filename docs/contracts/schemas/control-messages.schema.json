@@ -175,7 +175,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["level", "free_bytes", "watermark"],
-          "description": "Deploy API 0.4 (section 7), optional: the data directory's level from the node's disk watermarks (warn at 85 %, critical at 95 % used, when writes are refused); watermark is the percent the level crossed, null at ok.",
+          "description": "Deploy API 0.4 (section 7), optional: the data directory's level from the node's disk watermarks (disk.rs, #103: warn from 80 % used, critical from 90 %, when no new cell is created, and from 95 %, when writes are refused); watermark is the percent the level crossed (80, 90 or 95), null at ok.",
           "properties": {
             "level": { "enum": ["ok", "warn", "critical"] },
             "free_bytes": { "type": "integer", "minimum": 0 },
