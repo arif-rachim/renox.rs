@@ -1,0 +1,9 @@
+{
+  "name": "@renox/bench-replica-libsql",
+  "private": true,
+  "type": "module",
+  "description": "Spike #256 only: the libSQL embedded-replica writer and replica. Not a workspace member; renox-data does not use libSQL.",
+  "dependencies": {
+    "@libsql/client": "0.15.15"
+  }
+}

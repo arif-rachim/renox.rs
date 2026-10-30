@@ -1,0 +1,327 @@
+{
+ "id": "replica-spike",
+ "series": "200",
+ "command": "bench/spike/replica/run.sh --seconds 10 --kills 10 --kill-rate 200",
+ "results": [
+  {
+   "candidate": "plain",
+   "load": {
+    "writes": 266303,
+    "writes_per_s": 26630.3,
+    "p50_ms": 0.029182000000218977,
+    "p99_ms": 0.12592600000061793,
+    "last_id": 266303
+   }
+  },
+  {
+   "candidate": "litestream",
+   "load": {
+    "writes": 264440,
+    "writes_per_s": 26444,
+    "p50_ms": 0.02819199999976263,
+    "p99_ms": 0.12509600000066712,
+    "last_id": 264440
+   }
+  },
+  {
+   "candidate": "litestream",
+   "kill": 1,
+   "acked": 989,
+   "restored": 981,
+   "rows_lost": 8,
+   "rto_read_ms": 195,
+   "rto_write_ms": 195
+  },
+  {
+   "candidate": "litestream",
+   "kill": 2,
+   "acked": 589,
+   "restored": 587,
+   "rows_lost": 2,
+   "rto_read_ms": 152,
+   "rto_write_ms": 152
+  },
+  {
+   "candidate": "litestream",
+   "kill": 3,
+   "acked": 1192,
+   "restored": 1177,
+   "rows_lost": 15,
+   "rto_read_ms": 145,
+   "rto_write_ms": 145
+  },
+  {
+   "candidate": "litestream",
+   "kill": 4,
+   "acked": 1193,
+   "restored": 1192,
+   "rows_lost": 1,
+   "rto_read_ms": 200,
+   "rto_write_ms": 200
+  },
+  {
+   "candidate": "litestream",
+   "kill": 5,
+   "acked": 1389,
+   "restored": 1385,
+   "rows_lost": 4,
+   "rto_read_ms": 193,
+   "rto_write_ms": 193
+  },
+  {
+   "candidate": "litestream",
+   "kill": 6,
+   "acked": 1390,
+   "restored": 1386,
+   "rows_lost": 4,
+   "rto_read_ms": 157,
+   "rto_write_ms": 157
+  },
+  {
+   "candidate": "litestream",
+   "kill": 7,
+   "acked": 793,
+   "restored": 778,
+   "rows_lost": 15,
+   "rto_read_ms": 163,
+   "rto_write_ms": 163
+  },
+  {
+   "candidate": "litestream",
+   "kill": 8,
+   "acked": 1178,
+   "restored": 987,
+   "rows_lost": 191,
+   "rto_read_ms": 206,
+   "rto_write_ms": 206
+  },
+  {
+   "candidate": "litestream",
+   "kill": 9,
+   "acked": 1197,
+   "restored": 1183,
+   "rows_lost": 14,
+   "rto_read_ms": 143,
+   "rto_write_ms": 143
+  },
+  {
+   "candidate": "litestream",
+   "kill": 10,
+   "acked": 993,
+   "restored": 983,
+   "rows_lost": 10,
+   "rto_read_ms": 191,
+   "rto_write_ms": 191
+  },
+  {
+   "candidate": "litefs",
+   "load": {
+    "writes": 503,
+    "writes_per_s": 50.3,
+    "p50_ms": 17.3643890000003,
+    "p99_ms": 51.306732999999895,
+    "last_id": 503
+   }
+  },
+  {
+   "candidate": "litefs",
+   "kill": 1,
+   "acked": 299,
+   "restored": 301,
+   "rows_lost": 0,
+   "rto_read_ms": 265,
+   "rto_write_ms": 937
+  },
+  {
+   "candidate": "litefs",
+   "kill": 2,
+   "acked": 142,
+   "restored": 143,
+   "rows_lost": 0,
+   "rto_read_ms": 151,
+   "rto_write_ms": 567
+  },
+  {
+   "candidate": "litefs",
+   "kill": 3,
+   "acked": 335,
+   "restored": 336,
+   "rows_lost": 0,
+   "rto_read_ms": 95,
+   "rto_write_ms": 308
+  },
+  {
+   "candidate": "litefs",
+   "kill": 4,
+   "acked": 172,
+   "restored": 173,
+   "rows_lost": 0,
+   "rto_read_ms": 89,
+   "rto_write_ms": 280
+  },
+  {
+   "candidate": "litefs",
+   "kill": 5,
+   "acked": 228,
+   "restored": 228,
+   "rows_lost": 0,
+   "rto_read_ms": 94,
+   "rto_write_ms": 275
+  },
+  {
+   "candidate": "litefs",
+   "kill": 6,
+   "acked": 309,
+   "restored": 309,
+   "rows_lost": 0,
+   "rto_read_ms": 114,
+   "rto_write_ms": 321
+  },
+  {
+   "candidate": "litefs",
+   "kill": 7,
+   "acked": 246,
+   "restored": 248,
+   "rows_lost": 0,
+   "rto_read_ms": 49,
+   "rto_write_ms": 239
+  },
+  {
+   "candidate": "litefs",
+   "kill": 8,
+   "acked": 119,
+   "restored": 122,
+   "rows_lost": 0,
+   "rto_read_ms": 56,
+   "rto_write_ms": 243
+  },
+  {
+   "candidate": "litefs",
+   "kill": 9,
+   "acked": 171,
+   "restored": 173,
+   "rows_lost": 0,
+   "rto_read_ms": 93,
+   "rto_write_ms": 375
+  },
+  {
+   "candidate": "litefs",
+   "kill": 10,
+   "acked": 281,
+   "restored": 282,
+   "rows_lost": 0,
+   "rto_read_ms": 70,
+   "rto_write_ms": 283
+  },
+  {
+   "candidate": "libsql",
+   "load": {
+    "writes": 2021,
+    "writes_per_s": 202.1,
+    "p50_ms": 4.062716000000364,
+    "p99_ms": 18.043969999998808,
+    "last_id": 2021
+   }
+  },
+  {
+   "candidate": "libsql",
+   "kill": 1,
+   "acked": 543,
+   "restored": 229,
+   "rows_lost": 314,
+   "rto_read_ms": 70,
+   "rto_write_ms": 336,
+   "promoted_max_id": 230
+  },
+  {
+   "candidate": "libsql",
+   "kill": 2,
+   "acked": 889,
+   "restored": 403,
+   "rows_lost": 486,
+   "rto_read_ms": 42,
+   "rto_write_ms": 191,
+   "promoted_max_id": 404
+  },
+  {
+   "candidate": "libsql",
+   "kill": 3,
+   "acked": 1442,
+   "restored": 739,
+   "rows_lost": 703,
+   "rto_read_ms": 35,
+   "rto_write_ms": 178,
+   "promoted_max_id": 740
+  },
+  {
+   "candidate": "libsql",
+   "kill": 4,
+   "acked": 999,
+   "restored": 529,
+   "rows_lost": 470,
+   "rto_read_ms": 38,
+   "rto_write_ms": 236,
+   "promoted_max_id": 530
+  },
+  {
+   "candidate": "libsql",
+   "kill": 5,
+   "acked": 776,
+   "restored": 351,
+   "rows_lost": 425,
+   "rto_read_ms": 30,
+   "rto_write_ms": 189,
+   "promoted_max_id": 352
+  },
+  {
+   "candidate": "libsql",
+   "kill": 6,
+   "acked": 247,
+   "restored": 54,
+   "rows_lost": 193,
+   "rto_read_ms": 109,
+   "rto_write_ms": 1325,
+   "promoted_max_id": 55
+  },
+  {
+   "candidate": "libsql",
+   "kill": 7,
+   "acked": 798,
+   "restored": 404,
+   "rows_lost": 394,
+   "rto_read_ms": 57,
+   "rto_write_ms": 248,
+   "promoted_max_id": 405
+  },
+  {
+   "candidate": "libsql",
+   "kill": 8,
+   "acked": 843,
+   "restored": 413,
+   "rows_lost": 430,
+   "rto_read_ms": 40,
+   "rto_write_ms": 146,
+   "promoted_max_id": 414
+  },
+  {
+   "candidate": "libsql",
+   "kill": 9,
+   "acked": 745,
+   "restored": 354,
+   "rows_lost": 391,
+   "rto_read_ms": 34,
+   "rto_write_ms": 150,
+   "promoted_max_id": 355
+  },
+  {
+   "candidate": "libsql",
+   "kill": 10,
+   "acked": 1038,
+   "restored": 518,
+   "rows_lost": 520,
+   "rto_read_ms": 33,
+   "rto_write_ms": 178,
+   "promoted_max_id": 519
+  }
+ ]
+}
