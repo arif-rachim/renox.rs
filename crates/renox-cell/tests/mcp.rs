@@ -689,10 +689,27 @@ async fn a_tool_call_is_one_span_tree() {
     let _ = provider.force_flush();
     tokio::time::sleep(Duration::from_millis(200)).await;
     let spans = exporter.get_finished_spans().unwrap();
+    // The exporter is the binary's, and the other tests (run in parallel)
+    // call list_notes too: take the tool span under this request's own
+    // `cell.request`, found by the request id the response carries.
+    let rid = ok.headers["x-renox-request-id"]
+        .to_str()
+        .unwrap()
+        .to_string();
+    let request = spans
+        .iter()
+        .find(|s| {
+            s.name == "cell.request"
+                && s.attributes
+                    .iter()
+                    .any(|kv| kv.key.as_str() == "request_id" && kv.value.to_string() == rid)
+        })
+        .unwrap_or_else(|| panic!("a cell.request span for {rid}"));
     let tool = spans
         .iter()
         .find(|s| {
             s.name == "mcp.tool"
+                && s.parent_span_id == request.span_context.span_id()
                 && s.attributes
                     .iter()
                     .any(|kv| kv.key.as_str() == "tool" && kv.value.to_string() == "list_notes")
