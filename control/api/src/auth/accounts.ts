@@ -210,6 +210,9 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
       }
     })();
     const tenantName = optionalString(body.tenant_name, "tenant_name", 128) ?? tenantId;
+    // deploy-api.md 0.5 section 21 (#326): the DPA, when the client sends it, is accepted.
+    if (body.dpa_accepted !== undefined && body.dpa_accepted !== true) throw invalid("dpa_accepted", "must be true");
+    if (body.captcha_token !== undefined && (typeof body.captcha_token !== "string" || body.captcha_token.length === 0 || body.captcha_token.length > 4096)) throw invalid("captcha_token", "a non-empty string");
     limit(deps, [
       [RULES.mailIp, `mail-ip:${clientIp(c) ?? "unknown"}`],
       [RULES.mailEmail, `mail-email:${email}`],

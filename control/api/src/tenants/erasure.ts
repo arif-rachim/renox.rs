@@ -232,6 +232,17 @@ async function busyReason(db: Db, tenantId: string): Promise<string | null> {
   return rows[0] !== undefined && rows[0].moving_since !== null ? "moving" : null;
 }
 
+/**
+ * deploy-api.md 0.5 section 21: a new free tenant has reduced quotas and no
+ * custom domain until a payment method is confirmed, or 7 days pass.
+ */
+export async function newTenantRestrictions(db: Db, tenantId: string, createdAt: number, now: number): Promise<string[]> {
+  if (now - createdAt >= 7 * 86_400_000) return [];
+  const pm = await db.query<Record<string, unknown>>("select payment_method from tenant_billing where tenant_id = $1", [tenantId]);
+  if (pm[0]?.payment_method !== undefined && pm[0]?.payment_method !== null) return [];
+  return ["reduced_quotas", "no_custom_domain"];
+}
+
 export function registerErasure(app: Hono<Env>, deps: Deps): void {
   app.get("/v1/tenants/:tenant_id", operation(deps, "getTenant"), tenantAuth(deps, "apps:read"), async (c) => {
     const db = tenantDb(deps, c);
@@ -239,7 +250,10 @@ export function registerErasure(app: Hono<Env>, deps: Deps): void {
     const rows = await db.query<Record<string, unknown>>("select id, name, tier, state, created_at from tenants where id = $1", [db.tenantId]);
     const r = rows[0];
     if (r === undefined) throw notFound();
-    return c.json({ tenant_id: r.id, name: r.name, tier: r.tier, state: r.state, created_at: num(r.created_at), erasure: await erasureOf(db, db.tenantId) });
+    // deploy-api.md 0.5 section 21 (#326): the first activation, and the new-tenant limits still in force.
+    const first = (await db.query<Record<string, unknown>>("select min(activated_at) as t from deployments where tenant_id = $1 and activated_at is not null", [db.tenantId]))[0]?.t;
+    const restrictions = await newTenantRestrictions(db, db.tenantId, num(r.created_at), deps.now());
+    return c.json({ tenant_id: r.id, name: r.name, tier: r.tier, state: r.state, created_at: num(r.created_at), first_deploy_at: first === null || first === undefined ? null : num(first), restrictions, erasure: await erasureOf(db, db.tenantId) });
   });
 
   app.delete("/v1/tenants/:tenant_id", operation(deps, "deleteTenant"), tenantAuth(deps, "tenant:delete"), async (c) => {
