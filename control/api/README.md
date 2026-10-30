@@ -176,6 +176,18 @@ Not done yet (#308 stays open for them): deleting the database's Litestream gene
 
 Not done yet (#310 stays open for it): the operator console's break-glass form, the active list and the banner inside the impersonated session (`control/dashboard/pages/ops/**`).
 
+## Module registry (#324)
+
+deploy API 0.5 section 19, `src/registry/routes.ts`, migration `0017_registry.sql`.
+
+- **Publishers.** `POST /v1/publishers` (name and an Ed25519 public key; `renox` and taken names are 409) and `POST /v1/publishers/{publisher}/keys` (add a key, revoke old ones). Both need `registry:publish`; another tenant's publisher is 404.
+- **Versions.** `PUT /v1/registry/{publisher}/{name}/{version}` takes the module tree as a tar. The API recomputes the tree hash, checks `module.sig` against one of the publisher's unrevoked keys (MF15), validates `module.toml`, and stores the permission summary. A version is immutable: the same version twice is 409.
+- **Reading.** `GET /v1/registry?q=` returns the newest version of each module. `GET …/{version}` and `…/{version}/tree` read one version; a disabled tree is 409 for downloads. `GET …/diff?from=&to=` returns the permissions added and removed, the new migrations, and the templates that changed.
+- **Installs.** `GET /v1/apps/{app}/modules` lists installs. `POST` records one, and only with `approved` equal to the version's own request; any other approval is 409.
+- **Disable.** `POST /v1/registry/disable` takes an operator token (`opsAuth`), a hash and a reason of 10 to 500 characters. It marks every installation of that tree and emails each tenant owner (`module_disabled`). `enabled: true` undoes it.
+- **Audit and the dashboard.** Every call writes an audit row. The dashboard shows installs on the Modules page (`control/dashboard/pages/apps/[app]/modules`) and moderation on `/ops/registry`.
+- **Tests.** `tests/registry.test.ts` and `control/dashboard/tests/modules.test.ts`.
+
 ## Tests
 
 `bun test` in this directory. The tests run on one in-process PGlite (started once per test run, emptied before each test). `tests/postgres.test.ts` also checks the production adapter against a real server when `CONTROL_TEST_DATABASE_URL` is set; the compose stack creates `renox_test` for it:

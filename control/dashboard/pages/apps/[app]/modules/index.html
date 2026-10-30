@@ -1,0 +1,94 @@
+<r-layout use="main">
+  <r-group slot="title">Modules · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
+  <section id="page" r-fragment="page">
+    <h1>Modules</h1>
+    <x-problem :problem="problem" r-if="problem" />
+    <div class="banner problem" role="alert" r-if="disabled">
+      <strong>A module of this app was disabled by Renox.</strong>
+      Running deployments keep running; plan its removal or an upgrade.
+      <ul><li r-for="d in disabled">{{ d }}</li></ul>
+    </div>
+    <p class="notice" r-if="notice">{{ notice }}</p>
+    <p class="problem" r-if="form_error">{{ form_error }}</p>
+    <x-problem :problem="action_problem" r-if="action_problem" />
+
+    <h2>Installed</h2>
+    <table class="list">
+      <thead><tr><th>Module</th><th>Version</th><th>Source</th><th>Status</th><th>Approved</th><th>Actions</th></tr></thead>
+      <tbody>
+        <tr r-for="m in installed">
+          <td><code>{{ m.name }}</code></td>
+          <td>{{ m.version }}</td>
+          <td><code>{{ m.source }}</code></td>
+          <td>{{ m.status }}</td>
+          <td>{{ m.approved_at }}<br><small r-for="p in m.approved">{{ p }}<br></small></td>
+          <td>
+            <x-form action="review" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="m.upgrade">
+              <input type="hidden" name="publisher" :value="m.publisher">
+              <input type="hidden" name="name" :value="m.module">
+              <input type="hidden" name="version" :value="m.upgrade">
+              <button type="submit">Review upgrade</button>
+            </x-form>
+          </td>
+        </tr>
+        <tr r-empty="installed"><td colspan="6">No registry modules installed. Official modules are listed in renox.toml.</td></tr>
+      </tbody>
+    </table>
+
+    <section class="review" r-if="review">
+      <h2 r-if="review.from">Review upgrade: {{ review.name }} {{ review.from }} → {{ review.version }}</h2>
+      <h2 r-if="!review.from">Review install: {{ review.publisher }}/{{ review.name }} {{ review.version }}</h2>
+      <p class="muted">Signed by <code>{{ review.key_id }}</code>, tree <code>{{ review.hash }}</code>, runs in {{ review.isolation }} mode.<span r-if="review.price"> Price {{ review.price }} (not charged in this release).</span></p>
+      <r-group r-if="!review.from">
+        <h3>It asks for</h3>
+        <ul><li r-for="p in review.asks"><code>{{ p }}</code></li><li r-empty="review.asks">Nothing beyond its own tables.</li></ul>
+        <p>{{ review.migration_count }} migration file(s) run on deploy.</p>
+      </r-group>
+      <r-group r-if="review.from">
+        <h3>Permission changes</h3>
+        <ul>
+          <li r-for="p in review.added"><code>+ {{ p }}</code> (new)</li>
+          <li r-for="p in review.removed"><code>- {{ p }}</code></li>
+          <li r-if="review.no_change">No change.</li>
+        </ul>
+        <h3>Migrations</h3>
+        <ul><li r-for="m in review.migrations"><code>{{ m }}</code></li><li r-empty="review.migrations">None.</li></ul>
+        <h3>Contract changes</h3>
+        <p r-if="review.contract">{{ review.contract }}</p>
+        <p r-if="!review.contract">Not recorded by this version.</p>
+        <h3>Your overrides</h3>
+        <ul><li r-for="t in review.templates">upstream changed <code>{{ t }}</code>: check your override of it</li><li r-empty="review.templates">No template changed upstream.</li></ul>
+      </r-group>
+      <x-form action="install" hx-target="#page" hx-swap="outerHTML" class="row">
+        <input type="hidden" name="publisher" :value="review.publisher">
+        <input type="hidden" name="name" :value="review.name">
+        <input type="hidden" name="version" :value="review.version">
+        <input type="hidden" name="hash" :value="review.hash">
+        <a href="/apps/{{ app }}/modules">Cancel</a>
+        <button type="submit">Approve</button>
+      </x-form>
+    </section>
+
+    <h2>Registry</h2>
+    <form method="get" class="row">
+      <label>Search <input name="q" :value="q" maxlength="100"></label>
+      <button type="submit">Search</button>
+    </form>
+    <div class="cards">
+      <article class="card" r-for="c in cards">
+        <h3>{{ c.name }}</h3>
+        <p class="muted">{{ c.publisher }} · {{ c.version }}<span r-if="c.price"> · {{ c.price }}</span></p>
+        <p>{{ c.description }}</p>
+        <p class="muted">signed ✓ <code>{{ c.signed }}</code> · {{ c.isolation }} mode</p>
+        <x-form action="review" hx-target="#page" hx-swap="outerHTML">
+          <input type="hidden" name="publisher" :value="c.publisher">
+          <input type="hidden" name="name" :value="c.name">
+          <input type="hidden" name="version" :value="c.version">
+          <button type="submit">Install</button>
+        </x-form>
+      </article>
+      <p r-empty="cards">No module matches.</p>
+    </div>
+  </section>
+</r-layout>

@@ -165,6 +165,56 @@ export interface LogLine {
   source: "server" | "client";
 }
 
+/** What a module version asks for (deploy-api.md 0.5 section 19; manifest.md 1.2 `[permissions]`). */
+export interface ModulePermissions {
+  tables?: string;
+  network: string[];
+  secrets: string[];
+  slots: string[];
+  hooks: string[];
+  roles?: string[];
+}
+
+/** `RegistryModuleVersion`. */
+export interface RegistryVersion {
+  publisher: string;
+  name: string;
+  version: string;
+  hash: string;
+  key_id: string;
+  description: string | null;
+  isolation: string;
+  permissions: ModulePermissions;
+  migrations: number;
+  price: { amount: string; currency: string; period: string } | null;
+  published_at: number;
+  disabled: { at: number; reason: string } | null;
+}
+
+/** `AppModule`: an installation record of one app. */
+export interface AppModule {
+  name: string;
+  source: string;
+  version: string;
+  hash: string;
+  approved: ModulePermissions;
+  approved_at: number;
+  approved_by: string | null;
+  disabled: { at: number; reason: string } | null;
+}
+
+type PermissionSide = { tables: string | null; network: string[]; secrets: string[]; slots: string[]; hooks: string[]; roles: string[] };
+
+/** `ModuleVersionDiff`: what an upgrade adds and removes. */
+export interface ModuleDiff {
+  from: string;
+  to: string;
+  permissions: { added: PermissionSide; removed: PermissionSide };
+  migrations: string[];
+  contract: { ops_from: string | null; ops_to: string | null };
+  templates: string[];
+}
+
 /** A call that did not give a value: the API's error, or why the API was not reached. */
 /** `OpsReplication` (deploy-api.md 0.3.1 section 17). */
 export interface OpsReplication {
@@ -373,6 +423,29 @@ export class Api {
 
   setClientErrorStatus(app: string, fingerprint: string, status: ClientErrorStatus): Promise<Result<ClientErrorGroup>> {
     return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/client-errors/${encodeURIComponent(fingerprint)}`, { status });
+  }
+
+  // The module registry (deploy-api.md 0.5 section 19, #324).
+
+  listRegistry(q = ""): Promise<Result<{ items: RegistryVersion[]; next_cursor: string | null }>> {
+    return this.json("GET", `/v1/registry${q === "" ? "" : `?q=${encodeURIComponent(q)}`}`);
+  }
+
+  getModuleVersion(publisher: string, name: string, version: string): Promise<Result<RegistryVersion>> {
+    return this.json("GET", `/v1/registry/${encodeURIComponent(publisher)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
+  }
+
+  diffModule(publisher: string, name: string, from: string, to: string): Promise<Result<ModuleDiff>> {
+    return this.json("GET", `/v1/registry/${encodeURIComponent(publisher)}/${encodeURIComponent(name)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  }
+
+  listAppModules(app: string): Promise<Result<{ items: AppModule[] }>> {
+    return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/modules`);
+  }
+
+  /** `installModule`: `approved` must be the version's own request, which the user reviewed. */
+  installModule(app: string, body: { source: string; version: string; hash: string; approved: ModulePermissions }): Promise<Result<AppModule>> {
+    return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/modules`, body);
   }
 
   listSecrets(app: string): Promise<Result<SecretList>> {
