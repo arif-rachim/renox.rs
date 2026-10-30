@@ -1,0 +1,16 @@
+<r-layout use="booking">
+  <r-group slot="title"><r-t key="booking.title" /></r-group>
+  <h1><r-t key="booking.title" /></h1>
+  <ul id="booking-services">
+    <li r-for="s in services"><a href="?service={{ s.id }}&day={{ day }}">{{ s.name }}</a> · {{ s.minutes }} <r-t key="booking.minutes" /><span r-if="s.deposit"> · <r-t key="booking.deposit" /> {{ s.deposit }}</span></li>
+    <li r-empty="services"><r-t key="booking.no_services" /></li>
+  </ul>
+  <section id="booking-slots" r-if="service">
+    <form method="get"><input type="hidden" name="service" :value="service"><label><r-t key="booking.day" /> <input type="date" name="day" :value="day"></label><button type="submit"><r-t key="booking.show" /></button></form>
+    <ul>
+      <li r-for="s in slots"><x-form action="hold" class="inline"><input type="hidden" name="service" :value="service"><input type="hidden" name="staff" :value="s.staff"><input type="hidden" name="start" :value="s.start"><button type="submit">{{ s.time }} · {{ s.staff_name }}</button></x-form></li>
+      <li r-empty="slots"><r-t key="booking.no_slots" /></li>
+    </ul>
+  </section>
+  <p><a href="mine"><r-t key="booking.mine" /></a></p>
+</r-layout>

@@ -1,0 +1,12 @@
+# The app the booking module's worker tests run in (renox test, #334).
+[app]
+name = "bookingtest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+email = { version = "^1.0", source = "path:../../../email", mount = "/email", config = { from = "salon@example.com" } }
+billing = { version = "^1.0", source = "path:../../../billing", mount = "/billing" }
+booking = { version = "^1.0", source = "path:../..", mount = "/booking" }

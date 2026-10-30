@@ -1,0 +1,16 @@
+{
+  "booking": {
+    "title": "Book an appointment",
+    "minutes": "min",
+    "deposit": "deposit",
+    "no_services": "No services yet.",
+    "day": "Day",
+    "show": "Show",
+    "no_slots": "No free time on this day.",
+    "mine": "My bookings",
+    "cancelled": "Cancelled.",
+    "cancel": "Cancel",
+    "none": "Nothing booked.",
+    "calendar": "Calendar"
+  }
+}

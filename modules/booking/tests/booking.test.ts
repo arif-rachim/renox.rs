@@ -15,6 +15,8 @@ function ctx() {
     insert into booking__staff_services values ('sara', 'cut'), ('omar', 'cut');
     insert into booking__hours (staff_id, weekday, open_min, close_min) values ('sara', 4, 540, 660), ('omar', 4, 600, 660);
     insert into booking__hours (staff_id, day, open_min, close_min) values ('sara', '2026-11-12', 1200, 1290), ('omar', '2026-11-12', 0, 0);`);
+  // #334 F67-B: deposits, the window, staff users, reminders, the live-booking index (after the seed's positional inserts).
+  db.exec(readFileSync(join(import.meta.dir, "../migrations/002_deposits_reminders_staff.sql"), "utf8"));
   const emitted: unknown[] = [];
   const c: core.BookingCtx = {
     db: {
@@ -64,4 +66,65 @@ test("hold, confirm, no double booking, an expired hold frees the slot", async (
   await expect(core.hold(c, "cut", "sara", start, "cust_2", h.expires_at + 1)).rejects.toMatchObject({ code: "TAKEN" });
   expect(await core.cancel(c, h.id)).toBe(true);
   await expect(core.hold(c, "cut", "sara", start, "cust_2", now)).resolves.toMatchObject({ id: expect.any(String) });
+});
+
+// #334 F67-B: one live booking per staff and start, deposits, reminders, the cancellation window.
+test("one live booking per staff member and start: a second write of the same start is refused by the index", async () => {
+  const { c } = ctx();
+  const start = local("2026-11-05", 9);
+  await core.hold(c, "cut", "sara", start, "u1", start - 86_400_000);
+  // A writer that skipped the slot search (the race): the unique index refuses it.
+  await expect(c.db.execute("insert into booking__bookings (id, service_id, staff_id, customer, start_at, end_at, status, created_at) values ('x', 'cut', 'sara', 'u2', ?, ?, 'held', 0)", [start, start + 1])).rejects.toThrow();
+  await expect(core.hold(c, "cut", "sara", start, "u2", start - 86_400_000)).rejects.toMatchObject({ code: "TAKEN" });
+  // Once the first hold expires, the start is free again.
+  expect(await core.hold(c, "cut", "sara", start, "u2", start - 86_400_000 + 11 * 60_000)).toMatchObject({ pay_url: null });
+});
+
+test("a deposit: the hold answers the checkout; paying it confirms and schedules the 24 h and 2 h reminders, each sent once", async () => {
+  const { c, emitted } = ctx();
+  await c.db.execute("update booking__services set deposit_fils = 5000 where id = 'cut'");
+  const orders: unknown[] = [];
+  c.deposit = async (o) => (orders.push(o), { url: "https://checkout.stripe.com/c/cs_1" });
+  const queued: unknown[] = [];
+  c.jobs = { enqueue: async (name, payload, o) => (queued.push([name, payload, o?.runAt]), "job_1") };
+  const start = local("2026-11-05", 10);
+  const now = start - 3 * 86_400_000;
+  const h = await core.hold(c, "cut", "sara", start, "u1", now);
+  expect(h.pay_url).toBe("https://checkout.stripe.com/c/cs_1");
+  expect(orders).toEqual([{ order_id: `booking:${h.id}`, customer_id: "u1", amount: 5000, description: "Deposit: Haircut" }]);
+  const hooks = await import("../hooks.ts");
+  await hooks.on["billing.checkout_completed"](c, { payload: { order_id: `booking:${h.id}` } });
+  expect((await c.db.queryOne<{ status: string }>("select status from booking__bookings where id = ?", [h.id]))?.status).toBe("confirmed");
+  expect(emitted).toEqual([{ booking_id: h.id }]);
+  expect(queued).toEqual([
+    ["reminder", { booking_id: h.id, kind: "24h" }, start - 24 * 3_600_000],
+    ["reminder", { booking_id: h.id, kind: "2h" }, start - 2 * 3_600_000],
+  ]);
+  expect(await core.reminderDue(c, h.id, "24h", start - 24 * 3_600_000)).toMatchObject({ customer: "u1", service: "Haircut" });
+  expect(await core.reminderDue(c, h.id, "24h", start - 24 * 3_600_000)).toBeNull();
+  // Another order's completion is not a booking's.
+  await hooks.on["billing.checkout_completed"](c, { payload: { order_id: "order-9" } });
+});
+
+test("cancelling: only the customer's own; inside the window a paid deposit is retained, outside it is not; a missed reminder after a cancel is not sent; no-show after the start", async () => {
+  const { c, emitted } = ctx();
+  await c.db.execute("update booking__services set deposit_fils = 5000, cancel_hours = 24 where id = 'cut'");
+  c.deposit = async () => ({ url: "https://pay" });
+  const start = local("2026-11-05", 9, 30);
+  const early = await core.hold(c, "cut", "sara", start, "u1", start - 5 * 86_400_000);
+  await core.confirm(c, early.id, start - 5 * 86_400_000);
+  await expect(core.cancel(c, early.id, { customer: "u2" }, start - 4 * 86_400_000)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  expect(await core.cancel(c, early.id, { customer: "u1" }, start - 4 * 86_400_000)).toBe(true);
+  expect(await core.reminderDue(c, early.id, "2h", start - 2 * 3_600_000)).toBeNull();
+  const late = await core.hold(c, "cut", "sara", start, "u1", start - 4 * 86_400_000);
+  await core.confirm(c, late.id, start - 4 * 86_400_000);
+  expect(await core.cancel(c, late.id, {}, start - 3_600_000)).toBe(true);
+  expect(emitted.filter((e) => typeof (e as { deposit_retained?: boolean }).deposit_retained === "boolean")).toEqual([
+    { booking_id: early.id, deposit_retained: false },
+    { booking_id: late.id, deposit_retained: true },
+  ]);
+  const third = await core.hold(c, "cut", "sara", start, "u3", start - 3_600_000);
+  await core.confirm(c, third.id, start - 3_600_000);
+  expect(await core.noShow(c, third.id, start - 60_000)).toBe(false);
+  expect(await core.noShow(c, third.id, start + 60_000)).toBe(true);
 });
