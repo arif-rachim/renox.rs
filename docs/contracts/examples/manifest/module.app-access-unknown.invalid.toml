@@ -1,0 +1,7 @@
+# [expect: enum] app_access is read or write; DDL on app tables is never granted
+[module]
+name = "reports"
+version = "1.0.0"
+
+[permissions]
+app_access = "ddl"

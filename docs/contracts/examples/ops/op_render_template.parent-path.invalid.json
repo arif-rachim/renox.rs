@@ -1,0 +1,9 @@
+{
+  "$comment": "invalid: a template id never leaves the caller's tree [expect: pattern]",
+  "op": "op_render_template",
+  "args": [
+    "../app/partials/secret",
+    "{}",
+    "email"
+  ]
+}

@@ -1,0 +1,3 @@
+# 1.3: the app grants the reports module two of its own tables.
+[modules]
+reports = { version = "^1.0", app_tables = ["app__orders", "app__customers"] }

@@ -142,6 +142,7 @@ function base(d: Dash, method: string, path: string, params: Ctx["params"]): Ctx
     },
     ai: { chat: () => Promise.reject(new Error("no ai in unit tests")) },
     pdf: { render: () => Promise.reject(new Error("no pdf in unit tests")) },
+    render: () => Promise.reject(new Error("no render in unit tests")),
   };
 }
 

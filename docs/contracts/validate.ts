@@ -815,6 +815,7 @@ function entriesRules(manifest: JsonObject): string[] {
 function routeTableRules(table: JsonObject): string[] {
   const errors: string[] = [];
   const active = new Set<string>();
+  const suspended = new Set<string>();
   const pairs = new Set<string>();
   for (const e of table.entries as JsonObject[]) {
     const pair = `${e.hostname} ${e.deployment_hash}`;
@@ -824,7 +825,11 @@ function routeTableRules(table: JsonObject): string[] {
       if (active.has(e.hostname as string)) errors.push(`V13: more than one active entry for ${e.hostname}`);
       active.add(e.hostname as string);
     }
+    // artifact 1.5 / deploy-api 0.5.1: a suspended hostname has no active entry, and only a suspended entry names the tenant.
+    if (e.status === "suspended") suspended.add(e.hostname as string);
+    if (e.display_name !== undefined && e.status !== "suspended") errors.push(`V13: display_name on a ${e.status} entry of ${e.hostname} (only suspended entries carry it)`);
   }
+  for (const h of suspended) if (active.has(h)) errors.push(`V13: ${h} is both suspended and active`);
   return errors;
 }
 
@@ -844,6 +849,7 @@ function meterBatchRules(batch: JsonObject): string[] {
 function routeSnapshotRules(snapshot: JsonObject): string[] {
   const errors: string[] = [];
   const active = new Set<string>();
+  const suspended = new Set<string>();
   const pairs = new Set<string>();
   for (const e of snapshot.entries as JsonObject[]) {
     const pair = `${e.hostname} ${e.deployment_hash}`;
@@ -853,10 +859,14 @@ function routeSnapshotRules(snapshot: JsonObject): string[] {
       if (active.has(e.hostname as string)) errors.push(`R1: more than one active entry for ${e.hostname}`);
       active.add(e.hostname as string);
     }
+    // artifact 1.5 / deploy-api 0.5.1: a suspended hostname has no active entry, and only a suspended entry names the tenant.
+    if (e.status === "suspended") suspended.add(e.hostname as string);
+    if (e.display_name !== undefined && e.status !== "suspended") errors.push(`R1: display_name on a ${e.status} entry of ${e.hostname} (only suspended entries carry it)`);
     if ((e.version as number) > (snapshot.version as number)) {
       errors.push(`R2: entry ${e.hostname} -> ${e.deployment_hash} has version ${e.version} above the snapshot's ${snapshot.version}`);
     }
   }
+  for (const h of suspended) if (active.has(h)) errors.push(`R1: ${h} is both suspended and active`);
   return errors;
 }
 
@@ -999,6 +1009,11 @@ function permissionRules(name: string, permissions: JsonObject, where: string): 
   return errors;
 }
 
+/** MF16 (1.3): app tables a module is granted are the app's own `app__` tables, never a module's or the platform's. */
+function appTableRules(tables: string[], where: string): string[] {
+  return tables.filter((t) => !t.startsWith("app__")).map((t) => `MF16: ${where} "${t}" is not an app__ table`);
+}
+
 /** MF10: the reason a config value does not fit its declaration, or null. */
 function configValueProblem(decl: JsonObject, value: Json): string | null {
   switch (decl.type) {
@@ -1073,12 +1088,13 @@ function moduleRules(doc: JsonObject): string[] {
   return errors;
 }
 
-/** MF1 on a renox.toml that passed the schema; MF13 and MF14 on its [authz] and [realtime] (1.1). */
+/** MF1 and MF16 on a renox.toml that passed the schema; MF13 and MF14 on its [authz] and [realtime] (1.1). */
 function renoxRules(doc: JsonObject): string[] {
   const errors: string[] = [];
-  for (const key of Object.keys(obj(doc.modules))) {
+  for (const [key, m] of Object.entries(obj(doc.modules))) {
     const p = moduleNameProblem(key);
     if (p !== null) errors.push(`MF1: [modules] "${key}" ${p}`);
+    errors.push(...appTableRules(strings(obj(m).app_tables), `[modules].${key}.app_tables`));
   }
   // The app assigns any role, so its permissions.roles are its default_roles by definition.
   const appRoles = { roles: Object.keys(obj(obj(doc.authz).default_roles)) };
@@ -1086,7 +1102,7 @@ function renoxRules(doc: JsonObject): string[] {
   return errors;
 }
 
-/** MF1, MF3 (unique names), MF4 (approved), MF5 (order) on a renox.lock that passed the schema. */
+/** MF1, MF3 (unique names), MF4 (approved), MF5 (order), MF15, MF16 on a renox.lock that passed the schema. */
 function lockRules(doc: JsonObject): string[] {
   const errors: string[] = [];
   const seen = new Set<string>();
@@ -1098,6 +1114,11 @@ function lockRules(doc: JsonObject): string[] {
     for (const dep of strings(e.dependencies)) if (!seen.has(dep)) errors.push(`MF5: ${name} is listed before its dependency ${dep} (or ${dep} is not installed)`);
     seen.add(name);
     errors.push(...permissionRules(name, obj(e.approved), `${name}.approved`));
+    // MF16 (1.3): granted app tables are app__ tables, sorted, and need an approved app_access.
+    const granted = strings(obj(e.approved).app_tables);
+    errors.push(...appTableRules(granted, `${name}.approved.app_tables`));
+    if (granted.join() !== [...granted].sort().join()) errors.push(`MF16: ${name}.approved.app_tables is not sorted`);
+    if (granted.length > 0 && obj(e.approved).app_access === undefined) errors.push(`MF16: ${name}.approved.app_tables without app_access`);
     // MF15 (1.2): key_id and signature exactly for registry sources, whose <name> is the entry's.
     const registry = /^registry:([a-z0-9-]+)\/([a-z0-9_]+)$/u.exec(e.source as string);
     const signed = e.key_id !== undefined || e.signature !== undefined;
@@ -1127,6 +1148,7 @@ const normalisedPermissions = (p: JsonObject): string =>
     slots: strings(p.slots).sort(),
     hooks: strings(p.hooks).sort(),
     roles: strings(p.roles).sort(),
+    app_access: (p.app_access as Json | undefined) ?? null,
   });
 
 /** The project rules (MF2, MF3, MF5, MF7-MF12) on an example app: renox.toml, renox.lock, path: module trees. */
@@ -1286,6 +1308,11 @@ function checkProject(dir: string): string[] {
     if (normalisedPermissions(obj(e.approved)) !== normalisedPermissions(obj(manifest.permissions))) {
       errors.push(`MF12: ${key}: [permissions] differ from the approved permissions in renox.lock; run renox approve ${key}`);
     }
+    // MF16 (1.3): the grant is the app's, so the lock records renox.toml's app_tables; a grant needs an asked app_access.
+    const grant = strings(m.app_tables);
+    const locked = strings(obj(e.approved).app_tables);
+    if (locked.join() !== [...grant].sort().join()) errors.push(`MF16: ${key}.approved.app_tables in renox.lock is ${JSON.stringify(locked)}, expected ${JSON.stringify([...grant].sort())}; run renox approve ${key}`);
+    if (grant.length > 0 && obj(manifest.permissions).app_access === undefined) errors.push(`MF16: ${key}: renox.toml grants app_tables but the manifest asks no permissions.app_access`);
   }
   return errors;
 }
@@ -1688,8 +1715,8 @@ for (const name of listDir(`${manifestDir}/projects`)) {
 for (const [kind, { valid, invalid }] of Object.entries(manifestCounts)) {
   report(valid >= 1 && invalid >= 3, `manifest ${kind}: ${valid} valid and ${invalid} invalid examples (at least 1 and 3)`);
 }
-const mfMissing = Array.from({ length: 15 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
-report(mfMissing.length === 0, "every rule MF1-MF15 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
+const mfMissing = Array.from({ length: 16 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
+report(mfMissing.length === 0, "every rule MF1-MF16 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
 
 const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
 report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);

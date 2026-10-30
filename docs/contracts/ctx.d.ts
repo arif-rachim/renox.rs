@@ -363,7 +363,12 @@ export interface Ctx {
   readonly ai: Ai;
   /** Templates to PDF in Rust (section 24, 1.7.0). */
   readonly pdf: Pdf;
-  // Reserved (section 8): render, kv (F2); datasource (F6–F7); domains (F7);
+  /**
+   * Renders `template` (a page or partial of the caller; for a module, relative to its own tree)
+   * with `data` to an HTML string, as a fragment: no layout (section 25, 1.8.0).
+   */
+  render(template: string, data: Readonly<Record<string, unknown>>): Promise<string>;
+  // Reserved (section 8): kv (F2); datasource (F6–F7); domains (F7);
   // offload. `webhook` is on WebhookContext (section 22). `auth` is a service of the `auth` module, not a
   // ctx field. Pages get more fields (section 14, below).
 }
@@ -993,7 +998,7 @@ export declare class StorageError extends RenoxError {
 // Webhooks (section 22, 1.7.0)
 // ---------------------------------------------------------------------------
 
-export type WebhookProvider = "stripe" | "checkout" | "telr" | "paytabs" | "ngenius" | "tabby" | "tamara" | "apple" | "google" | "generic";
+export type WebhookProvider = "stripe" | "checkout" | "telr" | "paytabs" | "ngenius" | "tabby" | "tamara" | "svix" | "sns" | "apple" | "google" | "generic";
 export interface WebhookEvent {
   readonly provider: WebhookProvider;
   readonly event_id: string;
@@ -1062,7 +1067,7 @@ export interface PdfOptions {
   readonly marginMm?: number;
 }
 export interface Pdf {
-  /** Renders `template` (a page or partial of the caller) with `data` and converts it to PDF in Rust. */
+  /** Renders `template` (a page or partial of the caller; for a module, relative to its own tree, 1.8.0) with `data` and converts it to PDF in Rust. */
   render(template: string, data: Readonly<Record<string, unknown>>, options?: PdfOptions): Promise<Uint8Array>;
 }
 export declare class PdfLimitError extends RenoxError {

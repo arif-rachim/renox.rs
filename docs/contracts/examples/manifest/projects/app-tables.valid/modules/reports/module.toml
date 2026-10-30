@@ -1,0 +1,6 @@
+[module]
+name = "reports"
+version = "1.0.0"
+
+[permissions]
+app_access = "read"

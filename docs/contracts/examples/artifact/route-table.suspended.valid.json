@@ -1,0 +1,14 @@
+{
+  "$comment": "valid: a suspended tenant's hostname answers the neutral page (artifact.md 1.5 section 5)",
+  "version": 0,
+  "entries": [
+    {
+      "hostname": "hello.renox.app",
+      "tenant_id": "t_hello",
+      "deployment_hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a",
+      "status": "suspended",
+      "display_name": "Hello Trading",
+      "updated_at": 1793318400000
+    }
+  ]
+}

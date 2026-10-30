@@ -1,0 +1,3 @@
+# [expect: MF16] the app grants only its own app__ tables, never another module's
+[modules]
+reports = { version = "^1.0", app_tables = ["app__orders", "billing__invoices"] }

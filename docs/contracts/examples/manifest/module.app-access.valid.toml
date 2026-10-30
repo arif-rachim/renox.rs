@@ -1,0 +1,10 @@
+# 1.3: a reports module that reads app tables the app grants it in
+# renox.toml (app_tables); it never sees an app table it was not granted.
+[module]
+name = "reports"
+version = "1.0.0"
+description = "Saved reports over the app's own tables"
+
+[permissions]
+tables = "reports__*"
+app_access = "read"

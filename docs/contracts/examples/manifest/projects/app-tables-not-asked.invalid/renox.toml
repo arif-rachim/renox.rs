@@ -1,0 +1,3 @@
+# [expect: MF16] renox.toml grants app__orders, but the manifest asks no app_access
+[modules]
+reports = { version = "^1.0", source = "path:modules/reports", app_tables = ["app__orders"] }

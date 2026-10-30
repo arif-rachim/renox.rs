@@ -153,6 +153,9 @@
     },
     {
       "$ref": "#/$defs/call_op_render_pdf"
+    },
+    {
+      "$ref": "#/$defs/call_op_render_template"
     }
   ],
   "$defs": {
@@ -4446,9 +4449,11 @@
         "tamara",
         "apple",
         "google",
+        "svix",
+        "sns",
         "generic"
       ],
-      "description": "ops.md section 22 (1.7.0)."
+      "description": "ops.md section 22 (1.7.0; svix and sns 1.8.0)."
     },
     "call_op_webhook_verify": {
       "type": "object",
@@ -4763,6 +4768,54 @@
         "result": {
           "type": "string",
           "contentEncoding": "base64"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_render_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 25 (1.8.0): template id (relative to the module's tree for a module), data JSON, module; the rendered fragment as an HTML string.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_render_template"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9_./-]+$"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "type": "string"
         },
         "error": {
           "$ref": "#/$defs/error"

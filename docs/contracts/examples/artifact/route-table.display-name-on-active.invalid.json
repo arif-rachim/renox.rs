@@ -1,0 +1,14 @@
+{
+  "$comment": "invalid: display_name is for suspended entries only (artifact.md 1.5 section 5) [expect: V13]",
+  "version": 0,
+  "entries": [
+    {
+      "hostname": "hello.renox.app",
+      "tenant_id": "t_hello",
+      "deployment_hash": "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a",
+      "status": "active",
+      "display_name": "Hello Trading",
+      "updated_at": 1793318400000
+    }
+  ]
+}

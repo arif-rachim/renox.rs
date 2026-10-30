@@ -1,0 +1,3 @@
+# 1.3: the app grants reports read access to app__orders.
+[modules]
+reports = { version = "^1.0", source = "path:modules/reports", app_tables = ["app__orders"] }

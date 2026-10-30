@@ -1,0 +1,17 @@
+{
+  "$comment": "valid (1.8.0): a Svix-signed event to a module; the key is BILLING_WEBHOOK_SVIX_SECRET (ops.md section 22)",
+  "op": "op_webhook_verify",
+  "args": [
+    "svix",
+    null,
+    null,
+    "billing"
+  ],
+  "result": {
+    "provider": "svix",
+    "event_id": "msg_2LJm5TQLbEB2dZcwrI9hfGzHpSW",
+    "received_at": 1793404800000,
+    "payload_json": "{\"type\":\"invoice.paid\"}",
+    "duplicate": false
+  }
+}
