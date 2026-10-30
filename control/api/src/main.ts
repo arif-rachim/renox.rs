@@ -15,6 +15,7 @@ import { openPglite } from "./db/pglite.ts";
 import { MemoryObjectStore, S3ObjectStore } from "./storage/object-store.ts";
 import type { Db } from "./db/db.ts";
 import { sweepErasures } from "./tenants/erasure.ts";
+import { endExpiredImpersonations } from "./ops/breakglass.ts";
 import { routeService } from "./routes/service.ts";
 import { sweep } from "./workers/health.ts";
 import { NullMailer, OutboxDirMailer } from "./auth/mailer.ts";
@@ -54,6 +55,8 @@ setInterval(() => void sweep(deps).catch((e: unknown) => log.error("sweep failed
 // Custom domains: verification, DNS checks, certificates (src/domains/README.md).
 await startDomainJobs(deps);
 // Tenant erasures (#308): due steps retried every minute (each erasure's own retry is hourly).
+// Break-glass impersonations past their 60 minutes end with an audit row and the owner's email (#310).
+setInterval(() => void endExpiredImpersonations(deps).catch((e: unknown) => log.error("impersonation sweep failed", { error: String(e) })), 30_000);
 setInterval(() => void sweepErasures(deps).catch((e: unknown) => log.error("erasure sweep failed", { error: String(e) })), 60_000);
 if ((config.exportKmsKeyId ?? null) === null) log.warn("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (local mode only)");
 

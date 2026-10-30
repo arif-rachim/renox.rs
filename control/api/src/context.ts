@@ -39,6 +39,8 @@ export type Env = {
     attempt: { tenantId: string | null; actor: string } | undefined;
     /** Audit target fields a handler adds to the path parameters (never a secret). */
     auditTarget: Record<string, string> | undefined;
+    /** Overrides the audit row's actor: a break-glass token's requests are the operator's (#310). */
+    auditActor: string | undefined;
   };
 };
 

@@ -112,6 +112,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   impersonateTenant: "operator",
   endImpersonation: "operator",
   getTenant: "apps:read",
+  // security.txt on the API host (src/well-known.ts, #310).
+  getSecurityTxt: "public",
   deleteTenant: "tenant:delete",
   // Accounts (src/auth/accounts.ts).
   signup: "public",
