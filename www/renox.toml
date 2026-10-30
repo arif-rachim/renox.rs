@@ -1,0 +1,10 @@
+# renox.app: the public site (#326). The documentation under docs/, rendered
+# from the repository's markdown at build time; the pricing page from
+# pricing.toml; the DPA and terms. No network, no secrets, no database.
+[app]
+name = "www"
+timezone = "Asia/Dubai"
+
+[permissions]
+network = []
+secrets = []

@@ -1,0 +1,14 @@
+{
+  "name": "@renox/www",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "renox": "workspace:*"
+  },
+  "devDependencies": {
+    "@renox/billing": "workspace:*"
+  }
+}

@@ -115,6 +115,15 @@
         "kysely",
       ],
     },
+    "www": {
+      "name": "@renox/www",
+      "dependencies": {
+        "renox": "workspace:*",
+      },
+      "devDependencies": {
+        "@renox/billing": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@electric-sql/pglite": ["@electric-sql/pglite@0.5.12", "", {}, "sha512-IiAxv1ld1V9QP0AWsflliDqrGRo+20O+yXOr2fjk6YzBHsCvTPclwQhCB1uZ7eHtPrxUrSllNzWgqy/Ot76PEw=="],
@@ -152,6 +161,8 @@
     "@renox/control-api": ["@renox/control-api@workspace:control/api"],
 
     "@renox/dashboard": ["@renox/dashboard@workspace:control/dashboard"],
+
+    "@renox/www": ["@renox/www@workspace:www"],
 
     "@stablelib/base64": ["@stablelib/base64@1.0.1", "", {}, "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ=="],
 
