@@ -1,0 +1,77 @@
+{
+  "id": "CHAOS-pubsub-drop",
+  "scenario": "pubsub-drop",
+  "title": "Realtime client links dropped",
+  "failureModes": [
+    "WebSocket message flood / oversized frame"
+  ],
+  "description": "20 SSE and 20 WebSocket clients on one topic through a TCP proxy, 50 messages per second published by a function; every client link cut for 1 s (inside the 100-event replay buffer), then for 4 s (past it), the node and its hub running throughout",
+  "verdict": "PASS",
+  "result": "745 messages published (745×200); SSE missed 0–0 of 50 inside the buffer and 107–108 of 200 past it; every client reconnected 2–2 times; meter 368.7 s vs 366.3 s measured",
+  "target": "one reconnect per drop; SSE contiguous inside the replay buffer; past it, the buffer's events only and no error; no RENOX_REALTIME_LIMIT; meter seconds = connection seconds (±5 %)",
+  "alerts": [],
+  "checks": [
+    {
+      "name": "the publisher sees nothing",
+      "ok": true,
+      "detail": "publishes: 745×200"
+    },
+    {
+      "name": "each cut drops every client link",
+      "ok": true,
+      "detail": "proxied connections closed: 40 and 40 (40 clients)"
+    },
+    {
+      "name": "each client reconnects exactly once per cut",
+      "ok": true,
+      "detail": "reconnects per client: min 2, max 2 (2 cuts)"
+    },
+    {
+      "name": "SSE inside the replay buffer: nothing missed",
+      "ok": true,
+      "detail": "50 events published during the 1 s cut; missing across the reconnect per client 0–0; every connection's stream without hole or repeat: true"
+    },
+    {
+      "name": "SSE past the buffer: the newest 100 replayed, the older ones gone",
+      "ok": true,
+      "detail": "200 events during the 4 s cut; missing across the reconnect per client 107–108 (expected 100, plus what was published before the client was back)"
+    },
+    {
+      "name": "WebSocket: no replay, a clean stream after each reconnect",
+      "ok": true,
+      "detail": "missing across the reconnects per client 54–55 of 50 and 207–208 of 200 published during the cuts; every connection's stream without hole or repeat: true"
+    },
+    {
+      "name": "no RENOX_REALTIME_LIMIT",
+      "ok": true,
+      "detail": "0 (client refusals plus `busy` records)"
+    },
+    {
+      "name": "the meter records sum to the connection seconds",
+      "ok": true,
+      "detail": "120 records (60 WS, 60 SSE) for 120 connections; realtime_conn_seconds 368.7 s, client-measured 366.3 s (0.7 %)"
+    }
+  ],
+  "metrics": {
+    "published": 745,
+    "short_cut_events": 50,
+    "long_cut_events": 200,
+    "sse_missed_short_max": 0,
+    "sse_missed_long_min": 107,
+    "sse_missed_long_max": 108,
+    "ws_missed_short_max": 55,
+    "ws_missed_long_max": 208,
+    "connections": 120,
+    "meter_records": 120,
+    "meter_records_ws": 60,
+    "meter_records_sse": 60,
+    "meter_conn_seconds": 368.701,
+    "client_conn_seconds": 366.254
+  },
+  "notes": [
+    "The replay buffer is 100 events or 60 s, whichever is shorter (ops.md section 18): at 50 messages per second it holds 2 s, so the long cut is past it although it is well under 60 s.",
+    "Past the buffer no event names the gap (#281 implements none; the contract says the client re-reads its state); the SSE `id:` jumps.",
+    "The clients close while messages are still published: on a quiet topic the node sees an SSE client leave only at its next 15 s keep-alive (ops.md section 18), so that connection is metered until then.",
+    "The cut is of the client links only; a worker restart takes the hub and its buffer with it (ids restart at 1), which no scenario here asserts."
+  ]
+}
