@@ -211,6 +211,12 @@ Override drift is detected by `renox build` (#235), not here: the artifact carri
 
 Tests: `tests/modules_pages.rs`.
 
+### `isolate` mode (#320)
+
+A module installed with `isolation = "isolate"` (D12; `docs/contracts/ops.md` 1.7.0 section 15.6) runs in an isolate of its own inside the tenant's process, created on its first call (and at start when it has `hooks.ts`, for the event fan-out), with the tier's heap and CPU limits of one isolate. The app's isolate never evaluates its code and never holds its secrets; the module's isolate evaluates only its code and holds only its approved secrets. Its routes, jobs, durable events and tool calls are sent to its isolate; service calls and hook fillers cross through `op_modules_call` as JSON of at most 1 MiB each way, with the caller's request id, deadline, principal and open transaction (the callee's statements join it; the caller commits or rolls back). Tables, secrets and hosts stay enforced in Rust from the `module` argument, as in `shared` mode. The callee's CPU, database time, fetch bytes and Cedar evaluations are charged to the caller's meter record; a heap or CPU limit ends the module's isolate only, and the next call creates it again. `/metrics` counts the live ones (`renox_module_isolates`). In-memory (non-durable) `on` handlers of an `isolate` module are not run from another isolate; durable events reach it through the outbox.
+
+Tests: `tests/isolate_mode.rs`.
+
 ## Authorization (#279)
 
 The cell enforces `docs/contracts/ops.md` 1.5.0 section 17 (`docs/11-authorization.md`, "Enforcement points"):

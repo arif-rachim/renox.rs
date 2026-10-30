@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
@@ -193,6 +193,19 @@ pub enum Invoke {
         name: String,
         args_json: String,
     },
+    /// `isolate` mode (ops.md 1.7.0 section 15.6, #320): a service or a
+    /// hook filler of `module`, called from another isolate of the
+    /// deployment within the caller's request (its principal and its open
+    /// transaction `tx`, 0 for none).
+    Cross {
+        kind: crate::ops::modules::CrossKind,
+        caller: String,
+        module: String,
+        name: String,
+        args_json: String,
+        tx: u32,
+        principal: Option<Arc<renox_authz::Principal>>,
+    },
     /// The tool named `name`'s `run` with the token's user as principal.
     /// `preview`: inside a transaction that is always rolled back.
     Tool {
@@ -209,6 +222,7 @@ impl Invoke {
     pub fn route(&self) -> String {
         match self {
             Invoke::Service { module, name, .. } => format!("SERVICE {module}.{name}"),
+            Invoke::Cross { module, name, .. } => format!("SERVICE {module}.{name}"),
             Invoke::Tool { name, .. } => format!("TOOL {name}"),
         }
     }
@@ -812,6 +826,13 @@ pub struct Pool {
     /// Serialises re-creation so concurrent requests build one isolate.
     respawn: tokio::sync::Mutex<()>,
     last_failure: Mutex<Option<(Instant, CreateError)>>,
+    /// `isolate` mode (ops.md 1.7.0 section 15.6): the isolate of each
+    /// module with `isolation = "isolate"`, created on its first use.
+    isolated: Mutex<BTreeMap<String, Arc<IsolateThread>>>,
+    /// Serialises the creation of module isolates.
+    isolated_spawn: tokio::sync::Mutex<()>,
+    /// This pool, for the cross-isolate calls of its isolates' ops.
+    link: Arc<OnceLock<Weak<Pool>>>,
 }
 
 impl IsolateHandle {
@@ -906,15 +927,30 @@ impl IsolateHandle {
             growing: AtomicBool::new(false),
             respawn: tokio::sync::Mutex::new(()),
             last_failure: Mutex::new(None),
+            isolated: Mutex::new(BTreeMap::new()),
+            isolated_spawn: tokio::sync::Mutex::new(()),
+            link: Arc::new(OnceLock::new()),
         };
         let thread = pool.spawn_thread().await?;
         pool.members
             .lock()
             .expect("pool lock")
             .push(Arc::new(thread));
-        Ok(IsolateHandle {
-            inner: Arc::new(pool),
-        })
+        let inner = Arc::new(pool);
+        let _ = inner.link.set(Arc::downgrade(&inner));
+        // An `isolate` module with `hooks.ts` gets its isolate now: the
+        // cell's event fan-out needs its `on` map (ops.md 1.3.0 section 15.4).
+        for m in inner.modules.modules() {
+            let hooks = format!("modules/{}/hooks", m.name);
+            if m.isolation == "isolate" && inner.artifact.manifest.code.entry.contains_key(&hooks) {
+                let pool = inner.clone();
+                let name = m.name.clone();
+                tokio::spawn(async move {
+                    let _ = pool.module_thread(&name).await;
+                });
+            }
+        }
+        Ok(IsolateHandle { inner })
     }
 
     /// Dispatch one request to the handler its route names.
@@ -1097,12 +1133,19 @@ impl Pool {
     pub fn terminate(&self) {
         let members = std::mem::take(&mut *self.members.lock().expect("pool lock"));
         let spare = self.spare.lock().expect("pool lock").take();
-        for t in members.iter().chain(spare.iter()) {
+        let isolated = std::mem::take(&mut *self.isolated.lock().expect("pool lock"));
+        for t in members.iter().chain(spare.iter()).chain(isolated.values()) {
             t.poison();
         }
     }
 
     async fn spawn_thread(&self) -> Result<IsolateThread, CreateError> {
+        self.spawn_thread_for(None).await
+    }
+
+    /// An isolate of the deployment: the app's (`only` is `None`: the app
+    /// and its `shared` modules), or the one of `isolate` module `only`.
+    async fn spawn_thread_for(&self, only: Option<String>) -> Result<IsolateThread, CreateError> {
         let (tx, rx) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = oneshot::channel();
         let shared = Arc::new(ThreadShared {
@@ -1121,11 +1164,16 @@ impl Pool {
             realtime: self.realtime.clone(),
             sink: self.sink.clone(),
             shared: shared.clone(),
+            only: only.clone(),
+            link: self.link.clone(),
         };
-        let name = format!(
-            "renox-isolate-{}",
-            &self.spec.deployment_hash[..12.min(self.spec.deployment_hash.len())]
-        );
+        let name = match &only {
+            None => format!(
+                "renox-isolate-{}",
+                &self.spec.deployment_hash[..12.min(self.spec.deployment_hash.len())]
+            ),
+            Some(m) => format!("renox-module-{}", &m[..m.len().min(16)]),
+        };
         std::thread::Builder::new()
             .name(name)
             .spawn(move || isolate_thread_main(ctx, rx, ready_tx))
@@ -1314,6 +1362,161 @@ impl Pool {
         }
     }
 
+    /// The isolate that runs code of `owner` (`app` or a module): the
+    /// module's own for an `isolate` module, else a member of the pool.
+    async fn thread_for(self: &Arc<Self>, owner: &str) -> Result<LoadGuard, CreateError> {
+        if self.modules.is_isolated(owner) {
+            self.module_thread(owner).await
+        } else {
+            self.live_thread().await
+        }
+    }
+
+    /// The isolate of `isolate` module `name`, created on first use and
+    /// again after it was poisoned (its heap or CPU limit; the app's
+    /// members are not touched).
+    async fn module_thread(self: &Arc<Self>, name: &str) -> Result<LoadGuard, CreateError> {
+        let pick = |pool: &Pool| -> Option<LoadGuard> {
+            let mut map = pool.isolated.lock().expect("pool lock");
+            match map.get(name) {
+                Some(t) if t.healthy() => Some(LoadGuard::take(t)),
+                Some(_) => {
+                    map.remove(name);
+                    pool.count_recycle(1);
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some(t) = pick(self) {
+            return Ok(t);
+        }
+        let _guard = self.isolated_spawn.lock().await;
+        if let Some(t) = pick(self) {
+            return Ok(t);
+        }
+        let t = Arc::new(self.spawn_thread_for(Some(name.to_string())).await?);
+        let guard = LoadGuard::take(&t);
+        self.isolated
+            .lock()
+            .expect("pool lock")
+            .insert(name.to_string(), t);
+        Ok(guard)
+    }
+
+    /// Live isolates of `isolate` modules (ops.md 1.7.0 section 15.6), by module.
+    pub fn module_isolates(&self) -> Vec<String> {
+        self.isolated
+            .lock()
+            .expect("pool lock")
+            .iter()
+            .filter(|(_, t)| t.healthy())
+            .map(|(m, _)| m.clone())
+            .collect()
+    }
+
+    /// Runs one cross-isolate call (`op_modules_call`) on the callee's
+    /// isolate, inside the caller's request: no concurrency slot of its
+    /// own, the caller's deadline.
+    async fn cross_call(
+        self: &Arc<Self>,
+        call: crate::ops::modules::CrossCall,
+    ) -> (
+        crate::ops::modules::CrossResult,
+        crate::ops::modules::CrossUse,
+    ) {
+        use crate::ops::modules::{CrossResult, CrossUse, MAX_CROSS_BYTES};
+        let member = match self.thread_for(&call.target).await {
+            Ok(t) => t,
+            Err(e) => {
+                return (
+                    CrossResult::Failed(e.code().as_str().to_string()),
+                    CrossUse::default(),
+                );
+            }
+        };
+        let deadline = call.deadline;
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let job = DispatchJob {
+            seq,
+            route: usize::MAX,
+            params: Arc::new(BTreeMap::new()),
+            method: String::new(),
+            url: String::new(),
+            headers: Arc::new(Vec::new()),
+            body: Bytes::new(),
+            want_body: false,
+            page: None,
+            event: None,
+            guarded: false,
+            realtime: None,
+            invoke: Some(Invoke::Cross {
+                kind: call.kind,
+                caller: call.caller,
+                module: call.target,
+                name: call.name,
+                args_json: call.args_json,
+                tx: call.tx.unwrap_or(0),
+                principal: call.principal,
+            }),
+            ctx: RequestCtx {
+                request_id: call.request_id,
+                deadline,
+            },
+            reply: reply_tx,
+        };
+        let _ = member.0.tx.send(Command::Dispatch(Box::new(job)));
+        let used = |m: &InvocationMeter| CrossUse {
+            cpu_ms: m.cpu_ms,
+            db_ms: m.db_ms,
+            db_rows: m.db_rows,
+            fetch_sent_bytes: m.fetch_sent_bytes,
+            fetch_received_bytes: m.fetch_received_bytes,
+            fetch_blocked: m.fetch_blocked,
+            logs_dropped: m.logs_dropped,
+            authz_evals: m.authz_evals,
+        };
+        match tokio::time::timeout_at(deadline.into(), reply_rx).await {
+            Ok(Ok(ThreadReply::Invoked { outcome, meter })) => {
+                let result = match outcome {
+                    InvokeOutcome::Ok(json) if json.len() > MAX_CROSS_BYTES => {
+                        CrossResult::TooLarge
+                    }
+                    InvokeOutcome::Ok(json) => CrossResult::Ok(json),
+                    InvokeOutcome::OutputTooLarge => CrossResult::TooLarge,
+                    InvokeOutcome::Threw { code } => CrossResult::Threw { code },
+                    InvokeOutcome::NoHandler | InvokeOutcome::Forbidden => CrossResult::NoHandler,
+                    InvokeOutcome::Failed(code) => CrossResult::Failed(code.as_str().to_string()),
+                };
+                (result, used(&meter))
+            }
+            Ok(Ok(ThreadReply::Failed { code, meter })) => {
+                (CrossResult::Failed(code.as_str().to_string()), used(&meter))
+            }
+            Ok(_) => (
+                CrossResult::Failed(ErrorCode::Internal.as_str().to_string()),
+                CrossUse::default(),
+            ),
+            Err(_elapsed) => {
+                let (meter_tx, meter_rx) = oneshot::channel();
+                let _ = member.0.tx.send(Command::Cancel {
+                    seq,
+                    meter: meter_tx,
+                    reason: CancelReason::Deadline,
+                });
+                let meter = tokio::time::timeout(Duration::from_millis(100), meter_rx)
+                    .await
+                    .ok()
+                    .and_then(Result::ok);
+                (
+                    CrossResult::Failed(ErrorCode::Deadline.as_str().to_string()),
+                    meter.as_ref().map(used).unwrap_or_default(),
+                )
+            }
+        }
+    }
+
     /// Write one line to the tenant's log sink (redacted like every line
     /// of this deployment). The cell uses it for render failures.
     pub fn log(
@@ -1484,13 +1687,15 @@ impl Pool {
                 .collect(),
         );
         let params = Arc::new(params);
+        // ops.md 1.7.0 section 15.6: a route of an `isolate` module runs in its isolate.
+        let dispatch_owner = route_owner(&self.artifact.manifest.routes[route]);
         // A member that dies between the pick and the start of the request
         // refuses it (or drops it with its queue); nothing of it ran, so it
         // goes to another member, once.
         let mut attempts = 0;
         let (member, seq, waited) = loop {
             attempts += 1;
-            let member = match self.live_thread().await {
+            let member = match self.thread_for(&dispatch_owner).await {
                 Ok(t) => t,
                 Err(e) => {
                     let mut f = serde_json::Map::new();
@@ -1753,7 +1958,7 @@ impl Pool {
         let mut attempts = 0;
         let (member, seq, waited) = loop {
             attempts += 1;
-            let member = match self.live_thread().await {
+            let member = match self.thread_for(&ev.module).await {
                 Ok(t) => t,
                 Err(e) => {
                     let status = match e.code() {
@@ -1852,7 +2057,13 @@ impl Pool {
                     };
                 }
             },
-            Invoke::Service { .. } => usize::MAX,
+            Invoke::Service { .. } | Invoke::Cross { .. } => usize::MAX,
+        };
+        // A tool of an `isolate` module runs in its isolate (ops.md 1.7.0 section 15.6).
+        let invoke_owner = if route == usize::MAX {
+            crate::ops::modules::APP.to_string()
+        } else {
+            route_owner(&self.artifact.manifest.routes[route])
         };
         let deadline = effective_deadline(ctx.deadline, self.limits.wall_ms, admitted);
         let ctx = RequestCtx {
@@ -1865,7 +2076,7 @@ impl Pool {
         let mut attempts = 0;
         let (member, seq, waited) = loop {
             attempts += 1;
-            let member = match self.live_thread().await {
+            let member = match self.thread_for(&invoke_owner).await {
                 Ok(t) => t,
                 Err(e) => {
                     let status = match e.code() {
@@ -1972,6 +2183,59 @@ struct ThreadContext {
     realtime: crate::ops::realtime::RealtimeSlot,
     sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
+    /// `None`: the app's isolate (the app and its `shared` modules);
+    /// `Some(m)`: the isolate of `isolate` module `m` (ops.md 1.7.0 section 15.6).
+    only: Option<String>,
+    link: Arc<OnceLock<Weak<Pool>>>,
+}
+
+impl ThreadContext {
+    /// Whether code of `owner` (`app` or a module name) runs in this isolate.
+    fn is_local(&self, owner: &str) -> bool {
+        match &self.only {
+            None => !self.modules.is_isolated(owner),
+            Some(m) => m == owner,
+        }
+    }
+}
+
+/// The owner of a code entry id: `modules/<name>/…` is module `name`, else the app.
+fn entry_owner(id: &str) -> &str {
+    id.strip_prefix("modules/")
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or(crate::ops::modules::APP)
+}
+
+/// The pool, as the cross-isolate ops of its isolates reach it.
+struct PoolLink(Arc<OnceLock<Weak<Pool>>>);
+
+impl crate::ops::modules::CrossCaller for PoolLink {
+    fn call(
+        &self,
+        call: crate::ops::modules::CrossCall,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                Output = (
+                    crate::ops::modules::CrossResult,
+                    crate::ops::modules::CrossUse,
+                ),
+            >,
+        >,
+    > {
+        let pool = self.0.get().and_then(Weak::upgrade);
+        Box::pin(async move {
+            match pool {
+                Some(pool) => pool.cross_call(call).await,
+                None => (
+                    crate::ops::modules::CrossResult::Failed(
+                        ErrorCode::Internal.as_str().to_string(),
+                    ),
+                    crate::ops::modules::CrossUse::default(),
+                ),
+            }
+        })
+    }
 }
 
 type ReadyResult = Result<(v8::IsolateHandle, CreateStats), CreateError>;
@@ -2141,9 +2405,10 @@ async fn create_worker(
         .filter(|(id, _)| !manifest.is_eager(id))
         .map(|(id, s)| (id.clone(), s.to_string()))
         .collect();
+    // ops.md 1.7.0 section 15.6: an isolate evaluates only the code it runs.
     let eager: Vec<(String, ModuleSpecifier)> = entries
         .iter()
-        .filter(|(id, _)| !lazy_specifiers.contains_key(id))
+        .filter(|(id, _)| !lazy_specifiers.contains_key(id) && ctx.is_local(entry_owner(id)))
         .cloned()
         .collect();
     let services = WorkerServiceOptions {
@@ -2242,12 +2507,24 @@ async fn create_worker(
             lines_per_min: ctx.limits.log_lines_per_min,
         });
         // Step 3: consumed once per module by `harden` (op_secrets_get_all).
+        // ops.md 1.7.0 section 15.6: an isolate holds the secrets of the code
+        // it runs only; another isolate's module gets none here.
         state.put(SecretsState(
             ctx.secrets
                 .iter()
-                .map(|(m, s)| (m.clone(), Some(s.clone())))
+                .map(|(m, s)| {
+                    let mine = if ctx.is_local(m) {
+                        s.clone()
+                    } else {
+                        BTreeMap::new()
+                    };
+                    (m.clone(), Some(mine))
+                })
                 .collect(),
         ));
+        state.put(crate::ops::modules::CrossEnv(Rc::new(PoolLink(
+            ctx.link.clone(),
+        ))));
     }
     let guards = Guards {
         watchdog,
@@ -2288,9 +2565,24 @@ async fn create_worker(
         )
     };
     // Step 3: the module list (ops.md 1.3.0 section 11) goes to `harden`.
+    // ops.md 1.7.0 section 15.6: each entry says whether its code runs here.
+    let modules_text = {
+        let mut list: Vec<serde_json::Value> =
+            serde_json::from_str(&ctx.modules.to_json()).unwrap_or_default();
+        for m in &mut list {
+            let local = m
+                .get("name")
+                .and_then(|n| n.as_str())
+                .is_some_and(|n| ctx.is_local(n));
+            if let Some(o) = m.as_object_mut() {
+                o.insert("local".into(), local.into());
+            }
+        }
+        serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())
+    };
     let modules_json = {
         deno_core::scope!(scope, &mut worker.js_runtime);
-        let s = v8::String::new(scope, &ctx.modules.to_json())
+        let s = v8::String::new(scope, &modules_text)
             .ok_or_else(|| CreateError::Internal("module list".into()))?;
         v8::Global::new(scope, v8::Local::<v8::Value>::from(s))
     };
@@ -2365,10 +2657,19 @@ async fn create_worker(
                 by_event.entry(e).or_default().push(module.clone());
             }
         }
-        for list in by_event.values_mut() {
-            list.sort();
+        // Each isolate reports the modules it runs; the others' entries stay.
+        let mut all = ctx.event_handlers.lock().expect("handlers lock");
+        for list in all.values_mut() {
+            list.retain(|m| !ctx.is_local(m));
         }
-        *ctx.event_handlers.lock().expect("handlers lock") = by_event;
+        for (event, list) in by_event {
+            all.entry(event).or_default().extend(list);
+        }
+        all.retain(|_, list| !list.is_empty());
+        for list in all.values_mut() {
+            list.sort();
+            list.dedup();
+        }
     }
 
     // Step 5: every route's export must be a function, and every declared
@@ -2379,6 +2680,14 @@ async fn create_worker(
         let mut actions = Vec::with_capacity(manifest.routes.len());
         let mut lazy = Vec::with_capacity(manifest.routes.len());
         for r in &manifest.routes {
+            // ops.md 1.7.0 section 15.6: a route of code another isolate
+            // runs has no handler here (the pool never sends it here).
+            if !ctx.is_local(&route_owner(r)) {
+                handlers.push(None);
+                actions.push(BTreeMap::new());
+                lazy.push(None);
+                continue;
+            }
             // A lazy module's exports are checked at prepare (artifact
             // V23) and again after its first evaluation, in the request.
             if let Some(spec) = lazy_specifiers.get(&r.module) {
@@ -2645,7 +2954,7 @@ impl InFlight {
         InvocationMeter {
             route: Some(route),
             status,
-            cpu_ms: (self.cpu_ns as f64 / 1_000.0).round() / 1_000.0,
+            cpu_ms: ((self.cpu_ns as f64 / 1_000.0).round() / 1_000.0) + self.used.cross_cpu_ms,
             peak_heap_bytes: self.peak_heap,
             fetch_sent_bytes: self.used.fetch_sent_bytes,
             fetch_received_bytes: self.used.fetch_received_bytes,
@@ -3066,6 +3375,8 @@ struct RequestEnd {
     rolled_back_tx: bool,
     /// Bytes `op_response_write` took for a streamed body.
     response_sent_bytes: u64,
+    /// CPU of the request's calls into other isolates (ops.md 1.7.0 section 15.6).
+    cross_cpu_ms: f64,
 }
 
 /// How a request ended, for the rollback counters.
@@ -3112,6 +3423,10 @@ fn end_request(
         };
     };
     let mut request = request.borrow_mut();
+    if request.tx_borrowed {
+        // The caller's transaction: the caller commits or rolls it back.
+        request.resources.db_tx = None;
+    }
     let rolled_back_tx =
         request_resources::drain(&mut state, &mut request.resources).rolled_back_tx;
     if rolled_back_tx {
@@ -3138,6 +3453,7 @@ fn end_request(
         principal: request.authz.principal.clone(),
         rolled_back_tx,
         response_sent_bytes,
+        cross_cpu_ms: request.cross_cpu_ms,
     }
 }
 
@@ -3266,6 +3582,13 @@ fn request_authz(job: &DispatchJob) -> crate::ops::authz::RequestAuthz {
                 ..RequestAuthz::default()
             };
         }
+        // ops.md 1.7.0 section 15.6: a cross-isolate call runs as the caller's principal.
+        Some(Invoke::Cross { principal, .. }) => {
+            return RequestAuthz {
+                principal: principal.clone(),
+                ..RequestAuthz::default()
+            };
+        }
         // A service the platform calls (`auth.verifyAgentToken`).
         Some(Invoke::Service { .. }) => {
             return RequestAuthz {
@@ -3331,6 +3654,14 @@ fn start_dispatch(
             egress_limit_bytes,
         );
         request.authz = request_authz(&job);
+        // ops.md 1.7.0 section 15.6: the callee's statements join the
+        // caller's open transaction, which stays the caller's.
+        if let Some(Invoke::Cross { tx, .. }) = &job.invoke
+            && *tx != 0
+        {
+            request.resources.db_tx = Some(*tx);
+            request.tx_borrowed = true;
+        }
         let token = state.borrow_mut::<RequestTable>().begin(request);
         // ops.md section 10: the response egress limit has the tier's
         // egress value, on a counter of its own.
@@ -3527,6 +3858,19 @@ fn build_invoke_args(
             args_json,
         } => (
             serde_json::json!({ "kind": "service", "module": module, "name": name, "args": args_json }),
+            v8::null(scope).into(),
+            module.clone(),
+        ),
+        Invoke::Cross {
+            kind,
+            caller,
+            module,
+            name,
+            args_json,
+            tx,
+            ..
+        } => (
+            serde_json::json!({ "kind": "cross", "what": kind.as_str(), "caller": caller, "module": module, "name": name, "args": args_json, "tx": tx }),
             v8::null(scope).into(),
             module.clone(),
         ),

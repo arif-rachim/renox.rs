@@ -78,7 +78,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
-| Malicious or compromised marketplace module | Ed25519 signature verification; permission review at install; diff on upgrade | `isolate` mode; global disable by hash; tenant notification | #84 | F7 |
+| Malicious or compromised marketplace module | Ed25519 signature verification; permission review at install; diff on upgrade | `isolate` mode; global disable by hash; tenant notification | #84; `isolate` mode: `crates/renox-cell/tests/isolate_mode.rs` (no app globals, only approved secrets, own table prefix and hosts, the 1 MiB cap, its own heap limit) (#320) | F7 |
 | Module calling a service or hook it did not declare | Broker checks the manifest on every call | Authorizer for tables | broker tests (#63) | F4 |
 | Module migration touching another module's tables | Authorizer attached to migration connections too | Migration runner per module prefix | migration tests (#117) | F4 |
 | Module reading secrets it did not declare | Secrets filtered per module at injection | Tenant approves the list at install | secrets tests | F4 |

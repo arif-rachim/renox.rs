@@ -51,10 +51,12 @@ import {
   op_secrets_get_all,
   op_span_service_begin,
   op_span_service_end,
+  op_modules_call,
 } from "ext:core/ops";
 
 const {
   ArrayIsArray,
+  ArrayPrototypeFind,
   ArrayPrototypeIncludes,
   ArrayPrototypeJoin,
   ArrayPrototypeSort,
@@ -673,6 +675,49 @@ const eventHandlers = new SafeMap();
 /** Installed module name -> frozen proxies of its services (renox:modules, ctx.services). */
 let serviceProxies = ObjectFreeze({});
 const MAX_CALL_DEPTH = 16;
+/** ops.md 1.7.0 section 15.6: the most JSON that crosses between isolates per call, each way. */
+const MAX_CROSS = 1024 * 1024;
+
+/** Whether `module`'s code runs in this isolate (ops.md 1.7.0 section 15.6). */
+function isLocal(module) {
+  return infoOf(module)?.local !== false;
+}
+
+/**
+ * A call into the isolate of another module (`isolate` mode): the
+ * structured clone (JSON) of the arguments and the result, at most
+ * MAX_CROSS each way, with this request's transaction and principal.
+ */
+async function crossCall(kind, target, name, args) {
+  const caller = currentModule();
+  const json = JSONStringify(args ?? null, dataReplacer) ?? "null";
+  if (json.length > MAX_CROSS) {
+    throw new ModuleServiceError(`${target}.${name} failed: the arguments are over 1 MiB`, { module: target, service: name, reason: "too_large", cause_code: null });
+  }
+  try {
+    const out = await op_modules_call(currentToken(), kind, caller, target, name, json, txVar.get() ?? 0);
+    return JSONParse(out);
+  } catch (e) {
+    const err = toRenoxError(e);
+    const details = err?.details ?? {};
+    if (details.reason === "too_large") {
+      throw new ModuleServiceError(`${target}.${name} failed: the result is over 1 MiB`, { module: target, service: name, reason: "too_large", cause_code: null });
+    }
+    // The callee threw or its isolate failed: as in shared mode, the
+    // current transaction is rolled back (the callee logged its throw).
+    const st = stateVar.get();
+    const tx = txVar.get();
+    if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx)) {
+      st.rolledBack.add(tx);
+      try {
+        await op_db_tx_rollback(currentToken(), tx);
+      } catch {
+        // Already gone.
+      }
+    }
+    throw new ModuleServiceError(`${target}.${name} failed`, { module: target, service: name, cause_code: details.cause_code ?? null });
+  }
+}
 
 function requestState() {
   const st = stateVar.get();
@@ -694,7 +739,8 @@ function infoOf(module) {
 async function calleeFailed(e, details, label) {
   const st = stateVar.get();
   const tx = txVar.get();
-  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx)) {
+  // A transaction lent by another isolate's caller is the caller's to roll back.
+  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx) && st.borrowedTx !== tx) {
     st.rolledBack.add(tx);
     try {
       await op_db_tx_rollback(currentToken(), tx);
@@ -721,6 +767,7 @@ async function callService(target, service, args) {
   if (depth > MAX_CALL_DEPTH) {
     throw new ModuleServiceError(`${target}.${service} failed: call depth`, { module: target, service, cause_code: null });
   }
+  if (!isLocal(target)) return await crossCall("service", target, service, args);
   const fn = serviceModules.get(target)?.[service];
   const calleeCtx = st.ctxOf(target);
   // #295: one module.service span per call (caller, callee, name; never the arguments).
@@ -754,7 +801,7 @@ function makeHooks(module) {
         throw new ModuleUndeclaredError(`module ${module} does not export hook ${name}`, { module, target: name });
       }
       for (const f of new SafeArrayIterator(hookFillers.get(name) ?? [])) {
-        const fillerCtx = st.ctxOf(f.module);
+        const fillerCtx = f.remote === true ? null : st.ctxOf(f.module);
         let r;
         try {
           r = await within([[moduleVar, f.module]], () => f.handle(fillerCtx, args));
@@ -771,9 +818,27 @@ function makeHooks(module) {
   });
 }
 
+/** A hook filler of another isolate's module: its `{ halt, response }` crosses as status, headers and body. */
+async function remoteFiller(module, hook, args) {
+  const r = await crossCall("hook", module, hook, args);
+  if (r === null || r === undefined || r.halt !== true) return undefined;
+  const res = r.response ?? {};
+  return { halt: true, response: new Response(res.body ?? null, { status: res.status ?? 200, headers: res.headers ?? [] }) };
+}
+
 /** Called by Rust after the tenant modules loaded (ops.md 1.3.0 section 11, step 5). */
 function register(namespaces) {
   for (const [name, info] of new SafeArrayIterator([...modules])) {
+    if (info.local === false) {
+      // ops.md 1.7.0 section 15.6: the fillers of a module that runs in
+      // another isolate, from its manifest, run there (priority 100).
+      for (const hook of new SafeArrayIterator(info.permissions?.hooks ?? [])) {
+        const list = hookFillers.get(hook) ?? [];
+        ArrayPrototypePush(list, { module: name, priority: 100, remote: true, handle: (_ctx, args) => remoteFiller(name, hook, args) });
+        hookFillers.set(hook, list);
+      }
+      continue;
+    }
     const ns = namespaces[name] ?? {};
     const services = ns.services;
     for (const svc of new SafeArrayIterator(info.exports?.services ?? [])) {
@@ -1690,11 +1755,12 @@ function dispatchRealtime(handler, token, url, headers, body, params, owner, rt)
 function invoke(token, env, handler, owner) {
   const previous = requestVar.enter(token);
   try {
-    moduleVar.enter(env.kind === "tool" ? owner : "app");
+    moduleVar.enter(env.kind === "tool" || env.kind === "cross" ? owner : "app");
     const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
     const st = newRequestState({ deadline: requestDeadline, principal });
     stateVar.enter(st);
     const go = async () => {
+      if (env.kind === "cross") return await crossServe(st, env);
       if (env.kind === "service") {
         const fn = serviceModules.get(env.module)?.[env.name];
         if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
@@ -1749,6 +1815,43 @@ function invoke(token, env, handler, owner) {
   } finally {
     core.setAsyncContext(previous);
   }
+}
+
+/**
+ * The callee side of a cross-isolate call (ops.md 1.7.0 section 15.6):
+ * `{ what: "service" | "hook", caller, module, name, args, tx }`. The
+ * statements join the caller's transaction `tx`; the result goes back as
+ * JSON (a filler's Response as status, headers and body text).
+ */
+async function crossServe(st, env) {
+  const tx = env.tx ?? 0;
+  if (tx !== 0) st.borrowedTx = tx;
+  const vars = [
+    [stateVar, st],
+    [moduleVar, env.module],
+  ];
+  if (tx !== 0) ArrayPrototypePush(vars, [txVar, tx]);
+  const args = JSONParse(env.args);
+  let value;
+  if (env.what === "hook") {
+    const f = ArrayPrototypeFind(hookFillers.get(env.name) ?? [], (x) => x.module === env.module && x.remote !== true);
+    if (f === undefined) return { kind: KIND_INVOKE, result: "no_handler" };
+    const r = await within(vars, () => f.handle(st.ctxOf(env.module), args));
+    if (r === undefined) value = { halt: false };
+    else if (r !== null && typeof r === "object" && r.halt === true && isResponse(r.response)) {
+      const headers = [];
+      for (const [k, v] of r.response.headers) ArrayPrototypePush(headers, [k, v]);
+      value = { halt: true, response: { status: r.response.status, headers, body: await r.response.text() } };
+    } else throw new TypeError("a hook filler returns undefined or { halt: true, response }");
+  } else {
+    const fn = serviceModules.get(env.module)?.[env.name];
+    if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+    value = await within(vars, () => fn(st.ctxOf(env.module), ...(ArrayIsArray(args) ? args : [])));
+  }
+  const json = JSONStringify(value ?? null, dataReplacer);
+  if (typeof json !== "string") return { kind: KIND_INVOKE, result: "ok", data_json: "null" };
+  if (json.length > MAX_CROSS) return { kind: KIND_INVOKE, result: "output_too_large" };
+  return { kind: KIND_INVOKE, result: "ok", data_json: json };
 }
 
 /** Code entry specifier -> the promise of its namespace: one evaluation per isolate; a rejection stays cached until the isolate is replaced. */

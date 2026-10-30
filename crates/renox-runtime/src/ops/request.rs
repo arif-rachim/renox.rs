@@ -66,6 +66,12 @@ pub(crate) struct RequestState {
     pub render_ms: f64,
     /// Set when the request ends; an op still holding the state sees it.
     pub ended: bool,
+    /// `isolate` mode (ops.md 1.7.0 section 15.6): the open transaction is
+    /// the caller's, lent to this cross-isolate call; it is not rolled back
+    /// when the call ends.
+    pub tx_borrowed: bool,
+    /// CPU the callees in other isolates used for this request (`op_modules_call`).
+    pub cross_cpu_ms: f64,
     /// The principal, the route's guard inputs, `authz_evals` (ops.md
     /// 1.5.0 section 17; `ops/authz.rs`).
     pub authz: crate::ops::authz::RequestAuthz,
@@ -89,6 +95,8 @@ impl RequestState {
             render_fuel: 0,
             render_ms: 0.0,
             ended: false,
+            tx_borrowed: false,
+            cross_cpu_ms: 0.0,
             authz: Default::default(),
         }
     }

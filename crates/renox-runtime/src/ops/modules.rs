@@ -115,7 +115,8 @@ impl ModuleRegistry {
     /// Each entry's enforcement data is checked here, and a bad entry fails
     /// the deployment (fail closed): a valid name, its own table prefix,
     /// prefixed secrets, a parsable network list, dependencies listed
-    /// before it, and no `isolate` mode (not in F4, `ops.md` Open 7).
+    /// before it, and an isolation of `shared` or `isolate` (ops.md 1.7.0
+    /// section 15.6, #320).
     pub fn from_manifest(modules: Option<&serde_json::Value>) -> Result<ModuleRegistry, String> {
         let list: Vec<serde_json::Value> = match modules {
             None => Vec::new(),
@@ -170,9 +171,10 @@ impl ModuleRegistry {
                     name.to_uppercase()
                 ));
             }
-            if info.isolation == "isolate" {
+            if info.isolation != "shared" && info.isolation != "isolate" {
                 return Err(format!(
-                    "module {name}: isolation \"isolate\" is not available yet"
+                    "module {name}: isolation {:?} is neither \"shared\" nor \"isolate\"",
+                    info.isolation
                 ));
             }
             let allowlist = Allowlist::parse(&info.permissions.network)
@@ -222,6 +224,12 @@ impl ModuleRegistry {
 
     pub fn get(&self, name: &str) -> Option<&ModuleInfo> {
         self.modules.iter().find(|m| m.name == name)
+    }
+
+    /// Whether `name` is an installed module with `isolation = "isolate"`
+    /// (ops.md 1.7.0 section 15.6): its code runs in an isolate of its own.
+    pub fn is_isolated(&self, name: &str) -> bool {
+        self.get(name).is_some_and(|m| m.isolation == "isolate")
     }
 
     /// `None` or `"app"`: the app (`Ok(None)` without modules: the handle's
@@ -332,6 +340,211 @@ mod tests {
 
 #[cfg(feature = "v8")]
 pub(crate) use span_ops::*;
+
+#[cfg(feature = "v8")]
+pub(crate) use cross_ops::*;
+
+/// The most bytes of JSON that cross between isolates in one call, each way
+/// (ops.md 1.7.0 section 15.6; *proposed*, Open 20).
+pub const MAX_CROSS_BYTES: usize = 1024 * 1024;
+
+/// `isolate` mode (ops.md 1.7.0 section 15.6, #320): a service call or a
+/// hook filler run whose callee lives in another isolate of the deployment.
+/// The bootstrap of the caller's isolate calls `op_modules_call`; the
+/// deployment's pool (`isolate.rs`) runs it on the callee's isolate, with
+/// the caller's request id, deadline, principal and open transaction, and
+/// answers the structured clone (JSON) of the result.
+#[cfg(feature = "v8")]
+mod cross_ops {
+    use std::cell::RefCell;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::rc::Rc;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+    use std::time::Instant;
+
+    use deno_core::{OpState, op2};
+    use deno_error::JsErrorBox;
+
+    use super::MAX_CROSS_BYTES;
+    use crate::ops::request::{live_request, op_error};
+
+    /// What crosses: a service (`<target>.<name>(...args)`) or the filler
+    /// of hook `name` that module `target` provides.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CrossKind {
+        Service,
+        Hook,
+    }
+
+    impl CrossKind {
+        pub fn as_str(self) -> &'static str {
+            match self {
+                CrossKind::Service => "service",
+                CrossKind::Hook => "hook",
+            }
+        }
+    }
+
+    /// One call into another isolate.
+    #[derive(Debug, Clone)]
+    pub struct CrossCall {
+        pub kind: CrossKind,
+        pub caller: String,
+        pub target: String,
+        pub name: String,
+        /// A JSON array (a service) or value (a hook), at most [`MAX_CROSS_BYTES`].
+        pub args_json: String,
+        pub request_id: String,
+        pub deadline: Instant,
+        /// The caller's open transaction: the callee's statements join it.
+        pub tx: Option<u32>,
+        pub principal: Option<Arc<renox_authz::Principal>>,
+    }
+
+    /// How the call ended.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum CrossResult {
+        /// The result as JSON.
+        Ok(String),
+        /// The callee threw; its code when it was a `RenoxError`.
+        Threw { code: Option<String> },
+        /// The result is over [`MAX_CROSS_BYTES`].
+        TooLarge,
+        /// No such service or filler in the callee's isolate.
+        NoHandler,
+        /// A platform error around the callee (its isolate could not be
+        /// created, a limit, the deadline): the error code.
+        Failed(String),
+    }
+
+    /// What the callee used: charged to the caller's request.
+    #[derive(Debug, Clone, Copy, Default, PartialEq)]
+    pub struct CrossUse {
+        pub cpu_ms: f64,
+        pub db_ms: f64,
+        pub db_rows: u64,
+        pub fetch_sent_bytes: u64,
+        pub fetch_received_bytes: u64,
+        pub fetch_blocked: u64,
+        pub logs_dropped: u64,
+        pub authz_evals: u64,
+    }
+
+    /// Runs a [`CrossCall`] on the callee's isolate (the deployment's pool).
+    pub trait CrossCaller {
+        fn call(&self, call: CrossCall) -> Pin<Box<dyn Future<Output = (CrossResult, CrossUse)>>>;
+    }
+
+    /// In every isolate's `OpState`.
+    pub struct CrossEnv(pub Rc<dyn CrossCaller>);
+
+    fn module_service_error(
+        target: &str,
+        name: &str,
+        reason: Option<&str>,
+        cause: Option<&str>,
+    ) -> JsErrorBox {
+        op_error(
+            "RENOX_MODULE_SERVICE",
+            serde_json::json!({ "module": target, "service": name, "reason": reason, "cause_code": cause }),
+            &format!("{target}.{name} failed"),
+        )
+    }
+
+    /// `op_modules_call(token, kind, caller, target, name, argsJson, tx)`:
+    /// the JSON of the callee's result, or `RENOX_MODULE_SERVICE` (`details.reason`
+    /// `too_large` past [`MAX_CROSS_BYTES`] either way; `cause_code` the
+    /// callee's code when it threw a `RenoxError`).
+    #[op2]
+    #[string]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn op_modules_call(
+        state: Rc<RefCell<OpState>>,
+        token: u32,
+        #[string] kind: String,
+        #[string] caller: String,
+        #[string] target: String,
+        #[string] name: String,
+        #[string] args_json: String,
+        tx: u32,
+    ) -> Result<String, JsErrorBox> {
+        let kind = match kind.as_str() {
+            "service" => CrossKind::Service,
+            "hook" => CrossKind::Hook,
+            _ => return Err(module_service_error(&target, &name, Some("kind"), None)),
+        };
+        if args_json.len() > MAX_CROSS_BYTES {
+            return Err(module_service_error(
+                &target,
+                &name,
+                Some("too_large"),
+                None,
+            ));
+        }
+        let request = live_request(&state.borrow(), token)?;
+        let caller_env = state.borrow().borrow::<CrossEnv>().0.clone();
+        let call = {
+            let r = request.borrow();
+            CrossCall {
+                kind,
+                caller,
+                target: target.clone(),
+                name: name.clone(),
+                args_json,
+                request_id: r.request_id.clone(),
+                deadline: r.deadline,
+                // Only the request's own open transaction crosses.
+                tx: (tx != 0 && r.resources.db_tx == Some(tx)).then_some(tx),
+                principal: r.authz.principal.clone(),
+            }
+        };
+        let (result, used) = caller_env.call(call).await;
+        {
+            let mut r = request.borrow_mut();
+            r.cross_cpu_ms += used.cpu_ms;
+            r.db_ms += used.db_ms;
+            r.db_rows += used.db_rows;
+            r.fetch_blocked += used.fetch_blocked;
+            r.logs_dropped += used.logs_dropped;
+            r.authz.evals += used.authz_evals;
+            r.egress
+                .sent
+                .fetch_add(used.fetch_sent_bytes, Ordering::Relaxed);
+            r.egress
+                .received
+                .fetch_add(used.fetch_received_bytes, Ordering::Relaxed);
+        }
+        match result {
+            CrossResult::Ok(json) => Ok(json),
+            CrossResult::TooLarge => Err(module_service_error(
+                &target,
+                &name,
+                Some("too_large"),
+                None,
+            )),
+            CrossResult::NoHandler => Err(module_service_error(
+                &target,
+                &name,
+                Some("no_handler"),
+                None,
+            )),
+            CrossResult::Threw { code } => Err(module_service_error(
+                &target,
+                &name,
+                Some("threw"),
+                code.as_deref(),
+            )),
+            CrossResult::Failed(code) => Err(module_service_error(
+                &target,
+                &name,
+                Some("isolate"),
+                Some(&code),
+            )),
+        }
+    }
+}
 
 /// `module.service` spans (#295): services are brokered in the bootstrap's
 /// JavaScript, so the bootstrap opens a span before calling a callee and

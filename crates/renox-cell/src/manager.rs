@@ -626,7 +626,27 @@ impl CellManager {
                 snap.outbox.insert(tenant, (stats.pending, age, stats.dead));
             }
         }
-        self.inner.metrics.render(&snap)
+        let mut text = self.inner.metrics.render(&snap);
+        // ops.md 1.7.0 section 15.6: the isolates of `isolate` modules, beside the cells'.
+        text.push_str("# HELP renox_module_isolates Live isolates of modules installed with isolation = \"isolate\".\n");
+        text.push_str("# TYPE renox_module_isolates gauge\n");
+        text.push_str(&format!(
+            "renox_module_isolates {}\n",
+            live.iter()
+                .map(|c| c.isolate.module_isolates().len())
+                .sum::<usize>()
+        ));
+        text
+    }
+
+    /// Live isolates of `isolate` modules over every cell (ops.md 1.7.0 section 15.6).
+    pub fn module_isolates(&self) -> usize {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        cells
+            .values()
+            .filter_map(|slot| slot.get())
+            .map(|c| c.isolate.module_isolates().len())
+            .sum()
     }
 
     /// Principal cache and decision counters of the live cells (#279).
