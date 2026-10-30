@@ -344,7 +344,10 @@ async fn a_signed_url_serves_a_private_file_until_it_expires_and_only_unaltered(
     assert_eq!(headers["x-content-type-options"], "nosniff");
     assert_eq!(headers["cache-control"], "private, no-store");
     // Altered and expired signatures.
-    let altered = format!("{}0", &url[..url.len() - 1]);
+    // A different last character (replacing it with a fixed one is no
+    // change when the signature already ends in it).
+    let last = if url.ends_with('0') { '1' } else { '0' };
+    let altered = format!("{}{last}", &url[..url.len() - 1]);
     assert_eq!(n.call("GET", &altered, vec![]).await.1, 404);
     let host = CellStorage::new(
         renox_cell::storage::local_store(&n.data),
