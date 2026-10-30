@@ -27,6 +27,7 @@ db.close()?;
 | `transaction(\|tx\| ...)` | `begin immediate` on the writer; commit on `Ok`, rollback on `Err` or panic. `tx` has `query`, `query_one`, `execute`. While it is open, a nested `transaction` or a write through the `TenantDb` returns `TxState`; reads through the `TenantDb` run on a reader, outside the transaction |
 | `read_pragma(name) -> Vec<Value>` | A pragma read from every connection, writer first (health checks, tests) |
 | `close()` | Closes every connection; the cell calls it on idle eviction |
+| `on_rows_changed(tables, deliver)` | The change feed (#305, `ops.md` 1.5.0 section 18): after each commit on the writer that changed a row of one of `tables`, `deliver` gets the changes in order as `RowChange { table, rowid, op, columns }`, `columns` being the named columns read from the row by SQLite's pre-update hook at change time (the old row for a delete), never by a second query. Buffered per transaction; nothing for a rollback, a failed statement or a rolled-back savepoint. Past `FEED_MAX_ROWS` (1,000, *proposed*) one `ChangeOp::Many` per table replaces the rows. An unknown table or column is `DbError::Param`; an empty list unsubscribes. Called on the committing thread: it must not block |
 
 `Value` is `Null | Integer(i64) | Real(f64) | Text(String) | Blob(Vec<u8>)`. `Row` is an ordered list of `(column name, Value)`; `row.get("name")` looks a column up. Parameters are positional (`?` or `?NNN`); named parameters are refused.
 

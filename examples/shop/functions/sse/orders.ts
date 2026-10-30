@@ -1,6 +1,8 @@
 // GET /sse/orders (#292): new orders of the signed-in user's active
-// organisation (checkout publishes them). The topic comes from the
-// principal; the policy allows only `orders:<principal.org>`.
+// organisation (checkout publishes the rendered row as `order-created`), and
+// from #305 the change feed's `{ table, rowid, op }` for every committed change
+// of `app__orders` (`[realtime.feeds]` in renox.toml). The topic comes from
+// the principal; the policy allows only `orders:<principal.org>`.
 import { ordersTopic } from "../../lib/orders.ts";
 
 interface SseCtx {

@@ -19,8 +19,8 @@ mod value;
 
 pub use authorizer::{APP_MODULE, AUDIT_TABLE, AUDIT_VIEW, AuthorizerPolicy, PLATFORM_MODULE};
 pub use db::{
-    DbOptions, FREE_QUOTA_BYTES, MAX_SAVEPOINTS, OutboxWake, PAGE_SIZE, PAID_QUOTA_BYTES, TenantDb,
-    Tx,
+    ChangeOp, DbOptions, FEED_MAX_ROWS, FREE_QUOTA_BYTES, MAX_SAVEPOINTS, OutboxWake, PAGE_SIZE,
+    PAID_QUOTA_BYTES, RowChange, RowsChanged, TenantDb, Tx,
 };
 pub use error::{ConstraintKind, DbError, Result, ScopeReason};
 pub use limits::{CheckpointMode, CheckpointResult, QueryCtx};

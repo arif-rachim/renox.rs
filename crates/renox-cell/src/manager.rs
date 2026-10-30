@@ -752,6 +752,8 @@ impl CellManager {
             web.pages.clone(),
         );
         *isolate.realtime_slot().write().expect("realtime slot") = Some(host.clone());
+        // #305: `[realtime.feeds]` publish committed row changes through the hub.
+        crate::cell::attach_feeds(&artifact_dir, &db, &host.hub).await;
         let mut cell = Cell::new(key.clone(), isolate, web);
         cell.realtime = Some(host);
         let cell = Arc::new(cell);

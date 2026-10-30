@@ -46,6 +46,8 @@ use tokio::sync::mpsc;
 use crate::cell::Cell;
 use crate::render::SharedPages;
 
+pub mod feed;
+
 /// The runtime's realtime host for one deployment: its hub, and the
 /// templates a `fragment` payload is rendered with.
 pub struct CellRealtime {
