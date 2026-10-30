@@ -1,0 +1,21 @@
+[module]
+name = "storage"
+version = "1.0.0"
+description = "Uploads through ctx.storage: per-owner folders, the SVG sanitiser, signed links, listing and removal"
+
+[config]
+max_upload_bytes = { type = "int", default = 10485760, min = 1, max = 104857600, description = "Largest file an upload accepts (the tier's limit still applies)" }
+allow_svg = { type = "bool", default = false, description = "Accept SVG uploads, sanitised (scripts, event handlers, foreign objects and external references removed)" }
+
+[permissions]
+tables = "storage__*"
+
+[storage]
+allowed_types = ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif", "application/pdf", "text/plain", "text/csv", "image/svg+xml"]
+
+[exports.services]
+upload = "Store a file for an owner: (owner, name, bytes, content_type, { public? }) -> StoredFile; SVG only sanitised and when allow_svg"
+list = "An owner's files: (owner, { limit?, cursor? }) -> StoragePage"
+remove = "Delete one of an owner's files: (owner, name) -> boolean"
+link = "A signed link to one of an owner's files: (owner, name, ttl_seconds) -> { url, expires_at }"
+sanitizeSvg = "The SVG with scripts, event handlers, foreign objects and external references removed, or null when it is not an SVG"
