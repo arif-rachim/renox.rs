@@ -1,0 +1,21 @@
+[module]
+name = "booking"
+version = "1.0.0"
+description = "Appointments: services, staff, weekly and seasonal hours, slot search in the tenant's time zone, holds and confirmations"
+
+[config]
+slot_minutes = { type = "int", default = 15, min = 5, max = 120, description = "The grid on which slots start" }
+hold_minutes = { type = "int", default = 10, min = 1, max = 60, description = "How long a slot is held before a deposit or confirmation" }
+
+[permissions]
+tables = "booking__*"
+
+[exports.services]
+slots = "Free slots: (service, day, { staff? }) -> [{ start, end, staff }]; day is YYYY-MM-DD in the app's time zone offset"
+hold = "Hold a slot for a customer: (service, staff, start, customer) -> { id, expires_at }; refused when taken"
+confirm = "Confirm a held booking: (id) -> booking"
+cancel = "Cancel a booking: (id) -> boolean"
+
+[exports.events."booking.confirmed"]
+payload = { type = "object", required = ["booking_id"], additionalProperties = false, properties = { booking_id = { type = "string" } } }
+description = "A booking was confirmed (deposits, reminders and notifications hang off it)"
