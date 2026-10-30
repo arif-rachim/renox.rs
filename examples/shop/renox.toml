@@ -25,6 +25,7 @@ notifications = { version = "^1.0.0", mount = "/notifications" }
 # (policies/app/shop.cedar), and its denials and grants are audited.
 email = { version = "^1.0.0" }
 billing = { version = "^1.0.0" }
+tax_gcc = { version = "^1.0.0", mount = "/tax" }
 [authz]
 actions = ["order.list", "order.read", "invoice.refund"]
 sensitive = ["invoice.refund"]

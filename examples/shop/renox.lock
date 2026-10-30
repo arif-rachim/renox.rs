@@ -79,6 +79,17 @@ config = { base_path = "/org", invite_days = 7 }
 approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
 
 [[module]]
+name = "tax_gcc"
+version = "1.0.0"
+source = "official"
+hash = "0faf84ad0a30201d772559446376da57492923a3165ff6ba98995f3280c1eecd"
+isolation = "shared"
+mount = "/tax"
+dependencies = ["auth", "i18n"]
+config = { seller_name = "", seller_trn = "", seller_address = "", prefix = "INV", base_path = "/tax" }
+approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
 name = "twofa"
 version = "1.0.0"
 source = "official"

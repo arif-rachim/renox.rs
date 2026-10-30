@@ -120,7 +120,7 @@ Infrastructure costs rise 2–3x; prices rise 3–5x. Margins improve, provided 
 
 ## 10. Items to verify before roadmap commitments
 
-- Current status, phases, and SME thresholds of UAE e-invoicing.
+- Current status, phases, and SME thresholds of UAE e-invoicing, and which accredited service provider to use: `modules/tax_gcc` ships the `EInvoiceProvider` interface (submit, status, cancel) with a recording fake and no live provider until this is settled (#331).
 - UAE PASS onboarding process and eligibility for private-sector service providers.
 - Adoption and merchant availability of Aani and Jaywan.
 - VAT obligations for a non-resident provider before the UAE entity exists.

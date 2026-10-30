@@ -1,0 +1,23 @@
+<r-layout use="tax">
+  <r-group slot="title"><r-t key="tax.title" /></r-group>
+  <h1><r-t key="tax.title" /></h1>
+  <form method="get">
+    <label><r-t key="tax.from" /> <input type="date" name="from" :value="from"></label>
+    <label><r-t key="tax.to" /> <input type="date" name="to" :value="to"></label>
+    <button type="submit"><r-t key="tax.show" /></button>
+  </form>
+  <h2><r-t key="tax.return" /></h2>
+  <table id="tax-return">
+    <thead><tr><th><r-t key="tax.col.box" /></th><th><r-t key="tax.col.amount" /></th><th><r-t key="tax.col.vat" /></th></tr></thead>
+    <tbody><tr r-for="b in boxes"><td>{{ b.box }}</td><td>{{ b.amount }}</td><td>{{ b.vat }}</td></tr></tbody>
+  </table>
+  <x-form action="csv"><input type="hidden" name="from" :value="from"><input type="hidden" name="to" :value="to"><button type="submit"><r-t key="tax.csv" /></button></x-form>
+  <h2><r-t key="tax.documents" /></h2>
+  <table id="tax-documents">
+    <thead><tr><th><r-t key="tax.col.number" /></th><th><r-t key="tax.col.net" /></th><th><r-t key="tax.col.vat" /></th><th><r-t key="tax.col.date" /></th></tr></thead>
+    <tbody>
+      <tr r-for="d in documents"><td><a href="invoices/{{ d.number }}">{{ d.number }}</a></td><td>{{ d.net }}</td><td>{{ d.vat }}</td><td>{{ d.date }}</td></tr>
+      <tr r-empty="documents"><td colspan="4"><r-t key="tax.none" /></td></tr>
+    </tbody>
+  </table>
+</r-layout>

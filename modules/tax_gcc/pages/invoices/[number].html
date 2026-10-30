@@ -1,0 +1,26 @@
+<r-layout use="tax">
+  <r-group slot="title">{{ number }}</r-group>
+  <article class="tax-invoice">
+    <table role="presentation" width="100%"><tr>
+      <td lang="en" dir="ltr"><h1>{{ title_en }}</h1></td>
+      <td lang="ar" dir="rtl" style="text-align:right"><h1>{{ title_ar }}</h1></td>
+    </tr></table>
+    <p><strong>{{ number }}</strong> · {{ date }}<span r-if="against"> · Against / مقابل {{ against }}</span></p>
+    <table role="presentation" width="100%"><tr>
+      <td lang="en" dir="ltr">Seller / البائع<br><strong>{{ seller.name }}</strong><br>TRN / الرقم الضريبي: {{ seller.trn }}<br>{{ seller.address }}</td>
+      <td lang="en" dir="ltr">Buyer / المشتري<br><strong>{{ buyer.name }}</strong><br><span r-if="buyer.trn">TRN / الرقم الضريبي: {{ buyer.trn }}<br></span>{{ buyer.address }}</td>
+    </tr></table>
+    <table id="tax-lines" width="100%">
+      <thead><tr><th>Description / الوصف</th><th>Qty / الكمية</th><th>Net AED / الصافي</th><th>VAT rate / نسبة الضريبة</th><th>VAT AED / الضريبة</th></tr></thead>
+      <tbody><tr r-for="l in lines"><td>{{ l.description }}</td><td>{{ l.quantity }}</td><td>{{ l.net }}</td><td>{{ l.rate }}</td><td>{{ l.vat }}</td></tr></tbody>
+    </table>
+    <table id="tax-totals">
+      <tr><td>Standard rated 5 % / خاضع بنسبة 5 %</td><td>{{ totals.standard }}</td></tr>
+      <tr><td>Zero rated / بنسبة صفر</td><td>{{ totals.zero }}</td></tr>
+      <tr><td>Exempt / معفى</td><td>{{ totals.exempt }}</td></tr>
+      <tr><td>VAT / ضريبة القيمة المضافة</td><td>{{ totals.vat }}</td></tr>
+      <tr><td><strong>Total AED / الإجمالي بالدرهم</strong></td><td><strong>{{ totals.total }}</strong></td></tr>
+    </table>
+  </article>
+  <x-form action="pdf"><button type="submit">PDF</button></x-form>
+</r-layout>

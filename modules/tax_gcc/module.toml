@@ -1,19 +1,38 @@
 [module]
 name = "tax_gcc"
 version = "1.0.0"
-description = "UAE FTA tax invoices: TRN, 5 % VAT with zero-rated and exempt lines in AED and fils, credit notes, VAT period reports, bilingual invoice data"
+description = "UAE FTA tax invoices: TRN, 5 % VAT with zero-rated and exempt lines in AED and fils, credit notes, the VAT return, a bilingual invoice template and PDF"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
 
 [config]
 seller_name = { type = "string", default = "", max_length = 200, description = "The legal name on tax invoices" }
 seller_trn = { type = "string", default = "", max_length = 15, description = "The seller's 15-digit Tax Registration Number" }
 seller_address = { type = "string", default = "", max_length = 500, description = "The seller's address on tax invoices" }
 prefix = { type = "string", default = "INV", max_length = 10, description = "Invoice number prefix (credit notes use CN)" }
+base_path = { type = "string", default = "/tax", max_length = 100, description = "Where the app mounts the module's pages" }
 
 [permissions]
 tables = "tax_gcc__*"
+
+[imports]
+services = ["auth.loginUrl", "i18n.detectLocale"]
+views = ["auth__public_users_v1"]
 
 [exports.services]
 issue = "Issue a tax invoice: ({ buyer: { name, trn?, address? }, lines: [{ description, quantity, unit_fils, rate: standard|zero|exempt }] }) -> invoice"
 creditNote = "A credit note against an invoice: (invoice_no, lines?, reason) -> credit note"
 invoice = "One invoice or credit note by number -> document | null"
 vatReport = "The VAT return totals of a period: (from_ms, to_ms) -> { standard, zero, exempt, output_vat }"
+recordPurchase = "A purchase for input VAT: ({ supplier, supplier_trn?, net_fils, rate?, booked_at? }) -> { id, net_fils, vat_fils }; VAT recoverable only with the supplier's TRN"
+vatReturn = "The FTA VAT201 boxes this module fills for a period: (from_ms, to_ms) -> { boxes: 1, 4, 5, 8, 9, 12, 13, 14 }"
+
+[authz]
+actions = ["tax.manage"]
+sensitive = ["tax.manage"]
+
+[authz.default_roles]
+admin = ["tax.manage"]
+finance = ["tax.manage"]
