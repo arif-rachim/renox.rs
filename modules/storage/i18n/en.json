@@ -1,0 +1,22 @@
+{
+  "storage": {
+    "title": "Files",
+    "quota": "Used",
+    "none": "No files yet.",
+    "remove": "Delete",
+    "manage_hint": "Admins can open another owner's folder with ?owner=.",
+    "notice": {
+      "uploaded": "Uploaded.",
+      "removed": "Deleted."
+    },
+    "error": {
+      "refused": "The file was not stored"
+    },
+    "upload": {
+      "choose": "File",
+      "public": "Public link",
+      "send": "Upload",
+      "hint": "Largest file, bytes:"
+    }
+  }
+}

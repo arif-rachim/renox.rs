@@ -79,6 +79,17 @@ config = { base_path = "/org", invite_days = 7 }
 approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
 
 [[module]]
+name = "storage"
+version = "1.0.0"
+source = "official"
+hash = "b8a0706aaf620bda69cd978905376f489dc169cd51ca712cbfc98b845665ff66"
+isolation = "shared"
+mount = "/files"
+dependencies = ["auth", "i18n"]
+config = { max_upload_bytes = 10485760, allow_svg = false, quota_mb = 0, base_path = "/files" }
+approved = { tables = "storage__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
 name = "tax_gcc"
 version = "1.0.0"
 source = "official"

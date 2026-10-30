@@ -1,0 +1,25 @@
+<r-layout use="files">
+  <r-group slot="title"><r-t key="storage.title" /></r-group>
+  <h1><r-t key="storage.title" /></h1>
+  <p class="notice" r-if="notice == 'uploaded'"><r-t key="storage.notice.uploaded" /></p>
+  <p class="notice" r-if="notice == 'removed'"><r-t key="storage.notice.removed" /></p>
+  <p class="problem" r-if="error"><r-t key="storage.error.refused" /> ({{ error }})</p>
+  <p id="storage-quota"><r-t key="storage.quota" />: {{ used }}<span r-if="limit"> / {{ limit }}</span></p>
+  <x-form action="upload" enctype="multipart/form-data" hx-encoding="multipart/form-data" class="x-upload">
+    <label><r-t key="storage.upload.choose" /> <input type="file" name="file" accept="image/*,application/pdf,text/plain,text/csv" required :data-max-bytes="max_bytes"></label>
+    <label><input type="checkbox" name="public" value="1"> <r-t key="storage.upload.public" /></label>
+    <button type="submit"><r-t key="storage.upload.send" /></button>
+    <progress class="htmx-indicator" max="100"></progress>
+    <small class="muted"><r-t key="storage.upload.hint" /> {{ max_bytes }}</small>
+  </x-form>
+  <ul id="storage-files">
+    <li r-for="f in files">
+      <x-image r-if="f.image" :src="f.file" width="160" :alt="f.name"></x-image>
+      <a r-if="f.link" :href="f.link">{{ f.name }}</a><span r-if="f.image">{{ f.name }}</span>
+      <small>{{ f.type }} · {{ f.size }}</small>
+      <x-form action="remove" class="inline"><input type="hidden" name="name" :value="f.name"><button type="submit"><r-t key="storage.remove" /></button></x-form>
+    </li>
+    <li r-empty="files"><r-t key="storage.none" /></li>
+  </ul>
+  <p r-can="storage.manage"><r-t key="storage.manage_hint" /></p>
+</r-layout>

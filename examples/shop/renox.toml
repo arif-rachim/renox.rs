@@ -26,6 +26,7 @@ notifications = { version = "^1.0.0", mount = "/notifications" }
 email = { version = "^1.0.0" }
 billing = { version = "^1.0.0" }
 tax_gcc = { version = "^1.0.0", mount = "/tax" }
+storage = { version = "^1.0.0", mount = "/files" }
 [authz]
 actions = ["order.list", "order.read", "invoice.refund"]
 sensitive = ["invoice.refund"]
