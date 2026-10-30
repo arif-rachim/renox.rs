@@ -15,7 +15,7 @@
 //! [`RenderOutput::fuel_used`] and [`RenderOutput::ms`] (thread CPU time)
 //! are the meter's `render_fuel` and `render_ms` (`docs/contracts/meter.md`).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -128,8 +128,74 @@ impl Locale {
     }
 }
 
-/// `can(action, resource)` for `r-can` / `r-cannot`.
-pub type CanFn = dyn Fn(&str, &Value) -> bool + Send + Sync;
+/// One evaluation of `r-can` with a resource: `(action, resource)` as
+/// JSON, `true` to allow. Anything but an allow (a deny, a missing
+/// attribute, an evaluation error) is `false`.
+pub type CheckFn = dyn Fn(&str, &serde_json::Value) -> bool + Send + Sync;
+
+/// Render fuel charged for each evaluation of `r-can` with a resource
+/// (`docs/11-authorization.md`, "In templates"): about the minijinja fuel of
+/// rendering a small table row, so a 1,000-row page that checks every row
+/// uses 40% of the default budget for its checks (README, "Permissions").
+pub const CAN_FUEL: u64 = 100;
+
+/// The permission check of a render (`r-can` / `r-cannot`, `docs/11`,
+/// "In templates"). The cell builds it from the request's principal; the
+/// renderer does not know the policy engine.
+#[derive(Clone, Default)]
+pub struct Can {
+    /// The resource-less actions the principal is allowed, computed once
+    /// per request: `r-can` without a resource is a lookup here.
+    pub actions: Arc<HashSet<String>>,
+    /// `r-can` with a resource: one call per distinct `(action, resource)`
+    /// of the render, each charged [`CAN_FUEL`]. `None` denies them all.
+    pub check: Option<Arc<CheckFn>>,
+}
+
+impl Can {
+    /// A check with only an action set (resource checks deny).
+    pub fn actions<I, S>(actions: I) -> Can
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Can {
+            actions: Arc::new(actions.into_iter().map(Into::into).collect()),
+            check: None,
+        }
+    }
+
+    /// Adds the resource check.
+    pub fn with_check(mut self, check: Arc<CheckFn>) -> Can {
+        self.check = Some(check);
+        self
+    }
+
+    /// A stable hash of the action set (FNV-1a over the sorted names), the
+    /// part of a fragment cache key that depends on the user (`docs/11`:
+    /// "Fragment caches include the hash of the user's action set").
+    pub fn action_set_hash(&self) -> String {
+        let mut names: Vec<&str> = self.actions.iter().map(String::as_str).collect();
+        names.sort_unstable();
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for name in names {
+            for b in name.bytes().chain(std::iter::once(0)) {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        format!("{h:016x}")
+    }
+}
+
+impl fmt::Debug for Can {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Can")
+            .field("actions", &self.actions.len())
+            .field("check", &self.check.is_some())
+            .finish()
+    }
+}
 
 /// Per-request values the cell provides. Tenant data cannot set them.
 #[derive(Clone, Default)]
@@ -150,7 +216,7 @@ pub struct RenderContext {
     /// The app's UTC offset for `date` (Asia/Dubai: 240).
     pub utc_offset_minutes: i32,
     /// The permission check; `None` denies every `r-can`.
-    pub can: Option<Arc<CanFn>>,
+    pub can: Option<Arc<Can>>,
 }
 
 impl fmt::Debug for RenderContext {
@@ -193,6 +259,9 @@ pub struct RenderStats {
     pub fuel_used: u64,
     /// Thread CPU milliseconds of the render (meter `render_ms`).
     pub ms: f64,
+    /// Evaluations of `r-can` with a resource (meter `authz_evals`); cache
+    /// hits within the render are not counted.
+    pub authz_evals: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,6 +269,8 @@ pub struct RenderOutput {
     pub html: String,
     pub fuel_used: u64,
     pub ms: f64,
+    /// See [`RenderStats::authz_evals`].
+    pub authz_evals: u64,
 }
 
 /// Why a render failed. The limit variants map to `RENOX_RENDER_LIMIT`
@@ -252,6 +323,7 @@ impl RenderError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stop {
+    Fuel,
     Iterations,
     OutputSize,
     Timeout,
@@ -269,7 +341,11 @@ pub struct Scope {
     pub csrf_token: Option<String>,
     pub now_ms: i64,
     pub utc_offset_minutes: i32,
-    can: Option<Arc<CanFn>>,
+    can: Option<Arc<Can>>,
+    /// `(action, resource key)` -> decision, within this render.
+    can_cache: Mutex<HashMap<(String, String), bool>>,
+    can_evals: AtomicU64,
+    fuel_limit: u64,
     max_iterations: u64,
     iterations: AtomicU64,
     deadline: Instant,
@@ -370,11 +446,58 @@ fn loop_guard(state: &State, value: Value) -> Result<Value, Error> {
     Ok(value)
 }
 
-/// `can(action, resource)`, emitted by the compiler for `r-can`.
-fn can(state: &State, action: &str, resource: Value) -> bool {
-    scope_of(state)
-        .and_then(|s| s.can.clone())
-        .is_some_and(|f| f(action, &resource))
+/// `can(action, resource)`, emitted by the compiler for `r-can`: without a
+/// resource (`none`) a set lookup; with one, a cached evaluation charged
+/// [`CAN_FUEL`]. Past the fuel budget the render stops (`Fuel`).
+fn can(state: &State, action: &str, resource: Value) -> Result<bool, Error> {
+    let Some(scope) = scope_of(state) else {
+        return Ok(false);
+    };
+    let Some(can) = scope.can.clone() else {
+        return Ok(false);
+    };
+    if resource.is_none() || resource.is_undefined() {
+        return Ok(can.actions.contains(action));
+    }
+    let Some(check) = can.check.clone() else {
+        return Ok(false);
+    };
+    let json = serde_json::to_value(&resource).unwrap_or(serde_json::Value::Null);
+    let key = (action.to_string(), resource_key(&json));
+    if let Some(hit) = scope.can_cache.lock().expect("can cache").get(&key) {
+        return Ok(*hit);
+    }
+    let evals = scope.can_evals.fetch_add(1, Ordering::Relaxed) + 1;
+    let consumed = state.fuel_levels().map_or(0, |(c, _)| c);
+    scope.fuel_seen.store(consumed, Ordering::Relaxed);
+    if consumed.saturating_add(evals.saturating_mul(CAN_FUEL)) > scope.fuel_limit {
+        scope.stop(Stop::Fuel);
+        return Err(Error::new(
+            ErrorKind::InvalidOperation,
+            "render ran out of fuel",
+        ));
+    }
+    let allow = check(action, &json);
+    scope
+        .can_cache
+        .lock()
+        .expect("can cache")
+        .insert(key, allow);
+    Ok(allow)
+}
+
+/// The cache key of a resource: `type:id` when it has an `id`, else its
+/// JSON text (`docs/11`: "cached per (action, resource.id)").
+fn resource_key(resource: &serde_json::Value) -> String {
+    let field = |k: &str| match resource.get(k) {
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        Some(v @ serde_json::Value::Number(_)) => Some(v.to_string()),
+        _ => None,
+    };
+    match field("id") {
+        Some(id) => format!("{}:{id}", field("type").unwrap_or_default()),
+        None => format!("={resource}"),
+    }
 }
 
 /// Writes into the caller's sink, refusing bytes past the output limit and
@@ -417,6 +540,11 @@ pub struct Renderer {
     depth: BTreeMap<String, usize>,
     /// The deployment's translation catalogs (`t`, `<r-t>`).
     catalogs: Option<Arc<Catalogs>>,
+    /// Every action named by a `can` call of any template.
+    actions: BTreeSet<String>,
+    /// Templates that reach (through extends and include) an `r-can` with a
+    /// resource: their output depends on the user beyond the action set.
+    user_specific: BTreeSet<String>,
 }
 
 impl fmt::Debug for Renderer {
@@ -556,7 +684,15 @@ impl Renderer {
     ) -> Result<Renderer, BuildError> {
         let mut base = base_env();
         let mut refs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut actions = BTreeSet::new();
+        let mut with_resource = BTreeSet::new();
         for (id, source) in sources {
+            for (action, resource) in crate::can_calls(source) {
+                if resource {
+                    with_resource.insert(id.to_string());
+                }
+                actions.insert(action);
+            }
             base.add_template_owned(id.to_string(), source.to_string())
                 .map_err(|e| BuildError {
                     id: id.to_string(),
@@ -576,11 +712,18 @@ impl Renderer {
             .keys()
             .map(|id| (id.clone(), chain_depth(id, &refs, &mut Vec::new())))
             .collect();
+        let user_specific = refs
+            .keys()
+            .filter(|id| reaches(id, &refs, &with_resource, &mut BTreeSet::new()))
+            .cloned()
+            .collect();
         Ok(Renderer {
             envs: Mutex::new(HashMap::new()),
             base,
             depth,
             catalogs: None,
+            actions,
+            user_specific,
         })
     }
 
@@ -588,6 +731,31 @@ impl Renderer {
     pub fn with_catalogs(mut self, catalogs: Arc<Catalogs>) -> Renderer {
         self.catalogs = Some(catalogs);
         self
+    }
+
+    /// Every action the templates name in `r-can` / `r-cannot`: the
+    /// worker's prepare refuses a deployment naming one the merged action
+    /// set does not have.
+    pub fn actions(&self) -> &BTreeSet<String> {
+        &self.actions
+    }
+
+    /// The key under which a fragment of `template` may be cached for a
+    /// user with `can`'s action set (`docs/11`, "In templates"): the
+    /// template, the block and the action set's hash. `None` when the
+    /// template reaches an `r-can` with a resource: such a fragment is
+    /// never cached across users.
+    pub fn fragment_cache_key(
+        &self,
+        template: &str,
+        block: &str,
+        can: Option<&Can>,
+    ) -> Option<String> {
+        if self.user_specific.contains(template) || !self.depth.contains_key(template) {
+            return None;
+        }
+        let hash = can.map_or_else(|| Can::default().action_set_hash(), Can::action_set_hash);
+        Some(format!("{template}#{block}@{hash}"))
     }
 
     pub fn has_template(&self, id: &str) -> bool {
@@ -624,6 +792,7 @@ impl Renderer {
             html: String::from_utf8(html).expect("minijinja writes UTF-8"),
             fuel_used: stats.fuel_used,
             ms: stats.ms,
+            authz_evals: stats.authz_evals,
         })
     }
 
@@ -715,8 +884,8 @@ impl Renderer {
         };
         if depth > limits.max_depth {
             return Err(RenderError::Depth(RenderStats {
-                fuel_used: 0,
                 ms: ms(),
+                ..RenderStats::default()
             }));
         }
         if !matches!(
@@ -726,8 +895,8 @@ impl Renderer {
             return Err(RenderError::Failed {
                 message: format!("template data must be an object, got {}", data.kind()),
                 stats: RenderStats {
-                    fuel_used: 0,
                     ms: ms(),
+                    ..RenderStats::default()
                 },
             });
         }
@@ -759,6 +928,9 @@ impl Renderer {
             now_ms: cx.now_ms,
             utc_offset_minutes: cx.utc_offset_minutes,
             can: cx.can.clone(),
+            can_cache: Mutex::new(HashMap::new()),
+            can_evals: AtomicU64::new(0),
+            fuel_limit: limits.fuel,
             max_iterations: limits.max_iterations,
             iterations: AtomicU64::new(0),
             deadline,
@@ -800,18 +972,28 @@ impl Renderer {
                 Err(e) => Err((e, None)),
             }
         };
-        let fuel_seen = scope.fuel_seen.load(Ordering::Relaxed);
+        let evals = scope.can_evals.load(Ordering::Relaxed);
+        let can_fuel = evals.saturating_mul(CAN_FUEL);
+        let fuel_seen = scope
+            .fuel_seen
+            .load(Ordering::Relaxed)
+            .saturating_add(can_fuel);
         let stats_at = |fuel: u64| RenderStats {
             fuel_used: fuel,
             ms: ms(),
+            authz_evals: evals,
         };
         match result {
-            Ok(levels) => Ok(stats_at(levels.map_or(0, |(c, _)| c))),
+            Ok(levels) => Ok(stats_at(
+                levels.map_or(0, |(c, _)| c).saturating_add(can_fuel),
+            )),
             Err((e, block)) => {
                 let stop = *scope.stop.lock().expect("stop lock");
                 let stop = stop.or(writer.stop);
                 Err(match (e.kind(), stop) {
-                    (ErrorKind::OutOfFuel, _) => RenderError::Fuel(stats_at(limits.fuel)),
+                    (ErrorKind::OutOfFuel, _) | (_, Some(Stop::Fuel)) => {
+                        RenderError::Fuel(stats_at(limits.fuel))
+                    }
                     (_, Some(Stop::Iterations)) => RenderError::Iterations(stats_at(fuel_seen)),
                     (_, Some(Stop::OutputSize)) => RenderError::OutputSize(stats_at(fuel_seen)),
                     (_, Some(Stop::Timeout)) => RenderError::Timeout(stats_at(fuel_seen)),
@@ -849,6 +1031,23 @@ fn describe(e: &Error) -> String {
         s = format!("{name}:{line}: {s}");
     }
     s
+}
+
+/// Whether `id`, or a template it extends or includes, is in `marked`.
+fn reaches(
+    id: &str,
+    refs: &BTreeMap<String, Vec<String>>,
+    marked: &BTreeSet<String>,
+    seen: &mut BTreeSet<String>,
+) -> bool {
+    if marked.contains(id) {
+        return true;
+    }
+    if !seen.insert(id.to_string()) {
+        return false;
+    }
+    refs.get(id)
+        .is_some_and(|ts| ts.iter().any(|t| reaches(t, refs, marked, seen)))
 }
 
 fn chain_depth(id: &str, refs: &BTreeMap<String, Vec<String>>, path: &mut Vec<String>) -> usize {

@@ -28,6 +28,16 @@ export interface ErrorDetails {
   /** The redacted cause from the tenant log (render failures, internal errors). */
   cause: string | null;
   render_fuel: number | null;
+  /** #294, `RENOX_FORBIDDEN`: the action, the resource, why, and (dev mode) the deciding policy. */
+  action: string | null;
+  resource: string | null;
+  reason: string | null;
+  policy: string | null;
+  /** Who asked: `id (kind; roles)`. */
+  principal: string | null;
+  /** #294, `RENOX_DB_SCOPE`: the owned table and the module whose statement was refused. */
+  table: string | null;
+  module: string | null;
 }
 
 type Line = { level?: string; request_id?: string | null; message?: string; fields?: Record<string, unknown> };
@@ -77,7 +87,17 @@ export function errorDetails(requestId: string, lines: Line[], record: Record_ |
   // (the failure, then the error page's own render).
   const main = lines.find((l) => typeof l.fields?.code === "string") ?? lines.at(-1);
   const f = main?.fields ?? {};
-  const code = str(f.code);
+  // A scope refusal is thrown and logged as RENOX_INTERNAL with cause_code RENOX_DB_SCOPE and its details (#294).
+  const d = (f.details && typeof f.details === "object" ? f.details : {}) as Record<string, unknown>;
+  const code = str(f.cause_code) === "RENOX_DB_SCOPE" ? "RENOX_DB_SCOPE" : str(f.code);
+  const p = (f.principal ?? d.principal) as { id?: unknown; kind?: unknown; roles?: unknown } | null | undefined;
+  const principal =
+    p && typeof p === "object"
+      ? p.kind === "anonymous"
+        ? "anonymous"
+        : `${String(p.id ?? "?")} (${String(p.kind ?? "user")}${Array.isArray(p.roles) && p.roles.length ? `; roles ${p.roles.join(", ")}` : "; no roles"})`
+      : null;
+  const res = f.resource as { type?: unknown; id?: unknown } | null | undefined;
   let limit = str(f.limit);
   let limitValue: number | null = null;
   if (code === "RENOX_CPU_LIMIT") [limit, limitValue] = ["cpu", num(f.limit_ms)];
@@ -99,6 +119,13 @@ export function errorDetails(requestId: string, lines: Line[], record: Record_ |
     line: at ? Number(at[2]) : null,
     cause,
     render_fuel: num(f.render_fuel) ?? num(record?.render_fuel),
+    action: str(f.action),
+    resource: res && typeof res === "object" ? `${String(res.type ?? "?")}:${String(res.id ?? "?")}` : null,
+    reason: str(f.reason) ?? str(d.reason),
+    policy: str(f.policy),
+    principal,
+    table: str(d.table),
+    module: str(d.module),
   };
 }
 

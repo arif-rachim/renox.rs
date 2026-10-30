@@ -18,18 +18,27 @@ login_path = { type = "string", max_length = 200, default = "/auth/login", descr
 google_client_id = { type = "string", max_length = 200, default = "", description = "Google sign-in: the OAuth client id (the secret is AUTH_GOOGLE_CLIENT_SECRET); empty = off" }
 github_client_id = { type = "string", max_length = 200, default = "", description = "GitHub sign-in: the OAuth app's client id (secret AUTH_GITHUB_CLIENT_SECRET); empty = off" }
 microsoft_client_id = { type = "string", max_length = 200, default = "", description = "Microsoft sign-in: the application id (secret AUTH_MICROSOFT_CLIENT_SECRET); empty = off" }
+uaepass_client_id = { type = "string", max_length = 200, default = "", description = "UAE PASS sign-in: the client id (secret AUTH_UAEPASS_CLIENT_SECRET); empty = off (#291)" }
+uaepass_env = { type = "enum", values = ["staging", "production"], default = "staging", description = "Which UAE PASS environment the sign-in uses" }
+phone_login = { type = "bool", default = false, description = "Phone-first sign-in with a one-time code (#291); codes go out through the auth.send_otp hook (whatsapp fills it)" }
+passkeys = { type = "bool", default = false, description = "Passkeys as a sign-in method (#291)" }
+passkey_rp_id = { type = "string", max_length = 200, default = "", description = "The WebAuthn relying party id; empty = the request's host" }
+passkey_origin = { type = "string", max_length = 200, default = "", description = "The WebAuthn origin; empty = https://<the request's host>" }
 
 [permissions]
 tables = "auth__*"
 slots = ["app.header"]
 # OAuth/OIDC providers (#240): token endpoints, signing keys, the GitHub API.
-network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com"]
-secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"]
+network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"]
+secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"]
 
 [exports]
 views = ["auth__public_users_v1"]
 
 [exports.services]
+refreshPrincipal = "The user's principal changed (an active organisation, a second factor): (user_id?) -> emits auth.principal_changed, so the cell recomputes it (#292)"
+resumeLogin = "Resume a sign-in an auth.after_login filler halted: (resume ticket) -> { cookie, session_id, user_id, next } or null (#287)"
+principal = "The request's principal for the cell (ops.md 1.5.0 section 17): { id, attrs: { email_verified, phone_verified, created_at, ... } } of the signed-in user, extended by the auth.principal hook, or null"
 register = "Create a user and mail a confirmation link: { email, password, display_name } -> { message } (the same if the email was taken)"
 login = "Sign in: { email, password } -> { user, cookie } or { error }"
 logout = "End the current session (server side) -> { cookie }"
@@ -40,6 +49,10 @@ loginUrl = "The module's login page with a safe `next`"
 sendMagicLink = "Mail a one-time sign-in link: { email } -> the same message whether or not the account exists"
 requestPasswordReset = "Mail a one-time password reset link: { email } -> the same message in every case"
 confirmPasswordReset = "Set a new password with a reset token: { token, password } -> { cookie } or { error }"
+verifyAgentToken = "The cell's check of an agent token on /mcp (#286): token -> { principal, scopes, client } or null"
+oauthMetadata = "RFC 8414 metadata of the authorization server for agents: issuer -> the metadata object (the cell serves it, #286)"
+listAgentTokens = "The signed-in user's connected agents (live tokens), newest first"
+revokeAgentToken = "Disconnect one of the signed-in user's agents: id -> true when a token was revoked"
 
 [exports.events."auth.user_registered"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" }, source = { enum = ["password", "oauth"] } } }
@@ -48,6 +61,18 @@ description = "A user registered"
 [exports.events."auth.login"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
 description = "A user signed in"
+
+[exports.events."auth.agent_token_revoked"]
+payload = { type = "object", required = ["token_hash", "user_id", "at"], additionalProperties = false, properties = { token_hash = { type = "string" }, user_id = { type = "string" }, at = { type = "integer" } } }
+description = "An agent token was revoked; the cell drops it from its /mcp cache (#286)"
+
+[exports.events."auth.principal_changed"]
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+description = "What the principal hook's fillers set changed for a user (the active organisation, a second factor); the cell drops the cached principal (#292)"
+
+[exports.events."auth.logout"]
+payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
+description = "A session was signed out; the cell drops the principal from its cache (#291)"
 
 [exports.events."auth.password_changed"]
 payload = { type = "object", required = ["user_id", "at"], additionalProperties = false, properties = { user_id = { type = "string" }, at = { type = "integer" } } }
@@ -58,8 +83,24 @@ args = { type = "object", required = ["to", "template", "args"], properties = { 
 description = "Send one mail (auth sends none itself before the email module, F7): fill it to deliver magic and reset links"
 
 [exports.hooks."auth.after_login"]
-args = { type = "object", required = ["user_id"], properties = { user_id = { type = "string" }, next = { type = "string" } } }
-description = "After the password check, before the session cookie is sent; a filler may halt with its own response (2fa)"
+args = { type = "object", required = ["user_id", "resume"], properties = { user_id = { type = "string" }, next = { type = "string" }, resume = { type = "string" } } }
+description = "After the password (or magic link, OAuth, phone, passkey) check, before the session cookie is sent; a filler may halt with its own response (2fa) and later call resumeLogin with `resume`"
+
+[exports.hooks."auth.agent_audit"]
+args = { type = "object", required = ["action", "user_id", "client_name", "scopes", "at"], properties = { action = { enum = ["connect", "revoke"] }, user_id = { type = "string" }, client_name = { type = "string" }, scopes = { type = "array", items = { type = "string" } }, at = { type = "integer" } } }
+description = "An agent was connected or disconnected; the audit library fills it to write an audit row (#288); never the token"
+
+[exports.hooks."auth.principal"]
+args = { type = "object", required = ["principal"], properties = { principal = { type = "object", required = ["id", "attrs"], properties = { id = { type = "string" }, attrs = { type = "object" } } } } }
+description = "Extend the principal's attrs in place (2fa: mfa_verified; org: org); only the platform's user attributes are kept (#291)"
+
+[exports.hooks."auth.send_otp"]
+args = { type = "object", required = ["to", "code", "purpose"], properties = { to = { type = "string" }, code = { type = "string" }, purpose = { enum = ["login", "verify"] } } }
+description = "Deliver a one-time code to a phone (E.164): whatsapp fills it (#290), an SMS module in F7. Never log the code"
+
+[exports.hooks."auth.send_sms"]
+args = { type = "object", required = ["to", "text"], properties = { to = { type = "string" }, text = { type = "string" } } }
+description = "Declared for F7: send one SMS; unfilled until an SMS module exists"
 
 [exports.hooks."auth.before_register"]
 args = { type = "object", required = ["email"], properties = { email = { type = "string" }, display_name = { type = "string" } } }
@@ -71,3 +112,9 @@ template = "partials/user-menu.html"
 
 [authz]
 actions = ["user.read", "user.update_self", "session.revoke"]
+
+# The module's entity types (#283; manifest.md 1.1): the app names them
+# `auth:Account` and `auth:Session`.
+[authz.entities]
+Account = { table = "auth__users", attrs = ["id"] }
+Session = { table = "auth__sessions", attrs = ["user_id"] }

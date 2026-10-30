@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { EXIT } from "../errors.ts";
-import { prepare } from "../lib/test-harness.ts";
+import { evaluatePolicies, prepare } from "../lib/test-harness.ts";
 import { workerPath } from "../lib/worker.ts";
 
 const HARNESS = resolve(import.meta.dir, "../lib/test-harness.ts");
@@ -24,6 +24,17 @@ export async function runTests(project: string, args: string[], output: "inherit
     else patterns.push(a); // patterns, and -u / --update-snapshots for bun test
   }
   const spec = await prepare(project, seeds, workerPath());
+  // Policy test cases (#283; docs/11-authorization.md, `renox test`): every
+  // `policies/tests/*.json` case through the engine the cell builds.
+  const outcomes = await evaluatePolicies(spec, project);
+  let policyOut = "";
+  for (const o of outcomes) {
+    const who = `${o.case.principal.type}::${o.case.principal.id}${o.case.principal.roles?.length ? ` (${o.case.principal.roles.join(", ")})` : ""}`;
+    const line = `${o.ok ? "(pass)" : "(fail)"} policy ${o.file}: ${o.case.description ?? `${who} ${o.case.action}`} -> ${o.result.allow ? "allow" : "deny"}${o.ok ? "" : ` (expected ${o.case.expected}, ${o.result.reason})`}\n`;
+    policyOut += line;
+    if (output === "inherit") process.stderr.write(line);
+  }
+  const policiesFailed = outcomes.some((o) => !o.ok);
   // Next to the artifact: for a module, in its temporary test app, never in
   // the module tree (its hash covers every file, manifest.md MF12).
   const specFile = join(spec.project, ".renox", "test", "spec.json");
@@ -40,7 +51,7 @@ export async function runTests(project: string, args: string[], output: "inherit
     output === "pipe" ? new Response(p.stdout as ReadableStream).text() : Promise.resolve(""),
     output === "pipe" ? new Response(p.stderr as ReadableStream).text() : Promise.resolve(""),
   ]);
-  return { code: code === 0 ? EXIT.OK : EXIT.VALIDATION, out: `${out}${err}` };
+  return { code: code === 0 && !policiesFailed ? EXIT.OK : EXIT.VALIDATION, out: `${policyOut}${out}${err}` };
 }
 
 export async function run(args: string[]): Promise<number> {

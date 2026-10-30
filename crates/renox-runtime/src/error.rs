@@ -18,6 +18,9 @@ pub enum ErrorCode {
     Internal,
     /// ops.md 1.4.0: a lazy route module failed its first evaluation.
     ModuleEval,
+    /// ops.md 1.5.0 section 17: a route's `guard` denied, or an uncaught
+    /// `ForbiddenError` (403).
+    Forbidden,
 }
 
 impl ErrorCode {
@@ -33,6 +36,7 @@ impl ErrorCode {
             ErrorCode::Busy => "RENOX_BUSY",
             ErrorCode::Internal => "RENOX_INTERNAL",
             ErrorCode::ModuleEval => "RENOX_MODULE_EVAL",
+            ErrorCode::Forbidden => "RENOX_FORBIDDEN",
         }
     }
 
@@ -43,6 +47,7 @@ impl ErrorCode {
             ErrorCode::Deadline => Some(504),
             ErrorCode::CpuLimit | ErrorCode::Oom | ErrorCode::Busy => Some(503),
             ErrorCode::Internal | ErrorCode::ModuleEval => Some(500),
+            ErrorCode::Forbidden => Some(403),
             _ => None,
         }
     }
@@ -56,6 +61,7 @@ impl ErrorCode {
             ErrorCode::Deadline => "The request took too long.",
             ErrorCode::Internal => "Internal error. Quote the request id when reporting it.",
             ErrorCode::Busy => "The service is busy. Try again shortly.",
+            ErrorCode::Forbidden => "You are not allowed to do this.",
             _ => "Internal error. Quote the request id when reporting it.",
         }
     }

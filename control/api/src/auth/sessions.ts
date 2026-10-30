@@ -47,14 +47,17 @@ export interface SessionRow {
   created_at: number;
   last_seen_at: number;
   expires_at: number;
+  /** #293: `verify` or `enrol` while the second factor is outstanding. */
+  mfa_state: "verify" | "enrol" | null;
 }
 
-export async function createSession(db: Db, userId: string, tenantId: string | null, now: number, ip: string | null, userAgent: string | null): Promise<{ id: string; value: string }> {
+/** `mfaState` (#293, src/auth/mfa.ts): `verify` until the second factor is given, `enrol` until one is set up. */
+export async function createSession(db: Db, userId: string, tenantId: string | null, now: number, ip: string | null, userAgent: string | null, mfaState: "verify" | "enrol" | null = null): Promise<{ id: string; value: string }> {
   const value = newSessionValue();
   const id = `ses_${ulid(now)}`;
   await db.query(
-    "insert into sessions (id, user_id, tenant_id, token_sha256, created_at, last_seen_at, expires_at, ip, user_agent) values ($1, $2, $3, $4, $5, $5, $6, $7, $8)",
-    [id, userId, tenantId, sha256hex(value), now, now + SESSION_ABSOLUTE_MS, ip, userAgent === null ? null : userAgent.slice(0, 256)],
+    "insert into sessions (id, user_id, tenant_id, token_sha256, created_at, last_seen_at, expires_at, ip, user_agent, mfa_state) values ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9)",
+    [id, userId, tenantId, sha256hex(value), now, now + SESSION_ABSOLUTE_MS, ip, userAgent === null ? null : userAgent.slice(0, 256), mfaState],
   );
   return { id, value };
 }
@@ -63,7 +66,7 @@ export async function createSession(db: Db, userId: string, tenantId: string | n
 export async function findSession(db: Db, value: string, now: number): Promise<SessionRow | null> {
   if (!/^renox_ses_[a-z2-7]{32}$/u.test(value)) return null;
   const rows = await db.query<Record<string, unknown>>(
-    "select id, user_id, tenant_id, created_at, last_seen_at, expires_at, revoked_at from sessions where token_sha256 = $1",
+    "select id, user_id, tenant_id, created_at, last_seen_at, expires_at, revoked_at, mfa_state from sessions where token_sha256 = $1",
     [sha256hex(value)],
   );
   const r = rows[0];
@@ -75,6 +78,7 @@ export async function findSession(db: Db, value: string, now: number): Promise<S
     created_at: num(r.created_at),
     last_seen_at: num(r.last_seen_at),
     expires_at: num(r.expires_at),
+    mfa_state: (r.mfa_state as "verify" | "enrol" | null) ?? null,
   };
   if (s.expires_at <= now || s.last_seen_at + SESSION_IDLE_MS <= now) return null;
   if (now - s.last_seen_at >= TOUCH_MS) await db.query("update sessions set last_seen_at = $1 where id = $2", [now, s.id]);

@@ -1,0 +1,40 @@
+{
+  "twofa": {
+    "title": "Two-step verification",
+    "manage": "Manage two-step verification",
+    "on": "Two-step verification is on.",
+    "off": "Two-step verification is off. Add an authenticator app or a passkey.",
+    "remove": "Remove",
+    "back": "Back",
+    "code": "Code",
+    "totp": {
+      "title": "Authenticator app",
+      "on": "An authenticator app is set up.",
+      "add": "Set up an authenticator app",
+      "scan": "Scan this code with your authenticator app.",
+      "or_type": "Or type this key:",
+      "turn_on": "Turn on",
+      "done": "Your authenticator app is set up."
+    },
+    "passkeys": {
+      "title": "Passkeys",
+      "none": "No passkey yet.",
+      "add": "Add a passkey",
+      "name": "Name",
+      "create": "Create the passkey"
+    },
+    "recovery": {
+      "title": "Recovery codes",
+      "left": "{count, plural, one {# code left.} other {# codes left.}}",
+      "new": "Make new codes",
+      "once": "Keep these codes somewhere safe. Each works once; they are shown only now.",
+      "code": "Recovery code"
+    },
+    "verify": {
+      "title": "Confirm it is you",
+      "submit": "Verify",
+      "passkey": "Use a passkey",
+      "lost": "Lost your device? Use a recovery code"
+    }
+  }
+}

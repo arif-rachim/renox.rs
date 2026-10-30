@@ -14,9 +14,11 @@ invite_days = { type = "int", min = 1, max = 30, default = 7, description = "An 
 [permissions]
 tables = "org__*"
 slots = ["app.header", "admin.sidebar"]
+# #292: `org` on the principal (the session's active organisation).
+hooks = ["auth.principal"]
 
 [imports]
-services = ["auth.currentSession", "auth.loginUrl", "i18n.detectLocale"]
+services = ["auth.currentSession", "auth.loginUrl", "auth.refreshPrincipal", "i18n.detectLocale"]
 views = ["auth__public_users_v1"]
 
 [exports]
@@ -66,5 +68,17 @@ name = "admin.sidebar"
 template = "partials/admin-nav.html"
 requires = "org.manage_members"
 
+# The App MCP tool (#286; manifest.md [[tools]], carried as a tool route).
+[[tools]]
+name = "invite_member"
+file = "tools/invite-member.ts"
+action = "org.invite"
+confirm = true
+description = "Invite someone by email to one of your organisations (you must be an admin or owner)"
+
 [authz]
 actions = ["org.read", "org.invite", "org.manage_members"]
+
+# The module's entity type (#283; manifest.md 1.1): `org:Org` from the app.
+[authz.entities]
+Org = { table = "org__orgs", attrs = ["id"] }

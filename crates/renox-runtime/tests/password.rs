@@ -145,3 +145,33 @@ async fn the_fifth_concurrent_hash_waits_for_a_slot() {
         PasswordPool::DEFAULT_PER_WORKER
     );
 }
+
+/// The cost of one hash at the platform's parameters (#275 item 2;
+/// `docs/24-threat-model.md` A, "Login brute force": argon2id at m = 64 MiB,
+/// t = 3, p = 1). Prints the median of 5 runs for
+/// `bench/results/*-argon2id-dev-container.md`; asserts only that the
+/// parameters are the ones in the PHC string and that one hash is neither
+/// trivially cheap (under 5 ms would mean the memory cost was not applied)
+/// nor pathological (over 5 s). The `node-small` number is O3's (#158).
+#[test]
+fn argon2id_hash_time_at_the_platform_parameters() {
+    let mut ms = Vec::new();
+    for i in 0..5 {
+        let t = Instant::now();
+        let h = password::hash(&format!("correct horse battery {i}")).unwrap();
+        ms.push(t.elapsed().as_secs_f64() * 1000.0);
+        assert!(h.starts_with("$argon2id$v=19$m=65536,t=3,p=1$"), "{h}");
+    }
+    ms.sort_by(f64::total_cmp);
+    let (min, median, max) = (ms[0], ms[2], ms[4]);
+    eprintln!(
+        "argon2id m=65536 t=3 p=1: median {median:.1} ms, min {min:.1} ms, max {max:.1} ms over 5 hashes ({} build)",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        }
+    );
+    assert!(median > 5.0, "{median} ms: the memory cost was not applied");
+    assert!(median < 5000.0, "{median} ms");
+}

@@ -17,6 +17,10 @@ exports[`snapshots per role anonymous: login, register, the account redirect, th
     <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
     <button type="submit">Sign in</button>
   </form>
+  <ul class="methods">
+    <li><a href="phone?next=%2F">Sign in with your phone</a></li>
+    <li><a href="passkeys/login?next=%2F">Sign in with a passkey</a></li>
+  </ul>
   <ul class="providers">
     <li><a href="oauth/google/start?next=%2F">Continue with Google</a></li>
   </ul>
@@ -89,6 +93,27 @@ exports[`snapshots per role user: the account page and the header: role: user ac
       <strong>(this browser)</strong>
       
     </li>
+  </ul>
+  
+    <h2>Phone</h2>
+    
+    <form method="post" action="?/phone_send" hx-post="?/phone_send"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Mobile number <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" required></label>
+      <button type="submit">Send code</button>
+    </form>
+    
+  
+  
+    <h2>Passkeys</h2>
+    <ul id="passkeys">
+      <li>No passkey yet.</li>
+    </ul>
+    <p><a href="passkeys/register">Add a passkey</a></p>
+  
+  
+  <h2>Connected agents</h2>
+  <ul id="agents">
+    <li>No agent is connected.</li>
   </ul>
   <form method="post" action="?/everywhere" hx-post="?/everywhere"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out everywhere</button></form>
   <form method="post" action="?/logout" hx-post="?/logout"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>

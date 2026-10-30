@@ -1,0 +1,28 @@
+<r-layout use="twofa">
+  <r-group slot="title"><r-t key="twofa.title" /></r-group>
+  <h1><r-t key="twofa.title" /></h1>
+  <p class="notice" r-if="notice">{{ notice }}</p>
+  <p class="error" id="error" r-if="error">{{ error }} <a :href="verify_url"><r-t key="twofa.verify.title" /></a></p>
+  <p id="status"><r-group r-if="enrolled"><r-t key="twofa.on" /></r-group><r-group r-else><r-t key="twofa.off" /></r-group></p>
+  <r-group r-if="allow_totp">
+    <h2><r-t key="twofa.totp.title" /></h2>
+    <r-group r-if="totp">
+      <p><r-t key="twofa.totp.on" /></p>
+      <x-form action="remove_totp"><button type="submit"><r-t key="twofa.remove" /></button></x-form>
+    </r-group>
+    <p r-else><a :href="totp_url"><r-t key="twofa.totp.add" /></a></p>
+  </r-group>
+  <r-group r-if="allow_passkeys">
+    <h2><r-t key="twofa.passkeys.title" /></h2>
+    <ul id="passkeys">
+      <li r-for="k in passkeys">
+        <strong>{{ k.name }}</strong>
+        <x-form action="remove_passkey"><input type="hidden" name="passkey" :value="k.id"><button type="submit"><r-t key="twofa.remove" /></button></x-form>
+      </li>
+      <li r-empty="passkeys"><r-t key="twofa.passkeys.none" /></li>
+    </ul>
+    <p><a :href="passkey_url"><r-t key="twofa.passkeys.add" /></a></p>
+  </r-group>
+  <h2><r-t key="twofa.recovery.title" /></h2>
+  <p><r-t key="twofa.recovery.left" :count="recovery_left" /> <a :href="recovery_url"><r-t key="twofa.recovery.new" /></a></p>
+</r-layout>

@@ -3,7 +3,8 @@
     "brand": "Renox Shop",
     "nav": {
       "products": "Products",
-      "cart": "Cart:"
+      "cart": "Cart:",
+      "orders": "Orders"
     },
     "footer": "Prices in AED, VAT included.",
     "list": {
@@ -19,6 +20,13 @@
     "lang": {
       "en": "English",
       "ar": "العربية"
+    },
+    "orders": {
+      "title": "Your orders",
+      "live": "Live orders",
+      "refund": "Refund",
+      "refunded": "Refunded",
+      "none": "No orders yet."
     }
   }
 }

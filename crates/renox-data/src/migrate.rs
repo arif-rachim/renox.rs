@@ -201,6 +201,17 @@ fn apply(
     // keeps one time limit and one transaction.
     let started = std::time::Instant::now();
     for statement in split_statements(&file.sql) {
+        if let Some(trigger) = refused_trigger(statement).filter(|_| !policy.is_platform()) {
+            return Err(MigrationError::Failed {
+                module: module.to_owned(),
+                name: file.name.clone(),
+                statement: Some(clip(statement.trim())),
+                source: DbError::Auth {
+                    table: trigger,
+                    action: "CREATE_TRIGGER".into(),
+                },
+            });
+        }
         let left = MIGRATION_FILE_TIMEOUT.saturating_sub(started.elapsed());
         db.with_writer_policy(Some(Arc::clone(policy)), || {
             if left.is_zero() {
@@ -367,6 +378,118 @@ fn clip(s: &str) -> String {
     }
 }
 
+/// A module's `create trigger` whose body does more than `select raise(...)`
+/// (#288): its name, else `None` (not a trigger, or a guard trigger). The
+/// authorizer lets a module create a trigger on its own table; this keeps
+/// the body to refusing the statement, so a trigger never writes or reads
+/// a table outside the statement that fires it (`db.scoped()` relies on
+/// every write being a statement the rewriter saw). The `when` clause may
+/// not hold a subquery either.
+pub(crate) fn refused_trigger(statement: &str) -> Option<String> {
+    let lower = strip_comments(statement).to_ascii_lowercase();
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    let at = words.iter().position(|w| *w == "trigger")?;
+    if words.first() != Some(&"create") || at > 2 {
+        return None;
+    }
+    let name = words
+        .get(at + 1)
+        .filter(|w| **w != "if")
+        .or_else(|| words.get(at + 4))
+        .map(|w| {
+            w.trim_matches(|c| c == '"' || c == '`' || c == '[' || c == ']')
+                .to_string()
+        })
+        .unwrap_or_default();
+    let refused = || Some(name.clone());
+    let bytes = lower.as_bytes();
+    let Some(begin) = lower.match_indices("begin").map(|(i, _)| i).find(|&i| {
+        i > 0
+            && bytes[i - 1].is_ascii_whitespace()
+            && bytes.get(i + 5).is_none_or(|c| c.is_ascii_whitespace())
+    }) else {
+        return refused();
+    };
+    let (head, body) = lower.split_at(begin);
+    if head.contains("select") {
+        return refused();
+    }
+    let body = body.strip_prefix("begin").unwrap_or(body).trim();
+    let Some(body) = body
+        .strip_suffix(';')
+        .map(str::trim)
+        .unwrap_or(body)
+        .strip_suffix("end")
+    else {
+        return refused();
+    };
+    let guards = body.split(';').map(str::trim).filter(|s| !s.is_empty());
+    let mut any = false;
+    for g in guards {
+        any = true;
+        let compact: String = g.split_whitespace().collect::<Vec<_>>().join(" ");
+        let Some(rest) = compact
+            .strip_prefix("select raise(")
+            .or_else(|| compact.strip_prefix("select raise ("))
+        else {
+            return refused();
+        };
+        let kind_ok = [
+            "abort,",
+            "abort ,",
+            "fail,",
+            "fail ,",
+            "rollback,",
+            "rollback ,",
+            "ignore)",
+            "ignore )",
+        ]
+        .iter()
+        .any(|k| rest.starts_with(k));
+        // One literal message and nothing after the closing parenthesis.
+        let tail_ok =
+            rest.ends_with(')') && rest.matches('(').count() == 0 && rest.matches(')').count() == 1;
+        if !kind_ok || !tail_ok {
+            return refused();
+        }
+    }
+    if any { None } else { refused() }
+}
+
+/// The statement without `--` and `/* */` comments (outside quotes).
+fn strip_comments(sql: &str) -> String {
+    let b = sql.as_bytes();
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'\'' {
+            let start = i;
+            i += 1;
+            while i < b.len() && b[i] != b'\'' {
+                i += 1;
+            }
+            out.push_str(&sql[start..(i + 1).min(sql.len())]);
+        } else if c == b'-' && b.get(i + 1) == Some(&b'-') {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+            out.push(' ');
+        } else if c == b'/' && b.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 1;
+            out.push(' ');
+        } else {
+            out.push(c as char);
+        }
+        i += 1;
+    }
+    out
+}
+
 /// Split a migration file into statements at `;` outside quotes, comments,
 /// and `create trigger ... end` bodies. Only used to name the failing
 /// statement and run one at a time: every piece is still compiled by SQLite
@@ -449,6 +572,33 @@ fn has_code(s: &str) -> bool {
             rest = r.find("*/").map_or("", |n| &r[n + 2..]).trim_start();
         } else {
             return !rest.is_empty();
+        }
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::refused_trigger;
+
+    #[test]
+    fn guard_triggers_pass_and_anything_else_is_refused() {
+        for ok in [
+            "create trigger a__t before update on a__x\nbegin\n  select raise(abort, 'append-only');\nend;",
+            "CREATE TRIGGER IF NOT EXISTS a__t BEFORE DELETE ON a__x WHEN old.at >= (cast(strftime('%s', 'now') as integer) - 86400) * 1000 BEGIN SELECT RAISE(ABORT, 'no'); END",
+            "create trigger a__t before delete on a__x begin select raise(ignore); end;",
+            "create table a__x (id integer)",
+        ] {
+            assert_eq!(refused_trigger(ok), None, "{ok}");
+        }
+        for bad in [
+            "create trigger a__t after insert on a__x begin update a__y set n = 1; end;",
+            "create trigger a__t after insert on a__x begin select raise(abort, 'x'); insert into a__y values (1); end;",
+            "create trigger a__t after insert on a__x when (select count(*) from a__y) > 0 begin select raise(abort, 'x'); end;",
+            "create trigger a__t after insert on a__x begin select raise(abort, (select v from a__y)); end;",
+            "create trigger a__t after insert on a__x begin select 1; end;",
+            "create trigger a__t after insert on a__x begin end;",
+        ] {
+            assert_eq!(refused_trigger(bad).as_deref(), Some("a__t"), "{bad}");
         }
     }
 }

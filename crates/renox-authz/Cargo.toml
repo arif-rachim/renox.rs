@@ -1,0 +1,24 @@
+[package]
+name = "renox-authz"
+version = "0.0.0"
+description = "Cedar policy sets, the merged schema, and the fail-closed policy engine of a deployment (docs/11-authorization.md, D15; ops.md 1.5.0 section 17)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Leaf crate: no renox-* dependencies, no V8 (AGENTS.md, compile discipline;
+# docs/22-development-plan.md section 2).
+[dependencies]
+# D15. Default features off: the decimal, ipaddr and datetime extensions are
+# not part of the platform schema; no experimental features.
+cedar-policy = { version = "4.14", default-features = false }
+miette = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "eval"
+harness = false

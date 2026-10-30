@@ -15,6 +15,7 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import { badRequest, json, notFound } from "../../lib/http.ts";
+import { aed, ordersTopic } from "../../lib/orders.ts";
 
 // No key and no network: the client is only used to build and check the
 // request. A real integration reads the key from ctx.secrets.
@@ -25,7 +26,7 @@ const stripe = new Stripe("renox_shop_example_no_network", {
 
 const CheckoutInput = z.strictObject({ cart_id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/u) });
 
-export const POST: Handler = async ({ req, db }) => {
+export const POST: Handler = async ({ req, db, realtime }) => {
   const user = (await auth.currentUser()) as { id: string } | null;
   if (user === null) return json({ error: { code: "AUTH_REQUIRED", message: "sign in to check out" } }, 401);
   const parsed = CheckoutInput.safeParse(await req.json().catch(() => null));
@@ -44,13 +45,22 @@ export const POST: Handler = async ({ req, db }) => {
     automatic_payment_methods: { enabled: true },
     metadata: { cart_id: parsed.data.cart_id, items: String(cart.items) },
   };
-  const order = await db.execute("insert into app__orders (user_id, org_id, cart_id, amount_fils, created_at) values (?, ?, ?, ?, ?)", [
+  // app__orders is an owned table (#292, renox.toml [authz.ownership]): the
+  // insert goes through db.scoped(), which checks the owner and org columns.
+  const createdAt = Math.floor(Date.now() / 1000);
+  const scope = active ? { user_id: user.id, org_id: active.id } : { user_id: user.id };
+  const order = await db.scoped(scope).execute("insert into app__orders (user_id, org_id, cart_id, amount_fils, created_at) values (?, ?, ?, ?, ?)", [
     user.id,
     active?.id ?? null,
     parsed.data.cart_id,
     cart.total_fils,
-    Math.floor(Date.now() / 1000),
+    createdAt,
   ]);
+  // The organisation's live orders screen gets the new row (pages/orders/live).
+  if (active) {
+    const row = { id: Number(order.lastInsertRowid), user_id: user.id, org_id: active.id, amount_fils: cart.total_fils, created_at: createdAt };
+    await realtime.publish(ordersTopic(active.id), { fragment: "partials/order-row", data: { o: { ...row, id: String(row.id), amount: aed(row.amount_fils) } }, event: "order-created" });
+  }
   return json({
     order_id: Number(order.lastInsertRowid),
     amount: params.amount,

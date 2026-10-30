@@ -1,0 +1,41 @@
+[module]
+name = "notifications"
+version = "1.0.0"
+description = "In-app notifications: a list, an unread badge that updates live over SSE, preferences per category and channel"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
+
+[config]
+base_path = { type = "string", default = "/notifications", max_length = 100, description = "Where the app mounts the module (its pages and the SSE route)" }
+channels = { type = "string", default = "", max_length = 200, description = "Other channels the notifications.deliver hook is run for, comma-separated (whatsapp, email)" }
+
+[permissions]
+tables = "notifications__*"
+slots = ["app.header"]
+
+[exports.services]
+badge = "What the app.header badge needs, for the host page's data as notif_badge: { count, url, sse } for a signed-in user, else null"
+notify = "Notify a user: (user_id, { category, title, body?, link? }) -> { id }; updates their open pages and runs notifications.deliver for each enabled channel"
+list = "The signed-in user's notifications, newest first: ({ unread?, limit? }) -> items"
+unreadCount = "The signed-in user's unread count"
+markRead = "Mark one of the signed-in user's notifications read (id) -> boolean"
+markAllRead = "Mark all of the signed-in user's notifications read -> count"
+preferences = "The signed-in user's channel preferences per category"
+setPreference = "({ category, channel, enabled }) for the signed-in user"
+
+[exports.hooks."notifications.deliver"]
+args = { type = "object", required = ["user", "item", "channel"], properties = { user = { type = "string" }, channel = { type = "string" }, item = { type = "object", required = ["id", "category", "title"], properties = { id = { type = "string" }, category = { type = "string" }, title = { type = "string" }, body = { type = "string" }, link = { type = "string" } } } } }
+description = "Deliver one notification over another channel (whatsapp #290, email F7); called once per channel the user has not turned off"
+
+[imports]
+services = ["auth.loginUrl", "i18n.detectLocale"]
+
+[[slots]]
+name = "app.header"
+template = "partials/badge.html"
+
+[authz.ownership]
+"notifications__items" = { owner = "user_id" }
+"notifications__prefs" = { owner = "user_id" }

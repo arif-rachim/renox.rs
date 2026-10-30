@@ -36,6 +36,9 @@ eszip = { version = "*", optional = true }
 futures = { version = "0.3", optional = true }
 
 renox-data = { path = "../renox-data" }
+# Principal, guard, op_authz_* (ops.md 1.5.0 section 17, #279).
+renox-authz = { path = "../renox-authz" }
+renox-realtime = { path = "../renox-realtime" }
 
 bytes = "1"
 http = "1"

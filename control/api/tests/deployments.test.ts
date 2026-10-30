@@ -202,7 +202,8 @@ describe("retention", () => {
     for (let i = 0; i < 51; i++) {
       const files = helloArtifact((_m, f) => f.set("code/n.json", enc.encode(String(i))));
       hashes.push(contentHash(files));
-      h.clock.now += 1;
+      // 6 s: one upload back in the token's bucket (10 per minute, #275).
+      h.clock.now += 6_000;
       expect((await upload(h, token, "hello", files)).status).toBe(201);
     }
     const first = (await (await h.request("GET", `/v1/apps/hello/deployments/${hashes[0]}`, { token })).json()) as { state: string };

@@ -121,6 +121,32 @@ await ctx.db.transaction(async (tx) => drizzle({ db: tx }).insert(orders).values
 
 Drizzle's own `db.transaction()` sends `BEGIN` as SQL and is refused; use `ctx.db.transaction` with `drizzle({ db: tx })`. Drizzle wraps a failed statement in `DrizzleQueryError`; the platform's `RenoxError` is its `cause`. Kysely's error is the `RenoxError` itself. No streaming. Tests: `tests/{kysely,drizzle}.test.ts` (unit over bun:sqlite; on the worker with `RENOX_WORKER_PATH`, including the refusal of a table outside the app's prefix with the same error as raw SQL).
 
+## Realtime, tools, jobs, TOTP and WebAuthn (#284)
+
+| Module | Exports | What for |
+| --- | --- | --- |
+| `src/realtime.ts` | `defineWs`, `defineSse`, `topic(...segments)`, `isTopic` | Type a `ws` / `sse` export; build a topic the platform accepts (`ops.md` section 18). `ctx.realtime` itself is typed in `ctx.ts` |
+| `src/tools.ts` | `tool(def)`, `toolInputSchema(schema)`, `INPUT_KEYWORDS` | Declare an App MCP tool (`ops.md` section 19). `tool()` checks the name, description, action and Standard Schema input, and defaults `confirm` to false. `toolInputSchema` gives the JSON Schema `renox build` records, through `~standard.jsonSchema.input` (zod 4.2+) or `toJSONSchema()`, reduced to the platform's keywords |
+| `src/jobs.ts` | `defineJob`, `parseSchedule`, `isTimeZone` | A job's `schedule` (five cron fields) and `tz` (`ops.md` section 20); `renox build` uses the same parser (V27) |
+| `src/totp.ts` | `generateTotpSecret`, `totpUri`, `totp`, `verifyTotp`, `base32Encode`, `base32Decode` | RFC 6238 on Web Crypto (SHA-1, SHA-256, SHA-512). `verifyTotp` accepts ±1 step (`window`) and refuses a step not after `lastStep`, so a code works once. Tests: the RFC's vectors |
+| `src/webauthn.ts` | `verifyRegistration`, `verifyAssertion`, `webauthnChallenge`, `WebAuthnError`, `decodeCbor`, `base64url`, `fromBase64url` | Passkeys on Web Crypto. Registration checks the client data (type, challenge, origin), the RP id hash, user presence (and verification when asked), the attested credential (COSE ES256 or RS256), and `none` or `packed` self attestation; certificate chains are refused. Assertion checks the same, verifies the signature over `authenticatorData` and the client data hash, and refuses a counter that did not grow. Errors carry a `reason` |
+
+Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
+
+## Authorization (`ops.md` 1.5.0 section 17, #283)
+
+`ctx.authz` (`require`, `can`, `canBatch`, `explain`, `roles`), `ctx.principal`, the `Guard` export type, `ctx.db.scoped(scope)` and the errors `ForbiddenError` (`RENOX_FORBIDDEN`) and `DbScopeError` (`RENOX_DB_SCOPE`) are typed in `ctx.ts` and `errors.ts`, identical to `docs/contracts/ctx.d.ts`. `src/authz.ts` adds:
+
+| Export | What it does |
+| --- | --- |
+| `defineGuard({ action, resource? })` | Types a page, function, ws or sse module's `export const guard` and returns it unchanged. It checks the shape: `action` is `<resource>.<verb>`, and `resource.id` is a literal or `":<param>"`. `renox build` reads the literal into the route entry |
+| `resource(type, row)` | A `ResourceRef` from a database row (`id` as a string, the row's columns as attributes) |
+| `isForbidden(e)` | Whether `e` is the `RENOX_FORBIDDEN` of a deny |
+| `userScope(principal, extra?)` | `{ user_id, ...extra }` for `ctx.db.scoped()`; throws `ForbiddenError` without a user |
+| `ScopedDb`, `ActionName` | The type of `ctx.db.scoped(...)`, and the `<resource>.<verb>` string type |
+
+`renox/test`: `policyCases(dir?)` and `policies()` run the policy test cases of `policies/tests/*.json` as tests (cli README, "Authorization").
+
 ## Reserved, not yet available
 
 Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a type error until its phase ships.
@@ -129,7 +155,7 @@ Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a
 | --- | --- |
 | F2 | `render`, `webhook`, `kv`; streamed `fetch` request bodies; the page export `guard`; `cors` and `frame` options |
 | F4 | query builders (`renox/kysely`, `renox/drizzle`, #237); `auth` and session data come from the `auth` module as services, not ctx fields |
-| F5 | `authz`, `realtime`, `db.scoped()`; `ws` and `sse` exports |
+| F5 | `ws` and `sse` exports' typed helpers (#284); `authz`, `realtime` and `db.scoped()` are typed above |
 | F6 | `schedule` export for jobs; `datasource(name)` (F6–F7) |
 | F7 | `ai`, `domains` |
 | not scheduled | `offload` |

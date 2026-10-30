@@ -40,6 +40,7 @@ import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
 import { Symbolicator } from "../lib/sourcemap.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
 import { allHints, CLIENT_EVENTS_PATH, clientLine, handleBatch, injectDevMeta, type PageRoute } from "../dev/client-events.ts";
+import { hasPath } from "../lib/routes.ts";
 import { BROWSER_TAB_PATH, browserTabJs } from "../dev/overlay/browser-tab.ts";
 import { collectErrorDetails } from "../dev/overlay/details.ts";
 import { ERROR_DETAILS_PATH, ERROR_OVERLAY_JS, ERROR_OVERLAY_PATH, injectErrorOverlay } from "../dev/overlay/overlay.ts";
@@ -190,7 +191,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   const first = await buildArtifact(project, artifacts, cache);
   let current = first.hash;
   let last = first;
-  writeTypes(project, first.manifest.routes, first.templates);
+  writeTypes(project, first.manifest.routes.filter(hasPath), first.templates);
   const symbols = new Symbolicator(() => join(artifacts, "..", "sourcemaps", current));
   // Browsers listening on DEV_EVENTS_PATH.
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -267,14 +268,62 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     worker.kill("SIGKILL");
     throw portInUse();
   }
-  let proxy: ReturnType<typeof Bun.serve>;
+  let proxy: ReturnType<typeof Bun.serve<WsProxy>>;
   try {
-    proxy = Bun.serve({
+    proxy = Bun.serve<WsProxy>({
       hostname: "localhost",
       port: opts.port,
       idleTimeout: 0,
-      async fetch(req) {
+      // WebSocket routes (#284): the browser's socket is accepted here and
+      // relayed frame by frame to a socket the proxy opens on the worker.
+      websocket: {
+        open(ws) {
+          const d = ws.data;
+          log(`  ws open   ${d.path}`);
+          const up = new WebSocket(`ws://127.0.0.1:${workerPort}${d.path}`, { headers: d.headers } as unknown as string[]);
+          up.binaryType = "arraybuffer";
+          d.upstream = up;
+          up.onopen = () => {
+            for (const m of d.queue.splice(0)) up.send(m as string | Uint8Array<ArrayBuffer>);
+          };
+          up.onmessage = (e) => {
+            ws.send(typeof e.data === "string" ? e.data : new Uint8Array(e.data as ArrayBuffer));
+          };
+          up.onclose = (e) => {
+            d.closedBy ??= "worker";
+            ws.close(e.code === 1005 || e.code === 1006 ? 1011 : e.code, e.reason);
+          };
+          up.onerror = () => {
+            d.closedBy ??= "worker";
+            ws.close(1011, "worker connection failed");
+          };
+        },
+        message(ws, message) {
+          const up = ws.data.upstream;
+          if (up?.readyState === WebSocket.OPEN) up.send(message as string | Uint8Array<ArrayBuffer>);
+          else ws.data.queue.push(message);
+        },
+        close(ws, code, reason) {
+          const d = ws.data;
+          log(`  ws close  ${d.path} ${code}${reason ? ` ${reason}` : ""} (${d.closedBy ?? "browser"})`);
+          d.closedBy ??= "browser";
+          if (d.upstream && d.upstream.readyState <= WebSocket.OPEN) d.upstream.close(code === 1005 || code === 1006 ? 1000 : code, reason);
+        },
+      },
+      async fetch(req, server) {
         const u = new URL(req.url);
+        if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+          const headers: Record<string, string> = { host };
+          for (const name of ["cookie", "origin", "user-agent", "sec-websocket-protocol"]) {
+            const v = req.headers.get(name);
+            if (v !== null) headers[name] = v;
+          }
+          // The worker checks Origin against Host (#118): the dev server's own
+          // origin is the app's; any other site's is passed on to be refused.
+          if (headers.origin === u.origin) headers.origin = `http://${host}`;
+          if (server.upgrade(req, { data: { path: `${u.pathname}${u.search}`, headers, queue: [] } })) return undefined;
+          return new Response("renox dev: WebSocket upgrade failed\n", { status: 400 });
+        }
         if (u.pathname === DEV_CLIENT_PATH)
           return new Response(DEV_CLIENT_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
         // Browser events (#127): batches are handled here (terminal, .renox/logs/browser.ndjson);
@@ -317,6 +366,8 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         } catch {
           return new Response("renox dev: the worker is not reachable (restarting?)\n", { status: 502 });
         }
+        // SSE routes (#284): passed through as a stream, unbuffered, with open and close lines.
+        if ((res.headers.get("content-type") ?? "").startsWith("text/event-stream") && res.body) return sseProxy(res, u.pathname, log);
         // Full HTML documents get the dev client; htmx fragments do not.
         if (req.method === "HEAD" || headers.get("hx-request") === "true" || !(res.headers.get("content-type") ?? "").startsWith("text/html")) return decodedResponse(res);
         const csp = res.headers.get("content-security-policy");
@@ -351,7 +402,10 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   };
   writeDevState(project, status);
   log(`renox dev: http://localhost:${opts.port}  (artifact ${current.slice(0, 12)}, ${first.manifest.routes.length} routes)`);
-  for (const r of first.manifest.routes) log(`  ${(r.kind === "function" ? r.method : "PAGE").padEnd(7)} ${r.path}`);
+  for (const r of first.manifest.routes) {
+    if (r.kind === "tool" || r.kind === "job") log(`  ${r.kind.toUpperCase().padEnd(7)} ${r.name}`);
+    else log(`  ${(r.kind === "function" ? r.method : r.kind === "page" ? "PAGE" : r.kind.toUpperCase()).padEnd(7)} ${r.path}`);
+  }
 
   // Tenant log lines to the terminal.
   const tenantLog = join(state, "logs", "tenant.ndjson");
@@ -445,7 +499,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
           writeRoutes(routes, host, current);
           worker.kill("SIGHUP");
         }
-        writeTypes(project, r.manifest.routes, r.templates);
+        writeTypes(project, r.manifest.routes.filter(hasPath), r.templates);
         const wasFailing = !status.lastBuild.ok;
         if (change?.event === "templates") broadcast("templates", { targets: change.targets });
         else if (change) broadcast("reload", {});
@@ -541,4 +595,43 @@ export async function run(args: string[]): Promise<number> {
   await dev.stop();
   // A give-up was already printed by the supervisor.
   return outcome === "interrupted" ? EXIT.INTERRUPTED : outcome.exitCode;
+}
+
+/** One proxied WebSocket: the browser side's data (#284). */
+interface WsProxy {
+  path: string;
+  headers: Record<string, string>;
+  upstream?: WebSocket;
+  /** Messages the browser sent before the worker's socket opened. */
+  queue: (string | Buffer)[];
+  closedBy?: "browser" | "worker";
+}
+
+/** An SSE response passed on chunk by chunk, with an open and a close line. */
+function sseProxy(res: Response, path: string, log: (line: string) => void): Response {
+  log(`  sse open  ${path}`);
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  let done = false;
+  const end = (why: string) => {
+    if (done) return;
+    done = true;
+    log(`  sse close ${path} (${why})`);
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(c) {
+      const r = await reader.read().catch(() => ({ done: true, value: undefined }));
+      if (r.done) {
+        end("worker");
+        c.close();
+      } else c.enqueue(r.value);
+    },
+    cancel() {
+      end("browser");
+      void reader.cancel();
+    },
+  });
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  return new Response(body, { status: res.status, headers });
 }

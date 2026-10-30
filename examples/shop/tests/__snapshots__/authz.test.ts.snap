@@ -1,0 +1,44 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`refunds: roles, threshold, second factor after a TOTP verification: the button for the small order only; the refund goes through; over the threshold it is denied: role: finance with 2FA 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Your orders</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/htmx-2.0.4.min.js" defer nonce="<nonce>"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/"><strong>Renox Shop</strong></a>
+    <a href="/products">Products</a>
+    <a href="/orders">Orders</a>
+    <span class="cart">Cart: <span id="cart-badge" dir="auto">0</span></span>
+    <span class="renox-user-menu"><a href="/auth/login">Sign in</a></span>
+    
+  </header>
+  <main>
+    
+  
+  <h1>Your orders</h1>
+  
+  <p><a href="/orders/live">Live orders</a></p>
+  <ul id="orders">
+    <li id="order-2">
+      <span dir="auto">#2</span> · <span dir="ltr">20000.00 AED</span>
+      
+      <form method="post" action="?/refund" hx-post="?/refund"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="order" value="2"></form>
+    </li><li id="order-1">
+      <span dir="auto">#1</span> · <span dir="ltr">50.00 AED</span>
+      
+      <form method="post" action="?/refund" hx-post="?/refund"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="order" value="1"><button type="submit">Refund</button></form>
+    </li>
+  </ul>
+
+  </main>
+  <footer><small>Prices in AED, VAT included.</small></footer>
+
+
+</body></html>"
+`;

@@ -157,6 +157,8 @@ async function setActive(ctx: OrgCtx, sessionId: string, orgId: string): Promise
     orgId,
     now(),
   ]);
+  // `org` on the principal changed (#292): the cell recomputes it.
+  await auth.refreshPrincipal();
 }
 
 export async function switchOrg(ctx: OrgCtx, orgId: string): Promise<{ ok: true; org: Org } | { ok: false; error: string }> {
@@ -249,6 +251,21 @@ export async function invite(
   input: { org?: unknown; email?: unknown; role?: unknown },
 ): Promise<{ ok: true; invite_id: string; expires_at: number } | { ok: false; error: string; halt?: Response }> {
   const s = await requireSession();
+  return inviteAs(ctx, s.user, ctx.url.origin, input);
+}
+
+/**
+ * `invite` as `user` (the session's, or an agent's: the `invite_member`
+ * tool, #286). `origin` builds the accept link; without one (no request)
+ * the link is the app path and the mail module prefixes the app's host.
+ */
+export async function inviteAs(
+  ctx: OrgCtx,
+  user: Pick<User, "id" | "display_name">,
+  origin: string | null,
+  input: { org?: unknown; email?: unknown; role?: unknown },
+): Promise<{ ok: true; invite_id: string; expires_at: number } | { ok: false; error: string; halt?: Response }> {
+  const s = { user };
   const orgId = String(input?.org ?? "");
   const mine = await requireRole(ctx, orgId, s.user.id, "admin");
   const email = typeof input?.email === "string" ? input.email.trim().toLowerCase() : "";
@@ -271,7 +288,7 @@ export async function invite(
   const mail: Mail = {
     to: email,
     template: "org_invite",
-    args: { url: `${ctx.url.origin}${basePath(ctx)}/accept/${token}`, org_name: org?.name ?? "", role, expires_days: days, invited_by: s.user.display_name },
+    args: { url: `${origin ?? ""}${basePath(ctx)}/accept/${token}`, org_name: org?.name ?? "", role, expires_days: days, invited_by: s.user.display_name },
   };
   await ctx.hooks.run("org.send_mail", mail);
   return { ok: true, invite_id: id, expires_at: expires };
@@ -368,6 +385,7 @@ export async function removeMember(ctx: OrgCtx, input: { org?: unknown; user?: u
   );
   if (r.changes !== 1) return { ok: false, error: LAST_OWNER };
   await ctx.events.emit("org.member_removed", { org_id: orgId, user_id: userId, by: s.user.id, at: now() });
+  await auth.refreshPrincipal(userId);
   return { ok: true };
 }
 

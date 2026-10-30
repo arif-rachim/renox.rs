@@ -1,0 +1,51 @@
+[
+  {
+    "description": "viewer: may not refund",
+    "principal": { "type": "User", "id": "u_vera", "roles": ["viewer"], "attrs": { "org": "o_acme", "mfa_verified": true } },
+    "action": "invoice.refund",
+    "resource": { "type": "Order", "id": "1", "amount_fils": 5000, "org_id": "o_acme", "user_id": "u_any" },
+    "expected": "deny"
+  },
+  {
+    "description": "finance: refunds under the threshold with a second factor",
+    "principal": { "type": "User", "id": "u_fatima", "roles": ["finance"], "attrs": { "org": "o_acme", "mfa_verified": true } },
+    "action": "invoice.refund",
+    "resource": { "type": "Order", "id": "1", "amount_fils": 5000, "org_id": "o_acme", "user_id": "u_any" },
+    "expected": "allow"
+  },
+  {
+    "description": "finance: not over the threshold",
+    "principal": { "type": "User", "id": "u_fatima", "roles": ["finance"], "attrs": { "org": "o_acme", "mfa_verified": true } },
+    "action": "invoice.refund",
+    "resource": { "type": "Order", "id": "2", "amount_fils": 2000000, "org_id": "o_acme", "user_id": "u_any" },
+    "expected": "deny"
+  },
+  {
+    "description": "finance_manager: over the threshold too",
+    "principal": { "type": "User", "id": "u_mona", "roles": ["finance_manager"], "attrs": { "org": "o_acme", "mfa_verified": true } },
+    "action": "invoice.refund",
+    "resource": { "type": "Order", "id": "2", "amount_fils": 2000000, "org_id": "o_acme", "user_id": "u_any" },
+    "expected": "allow"
+  },
+  {
+    "description": "finance without the second factor: denied",
+    "principal": { "type": "User", "id": "u_fatima", "roles": ["finance"], "attrs": { "org": "o_acme", "mfa_verified": false } },
+    "action": "invoice.refund",
+    "resource": { "type": "Order", "id": "1", "amount_fils": 5000, "org_id": "o_acme", "user_id": "u_any" },
+    "expected": "deny"
+  },
+  {
+    "description": "finance: not another organisation's order",
+    "principal": { "type": "User", "id": "u_fatima", "roles": ["finance"], "attrs": { "org": "o_acme", "mfa_verified": true } },
+    "action": "invoice.refund",
+    "resource": { "type": "Order", "id": "3", "amount_fils": 5000, "org_id": "o_other", "user_id": "u_any" },
+    "expected": "deny"
+  },
+  {
+    "description": "a buyer reads their own order",
+    "principal": { "type": "User", "id": "u_buyer", "roles": [], "attrs": {} },
+    "action": "order.read",
+    "resource": { "type": "Order", "id": "4", "amount_fils": 5000, "org_id": "o_acme", "user_id": "u_buyer" },
+    "expected": "allow"
+  }
+]

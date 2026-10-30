@@ -57,8 +57,15 @@ pub(crate) struct RequestState {
     pub db_rows: u64,
     /// `logs_dropped` of the meter record.
     pub logs_dropped: u64,
+    /// `render_fuel` / `render_ms` of realtime `fragment` payloads the
+    /// request published (ops.md 1.5.0 section 18).
+    pub render_fuel: u64,
+    pub render_ms: f64,
     /// Set when the request ends; an op still holding the state sees it.
     pub ended: bool,
+    /// The principal, the route's guard inputs, `authz_evals` (ops.md
+    /// 1.5.0 section 17; `ops/authz.rs`).
+    pub authz: crate::ops::authz::RequestAuthz,
 }
 
 impl RequestState {
@@ -75,7 +82,10 @@ impl RequestState {
             db_ms: 0.0,
             db_rows: 0,
             logs_dropped: 0,
+            render_fuel: 0,
+            render_ms: 0.0,
             ended: false,
+            authz: Default::default(),
         }
     }
 }

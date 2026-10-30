@@ -1,0 +1,4 @@
+[
+  { "description": "a signed-in user manages their second factors", "principal": { "type": "User", "id": "u_sara", "roles": [], "attrs": {} }, "action": "twofa.manage", "expected": "allow" },
+  { "description": "an anonymous visitor cannot", "principal": { "type": "Anonymous", "id": "anonymous", "roles": [], "attrs": {} }, "action": "twofa.manage", "expected": "deny" }
+]

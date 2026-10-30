@@ -1,0 +1,11 @@
+# The app the whatsapp module's tests run in (renox test, #290). Its
+# secrets are in .env.test (test values, never real ones).
+[app]
+name = "watest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+notifications = { version = "^1.0", source = "path:../../../notifications", mount = "/notifications", config = { channels = "whatsapp" } }
+whatsapp = { version = "^1.0", source = "path:../..", mount = "/whatsapp", config = { sends_per_minute = 20 } }

@@ -1,0 +1,11 @@
+# The app the audit module's tests run in (renox test, #288).
+[app]
+name = "audittest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+audit = { version = "^1.0", source = "path:../.." }
+tamper = { version = "^1.0", source = "path:../fixtures/tamper" }

@@ -1,0 +1,7 @@
+<r-layout use="main">
+  <h1>Rooms</h1>
+  <p r-if="!auth_user"><a :href="login">Sign in</a> to chat.</p>
+  <ul id="rooms" r-if="auth_user">
+    <li r-for="r in rooms"><a :href="'/rooms/' + r.id">{{ r.name }}</a><r-group r-if="r.private"> (private)</r-group></li>
+  </ul>
+</r-layout>

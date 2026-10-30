@@ -16,7 +16,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import spec from "../../../../docs/contracts/schemas/deploy-api.yaml";
 import type { RouteModule } from "../../src/app.ts";
+import { MFA_ROUTE_PERMISSIONS } from "../../src/auth/mfa.ts";
 import { isTokenPermission, ROUTE_PERMISSIONS, type Permission } from "../../src/tenancy/roles.ts";
+
+/** The permission of an operation: the table of roles.ts, or the MFA operations' own (#293). */
+const permOf = (op: string): string | undefined => ROUTE_PERMISSIONS[op] ?? MFA_ROUTE_PERMISSIONS[op];
 import { named, upload } from "../../tests/artifacts.ts";
 import { assertScoped, harness, login, mailToken, registeredNode, signup, type Harness, type Session } from "../../tests/helpers.ts";
 
@@ -67,6 +71,17 @@ export const EXTRA_ROUTES: Record<string, string> = {
   "POST /v1/team/owner-transfer/accept": "acceptOwnerTransfer",
   "DELETE /v1/team/owner-transfer": "cancelOwnerTransfer",
   "GET /v1/apps/:app/usage": "getUsage",
+  // Second factors (#293, src/auth/mfa.ts): the session's own account only.
+  "GET /v1/account/mfa": "getMfa",
+  "POST /v1/account/mfa/totp": "startTotp",
+  "POST /v1/account/mfa/totp/confirm": "confirmTotp",
+  "POST /v1/account/mfa/passkeys/options": "passkeyOptions",
+  "POST /v1/account/mfa/passkeys": "registerPasskey",
+  "POST /v1/account/mfa/challenge": "mfaChallenge",
+  "POST /v1/account/mfa/verify": "verifyMfa",
+  "POST /v1/account/mfa/recovery-codes": "regenerateRecoveryCodes",
+  "POST /v1/account/mfa/disable": "disableMfa",
+  "POST /v1/team/mfa-required": "setTeamMfaRequired",
   // Remote MCP and OAuth (#62): no tenant id is taken from the request; tests/mcp.test.ts checks another tenant's app is 404 through the tools.
   "GET /.well-known/oauth-protected-resource": "getProtectedResourceMetadata",
   "GET /.well-known/oauth-protected-resource/mcp": "getProtectedResourceMetadata",
@@ -190,6 +205,17 @@ const NO_ID_CASES: Record<string, NoIdCase> = {
   resendVerification: { session: 202, token: 401, why: "A's own address" },
   revokeAllSessions: { session: 200, token: 401, why: "A's user's sessions only" },
   logout: { session: 204, token: 401, fresh: true, why: "A's session only" },
+  // #293: every MFA operation acts on the session's own user; nothing in the request names another.
+  getMfa: { session: 200, token: 401, why: "A's user's factors only" },
+  startTotp: { session: 201, token: 401, why: "a secret for A's user" },
+  confirmTotp: { json: () => ({ code: "000000" }), session: 400, token: 401, why: "A's own pending secret" },
+  passkeyOptions: { session: 200, token: 401, why: "options for A's user" },
+  registerPasskey: { json: () => ({ client_data: "e30", attestation_object: "e30" }), session: 400, token: 401, why: "a challenge of A's user only" },
+  mfaChallenge: { session: 404, token: 401, why: "A's user has no passkey" },
+  verifyMfa: { json: () => ({ method: "totp", code: "000000" }), session: 401, token: 401, why: "A's own factors only" },
+  regenerateRecoveryCodes: { session: 409, token: 401, why: "A's user has no factor" },
+  disableMfa: { json: () => ({ password: "wrong", code: "000000" }), session: 401, token: 401, why: "A's password and factors only" },
+  setTeamMfaRequired: { json: () => ({ required: false }), session: 200, why: "the flag of A's own team" },
 };
 /** Runs after every other case: it ends all of A's sessions. */
 const LAST = ["revokeAllSessions"];
@@ -223,7 +249,7 @@ function uncovered(h: Harness): string[] {
       missing.push(`${r.key}: no operationId (add it to deploy-api.yaml or EXTRA_ROUTES)`);
       continue;
     }
-    const perm = ROUTE_PERMISSIONS[r.opId];
+    const perm = permOf(r.opId);
     if (perm === undefined) missing.push(`${r.key}: ${r.opId} is not in ROUTE_PERMISSIONS`);
     else if (!(perm in EXEMPT) && paramsOf(r.path).length === 0 && NO_ID_CASES[r.opId] === undefined) missing.push(`${r.key}: ${r.opId} has no NO_ID_CASES entry`);
   }
@@ -276,12 +302,12 @@ describe("IDOR: tenant A with tenant B's ids", () => {
       for (const id of leaks) if (text.includes(id) && !sentByA.has(id)) failures.push(`${label}: ${method} ${path} leaks ${id}`);
     };
 
-    const routes = registered(h).filter((r) => r.opId !== undefined && !((ROUTE_PERMISSIONS[r.opId] as string) in EXEMPT));
+    const routes = registered(h).filter((r) => r.opId !== undefined && !((permOf(r.opId) as string) in EXEMPT));
     routes.sort((x, y) => Number(LAST.indexOf(x.opId as string)) - Number(LAST.indexOf(y.opId as string)));
     let covered = 0;
     for (const r of routes) {
       const opId = r.opId as string;
-      const perm = ROUTE_PERMISSIONS[opId] as Permission | "account";
+      const perm = permOf(opId) as Permission | "account";
       const params = paramsOf(r.path);
       if (params.length > 0) {
         const body = BODIES[opId]?.(b);

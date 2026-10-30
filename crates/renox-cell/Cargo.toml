@@ -15,9 +15,12 @@ test-support = []
 # The only crate that depends on the others; nothing depends on it
 # (docs/03-architecture.md, workspace dependencies).
 [dependencies]
+renox-authz = { path = "../renox-authz" }
 renox-data = { path = "../renox-data" }
 renox-gateway = { path = "../renox-gateway" }
 renox-meter = { path = "../renox-meter" }
+# WebSocket and SSE connections, topics, fan-out (#278; wired by #281).
+renox-realtime = { path = "../renox-realtime" }
 renox-runtime = { path = "../renox-runtime" }
 # Page rendering off the isolate thread (#40), and the compiler behind
 # `renox-worker transpile` for the CLI (#43).

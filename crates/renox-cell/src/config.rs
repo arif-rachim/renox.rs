@@ -86,10 +86,95 @@ pub struct WorkerConfig {
     /// Litestream per tenant file (#255, `src/replication/`).
     #[serde(default)]
     pub replication: ReplicationSection,
+    /// Authorization (#279, `src/authz/`): dev mode and the principal
+    /// cache TTL.
+    #[serde(default)]
+    pub authz: AuthzSection,
+    /// Realtime connection caps (#281, `src/realtime/`).
+    #[serde(default)]
+    pub realtime: RealtimeSection,
     /// The file this config was loaded from ([`WorkerConfig::load`]); the
     /// supervisor passes it to its children. Not a key.
     #[serde(skip)]
     pub config_path: Option<PathBuf>,
+}
+
+/// `[authz]` (#279; `docs/contracts/ops.md` 1.5.0 section 17).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthzSection {
+    /// Dev mode (`renox dev`): `ctx.authz.explain` works and
+    /// `RENOX_FORBIDDEN` names the deciding policy. Default false.
+    pub dev: bool,
+    /// How long a resolved principal is kept per session (`ops.md` Open
+    /// 12: 60 s *proposed*); a role change, login or logout drops it
+    /// sooner.
+    pub principal_ttl_secs: f64,
+}
+
+impl Default for AuthzSection {
+    fn default() -> Self {
+        AuthzSection {
+            dev: false,
+            principal_ttl_secs: 60.0,
+        }
+    }
+}
+
+impl AuthzSection {
+    pub fn to_config(&self) -> crate::authz::AuthzConfig {
+        crate::authz::AuthzConfig {
+            dev: self.dev,
+            principal_ttl: std::time::Duration::from_secs_f64(
+                self.principal_ttl_secs.clamp(0.0, 3600.0),
+            ),
+        }
+    }
+}
+
+/// `[realtime]` (#281; `docs/contracts/ops.md` 1.5.0 section 18,
+/// "Limits"). The per-connection limits are the contract's and not keys.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RealtimeSection {
+    /// Connections per tenant on the free tier (`docs/04`: 100).
+    pub free_connections: usize,
+    /// Connections per tenant on the paid tier (`docs/04`: 10,000).
+    pub paid_connections: usize,
+    /// Connections per user (principal id, or client IP when anonymous).
+    pub user_connections: usize,
+}
+
+impl Default for RealtimeSection {
+    fn default() -> Self {
+        let free = renox_realtime::Limits::free();
+        RealtimeSection {
+            free_connections: free.tenant_connections,
+            paid_connections: renox_realtime::Limits::paid().tenant_connections,
+            user_connections: free.user_connections,
+        }
+    }
+}
+
+impl RealtimeSection {
+    /// The hub limits of a tier.
+    pub fn limits(&self, paid: bool) -> renox_realtime::Limits {
+        let base = if paid {
+            renox_realtime::Limits::paid()
+        } else {
+            renox_realtime::Limits::free()
+        };
+        renox_realtime::Limits {
+            tenant_connections: if paid {
+                self.paid_connections
+            } else {
+                self.free_connections
+            }
+            .max(1),
+            user_connections: self.user_connections.max(1),
+            ..base
+        }
+    }
 }
 
 /// `[process]` (#254): the supervisor and its child workers.

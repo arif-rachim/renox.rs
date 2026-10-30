@@ -70,6 +70,26 @@ pub struct ModuleInfo {
     pub permissions: ModulePermissions,
     #[serde(default)]
     pub exports: ModuleExports,
+    /// Artifact 1.3: the module's `authz` block (`ownership` is read here;
+    /// the rest by `renox-authz`, built by the cell).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authz: Option<serde_json::Value>,
+}
+
+/// `authz.ownership` of an `authz` block (`ops.md` 1.5.0 section 17).
+pub fn ownership_of(authz: Option<&serde_json::Value>) -> renox_data::Ownership {
+    let mut own = renox_data::Ownership::new();
+    if let Some(map) = authz
+        .and_then(|a| a.get("ownership"))
+        .and_then(|o| o.as_object())
+    {
+        for (table, v) in map {
+            if let Some(owner) = v.get("owner").and_then(|o| o.as_str()) {
+                own.insert(table, owner, v.get("org").and_then(|o| o.as_str()));
+            }
+        }
+    }
+    own
 }
 
 fn shared() -> String {
@@ -85,6 +105,8 @@ pub struct ModuleRegistry {
     app_policy: Option<Arc<AuthorizerPolicy>>,
     policies: HashMap<String, Arc<AuthorizerPolicy>>,
     allowlists: HashMap<String, Arc<Allowlist>>,
+    /// Owned tables (`[authz.ownership]`) of the app (`app`) and each module.
+    ownership: HashMap<String, Arc<renox_data::Ownership>>,
 }
 
 impl ModuleRegistry {
@@ -107,8 +129,13 @@ impl ModuleRegistry {
             let info: ModuleInfo =
                 serde_json::from_value(raw).map_err(|e| format!("modules: {e}"))?;
             let name = info.name.clone();
+            let owned = ownership_of(info.authz.as_ref());
+            // ops.md 1.5.0 section 17: module code reaching an owned table
+            // without db.scoped() is refused (RENOX_DB_SCOPE, unscoped).
             let policy = AuthorizerPolicy::module(name.as_str())
-                .with_read_deps(info.dependencies.iter().cloned());
+                .with_read_deps(info.dependencies.iter().cloned())
+                .with_owned(owned.tables().map(str::to_string).collect::<Vec<_>>());
+            reg.ownership.insert(name.clone(), Arc::new(owned));
             policy
                 .validate()
                 .map_err(|e| format!("module {name}: {e}"))?;
@@ -163,12 +190,34 @@ impl ModuleRegistry {
         Ok(reg)
     }
 
+    /// Artifact 1.3: the app's own `authz` block (its owned tables are
+    /// fenced by `db.scoped()`; the app is never refused unscoped, D16).
+    pub fn with_app_authz(mut self, authz: Option<&serde_json::Value>) -> ModuleRegistry {
+        self.ownership
+            .insert(APP.into(), Arc::new(ownership_of(authz)));
+        self
+    }
+
+    /// The owned tables `db.scoped()` fences for `module` (`None`: the app).
+    pub fn ownership(&self, module: Option<&str>) -> Arc<renox_data::Ownership> {
+        self.ownership
+            .get(module.unwrap_or(APP))
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn modules(&self) -> &[ModuleInfo] {
         &self.modules
     }
 
     pub fn is_empty(&self) -> bool {
         self.modules.is_empty()
+    }
+
+    /// Whether module `module` is installed and exports the service `name`.
+    pub fn exports_service(&self, module: &str, name: &str) -> bool {
+        self.get(module)
+            .is_some_and(|m| m.exports.services.iter().any(|s| s == name))
     }
 
     pub fn get(&self, name: &str) -> Option<&ModuleInfo> {

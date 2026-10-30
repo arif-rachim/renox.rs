@@ -2,8 +2,9 @@
 // check"): SQL built by interpolation or concatenation, literal fetch URLs
 // whose host is not declared in permissions.network, and handlers that write
 // to global scope (docs/16-risks.md, "Global state leaking between requests"),
-// and redirects to a target taken from the request (docs/24-threat-model.md,
-// "Open redirect via `next`/`return_to`").
+// redirects to a target taken from the request (docs/24-threat-model.md,
+// "Open redirect via `next`/`return_to`"), and request bodies used without
+// validation (docs/24-threat-model.md A, "Input validation").
 //
 // A small tokenizer, not a parser: it understands comments, strings, and
 // template literals (with nested `${}`), which is what the rules need. The
@@ -14,7 +15,21 @@ export interface Finding {
   line: number;
   column: number;
   /** `secret` and `forbidden-file` come from the bundle-hygiene rules (#115, secrets.ts and build.ts); `public-sourcemap` from check/no-public-sourcemaps.ts (#128). */
-  rule: "sql-interpolation" | "fetch-undeclared-host" | "global-state" | "no-unsafe-redirect" | "secret" | "forbidden-file" | "public-sourcemap" | "override-drift";
+  rule:
+    | "sql-interpolation"
+    | "fetch-undeclared-host"
+    | "global-state"
+    | "no-unsafe-redirect"
+    | "secret"
+    | "forbidden-file"
+    | "public-sourcemap"
+    | "override-drift"
+    | "unvalidated-body"
+    // #283 (docs/11-authorization.md): policies, guards, owned tables, template actions.
+    | "policy-invalid"
+    | "missing-guard"
+    | "unscoped-owned-table"
+    | "undeclared-action";
   severity: "error" | "warning";
   message: string;
 }
@@ -561,5 +576,175 @@ export function lintRedirect(src: string, file: string): Finding[] {
       }
     }
   }
+  return out;
+}
+
+/** Calls that validate a value: `validate(schema, value)` from "renox" (sdk/src/validate.ts) or a schema's own parse. */
+const BODY_VALIDATORS = new Set(["validate", "parse", "safeParse", "parseAsync", "safeParseAsync", "assert", "is"]);
+/** Names a handler's request goes by: `req` (ctx.req, destructured) and `request`. */
+const REQUEST_NAMES = new Set(["req", "request"]);
+
+/** Every token index inside the argument list of a call to a validator. */
+function validatedSpans(tokens: Token[]): Set<number> {
+  const out = new Set<number>();
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k] as Token;
+    if (t.type !== "ident" || !BODY_VALIDATORS.has(t.text) || tokens[k + 1]?.text !== "(") continue;
+    let depth = 0;
+    for (let j = k + 1; j < tokens.length; j++) {
+      const x = tokens[j] as Token;
+      if (x.type === "punct" && "([{".includes(x.text)) depth++;
+      else if (x.type === "punct" && ")]}".includes(x.text) && --depth === 0) break;
+      out.add(j);
+    }
+  }
+  return out;
+}
+
+/**
+ * `unvalidated-body` (warning in F4/F5): a handler that reads the request
+ * body with `req.json()` or `req.formData()` (also `request.…`, `ctx.req.…`)
+ * and uses the value without passing it to `validate(schema, value)` from
+ * "renox" or a schema's `parse`/`safeParse`. The body read inside a
+ * validator call (`validate(schema, await req.json())`) is validated; a
+ * body assigned to a name is validated when that name is later an argument
+ * of a validator in the same file. `validate(schema, req)` reads no body
+ * here and is never flagged.
+ */
+export function lintBody(src: string, file: string): Finding[] {
+  const tokens = tokenize(src);
+  const inside = validatedSpans(tokens);
+  const out: Finding[] = [];
+  for (let k = 2; k < tokens.length; k++) {
+    const t = tokens[k] as Token;
+    if (t.type !== "ident" || (t.text !== "json" && t.text !== "formData")) continue;
+    if (tokens[k - 1]?.text !== "." || tokens[k + 1]?.text !== "(" || tokens[k + 2]?.text !== ")") continue;
+    const recv = tokens[k - 2] as Token;
+    if (recv.type !== "ident" || !REQUEST_NAMES.has(recv.text)) continue;
+    if (inside.has(k)) continue;
+    // `const body = await req.json()`: the names this statement declares.
+    let names: string[] = [];
+    let depth = 0;
+    for (let j = k - 3; j >= 0; j--) {
+      const x = tokens[j] as Token;
+      if (x.type === "punct") {
+        if (")]}".includes(x.text)) depth++;
+        else if ("([{".includes(x.text)) {
+          if (depth === 0) break;
+          depth--;
+        } else if (x.text === ";" && depth === 0) break;
+        continue;
+      }
+      if (depth === 0 && x.type === "ident" && DECL.has(x.text) && tokens[j - 1]?.text !== ".") {
+        names = declaredNames(src, tokens, j);
+        break;
+      }
+      // `body = await req.json()`: an assignment to a name declared earlier.
+      if (depth === 0 && x.type === "ident" && tokens[j + 1]?.text === "=" && tokens[j + 2]?.text !== "=" && tokens[j - 1]?.text !== ".") {
+        names = [x.text];
+        break;
+      }
+    }
+    const ok =
+      names.length > 0 &&
+      names.every((n) => tokens.some((x, j) => j > k && inside.has(j) && x.type === "ident" && x.text === n && tokens[j - 1]?.text !== "."));
+    if (ok) continue;
+    const { line, column } = position(src, recv.start);
+    out.push({
+      file,
+      line,
+      column,
+      rule: "unvalidated-body",
+      severity: "warning",
+      message: `${recv.text}.${t.text}() is used without validation: pass it to validate(schema, value) from "renox" (or the schema's parse) before reading its fields`,
+    });
+  }
+  return out;
+}
+
+/** The string value of a literal token (quotes or a template without `${}`), else null. */
+function literalText(t: Token | undefined): string | null {
+  if (!t) return null;
+  if (t.type === "string") return t.text.slice(1, -1);
+  if (t.type === "template" && !t.text.includes("${")) return t.text.slice(1, -1);
+  return null;
+}
+
+/**
+ * `unscoped-owned-table` (#283; docs/11-authorization.md, "Enforcement
+ * points"): a `db.query` / `queryOne` / `execute` (or `tx.…`) whose SQL
+ * literal names a table of `[authz.ownership]` outside `ctx.db.scoped()`.
+ * Module code gets an error (the runtime refuses it with `RENOX_DB_SCOPE`),
+ * app code a warning. A call on a scoped `Db` (`db.scoped(s).query(…)`, or a
+ * variable holding one) is not a `db` / `tx` receiver and is not flagged.
+ */
+export function lintUnscoped(src: string, file: string, owned: ReadonlySet<string>): Finding[] {
+  if (owned.size === 0) return [];
+  const isModule = /^modules\/[a-z][a-z0-9_]*\//u.test(file);
+  const tokens = tokenize(src);
+  const out: Finding[] = [];
+  for (let k = 0; k + 3 < tokens.length; k++) {
+    const [recv, dot, name, open] = [tokens[k], tokens[k + 1], tokens[k + 2], tokens[k + 3]] as Token[];
+    if (recv?.type !== "ident" || !RECEIVERS.has(recv.text) || dot?.text !== "." || name?.type !== "ident" || !SQL_METHODS.has(name.text) || open?.text !== "(") continue;
+    const sql = firstArgument(tokens, k + 3)
+      .map(literalText)
+      .filter((x): x is string => x !== null)
+      .join(" ")
+      .toLowerCase();
+    const table = [...owned].find((t) => new RegExp(`(^|[^a-z0-9_])${t.toLowerCase()}($|[^a-z0-9_])`, "u").test(sql));
+    if (table === undefined) continue;
+    const { line, column } = position(src, name.start);
+    out.push({
+      file,
+      line,
+      column,
+      rule: "unscoped-owned-table",
+      severity: isModule ? "error" : "warning",
+      message: `${recv.text}.${name.text}() touches the owned table ${table} outside db.scoped(); use ctx.db.scoped({ user_id, ... }).${name.text}(...)${isModule ? " (module code is refused with RENOX_DB_SCOPE)" : ""}`,
+    });
+  }
+  return out;
+}
+
+/** Whether the module exports `guard` (`export const guard`, `export { guard }`, `export { x as guard }`). */
+export function exportsGuard(src: string): boolean {
+  return /\bexport\s+(const|let|var)\s+guard\b/u.test(src) || /\bexport\s*\{[^}]*\b(as\s+)?guard\b[^}]*\}/u.test(src);
+}
+
+/**
+ * `missing-guard` (#283; docs/11-authorization.md, "Enforcement points"): a
+ * page or function module that checks an action a policy names
+ * (`ctx.authz.require` / `can` / `canBatch` with a literal action) but has
+ * no `guard` export, so the check runs only after the loader or handler
+ * started. An error: add `export const guard = { action, resource? }`, or
+ * move the check into the guard.
+ */
+export function lintMissingGuard(src: string, file: string, policyActions: ReadonlySet<string>): Finding[] {
+  if (!/^(pages|functions)\//u.test(file) || exportsGuard(src)) return [];
+  const tokens = tokenize(src);
+  for (let k = 0; k + 3 < tokens.length; k++) {
+    const [authz, dot, name, open] = [tokens[k], tokens[k + 1], tokens[k + 2], tokens[k + 3]] as Token[];
+    if (authz?.text !== "authz" || dot?.text !== "." || name?.type !== "ident" || !["require", "can", "canBatch"].includes(name.text) || open?.text !== "(") continue;
+    const action = literalText(tokens[k + 4]);
+    if (action === null || !policyActions.has(action)) continue;
+    const { line, column } = position(src, authz.start);
+    return [
+      {
+        file,
+        line,
+        column,
+        rule: "missing-guard",
+        severity: "error",
+        message: `this route checks ${action}, which a policy names, but exports no guard; add export const guard = { action: "${action}" } so the cell denies before the ${file.startsWith("pages/") ? "loader" : "handler"} runs`,
+      },
+    ];
+  }
+  return [];
+}
+
+/** Every action named by an `action == Renox::Action::"x"` or `action in [...]` of a Cedar policy text. */
+export function policyActions(cedar: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of cedar.matchAll(/Action::"([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)"/gu)) out.add(m[1] as string);
   return out;
 }

@@ -1,0 +1,142 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`2fa sign-in: halted after the password, a replayed code refused, the next code resumes it: role: verify en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Confirm it is you</title>
+</head>
+<body class="renox-twofa">
+  <main>
+  
+  <h1>Confirm it is you</h1>
+  
+  <form method="post" action="?/totp" hx-post="?/totp"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>Code <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" dir="ltr" required></label>
+    <button type="submit">Verify</button>
+  </form>
+  
+  <details>
+    <summary>Lost your device? Use a recovery code</summary>
+    <form method="post" action="?/recovery" hx-post="?/recovery"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="next" value="/">
+      <label>Recovery code <input type="text" name="code" autocomplete="off" dir="ltr" maxlength="11" required></label>
+      <button type="submit">Verify</button>
+    </form>
+  </details>
+  <script nonce="<nonce>">
+    (() => {
+      const form = document.getElementById("passkey-form");
+      if (!form) return;
+      const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+      const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      document.getElementById("passkey-go").addEventListener("click", async () => {
+        const o = JSON.parse(form.dataset.options);
+        const cred = await navigator.credentials.get({ publicKey: { ...o, challenge: b64(o.challenge), allowCredentials: o.allowCredentials.map((c) => ({ ...c, id: b64(c.id) })) } });
+        form.credential_id.value = cred.id;
+        form.client_data.value = enc(cred.response.clientDataJSON);
+        form.authenticator_data.value = enc(cred.response.authenticatorData);
+        form.signature.value = enc(cred.response.signature);
+        form.submit();
+      });
+    })();
+  </script>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`2fa Arabic; the management page; no secret, key or code in logs or snapshots: role: index en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Two-step verification</title>
+</head>
+<body class="renox-twofa">
+  <main>
+  
+  <h1>Two-step verification</h1>
+  
+  
+  <p id="status">Two-step verification is on.</p>
+  
+    <h2>Authenticator app</h2>
+    
+      <p>An authenticator app is set up.</p>
+      <form method="post" action="?/remove_totp" hx-post="?/remove_totp"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Remove</button></form>
+    
+  
+  
+    <h2>Passkeys</h2>
+    <ul id="passkeys">
+      <li>
+        <strong dir="auto">Key</strong>
+        <form method="post" action="?/remove_passkey" hx-post="?/remove_passkey"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="passkey" value="<passkey>"><button type="submit">Remove</button></form>
+      </li>
+    </ul>
+    <p><a href="/2fa/enroll/passkey">Add a passkey</a></p>
+  
+  <h2>Recovery codes</h2>
+  <p>2 codes left. <a href="/2fa/recovery">Make new codes</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`2fa Arabic; the management page; no secret, key or code in logs or snapshots: role: verify ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>أكّد هويتك</title>
+</head>
+<body class="renox-twofa">
+  <main>
+  
+  <h1>أكّد هويتك</h1>
+  
+  <form method="post" action="?/totp" hx-post="?/totp"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>الرمز <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" dir="ltr" required></label>
+    <button type="submit">تحقق</button>
+  </form>
+  <form method="post" action="?/passkey" hx-post="?/passkey" id="passkey-form" data-options="<options>"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <input type="hidden" name="credential_id">
+    <input type="hidden" name="client_data">
+    <input type="hidden" name="authenticator_data">
+    <input type="hidden" name="signature">
+    <button type="button" id="passkey-go">استخدم مفتاح مرور</button>
+  </form>
+  <details>
+    <summary>فقدت جهازك؟ استخدم رمز استرداد</summary>
+    <form method="post" action="?/recovery" hx-post="?/recovery"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="next" value="/">
+      <label>رمز الاسترداد <input type="text" name="code" autocomplete="off" dir="ltr" maxlength="11" required></label>
+      <button type="submit">تحقق</button>
+    </form>
+  </details>
+  <script nonce="<nonce>">
+    (() => {
+      const form = document.getElementById("passkey-form");
+      if (!form) return;
+      const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+      const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      document.getElementById("passkey-go").addEventListener("click", async () => {
+        const o = JSON.parse(form.dataset.options);
+        const cred = await navigator.credentials.get({ publicKey: { ...o, challenge: b64(o.challenge), allowCredentials: o.allowCredentials.map((c) => ({ ...c, id: b64(c.id) })) } });
+        form.credential_id.value = cred.id;
+        form.client_data.value = enc(cred.response.clientDataJSON);
+        form.authenticator_data.value = enc(cred.response.authenticatorData);
+        form.signature.value = enc(cred.response.signature);
+        form.submit();
+      });
+    })();
+  </script>
+</main>
+
+
+</body></html>"
+`;

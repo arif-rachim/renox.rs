@@ -92,3 +92,15 @@ export async function notifyTokenCreated(deps: Deps, userId: string | null, tena
     text: `A token named "${token.name}" (${token.id}) was created for ${tenantId} with scopes ${token.scopes.join(", ")}; it expires ${new Date(token.expires_at).toISOString()}.\n\nIf this was not you, revoke it with \`renox tokens revoke ${token.id}\` or in the dashboard.`,
   });
 }
+
+/** #293: a second factor was added or removed: the account hears of it, like a new device. */
+export const sendMfaChanged = (deps: Deps, to: string, change: "totp_enabled" | "passkey_added" | "mfa_disabled"): Promise<void> =>
+  send(deps, {
+    to,
+    kind: "new_device",
+    subject: change === "mfa_disabled" ? "Two-step verification was turned off" : "A second factor was added to your account",
+    text:
+      change === "mfa_disabled"
+        ? `Two-step verification was turned off for your Renox account. If that was not you, reset your password at ${base(deps)} now.`
+        : `${change === "totp_enabled" ? "An authenticator app" : "A passkey"} was added to your Renox account. If that was not you, reset your password at ${base(deps)} now.`,
+  });

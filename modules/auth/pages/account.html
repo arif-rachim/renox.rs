@@ -18,6 +18,39 @@
       <x-form action="revoke" r-if="!s.current"><input type="hidden" name="session" :value="s.id"><button type="submit"><r-t key="auth.account.sign_out" /></button></x-form>
     </li>
   </ul>
+  <r-group r-if="phone_on">
+    <h2><r-t key="auth.account.phone" /></h2>
+    <p id="phone" r-if="phone" dir="ltr">{{ phone }}</p>
+    <x-form action="phone_send" r-if="!pending_phone">
+      <label><r-t key="auth.phone.number" /> <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" required></label>
+      <button type="submit"><r-t key="auth.phone.send" /></button>
+    </x-form>
+    <x-form action="phone_verify" r-if="pending_phone">
+      <input type="hidden" name="phone" :value="pending_phone">
+      <label><r-t key="auth.phone.code" /> <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" dir="ltr" required></label>
+      <button type="submit"><r-t key="auth.phone.verify" /></button>
+    </x-form>
+  </r-group>
+  <r-group r-if="passkeys_on">
+    <h2><r-t key="auth.account.passkeys" /></h2>
+    <ul id="passkeys">
+      <li r-for="k in passkeys">
+        <strong>{{ k.name }}</strong> · <r-t key="auth.account.since" /> {{ k.created_at }}
+        <x-form action="passkey_remove"><input type="hidden" name="passkey" :value="k.id"><button type="submit"><r-t key="auth.account.remove_passkey" /></button></x-form>
+      </li>
+      <li r-empty="passkeys"><r-t key="auth.account.no_passkeys" /></li>
+    </ul>
+    <p><a href="passkeys/register"><r-t key="auth.passkeys.add_title" /></a></p>
+  </r-group>
+  <r-slot name="account.sections" />
+  <h2><r-t key="auth.account.agents" /></h2>
+  <ul id="agents">
+    <li r-for="a in agents">
+      <strong>{{ a.client_name }}</strong> · <code>{{ a.scopes | join(" ") }}</code> · <r-t key="auth.account.since" /> {{ a.created_at }}<r-group r-if="a.last_used_at"> · <r-t key="auth.account.last_used" /> {{ a.last_used_at }}</r-group>
+      <x-form action="agent"><input type="hidden" name="agent" :value="a.id"><button type="submit"><r-t key="auth.account.revoke_agent" /></button></x-form>
+    </li>
+    <li r-empty="agents"><r-t key="auth.account.no_agents" /></li>
+  </ul>
   <x-form action="everywhere"><button type="submit"><r-t key="auth.account.everywhere" /></button></x-form>
   <x-form action="logout"><button type="submit"><r-t key="auth.account.sign_out" /></button></x-form>
 </r-layout>

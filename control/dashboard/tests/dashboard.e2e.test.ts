@@ -26,7 +26,7 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
   const out = mkdtempSync(join(tmpdir(), "renox-dashboard-build-"));
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
-  expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${x.path}`).sort()).toEqual([
+  expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${"path" in x ? x.path : x.kind}`).sort()).toEqual([
     "PAGE /",
     "PAGE /apps",
     "PAGE /apps/:app",

@@ -1,0 +1,8 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="shop.orders.live" /></r-group>
+  <h1><r-t key="shop.orders.live" /></h1>
+  <div hx-ext="sse" sse-connect="/sse/orders">
+    <ul id="live-orders" sse-swap="order-created" hx-swap="afterbegin"></ul>
+  </div>
+  <p><a href="/orders"><r-t key="shop.orders.title" /></a></p>
+</r-layout>

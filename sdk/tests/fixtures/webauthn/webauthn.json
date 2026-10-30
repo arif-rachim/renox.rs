@@ -1,0 +1,58 @@
+{
+  "rpId": "shop.example",
+  "origin": "https://shop.example",
+  "es256": {
+    "registration": {
+      "challenge": "DqEvhKnAiUmLqZYH9D2wMTIOSdG8RdeNjUW4EQjsWF0",
+      "response": {
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiRHFFdmhLbkFpVW1McVpZSDlEMndNVElPU2RHOFJkZU5qVVc0RVFqc1dGMCIsIm9yaWdpbiI6Imh0dHBzOi8vc2hvcC5leGFtcGxlIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+        "attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YViUD1lGPGBsWw5dPagfNuP3wXWsIwxg51whRM47dSJHYHxFAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAMG8qb1gPdg1HN2VusmA22lAQIDJiABIVggWnnAHda5lTmCiENIG7NHEnJxfbXQhBYWQ_dG1__ecvoiWCC2tyGScmt41BrvWb2uN3UdXvlX2wmBJB2AjVwgvDuKWA"
+      }
+    },
+    "assertion": {
+      "challenge": "pQY5DQ2FYSm3N8x8JKFIE4FFi6ACT8cwpzI3nyWr4GM",
+      "response": {
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoicFFZNURRMkZZU20zTjh4OEpLRklFNEZGaTZBQ1Q4Y3dwekkzbnlXcjRHTSIsIm9yaWdpbiI6Imh0dHBzOi8vc2hvcC5leGFtcGxlIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+        "authenticatorData": "D1lGPGBsWw5dPagfNuP3wXWsIwxg51whRM47dSJHYHwFAAAAAQ",
+        "signature": "MEYCIQCXk9HvW8BBoip_f9j35hJb6qqKoFVxCDS9dZXUyhRb5AIhAJeNnlUD-fLXmZWFOl5NpScnALVerHr7kIj45SfZLo3S"
+      }
+    },
+    "credentialId": "AwbypvWA92DUc3ZW6yYDbQ"
+  },
+  "es256Packed": {
+    "registration": {
+      "challenge": "h7EXTAKabuDxanIcseVzqUfmh7i1x8hpBb-R3SmdPFk",
+      "response": {
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiaDdFWFRBS2FidUR4YW5JY3NlVnpxVWZtaDdpMXg4aHBCYi1SM1NtZFBGayIsIm9yaWdpbiI6Imh0dHBzOi8vc2hvcC5leGFtcGxlIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+        "attestationObject": "o2NmbXRmcGFja2VkZ2F0dFN0bXSiY2FsZyZjc2lnWEgwRgIhANF9Ft8qkpjqKi8ZZ034Eaev6acmvTIH0EdNoCqg96QFAiEAzZ97R1pObhWIGPUQbkOwsC8j-1crZ-JLz4klNlnT22ZoYXV0aERhdGFYlA9ZRjxgbFsOXT2oHzbj98F1rCMMYOdcIUTOO3UiR2B8RQAAAAAAAAAAAAAAAAAAAAAAAAAAABBjlyE4FEuuk9hDk1nu0O37pQECAyYgASFYIJ7JQ39a25diAW30MCL-i3vVXXqdRqGDT69Wj-9vR26WIlggi_lgm3DvrpnsnUfpZAWJaPcq7kDZAjmyRwjESAVnM1E"
+      }
+    },
+    "assertion": {
+      "challenge": "ZLcLDf92yO6Mtl6hfsDqT3zl7lRT17qgv6t2FmCKTKg",
+      "response": {
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiWkxjTERmOTJ5TzZNdGw2aGZzRHFUM3psN2xSVDE3cWd2NnQyRm1DS1RLZyIsIm9yaWdpbiI6Imh0dHBzOi8vc2hvcC5leGFtcGxlIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+        "authenticatorData": "D1lGPGBsWw5dPagfNuP3wXWsIwxg51whRM47dSJHYHwFAAAAAQ",
+        "signature": "MEQCIDthEh6DkabhtRad1z7rRJcmO-gFeTPfn9CmPbFGsZ5pAiBhxQd5ffIl42Wh1j5-qy3tEACqoupe6Xg5cYMTieyMhA"
+      }
+    },
+    "credentialId": "Y5chOBRLrpPYQ5NZ7tDt-w"
+  },
+  "rs256": {
+    "registration": {
+      "challenge": "8uYiSkb6DP3PDT9yHq25sBQlfpumMjOhBZr4IafjYrk",
+      "response": {
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiOHVZaVNrYjZEUDNQRFQ5eUhxMjVzQlFsZnB1bU1qT2hCWnI0SWFmallyayIsIm9yaWdpbiI6Imh0dHBzOi8vc2hvcC5leGFtcGxlIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+        "attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVkBVw9ZRjxgbFsOXT2oHzbj98F1rCMMYOdcIUTOO3UiR2B8RQAAAAAAAAAAAAAAAAAAAAAAAAAAABD_lMTs-GyjwxoQwL9V4ZJEpAEDAzkBACBZAQDZkuKfuRF-LVi_a9erlPAfLebyCz9hwHgzh_0MSlSsyAGAYpU_n55v1FbvYTlB1Q8n21TBOC1QupQNfHJ-USp9dBhx4P1_Biljguh_YXlqUO2p3jg7CjtXDHjasR_LKzk10g7AZLM1p2iid3IG1kDRDeellSXHOzgcyg5ENiakKiO2Zrl925wtruqvgHRFYNNqd9TnmHZktsKYwDVn-Wj--0GeDL3u1Ii5iZgBreCDA8zc8PZGb7Gpbqe8WeqFfdlesiyS5_e1398fVvkz8u7zh9botEJI53TcRh2yQwimdAmAVwck6QZP37Dn5f-xltOF8nuAmMsiRU9DO0tC4_szIUMBAAE"
+      }
+    },
+    "assertion": {
+      "challenge": "GMyDsYC8mUfBE8p_5HG1GTm3nJdABqmhIw5Yi9Zfms0",
+      "response": {
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiR015RHNZQzhtVWZCRThwXzVIRzFHVG0zbkpkQUJxbWhJdzVZaTlaZm1zMCIsIm9yaWdpbiI6Imh0dHBzOi8vc2hvcC5leGFtcGxlIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+        "authenticatorData": "D1lGPGBsWw5dPagfNuP3wXWsIwxg51whRM47dSJHYHwFAAAAAQ",
+        "signature": "QHXNmlwCmIU3WKvTyz1McJdGXONfCyboawKFAU5l1WYXjDpfQDsavq2nefiJ7bQ1oRNwd3swDTHCI9TUSI1TtcBU7FxlFLEsodSQBmQERCEL3CpvdXfRitCS6PneFXJTIAEVxCCl0bbc5PvwvW9rqghpSMDjelZT6LFTrhp2uFyGL7TQBGKyWLrJHqGQ8cbqtu2fmR71m2mpXgfy6JNsPEJ8MbWEQ3nqYAKAuHt9rbyUHeUuqqR7sLGQPpV9ox8jJXEItJt6Rd74ePumaTmzJoACP_OdP43uJo6LWLdgvYQdRdq3IfgfW3m6SquQwXsxmP8kYcruAANI687i8QQsHg"
+      }
+    },
+    "credentialId": "_5TE7Phso8MaEMC_VeGSRA"
+  }
+}

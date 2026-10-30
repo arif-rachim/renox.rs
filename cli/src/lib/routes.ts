@@ -17,6 +17,14 @@ export interface FunctionRoute {
   /** Module id, e.g. `functions/api/notes/[id]`. */
   module: string;
   export: Method;
+  /** Artifact 1.3: the module's `export const guard` (#283). */
+  guard?: Guard;
+}
+
+/** `export const guard` as the build read it (artifact.md 1.3; ops.md section 17). */
+export interface Guard {
+  action: string;
+  resource?: { type: string; id: string };
 }
 
 /** A page route (artifact version 1): one of the three `.ts`/`.html` pair shapes. */
@@ -31,9 +39,47 @@ export interface PageRoute {
   actions?: string[];
   /** Template id `pages/...` when the page has an `.html` file. */
   template?: string;
+  /** Artifact 1.3: the module's `export const guard` (#283). */
+  guard?: Guard;
 }
 
-export type Route = FunctionRoute | PageRoute;
+/** Artifact 1.3: a `functions/ws/**` or `functions/sse/**` module (ops.md section 18); GET only. */
+export interface RealtimeRoute {
+  kind: "ws" | "sse";
+  path: string;
+  module: string;
+  guard?: Guard;
+}
+
+/** Artifact 1.3: an App MCP tool (ops.md section 19); no path. */
+export interface ToolRoute {
+  kind: "tool";
+  name: string;
+  module: string;
+  description: string;
+  /** JSON Schema of the input (the keyword subset of `tool()`). */
+  input: Record<string, unknown>;
+  action: string;
+  confirm?: boolean;
+}
+
+/** Artifact 1.3: a scheduled job (ops.md section 20); no path. */
+export interface JobRoute {
+  kind: "job";
+  name: string;
+  module: string;
+  schedule: string;
+  tz?: string;
+}
+
+/** A route with a URL pattern. */
+export type Route = FunctionRoute | PageRoute | RealtimeRoute;
+
+/** Any route entry of the manifest: the URL routes, tools and jobs. */
+export type ArtifactRoute = Route | ToolRoute | JobRoute;
+
+/** Whether an entry has a URL pattern (tools and jobs have none). */
+export const hasPath = (r: ArtifactRoute): r is Route => r.kind !== "tool" && r.kind !== "job";
 
 /** One page: its `.ts` and/or `.html` file. */
 export interface PageModule {
@@ -146,7 +192,8 @@ export function discoverFunctions(project: string): FunctionModule[] {
   const base = join(project, "functions");
   const out: FunctionModule[] = [];
   const problems: { message: string; file: string; hint?: string }[] = [];
-  const files = walk(base);
+  // functions/ws/, functions/sse/ and functions/tools/ hold the 1.3 kinds (discoverRealtime, discoverTools).
+  const files = walk(base).filter((f) => !/^(ws|sse|tools)\//u.test(f));
   // Paths (files and folders) that differ only in case are one path on macOS and Windows.
   const folded = new Map<string, string>();
   for (const rel of files) {
@@ -383,11 +430,15 @@ export function routesOf(functions: FunctionModule[], pages: PageModule[] = []):
 }
 
 /** The methods a route answers: a page answers GET and HEAD, and POST with actions. */
-export const methodsOf = (r: Route): Method[] =>
-  r.kind === "function" ? [r.method] : r.actions?.length ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
+export function methodsOf(r: Route): Method[] {
+  if (r.kind === "function") return [r.method];
+  if (r.kind !== "page") return ["GET"];
+  return r.actions?.length ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
+}
 
-/** How a route is shown: `GET /api/x` or `PAGE /products/:id`. */
-export const routeLabel = (r: Route): string => (r.kind === "function" ? `${r.method} ${r.path}` : `PAGE ${r.path}`);
+/** How a route is shown: `GET /api/x`, `PAGE /products/:id`, `WS /ws/chat/:room`. */
+export const routeLabel = (r: Route): string =>
+  r.kind === "function" ? `${r.method} ${r.path}` : r.kind === "page" ? `PAGE ${r.path}` : `${r.kind.toUpperCase()} ${r.path}`;
 
 /** V8 shape: static segments literally, parameter and catch-all names ignored. */
 export const shapeOf = (pattern: string): string =>
@@ -431,4 +482,92 @@ export function sortRoutes(routes: Route[]): Route[] {
       .map((s) => (s.startsWith("*") ? "2" : s.startsWith(":") ? "1" : `0${s}`))
       .join("/");
   return [...routes].sort((a, b) => rank(a.path).localeCompare(rank(b.path)) || routeLabel(a).localeCompare(routeLabel(b)));
+}
+
+
+/** A `functions/ws/**` or `functions/sse/**` module (ops.md section 18). */
+export interface RealtimeModule {
+  id: string;
+  source: string;
+  kind: "ws" | "sse";
+  /** `/ws/<path>` or `/sse/<path>`. */
+  pattern: string;
+}
+
+/**
+ * The realtime modules (artifact 1.3): each file under `functions/ws/` must
+ * export `ws`, each under `functions/sse/` `sse` (a RouteError otherwise);
+ * the URL is the file path from `functions/`, with the routing rules of
+ * function routes.
+ */
+export function discoverRealtime(project: string): RealtimeModule[] {
+  const out: RealtimeModule[] = [];
+  const problems: string[] = [];
+  for (const kind of ["ws", "sse"] as const) {
+    for (const rel of walk(join(project, "functions", kind))) {
+      const relNoExt = rel.replace(/\.(ts|js|mjs)$/u, "");
+      const source = `functions/${kind}/${rel}`;
+      let exports: string[] = [];
+      try {
+        exports = transpiler.scan(readFileSync(join(project, source), "utf8")).exports;
+      } catch {
+        exports = [kind]; // a syntax error: the bundler reports it
+      }
+      if (!exports.includes(kind)) {
+        problems.push(`${source}: a ${kind} route module must export const ${kind} = { open, ${kind === "ws" ? "message, " : ""}close }`);
+        continue;
+      }
+      try {
+        out.push({ id: `functions/${kind}/${relNoExt}`, source, kind, pattern: `/${kind}${patternFor(relNoExt) === "/" ? "" : patternFor(relNoExt)}` });
+      } catch (e) {
+        if (!(e instanceof RouteError)) throw e;
+        problems.push(`${source}: ${e.message.replace(`${relNoExt}: `, "")}`);
+      }
+    }
+  }
+  if (problems.length === 1) throw new RouteError(problems[0] as string);
+  if (problems.length > 1) throw new RouteError(`${problems.length} realtime route problems`, {}, problems);
+  return out;
+}
+
+/** One `functions/tools/*.ts` (or a module's `tools/*.ts`) file. */
+export interface ToolModule {
+  id: string;
+  source: string;
+}
+
+/** The app's tool modules: `functions/tools/*.ts`, one level, default-exporting `tool(...)`. */
+export function discoverTools(project: string): ToolModule[] {
+  return walk(join(project, "functions", "tools"))
+    .filter((r) => !r.includes("/"))
+    .map((r) => ({ id: `functions/tools/${r.replace(/\.(ts|js|mjs)$/u, "")}`, source: `functions/tools/${r}` }));
+}
+
+/** One `jobs/*.ts` file and what its exports say (ops.md section 20). */
+export interface JobModule {
+  id: string;
+  source: string;
+  name: string;
+  schedule: string | null;
+  tz?: string;
+}
+
+/** A string literal exported as `name` (`export const schedule = "0 3 * * *"`), or null. */
+export function exportedString(code: string, name: string): string | null {
+  const js = transpiler.transformSync(code);
+  const m = new RegExp(`\\bexport\\s+const\\s+${name}\\s*=\\s*(["'\`])((?:(?!\\1)[^\\\\]|\\\\.)*)\\1`, "u").exec(js);
+  return m ? (m[2] as string) : null;
+}
+
+/** The app's jobs: `jobs/*.ts`, one level; the name is the file stem. */
+export function discoverJobs(project: string): JobModule[] {
+  return walk(join(project, "jobs"))
+    .filter((r) => !r.includes("/"))
+    .map((r) => {
+      const source = `jobs/${r}`;
+      const code = readFileSync(join(project, source), "utf8");
+      const stem = r.replace(/\.(ts|js|mjs)$/u, "");
+      const tz = exportedString(code, "tz");
+      return { id: `jobs/${stem}`, source, name: stem, schedule: exportedString(code, "schedule"), ...(tz !== null ? { tz } : {}) };
+    });
 }

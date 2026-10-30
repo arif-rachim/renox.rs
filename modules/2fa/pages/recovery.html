@@ -1,0 +1,14 @@
+<r-layout use="twofa">
+  <r-group slot="title"><r-t key="twofa.recovery.title" /></r-group>
+  <h1><r-t key="twofa.recovery.title" /></h1>
+  <p class="error" id="error" r-if="error">{{ error }} <a :href="verify_url"><r-t key="twofa.verify.title" /></a></p>
+  <r-group r-if="codes">
+    <p><r-t key="twofa.recovery.once" /></p>
+    <ul id="codes"><li r-for="c in codes"><code dir="ltr">{{ c }}</code></li></ul>
+  </r-group>
+  <r-group r-else>
+    <p><r-t key="twofa.recovery.left" :count="left" /></p>
+    <x-form action="regenerate"><button type="submit"><r-t key="twofa.recovery.new" /></button></x-form>
+  </r-group>
+  <p><a :href="back_url"><r-t key="twofa.back" /></a></p>
+</r-layout>

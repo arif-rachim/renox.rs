@@ -28,6 +28,9 @@ pub fn record(n: u64) -> MeterRecord {
         http_status: 200,
         status: MeterStatus::Ok,
         kind: None,
+        authz_evals: None,
+        realtime_conn_seconds: None,
+        realtime_messages: None,
     }
 }
 

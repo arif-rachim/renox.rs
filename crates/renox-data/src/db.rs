@@ -42,7 +42,10 @@ create table if not exists renox__migrations (
 
 /// Platform migrations under `migrations/`, applied on open in order. Each
 /// is idempotent (`if not exists`), so reopening a file is a no-op.
-const PLATFORM_MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_outbox.sql")];
+const PLATFORM_MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_outbox.sql"),
+    include_str!("../migrations/0002_authz.sql"),
+];
 
 /// Savepoints one transaction may hold open at once (`ops.md` section 1).
 pub const MAX_SAVEPOINTS: usize = 32;
@@ -395,6 +398,16 @@ impl Conn {
         match DbError::from(e) {
             DbError::Auth { .. } => {
                 let d = lock(&self.hooks.denial).take();
+                if let Some(d) = d.as_ref().filter(|d| d.action == crate::authorizer::SCOPE) {
+                    return DbError::Scope {
+                        table: d.table.as_str().into(),
+                        module: lock(&self.hooks.policy)
+                            .as_ref()
+                            .map(|p| p.module.as_str().into())
+                            .unwrap_or_default(),
+                        reason: crate::error::ScopeReason::Unscoped,
+                    };
+                }
                 DbError::Auth {
                     table: d.as_ref().map(|d| d.table.clone()).unwrap_or_default(),
                     action: d.map(|d| d.action.to_owned()).unwrap_or_default(),
@@ -469,6 +482,15 @@ impl TenantDb {
             writer
                 .committing(|| writer.inner.execute_batch(sql))
                 .map_err(|e| writer.error(e))?;
+        }
+        // A new file's platform tables are in the WAL now; start the
+        // tenant's own WAL accounting from an empty log (a reopen wrote
+        // nothing, and this is a no-op).
+        if writer.hooks.wal_pages.load(Ordering::Relaxed) > 0
+            && let Ok((log, done)) = writer.wal_checkpoint("PASSIVE")
+            && log == done
+        {
+            writer.hooks.wal_pages.store(0, Ordering::Relaxed);
         }
         let readers = (0..options.readers.max(1))
             .map(|_| OnceCell::new())
