@@ -1,0 +1,18 @@
+[module]
+name = "reports"
+version = "1.0.0"
+description = "Sales and VAT reports from tax_gcc documents, CSV export, and import files for Xero, QuickBooks and Zoho Books"
+
+[dependencies]
+tax_gcc = "^1.0"
+
+[permissions]
+tables = "reports__*"
+
+[exports.services]
+sales = "Sales per day of a period from tax_gcc documents: (from_ms, to_ms, documents) -> rows"
+csv = "Rows as RFC 4180 CSV with a UTF-8 BOM (Excel opens Arabic text correctly)"
+accounting = "tax_gcc documents as an import file: (system: xero|quickbooks|zoho, documents) -> csv"
+
+[imports]
+services = ["tax_gcc.invoice"]
