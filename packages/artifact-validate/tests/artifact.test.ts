@@ -185,7 +185,7 @@ describe("routes without a path (artifact 1.3, #304)", () => {
   test("two tools with one name are V25", () => {
     const m = f5();
     const tool = routes(m).find((r) => r.kind === "tool") as JsonObject;
-    routes(m).push({ ...tool, module: tool.module });
+    routes(m).push({ ...tool });
     expect(checkManifest(m).filter((x) => x.rule === "V25").map((x) => x.reason)).toEqual([`tool "${tool.name}" is declared twice`]);
   });
 
