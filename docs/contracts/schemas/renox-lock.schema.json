@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/manifest/v1/renox-lock.schema.json",
-  "title": "Renox lock file (renox.lock), manifest contract version 1.1",
+  "title": "Renox lock file (renox.lock), manifest contract version 1.2",
   "description": "A parsed renox.lock (TOML, written by the CLI). Prose: docs/contracts/manifest.md section 4. Consistency with renox.toml and the module manifests is MF2, MF3, MF5, MF11 and MF12.",
   "type": "object",
   "additionalProperties": false,
@@ -53,9 +53,9 @@
         },
         "source": {
           "type": "string",
-          "description": "Resolved source: official, path:<relative dir>, or git:https://<repo>#<40-hex commit> (a tag is resolved to its commit).",
+          "description": "Resolved source: official, path:<relative dir>, or git:https://<repo>#<40-hex commit> (a tag is resolved to its commit); 1.2: registry:<publisher>/<name>.",
           "maxLength": 512,
-          "pattern": "^(official|path:(?![/\\\\])(?![A-Za-z]:)[^\\u0000-\\u001f\\\\:]+|git:https://[A-Za-z0-9._~%/-]+(:[0-9]{1,5})?[A-Za-z0-9._~%/-]*#[0-9a-f]{40})$"
+          "pattern": "^(official|path:(?![/\\\\])(?![A-Za-z]:)[^\\u0000-\\u001f\\\\:]+|git:https://[A-Za-z0-9._~%/-]+(:[0-9]{1,5})?[A-Za-z0-9._~%/-]*#[0-9a-f]{40}|registry:[a-z0-9][a-z0-9-]{0,38}/[a-z][a-z0-9_]{0,31})$"
         },
         "hash": {
           "type": "string",
@@ -161,6 +161,22 @@
               "description": "1.1: the roles the tenant approved the module to assign; absent = none."
             }
           }
+        },
+        "key_id": {
+          "type": "string",
+          "description": "1.2, registry sources only (MF15).",
+          "pattern": "^ed25519:[A-Za-z0-9_-]{43}$"
+        },
+        "signature": {
+          "type": "string",
+          "description": "1.2, registry sources only: the module.sig signature (MF15).",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        },
+        "approved_version": {
+          "type": "string",
+          "description": "1.2: the module version approved was given for; absent = version.",
+          "maxLength": 64,
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
         }
       }
     }

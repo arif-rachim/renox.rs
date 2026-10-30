@@ -122,6 +122,8 @@ export type {
   ForbiddenReason,
   RealtimeErrorCode,
   JobErrorCode,
+  StorageErrorCode,
+  AiErrorCode,
   JobOp,
   RealtimeLimitReason,
   ToolErrorCode,

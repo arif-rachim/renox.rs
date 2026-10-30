@@ -1,0 +1,18 @@
+# 1.2: a registry module (the GCC tax module of #331): [publisher], an informational price, [storage].
+# Module names follow MF1 (no hyphen), so the module is tax_gcc.
+[module]
+name = "tax_gcc"
+version = "2.1.0"
+isolation = "isolate"
+description = "UAE VAT and KSA ZATCA tax invoices"
+price = { amount = "49.00", currency = "AED", period = "month" }
+
+[publisher]
+name = "gulfsoft"
+key_id = "ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+
+[storage]
+allowed_types = ["application/pdf", "application/xml"]
+
+[permissions]
+tables = "tax_gcc__*"

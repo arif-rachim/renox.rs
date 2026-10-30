@@ -65,7 +65,7 @@ export const RESPONSE_ERROR_CODES = [
   "RENOX_TOOL_INPUT",
   "RENOX_TOOL_SCOPE",
   "RENOX_TOOL_CONFIRM",
-  // ops 1.7.0: the image transform rate (section 21), a webhook signature (section 22).
+  // ops 1.7.0: the image transform rate (section 21), a refused webhook delivery (section 22).
   "RENOX_IMAGE_RATE",
   "RENOX_WEBHOOK_SIGNATURE",
 ] as const;

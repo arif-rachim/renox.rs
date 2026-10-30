@@ -1,0 +1,17 @@
+# [expect: pattern] a key_id is ed25519: and the 43-character base64url public key
+[module]
+name = "tax_gcc"
+version = "2.1.0"
+isolation = "isolate"
+description = "UAE VAT and KSA ZATCA tax invoices"
+price = { amount = "49.00", currency = "AED", period = "month" }
+
+[publisher]
+name = "gulfsoft"
+key_id = "ed25519:short"
+
+[storage]
+allowed_types = ["application/pdf", "application/xml"]
+
+[permissions]
+tables = "tax_gcc__*"

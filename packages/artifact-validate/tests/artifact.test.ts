@@ -197,6 +197,45 @@ describe("routes without a path (artifact 1.3, #304)", () => {
   });
 });
 
+describe("artifact 1.4 (#318): webhook routes, storage, ai, the SBOM", () => {
+  const f7 = (): JsonObject => JSON.parse(readFileSync(join(EXAMPLES, "artifact/manifest.f7.valid.json"), "utf8")) as JsonObject;
+  const routes = (m: JsonObject): JsonObject[] => m.routes as JsonObject[];
+  const hello = (): Map<string, Uint8Array> => readTree(artifactDir("hello-artifact"));
+
+  test("a webhook route answers POST only: a function route on the same path and method conflicts (V8)", () => {
+    const m = f7();
+    expect(checkManifest(m).map(formatViolation)).toEqual([]);
+    (m.code as JsonObject).entry = { ...((m.code as JsonObject).entry as JsonObject), "functions/api/stripe": "functions/api/stripe.js" };
+    (m.entries as JsonObject)["functions/api/stripe"] = { exports: ["POST"], eager: false };
+    routes(m).push({ kind: "function", method: "POST", path: "/webhooks/stripe", module: "functions/api/stripe", export: "POST" });
+    expect(checkManifest(m).filter((x) => x.rule === "V8").length).toBe(1);
+  });
+
+  test("a webhook route needs POST in its entries record (V23)", () => {
+    const m = f7();
+    (m.entries as JsonObject)["functions/webhooks/stripe"] = { exports: ["provider"], eager: false };
+    expect(checkManifest(m).map((v) => v.rule)).toContain("V23");
+  });
+
+  test("sbom.cdx.json is an allowed top-level member of version 1 and must be CycloneDX 1.5", () => {
+    const sbom = (doc: unknown): Map<string, Uint8Array> => {
+      const files = hello();
+      const m = JSON.parse(new TextDecoder().decode(files.get("manifest.json"))) as JsonObject;
+      (m.artifact as JsonObject).version = 1;
+      files.set("manifest.json", new TextEncoder().encode(JSON.stringify(m)));
+      files.set("sbom.cdx.json", new TextEncoder().encode(JSON.stringify(doc)));
+      return files;
+    };
+    const ok = checkArtifactFiles(sbom({ bomFormat: "CycloneDX", specVersion: "1.5", components: [] })).violations;
+    expect(ok.filter((v) => v.path === "sbom.cdx.json")).toEqual([]);
+    const bad = checkArtifactFiles(sbom({ bomFormat: "SPDX" })).violations;
+    expect(bad).toContainEqual({ rule: "V29", path: "sbom.cdx.json", reason: "not a CycloneDX 1.5 JSON document" });
+    const v0 = hello();
+    v0.set("sbom.cdx.json", new TextEncoder().encode("{}"));
+    expect(checkArtifactFiles(v0).violations).toContainEqual({ rule: "V1", path: "sbom.cdx.json", reason: "sbom.cdx.json must be absent in version 0" });
+  });
+});
+
 describe("MF1: reserved module names (#304)", () => {
   test("a module named authz is refused with the MF1 reason", () => {
     const doc = JSON.parse(readFileSync(join(artifactDir("artifact/modules-artifact"), "manifest.json"), "utf8")) as JsonObject;

@@ -118,6 +118,25 @@ export type Checks = [
   Expect<Equal<S.ForbiddenReason, C.ForbiddenReason>>,
   Expect<Equal<S.DbScopeReason, C.DbScopeReason>>,
   Expect<Equal<S.RealtimeLimitReason, C.RealtimeLimitReason>>,
+  // Storage, webhooks, AI, PDF (ops.md sections 21-24, 1.7.0).
+  Expect<Equal<S.StoredFile, C.StoredFile>>,
+  Expect<Equal<S.StoragePage, C.StoragePage>>,
+  Expect<Equal<S.StoragePutOptions, C.StoragePutOptions>>,
+  Expect<Equal<S.Storage, C.Storage>>,
+  Expect<Equal<S.WebhookProvider, C.WebhookProvider>>,
+  Expect<Equal<S.WebhookEvent, C.WebhookEvent>>,
+  Expect<Equal<S.Webhook, C.Webhook>>,
+  Expect<Equal<S.WebhookContext, C.WebhookContext>>,
+  Expect<Equal<S.AiContent, C.AiContent>>,
+  Expect<Equal<S.AiMessage, C.AiMessage>>,
+  Expect<Equal<S.AiTool, C.AiTool>>,
+  Expect<Equal<S.AiRequest, C.AiRequest>>,
+  Expect<Equal<S.AiResult, C.AiResult>>,
+  Expect<Equal<S.Ai, C.Ai>>,
+  Expect<Equal<S.PdfOptions, C.PdfOptions>>,
+  Expect<Equal<S.Pdf, C.Pdf>>,
+  Expect<Equal<S.StorageErrorCode, C.StorageErrorCode>>,
+  Expect<Equal<S.AiErrorCode, C.AiErrorCode>>,
   // Error classes: instance types (the contract declares no constructors).
   Expect<Mutual<S.RenoxError, C.RenoxError>>,
   Expect<Mutual<S.DbPermissionError, C.DbPermissionError>>,
@@ -140,6 +159,10 @@ export type Checks = [
   Expect<Mutual<S.JobStateError, C.JobStateError>>,
   Expect<Mutual<S.RealtimeLimitError, C.RealtimeLimitError>>,
   Expect<Mutual<S.RealtimeBackpressureError, C.RealtimeBackpressureError>>,
+  Expect<Mutual<S.StorageError, C.StorageError>>,
+  Expect<Mutual<S.AiQuotaError, C.AiQuotaError>>,
+  Expect<Mutual<S.AiUnavailableError, C.AiUnavailableError>>,
+  Expect<Mutual<S.PdfLimitError, C.PdfLimitError>>,
 ];
 
 // Negative controls: the helpers do reject a difference.

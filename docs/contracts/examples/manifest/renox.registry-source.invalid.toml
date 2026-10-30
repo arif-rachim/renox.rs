@@ -1,3 +1,3 @@
-# [expect: "registry" is not allowed] registry sources are F7
+# [expect: "registry" is not allowed] 1.2 spells a registry module as source = "registry:<publisher>/<name>", not a registry key
 [modules]
 reports = { registry = "acme/reports", version = "^0.4" }

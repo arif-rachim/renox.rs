@@ -4,8 +4,8 @@
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
 //     hash, manifest, migrations, public files, templates, pages, security,
-//     modules, policies, realtime, tools, jobs: rules V1-V27, versions 0, 1,
-//     1.1, 1.2 and 1.3);
+//     modules, policies, realtime, tools, jobs, webhooks, storage: rules V1-V29, versions 0, 1,
+//     1.1, 1.2, 1.3 and 1.4);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - client-event batches and raw CSP report bodies follow
 //     docs/contracts/client-events.md (schema plus rules CE1 and CE2), and
@@ -16,7 +16,7 @@
 //     section 13;
 //   - module manifests, renox.toml [modules] / [authz] / [realtime] and
 //     renox.lock follow docs/contracts/manifest.md (schemas plus rules
-//     MF1-MF14, single files and whole example projects);
+//     MF1-MF15, single files and whole example projects);
 //   - control-plane <-> worker messages follow docs/contracts/deploy-api.md
 //     (schemas/control-messages.schema.json plus rules R1-R3);
 //   - schemas/deploy-api.yaml (OpenAPI 3.1): every operation has request and
@@ -355,6 +355,7 @@ function parsePattern(path: string): Segment[] {
 /** The methods a route answers: its own for a function, GET and HEAD (and POST with actions) for a page, GET for ws and sse (1.3). */
 function routeMethods(route: JsonObject): string[] {
   if (route.kind === "ws" || route.kind === "sse") return ["GET"];
+  if (route.kind === "webhook") return ["POST"];
   if (route.kind !== "page") return [route.method as string];
   const actions = (route.actions as string[] | undefined) ?? [];
   return actions.length > 0 ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
@@ -376,6 +377,8 @@ function routePrefix(kind: string, owner: string): string {
       return owner === "app" ? "functions/tools/" : "tools/";
     case "job":
       return "jobs/";
+    case "webhook":
+      return "functions/webhooks/";
     default:
       return "functions/";
   }
@@ -391,6 +394,7 @@ function routeExports(route: JsonObject): string[] {
   }
   if (route.kind === "ws" || route.kind === "sse") need.push(route.kind as string);
   if (route.kind === "tool") need.push("default");
+  if (route.kind === "webhook") need.push("POST");
   if (route.kind === "job") need.push("run", "schedule");
   if (isObject(route.guard)) need.push("guard");
   return need;
@@ -739,6 +743,37 @@ function manifestRules(manifest: JsonObject): string[] {
   errors.push(...artifactModuleRules(manifest));
   errors.push(...entriesRules(manifest));
   errors.push(...authzRules(manifest));
+  errors.push(...webhookStorageRules(manifest));
+  return errors;
+}
+
+/** V28 (webhook routes) and V29 (storage, AI) on a manifest that passed the schema (artifact 1.4); the SBOM part of V29 is in checkArtifact. */
+function webhookStorageRules(manifest: JsonObject): string[] {
+  const errors: string[] = [];
+  const routes = (manifest.routes as JsonObject[]) ?? [];
+  routes.forEach((route, i) => {
+    const where = `routes[${i}]`;
+    const local = localId((route.module as string | undefined) ?? "");
+    if (route.kind === "function" && local.startsWith("functions/webhooks/")) {
+      errors.push(`V28: ${where}: a module under functions/webhooks/ is a webhook route, not a function route`);
+    }
+    if (route.kind !== "webhook") return;
+    if (!local.startsWith("functions/webhooks/")) errors.push(`V28: ${where}: module "${route.module}" is not under functions/webhooks/`);
+    if (parsePattern(route.path as string).some((seg) => seg.kind !== "static")) errors.push(`V28: ${where}: path "${route.path}" must have static segments only`);
+  });
+  const check = (where: string, storage: JsonObject) => {
+    for (const t of listOf(storage.allowed_types)) if (t.includes(";")) errors.push(`V29: ${where}.allowed_types "${t}" carries parameters`);
+    const widths = (obj(storage.images).widths as number[] | undefined) ?? [];
+    if (widths.some((w, j) => j > 0 && w <= (widths[j - 1] as number))) errors.push(`V29: ${where}.images.widths is not ascending`);
+  };
+  check("storage", obj(manifest.storage));
+  (Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []).forEach((m, i) => check(`modules[${i}].storage`, obj(m.storage)));
+  if (obj(manifest.ai).mode === "direct") {
+    const permissions = obj(manifest.permissions);
+    const keys = listOf(permissions.secrets).filter((n) => /^AI_[A-Z0-9]+_KEY$/u.test(n));
+    if (keys.length === 0) errors.push("V29: ai.mode \"direct\" needs an AI_<PROVIDER>_KEY in permissions.secrets");
+    if (listOf(permissions.network).length === 0) errors.push("V29: ai.mode \"direct\" needs the provider's host in permissions.network");
+  }
   return errors;
 }
 
@@ -1063,6 +1098,12 @@ function lockRules(doc: JsonObject): string[] {
     for (const dep of strings(e.dependencies)) if (!seen.has(dep)) errors.push(`MF5: ${name} is listed before its dependency ${dep} (or ${dep} is not installed)`);
     seen.add(name);
     errors.push(...permissionRules(name, obj(e.approved), `${name}.approved`));
+    // MF15 (1.2): key_id and signature exactly for registry sources, whose <name> is the entry's.
+    const registry = /^registry:([a-z0-9-]+)\/([a-z0-9_]+)$/u.exec(e.source as string);
+    const signed = e.key_id !== undefined || e.signature !== undefined;
+    if (registry !== null && (e.key_id === undefined || e.signature === undefined)) errors.push(`MF15: ${name}: a registry source needs key_id and signature`);
+    if (registry === null && signed) errors.push(`MF15: ${name}: key_id and signature belong to registry sources only`);
+    if (registry !== null && registry[2] !== name) errors.push(`MF15: ${name}: source ${e.source} names another module`);
   }
   return errors;
 }
@@ -1275,6 +1316,7 @@ const messages: Record<string, Message> = {
   module: { schema: schemaFile("module-manifest"), rules: moduleRules },
   renox: { schema: schemaFile("module-manifest"), def: "renoxToml", rules: renoxRules },
   "renox-lock": { schema: schemaFile("renox-lock"), rules: lockRules },
+  "module-sig": { schema: schemaFile("module-manifest"), def: "moduleSig" },
 };
 const controlMessages: Record<string, Omit<Message, "schema">> = {
   node_register: {},
@@ -1315,7 +1357,7 @@ function checkMessage(kind: string, doc: Json): string[] {
   return errors;
 }
 
-/** Walks an artifact directory and applies V1-V27. Returns one line per violation. */
+/** Walks an artifact directory and applies V1-V29. Returns one line per violation. */
 function checkArtifact(dir: string): string[] {
   const errors: string[] = [];
   const files = new Map<string, Uint8Array>();
@@ -1365,6 +1407,9 @@ function checkArtifact(dir: string): string[] {
       continue;
     } else if (version === 0 && (top === "templates" || path === "public.json")) {
       errors.push(`V1: ${top === "templates" ? "templates/" : "public.json"} must be absent in version 0`);
+    } else if (path === "sbom.cdx.json") {
+      // Version 1.4: the optional SBOM (V29 checks its header below).
+      if (version === 0) errors.push("V1: sbom.cdx.json must be absent in version 0");
     } else if (!(path === "manifest.json" || path === "public.json" || ["code", "migrations", "public", "templates"].includes(top))) {
       errors.push(`V1: ${path}: not an allowed top-level entry`);
     }
@@ -1496,6 +1541,15 @@ function checkArtifact(dir: string): string[] {
     for (const t of Object.keys(obj(realtime.feeds))) if (!tables.has(t)) errors.push(`V26: ${owner} realtime.feeds "${t}": no migration of ${owner} creates it`);
     for (const t of Object.keys(obj(authz.ownership))) if (!tables.has(t)) errors.push(`V26: ${owner} authz.ownership "${t}": no migration of ${owner} creates it`);
   }
+  if (files.has("sbom.cdx.json")) {
+    let sbom: Json = null;
+    try {
+      sbom = JSON.parse(text("sbom.cdx.json")) as Json;
+    } catch {
+      // Reported below as not an object.
+    }
+    if (!isObject(sbom) || sbom.bomFormat !== "CycloneDX" || sbom.specVersion !== "1.5") errors.push("V29: sbom.cdx.json is not a CycloneDX 1.5 JSON document");
+  }
   if (!withModules) return errors;
   // V19: migrations for every module that has tables, and none for a module that is not installed with tables.
   const migrated = new Set(paths.filter((p) => /^migrations\/[^/]+\/.+\.sql$/u.test(p)).map((p) => p.split("/")[1] as string));
@@ -1584,7 +1638,7 @@ for (const file of listDir(`${root}/examples/ops`).filter((f) => f.endsWith(".js
 }
 
 // 3. Single-file examples (examples/<contract>/<message>.<case>.(valid|invalid).json).
-for (const contract of ["artifact", "meter", "client-events", "deploy-api"]) {
+for (const contract of ["artifact", "meter", "client-events", "deploy-api", "manifest"]) {
   for (const file of listDir(`${root}/examples/${contract}`).filter((f) => f.endsWith(".json"))) {
     const kind = Object.keys(messages)
       .filter((k) => file.startsWith(`${k}.`))
@@ -1634,8 +1688,8 @@ for (const name of listDir(`${manifestDir}/projects`)) {
 for (const [kind, { valid, invalid }] of Object.entries(manifestCounts)) {
   report(valid >= 1 && invalid >= 3, `manifest ${kind}: ${valid} valid and ${invalid} invalid examples (at least 1 and 3)`);
 }
-const mfMissing = Array.from({ length: 14 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
-report(mfMissing.length === 0, "every rule MF1-MF14 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
+const mfMissing = Array.from({ length: 15 }, (_, i) => `MF${i + 1}`).filter((r) => !manifestExpects.has(r));
+report(mfMissing.length === 0, "every rule MF1-MF15 has an invalid example that fails for it", mfMissing.map((r) => `${r} has none`));
 
 const meterBatchErrors = checkMessage("meter-batch", readJson(`${root}/examples/meter-batch.json`));
 report(meterBatchErrors.length === 0, "examples/meter-batch.json validates", meterBatchErrors);
