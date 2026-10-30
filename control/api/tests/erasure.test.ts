@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { erasureOf, runErasure, TIME_BOX_MS } from "../src/tenants/erasure.ts";
 import { setNodeCall } from "../src/workers/failover.ts";
+import { logIngest } from "../src/ingest/logs.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { addMember, assertScoped, auditRows, createApp_, harness, login, nodeToken, scopedToken, signup, type Harness, type Session } from "./helpers.ts";
 
@@ -80,10 +81,13 @@ describe("deleteTenant (deploy-api.md 0.4 section 3)", () => {
   test("the owner erases the tenant: 202 pending, then done with the routes, tokens, node file, exports and records gone; audited; emailed", async () => {
     const { h, owner, token, calls } = await setup();
     expect(await count(h, "route_entries")).toBeGreaterThan(0);
+    await logIngest(h.deps).store.append([{ ts: h.clock.now, tenant_id: T, app: "shop", deployment_hash: "0".repeat(64), request_id: null, module: "functions/x", level: "info", message: "a line of the tenant", fields: null, source: "server", node_id: "node-1" }]);
     const res = await h.request("DELETE", `/v1/tenants/${T}`, { session: owner, json: { confirm: T } });
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ state: "pending", requested_at: h.clock.now, completed_at: null, failure: null });
     expect(await settle(h)).toBe("done");
+    // The tenant's log lines are gone too (deploy-api.md 0.4 section 3).
+    expect(await logIngest(h.deps).store.read(T, "shop", { since: 0 })).toEqual([]);
 
     expect(await count(h, "route_entries")).toBe(0);
     expect(await count(h, "apps")).toBe(0);

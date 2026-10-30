@@ -78,6 +78,8 @@ export interface LogStore {
   read(tenantId: string, app: string, opts?: ReadOptions): Promise<SeqLine[]>;
   /** Calls `fn` with each batch appended for `tenantId` until the returned function is called. */
   subscribe(tenantId: string, fn: (lines: SeqLine[]) => void): () => void;
+  /** Every line of `tenantId` deleted (the erasure of #308); returns how many. */
+  dropTenant(tenantId: string): Promise<number>;
 }
 
 /** Whether `line` passes the `source` and `deployment` filters of a read. */
@@ -122,6 +124,12 @@ export class MemoryLogStore implements LogStore {
       (l) => l.app === app && (opts.since === undefined || l.ts >= opts.since) && (opts.afterSeq === undefined || l.seq > opts.afterSeq) && matches(l, opts),
     );
     return lines.slice(-(opts.limit ?? 100));
+  }
+  async dropTenant(tenantId: string): Promise<number> {
+    const n = this.byTenant.get(tenantId)?.length ?? 0;
+    this.byTenant.delete(tenantId);
+    this.seqs.delete(tenantId);
+    return n;
   }
   subscribe(tenantId: string, fn: (lines: SeqLine[]) => void): () => void {
     let set = this.listeners.get(tenantId);

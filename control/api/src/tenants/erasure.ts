@@ -28,6 +28,7 @@ import { onTenantState } from "../routes/activation.ts";
 import { routeService } from "../routes/service.ts";
 import { requestScope, tenantDb } from "../tenancy/scope.ts";
 import { nodeCall, nodeTarget } from "../workers/failover.ts";
+import { logIngest } from "../ingest/logs.ts";
 
 export type ErasureState = "pending" | "erasing" | "done" | "failed";
 
@@ -139,6 +140,8 @@ async function step(deps: Deps, db: Db, tenantId: string, s: Step, now: number):
       await db.transaction(async (tx) => {
         for (const sql of RECORD_DELETES) await tx.query(sql, [tenantId]);
       });
+      // deploy-api.md 0.4 section 3: the tenant's log lines go too.
+      await logIngest(deps).store.dropTenant(tenantId);
       return true;
   }
 }
