@@ -1,0 +1,31 @@
+[module]
+name = "billing"
+version = "1.0.0"
+description = "Plans, subscriptions, invoices and usage records for an app's own customers; Stripe Checkout sessions and verified webhooks"
+
+[config]
+currency = { type = "string", default = "AED", max_length = 3, description = "ISO 4217 currency of prices" }
+success_url = { type = "string", default = "/billing/thanks", max_length = 200, description = "Where Checkout returns after payment" }
+cancel_url = { type = "string", default = "/billing", max_length = 200, description = "Where Checkout returns when the customer cancels" }
+
+[permissions]
+tables = "billing__*"
+network = ["api.stripe.com"]
+secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"]
+
+[exports.services]
+createPlan = "Define a plan: ({ id, name, amount, interval }) -> plan; amount in minor units (fils), interval month or year"
+plans = "Every plan -> plans"
+checkout = "A Stripe Checkout session for a customer and a plan: (customer_id, plan_id) -> { url, session_id }"
+subscription = "A customer's subscription -> { plan_id, status, current_period_end } | null"
+recordUsage = "Record metered usage: (customer_id, metric, quantity) -> { id }"
+usage = "A customer's usage of a metric since a time: (customer_id, metric, since) -> total"
+invoices = "A customer's invoices, newest first -> invoices"
+
+[exports.events."billing.invoice_paid"]
+payload = { type = "object", required = ["invoice_id", "customer_id"], additionalProperties = false, properties = { invoice_id = { type = "string" }, customer_id = { type = "string" } } }
+description = "A Stripe invoice was paid (from the verified webhook)"
+
+[exports.events."billing.subscription_changed"]
+payload = { type = "object", required = ["customer_id", "status"], additionalProperties = false, properties = { customer_id = { type = "string" }, status = { type = "string" } } }
+description = "A customer's subscription started, renewed, went past due or was cancelled"

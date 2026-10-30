@@ -1130,7 +1130,9 @@ function makeWebhook(module, req) {
       const bytes = new Uint8Array(await source.clone().arrayBuffer());
       const hs = [];
       for (const [k, v] of source.headers) ArrayPrototypePush(hs, [k, v]);
-      const secret = provider === "generic" ? options.secret : own[`WEBHOOK_${StringPrototypeToUpperCase(provider)}_SECRET`];
+      // A module's secrets carry its prefix (MF4): `<MODULE>_WEBHOOK_<PROVIDER>_SECRET`.
+      const p = StringPrototypeToUpperCase(provider);
+      const secret = provider === "generic" ? options.secret : (own[`WEBHOOK_${p}_SECRET`] ?? own[`${StringPrototypeToUpperCase(module)}_WEBHOOK_${p}_SECRET`]);
       let out;
       try {
         out = await op_webhook_verify(currentToken(), provider, typeof secret === "string" ? secret : null, options?.header ?? null, bytes, hs);
