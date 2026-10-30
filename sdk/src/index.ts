@@ -1,5 +1,5 @@
 // The `renox` package: types and helpers for tenant code.
-// Contract: docs/contracts/ops.md (version 1.5.0) and docs/contracts/ctx.d.ts.
+// Contract: docs/contracts/ops.md (version 1.6.0) and docs/contracts/ctx.d.ts.
 
 export type {
   Authz,
@@ -17,6 +17,9 @@ export type {
   JobContext,
   JobInfo,
   JobModule,
+  JobPage,
+  JobRow,
+  JobState,
   Jobs,
   MessageContext,
   Principal,
@@ -102,6 +105,8 @@ export type {
   ForbiddenErrorDetails,
   ForbiddenReason,
   RealtimeErrorCode,
+  JobErrorCode,
+  JobOp,
   RealtimeLimitReason,
   ToolErrorCode,
   ErrorResponseBody,
@@ -129,6 +134,8 @@ export {
   FetchEgressLimitError,
   FetchError,
   ForbiddenError,
+  JobNotFoundError,
+  JobStateError,
   isRenoxError,
   ModuleServiceError,
   ModuleUndeclaredError,

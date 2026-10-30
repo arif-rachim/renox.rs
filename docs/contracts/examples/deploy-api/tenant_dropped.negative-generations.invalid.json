@@ -1,0 +1,1 @@
+{ "$comment": "invalid: a count of generations is not negative [expect: minimum]", "type": "tenant_dropped", "schema_version": 0, "node_id": "node-dxb-01", "tenant_id": "t_hello", "cells_drained": 2, "file": "removed", "replica_generations_deleted": -1, "replica_purged_at": 1793319000000 }

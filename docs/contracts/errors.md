@@ -118,6 +118,9 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 | `RENOX_MODULE_SERVICE` | F4 | — | A service, hook filler, or in-memory event handler of another module threw; the enclosing transaction was rolled back | — | When uncaught: `module`, `service` / `hook` / `event`, `cause_code`; the callee's own error is logged with the callee's `module` | Read the callee module's log line for the cause; catch it to answer the user, knowing the transaction is gone | `ops.md` §15.2; failure mode "Module service throws" |
 | `RENOX_EVENT_PAYLOAD` | F4 | — | `ctx.events.emit` got a payload that does not match the event's exported schema, is not JSON-serialisable, or is over 64 KiB | — | When uncaught: `event`, `reason` (`schema` / `not_json` / `too_large`); never the payload | Send what the event's `payload` schema in `module.toml` says; put large data in a table and send its id | `ops.md` §15.4; `manifest.md` section 2 |
 
+| `RENOX_JOB_NOT_FOUND` | F6 | — | `op_jobs_retry` or `op_jobs_cancel` named an id that is not a job row of this tenant | — | When uncaught: `id`, `op` | Reload the list; the row was cancelled or pruned | `ops.md` §20 (1.6.0) |
+| `RENOX_JOB_STATE` | F6 | — | `op_jobs_retry` on a row that is not dead, or `op_jobs_cancel` on a running row | — | When uncaught: `id`, `state`, `op` | Retry only dead letters; wait for a running job to end before cancelling | `ops.md` §20 (1.6.0) |
+
 `RENOX_DB_UNAVAILABLE` has an HTTP status because it fails the request before any tenant code runs (the cell cannot open the file). When it happens during a request it is thrown like the other `RENOX_DB_*` codes.
 
 ### App MCP (`/mcp`, F5)

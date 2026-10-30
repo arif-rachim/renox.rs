@@ -10,13 +10,13 @@ Rules:
 
 | Contract | Between | File | Issue | Status |
 | --- | --- | --- | --- | --- |
-| Runtime ops and `ctx` | `renox-runtime` (P1) ↔ SDK (P10), cell (P5) | [`ops.md`](ops.md), [`ctx.d.ts`](ctx.d.ts), [`ops.schema.json`](ops.schema.json) | #12 (v0), #17, #153, #201, #206, #226, #263, #272 | 1.5.0 (principal, `guard`, `op_authz_*`, `db.scoped()`, realtime, App MCP, jobs; implemented by F5-ALL and #297) |
+| Runtime ops and `ctx` | `renox-runtime` (P1) ↔ SDK (P10), cell (P5) | [`ops.md`](ops.md), [`ctx.d.ts`](ctx.d.ts), [`ops.schema.json`](ops.schema.json) | #12 (v0), #17, #153, #201, #206, #226, #263, #272, #315 | 1.6.0 (principal, `guard`, `op_authz_*`, `db.scoped()`, realtime, App MCP, jobs; the `jobs` module's `op_jobs_list` / `_retry` / `_cancel`; implemented by F5-ALL and #297) |
 | Artifact format and route table | cell (P5), gateway (P3), CLI (P11) ↔ control plane (P12) | [`artifact.md`](artifact.md), [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json) | #15 (v0), #152, #227, #263, #272 | 1.3 (v0 accepted) |
 | Meter record | `renox-meter` (P4) ↔ billing (P14) | [`meter.md`](meter.md), [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json) | #16 (v0), #152, #226, #272 | 0.3 |
 | Client events | client script (P10) ↔ gateway (P3) ↔ dashboard (P13) | [`client-events.md`](client-events.md), [`schemas/client-event.schema.json`](schemas/client-event.schema.json) | #125 | v0 |
-| Error codes | every component ↔ tenants | [`errors.md`](errors.md) | #91 (v0), #152, #50, #251, #272 | 0.4 |
+| Error codes | every component ↔ tenants | [`errors.md`](errors.md) | #91 (v0), #152, #50, #251, #272, #315 | 0.4 (+ `RENOX_JOB_*`) |
 | Module manifest, `renox.toml [modules]`, `renox.lock` | broker (P9) ↔ CLI (P11) ↔ modules | [`manifest.md`](manifest.md), [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) | #225, #272 | 1.1 |
-| Deploy API, worker control messages, node listener | CLI (P11), cell (P5), dashboard (P13) ↔ control plane (P12) | [`deploy-api.md`](deploy-api.md), [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml), [`schemas/node-listener.yaml`](schemas/node-listener.yaml), [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) | #50, #184, #222, #251, #273 | 0.3.1 |
+| Deploy API, worker control messages, node listener | CLI (P11), cell (P5), dashboard (P13) ↔ control plane (P12) | [`deploy-api.md`](deploy-api.md), [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml), [`schemas/node-listener.yaml`](schemas/node-listener.yaml), [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) | #50, #184, #222, #251, #273, #303, #315 | 0.4.1 |
 
 ## Checking
 

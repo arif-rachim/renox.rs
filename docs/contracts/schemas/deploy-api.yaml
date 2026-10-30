@@ -1981,7 +1981,9 @@ paths:
                 active: { value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: active, created_at: 1793000000000, erasure: null } }
                 erasing: { value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: active, created_at: 1793000000000, erasure: { state: erasing, requested_at: 1793318000000, completed_at: null, failure: null } } }
                 done: { value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: suspended, created_at: 1793000000000, erasure: { state: done, requested_at: 1793318000000, completed_at: 1793320000000, failure: null } } }
+                done-purged: { value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: suspended, created_at: 1793000000000, erasure: { state: done, requested_at: 1793318000000, completed_at: 1793320000000, failure: null, replica_purged_at: 1793319000000 } } }
               x-renox-invalid-examples:
+                purged-negative: { x-expect: minimum, value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: suspended, created_at: 1793000000000, erasure: { state: done, requested_at: 1793318000000, completed_at: 1793320000000, failure: null, replica_purged_at: -5 } } }
                 done-without-completion: { x-expect: completed_at, value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: suspended, created_at: 1793000000000, erasure: { state: done, requested_at: 1793318000000, completed_at: null, failure: null } } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -3465,6 +3467,7 @@ components:
         requested_at: { $ref: "#/components/schemas/UnixMs" }
         completed_at: { type: [integer, "null"], minimum: 0 }
         failure: { oneOf: [{ type: "null" }, { enum: [routes, tokens, node_drop, replica, exports, records] }] }
+        replica_purged_at: { type: [integer, "null"], minimum: 0, description: "0.4.1: Unix ms when the owning node confirmed the purge of every replica generation (nodeDropTenant with purge_replica); null until then. Optional so 0.4 records stay valid." }
       if: { properties: { state: { const: done } } }
       then: { properties: { completed_at: { type: integer }, failure: { type: "null" } } }
       else:
