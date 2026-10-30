@@ -167,7 +167,9 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const now = deps.now();
     const id = `exp_${ulid(now)}`;
     const key = `exports/${tenant}/${database}/${now}.db`;
-    await deps.store.put(key, bytes);
+    // #308: SSE-KMS with the export key (the bucket refuses anything else).
+    const kms = deps.config.exportKmsKeyId ?? null;
+    await deps.store.put(key, bytes, kms === null ? {} : { sseKmsKeyId: kms });
     const expires = now + seconds * 1000;
     await db.query("insert into exports (id, tenant_id, app, object_key, sha256, size_bytes, created_at, expires_at) values ($2, $1, $3, $4, $5, $6, $7, $8)", [
       tenant,

@@ -94,7 +94,51 @@ export async function POST(ctx) {
 }
 "#;
 
+// #305: the change feed. `[realtime.feeds] "app__orders" = "orders:{org_id}"`.
+const ORDERS_WS: &str = r#"
+export const ws = {
+  async open(ctx) {
+    await ctx.realtime.subscribe(ctx.conn, "orders:" + ctx.params.org);
+    await ctx.realtime.send(ctx.conn, "subscribed");
+  },
+};
+"#;
+
+const ORDERS: &str = r#"
+export async function POST(ctx) {
+  await ctx.db.execute("insert into app__orders (org_id, total) values (?, ?)", ["o_1", 5]);
+  await ctx.db.execute("insert into app__orders (org_id, total) values (?, ?)", ["o_2", 6]);
+  return Response.json({ ok: true });
+}
+"#;
+
+const ORDERS_ROLLBACK: &str = r#"
+export async function POST(ctx) {
+  try {
+    await ctx.db.transaction(async (tx) => {
+      await tx.execute("insert into app__orders (org_id, total) values (?, ?)", ["o_1", 7]);
+      throw new Error("abort");
+    });
+  } catch {}
+  return Response.json({ ok: true });
+}
+"#;
+
+const ORDERS_MANY: &str = r#"
+export async function POST(ctx) {
+  // 1,024 rows in one transaction: one row, then ten doublings.
+  await ctx.db.transaction(async (tx) => {
+    await tx.execute("insert into app__orders (org_id, total) values (?, ?)", ["o_1", 0]);
+    for (let i = 0; i < 10; i++) await tx.execute("insert into app__orders (org_id, total) select org_id, total from app__orders where id > 1", []);
+  });
+  await ctx.db.execute("update app__orders set total = 0 where id = 1", []);
+  return Response.json({ ok: true });
+}
+"#;
+
 const POLICIES: &str = r#"
+permit (principal, action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
+when { resource.name == "orders:o_1" };
 permit (principal, action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
 when { resource.name like "room:*" };
 permit (principal is Renox::User, action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
@@ -137,6 +181,10 @@ fn artifact(store: &Path) -> String {
         ("functions/ws/guarded", GUARDED),
         ("functions/sse/feed", FEED),
         ("functions/publish", PUBLISH),
+        ("functions/ws/orders/[org]", ORDERS_WS),
+        ("functions/orders", ORDERS),
+        ("functions/orders/rollback", ORDERS_ROLLBACK),
+        ("functions/orders/many", ORDERS_MANY),
         ("modules/auth/services", AUTH),
     ];
     for (id, src) in &code {
@@ -144,7 +192,7 @@ fn artifact(store: &Path) -> String {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, src).unwrap();
     }
-    let sql = "create table app__closes (conn text, code integer);\n";
+    let sql = "create table app__closes (conn text, code integer);\ncreate table app__orders (id integer primary key, org_id text, total integer);\n";
     std::fs::create_dir_all(tmp.join("migrations/app")).unwrap();
     std::fs::write(tmp.join("migrations/app/001_init.sql"), sql).unwrap();
     std::fs::write(
@@ -168,7 +216,12 @@ fn artifact(store: &Path) -> String {
             { "kind": "ws", "path": "/ws/guarded", "module": "functions/ws/guarded", "guard": { "action": "room.join" } },
             { "kind": "sse", "path": "/sse/feed", "module": "functions/sse/feed" },
             { "kind": "function", "method": "POST", "path": "/publish", "module": "functions/publish", "export": "POST" },
+            { "kind": "ws", "path": "/ws/orders/:org", "module": "functions/ws/orders/[org]" },
+            { "kind": "function", "method": "POST", "path": "/orders", "module": "functions/orders", "export": "POST" },
+            { "kind": "function", "method": "POST", "path": "/orders/rollback", "module": "functions/orders/rollback", "export": "POST" },
+            { "kind": "function", "method": "POST", "path": "/orders/many", "module": "functions/orders/many", "export": "POST" },
         ],
+        "realtime": { "feeds": { "app__orders": "orders:{org_id}" } },
         "templates": compiled.manifest_entries(),
         "permissions": { "network": [], "secrets": [] },
         "authz": { "actions": ["room.join"] },
@@ -750,4 +803,63 @@ async fn a_plain_request_to_a_realtime_route_is_405() {
     assert_eq!(n.send("GET", "/ws/chat/1", &[]).await.status(), 405);
     assert_eq!(n.send("POST", "/sse/feed", &[]).await.status(), 405);
     assert_eq!(n.send("GET", "/sse/feed", &[]).await.status(), 405);
+}
+
+impl Node {
+    async fn post_ok(&self, path: &str) {
+        let res = self.send("POST", path, &[]).await;
+        assert_eq!(res.status(), 200, "{path}");
+    }
+}
+
+/// #305, `docs/23-failure-modes.md` "Realtime" (the commit-not-rollback
+/// test): a committed insert of `app__orders` reaches the subscriber of
+/// `orders:<org_id>` as `{ table, rowid, op }`, the owner value read from the
+/// row; a rolled-back transaction publishes nothing; the feed ran no tenant
+/// code (only the two POST records).
+#[tokio::test]
+async fn the_change_feed_publishes_committed_rows_and_never_a_rollback() {
+    let n = node().await;
+    let mut a = Ws::connect(n.addr, "/ws/orders/o_1", Some("uid=u_alice"))
+        .await
+        .unwrap();
+    assert_eq!(a.next_text().await, "subscribed");
+    n.post_ok("/orders/rollback").await;
+    n.post_ok("/orders").await;
+    // The rollback's row would have been rowid 1; the first committed row is
+    // rowid 1 too (the rollback freed it), so the op and the absence of a
+    // second o_1 message prove nothing leaked.
+    let first: serde_json::Value = serde_json::from_str(&a.next_text().await).unwrap();
+    assert_eq!(
+        first,
+        serde_json::json!({ "table": "app__orders", "rowid": 1, "op": "insert" })
+    );
+    // The o_2 row went to orders:o_2, which this connection is not on.
+    n.post_ok("/orders/many").await;
+    // 1,024 rows in one transaction: nothing; the update after it: one message.
+    let next: serde_json::Value = serde_json::from_str(&a.next_text().await).unwrap();
+    assert_eq!(
+        next,
+        serde_json::json!({ "table": "app__orders", "rowid": 1, "op": "update" })
+    );
+    let routes: Vec<String> = n.records.all().into_iter().map(|r| r.route).collect();
+    assert!(
+        routes
+            .iter()
+            .all(|r| r.starts_with("POST ") || r.starts_with("WS ")),
+        "{routes:?}"
+    );
+}
+
+/// #305: the topic's subscribe policy is the whole filter. A connection
+/// that asks for `orders:o_2` without the policy is refused (1008) and gets
+/// none of that org's rows.
+#[tokio::test]
+async fn a_subscriber_without_the_policy_for_another_org_gets_nothing() {
+    let n = node().await;
+    let mut spy = Ws::connect(n.addr, "/ws/orders/o_2", Some("uid=u_mallory"))
+        .await
+        .unwrap();
+    n.post_ok("/orders").await;
+    assert_eq!(spy.close_code().await, 1008);
 }

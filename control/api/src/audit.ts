@@ -40,7 +40,7 @@ export function operation(deps: Deps, action: string): MiddlewareHandler<Env> {
       await writeAudit(deps.db, {
         at: deps.now(),
         tenantId: tenantOf(principal) ?? attempt?.tenantId ?? target.tenant_id ?? null,
-        actor: attempt?.actor ?? actorOf(principal),
+        actor: c.get("auditActor") ?? attempt?.actor ?? actorOf(principal),
         action,
         target,
         status: c.res.status,

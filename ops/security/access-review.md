@@ -12,7 +12,7 @@ Operators can act on any tenant (`docs/24-threat-model.md` E "Operator console a
 | Reason on every action | Every operator action carries a reason of 10 to 500 characters, stored in the audit row with the operator id and the result | deploy API section 17; `ops-tenants.test.ts` |
 | Reads audited | `getOpsTenant` reads are audited like writes (deploy API 0.3.1) | `control/api` |
 | Node access | No interactive SSH to worker nodes in normal operation: everything goes through the API. When a shell is needed (an incident), it goes through the bastion with session recording, for a named person and a stated reason, and the session is reviewed in the next monthly review | Bastion; cloud firewall (port 22 closed except from the bastion) |
-| Break-glass | Reading a tenant's data or acting as a tenant requires a reason, is time-boxed to 1 hour, is logged, and the tenant owner is notified afterwards | Operator console break-glass (#121; pending its deploy API operation, see the issue) |
+| Break-glass | Reading a tenant's data or acting as a tenant requires a reason, is time-boxed to 1 hour, is logged, and the tenant owner is notified afterwards | `impersonateTenant` / `endImpersonation` (deploy API 0.4 section 17; `control/api/src/ops/breakglass.ts`, #310): an operator token created with `ops:impersonate` (which no other scope or the bootstrap token grants, at most 1 day), a reason of 10 to 500 characters, a read-only tenant token for 60 minutes, an audit row at start and at end, the owner emailed at both, every request made with it audited as `operator:<acct_id>/<imp_id>`; the console shows the active ones first in `getOpsTenant.actions[]` |
 
 ## Granting and removing access
 
@@ -27,7 +27,7 @@ Run on the first business day of each month. Copy the list into the review log e
 - [ ] Every operator account has a hardware key enrolled and no other second factor.
 - [ ] List live `renox_op_` tokens: owner, scopes, expiry, last use. Revoke tokens unused for 30 days and tokens of people who left.
 - [ ] Read the audit rows with an `operator` actor for the month: every action has a reason that matches a ticket, an incident or a support request. Raise anything unexplained with the person, then with a founder.
-- [ ] Read every break-glass session of the month: reason, duration (≤ 1 hour), the tenant notification sent.
+- [ ] Read every break-glass session of the month: reason, duration (≤ 1 hour), the tenant notification sent (`select * from impersonations where started_at > …`, the `impersonateTenant` and `endImpersonation` audit rows, and the rows whose actor starts with `operator:`).
 - [ ] Read the bastion session recordings of the month (if any): each matches an incident or a change record.
 - [ ] Check that the cloud firewall still closes port 22 on worker nodes except from the bastion.
 - [ ] Note the findings and the actions taken in the log below; a finding that needs work becomes a `security` issue.

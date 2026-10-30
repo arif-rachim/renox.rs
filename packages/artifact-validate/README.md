@@ -4,11 +4,15 @@ One implementation of the artifact rules, shared by the CLI (`renox check`, `ren
 
 | Rules | Source | Code |
 | --- | --- | --- |
-| V1–V22 (the artifact tree; V17–V22 are the modules of artifact 1.1, #227) | [`docs/contracts/artifact.md`](../../docs/contracts/artifact.md) section 6 | `src/artifact.ts`, `src/schema.ts`, `src/paths.ts` |
+| V1–V27 (the artifact tree; V17–V22 are the modules of artifact 1.1, #227; V23 the `entries` of 1.2; V24–V27 the policies, actions, feeds and schedules of 1.3, #304) | [`docs/contracts/artifact.md`](../../docs/contracts/artifact.md) section 6 | `src/artifact.ts`, `src/schema.ts`, `src/paths.ts` |
 | T1–T8 (the upload tarball) | [`docs/contracts/deploy-api.md`](../../docs/contracts/deploy-api.md) section 4 | `src/tar.ts` |
 | H1 forbidden files, H2 secrets (bundle hygiene, #115) | `docs/05-tenant-lifecycle.md` "Bundle hygiene"; `docs/24-threat-model.md` sections B and C | `src/hygiene.ts`, `src/secrets.ts` |
 
 The F1 gate (#37) folded the tar rules of #95 and the bundle rules of #115 into this package instead of separate `tar-safe` and `bundle-rules` packages, so the API and the CLI import one implementation. The H rules are not part of `checkArtifactFiles`: `renox build` filters and scans before the artifact exists (`cli/src/lib/build.ts`, `cli/src/lib/secrets.ts`), and the control plane applies them to uploads (`control/api/src/deployments/validate-bundle.ts`). `docs/contracts/deploy-api.md` section 4 says these rules report under their own rule ids in a minor version of the contract; `H1` and `H2` are those ids until a contract issue records them.
+
+## Routes without a path (artifact 1.3, #304)
+
+`tool` and `job` routes have no `path` (a tool is reached through `/mcp`, a job by the scheduler), so V8 (route conflicts), V21 (mounts and the reserved `/mcp` paths) and the V16 rate-limit lookup skip them. What they carry instead is checked by the schema (V3: a tool needs `name`, `module`, `input` and `action`; a job `name`, `module` and `schedule`) and by the contract's rules: **V23** (a tool module exports `default`, a job module `run` and `schedule`), **V25** (tool names unique across the app and its modules, the tool's `action` in the merged action set, its `input` in the keyword subset) and **V27** (a five-field cron `schedule` with numbers only, an IANA `tz`, job names unique per owner). `ws` and `sse` routes keep a path and answer `GET`. A module named `app`, `renox` or `authz` is refused with V17 and the reason `is reserved (MF1)`, as `renox check` refuses it with MF1 (`cli/src/lib/modules/manifest.ts`).
 
 ## Safe extraction (T1–T8)
 

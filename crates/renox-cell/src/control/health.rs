@@ -80,6 +80,30 @@ impl Health {
     }
 }
 
+/// The Prometheus text of `GET /metrics` (#295, `crate::telemetry`).
+pub type MetricsText = Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send>> + Send + Sync,
+>;
+
+async fn respond_any(
+    health: &Health,
+    metrics: Option<&MetricsText>,
+    req: &Request<hyper::body::Incoming>,
+) -> Response<Full<Bytes>> {
+    if req.uri().path() == "/metrics"
+        && req.method() == http::Method::GET
+        && let Some(m) = metrics
+    {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/plain; version=0.0.4")
+            .header(header::CACHE_CONTROL, "no-store")
+            .body(Full::new(Bytes::from(m().await)))
+            .expect("valid response");
+    }
+    respond(health, req)
+}
+
 fn respond(health: &Health, req: &Request<hyper::body::Incoming>) -> Response<Full<Bytes>> {
     if req.uri().path() != "/healthz" || req.method() != http::Method::GET {
         return Response::builder()
@@ -95,10 +119,12 @@ fn respond(health: &Health, req: &Request<hyper::body::Incoming>) -> Response<Fu
         .expect("valid response")
 }
 
-/// Binds `addr` and serves `/healthz`. Returns the bound address and the task.
+/// Binds `addr` and serves `/healthz` (and `/metrics` with `metrics`, #295).
+/// Returns the bound address and the task.
 pub async fn serve(
     addr: SocketAddr,
     health: Arc<Health>,
+    metrics: Option<MetricsText>,
 ) -> std::io::Result<(SocketAddr, JoinHandle<()>)> {
     let listener = TcpListener::bind(addr).await?;
     let local = listener.local_addr()?;
@@ -109,10 +135,16 @@ pub async fn serve(
                 continue;
             };
             let health = health.clone();
+            let metrics = metrics.clone();
             tokio::spawn(async move {
                 let service = hyper::service::service_fn(move |req| {
                     let health = health.clone();
-                    async move { Ok::<_, std::convert::Infallible>(respond(&health, &req)) }
+                    let metrics = metrics.clone();
+                    async move {
+                        Ok::<_, std::convert::Infallible>(
+                            respond_any(&health, metrics.as_ref(), &req).await,
+                        )
+                    }
                 });
                 let conn = hyper::server::conn::http1::Builder::new()
                     .keep_alive(false)

@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkArtifactFiles, checkManifest, checkRouteTable, contentHash, formatViolation, TIERS } from "../src/index.ts";
-import type { Json } from "../src/index.ts";
+import type { Json, JsonObject } from "../src/index.ts";
 
 const EXAMPLES = new URL("../../../docs/contracts/examples/", import.meta.url).pathname;
 
@@ -94,12 +94,13 @@ describe("single-file examples", () => {
 describe("modules (artifact 1.1)", () => {
   const modules = (): Map<string, Uint8Array> => readTree(artifactDir("artifact/modules-artifact"));
 
-  test("V1: policies/ and overrides/ stay reserved in an artifact without modules", () => {
+  test("V1: overrides/ stays reserved in an artifact without modules; a module's policy file is V18 (artifact 1.3 opens policies/ to the app)", () => {
     const files = readTree(artifactDir("artifact/shop-artifact"));
     files.set("policies/auth/default.cedar", new Uint8Array(1));
     files.set("overrides.json", new TextEncoder().encode("{}"));
-    const v1 = checkArtifactFiles(files).violations.filter((v) => v.rule === "V1").map((v) => v.path);
-    expect(v1).toEqual(["policies/auth/default.cedar", "overrides.json"]);
+    const violations = checkArtifactFiles(files).violations;
+    expect(violations.filter((v) => v.rule === "V1").map((v) => v.path)).toEqual(["overrides.json"]);
+    expect(violations.filter((v) => v.rule === "V18").map((v) => v.path)).toEqual(["policies/auth/default.cedar"]);
   });
 
   test("V18: a policy file of a module that is not installed", () => {
@@ -146,5 +147,61 @@ describe("upload-only rules", () => {
     expect(rules).toContain("templates/x.html");
     expect(rules).toContain(".env");
     expect(rules).toContain("code/a.js");
+  });
+});
+
+describe("routes without a path (artifact 1.3, #304)", () => {
+  const f5 = (): JsonObject => JSON.parse(readFileSync(join(EXAMPLES, "artifact/manifest.f5.valid.json"), "utf8")) as JsonObject;
+  const routes = (m: JsonObject): JsonObject[] => m.routes as JsonObject[];
+
+  test("a manifest with a tool route and a job route validates (V8 and V21 skip them)", () => {
+    const m = f5();
+    expect(routes(m).some((r) => r.kind === "tool" && r.path === undefined)).toBe(true);
+    expect(routes(m).some((r) => r.kind === "job" && r.path === undefined)).toBe(true);
+    expect(checkManifest(m).map(formatViolation)).toEqual([]);
+  });
+
+  test("a tool route without its name is refused by the schema (V3), not by a crash", () => {
+    const m = f5();
+    delete (routes(m).find((r) => r.kind === "tool") as JsonObject).name;
+    const violations = checkManifest(m);
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.map((v) => v.rule)).toContain("V3");
+  });
+
+  test("a job route without a schedule is refused (V3); a bad schedule and a second job of the same name are V27", () => {
+    const missing = f5();
+    delete (routes(missing).find((r) => r.kind === "job") as JsonObject).schedule;
+    expect(checkManifest(missing).map((v) => v.rule)).toContain("V3");
+    const m = f5();
+    const job = routes(m).find((r) => r.kind === "job") as JsonObject;
+    routes(m).push({ ...job });
+    job.schedule = "61 * * * *";
+    const v = checkManifest(m).filter((x) => x.rule === "V27").map((x) => x.reason);
+    expect(v.some((r) => r.includes("outside 0-59"))).toBe(true);
+    expect(v.some((r) => r.includes("declared twice"))).toBe(true);
+  });
+
+  test("two tools with one name are V25", () => {
+    const m = f5();
+    const tool = routes(m).find((r) => r.kind === "tool") as JsonObject;
+    routes(m).push({ ...tool });
+    expect(checkManifest(m).filter((x) => x.rule === "V25").map((x) => x.reason)).toEqual([`tool "${tool.name}" is declared twice`]);
+  });
+
+  test("ws and sse routes keep their path and answer GET (a second sse on the same path conflicts, V8)", () => {
+    const m = f5();
+    const sse = routes(m).find((r) => r.kind === "sse") as JsonObject;
+    routes(m).push({ ...sse });
+    expect(checkManifest(m).filter((x) => x.rule === "V8").length).toBe(1);
+  });
+});
+
+describe("MF1: reserved module names (#304)", () => {
+  test("a module named authz is refused with the MF1 reason", () => {
+    const doc = JSON.parse(readFileSync(join(artifactDir("artifact/modules-artifact"), "manifest.json"), "utf8")) as JsonObject;
+    ((doc.modules as JsonObject[])[0] as JsonObject).name = "authz";
+    const reasons = checkManifest(doc).filter((v) => v.rule === "V17").map((v) => v.reason);
+    expect(reasons.some((r) => r.includes("is reserved (MF1)"))).toBe(true);
   });
 });

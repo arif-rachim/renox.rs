@@ -60,6 +60,14 @@ toml = "0.9"
 unicode-normalization = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# Spans exported over OTLP/HTTP (protobuf) from `[telemetry]` (#295). The
+# OpenTelemetry crates are already in the tree through deno_runtime; the
+# HTTP client is this crate's hyper (src/telemetry/), no gRPC, no reqwest.
+opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "http-proto"] }
+opentelemetry-http = { version = "0.32", default-features = false }
+tracing-opentelemetry = { version = "0.33", default-features = false }
 
 # malloc_trim after evictions (src/alloc.rs, #144).
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
@@ -73,6 +81,8 @@ seccompiler = { version = "0.5.0", features = ["json"] }
 
 [dev-dependencies]
 renox-cell = { path = ".", features = ["test-support"] }
+# tests/telemetry.rs: the in-memory span exporter.
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "testing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "process"] }
 # tests/pages.rs compiles the page templates of its test artifact.
 renox-template = { path = "../renox-template" }

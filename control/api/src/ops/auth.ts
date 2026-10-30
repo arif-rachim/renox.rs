@@ -25,7 +25,8 @@ export const accountRef = (operator: string): string => (operator.startsWith("us
  * `ops:write` for the actions; `ops:read` (0.3.1) for the read, which
  * `ops:write` grants. The bootstrap token holds both.
  */
-export function opsAuth(deps: Deps, scope: "ops:write" | "ops:read" = "ops:write"): MiddlewareHandler<Env> {
+/** `ops:impersonate` (0.4, #310): the break-glass scope, granted by nothing else, not even the bootstrap token. */
+export function opsAuth(deps: Deps, scope: "ops:write" | "ops:read" | "ops:impersonate" = "ops:write"): MiddlewareHandler<Env> {
   return async (c, next) => {
     const header = c.req.header("authorization");
     const bearer = parseBearer(header);
@@ -38,6 +39,7 @@ export function opsAuth(deps: Deps, scope: "ops:write" | "ops:read" = "ops:write
     const digest = sha256hex(bearer.value);
     const expected = deps.config.operatorTokenSha256;
     if (expected !== null && sameDigest(digest, expected)) {
+      if (scope === "ops:impersonate") throw new ApiError("RENOX_TOKEN_SCOPE", [{ field: "scope", reason: "ops:impersonate needs an operator account's token created with it" }]);
       operators.set(c.req.raw, "operator");
     } else {
       const rows = await deps.db.query<{ id: string; user_id: string; scopes: string[]; expires_at: unknown; revoked_at: unknown; operator: boolean }>(
@@ -48,7 +50,8 @@ export function opsAuth(deps: Deps, scope: "ops:write" | "ops:read" = "ops:write
       if (t === undefined || t.revoked_at !== null || num(t.expires_at) <= deps.now()) throw new ApiError("RENOX_UNAUTHENTICATED");
       // The flag is checked on every request: an account that lost it loses its tokens.
       if (!t.operator) throw new ApiError("RENOX_TOKEN_SCOPE", [{ field: "operator", reason: "the account is not an operator" }]);
-      if (!t.scopes.includes("ops:write") && !(scope === "ops:read" && t.scopes.includes("ops:read"))) throw new ApiError("RENOX_TOKEN_SCOPE", [{ field: "scope", reason: `${scope} is not among the token's scopes` }]);
+      const holds = scope === "ops:impersonate" ? t.scopes.includes("ops:impersonate") : t.scopes.includes("ops:write") || (scope === "ops:read" && t.scopes.includes("ops:read"));
+      if (!holds) throw new ApiError("RENOX_TOKEN_SCOPE", [{ field: "scope", reason: `${scope} is not among the token's scopes` }]);
       await deps.db.query("update operator_tokens set last_used_at = $1 where id = $2", [deps.now(), t.id]);
       operators.set(c.req.raw, t.user_id);
     }

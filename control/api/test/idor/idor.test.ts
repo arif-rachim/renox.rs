@@ -96,6 +96,8 @@ export const EXTRA_ROUTES: Record<string, string> = {
   // The control plane's Prometheus families (src/ops/metrics.ts, #296): the
   // same operator credential and scope as getOpsTenant, no tenant id in it.
   "GET /v1/ops/metrics": "getOpsTenant",
+  // RFC 9116 on the API host (src/well-known.ts, #310): public, no tenant.
+  "GET /.well-known/security.txt": "getSecurityTxt",
 };
 
 /** Callers that are not tenant principals: not part of this suite, with the reason. */

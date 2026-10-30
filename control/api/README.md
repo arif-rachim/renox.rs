@@ -157,6 +157,23 @@ Tokens have a fixed prefix so a leaked one can be found. Registering it with Git
 
 The endpoint is not built yet; it needs no change to the token format.
 
+## Tenant erasure (#308)
+
+`src/tenants/erasure.ts`: `GET /v1/tenants/{tenant_id}` (`getTenant`, the caller's own tenant with its `erasure`) and `DELETE /v1/tenants/{tenant_id}` (`deleteTenant`, the owner's session only, `{ confirm: "<tenant_id>" }`; deploy-api.md 0.4 section 3). The answer is 202 with the `pending` record; the steps run after the answer and every minute after that (`sweepErasures` in `main.ts`), each retried hourly until confirmed: `routes` (the tenant suspended, every route entry removed and published), `tokens` (revoked), `node_drop` (`nodeDropTenant` on every node with a listener), `exports` (objects and rows), `records` (apps, deployments, secrets, domains, client error groups, meters, permissions, reports). `done` sets `completed_at`, writes the platform audit row and emails the owner (`tenant_erased`); a step still failing 24 hours after the request makes it `failed` with that step and an `erasure_failed` alert row. What stays: the audit rows, the memberships and the tenant row (suspended) as the tombstone. 409 while the tenant is moving. Migration `0012_erasure.sql`.
+
+**Exports with SSE-KMS.** `EXPORT_KMS_KEY_ID` set: `exportBackup` writes the export with `x-amz-server-side-encryption: aws:kms` and that key id (a SigV4-signed put, `src/storage/object-store.ts` `signedPut`, since Bun's S3 client has no SSE options); unset (local mode): a plain put and a warning at start. The export bucket refuses any other put (`ops/terraform/bucket.tf`, #309).
+
+Not done yet (#308 stays open for them): deleting the database's Litestream generations in the replica store (the control plane holds no replica credentials; the node's drop stops the sidecar after the last frames), the dashboard settings page's delete action and state, the `bench/chaos/scenarios/erasure.ts` scenario (the chaos stack cannot run in the batch container, see #312).
+
+## Break-glass, security.txt, operator tokens (#310)
+
+- **Break-glass** (`src/ops/breakglass.ts`, deploy-api.md 0.4 section 17): `POST /v1/ops/tenants/{tenant_id}/impersonate` with `{ reason, scopes? }` needs an operator token created with `ops:impersonate` (alone or with `ops:read`, at most 1 day; the bootstrap token and `ops:write` never grant it). It answers a `renox_pat_` tenant token with read scopes only (`apps:read`, `logs:read`, `secrets:read` by default) that expires after 60 minutes; one active per operator and tenant (409). `DELETE …/impersonate/{impersonation_id}` ends it at once; `endExpiredImpersonations` (every 30 s in `main.ts`) ends it at the time box with an `endImpersonation` row by `platform`. The owner is emailed at start (operator, reason, end time) and at end (how, requests made). Every request with the token is audited with actor `operator:<acct_id>/<imp_id>` (`auditActor`, set in `src/auth/middleware.ts`). `getOpsTenant.actions[]` lists active impersonations first. Migration `0013_breakglass.sql`.
+- **security.txt** (`src/well-known.ts`): `GET /.well-known/security.txt` (RFC 9116): `CONTROL_SECURITY_CONTACTS` (comma separated, default `mailto:security@renox.app`), `CONTROL_SECURITY_POLICY`, `Canonical` on `api.<platform domain>`, `Preferred-Languages: en, ar`, `Expires` 180 days ahead, as the gateway's file.
+- **Operator tokens** (`src/tokens/routes.ts`): `createToken` from an account flagged `operator` accepts `["ops:write"]`, `["ops:read"]` (a read-only console token: `getOpsTenant`, `/v1/ops/metrics`), `["ops:impersonate"]` or `["ops:impersonate", "ops:read"]`, never a tenant scope.
+- **Operator ids**: the audit rows of `setTenantTier` and `moveTenant` store the operator as `acct_<ulid>` (the wire form), never `usr_`.
+
+Not done yet (#310 stays open for it): the operator console's break-glass form, the active list and the banner inside the impersonated session (`control/dashboard/pages/ops/**`).
+
 ## Tests
 
 `bun test` in this directory. The tests run on one in-process PGlite (started once per test run, emptied before each test). `tests/postgres.test.ts` also checks the production adapter against a real server when `CONTROL_TEST_DATABASE_URL` is set; the compose stack creates `renox_test` for it:

@@ -114,7 +114,7 @@ describe("the role table", () => {
       const scope = op["x-renox-scope"];
       const ours = ROUTE_PERMISSIONS[id];
       if (scope !== undefined && ours !== scope) wrong.push(`${id}: contract ${scope}, table ${String(ours)}`);
-      if (scope === undefined && !["public", "node", "operator"].includes(String(ours))) wrong.push(`${id}: contract has no scope, table ${String(ours)}`);
+      if (scope === undefined && !["public", "node", "operator", "account"].includes(String(ours))) wrong.push(`${id}: contract has no scope, table ${String(ours)}`);
     }
     expect(wrong).toEqual([]);
   });
@@ -161,12 +161,12 @@ describe("the role table", () => {
     const end = doc.findIndex((l, i) => i > start + 1 && !l.startsWith("|"));
     expect(matrixRows(doc.slice(start + 1, end))).toEqual(expected());
     // The operation table: every listed operation needs exactly the permission of its row.
-    const callers: Record<string, string> = { "node token": "node", "operator token": "operator", none: "public" };
+    const callers: Record<string, string> = { "node token": "node", "operator token": "operator", "signed-in user": "account", none: "public" };
     const listed = new Map<string, string>();
     const table = doc.indexOf("<!-- operation-table -->");
     expect(table).toBeGreaterThan(-1);
     for (const line of doc.slice(table + 1, doc.findIndex((l, i) => i > table + 1 && !l.startsWith("|")))) {
-      const m = /^\| (`[a-z:]+`|node token|operator token|none) \| (`[A-Za-z]+`.*) \|$/u.exec(line);
+      const m = /^\| (`[a-z:]+`|node token|operator token|signed-in user|none) \| (`[A-Za-z]+`.*) \|$/u.exec(line);
       if (m === null) continue;
       const permission = callers[m[1] as string] ?? (m[1] as string).slice(1, -1);
       for (const id of (m[2] as string).matchAll(/`([A-Za-z]+)`/gu)) listed.set(id[1] as string, permission);

@@ -13,6 +13,14 @@ groups:
         annotations:
           summary: "Node {{ $labels.node_id }} is unhealthy: no heartbeat for 30 s; its tenants fail over"
           failure_mode: "Node dies"
+      - alert: RenoxNodeDiskCritical
+        expr: renox_cp_node_disk_level == 2
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Node {{ $labels.node_id }} reports its disk critical (no new cells from 90 %, writes refused from 95 %)"
+          failure_mode: "Disk full on node"
       - alert: RenoxNodeHeartbeatLate
         expr: renox_cp_node_heartbeat_age_seconds > 20 and on (node_id) renox_cp_node_healthy == 1
         for: 30s

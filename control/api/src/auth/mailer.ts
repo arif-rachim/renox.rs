@@ -17,7 +17,12 @@ export type MailKind =
   | "invitation"
   | "owner_transfer"
   // Custom domains (src/domains/reverify.ts, #114).
-  | "domain_detached";
+  | "domain_detached"
+  // Tenant erasure completed (src/tenants/erasure.ts, #308).
+  | "tenant_erased"
+  // Break-glass impersonation started and ended (src/ops/breakglass.ts, #310).
+  | "breakglass_started"
+  | "breakglass_ended";
 
 export interface Mail {
   to: string;

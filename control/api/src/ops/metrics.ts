@@ -59,6 +59,9 @@ export async function metricsText(deps: Deps): Promise<string> {
   e.family("renox_cp_node_heartbeat_age_seconds", "gauge", "Seconds since the node's last heartbeat.", workers.map((w) => [{ node_id: w.node_id }, Math.max(0, (now - num(w.last_heartbeat_at)) / 1000)]));
   e.family("renox_cp_node_cells", "gauge", "Warm cells the node reported in its last heartbeat.", workers.map((w) => [{ node_id: w.node_id }, num(w.cells)]));
   e.family("renox_cp_node_max_cells", "gauge", "The node's cell capacity (node_register).", workers.map((w) => [{ node_id: w.node_id }, num(w.max_cells)]));
+  // #311: the disk level of the node's last heartbeat (0 ok, 1 warn, 2 critical); a node that never sent one is absent.
+  const disks = await db.query<{ node_id: string; level: string | null }>("select node_id, disk->>'level' as level from workers where disk is not null order by node_id");
+  e.family("renox_cp_node_disk_level", "gauge", "Disk level of the node's last heartbeat: 0 ok, 1 warn, 2 critical (deploy-api.md 0.4 section 7).", disks.map((d) => [{ node_id: d.node_id }, d.level === "critical" ? 2 : d.level === "warn" ? 1 : 0]));
 
   const tenants = await db.query<{ tier: string; state: string; n: unknown }>("select tier, state, count(*) as n from tenants group by tier, state order by tier, state");
   e.family("renox_cp_tenants", "gauge", "Tenants by tier and state.", tenants.map((t) => [{ tier: t.tier, state: t.state }, num(t.n)]));

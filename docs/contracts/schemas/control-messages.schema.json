@@ -170,7 +170,21 @@
         "node_id": { "$ref": "#/$defs/node_id" },
         "sent_at": { "$ref": "#/$defs/unix_ms" },
         "route_version": { "$ref": "#/$defs/route_version" },
-        "cells": { "type": "integer", "minimum": 0, "description": "Warm cells on the node." }
+        "cells": { "type": "integer", "minimum": 0, "description": "Warm cells on the node." },
+        "disk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "free_bytes", "watermark"],
+          "description": "Deploy API 0.4 (section 7), optional: the data directory's level from the node's disk watermarks (disk.rs, #103: warn from 80 % used, critical from 90 %, when no new cell is created, and from 95 %, when writes are refused); watermark is the percent the level crossed (80, 90 or 95), null at ok.",
+          "properties": {
+            "level": { "enum": ["ok", "warn", "critical"] },
+            "free_bytes": { "type": "integer", "minimum": 0 },
+            "watermark": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 }
+          },
+          "if": { "properties": { "level": { "const": "ok" } } },
+          "then": { "properties": { "watermark": { "type": "null" } } },
+          "else": { "properties": { "watermark": { "type": "integer" } } }
+        }
       }
     },
     "heartbeat_ack": {

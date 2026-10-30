@@ -38,7 +38,19 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 | `[authz]` | `false` / 60 | `dev` (`ctx.authz.explain` works and `RENOX_FORBIDDEN` names the deciding policy), `principal_ttl_secs` (how long a resolved principal is cached per session, 0 to 3,600): "Authorization" |
 
-Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`). They name tenants, hashes, and request ids, never secret values or request content.
+| `[telemetry]` | off / 0.1 / `renox-worker` | `otlp_endpoint` (OTLP/HTTP traces URL, `http(s)://…/v1/traces`; absent: no export), `sample_ratio` (share of root traces kept; a child follows its parent), `service_name`: "Telemetry" |
+
+Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`), with the current span and the span list, so a line inside a request carries `gateway.request`'s `request_id`, `tenant_id` and `trace_id` (#295). They name tenants, hashes, and request ids, never secret values or request content.
+
+## Telemetry (#295)
+
+`src/telemetry/`. **Traces:** one trace per request, rooted at `gateway.request` (`renox-gateway`), with `cell.request`, `cell.loader` / `cell.action` / `cell.function`, `template.render`, `realtime.open` / `realtime.message` / `realtime.close`, `mcp.tool` and `outbox.deliver` under it; `db.query` (`renox-data`: the verb and the table names) and `fetch` (`renox-runtime`: the host) run on the isolate's thread and are traces of their own. Attributes are ids, verbs, table names, hosts and numbers only: never SQL text or parameters, a path or a query, a header or a cookie, a body, or a secret. Export is OTLP/HTTP with protobuf through this crate's hyper (no gRPC); the batch exporter is flushed at shutdown.
+
+**Metrics:** `GET /metrics` (Prometheus text) on the operator listener of `[control] health_listen`, beside `/healthz`: `renox_worker_requests_total{tenant_id,status_class}`, `renox_worker_request_duration_seconds` (histogram per tenant), `renox_worker_cpu_seconds_total`, `renox_worker_heap_bytes`, `renox_worker_cold_starts_total`, `renox_worker_cold_start_duration_seconds`, `renox_worker_cells`, `renox_worker_outbox_pending`, `renox_worker_outbox_oldest_age_seconds`, `renox_worker_dead_letters_total`, `renox_worker_realtime_connections`, `renox_worker_realtime_messages_total`, `renox_worker_authz_decisions_total{tenant_id,decision="all"}`, `renox_worker_authz_principal_cache_total{tenant_id,result}`, `renox_worker_disk_used_ratio`, `renox_worker_disk_level`, `renox_worker_degraded{component}`: the names of `ops/observability/README.md` (#296), so its panels and alert rules read them.
+
+**A local trace** (not in CI): run a collector, `docker run --rm -p 4318:4318 otel/opentelemetry-collector:0.114.0` (its default config logs what it receives), set `[telemetry] otlp_endpoint = "http://127.0.0.1:4318/v1/traces"` and `sample_ratio = 1.0` in `worker.toml`, start `renox-worker --config worker.toml`, send one request, and the collector's log shows the `gateway.request` trace with its children.
+
+Tests: `tests/telemetry.rs` (the span tree of a page request, `db.query` attributes, a secret in a header, a cookie and the query in no span and not in `/metrics`, the metric families); `src/telemetry/metrics.rs` unit tests.
 
 ## Tiers
 
@@ -221,7 +233,7 @@ Tests: `tests/authz.rs`; the ops themselves: `renox-runtime` `tests/authz_ops.rs
 4. **Ops.** `ctx.realtime.subscribe` is checked first: `realtime.subscribe` on `Renox::Topic::"<topic>"`, fail closed, one `authz_evals`. `publish` and `send` go to the hub; a `{ fragment, data }` payload names a `partial` of the caller's module and is rendered on the blocking pool, its fuel and CPU on the publishing invocation's record. The fan-out never enters the isolate.
 5. **Meter.** One record per connection at its end: route `WS <pattern>` / `SSE <pattern>`, `http_status` 101 / 200, the handler runs summed, `realtime_conn_seconds`, and `realtime_messages` (frames received plus messages delivered). The connection holds the cell in flight, so the cell is not evicted while it is open.
 
-`CellManager::realtime_stats(tenant)` returns the hub's counters (live, opened, connection-seconds, messages in and out, refusals and closes by reason). The change feed (`[realtime.feeds]`) is not wired: it needs a commit hook in `renox-data` (see #281).
+`CellManager::realtime_stats(tenant)` returns the hub's counters (live, opened, connection-seconds, messages in and out, refusals and closes by reason). **Change feed (#305).** `[realtime.feeds]` of the app (`renox.toml`, `manifest.realtime.feeds`) and of each module (`modules[].realtime.feeds`) maps a table to a topic pattern, `"shop__orders" = "orders:{org_id}"`. At cell creation `src/realtime/feed.rs` subscribes the cell's hub to the tenant file's committed changes (`TenantDb::on_rows_changed`, the hub held weakly; the tenant's next cell replaces it). After each commit, every changed row of a fed table is published as the text message `{ "table", "rowid", "op": "insert" | "update" | "delete" }` to the pattern with its placeholders filled from the row (a delete: the row before the statement). A rolled-back transaction, a failed statement or a rolled-back savepoint publishes nothing; a `NULL` placeholder is not published; more than 1,000 fed rows in one transaction publish nothing and log one line (`ops.md` section 18). Only connections that passed the topic's subscribe check receive it, and it counts as `realtime_messages` of those connections, not of the request that committed. Tests: `tests/realtime.rs` `the_change_feed_publishes_committed_rows_and_never_a_rollback`, `a_subscriber_without_the_policy_for_another_org_gets_nothing`; `renox-data` `tests/feed.rs`.
 
 Tests: `tests/realtime.rs`; the gateway handshake: `renox-gateway` `tests/upgrade.rs`.
 
@@ -258,4 +270,4 @@ Tests: `tests/outbox.rs`.
 
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the realtime change feed (#281), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).
+Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).

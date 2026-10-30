@@ -27,6 +27,8 @@ argon2 = "0.6"
 # prebuilt V8 (never built from source). See README, "Upstream consumption mode".
 deno_runtime = { version = "=0.268.0", features = ["snapshot"], optional = true }
 deno_core = { version = "=0.413.0", optional = true }
+# The `fetch` span of a tenant fetch (#295, host only).
+tracing = "0.1"
 deno_fs = { version = "=0.170.0", optional = true }
 deno_error = { version = "=0.7.1", optional = true }
 deno_resolver = { version = "0.91", features = ["sync"], optional = true }

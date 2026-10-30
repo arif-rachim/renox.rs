@@ -149,7 +149,8 @@ describe("operator actions (section 17)", () => {
       ["t_ops", 200, "paid", "paid", REASON],
       ["t_ops", 200, "paid", "free", REASON],
     ]);
-    expect(audit[0]?.target.operator).toMatch(/^usr_/u);
+    // #310: the audit row names the operator in the wire form, acct_<ulid>, never the internal usr_ id.
+    expect(audit[0]?.target.operator).toMatch(/^acct_/u);
     expect(audit[2]?.target.operator).toBe("operator");
     expect(JSON.stringify(audit)).not.toContain("renox_op_");
   });

@@ -252,6 +252,30 @@ pub fn valid_tenant_id(id: &str) -> bool {
             .all(|&c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_' || c == b'-')
 }
 
+/// The change feed of a new cell (#305): read `realtime.feeds` of the app
+/// and its modules from the artifact's manifest and subscribe the hub to the
+/// tenant file's committed changes. A feed that cannot be attached (a table
+/// V26 should have refused) is logged; the cell serves without it.
+pub(crate) async fn attach_feeds(
+    artifact_dir: &std::path::Path,
+    db: &renox_runtime::ops::db::DbHandle,
+    hub: &std::sync::Arc<renox_realtime::Hub>,
+) {
+    let Ok(raw) = std::fs::read(artifact_dir.join("manifest.json")) else {
+        return;
+    };
+    let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(&raw) else {
+        return;
+    };
+    let defs = crate::realtime::feed::feeds(&manifest);
+    if defs.is_empty() {
+        return;
+    }
+    if let Err(e) = crate::realtime::feed::attach(db, hub, defs).await {
+        tracing::error!(error = %e, "change feed not attached");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

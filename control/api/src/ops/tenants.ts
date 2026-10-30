@@ -8,6 +8,7 @@
 //
 // docs/24-threat-model.md section E, "Operator console abuse".
 
+import { activeImpersonations } from "./breakglass.ts";
 import type { Context, Hono } from "hono";
 import { operation, writeAudit } from "../audit.ts";
 import { clientIp } from "../auth/ip.ts";
@@ -83,7 +84,8 @@ async function platformLines(deps: Deps, tenantId: string, kind: "tier" | "move"
 /** The audit row's target (operator, reason, the action's fields) and its id. */
 function audit(c: Context<Env>, fields: Record<string, string>): string {
   const id = `aud_${ulid()}`;
-  c.set("auditTarget", { ...c.get("auditTarget"), audit_id: id, operator: operatorOf(c), ...fields });
+  // The wire form (deploy-api.md 0.3.1 section 2): `acct_<ulid>`, never the internal `usr_` id (#310).
+  c.set("auditTarget", { ...c.get("auditTarget"), audit_id: id, operator: accountRef(operatorOf(c)), ...fields });
   return id;
 }
 
@@ -145,7 +147,20 @@ export function registerOps(app: Hono<Env>, deps: Deps): void {
       moving_since: t.moving_since === null ? null : num(t.moving_since),
       microvm_at: t.microvm_at === null ? null : num(t.microvm_at),
       replication: await replicationOf(deps.db, tenantId, now),
-      actions: await lastActions(deps.db, tenantId),
+      // 0.4 (#310): active break-glass impersonations first, then the last actions, five at most.
+      actions: [
+        ...(await activeImpersonations(deps.db, tenantId, deps.now())).map((i) => ({
+          audit_id: i.audit_id,
+          at: i.started_at,
+          action: "impersonateTenant",
+          operator: i.operator,
+          reason: i.reason,
+          result: "active",
+          impersonation_id: i.impersonation_id,
+          expires_at: i.expires_at,
+        })),
+        ...(await lastActions(deps.db, tenantId)),
+      ].slice(0, 5),
     };
     await auditRead(200);
     return c.json(body);

@@ -7514,6 +7514,10 @@ dependencies = [
  "jsonschema",
  "landlock",
  "libc",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "rcgen 0.14.10",
  "renox-authz",
  "renox-cell",
@@ -7533,6 +7537,7 @@ dependencies = [
  "tokio-rustls",
  "toml",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "unicode-normalization",
 ]
@@ -7546,6 +7551,7 @@ dependencies = [
  "sqlparser",
  "tempfile",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
@@ -7635,6 +7641,7 @@ dependencies = [
  "sys_traits",
  "tokio",
  "tokio-rustls",
+ "tracing",
  "url",
  "v8",
  "webpki-roots 0.26.11",
@@ -9681,6 +9688,20 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-opentelemetry"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adbc64cba7137545b8044cb1fe9814f7aacf3c6b5f9b45be8bb5db538befdb26"
+dependencies = [
+ "js-sys",
+ "opentelemetry",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+ "web-time",
 ]
 
 [[package]]

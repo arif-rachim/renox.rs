@@ -116,6 +116,179 @@ struct Hooks {
     /// Called after a commit that inserted into `renox__outbox`
     /// ([`TenantDb::on_outbox_commit`], D14: the outbox worker's wake-up).
     on_outbox: Mutex<Option<OutboxWake>>,
+    /// The change feed's subscription ([`TenantDb::on_rows_changed`]).
+    feed: Mutex<Option<Arc<FeedSubscription>>>,
+    /// Rows changed in the open transaction (or the running autocommit
+    /// statement), delivered after its commit and dropped on rollback.
+    feed_buf: Mutex<FeedBuffer>,
+}
+
+/// One committed change of a row in a table the change feed watches
+/// (`ops.md` 1.5.0 section 18, "Change feed").
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowChange {
+    pub table: String,
+    /// The row's rowid (the old one for a delete); 0 for [`ChangeOp::Many`].
+    pub rowid: i64,
+    pub op: ChangeOp,
+    /// The columns the subscription asked for, in its order, read from the
+    /// row as SQLite changed it (the old row for a delete, the new one
+    /// otherwise), never by a second query. Empty for [`ChangeOp::Many`].
+    pub columns: Vec<(String, Value)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeOp {
+    Insert,
+    Update,
+    Delete,
+    /// More than [`FEED_MAX_ROWS`] rows changed in one transaction: one event
+    /// per table instead of the rows.
+    Many,
+}
+
+impl ChangeOp {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ChangeOp::Insert => "insert",
+            ChangeOp::Update => "update",
+            ChangeOp::Delete => "delete",
+            ChangeOp::Many => "many",
+        }
+    }
+}
+
+/// Rows of one transaction the feed buffers before it gives up and sends one
+/// [`ChangeOp::Many`] per table (*proposed*, #305).
+pub const FEED_MAX_ROWS: usize = 1_000;
+
+/// Called on the committing thread with the committed changes, in order; it
+/// must not block (send on a channel).
+pub type RowsChanged = Arc<dyn Fn(Vec<RowChange>) + Send + Sync>;
+
+/// What the feed watches: table → the columns to read from each changed row.
+struct FeedSubscription {
+    /// table → (column name, column index in the table).
+    tables: std::collections::HashMap<String, Vec<(String, i32)>>,
+    deliver: RowsChanged,
+}
+
+#[derive(Default)]
+struct FeedBuffer {
+    rows: Vec<RowChange>,
+    /// Tables with changes past [`FEED_MAX_ROWS`], in first-seen order.
+    overflow: Vec<String>,
+    /// `rows.len()` when each open savepoint began, innermost last.
+    marks: Vec<usize>,
+}
+
+impl FeedBuffer {
+    fn push(&mut self, change: RowChange) {
+        if !self.overflow.is_empty() || self.rows.len() >= FEED_MAX_ROWS {
+            if self.overflow.is_empty() {
+                for r in std::mem::take(&mut self.rows) {
+                    if !self.overflow.contains(&r.table) {
+                        self.overflow.push(r.table);
+                    }
+                }
+                self.marks.clear();
+            }
+            if !self.overflow.contains(&change.table) {
+                self.overflow.push(change.table);
+            }
+            return;
+        }
+        self.rows.push(change);
+    }
+
+    /// The committed changes; the buffer is empty afterwards.
+    fn take(&mut self) -> Vec<RowChange> {
+        let rows = std::mem::take(&mut self.rows);
+        let overflow = std::mem::take(&mut self.overflow);
+        self.marks.clear();
+        if overflow.is_empty() {
+            return rows;
+        }
+        overflow
+            .into_iter()
+            .map(|table| RowChange {
+                table,
+                rowid: 0,
+                op: ChangeOp::Many,
+                columns: Vec::new(),
+            })
+            .collect()
+    }
+
+    fn clear(&mut self) {
+        *self = FeedBuffer::default();
+    }
+
+    /// Forget what was buffered after `mark` (a failed statement, a rolled
+    /// back savepoint). After an overflow the rows are gone already; the
+    /// `many` events stay, which only costs subscribers a refetch.
+    fn truncate(&mut self, mark: usize) {
+        if self.overflow.is_empty() {
+            self.rows.truncate(mark);
+        }
+    }
+}
+
+fn feed_value(v: rusqlite::types::ValueRef<'_>) -> Value {
+    use rusqlite::types::ValueRef;
+    match v {
+        ValueRef::Null => Value::Null,
+        ValueRef::Integer(i) => Value::Integer(i),
+        ValueRef::Real(f) => Value::Real(f),
+        ValueRef::Text(t) => Value::Text(String::from_utf8_lossy(t).into_owned()),
+        ValueRef::Blob(b) => Value::Blob(b.to_vec()),
+    }
+}
+
+/// SQLite's pre-update hook on the writer: buffer a change of a watched
+/// table with the columns the subscription needs, read from the row now.
+fn feed_preupdate(h: &Hooks, db: &str, table: &str, case: &rusqlite::hooks::PreUpdateCase) {
+    use rusqlite::hooks::PreUpdateCase;
+    if db != "main" {
+        return;
+    }
+    let Some(sub) = lock(&h.feed).clone() else {
+        return;
+    };
+    let Some(columns) = sub.tables.get(table) else {
+        return;
+    };
+    let read = |get: &dyn Fn(i32) -> Option<Value>| {
+        columns
+            .iter()
+            .map(|(name, i)| (name.clone(), get(*i).unwrap_or(Value::Null)))
+            .collect::<Vec<_>>()
+    };
+    let change = match case {
+        PreUpdateCase::Insert(new) => RowChange {
+            table: table.to_owned(),
+            rowid: new.get_new_row_id(),
+            op: ChangeOp::Insert,
+            columns: read(&|i| new.get_new_column_value(i).ok().map(feed_value)),
+        },
+        PreUpdateCase::Update {
+            new_value_accessor: new,
+            ..
+        } => RowChange {
+            table: table.to_owned(),
+            rowid: new.get_new_row_id(),
+            op: ChangeOp::Update,
+            columns: read(&|i| new.get_new_column_value(i).ok().map(feed_value)),
+        },
+        PreUpdateCase::Delete(old) => RowChange {
+            table: table.to_owned(),
+            rowid: old.get_old_row_id(),
+            op: ChangeOp::Delete,
+            columns: read(&|i| old.get_old_column_value(i).ok().map(feed_value)),
+        },
+        PreUpdateCase::Unknown => return,
+    };
+    lock(&h.feed_buf).push(change);
 }
 
 /// The outbox worker's wake-up: called on the committing thread, so it must
@@ -149,6 +322,13 @@ fn wal_hook(wal: &rusqlite::hooks::Wal, pages: std::os::raw::c_int) -> rusqlite:
                 && let Some(wake) = lock(&h.on_outbox).clone()
             {
                 wake();
+            }
+            // The change feed: what this commit changed, after the commit.
+            let changes = lock(&h.feed_buf).take();
+            if !changes.is_empty()
+                && let Some(sub) = lock(&h.feed).clone()
+            {
+                (sub.deliver)(changes);
             }
         }
     });
@@ -263,7 +443,23 @@ impl Conn {
                 .map_err(open_error)?;
             let h = Arc::clone(&hooks);
             inner
-                .rollback_hook(Some(move || h.outbox_dirty.store(false, Ordering::SeqCst)))
+                .rollback_hook(Some(move || {
+                    h.outbox_dirty.store(false, Ordering::SeqCst);
+                    lock(&h.feed_buf).clear();
+                }))
+                .map_err(open_error)?;
+            // The change feed (#305): rows of watched tables, buffered per
+            // transaction and delivered by the WAL hook after the commit.
+            let h = Arc::clone(&hooks);
+            inner
+                .preupdate_hook(Some(
+                    move |_action: rusqlite::hooks::Action,
+                          db: &str,
+                          table: &str,
+                          case: &rusqlite::hooks::PreUpdateCase| {
+                        feed_preupdate(&h, db, table, case);
+                    },
+                ))
                 .map_err(open_error)?;
         }
         Ok(Conn {
@@ -532,6 +728,57 @@ impl TenantDb {
         *lock(&self.writer.hooks.on_outbox) = wake;
     }
 
+    /// The change feed (`ops.md` 1.5.0 section 18): after every commit on the
+    /// writer that changed a row of one of `tables`, call `deliver` with the
+    /// changes in order (insert, update, delete, rowid, and the values of the
+    /// named columns read from the row at change time); nothing after a
+    /// rollback, a failed statement, or a rolled-back savepoint. More than
+    /// [`FEED_MAX_ROWS`] rows in one transaction give one [`ChangeOp::Many`]
+    /// per table. `tables` maps a table to the columns to read (a topic
+    /// pattern's placeholders); a table or column that does not exist is
+    /// `DbError::Param`. An empty map removes the subscription.
+    pub fn on_rows_changed(
+        &self,
+        tables: &[(String, Vec<String>)],
+        deliver: RowsChanged,
+    ) -> Result<()> {
+        if tables.is_empty() {
+            *lock(&self.writer.hooks.feed) = None;
+            return Ok(());
+        }
+        let mut resolved = std::collections::HashMap::new();
+        for (table, wanted) in tables {
+            let names: Vec<String> = self.with_writer_policy(None, || {
+                let mut stmt = self
+                    .writer
+                    .inner
+                    .prepare("select name from pragma_table_info(?1) order by cid")
+                    .map_err(|e| self.writer.error(e))?;
+                let rows = stmt
+                    .query_map([table], |r| r.get::<_, String>(0))
+                    .map_err(|e| self.writer.error(e))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|e| self.writer.error(e))
+            })?;
+            if names.is_empty() {
+                return Err(DbError::Param(format!("change feed: no table {table}")));
+            }
+            let mut cols = Vec::with_capacity(wanted.len());
+            for w in wanted {
+                let i = names.iter().position(|n| n == w).ok_or_else(|| {
+                    DbError::Param(format!("change feed: {table} has no column {w}"))
+                })?;
+                cols.push((w.clone(), i32::try_from(i).unwrap_or(i32::MAX)));
+            }
+            resolved.insert(table.clone(), cols);
+        }
+        *lock(&self.writer.hooks.feed) = Some(Arc::new(FeedSubscription {
+            tables: resolved,
+            deliver,
+        }));
+        Ok(())
+    }
+
     /// The policy installed by `with_authorizer`, if any.
     pub fn authorizer(&self) -> Option<&AuthorizerPolicy> {
         self.policy.as_deref()
@@ -646,7 +893,25 @@ impl TenantDb {
     /// Run one call: refuse it if the deadline has passed, time it, and
     /// record it in the stats. `f` returns its value and (rows read, rows
     /// written).
-    fn measured<T>(&self, ctx: &QueryCtx, f: impl FnOnce() -> Result<(T, u64, u64)>) -> Result<T> {
+    fn measured<T>(
+        &self,
+        ctx: &QueryCtx,
+        sql: &str,
+        f: impl FnOnce() -> Result<(T, u64, u64)>,
+    ) -> Result<T> {
+        // #295: one span per statement with its verb and table names; the
+        // SQL text and the parameters never leave this function.
+        let span = tracing::info_span!(
+            "db.query",
+            kind = tracing::field::Empty,
+            tables = tracing::field::Empty
+        );
+        if !span.is_disabled() {
+            let (kind, tables) = statement_shape(sql);
+            span.record("kind", kind.as_str());
+            span.record("tables", tables.join(",").as_str());
+        }
+        let _entered = span.enter();
         let start = Instant::now();
         let result = if ctx.expired(start) {
             Err(DbError::Timeout)
@@ -679,9 +944,12 @@ impl TenantDb {
         let mut stmt = self.writer.prepare(sql)?;
         let writes = !stmt.readonly();
         let _scope = self.writer.scope(self.limit(), ctx);
+        // A statement that fails is undone by SQLite; so are its feed rows.
+        let mark = lock(&self.writer.hooks.feed_buf).rows.len();
         let rows = self
             .writer
-            .committing(|| self.writer.rows(&mut stmt, params, limit_one))?;
+            .committing(|| self.writer.rows(&mut stmt, params, limit_one))
+            .inspect_err(|_| lock(&self.writer.hooks.feed_buf).truncate(mark))?;
         let written = if writes {
             self.writer.inner.changes()
         } else {
@@ -700,7 +968,7 @@ impl TenantDb {
         params: &[Value],
         limit_one: bool,
     ) -> Result<Vec<Row>> {
-        self.measured(ctx, || {
+        self.measured(ctx, sql, || {
             let reader = self.reader()?;
             let mut stmt = reader.prepare(sql)?;
             if stmt.readonly() {
@@ -761,7 +1029,7 @@ impl TenantDb {
     }
 
     fn run_execute(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
-        self.measured(ctx, || {
+        self.measured(ctx, sql, || {
             let (rows, read, written) = self.on_writer(ctx, sql, params, false)?;
             let _ = rows;
             Ok((
@@ -926,6 +1194,10 @@ impl Tx<'_> {
             }
             let sp = self.next_savepoint.get();
             self.platform_batch(&format!("savepoint renox_sp_{sp}"))?;
+            let mut buf = lock(&self.db.writer.hooks.feed_buf);
+            let mark = buf.rows.len();
+            buf.marks.push(mark);
+            drop(buf);
             self.next_savepoint.set(sp + 1);
             self.savepoints.borrow_mut().push(sp);
             Ok(sp)
@@ -939,6 +1211,7 @@ impl Tx<'_> {
             self.innermost(sp)?;
             self.platform_batch(&format!("release savepoint renox_sp_{sp}"))?;
             self.savepoints.borrow_mut().pop();
+            lock(&self.db.writer.hooks.feed_buf).marks.pop();
             Ok(())
         })
     }
@@ -952,6 +1225,10 @@ impl Tx<'_> {
                 "rollback to savepoint renox_sp_{sp}; release savepoint renox_sp_{sp}"
             ))?;
             self.savepoints.borrow_mut().pop();
+            let mut buf = lock(&self.db.writer.hooks.feed_buf);
+            if let Some(mark) = buf.marks.pop() {
+                buf.truncate(mark);
+            }
             Ok(())
         })
     }
@@ -1011,7 +1288,7 @@ impl Tx<'_> {
     pub fn query_with(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<Vec<Row>> {
         self.run(|| {
             self.db
-                .measured(ctx, || self.db.on_writer(ctx, sql, params, false))
+                .measured(ctx, sql, || self.db.on_writer(ctx, sql, params, false))
         })
     }
 
@@ -1027,7 +1304,7 @@ impl Tx<'_> {
     ) -> Result<Option<Row>> {
         let rows = self.run(|| {
             self.db
-                .measured(ctx, || self.db.on_writer(ctx, sql, params, true))
+                .measured(ctx, sql, || self.db.on_writer(ctx, sql, params, true))
         })?;
         Ok(rows.into_iter().next())
     }
@@ -1069,5 +1346,44 @@ impl Tx<'_> {
             self.rolled_back.set(true);
         }
         result
+    }
+}
+
+/// The verb of a statement (`select`, `insert`, …) and the names that
+/// follow `from`, `join`, `into`, `update` and `table` (#295, the `db.query`
+/// span). Identifiers only: a literal or a parameter is never taken.
+pub(crate) fn statement_shape(sql: &str) -> (String, Vec<String>) {
+    let words: Vec<String> = sql
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let kind = words.first().cloned().unwrap_or_default();
+    let mut tables: Vec<String> = Vec::new();
+    for pair in words.windows(2) {
+        if matches!(
+            pair[0].as_str(),
+            "from" | "join" | "into" | "update" | "table"
+        ) && pair[1].starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && !matches!(pair[1].as_str(), "select" | "if" | "not" | "exists")
+            && !tables.contains(&pair[1])
+        {
+            tables.push(pair[1].clone());
+        }
+    }
+    (kind, tables)
+}
+
+#[cfg(test)]
+mod shape_tests {
+    #[test]
+    fn verb_and_tables_without_values() {
+        let (k, t) = super::statement_shape(
+            "SELECT o.id FROM app__orders o JOIN app__lines l ON l.o = o.id WHERE o.token = 'sk_live_x'",
+        );
+        assert_eq!(k, "select");
+        assert_eq!(t, vec!["app__orders", "app__lines"]);
+        let (k, t) = super::statement_shape("insert into app__notes (body) values (?)");
+        assert_eq!((k.as_str(), t), ("insert", vec!["app__notes".to_string()]));
     }
 }

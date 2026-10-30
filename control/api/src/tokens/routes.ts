@@ -38,8 +38,16 @@ export const OPS_SCOPE = "ops:write";
  * role, and never mixed with tenant scopes. 403 `RENOX_TOKEN_SCOPE` for a
  * token no user created, or an account without the flag.
  */
+/** The operator scope sets a token may hold (deploy-api.md sections 2 and 17; 0.4, #310). */
+const OPERATOR_SCOPE_SETS = [["ops:write"], ["ops:read"], ["ops:impersonate"], ["ops:impersonate", "ops:read"]];
+export const isOperatorScope = (s: string): boolean => s === "ops:write" || s === "ops:read" || s === "ops:impersonate";
+
 async function createOperatorToken(deps: Deps, principal: Principal & { kind: "tenant" }, body: { name: string; scopes: string[]; expires_in_days: number }): Promise<CreatedToken> {
-  if (body.scopes.length !== 1) throw invalid("scopes", `${OPS_SCOPE} is never combined with other scopes`);
+  const scopes = [...body.scopes].sort().reverse();
+  if (!OPERATOR_SCOPE_SETS.some((set) => set.length === scopes.length && set.every((s) => scopes.includes(s)))) {
+    throw invalid("scopes", "an operator token holds ops:write, ops:read, or ops:impersonate (with ops:read at most), never a tenant scope");
+  }
+  if (scopes.includes("ops:impersonate") && body.expires_in_days > 1) throw invalid("expires_in_days", "an ops:impersonate token lasts at most 1 day");
   if (principal.userId === null) throw new ApiError("RENOX_TOKEN_SCOPE", [{ field: "scopes", reason: `only an operator account creates ${OPS_SCOPE} tokens` }]);
   const db = crossTenant(deps.db, "an operator account and its tokens belong to no tenant");
   const rows = await db.query<{ operator: boolean }>("select operator from users where id = $1", [principal.userId]);
@@ -50,10 +58,10 @@ async function createOperatorToken(deps: Deps, principal: Principal & { kind: "t
   const expires = now + body.expires_in_days * DAY_MS;
   await db.query(
     "insert into operator_tokens (id, user_id, name, token_sha256, scopes, created_at, expires_at) values ($1, $2, $3, $4, $5::text::jsonb, $6, $7)",
-    [id, principal.userId, body.name, sha256hex(value), jsonb([OPS_SCOPE]), now, expires],
+    [id, principal.userId, body.name, sha256hex(value), jsonb(scopes), now, expires],
   );
-  deps.log.info("operator token created", { token_id: id, user_id: principal.userId });
-  return { id, name: body.name, token: value, scopes: [OPS_SCOPE], created_at: now, expires_at: expires };
+  deps.log.info("operator token created", { token_id: id, user_id: principal.userId, scopes: scopes.join(" ") });
+  return { id, name: body.name, token: value, scopes, created_at: now, expires_at: expires };
 }
 
 /** Restricts a token query to the caller's own tokens unless their role sees all. */
@@ -64,9 +72,9 @@ export function registerTokens(app: Hono<Env>, deps: Deps): void {
     const db = tenantDb(deps, c);
     const principal = c.get("principal") as Principal & { kind: "tenant" };
     const body = await jsonBody<{ name: string; scopes: string[]; expires_in_days: number }>(c, "CreateTokenRequest");
-    if (body.scopes.includes(OPS_SCOPE)) {
+    if (body.scopes.some(isOperatorScope)) {
       const op = await createOperatorToken(deps, principal, body);
-      c.set("auditTarget", { token_id: op.id, scope: OPS_SCOPE });
+      c.set("auditTarget", { token_id: op.id, scope: op.scopes.join(" ") });
       return c.json(op, 201);
     }
     for (const s of body.scopes) {

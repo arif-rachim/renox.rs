@@ -9,6 +9,7 @@
 // session is bound to. The permission each operation needs is the table
 // ROUTE_PERMISSIONS (src/tenancy/roles.ts).
 
+import { impersonationOfToken } from "../ops/breakglass.ts";
 import type { Context, MiddlewareHandler } from "hono";
 import { ApiError } from "../errors.ts";
 import { num } from "../db/db.ts";
@@ -71,6 +72,9 @@ async function fromToken(deps: Deps, c: Context<Env>, value: string): Promise<{ 
   const token = rows[0];
   if (token === undefined) throw unauthenticated();
   c.set("attempt", { tenantId: token.tenant_id, actor: `token:${token.id}` });
+  // #310: a break-glass token's requests are audited as the operator's, with the impersonation.
+  const imp = await impersonationOfToken(deps.db, token.id);
+  if (imp !== null) c.set("auditActor", `operator:${imp.operator}/${imp.id}`);
   if (token.revoked_at !== null || num(token.expires_at) <= deps.now()) throw unauthenticated();
   let role: Role | null = null;
   let verified = true;

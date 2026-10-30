@@ -1,0 +1,1 @@
+{ "$comment": "Deploy API 0.4: a node past its first watermark reports the level, the free bytes and the watermark crossed.", "type": "heartbeat", "schema_version": 0, "node_id": "node-dxb-01", "sent_at": 1793318410000, "route_version": 42, "cells": 17, "disk": { "level": "warn", "free_bytes": 12884901888, "watermark": 80 } }

@@ -207,6 +207,18 @@ async fn pass(d: &Delivery) -> Option<Option<i64>> {
 
 /// One delivery attempt and its bookkeeping.
 async fn attempt(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option<()> {
+    // #295: one span per attempt (never the payload).
+    let span = tracing::info_span!(
+        "outbox.deliver",
+        tenant_id = %cell.key.tenant_id,
+        event = %row.name,
+        module = %row.target,
+        attempt = row.attempts + 1,
+    );
+    tracing::Instrument::instrument(attempt_inner(d, cell, row), span).await
+}
+
+async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option<()> {
     let ev = EventEnvelope {
         id: row.id.clone(),
         name: row.name.clone(),

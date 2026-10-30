@@ -37,3 +37,10 @@ Order = { table = "app__orders", attrs = ["amount_fils", "org_id", "user_id"] }
 viewer = ["order.list", "order.read"]
 finance = ["order.list", "order.read", "invoice.refund"]
 finance_manager = ["order.list", "order.read", "invoice.refund"]
+
+# #305 (ops.md 1.5.0 section 18, "Change feed"): every committed change of an
+# order reaches `orders:<org_id>` as `{ table, rowid, op }` (the SSE `message`
+# event) under the same subscribe policy; checkout keeps publishing the
+# rendered row as `order-created` for the live orders page.
+[realtime.feeds]
+app__orders = "orders:{org_id}"
