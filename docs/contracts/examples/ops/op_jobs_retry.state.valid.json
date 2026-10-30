@@ -1,0 +1,19 @@
+{
+  "$comment": "valid (1.6.0): retry on a row that is not dead",
+  "op": "op_jobs_retry",
+  "args": [
+    "01JBQ3Z7MA0000000000000402",
+    "jobs",
+    3
+  ],
+  "error": {
+    "name": "JobStateError",
+    "code": "RENOX_JOB_STATE",
+    "message": "job is not dead",
+    "details": {
+      "id": "01JBQ3Z7MA0000000000000402",
+      "state": "queued",
+      "op": "retry"
+    }
+  }
+}

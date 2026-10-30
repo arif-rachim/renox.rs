@@ -1,0 +1,17 @@
+{
+  "$comment": "valid (1.6.0): no such row",
+  "op": "op_jobs_cancel",
+  "args": [
+    "01JBQ3Z7MA0000000000000499",
+    "jobs",
+    null
+  ],
+  "error": {
+    "name": "JobNotFoundError",
+    "code": "RENOX_JOB_NOT_FOUND",
+    "message": "no such job",
+    "details": {
+      "id": "01JBQ3Z7MA0000000000000499"
+    }
+  }
+}

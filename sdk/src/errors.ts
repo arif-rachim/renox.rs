@@ -1,6 +1,8 @@
 // Error codes and classes of docs/contracts/ops.md section 13 (contract
-// version 1.5.0). tests/errors.test.ts checks the lists below against the
+// version 1.6.0). tests/errors.test.ts checks the lists below against the
 // table in ops.md; tests/contract.test-d.ts checks the types against ctx.d.ts.
+
+import type { JobState } from "./ctx.ts";
 
 /** Codes an op rejects with inside tenant code ("thrown" and "both" in ops.md section 13). */
 export const RENOX_ERROR_CODES = [
@@ -30,6 +32,9 @@ export const RENOX_ERROR_CODES = [
   "RENOX_FORBIDDEN",
   "RENOX_REALTIME_LIMIT",
   "RENOX_REALTIME_BACKPRESSURE",
+  // ops 1.6.0: the jobs module's ops (section 20).
+  "RENOX_JOB_NOT_FOUND",
+  "RENOX_JOB_STATE",
 ] as const;
 
 /** Codes the platform answers with when a request ends ("response" and "both"). */
@@ -262,6 +267,28 @@ export class EventPayloadError extends RenoxError {
   declare readonly details: { readonly event: string; readonly reason: EventPayloadReason };
   constructor(message: string, details: { event: string; reason: EventPayloadReason }) {
     super("RENOX_EVENT_PAYLOAD", message, details);
+  }
+}
+
+// Jobs (ops.md section 20, 1.6.0)
+export type JobErrorCode = "RENOX_JOB_NOT_FOUND" | "RENOX_JOB_STATE";
+export type JobOp = "retry" | "cancel";
+
+/** `op_jobs_retry` / `op_jobs_cancel` for an id that is not a job row of this tenant. */
+export class JobNotFoundError extends RenoxError {
+  declare readonly code: "RENOX_JOB_NOT_FOUND";
+  declare readonly details: { readonly id: string };
+  constructor(message: string, details: { id: string }) {
+    super("RENOX_JOB_NOT_FOUND", message, details);
+  }
+}
+
+/** Retry on a row that is not dead, or cancel on a running row. */
+export class JobStateError extends RenoxError {
+  declare readonly code: "RENOX_JOB_STATE";
+  declare readonly details: { readonly id: string; readonly state: JobState; readonly op: JobOp };
+  constructor(message: string, details: { id: string; state: JobState; op: JobOp }) {
+    super("RENOX_JOB_STATE", message, details);
   }
 }
 

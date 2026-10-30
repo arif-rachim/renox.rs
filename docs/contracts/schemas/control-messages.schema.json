@@ -575,7 +575,17 @@
         "cells_drained": { "type": "integer", "minimum": 0 },
         "file": {
           "enum": ["kept", "removed"],
-          "description": "removed only after the replica confirmed the last frames; otherwise kept and quarantined from serving."
+          "description": "removed only after the replica confirmed the last frames; otherwise kept and quarantined from serving. Always removed when `purge_replica` was sent and succeeded."
+        },
+        "replica_generations_deleted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0.4.1: present exactly when the request carried purge_replica=true; the count of replica generations deleted across the tenant's databases (0 when a repeated call finds none)."
+        },
+        "replica_purged_at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0.4.1: Unix ms when the purge ended; present exactly with replica_generations_deleted. The control plane copies it into the erasure record."
         }
       }
     },

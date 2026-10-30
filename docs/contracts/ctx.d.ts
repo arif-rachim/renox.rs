@@ -34,7 +34,8 @@ export type RenoxErrorCode =
   | "RENOX_SECRETS_CONSUMED"
   | ModuleErrorCode
   | AuthzErrorCode
-  | RealtimeErrorCode;
+  | RealtimeErrorCode
+  | JobErrorCode;
 
 /** Codes of the module broker (section 15, 1.3.0). */
 export type ModuleErrorCode = "RENOX_MODULE_UNDECLARED" | "RENOX_MODULE_SERVICE" | "RENOX_EVENT_PAYLOAD";
@@ -44,6 +45,9 @@ export type AuthzErrorCode = "RENOX_FORBIDDEN";
 
 /** 1.5.0: the realtime limits (section 18); thrown by the realtime ops, and the reason of a platform close. */
 export type RealtimeErrorCode = "RENOX_REALTIME_LIMIT" | "RENOX_REALTIME_BACKPRESSURE";
+
+/** 1.6.0: `op_jobs_retry` and `op_jobs_cancel` (section 20). */
+export type JobErrorCode = "RENOX_JOB_NOT_FOUND" | "RENOX_JOB_STATE";
 
 /** 1.5.0: `/mcp` refusals before a tool runs (section 19), as JSON-RPC errors. */
 export type ToolErrorCode = "RENOX_TOOL_INPUT" | "RENOX_TOOL_SCOPE" | "RENOX_TOOL_CONFIRM";
@@ -175,6 +179,19 @@ export type EventPayloadReason = "schema" | "not_json" | "too_large";
 export declare class EventPayloadError extends RenoxError {
   readonly code: "RENOX_EVENT_PAYLOAD";
   readonly details: { readonly event: string; readonly reason: EventPayloadReason };
+}
+
+// Jobs (section 20, 1.6.0)
+export type JobOp = "retry" | "cancel";
+/** `op_jobs_retry` / `op_jobs_cancel` for an id that is not a job row of this tenant. */
+export declare class JobNotFoundError extends RenoxError {
+  readonly code: "RENOX_JOB_NOT_FOUND";
+  readonly details: { readonly id: string };
+}
+/** Retry on a row that is not dead, or cancel on a running row. */
+export declare class JobStateError extends RenoxError {
+  readonly code: "RENOX_JOB_STATE";
+  readonly details: { readonly id: string; readonly state: JobState; readonly op: JobOp };
 }
 
 // Authorization (section 17, 1.5.0)
@@ -536,6 +553,34 @@ export interface EnqueueOptions {
 export interface Jobs {
   /** Writes a queued run of a job of this module in the current transaction; resolves with its id. */
   enqueue(name: string, payload: Readonly<Record<string, unknown>>, options?: EnqueueOptions): Promise<string>;
+  /** 1.6.0, module `jobs` only (`RENOX_FORBIDDEN` for any other caller): one page of jobs in a state, never the payload. */
+  list(state: JobState, options?: { readonly limit?: number; readonly cursor?: string | null }): Promise<JobPage>;
+  /** 1.6.0, module `jobs` only: a dead letter goes back to the queue with its attempts reset. */
+  retry(id: string): Promise<void>;
+  /** 1.6.0, module `jobs` only: deletes a queued or dead row. */
+  cancel(id: string): Promise<void>;
+}
+
+export type JobState = "scheduled" | "queued" | "running" | "dead";
+
+/** One job row as the `jobs` module sees it (section 20, 1.6.0). */
+export interface JobRow {
+  readonly id: string;
+  readonly name: string;
+  readonly module: string;
+  readonly tick: number | null;
+  readonly next_at: number | null;
+  readonly run_at: number | null;
+  readonly attempts: number;
+  readonly started_at: number | null;
+  readonly finished_at: number | null;
+  /** Redacted, at most 512 characters. */
+  readonly last_error: string | null;
+}
+
+export interface JobPage {
+  readonly items: readonly JobRow[];
+  readonly next_cursor: string | null;
 }
 
 export interface JobInfo<P = unknown> {
@@ -883,6 +928,10 @@ export interface Ops {
 
   // Section 20 (1.5.0).
   op_jobs_enqueue(name: string, payloadJson: string, runAt: number | null, module: string | null, tx: TxHandle | null): Promise<string>;
+  // Section 20 (1.6.0): callable only by module `jobs`.
+  op_jobs_list(state: JobState, limit: number, cursor: string | null, module: string | null): Promise<JobPage>;
+  op_jobs_retry(id: string, module: string | null, tx: TxHandle | null): Promise<void>;
+  op_jobs_cancel(id: string, module: string | null, tx: TxHandle | null): Promise<void>;
 
   op_deadline_remaining_ms(): number;
 }

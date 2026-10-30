@@ -110,6 +110,15 @@
       "$ref": "#/$defs/call_op_jobs_enqueue"
     },
     {
+      "$ref": "#/$defs/call_op_jobs_list"
+    },
+    {
+      "$ref": "#/$defs/call_op_jobs_retry"
+    },
+    {
+      "$ref": "#/$defs/call_op_jobs_cancel"
+    },
+    {
       "$ref": "#/$defs/realtime_dispatch"
     },
     {
@@ -382,7 +391,9 @@
             "RENOX_DB_SCOPE",
             "RENOX_FORBIDDEN",
             "RENOX_REALTIME_LIMIT",
-            "RENOX_REALTIME_BACKPRESSURE"
+            "RENOX_REALTIME_BACKPRESSURE",
+            "RENOX_JOB_NOT_FOUND",
+            "RENOX_JOB_STATE"
           ]
         },
         "message": {
@@ -3752,6 +3763,258 @@
         "result": {
           "$ref": "#/$defs/jobResult"
         }
+      }
+    },
+    "jobState": {
+      "enum": [
+        "scheduled",
+        "queued",
+        "running",
+        "dead"
+      ],
+      "description": "ops.md section 20 (1.6.0): the states `op_jobs_list` filters on."
+    },
+    "jobRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "module",
+        "tick",
+        "next_at",
+        "run_at",
+        "attempts",
+        "started_at",
+        "finished_at",
+        "last_error"
+      ],
+      "description": "ops.md section 20 (1.6.0): one job row as the `jobs` module sees it. Never the payload; `last_error` is the redacted message of the last failed attempt.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/eventId"
+        },
+        "name": {
+          "$ref": "#/$defs/jobName"
+        },
+        "module": {
+          "$ref": "#/$defs/moduleName"
+        },
+        "tick": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "next_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "run_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "started_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "finished_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "last_error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        }
+      }
+    },
+    "jobPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/jobRow"
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        }
+      }
+    },
+    "call_op_jobs_list": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 20 (1.6.0): state, limit (1 to 100), cursor, module. Callable only by module `jobs`.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_jobs_list"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/jobState"
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 128
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "result": {
+          "$ref": "#/$defs/jobPage"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_jobs_retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 20 (1.6.0): a dead letter goes back to the outbox with attempts reset. Module `jobs` only, in the current transaction.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_jobs_retry"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/eventId"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            },
+            {
+              "$ref": "#/$defs/tx"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_jobs_cancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 20 (1.6.0): a queued or dead row is deleted. Module `jobs` only, in the current transaction.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_jobs_cancel"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/eventId"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            },
+            {
+              "$ref": "#/$defs/tx"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
       }
     }
   }

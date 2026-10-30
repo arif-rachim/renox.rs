@@ -126,9 +126,24 @@ paths:
         removed only when the replica confirmed the last frames; otherwise it is kept, never
         served, and reported as `kept`. Idempotent: an unknown tenant answers 200 with
         `cells_drained: 0`.
+
+        0.4.1: with `purge_replica=true` (the control plane's erasure step 3, `deleteTenant`)
+        the node, after the last frames shipped, also deletes **every generation** of every
+        database of the tenant in the replica store with the sidecar's own credentials (the
+        control plane holds none), removes the local file whatever `file` would have said, and
+        answers `replica_generations_deleted` and `replica_purged_at`. A replica store that does
+        not answer is 503 `RENOX_BACKUP_UNAVAILABLE` and nothing is reported as purged; the
+        erasure retries hourly. Repeating the call after a purge answers 200 with 0 generations.
+        Without the parameter the answer and the replica are unchanged.
       x-renox-caller: control plane (callback token)
-      x-renox-audit: failover on the control plane; the node logs one platform line
-      x-renox-errors: [RENOX_UNAUTHENTICATED]
+      x-renox-audit: failover or deleteTenant on the control plane (the erasure record gets `replica_purged_at`); the node logs one platform line
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_BACKUP_UNAVAILABLE]
+      parameters:
+        - name: purge_replica
+          in: query
+          required: false
+          description: "0.4.1: true deletes every replica generation of the tenant's databases. Only the erasure sends it."
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Dropped.
@@ -137,7 +152,15 @@ paths:
               schema: { $ref: "control-messages.schema.json#/$defs/tenant_dropped" }
               examples:
                 dropped: { value: { type: tenant_dropped, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, cells_drained: 2, file: kept } }
+                purged: { value: { type: tenant_dropped, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, cells_drained: 2, file: removed, replica_generations_deleted: 3, replica_purged_at: 1793319000000 } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "503":
+          description: "0.4.1: `purge_replica=true` and the replica store did not answer; nothing was purged."
+          content:
+            application/json:
+              schema: { $ref: "deploy-api.yaml#/components/schemas/Error" }
+              examples:
+                replica-down: { value: { error: { code: RENOX_BACKUP_UNAVAILABLE, message: No backup is available for this database right now., request_id: 01JBQ3Z7MA0000000000000034, details: [{ field: replica, reason: unreachable }] } } }
 
   /nodes/{node_id}/tenants/{tenant_id}/snapshot:
     parameters:

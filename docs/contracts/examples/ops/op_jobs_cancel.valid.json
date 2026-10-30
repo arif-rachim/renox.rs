@@ -1,0 +1,10 @@
+{
+  "$comment": "valid (1.6.0): the jobs module cancels a queued row inside transaction 3",
+  "op": "op_jobs_cancel",
+  "args": [
+    "01JBQ3Z7MA0000000000000402",
+    "jobs",
+    3
+  ],
+  "result": null
+}
