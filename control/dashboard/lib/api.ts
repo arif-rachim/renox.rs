@@ -57,6 +57,15 @@ export interface Deployment {
   violations: Violation[] | null;
 }
 
+export interface TenantView {
+  tenant_id: string;
+  name: string;
+  tier: string;
+  state: string;
+  created_at: number;
+  erasure: { state: "pending" | "erasing" | "done" | "failed"; requested_at: number; completed_at: number | null; failure: string | null; replica_purged_at?: number | null } | null;
+}
+
 /** `getMfa` (deploy-api.md 0.4 section 18): with a token, `session_state` is null and `verified_at` is the token's own. */
 export interface MfaStatus {
   totp: boolean;
@@ -297,6 +306,11 @@ export class Api {
 
   createApp(name: string): Promise<Result<App>> {
     return this.json("POST", "/v1/apps", { name });
+  }
+
+  /** `getTenant` (deploy-api.md 0.4 section 3): the tenant and its erasure record (the tombstone after an erasure). */
+  getTenant(tenant: string): Promise<Result<TenantView>> {
+    return this.json("GET", `/v1/tenants/${encodeURIComponent(tenant)}`);
   }
 
   getApp(app: string): Promise<Result<App>> {

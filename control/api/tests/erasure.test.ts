@@ -53,7 +53,11 @@ async function setup(): Promise<Setup> {
   setNodeCall(h.deps, async (_target, method, path) => {
     calls.push({ method, path });
     if (!nodeUp.up) throw new Error("unreachable");
-    return { status: 200, body: { type: "tenant_dropped", schema_version: 0, node_id: "node-1", tenant_id: T, cells_drained: 1 } };
+    const purge = path.endsWith("?purge_replica=true");
+    return {
+      status: 200,
+      body: { type: "tenant_dropped", schema_version: 0, node_id: "node-1", tenant_id: T, cells_drained: 1, file: "kept", ...(purge ? { replica_generations_deleted: 3, replica_purged_at: 1_793_300_000_000 } : {}) },
+    };
   });
   return { h, owner, token, calls, nodeUp };
 }
@@ -86,13 +90,13 @@ describe("deleteTenant (deploy-api.md 0.4 section 3)", () => {
     expect(await count(h, "deployments")).toBe(0);
     expect(await count(h, "exports")).toBe(0);
     expect([...h.store.objects.keys()].some((k) => k.startsWith(`exports/${T}/`))).toBe(false);
-    expect(calls.some((c) => c.method === "DELETE" && c.path === `/nodes/node-1/tenants/${T}`)).toBe(true);
+    expect(calls.some((c) => c.method === "DELETE" && c.path === `/nodes/node-1/tenants/${T}?purge_replica=true`)).toBe(true);
     // Every token is revoked.
     expect((await h.request("GET", "/v1/apps", { token })).status).toBe(401);
     // The tombstone: the owner's session still reads the tenant and its erasure.
     const view = await h.request("GET", `/v1/tenants/${T}`, { session: owner });
     expect(view.status).toBe(200);
-    expect(await view.json()).toMatchObject({ tenant_id: T, state: "suspended", erasure: { state: "done", completed_at: h.clock.now, failure: null } });
+    expect(await view.json()).toMatchObject({ tenant_id: T, state: "suspended", erasure: { state: "done", completed_at: h.clock.now, failure: null, replica_purged_at: 1_793_300_000_000 } });
     const audit = (await auditRows(h)).filter((r) => r.action === "deleteTenant");
     expect(audit.map((r) => [r.actor === "platform" ? "platform" : "user", r.status])).toEqual([
       ["user", 202],

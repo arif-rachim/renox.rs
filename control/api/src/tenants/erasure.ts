@@ -44,17 +44,25 @@ export interface Erasure {
   requested_at: number;
   completed_at: number | null;
   failure: Step | null;
+  /** 0.4.1: when the owning node confirmed the replica purge; null until then. */
+  replica_purged_at: number | null;
 }
 
 /** The erasure record of `tenantId`, or null. */
 export async function erasureOf(db: Db, tenantId: string): Promise<Erasure | null> {
-  const rows = await db.query<{ state: ErasureState; requested_at: unknown; completed_at: unknown; failure: Step | null }>(
-    "select state, requested_at, completed_at, failure from tenant_erasures where tenant_id = $1",
+  const rows = await db.query<{ state: ErasureState; requested_at: unknown; completed_at: unknown; failure: Step | null; replica_purged_at: unknown }>(
+    "select state, requested_at, completed_at, failure, replica_purged_at from tenant_erasures where tenant_id = $1",
     [tenantId],
   );
   const r = rows[0];
   if (r === undefined) return null;
-  return { state: r.state, requested_at: num(r.requested_at), completed_at: r.completed_at === null ? null : num(r.completed_at), failure: r.failure };
+  return {
+    state: r.state,
+    requested_at: num(r.requested_at),
+    completed_at: r.completed_at === null ? null : num(r.completed_at),
+    failure: r.failure,
+    replica_purged_at: r.replica_purged_at === null ? null : num(r.replica_purged_at),
+  };
 }
 
 /** The tenant's records, deleted in this order (children before `apps`); static statements (tests/sql-lint.test.ts). */
@@ -103,8 +111,16 @@ async function step(deps: Deps, db: Db, tenantId: string, s: Step, now: number):
         const target = await nodeTarget(deps, db, node);
         if (target.listen_url === null || target.token === null) continue;
         try {
-          const res = await nodeCall(deps)(target, "DELETE", `/nodes/${node}/tenants/${tenantId}`, undefined, 30_000);
-          if (res.status !== 200) all = false;
+          // 0.4.1: the node also purges every generation of the tenant from the replica store.
+          const res = await nodeCall(deps)(target, "DELETE", `/nodes/${node}/tenants/${tenantId}?purge_replica=true`, undefined, 60_000);
+          if (res.status !== 200) {
+            all = false;
+            continue;
+          }
+          const at = (res.body as { replica_purged_at?: unknown } | null)?.replica_purged_at;
+          if (typeof at === "number") {
+            await db.query("update tenant_erasures set replica_purged_at = greatest(coalesce(replica_purged_at, 0), $2) where tenant_id = $1", [tenantId, at]);
+          }
         } catch {
           all = false;
         }
@@ -177,7 +193,7 @@ export async function runErasure(deps: Deps, tenantId: string): Promise<ErasureS
       await writeAudit(db, { at: now, tenantId, actor: "platform", action: "deleteTenant", target: { tenant_id: tenantId, state: "failed", step: failed }, status: 500, requestId: `erasure-${tenantId}` });
       return "failed";
     }
-    await db.query("update tenant_erasures set next_at = $2 where tenant_id = $1", [tenantId, now + RETRY_MS]);
+    await db.query("update tenant_erasures set next_at = $2 where tenant_id = $1", [tenantId, now + (deps.config.erasureRetryMs ?? RETRY_MS)]);
     return "erasing";
   } finally {
     busy.delete(tenantId);

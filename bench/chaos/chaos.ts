@@ -10,6 +10,7 @@ import { writeResult, type Outcome } from "./lib/result.ts";
 import { run as controlPlaneDown } from "./scenarios/control-plane-down.ts";
 import { run as corruptFile } from "./scenarios/corrupt-file.ts";
 import { run as diskFull } from "./scenarios/disk-full.ts";
+import { run as erasure } from "./scenarios/erasure.ts";
 import { run as nodeKill } from "./scenarios/node-kill.ts";
 import { run as pubsubDrop } from "./scenarios/pubsub-drop.ts";
 import { run as replicaLag } from "./scenarios/replica-lag.ts";
@@ -23,6 +24,7 @@ export const SCENARIOS: Record<string, (worker: string) => Promise<Outcome>> = {
   "corrupt-file": corruptFile,
   "replica-lag": replicaLag,
   "pubsub-drop": pubsubDrop,
+  erasure,
 };
 
 if (import.meta.main) {

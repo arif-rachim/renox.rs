@@ -44,6 +44,7 @@ use crate::config::{Mode, ReplicaKind, ReplicationSection};
 use crate::manager::DbLifecycle;
 
 pub mod litestream;
+pub mod purge;
 pub mod restore;
 pub mod status;
 

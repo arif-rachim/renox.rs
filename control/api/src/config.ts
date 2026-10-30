@@ -26,6 +26,8 @@ export interface Config {
   dashboardUrl: string;
   /** Directory where account emails are written as files (local development); null: no mail delivery. */
   mailOutboxDir: string | null;
+  /** How long a failed erasure step waits before its retry (#308; CONTROL_ERASURE_RETRY_MS, default one hour; the chaos harness shortens it). */
+  erasureRetryMs?: number;
   /** `EXPORT_KMS_KEY_ID` (#308): exports are written with SSE-KMS and this key; unset: plain puts (local mode, logged at start). */
   exportKmsKeyId?: string | null;
   /** `CONTROL_SECURITY_CONTACTS` (#310): the `Contact:` URIs of security.txt, comma separated. */
@@ -63,6 +65,7 @@ export function loadConfig(env: Env = process.env): Config {
     masterKey: env.CONTROL_MASTER_KEY ?? null,
     dashboardUrl: env.CONTROL_DASHBOARD_URL ?? "https://dashboard.renox.app",
     mailOutboxDir: env.CONTROL_MAIL_OUTBOX_DIR ?? null,
+    erasureRetryMs: Math.max(1000, Number(env.CONTROL_ERASURE_RETRY_MS ?? 3_600_000) || 3_600_000),
     exportKmsKeyId: env.EXPORT_KMS_KEY_ID ?? null,
     securityContacts: (env.CONTROL_SECURITY_CONTACTS ?? "mailto:security@renox.app").split(",").map((s) => s.trim()).filter((s) => s !== ""),
     securityPolicy: env.CONTROL_SECURITY_POLICY ?? null,
