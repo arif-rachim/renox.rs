@@ -287,15 +287,59 @@ fn main() -> ExitCode {
     }
 }
 
+type OtelLayer = tracing_opentelemetry::OpenTelemetryLayer<
+    tracing_subscriber::Registry,
+    opentelemetry_sdk::trace::SdkTracer,
+>;
+
+/// Installs the OpenTelemetry layer once `[telemetry]` is read (#295).
+static OTEL: std::sync::OnceLock<
+    tracing_subscriber::reload::Handle<Option<OtelLayer>, tracing_subscriber::Registry>,
+> = std::sync::OnceLock::new();
+
+/// JSON lines on stderr with the current span and the span list, so a line
+/// inside a request names its `trace_id` and `request_id` (#295); the
+/// OpenTelemetry layer is a no-op until [`start_telemetry`] fills it.
 fn init_tracing() {
-    tracing_subscriber::fmt()
-        .json()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    let (otel, handle) = tracing_subscriber::reload::Layer::new(None::<OtelLayer>);
+    let _ = OTEL.set(handle);
+    let _ = tracing_subscriber::registry()
+        .with(otel)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_current_span(true)
+                .with_span_list(true)
+                .with_writer(std::io::stderr),
+        )
+        .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
-        .init();
+        .try_init();
+}
+
+/// `[telemetry] otlp_endpoint`: export spans over OTLP/HTTP (#295). Runs
+/// inside the runtime (the exporter uses it). The provider is returned so
+/// the caller flushes it at shutdown.
+fn start_telemetry(
+    config: &WorkerConfig,
+) -> Result<Option<opentelemetry_sdk::trace::SdkTracerProvider>, String> {
+    let Some(provider) = renox_cell::telemetry::otlp_provider(&config.telemetry)? else {
+        return Ok(None);
+    };
+    if let Some(h) = OTEL.get() {
+        h.reload(Some(renox_cell::telemetry::layer(&provider)))
+            .map_err(|e| e.to_string())?;
+    }
+    tracing::info!(
+        sample_ratio = config.telemetry.sample_ratio,
+        service_name = %config.telemetry.service_name,
+        "traces exported over OTLP/HTTP"
+    );
+    Ok(Some(provider))
 }
 
 fn load(config_path: &std::path::Path) -> Option<WorkerConfig> {
@@ -419,6 +463,14 @@ fn serve(config_path: PathBuf) -> ExitCode {
 }
 
 async fn run(config: WorkerConfig) -> ExitCode {
+    let provider = match start_telemetry(&config) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "start");
+            return ExitCode::FAILURE;
+        }
+    };
+    let _flush = FlushOnDrop(provider);
     let worker = match Worker::start(config).await {
         Ok(w) => w,
         Err(e) => {
@@ -445,6 +497,17 @@ async fn run(config: WorkerConfig) -> ExitCode {
                 worker.shutdown().await;
                 return ExitCode::SUCCESS;
             }
+        }
+    }
+}
+
+/// Flushes the exported spans when the worker stops.
+struct FlushOnDrop(Option<opentelemetry_sdk::trace::SdkTracerProvider>);
+
+impl Drop for FlushOnDrop {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            let _ = p.shutdown();
         }
     }
 }

@@ -33,28 +33,30 @@ Two sources. The **control plane** (`control/api/src/ops/metrics.ts`) answers to
 | `renox_cp_alerts_total` | counter | `kind` | control plane | exists |
 | `renox_cp_deployments` | gauge | `state` | control plane | exists |
 | `up` | gauge | `job`, `instance` | Prometheus | exists |
-| `renox_worker_requests_total` | counter | `tenant_id`, `status_class` | worker | pending #295 |
-| `renox_worker_request_duration_seconds` | histogram | `tenant_id` | worker | pending #295 |
-| `renox_worker_cpu_seconds_total` | counter | `tenant_id` | worker | pending #295 |
-| `renox_worker_heap_bytes` | gauge | `tenant_id` | worker | pending #295 |
-| `renox_worker_cold_starts_total` | counter | `tenant_id` | worker | pending #295 |
-| `renox_worker_cold_start_duration_seconds` | histogram | | worker | pending #295 |
-| `renox_worker_outbox_pending` | gauge | `tenant_id` | worker | pending #295 |
-| `renox_worker_outbox_oldest_age_seconds` | gauge | `tenant_id` | worker | pending #295 |
-| `renox_worker_dead_letters_total` | counter | `tenant_id` | worker | pending #295 |
-| `renox_worker_realtime_connections` | gauge | `tenant_id` | worker | pending #295 |
-| `renox_worker_realtime_messages_total` | counter | `tenant_id` | worker | pending #295 |
-| `renox_worker_authz_decisions_total` | counter | `tenant_id`, `decision` | worker | pending #295 |
+| `renox_worker_requests_total` | counter | `tenant_id`, `status_class` | worker | exists (#295) |
+| `renox_worker_request_duration_seconds` | histogram | `tenant_id` | worker | exists (#295) |
+| `renox_worker_cpu_seconds_total` | counter | `tenant_id` | worker | exists (#295) |
+| `renox_worker_heap_bytes` | gauge | `tenant_id` | worker | exists (#295) |
+| `renox_worker_cold_starts_total` | counter | `tenant_id` | worker | exists (#295) |
+| `renox_worker_cold_start_duration_seconds` | histogram | | worker | exists (#295) |
+| `renox_worker_outbox_pending` | gauge | `tenant_id` | worker | exists (#295) |
+| `renox_worker_outbox_oldest_age_seconds` | gauge | `tenant_id` | worker | exists (#295) |
+| `renox_worker_dead_letters_total` | counter | `tenant_id` | worker | exists (#295) |
+| `renox_worker_realtime_connections` | gauge | `tenant_id` | worker | exists (#295) |
+| `renox_worker_realtime_messages_total` | counter | `tenant_id` | worker | exists (#295) |
+| `renox_worker_authz_decisions_total` | counter | `tenant_id`, `decision` | worker (`decision` is `all` until the engine counts allows and denies apart) | exists (#295) |
+| `renox_worker_authz_principal_cache_total` | counter | `tenant_id`, `result` | worker | exists (#295) |
+| `renox_worker_cells` | gauge | | worker | exists (#295) |
 | `renox_worker_sandbox_denials_total` | counter | `kind` | worker | pending #295 |
 | `renox_worker_replication_lag_seconds` | gauge | `tenant_id`, `database` | worker | pending #295 |
 | `renox_worker_process_restarts_total` | counter | `tenant_id` | worker | pending #295 |
-| `renox_worker_degraded` | gauge | `component` | worker (`/healthz` reasons) | pending #295 |
-| `renox_worker_disk_used_ratio` | gauge | | worker (`crate::disk`, #103) | pending #295 |
-| `renox_worker_disk_level` | gauge | | worker (`crate::disk`, #103: 0 ok, 1 warn, 2 no new cells, 3 no writes) | pending #295 |
+| `renox_worker_degraded` | gauge | `component` | worker (`/healthz` reasons) | exists (#295) |
+| `renox_worker_disk_used_ratio` | gauge | | worker (`crate::disk`, #103) | exists (#295) |
+| `renox_worker_disk_level` | gauge | | worker (`crate::disk`, #103: 0 ok, 1 warn, 2 no new cells, 3 no writes) | exists (#295) |
 | `renox_worker_db_unavailable` | gauge | | worker (files being restored after damage, #103) | pending #295 |
 | `renox_worker_log_lines_sampled_out_total` | counter | | worker (`crate::pruning`, #103) | pending #295 |
 
-The worker families are this issue's proposal for #295, which owns the names in the end: if it changes one, it changes this table, the rules and the dashboards in the same PR (`check.ts` fails otherwise).
+The worker families are served by `GET /metrics` on the worker's operator listener (`[control] health_listen`, #295: `crates/renox-cell/src/telemetry/metrics.rs`) under these names. Still pending: `renox_worker_sandbox_denials_total`, `renox_worker_replication_lag_seconds`, `renox_worker_process_restarts_total`, `renox_worker_db_unavailable` and `renox_worker_log_lines_sampled_out_total`, whose counters live in the sandbox, replication, supervisor and pruning code that #295 did not wire; a change to a name changes this table, the rules and the dashboards in the same PR (`check.ts` fails otherwise).
 
 ## Alerts
 
@@ -63,14 +65,14 @@ The worker families are this issue's proposal for #295, which owns the names in 
 | `RenoxNodeUnhealthy` | page | `renox_cp_node_healthy` | Node dies | yes |
 | `RenoxNodeHeartbeatLate` | ticket | `renox_cp_node_heartbeat_age_seconds` | Node dies | yes |
 | `RenoxNodeNearlyFull` | ticket | `renox_cp_node_cells`, `renox_cp_node_max_cells` | Node dies | yes |
-| `RenoxDiskWatermarkWarn` | ticket | `renox_worker_disk_level` | Disk full on node | after #295 |
-| `RenoxDiskWatermarkStop` | page | `renox_worker_disk_level` | Disk full on node | after #295 |
-| `RenoxObjectStorageUnreachable` | page | `renox_worker_degraded` | Object storage unreachable | after #295 |
+| `RenoxDiskWatermarkWarn` | ticket | `renox_worker_disk_level` | Disk full on node | yes (#295) |
+| `RenoxDiskWatermarkStop` | page | `renox_worker_disk_level` | Disk full on node | yes (#295) |
+| `RenoxObjectStorageUnreachable` | page | `renox_worker_degraded` | Object storage unreachable | yes (#295) |
 | `RenoxSandboxDenialsSpike` | page | `renox_worker_sandbox_denials_total` | Worker process crashes | after #295 |
-| `RenoxOutboxOldestAge` | ticket | `renox_worker_outbox_oldest_age_seconds` | Outbox or logs grow unbounded | after #295 |
-| `RenoxDeadLetters` | ticket | `renox_worker_dead_letters_total` | Event handler fails repeatedly | after #295 |
-| `RenoxTenantErrorRatio` | ticket | `renox_worker_requests_total` | Worker process crashes | after #295 |
-| `RenoxColdStartP95` | ticket | `renox_worker_cold_start_duration_seconds` | Isolate evicted while a request arrives | after #295 |
+| `RenoxOutboxOldestAge` | ticket | `renox_worker_outbox_oldest_age_seconds` | Outbox or logs grow unbounded | yes (#295) |
+| `RenoxDeadLetters` | ticket | `renox_worker_dead_letters_total` | Event handler fails repeatedly | yes (#295) |
+| `RenoxTenantErrorRatio` | ticket | `renox_worker_requests_total` | Worker process crashes | yes (#295) |
+| `RenoxColdStartP95` | ticket | `renox_worker_cold_start_duration_seconds` | Isolate evicted while a request arrives | yes (#295) |
 | `RenoxTenantFileRestoring` | page | `renox_worker_db_unavailable` | SQLite file corrupted, WAL unreadable | after #295 |
 | `RenoxReplicationLag` | page | `renox_worker_replication_lag_seconds`, `renox_cp_replication_lag_max_seconds` | Replica lagging / Litestream behind | yes (control-plane view) |
 | `RenoxFailoverRestoreFailed` | page | `renox_cp_alerts_total` | Node dies, restore fails | yes |

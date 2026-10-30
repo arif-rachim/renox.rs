@@ -436,6 +436,21 @@ pub(crate) async fn op_renox_fetch(
     token: u32,
     #[serde] req: FetchRequest,
 ) -> Result<FetchResponseHead, JsErrorBox> {
+    // #295: one span per tenant fetch with the host only, never the path,
+    // the query, a header or the body.
+    let host = Url::parse(&req.url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_default();
+    let span = tracing::info_span!("fetch", host = %host);
+    tracing::Instrument::instrument(fetch_inner(state, token, req), span).await
+}
+
+async fn fetch_inner(
+    state: Rc<RefCell<OpState>>,
+    token: u32,
+    req: FetchRequest,
+) -> Result<FetchResponseHead, JsErrorBox> {
     let head_request = req.method.eq_ignore_ascii_case("HEAD");
     let (request, env) = {
         let s = state.borrow();

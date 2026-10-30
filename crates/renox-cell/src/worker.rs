@@ -555,9 +555,19 @@ impl Worker {
         let controller = match (control, route_state, &config.control) {
             (Some(client), Some(state), Some(section)) => {
                 if let Some(listen) = section.health_listen {
-                    let (bound, task) = control::health::serve(listen, health.clone())
-                        .await
-                        .map_err(io("bind control.health_listen"))?;
+                    // #295: `/metrics` beside `/healthz` on the operator listener.
+                    let (m, d, h) = (manager.clone(), disk.clone(), health.clone());
+                    let metrics: control::health::MetricsText = Arc::new(move || {
+                        let (m, d, h) = (m.clone(), d.clone(), h.clone());
+                        Box::pin(async move {
+                            let disk = Some((d.used_pct() / 100.0, d.level() as u8));
+                            m.metrics_text(disk, h.reasons()).await
+                        })
+                    });
+                    let (bound, task) =
+                        control::health::serve(listen, health.clone(), Some(metrics))
+                            .await
+                            .map_err(io("bind control.health_listen"))?;
                     health_addr = Some(bound);
                     tasks.push(task);
                 }

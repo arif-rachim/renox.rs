@@ -580,15 +580,27 @@ pub(crate) async fn serve(
             result(&id, serde_json::json!({ "tools": list }), &rid)
         }
         "tools/call" => {
-            call(
-                manager,
-                cell,
-                &ctx,
-                &id,
-                msg.get("params").cloned().unwrap_or_default(),
-                &agent,
-                &token_hash,
-                &tools,
+            let params = msg.get("params").cloned().unwrap_or_default();
+            // #295: the tool's name only, never its arguments.
+            let span = tracing::info_span!(
+                "mcp.tool",
+                tool = params
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or_default()
+            );
+            tracing::Instrument::instrument(
+                call(
+                    manager,
+                    cell,
+                    &ctx,
+                    &id,
+                    params,
+                    &agent,
+                    &token_hash,
+                    &tools,
+                ),
+                span,
             )
             .await
         }

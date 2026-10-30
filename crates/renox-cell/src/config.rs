@@ -93,6 +93,9 @@ pub struct WorkerConfig {
     /// Realtime connection caps (#281, `src/realtime/`).
     #[serde(default)]
     pub realtime: RealtimeSection,
+    /// Traces over OTLP/HTTP and the sampling ratio (#295, `src/telemetry/`).
+    #[serde(default)]
+    pub telemetry: crate::telemetry::TelemetrySection,
     /// The file this config was loaded from ([`WorkerConfig::load`]); the
     /// supervisor passes it to its children. Not a key.
     #[serde(skip)]

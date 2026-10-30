@@ -279,7 +279,19 @@ impl Session {
             request_id: self.ctx.request_id.clone(),
             deadline: Instant::now() + self.wall,
         };
-        let out = self.cell.isolate.dispatch(rt_ctx, req).await;
+        // #295: `realtime.open` for connect and open, `realtime.message` for
+        // a frame, `realtime.close` for the end; the route pattern only.
+        let span = match phase {
+            RealtimePhase::Message => {
+                tracing::info_span!("realtime.message", route = %self.route.pattern)
+            }
+            RealtimePhase::Close => {
+                tracing::info_span!("realtime.close", route = %self.route.pattern)
+            }
+            _ => tracing::info_span!("realtime.open", route = %self.route.pattern),
+        };
+        let out =
+            tracing::Instrument::instrument(self.cell.isolate.dispatch(rt_ctx, req), span).await;
         self.usage.add(&out.meter);
         let status = out.response.status();
         match out.response.extensions().get::<RealtimeOutcome>() {

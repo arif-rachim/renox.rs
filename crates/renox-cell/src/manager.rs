@@ -218,6 +218,8 @@ struct Inner {
     db_keys: Mutex<HashMap<CellKey, String>>,
     /// Tenants being moved to a microVM (#259): their requests answer 503.
     moving: Mutex<HashSet<String>>,
+    /// The counters behind `GET /metrics` (#295).
+    metrics: Arc<crate::telemetry::metrics::Metrics>,
 }
 
 /// Called with the entries of every [`CellManager::sync_routes`].
@@ -270,6 +272,7 @@ impl CellManager {
                 db_lifecycle: std::sync::OnceLock::new(),
                 db_keys: Mutex::new(HashMap::new()),
                 moving: Mutex::new(HashSet::new()),
+                metrics: Arc::default(),
             }),
         }
     }
@@ -523,6 +526,80 @@ impl CellManager {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// The Prometheus text of `GET /metrics` (#295): the request families,
+    /// and the gauges of the live cells read now (outbox from each tenant's
+    /// file, realtime from each hub, authz from each cell). `disk` and
+    /// `degraded` come from the worker (`crate::disk`, `/healthz`).
+    pub async fn metrics_text(&self, disk: Option<(f64, u8)>, degraded: Vec<String>) -> String {
+        let live: Vec<Arc<Cell>> = {
+            let cells = self.inner.cells.lock().expect("cells lock");
+            cells
+                .values()
+                .filter_map(|slot| slot.get().cloned())
+                .collect()
+        };
+        let mut snap = crate::telemetry::metrics::Snapshot {
+            cells: live.len(),
+            disk,
+            degraded,
+            ..Default::default()
+        };
+        for cell in &live {
+            let mut a = crate::authz::AuthzStats::default();
+            a.add(&cell.isolate.authz_slot());
+            let e = snap.authz.entry(cell.key.tenant_id.clone()).or_default();
+            e.0 += a.decisions;
+            e.1 += a.cache_hits;
+            e.2 += a.cache_misses;
+        }
+        for cell in &live {
+            if let Some(rt) = &cell.realtime {
+                let c = rt.hub.snapshot();
+                let e = snap.realtime.entry(cell.key.tenant_id.clone()).or_default();
+                e.0 += c.live;
+                e.1 += c.messages_out;
+            }
+        }
+        let tenants: Vec<String> = live.iter().map(|c| c.key.tenant_id.clone()).collect();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        for tenant in tenants {
+            if snap.outbox.contains_key(&tenant) {
+                continue;
+            }
+            let handle = self
+                .inner
+                .dbs
+                .lock()
+                .expect("dbs lock")
+                .get(&tenant)
+                .cloned();
+            let Some(slot) = handle else { continue };
+            let Some(db) = slot.lock().await.handle.clone() else {
+                continue;
+            };
+            let read = db
+                .call(move |db| {
+                    let stats = renox_data::outbox::stats(db)?;
+                    let oldest = db.with_policy(None, || {
+                        db.query_one("select min(created_at) as t from renox__outbox", &[])
+                    })??;
+                    Ok::<_, renox_data::DbError>((stats, oldest))
+                })
+                .await;
+            if let Ok(Ok((stats, oldest))) = read {
+                let age = match oldest.as_ref().and_then(|r| r.get("t")) {
+                    Some(renox_data::Value::Integer(t)) => ((now - t).max(0) as f64) / 1000.0,
+                    _ => 0.0,
+                };
+                snap.outbox.insert(tenant, (stats.pending, age, stats.dead));
+            }
+        }
+        self.inner.metrics.render(&snap)
+    }
+
     /// Principal cache and decision counters of the live cells (#279).
     pub fn authz_stats(&self) -> crate::authz::AuthzStats {
         let mut stats = crate::authz::AuthzStats::default();
@@ -760,6 +837,9 @@ impl CellManager {
         self.inner
             .created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.inner
+            .metrics
+            .cold_start(&key.tenant_id, started.elapsed().as_secs_f64() * 1000.0);
         tracing::info!(
             tenant_id = %key.tenant_id,
             deployment_hash = %key.deployment_hash,
@@ -1149,12 +1229,22 @@ impl CellManager {
             .as_ref()
             .and_then(|_| cell.isolate.shell_template(&parts));
         let dispatching = cell.clone();
-        let mut dispatch: DispatchFuture = Box::pin(async move {
-            dispatching
-                .isolate
-                .dispatch(rt_ctx, Request::from_parts(parts, body))
-                .await
-        });
+        // #295: a page request (the page guard gave it a CSRF token) runs a
+        // loader on GET and HEAD and an action on POST; the rest are functions.
+        let handler_span = match (csrf_token.is_some(), parts.method.as_str()) {
+            (true, "GET" | "HEAD") => tracing::info_span!("cell.loader"),
+            (true, _) => tracing::info_span!("cell.action"),
+            _ => tracing::info_span!("cell.function"),
+        };
+        let mut dispatch: DispatchFuture = Box::pin(tracing::Instrument::instrument(
+            async move {
+                dispatching
+                    .isolate
+                    .dispatch(rt_ctx, Request::from_parts(parts, body))
+                    .await
+            },
+            handler_span,
+        ));
         let mut out = match (shell_template, cell.web.pages.clone()) {
             (Some(template), Some(pages)) => {
                 tokio::select! {
@@ -1340,6 +1430,14 @@ impl CellManager {
         let Some(route) = m.route.clone() else {
             return;
         };
+        // #295: the request families of `/metrics`.
+        self.inner.metrics.request(
+            &rc.tenant_id,
+            http_status,
+            rc.t0.elapsed().as_secs_f64() * 1000.0,
+            m.cpu_ms,
+            m.peak_heap_bytes,
+        );
         self.inner.meter.record(MeterRecord {
             request_id: rc.request_id.clone(),
             tenant_id: rc.tenant_id.clone(),
@@ -1772,7 +1870,17 @@ impl hyper::body::Body for ChannelBody {
 /// Runs a render on Tokio's blocking pool: off the isolate thread and off
 /// the async workers (`ops.md` section 14, "Rendering").
 async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Rendered {
-    match tokio::task::spawn_blocking(f).await {
+    // #295: the render's span, a child of the request's (`fuel` at the end).
+    let span = tracing::info_span!("template.render", fuel = tracing::field::Empty);
+    match tokio::task::spawn_blocking(move || {
+        span.in_scope(|| {
+            let r = f();
+            tracing::Span::current().record("fuel", r.fuel);
+            r
+        })
+    })
+    .await
+    {
         Ok(r) => r,
         Err(_) => Rendered {
             response: crate::render::default_page(
@@ -2005,6 +2113,17 @@ struct ChecksumsFile {
 
 impl CellDispatcher for CellManager {
     async fn dispatch(&self, ctx: RequestCtx, req: Request<Body>) -> Response<Body> {
-        self.handle(ctx, req).await
+        // #295: the cell's part of the request's trace, under the gateway's
+        // `gateway.request` (which gets the trace id for the log lines).
+        let parent = tracing::Span::current();
+        if let Some(id) = crate::telemetry::trace_id(&parent) {
+            parent.record("trace_id", id.as_str());
+        }
+        let span = tracing::info_span!(
+            "cell.request",
+            tenant_id = %ctx.tenant_id,
+            request_id = %ctx.request_id,
+        );
+        tracing::Instrument::instrument(self.handle(ctx, req), span).await
     }
 }

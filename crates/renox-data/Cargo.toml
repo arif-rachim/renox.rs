@@ -10,6 +10,8 @@ publish.workspace = true
 # bundled: the SQLite version is pinned by the crate, not by the host.
 # hooks: authorizer and progress handler (#19, #20).
 rusqlite = { version = "0.40.0", features = ["bundled", "hooks", "preupdate_hook"] }
+# The `db.query` span of each statement (#295): the verb and the tables, never the SQL.
+tracing = "0.1"
 sha2 = "0.11.1"
 # db.scoped() (#277): the statement shapes the rewriter proves come from a
 # parsed AST, never from string matching. `visitor`: walk every relation.

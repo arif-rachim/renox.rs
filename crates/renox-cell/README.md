@@ -38,7 +38,19 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 | `[authz]` | `false` / 60 | `dev` (`ctx.authz.explain` works and `RENOX_FORBIDDEN` names the deciding policy), `principal_ttl_secs` (how long a resolved principal is cached per session, 0 to 3,600): "Authorization" |
 
-Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`). They name tenants, hashes, and request ids, never secret values or request content.
+| `[telemetry]` | off / 0.1 / `renox-worker` | `otlp_endpoint` (OTLP/HTTP traces URL, `http(s)://…/v1/traces`; absent: no export), `sample_ratio` (share of root traces kept; a child follows its parent), `service_name`: "Telemetry" |
+
+Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`), with the current span and the span list, so a line inside a request carries `gateway.request`'s `request_id`, `tenant_id` and `trace_id` (#295). They name tenants, hashes, and request ids, never secret values or request content.
+
+## Telemetry (#295)
+
+`src/telemetry/`. **Traces:** one trace per request, rooted at `gateway.request` (`renox-gateway`), with `cell.request`, `cell.loader` / `cell.action` / `cell.function`, `template.render`, `realtime.open` / `realtime.message` / `realtime.close`, `mcp.tool` and `outbox.deliver` under it; `db.query` (`renox-data`: the verb and the table names) and `fetch` (`renox-runtime`: the host) run on the isolate's thread and are traces of their own. Attributes are ids, verbs, table names, hosts and numbers only: never SQL text or parameters, a path or a query, a header or a cookie, a body, or a secret. Export is OTLP/HTTP with protobuf through this crate's hyper (no gRPC); the batch exporter is flushed at shutdown.
+
+**Metrics:** `GET /metrics` (Prometheus text) on the operator listener of `[control] health_listen`, beside `/healthz`: `renox_worker_requests_total{tenant_id,status_class}`, `renox_worker_request_duration_seconds` (histogram per tenant), `renox_worker_cpu_seconds_total`, `renox_worker_heap_bytes`, `renox_worker_cold_starts_total`, `renox_worker_cold_start_duration_seconds`, `renox_worker_cells`, `renox_worker_outbox_pending`, `renox_worker_outbox_oldest_age_seconds`, `renox_worker_dead_letters_total`, `renox_worker_realtime_connections`, `renox_worker_realtime_messages_total`, `renox_worker_authz_decisions_total{tenant_id,decision="all"}`, `renox_worker_authz_principal_cache_total{tenant_id,result}`, `renox_worker_disk_used_ratio`, `renox_worker_disk_level`, `renox_worker_degraded{component}`: the names of `ops/observability/README.md` (#296), so its panels and alert rules read them.
+
+**A local trace** (not in CI): run a collector, `docker run --rm -p 4318:4318 otel/opentelemetry-collector:0.114.0` (its default config logs what it receives), set `[telemetry] otlp_endpoint = "http://127.0.0.1:4318/v1/traces"` and `sample_ratio = 1.0` in `worker.toml`, start `renox-worker --config worker.toml`, send one request, and the collector's log shows the `gateway.request` trace with its children.
+
+Tests: `tests/telemetry.rs` (the span tree of a page request, `db.query` attributes, a secret in a header, a cookie and the query in no span and not in `/metrics`, the metric families); `src/telemetry/metrics.rs` unit tests.
 
 ## Tiers
 

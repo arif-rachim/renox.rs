@@ -893,7 +893,25 @@ impl TenantDb {
     /// Run one call: refuse it if the deadline has passed, time it, and
     /// record it in the stats. `f` returns its value and (rows read, rows
     /// written).
-    fn measured<T>(&self, ctx: &QueryCtx, f: impl FnOnce() -> Result<(T, u64, u64)>) -> Result<T> {
+    fn measured<T>(
+        &self,
+        ctx: &QueryCtx,
+        sql: &str,
+        f: impl FnOnce() -> Result<(T, u64, u64)>,
+    ) -> Result<T> {
+        // #295: one span per statement with its verb and table names; the
+        // SQL text and the parameters never leave this function.
+        let span = tracing::info_span!(
+            "db.query",
+            kind = tracing::field::Empty,
+            tables = tracing::field::Empty
+        );
+        if !span.is_disabled() {
+            let (kind, tables) = statement_shape(sql);
+            span.record("kind", kind.as_str());
+            span.record("tables", tables.join(",").as_str());
+        }
+        let _entered = span.enter();
         let start = Instant::now();
         let result = if ctx.expired(start) {
             Err(DbError::Timeout)
@@ -950,7 +968,7 @@ impl TenantDb {
         params: &[Value],
         limit_one: bool,
     ) -> Result<Vec<Row>> {
-        self.measured(ctx, || {
+        self.measured(ctx, sql, || {
             let reader = self.reader()?;
             let mut stmt = reader.prepare(sql)?;
             if stmt.readonly() {
@@ -1011,7 +1029,7 @@ impl TenantDb {
     }
 
     fn run_execute(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
-        self.measured(ctx, || {
+        self.measured(ctx, sql, || {
             let (rows, read, written) = self.on_writer(ctx, sql, params, false)?;
             let _ = rows;
             Ok((
@@ -1270,7 +1288,7 @@ impl Tx<'_> {
     pub fn query_with(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<Vec<Row>> {
         self.run(|| {
             self.db
-                .measured(ctx, || self.db.on_writer(ctx, sql, params, false))
+                .measured(ctx, sql, || self.db.on_writer(ctx, sql, params, false))
         })
     }
 
@@ -1286,7 +1304,7 @@ impl Tx<'_> {
     ) -> Result<Option<Row>> {
         let rows = self.run(|| {
             self.db
-                .measured(ctx, || self.db.on_writer(ctx, sql, params, true))
+                .measured(ctx, sql, || self.db.on_writer(ctx, sql, params, true))
         })?;
         Ok(rows.into_iter().next())
     }
@@ -1328,5 +1346,44 @@ impl Tx<'_> {
             self.rolled_back.set(true);
         }
         result
+    }
+}
+
+/// The verb of a statement (`select`, `insert`, …) and the names that
+/// follow `from`, `join`, `into`, `update` and `table` (#295, the `db.query`
+/// span). Identifiers only: a literal or a parameter is never taken.
+pub(crate) fn statement_shape(sql: &str) -> (String, Vec<String>) {
+    let words: Vec<String> = sql
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let kind = words.first().cloned().unwrap_or_default();
+    let mut tables: Vec<String> = Vec::new();
+    for pair in words.windows(2) {
+        if matches!(
+            pair[0].as_str(),
+            "from" | "join" | "into" | "update" | "table"
+        ) && pair[1].starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && !matches!(pair[1].as_str(), "select" | "if" | "not" | "exists")
+            && !tables.contains(&pair[1])
+        {
+            tables.push(pair[1].clone());
+        }
+    }
+    (kind, tables)
+}
+
+#[cfg(test)]
+mod shape_tests {
+    #[test]
+    fn verb_and_tables_without_values() {
+        let (k, t) = super::statement_shape(
+            "SELECT o.id FROM app__orders o JOIN app__lines l ON l.o = o.id WHERE o.token = 'sk_live_x'",
+        );
+        assert_eq!(k, "select");
+        assert_eq!(t, vec!["app__orders", "app__lines"]);
+        let (k, t) = super::statement_shape("insert into app__notes (body) values (?)");
+        assert_eq!((k.as_str(), t), ("insert", vec!["app__notes".to_string()]));
     }
 }

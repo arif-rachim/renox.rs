@@ -26,6 +26,7 @@ pub mod sandbox;
 pub mod spool;
 pub mod supervisor;
 pub mod tar_safe;
+pub mod telemetry;
 pub mod tiers;
 pub mod worker;
 

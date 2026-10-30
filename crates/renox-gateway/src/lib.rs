@@ -539,7 +539,21 @@ async fn handle<D: CellDispatcher>(
     let switch = req.extensions().get::<upgrade::UpgradeSwitch>().cloned();
     let nonce = security::new_nonce();
     let mut used: Option<Arc<security::DeploymentInfo>> = None;
-    let mut response = route(&state, req, &request_id, &nonce, &mut used).await;
+    // #295: the root span of the request's trace. Ids and the status only:
+    // never the path, a header, or the query (renox-cell `src/telemetry/`).
+    let span = tracing::info_span!(
+        "gateway.request",
+        request_id = %request_id,
+        tenant_id = tracing::field::Empty,
+        status = tracing::field::Empty,
+        trace_id = tracing::field::Empty,
+    );
+    let mut response = tracing::Instrument::instrument(
+        route(&state, req, &request_id, &nonce, &mut used),
+        span.clone(),
+    )
+    .await;
+    span.record("status", response.status().as_u16());
     // #167: a 101 hands the connection over; set before hyper writes it,
     // so the client's first frame is never parsed as an HTTP/1 head.
     if response.status() == StatusCode::SWITCHING_PROTOCOLS
@@ -669,6 +683,7 @@ async fn route<D: CellDispatcher>(
         BodyCheck::Unreadable => return plain(StatusCode::BAD_REQUEST, "Bad request"),
     };
 
+    tracing::Span::current().record("tenant_id", entry.tenant_id.as_str());
     let ctx = RequestCtx {
         tenant_id: entry.tenant_id.clone(),
         deployment_hash: entry.deployment_hash.clone(),
