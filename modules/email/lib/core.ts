@@ -4,6 +4,7 @@
 // suppression list that bounces and complaints fill. Bodies are never logged.
 
 import { renderMail } from "./templates.ts";
+import * as reputation from "../src/reputation/reputation.ts";
 
 export interface Db {
   query<T>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -27,7 +28,7 @@ export interface EmailCtx {
 export class EmailError extends Error {
   constructor(
     message: string,
-    readonly code: "INVALID" | "SUPPRESSED" | "RATE_LIMITED" | "NOT_CONFIGURED",
+    readonly code: "INVALID" | "SUPPRESSED" | "RATE_LIMITED" | "NOT_CONFIGURED" | "PAUSED",
   ) {
     super(message);
     this.name = "EmailError";
@@ -69,6 +70,10 @@ export async function sendRaw(ctx: EmailCtx, msg: { to?: unknown; subject?: unkn
   const html = typeof msg.html === "string" ? msg.html : "";
   if (text === "" && html === "") throw new EmailError("text or html", "INVALID");
   if (await suppressed(ctx, to)) throw new EmailError("the address is suppressed (a bounce or a complaint)", "SUPPRESSED");
+  // Reputation (#123): a paused tenant sends nothing; a young one has a daily cap.
+  const pause = await reputation.paused(ctx.db);
+  if (pause !== null) throw new EmailError(`sending is paused: ${pause.reason}`, "PAUSED");
+  if (!(await reputation.underDailyCap(ctx.db))) throw new EmailError("the daily cap of a new sender is reached", "RATE_LIMITED");
   // The app's last word (never the body: the template, the locale and the recipient's domain).
   const hook = await ctx.hooks?.run("email.before_send", { template: msg.template ?? null, locale: msg.locale ?? null, to_domain: to.split("@")[1] as string });
   if (hook?.halt === true) return { id: null, cancelled: true };
@@ -201,6 +206,7 @@ export async function deliverQueued(ctx: EmailCtx, id: string): Promise<SendResu
   }
   if (r.ok) {
     await ctx.db.execute("update email__messages set status = 'sent', provider_id = ?, error = null, attempts = attempts + 1, updated_at = ? where id = ?", [r.id ?? null, t, id]);
+    await reputation.count(ctx.db, "sent");
     return r;
   }
   await ctx.db.execute(`update email__messages set ${r.retry ? "" : "status = 'failed', "}error = ?, attempts = attempts + 1, updated_at = ? where id = ?`, [r.error ?? "failed", t, id]);
@@ -217,7 +223,18 @@ export async function recordFeedback(ctx: EmailCtx, payload: unknown): Promise<{
   if (kind === null || typeof raw !== "string") return { suppressed: null };
   await suppress(ctx, raw, kind);
   const addr = address(raw);
+  await reputation.count(ctx.db, kind === "bounce" ? "bounced" : "complained");
+  const pausedFor = await reputation.judge(ctx.db);
+  // The owner learns of it through this event (the app's handler, or notifications).
+  if (pausedFor !== null) await ctx.events.emit("email.paused", { reason: pausedFor });
   // Other modules (billing's dunning, the app) learn of it; the address only, never the provider's payload.
   await ctx.events.emit(kind === "bounce" ? "email.bounced" : "email.complained", { address: addr });
   return { suppressed: addr };
+}
+
+/** Resumes a paused tenant's sending (email.manage). */
+export async function resume(ctx: EmailCtx & { authz?: { require(action: string): Promise<void> } }): Promise<{ ok: true }> {
+  await ctx.authz?.require("email.manage");
+  await reputation.resume(ctx.db);
+  return { ok: true };
 }

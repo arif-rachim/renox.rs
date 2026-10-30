@@ -11,3 +11,5 @@ export const status = (ctx: Ctx, id: unknown) => core.status(ctx, id);
 export const suppress = (ctx: Ctx, address: unknown, reason: unknown) => core.suppress(ctx, address, reason);
 export const unsuppress = (ctx: Ctx, address: unknown) => core.unsuppress(ctx, address);
 export const isSuppressed = (ctx: Ctx, address: unknown) => core.suppressed(ctx, address);
+/** Resumes sending after a reputation pause (email.manage). */
+export const resume = (ctx: Ctx) => core.resume(ctx);

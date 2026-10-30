@@ -88,6 +88,8 @@ export function stripe(fetchFn: FetchFn, key: string): PspAdapter {
         "line_items[0][price_data][currency]": r.currency.toLowerCase(),
         "line_items[0][price_data][unit_amount]": String(r.amount),
         "line_items[0][price_data][product_data][name]": r.description,
+        // 3-D Secure requested on every card payment, not left to Stripe's risk engine (#123).
+        "payment_method_options[card][request_three_d_secure]": "any",
       });
       if (r.mode === "subscription") {
         form.set("line_items[0][price_data][recurring][interval]", r.interval ?? "month");

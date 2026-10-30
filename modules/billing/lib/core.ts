@@ -5,6 +5,7 @@
 
 import { PspError, stripe, type PspAdapter, type PspEvent } from "./adapter.ts";
 import { COD_MOVES, transferReference, type StatementRow } from "../src/adapters/offline.ts";
+import { attemptRefused, recordDecline } from "../src/fraud/limits.ts";
 
 export interface Db {
   query<T>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -74,6 +75,8 @@ export interface CheckoutOptions {
   description?: unknown;
   /** `card` (the PSP, the default), `cod` (cash on delivery) or `bank` (a transfer with a reference); one-off payments only for the last two. */
   method?: unknown;
+  /** The paying client's address, for the per-IP attempt bucket (#123); the app passes its request's. */
+  client_ip?: unknown;
 }
 
 const METHODS = ["card", "cod", "bank"] as const;
@@ -119,6 +122,9 @@ export async function createCheckout(ctx: BillingCtx, o: CheckoutOptions): Promi
     if (existing.status === "completed") throw new BillingError("this order is already paid", "CONFLICT");
     if (existing.status === "open") return { url: existing.url, session_id: existing.session_id, reused: true };
   }
+  // Card testing (#123): per-IP and per-customer buckets, and a customer blocked after repeated declines.
+  const refused = await attemptRefused(ctx.db, { ip: typeof o.client_ip === "string" ? o.client_ip.slice(0, 64) : null, customer });
+  if (refused !== null) throw new BillingError(`too many payment attempts (${refused})`, "REFUSED");
   const signal = await ctx.hooks?.run("billing.fraud_signal", { customer_id: customer, order_id: orderId, amount, currency, mode });
   if (signal?.halt === true) throw new BillingError("the checkout was refused", "REFUSED");
   if (method !== "card") return offlineCheckout(ctx, { orderId, customer, amount, currency, method });
@@ -317,6 +323,7 @@ async function apply(ctx: BillingCtx, e: PspEvent): Promise<string> {
     }
     case "payment_failed":
       if (customer === null) return "ignored";
+      await recordDecline(ctx.db, customer);
       await ctx.db.execute("update billing__subscriptions set status = 'past_due', updated_at = ? where customer_id = ? and status = 'active'", [t, customer]);
       await ctx.events.emit("billing.payment_failed", { customer_id: customer, ...(e.invoice_id === undefined ? {} : { invoice_id: e.invoice_id }), ...(e.order_id === undefined ? {} : { order_id: e.order_id }) });
       await ctx.events.emit("billing.subscription_changed", { customer_id: customer, status: "past_due" });

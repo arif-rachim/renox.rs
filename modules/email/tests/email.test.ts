@@ -9,7 +9,7 @@ import * as core from "../lib/core.ts";
 
 function ctx(fetchFn: core.FetchFn, config: core.EmailCtx["config"] = { provider: "resend", from: "shop@hello.ae" }) {
   const db = new Database(":memory:");
-  for (const f of ["001_init.sql", "002_templates.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
+  for (const f of ["001_init.sql", "002_templates.sql", "003_reputation.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
   const emitted: unknown[] = [];
   const c: core.EmailCtx = {
     db: {
@@ -138,4 +138,30 @@ test("auth.send_mail fills from the templates; a suppressed address is skipped q
   expect(emitted.at(-1)).toEqual({ address: "new@shop.ae" });
   await hooks.hooks["auth.send_mail"].handle(c, { to: "new@shop.ae", template: "password_reset", args: {} });
   expect((await c.db.query("select id from email__messages")).length).toBe(1);
+});
+
+// #123: the sending reputation.
+import * as reputation from "../src/reputation/reputation.ts";
+
+test("complaints above the threshold pause this tenant's sending and say why; resume lifts it; a new sender's daily cap", async () => {
+  const { c, emitted } = ctx(async () => new Response(JSON.stringify({ id: "re_1" })));
+  for (let i = 0; i < 100; i++) {
+    const { id } = await core.sendRaw(c, { to: `r${i}@example.com`, subject: "Hi", text: "Body" });
+    await core.deliverQueued(c, id as string);
+  }
+  await core.recordFeedback(c, { type: "email.complained", data: { to: ["r1@example.com"] } });
+  await core.recordFeedback(c, { type: "email.complained", data: { to: ["r2@example.com"] } });
+  expect(await reputation.paused(c.db)).toBeNull();
+  await core.recordFeedback(c, { type: "email.complained", data: { to: ["r3@example.com"] } });
+  expect(await reputation.paused(c.db)).toMatchObject({ reason: "complaints 3 of 100" });
+  expect(emitted).toContainEqual({ reason: "complaints 3 of 100" });
+  await expect(core.sendRaw(c, { to: "next@example.com", subject: "Hi", text: "x" })).rejects.toMatchObject({ code: "PAUSED" });
+  await core.resume(c);
+  expect((await core.sendRaw(c, { to: "next@example.com", subject: "Hi", text: "x" })).id).not.toBeNull();
+  // The cap of a sender in its first week is 200 a day; after 30 days it is lifted.
+  const day = 86_400_000;
+  expect(reputation.dailyCap(null)).toBe(200);
+  expect(reputation.dailyCap(Date.now() - 2 * day)).toBe(200);
+  expect(reputation.dailyCap(Date.now() - 10 * day)).toBe(2000);
+  expect(reputation.dailyCap(Date.now() - 40 * day)).toBeNull();
 });

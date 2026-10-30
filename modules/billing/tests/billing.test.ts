@@ -9,7 +9,7 @@ import * as core from "../lib/core.ts";
 
 function ctx(fetchFn: core.BillingCtx["fetch"]) {
   const db = new Database(":memory:");
-  for (const f of ["001_init.sql", "002_checkout_refunds.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
+  for (const f of ["001_init.sql", "002_checkout_refunds.sql", "003_offline_methods.sql", "004_attempts.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
   const emitted: [string, unknown][] = [];
   const c: core.BillingCtx = {
     db: {

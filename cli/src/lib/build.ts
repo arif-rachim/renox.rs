@@ -26,6 +26,7 @@
 //   <out>/<hash>/. An existing directory with that name is reused
 //   (artifacts are content-addressed and never overwritten).
 
+import { bundledPackages, cyclonedx } from "../build/sbom.ts";
 import type { BunPlugin } from "bun";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -446,6 +447,9 @@ export async function buildFiles(
   if (missing.length) throw new BuildError("pages without a compiled template", missing.map((p) => `${p.html}: not compiled`));
   for (const [id, t] of Object.entries(templates)) files.set(`templates/${id}.jinja`, enc.encode(t.source));
   for (const [p, code] of bundled.code) files.set(`code/${p}`, enc.encode(code));
+  // Artifact 1.4 (#123): the npm packages bundled into code/, as a CycloneDX SBOM.
+  const sbomPackages = bundledPackages(project, bundled.maps);
+  if (sbomPackages.length > 0) files.set("sbom.cdx.json", enc.encode(cyclonedx(config.app.name, sbomPackages)));
   let size = 0;
   for (const [p, b] of files) if (p.startsWith("code/")) size += b.length;
   if (size > MAX_CODE_BYTES) throw new BuildError(`V5: code/ is ${size} bytes, over the ${MAX_CODE_BYTES}-byte bundle limit`);

@@ -31,6 +31,7 @@ status = "A queued message's state: (id) -> { status, attempts, error } | null"
 suppress = "Stop sending to an address: (address, reason) -> { ok }"
 unsuppress = "Allow an address again: (address) -> { ok }"
 isSuppressed = "Whether an address is suppressed: (address) -> boolean"
+resume = "Resume sending after a reputation pause (email.manage)"
 
 [exports.events."email.send_requested"]
 payload = { type = "object", required = ["message_id"], additionalProperties = false, properties = { message_id = { type = "string" } } }
@@ -43,6 +44,10 @@ description = "The provider reported a bounce; the address is suppressed"
 [exports.events."email.complained"]
 payload = { type = "object", required = ["address"], additionalProperties = false, properties = { address = { type = "string" } } }
 description = "The recipient marked a message as spam; the address is suppressed"
+
+[exports.events."email.paused"]
+payload = { type = "object", required = ["reason"], additionalProperties = false, properties = { reason = { type = "string" } } }
+description = "Complaints or bounces over the last 7 days passed the thresholds: sending is paused until resumed (#123)"
 
 [exports.hooks."email.before_send"]
 args = { type = "object", required = ["to_domain"], properties = { template = { type = ["string", "null"] }, locale = { type = ["string", "null"] }, to_domain = { type = "string" } } }
