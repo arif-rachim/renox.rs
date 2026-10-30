@@ -1,0 +1,19 @@
+[module]
+name = "tax_gcc"
+version = "1.0.0"
+description = "UAE FTA tax invoices: TRN, 5 % VAT with zero-rated and exempt lines in AED and fils, credit notes, VAT period reports, bilingual invoice data"
+
+[config]
+seller_name = { type = "string", default = "", max_length = 200, description = "The legal name on tax invoices" }
+seller_trn = { type = "string", default = "", max_length = 15, description = "The seller's 15-digit Tax Registration Number" }
+seller_address = { type = "string", default = "", max_length = 500, description = "The seller's address on tax invoices" }
+prefix = { type = "string", default = "INV", max_length = 10, description = "Invoice number prefix (credit notes use CN)" }
+
+[permissions]
+tables = "tax_gcc__*"
+
+[exports.services]
+issue = "Issue a tax invoice: ({ buyer: { name, trn?, address? }, lines: [{ description, quantity, unit_fils, rate: standard|zero|exempt }] }) -> invoice"
+creditNote = "A credit note against an invoice: (invoice_no, lines?, reason) -> credit note"
+invoice = "One invoice or credit note by number -> document | null"
+vatReport = "The VAT return totals of a period: (from_ms, to_ms) -> { standard, zero, exempt, output_vat }"
