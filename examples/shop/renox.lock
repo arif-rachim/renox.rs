@@ -2,6 +2,17 @@
 version = 1
 
 [[module]]
+name = "audit"
+version = "1.0.0"
+source = "official"
+hash = "afdef92fc39942028de41aceca151ccd2470fac99fdc9b67b5122d490d1de7e8"
+isolation = "shared"
+mount = "/audit"
+dependencies = []
+config = { retain_days = 365 }
+approved = { tables = "audit__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
 name = "i18n"
 version = "1.0.0"
 source = "official"
@@ -16,20 +27,42 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "17345adaa13f59c94338a841c726f7645784ffdc23209ee33a927bbdb6f3c123"
+hash = "7dc7d3e743795277c53f5edc75a6f8bc325cb9a4c71c6abb30a176c592344b12"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
-config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "" }
-approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
+config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "", uaepass_client_id = "", uaepass_env = "staging", phone_login = true, passkeys = true, passkey_rp_id = "", passkey_origin = "" }
+approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
+
+[[module]]
+name = "notifications"
+version = "1.0.0"
+source = "official"
+hash = "0498c4abb3a7ad550b62ec4375c554cbfb2772c21e1154c4980b1753610695c1"
+isolation = "shared"
+mount = "/notifications"
+dependencies = ["auth", "i18n"]
+config = { base_path = "/notifications", channels = "" }
+approved = { tables = "notifications__*", network = [], secrets = [], slots = ["app.header"], hooks = [] }
 
 [[module]]
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "27182ed187fbb61728598ff47e4707009ce0f928927875ee4b1c7efbb1b308be"
+hash = "6b1e232c758e62ac3b25aa71bb767b1482eecda337da7b2716738073ab3c399e"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/org", invite_days = 7 }
-approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = [] }
+approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
+
+[[module]]
+name = "twofa"
+version = "1.0.0"
+source = "official"
+hash = "03211c05d272cb752087ecad64f806d5209eb5899d1a5891154d193fea18b675"
+isolation = "shared"
+mount = "/2fa"
+dependencies = ["auth", "i18n"]
+config = { step_up_minutes = 15, allow_totp = true, allow_passkeys = true, recovery_codes = 10, issuer = "", base_path = "/2fa", passkey_rp_id = "", passkey_origin = "" }
+approved = { tables = "twofa__*", network = [], secrets = ["TWOFA_KEY"], slots = ["account.sections"], hooks = ["auth.after_login", "auth.principal"] }

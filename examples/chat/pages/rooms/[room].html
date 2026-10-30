@@ -1,0 +1,30 @@
+<r-layout use="main">
+  <r-group slot="title">{{ room.name }}</r-group>
+  <h1>{{ room.name }}</h1>
+  <div id="messages" aria-live="polite"></div>
+  <form id="send" :data-socket="socket">
+    <label>Message <input name="text" autocomplete="off" maxlength="1000" required></label>
+    <button type="submit">Send</button>
+  </form>
+  <script>
+    (() => {
+      // One socket per page; each message from the room is an HTML fragment
+      // the server rendered: `<div id="messages" hx-swap-oob="beforeend">`.
+      const form = document.getElementById("send");
+      const box = document.getElementById("messages");
+      const url = new URL(form.dataset.socket, location.href);
+      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(url);
+      socket.addEventListener("message", (e) => {
+        const tpl = document.createElement("template");
+        tpl.innerHTML = e.data;
+        for (const node of tpl.content.querySelectorAll("#messages > *")) box.append(node);
+      });
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        socket.send(JSON.stringify({ text: form.text.value }));
+        form.reset();
+      });
+    })();
+  </script>
+</r-layout>

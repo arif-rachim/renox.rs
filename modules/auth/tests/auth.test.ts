@@ -12,6 +12,8 @@ import { join } from "node:path";
 
 // The SDK helper by path: a module tree has no node_modules (its hash covers every file).
 import { app, policyCases, ServiceError, type TestApp } from "../../../sdk/src/test.ts";
+import { redirect, safeRedirectTarget } from "../../../sdk/src/redirect.ts";
+import { loginUrl, redirectWith, safePath } from "../lib/core.ts";
 
 const MODULE = join(import.meta.dir, "..");
 const worker = process.env.RENOX_TEST_SPEC ?? process.env.RENOX_WORKER_PATH;
@@ -180,4 +182,57 @@ describe.skipIf(!worker)("auth", () => {
   });
 
   policyCases(join(MODULE, "policies", "tests"));
+});
+
+// docs/24-threat-model.md A, "Open redirect via `next`/`return_to`" (#275
+// item 1): every redirect of auth (redirectWith, loginUrl) answers what
+// redirect.safe() of "renox" answers, on the fixture list of #111
+// (sdk/tests/redirect.test.ts). No worker needed.
+describe("auth redirects go through the redirect.safe() rules", () => {
+  // sdk/tests/redirect.test.ts REJECTED, plus the targets #111's check test drives.
+  const REJECTED = [
+    "//evil.example",
+    "//evil.example/path",
+    "/\\evil.example",
+    "\\\\evil.example",
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "javascript:alert(1)",
+    "JaVaScRiPt:alert(1)",
+    " javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "https://evil.example/",
+    "http://accounts.example.com/",
+    "https://accounts.example.com.evil.example/",
+    "https://accounts.example.com@evil.example/",
+    "https://user:pw@accounts.example.com/",
+    "dashboard",
+    "../admin",
+    "",
+    `/${"a".repeat(2048)}`,
+  ];
+  const ACCEPTED = ["/", "/account/settings?tab=billing#top", "/orders/7"];
+
+  test("safePath is safeRedirectTarget without allowed origins", () => {
+    for (const target of [...REJECTED, ...ACCEPTED]) expect([target, safePath(target)]).toEqual([target, safeRedirectTarget(target)]);
+  });
+
+  test("redirectWith: the same Location as redirect.safe(target, { fallback }), cookies kept", () => {
+    for (const target of [...REJECTED, ...ACCEPTED]) {
+      const ours = redirectWith(target, ["a=1"], "/home");
+      const sdk = redirect.safe(target, { fallback: "/home" });
+      expect([target, ours.status, ours.headers.get("location")]).toEqual([target, sdk.status, sdk.headers.get("location")]);
+      expect(ours.headers.getSetCookie()).toEqual(["a=1"]);
+    }
+    // An unsafe fallback becomes "/", as in redirect.safe.
+    expect(redirectWith("//evil.example", [], "https://evil.example").headers.get("location")).toBe("/");
+    expect(redirectWith(null, []).headers.get("location")).toBe("/");
+  });
+
+  test("loginUrl keeps next only when redirect.safe would", () => {
+    const ctx = { config: { login_path: "/auth/login" } };
+    for (const target of REJECTED) expect([target, loginUrl(ctx, target)]).toEqual([target, "/auth/login"]);
+    for (const target of ACCEPTED) expect(loginUrl(ctx, target)).toBe(`/auth/login?next=${encodeURIComponent(target)}`);
+    expect(loginUrl({ config: { login_path: "//evil.example/login" } }, "/x")).toBe("/auth/login?next=%2Fx");
+  });
 });

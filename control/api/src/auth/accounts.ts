@@ -37,6 +37,7 @@ import {
   SESSION_COOKIE,
 } from "./sessions.ts";
 import { sendNewDevice, sendPasswordChanged, sendPasswordReset, sendSignupExists, sendVerification } from "./notify.ts";
+import { sessionState } from "./mfa.ts";
 
 export const VERIFY_TTL_MS = DAY_MS;
 export const RESET_TTL_MS = 3_600_000;
@@ -116,19 +117,20 @@ interface UserRow {
   email: string;
   password_hash: string;
   email_verified_at: number | null;
+  created_at: number;
 }
 
 async function userByEmail(db: Db, email: string): Promise<UserRow | null> {
-  const rows = await db.query<Record<string, unknown>>("select id, email, password_hash, email_verified_at from users where email = $1", [email]);
+  const rows = await db.query<Record<string, unknown>>("select id, email, password_hash, email_verified_at, created_at from users where email = $1", [email]);
   const r = rows[0];
-  return r === undefined ? null : { id: r.id as string, email: r.email as string, password_hash: r.password_hash as string, email_verified_at: numOrNull(r.email_verified_at) };
+  return r === undefined ? null : { id: r.id as string, email: r.email as string, password_hash: r.password_hash as string, email_verified_at: numOrNull(r.email_verified_at), created_at: num(r.created_at) };
 }
 
 async function userById(db: Db, id: string): Promise<UserRow> {
-  const rows = await db.query<Record<string, unknown>>("select id, email, password_hash, email_verified_at from users where id = $1", [id]);
+  const rows = await db.query<Record<string, unknown>>("select id, email, password_hash, email_verified_at, created_at from users where id = $1", [id]);
   const r = rows[0];
   if (r === undefined) throw new ApiError("RENOX_UNAUTHENTICATED");
-  return { id: r.id as string, email: r.email as string, password_hash: r.password_hash as string, email_verified_at: numOrNull(r.email_verified_at) };
+  return { id: r.id as string, email: r.email as string, password_hash: r.password_hash as string, email_verified_at: numOrNull(r.email_verified_at), created_at: num(r.created_at) };
 }
 
 async function memberships(db: Db, userId: string): Promise<{ tenant_id: string; role: Role }[]> {
@@ -278,7 +280,9 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
       if (tenant === null) throw notFound();
     }
     const now = deps.now();
-    const session = await createSession(db, user.id, tenant?.tenant_id ?? null, now, clientIp(c), c.req.header("user-agent") ?? null);
+    // #293: a user with a second factor, or an owner or admin past the grace period without one, starts in an MFA state.
+    const mfaState = await sessionState(db, user, now);
+    const session = await createSession(db, user.id, tenant?.tenant_id ?? null, now, clientIp(c), c.req.header("user-agent") ?? null, mfaState);
     c.set("principal", { kind: "user", userId: user.id, sessionId: session.id, tenantId: tenant?.tenant_id ?? null });
     c.set("auditTarget", { user_id: user.id, session_id: session.id });
     setSessionCookie(c, session.value);
@@ -292,6 +296,8 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
       session_id: session.id,
       expires_at: now + SESSION_ABSOLUTE_MS,
       csrf: csrfOf(session.value),
+      // #293: `verify`: POST /v1/account/mfa/verify next; `enrol`: set up a second factor first.
+      mfa: mfaState,
     });
   });
 

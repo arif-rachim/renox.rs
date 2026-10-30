@@ -1,0 +1,23 @@
+# examples/chat (#282): one WebSocket room per page, HTML fragments
+# broadcast to the room (docs/09-htmx-realtime.md), rooms under a policy.
+[app]
+name = "chat"
+timezone = "Asia/Dubai"
+
+[permissions]
+network = []
+secrets = []
+
+[modules]
+i18n = { version = "^1.0.0" }
+auth = { version = "^1.0.0" }
+
+# `room.enter` (the routes' guard: a signed-in user, before any code runs),
+# then `room.join` on the room as loaded from the database
+# (policies/app/chat.cedar): public rooms for every signed-in user, a
+# private room for its members.
+[authz]
+actions = ["room.enter", "room.join"]
+
+[authz.entities]
+Room = { table = "app__rooms", attrs = ["private", "member"] }

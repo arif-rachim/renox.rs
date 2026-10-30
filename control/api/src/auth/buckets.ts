@@ -1,7 +1,10 @@
 // Token buckets for the unauthenticated account endpoints (#113: login,
-// sign-up, password reset, device login). control/api is not behind
-// renox-gateway (gate F1 notes on #113), so the buckets live here, per API
-// process, keyed by client address and by email.
+// sign-up, password reset, device login) and for tenant tokens (#275).
+// control/api is not behind renox-gateway (gate F1 notes on #113), so the
+// buckets live here, per API process, keyed by client address, by email,
+// and by token id.
+
+import type { Deps } from "../context.ts";
 
 export interface BucketRule {
   /** Requests allowed at once. */
@@ -20,6 +23,10 @@ export const RULES = {
   /** Sign-up, verification resend, and password reset mail, per address and per email. */
   mailIp: { burst: 5, everySeconds: 60 },
   mailEmail: { burst: 3, everySeconds: 300 },
+  /** Any request with a `renox_pat_` token, per token: 20/s with a burst of 100. */
+  token: { burst: 100, everySeconds: 0.05 },
+  /** Deployment uploads per token: 10 per minute. */
+  tokenUpload: { burst: 10, everySeconds: 6 },
 } satisfies Record<string, BucketRule>;
 
 const MAX_KEYS = 100_000;
@@ -42,4 +49,13 @@ export class Buckets {
     this.state.set(key, { tokens: tokens - 1, at: now });
     return { ok: true };
   }
+}
+
+const perDeps = new WeakMap<Deps, Buckets>();
+
+/** The buckets of one API process (one `Deps`), created on first use. */
+export function bucketsOf(deps: Deps): Buckets {
+  let b = perDeps.get(deps);
+  if (b === undefined) perDeps.set(deps, (b = new Buckets(deps.now)));
+  return b;
 }

@@ -1,0 +1,39 @@
+[module]
+name = "twofa"
+version = "1.0.0"
+description = "Two-step verification: TOTP, passkeys and recovery codes after the password, mfa_verified on the principal, step-up for sensitive actions"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
+
+[imports]
+services = ["auth.currentSession", "auth.currentUser", "auth.resumeLogin", "auth.loginUrl", "auth.refreshPrincipal", "i18n.detectLocale"]
+
+[config]
+step_up_minutes = { type = "int", default = 15, min = 1, max = 1440, description = "How long a verification counts: mfa_verified and requireRecent" }
+allow_totp = { type = "bool", default = true, description = "Authenticator apps (TOTP)" }
+allow_passkeys = { type = "bool", default = true, description = "Passkeys as a second factor" }
+recovery_codes = { type = "int", default = 10, min = 4, max = 20, description = "Recovery codes per set" }
+issuer = { type = "string", default = "", max_length = 60, description = "The name authenticator apps show; empty = the request's host" }
+base_path = { type = "string", default = "/2fa", max_length = 100, description = "Where the app mounts the module" }
+passkey_rp_id = { type = "string", default = "", max_length = 200, description = "The WebAuthn relying party id; empty = the request's host" }
+passkey_origin = { type = "string", default = "", max_length = 200, description = "The WebAuthn origin; empty = https://<the request's host>" }
+
+[permissions]
+tables = "twofa__*"
+secrets = ["TWOFA_KEY"]
+hooks = ["auth.after_login", "auth.principal"]
+slots = ["account.sections"]
+
+[exports.services]
+isEnrolled = "Whether a user has a second factor: (user_id) -> boolean"
+requireRecent = "Step-up for sensitive actions: resolves when this session verified within `within` minutes (default step_up_minutes), else throws STEP_UP_REQUIRED with the verify URL"
+verifiedAt = "When this session last passed the second factor (Unix ms), or null"
+
+[[slots]]
+name = "account.sections"
+template = "partials/account.html"
+
+[authz]
+actions = ["twofa.manage"]

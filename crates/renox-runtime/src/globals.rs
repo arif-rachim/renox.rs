@@ -7,6 +7,11 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use deno_core::{OpDecl, OpState, op2};
 
+use crate::ops::authz::{
+    op_authz_check, op_authz_check_batch, op_authz_explain, op_authz_guard,
+    op_authz_principal_cached, op_authz_principal_set, op_authz_roles_assign, op_authz_roles_list,
+    op_authz_roles_revoke,
+};
 use crate::ops::db::{
     op_db_execute, op_db_query, op_db_query_one, op_db_savepoint_begin, op_db_savepoint_release,
     op_db_savepoint_rollback, op_db_tx_begin, op_db_tx_commit, op_db_tx_rollback,
@@ -16,6 +21,10 @@ use crate::ops::events::{op_events_ack, op_events_emit};
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
 use crate::ops::log::op_log;
 use crate::ops::password::{op_password_hash, op_password_verify};
+use crate::ops::realtime::{
+    op_realtime_close, op_realtime_publish, op_realtime_send, op_realtime_subscribe,
+    op_realtime_unsubscribe,
+};
 use crate::ops::request::RequestTable;
 use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_response_write};
 use crate::ops::secrets::op_secrets_get_all;
@@ -83,6 +92,20 @@ deno_core::extension!(
         op_db_savepoint_release,
         op_db_savepoint_rollback,
         op_secrets_get_all,
+        op_authz_principal_cached,
+        op_authz_principal_set,
+        op_authz_guard,
+        op_authz_check,
+        op_authz_check_batch,
+        op_authz_explain,
+        op_authz_roles_assign,
+        op_authz_roles_revoke,
+        op_authz_roles_list,
+        op_realtime_subscribe,
+        op_realtime_unsubscribe,
+        op_realtime_publish,
+        op_realtime_send,
+        op_realtime_close,
         op_events_emit,
         op_events_ack,
         op_password_hash,

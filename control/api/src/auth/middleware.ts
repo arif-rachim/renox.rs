@@ -15,9 +15,11 @@ import { num } from "../db/db.ts";
 import type { Deps, Env, Principal } from "../context.ts";
 import { isRole, isTokenPermission, roleAllows, ROUTE_PERMISSIONS, type Permission, type Role } from "../tenancy/roles.ts";
 import { requestScope } from "../tenancy/scope.ts";
+import { bucketsOf, RULES } from "./buckets.ts";
 import { clientIp } from "./ip.ts";
 import { CSRF_HEADER, csrfMatches, findSession, readCookie, SESSION_COOKIE } from "./sessions.ts";
 import { allows, parseBearer, sameDigest, sha256hex } from "./tokens.ts";
+import { MFA_ROUTE_PERMISSIONS, needsStepUp, PENDING_ACTIONS, STEP_UP_ACTIONS } from "./mfa.ts";
 
 const unauthenticated = (): ApiError => new ApiError("RENOX_UNAUTHENTICATED");
 const forbidden = (field?: string, reason?: string): ApiError =>
@@ -25,11 +27,28 @@ const forbidden = (field?: string, reason?: string): ApiError =>
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * deploy-api.md section 2 (proposed numbers; docs/24-threat-model.md E,
+ * "Deploy API abuse"): every request of a token takes from its bucket, an
+ * upload also from its upload bucket; 429 `RENOX_RATE_LIMITED` with
+ * `Retry-After` when either is empty.
+ */
+function limitToken(deps: Deps, c: Context<Env>, tokenId: string): void {
+  const takes: [typeof RULES.token, string][] = [[RULES.token, `token:${tokenId}`]];
+  if (c.get("action") === "uploadDeployment") takes.push([RULES.tokenUpload, `upload:${tokenId}`]);
+  for (const [rule, key] of takes) {
+    const r = bucketsOf(deps).take(rule, key);
+    if (!r.ok) throw new ApiError("RENOX_RATE_LIMITED", undefined, { retryAfter: r.retryAfter });
+  }
+}
+
 /** The operation's row in ROUTE_PERMISSIONS must be `expected`: a route registered with another permission is a bug. */
 function assertTable(c: Context<Env>, expected: string): void {
   const action = c.get("action");
-  if (action === undefined || ROUTE_PERMISSIONS[action] !== expected) {
-    throw new Error(`route ${c.req.routePath} (${action ?? "no operation"}) is registered with ${expected}, the table says ${action === undefined ? "nothing" : String(ROUTE_PERMISSIONS[action])}`);
+  // #293: the MFA operations keep their own table (src/auth/mfa.ts).
+  const table = action === undefined ? undefined : (ROUTE_PERMISSIONS[action] ?? MFA_ROUTE_PERMISSIONS[action]);
+  if (action === undefined || table !== expected) {
+    throw new Error(`route ${c.req.routePath} (${action ?? "no operation"}) is registered with ${expected}, the table says ${action === undefined ? "nothing" : String(table)}`);
   }
 }
 
@@ -68,7 +87,10 @@ async function fromToken(deps: Deps, c: Context<Env>, value: string): Promise<{ 
   };
 }
 
-/** The session of the cookie, with CSRF checked on mutating requests; null when there is no live session. */
+/**
+ * The session of the cookie, with CSRF checked on mutating requests; null when there is no live session.
+ * #293: a session whose second factor is outstanding (`mfa_state`) reaches only the MFA operations and logout.
+ */
 async function sessionOf(deps: Deps, c: Context<Env>): Promise<{ id: string; userId: string; tenantId: string | null } | null> {
   const value = readCookie(c.req.header("cookie"), SESSION_COOKIE);
   if (value === null) return null;
@@ -77,6 +99,9 @@ async function sessionOf(deps: Deps, c: Context<Env>): Promise<{ id: string; use
   c.set("attempt", { tenantId: s.tenant_id, actor: `user:${s.user_id}` });
   // SameSite=Strict is the first defence; the header is the second.
   if (MUTATING.has(c.req.method) && !csrfMatches(value, c.req.header(CSRF_HEADER))) throw forbidden(CSRF_HEADER, "missing or wrong");
+  if (s.mfa_state !== null && !PENDING_ACTIONS.has(c.get("action") ?? "")) {
+    throw new ApiError("RENOX_UNAUTHENTICATED", [{ field: "mfa", reason: s.mfa_state === "verify" ? "required" : "enrol" }]);
+  }
   return { id: s.id, userId: s.user_id, tenantId: s.tenant_id };
 }
 
@@ -94,6 +119,7 @@ export function tenantAuth(deps: Deps, permission: Permission): MiddlewareHandle
       ({ principal, verified } = t);
       const p = t.principal;
       c.set("principal", p);
+      limitToken(deps, c, p.tokenId);
       if (!isTokenPermission(permission) || !allows(p.scopes, permission, c.req.param("app"))) throw forbidden();
       if (p.role !== null && !roleAllows(p.role, permission)) throw forbidden("role", p.role);
       await deps.db.query("update tokens set last_used_at = $1, last_used_ip = $2 where id = $3", [deps.now(), clientIp(c), p.tokenId]);
@@ -108,6 +134,8 @@ export function tenantAuth(deps: Deps, permission: Permission): MiddlewareHandle
       verified = m.verified;
       c.set("principal", principal);
       if (!roleAllows(m.role, permission)) throw forbidden("role", m.role);
+      // #293: secrets, tokens and the team need a recent second factor from a user who has one.
+      if (STEP_UP_ACTIONS.has(c.get("action") ?? "") && (await needsStepUp(deps.db, s.userId, s.id, deps.now()))) throw forbidden("mfa", "step_up_required");
     }
     // #113: the email address is verified before the first deploy.
     if (permission === "deploy" && !verified) throw forbidden("email", "verify the email address before deploying");

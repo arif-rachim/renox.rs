@@ -109,17 +109,18 @@ async function fixtureApp(): Promise<string> {
 }
 
 test.skipIf(!worker)(
-  "renox test: unit, snapshot per role, install/upgrade, policy cases (pending)",
+  "renox test: unit, snapshot per role, install/upgrade, policy cases",
   async () => {
     const dir = await fixtureApp();
     const first = await runTests(dir, ["-u"], "pipe");
-    expect(first.out).toContain("3 pass");
+    expect(first.out).toContain("4 pass");
     expect(first.code).toBe(0);
-    // Second run: the snapshots match, the policy case is still pending (F5).
+    // Second run: the snapshots match; the policy case is evaluated (#283),
+    // by `renox test` itself and as a test of the file that calls policyCases().
     const second = await runTests(dir, [], "pipe");
     expect(second.code, second.out).toBe(0);
-    expect(second.out).toContain("3 pass");
-    expect(second.out).toContain("1 todo");
+    expect(second.out).toContain("4 pass");
+    expect(second.out).toContain("(pass) policy policies/tests/notes.json");
     expect(second.out).not.toContain("snapshots: +");
   },
   120_000,

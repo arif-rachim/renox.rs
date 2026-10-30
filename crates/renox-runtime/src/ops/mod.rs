@@ -1,6 +1,7 @@
 //! Ops: the only way tenant JavaScript reaches anything outside its isolate
 //! (`docs/contracts/ops.md`).
 
+pub mod authz;
 pub mod db;
 pub mod events;
 pub mod fetch_connector;
@@ -8,6 +9,7 @@ pub mod log;
 pub mod modules;
 pub mod net_policy;
 pub mod password;
+pub mod realtime;
 pub mod secrets;
 
 #[cfg(feature = "v8")]

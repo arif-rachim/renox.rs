@@ -74,6 +74,12 @@ The deployment is recorded in the F3 review (#61).
 - `tests/ops.test.ts`: the operator console (#259): 403 without `OPS_CONSOLE`; with it, a tier change sent once with the operator token, which is not kept and does not replace the sign-in; bad input refused before the API; a token without `ops:write` shown as the API's refusal. With `RENOX_WORKER_PATH`, the worker renders the three actions.
 - `tests/dashboard.e2e.test.ts` (with `RENOX_WORKER_PATH`): the build's routes, fragments and permissions, `renox check`, and under `renox dev` the redirects, the sign-in form with CSRF, every signed-in screen rendered by the worker, the `log_lines` fragment, and a loopback control API refused with `RENOX_FETCH_BLOCKED`.
 
+## Second factors and live logs (#293)
+
+The control API holds the second factors of accounts (`control/api/README.md`, "Second factors"). The dashboard signs in with the user's own token, never with a password (ADR D23, above). So the factor is given where the password is: at `POST /v1/account/login`, in a browser session of the API, before the device flow (`renox login`) creates the token the dashboard uses. Approving that device login is itself stepped up. The dashboard therefore has no sign-in challenge step and no security page of its own yet: it would need the MFA endpoints to accept a token, which #293 did not change.
+
+The Logs page stays on its 2-second poll of the `log_lines` fragment. A live SSE feed needs something to follow `GET /v1/apps/{app}/logs?follow=1` and publish into a topic. A Renox handler runs only for the length of a request, so that follower has to be a platform job (#297) or a node-side subscriber. Until one exists, every poll is one bounded request.
+
 ## Notes
 
 - Actions call the API inside the action's transaction (`ops.md` section 14 asks to avoid `fetch` there): Promote and Rollback wait for the node's prepare, so the dashboard's one writer is held meanwhile. The dashboard writes nothing but sign-ins, so only concurrent sign-ins wait.

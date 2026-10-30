@@ -1,0 +1,1 @@
+<a class="renox-notif-badge" r-if="notif_badge" :href="notif_badge.url" hx-ext="sse" :sse-connect="notif_badge.sse"><r-t key="notifications.badge.label" /> <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML">{{ notif_badge.count }}</span></a>

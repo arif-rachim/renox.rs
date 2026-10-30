@@ -263,9 +263,11 @@ fn r_can_uses_the_hook() {
     let denied = render_page(&r, "pages/index", d.clone());
     assert_eq!(denied.matches("Sign in to buy").count(), 2);
     assert!(!denied.contains("/admin"));
-    let can: Arc<renox_template::CanFn> = Arc::new(|action: &str, resource: &Value| {
-        action == "cart.add" && resource.get_attr("id").ok().and_then(|v| v.as_i64()) == Some(1)
-    });
+    let can = Arc::new(renox_template::Can::default().with_check(Arc::new(
+        |action: &str, resource: &serde_json::Value| {
+            action == "cart.add" && resource.get("id").and_then(|v| v.as_i64()) == Some(1)
+        },
+    )));
     let out = r
         .render(
             RenderTarget::Page("pages/index"),

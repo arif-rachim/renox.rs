@@ -103,10 +103,10 @@ fn render_a(
         locale,
         csp_nonce: Some("n0nce".into()),
         csrf_token: Some("t0ken".into()),
-        can: Some(Arc::new(|a: &str, res: &Value| {
-            let res = serde_json::to_value(res).unwrap_or(serde_json::Value::Null);
-            can(a, &res)
-        })),
+        can: Some(Arc::new(
+            renox_template::Can::actions(["admin.access", "users.manage"])
+                .with_check(Arc::new(|a: &str, res: &serde_json::Value| can(a, res))),
+        )),
         ..RenderContext::default()
     };
     let value = serde_json::from_str::<Value>(data_json).expect("data");

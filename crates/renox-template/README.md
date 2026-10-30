@@ -85,7 +85,24 @@ Measured on the shop list page (100 products, 26.1 KB, `tests/render.rs`): 4,770
 - HTML auto-escaping everywhere; `/` is not escaped (minijinja's default does), `none`/`undefined` print nothing; undefined lookups chain (`a.b.c` on a missing `a` is empty, like `?.`).
 - No global function except `can`, and no `range`, `namespace`, `debug`. The compiler rejects every call in tenant expressions anyway; this is the second layer.
 - `__renox` (the platform value: CSP nonce, CSRF token, locale, limits, the `can` hook) comes from `RenderContext`, never from tenant data; a data key `__renox` is ignored.
-- `r-can` without a `can` hook denies.
+- `r-can` without a `Can` in the `RenderContext` denies ("Permissions").
+
+## Permissions (#280)
+
+`r-can` follows `docs/11-authorization.md`, "In templates". The compiler emits `{% if can("<action>", none) %}` without `:resource` and `{% if can("<action>", <expr>) %}` with it (`tests/snapshots/permissions__emitted_guards.snap`). The cell passes a `Can` in `RenderContext::can`. The crate does not depend on `renox-authz`.
+
+| `Can` field | Used for | Cost |
+| --- | --- | --- |
+| `actions` | `r-can` without a resource: a `HashSet` lookup in the action set the cell computed once per request | none |
+| `check` | `r-can` with a resource: one call per distinct `(action, resource)` of the render, keyed by `type:id` (or the resource's JSON without an `id`) | `CAN_FUEL` (100) render fuel per call; cache hits are free |
+
+- A denied subtree is not evaluated at all: no output, no filters, no nested checks.
+- Past the fuel budget, a check stops the render with `RenderError::Fuel`, like any other fuel exhaustion.
+- `RenderOutput::authz_evals` (and `RenderStats::authz_evals`) counts the calls for the meter's `authz_evals`.
+- Measured on 1,000 rows with one check each (`tests/permissions.rs`, development container): about 7 ms wall and 113,505 fuel, of which 100,000 is the checks (40% of the default budget; 45% in all). For larger pages, `authz.canBatch` in the loader and `r-if` are cheaper.
+- `CompiledTemplates::actions()` and `Renderer::actions()` list every action the templates name. The CLI and the worker's prepare compare this list with the merged action set; an unknown action fails `renox check` with file and line (`CompileOptions::actions`, `tests/diagnostics.rs`) and fails prepare with V25.
+- `Renderer::fragment_cache_key(template, block, can)` is `<template>#<block>@<hash of the action set>`, so users with different sets never share an entry. It is `None` when the template, its layout, or an include reaches an `r-can` with a resource: such fragments are never cached across users. The cell has no fragment cache yet; this key is what one must use.
+- Dev mode warnings (a resource missing a declared attribute is denied) are produced by the cell's `check`, which knows the engine's reason.
 
 ## Filters
 
@@ -123,7 +140,7 @@ The CLDR patterns for the two platform locales are written out in `src/filters/`
 - Built-in component `<x-image>` (storage module); module filters are accepted by name (`CompileOptions::filters`) but implemented by F4.
 - `<slot>` inside `<head>` other than in `<title>` (the HTML parser moves unknown elements out of `<head>`).
 - A layout using another layout.
-- The fragment cache.
+- The fragment cache itself (its key is in "Permissions").
 - Template size cap (`artifact.md` Open 4): compile time on large templates is not measured yet, so no cap is proposed.
 
 ## Render path B (`emit_js`)

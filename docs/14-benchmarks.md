@@ -28,7 +28,7 @@ Record CPU model, kernel, and Rust/Bun/Deno versions in every result file. Pass/
 | B11 | Throughput | Hello function, 4 vCPU, keep-alive | ≥ 40k req/s | < 15k req/s |
 | B12 | Noisy neighbor | Tenant A infinite loop + unbounded allocation while tenant B serves B6 | B's p99 changes ≤ 10%; A terminated at its CPU limit ± 5 ms | B's p99 changes > 25% |
 | B13 | Template DoS | Nested loops 10k × 10k | Stops at fuel within 50 ms; node unaffected | Render exceeds 500 ms |
-| B14 | Realtime | 10,000 idle WebSocket connections on one tenant | ≤ 50 MB total; isolate heap unchanged | > 150 MB |
+| B14 | Realtime | 10,000 idle WebSocket connections on one tenant (`bench/scenarios/B14`, `examples/chat`; dev container, debug build: `bench/results/2026-10-29-B14-dev-container.md`; `node-small` is O3, #158) | ≤ 50 MB total; isolate heap unchanged | > 150 MB |
 | B15 | Deploy | `renox deploy` of the example app to a local control plane | ≤ 30 s end-to-end; rollback ≤ 5 s | > 60 s |
 | B16 | Dev loop | Edit one template, browser updated | ≤ 300 ms | > 1 s |
 | B17 | npm compatibility | Payment SDKs (Stripe, Checkout.com, Telr, PayTabs, Tabby), OAuth (arctic/oslo), WhatsApp Cloud API client, email (resend/nodemailer), zod, date-fns, Arabic-aware date/number formatting (Intl) | All run in the isolate with declared network allowlist | Any core package fails |

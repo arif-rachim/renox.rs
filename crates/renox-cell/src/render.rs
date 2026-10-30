@@ -28,8 +28,8 @@ use renox_runtime::pages::PageRender;
 use renox_template::minijinja::Value;
 use renox_template::minijinja::value::{Enumerator, Object, ObjectRepr};
 use renox_template::{
-    Catalogs, Dir, ErrorPage, RenderContext, RenderError, RenderLimits, RenderTarget, Renderer,
-    Shell,
+    Can, Catalogs, Dir, ErrorPage, RenderContext, RenderError, RenderLimits, RenderTarget,
+    Renderer, Shell,
 };
 
 /// `RENOX_RENDER_LIMIT` (`errors.md` section 3).
@@ -56,6 +56,21 @@ pub struct PageRenderer {
     /// `(locale, key)` of catalog keys no catalog has, reported once per
     /// deployment by the renderer; drained into [`Rendered::i18n_missing`].
     missing: Arc<Mutex<Vec<(String, String)>>>,
+    /// The deployment's policy engine (#279), for `r-can` (#280).
+    authz: Option<renox_runtime::ops::authz::AuthzSlot>,
+    /// `partial` template ids: what a realtime `fragment` payload may name.
+    partials: BTreeSet<String>,
+}
+
+/// Why a realtime `fragment` could not be rendered (#281).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PartialError {
+    /// Not a `partial` template of the deployment.
+    Unknown,
+    /// A render limit (`fuel`, `iterations`, ...).
+    Limit(&'static str),
+    /// The render failed (the cause, for the tenant log).
+    Failed(String),
 }
 
 impl std::fmt::Debug for PageRenderer {
@@ -144,13 +159,19 @@ pub struct Rendered {
     /// `(locale, key)` of translation keys first found missing in this
     /// deployment: one `i18n_missing` log line each.
     pub i18n_missing: Vec<(String, String)>,
+    /// Evaluations of `r-can` with a resource (meter `authz_evals`).
+    pub authz_evals: u64,
+    /// Dev mode: one line per `r-can` resource that lacked a declared
+    /// attribute (denied; `docs/11`, "In templates").
+    pub authz_warnings: Vec<String>,
 }
 
-/// The request's action set for `r-can` and slot fillers' `requires`
-/// (`artifact.md` 1.1, "Slots"). The policy engine is F5; until then the set
-/// is empty, so `can()` is false, unless the page loader's data carries an
-/// `actions` array of action names, which is then the set.
-fn action_set(data_json: &str) -> Option<Arc<renox_template::render::CanFn>> {
+/// The action set of a deployment without policies (`artifact.md` 1.1,
+/// "Slots"): empty, so `can()` is false, unless the page loader's data
+/// carries an `actions` array of action names, which is then the set.
+/// Resource checks deny. With policies, [`PageRenderer::can_for`] asks
+/// the engine instead.
+fn data_action_set(data_json: &str) -> Option<Can> {
     #[derive(serde::Deserialize)]
     struct WithActions {
         #[serde(default)]
@@ -162,9 +183,18 @@ fn action_set(data_json: &str) -> Option<Arc<renox_template::render::CanFn>> {
             .and_then(|d| d.actions)?
             .into_iter()
             .collect();
-    Some(Arc::new(move |action: &str, _resource: &Value| {
-        actions.contains(action)
-    }))
+    Some(Can::actions(actions))
+}
+
+/// Whether the artifact declares any action of its own (an `authz` block,
+/// artifact 1.3). An artifact without one (1.2 and older) keeps the
+/// loader-data action set of [`data_action_set`] and no prepare check.
+pub fn declares_actions(engine: &renox_authz::Engine) -> bool {
+    engine
+        .schema()
+        .actions
+        .iter()
+        .any(|a| a != "realtime.subscribe")
 }
 
 impl PageRenderer {
@@ -183,6 +213,7 @@ impl PageRenderer {
         let mut fragments = BTreeMap::new();
         let mut error_template = None;
         let mut not_found_template = None;
+        let mut partials = BTreeSet::new();
         for (id, def) in manifest.template_defs() {
             let path = artifact_dir.join("templates").join(format!("{id}.jinja"));
             let source = std::fs::read_to_string(&path)
@@ -200,7 +231,10 @@ impl PageRenderer {
                 }
                 TemplateKind::Error => error_template = Some(id.clone()),
                 TemplateKind::NotFound => not_found_template = Some(id.clone()),
-                TemplateKind::Layout | TemplateKind::Partial => {}
+                TemplateKind::Partial => {
+                    partials.insert(id.clone());
+                }
+                TemplateKind::Layout => {}
             }
         }
         if sources.is_empty() {
@@ -227,7 +261,97 @@ impl PageRenderer {
             utc_offset_minutes: utc_offset_minutes(&manifest.app.timezone),
             deployment: deployment.to_string(),
             client_script,
+            authz: None,
+            partials,
         }))
+    }
+
+    /// Renders a `partial` template for a realtime `fragment` payload
+    /// (`ops.md` 1.5.0 section 18): `data_json` is the payload's `data`,
+    /// under the default render limits. Blocking: call on the render pool.
+    /// `(html, fuel, ms)`.
+    pub fn render_partial(
+        &self,
+        id: &str,
+        data_json: &str,
+    ) -> Result<(String, u64, f64), PartialError> {
+        if !self.partials.contains(id) {
+            return Err(PartialError::Unknown);
+        }
+        let data: Value =
+            serde_json::from_str(data_json).map_err(|e| PartialError::Failed(e.to_string()))?;
+        let cx = self.context(None);
+        self.renderer
+            .render(RenderTarget::Page(id), data, &cx, &RenderLimits::DEFAULT)
+            .map(|o| (o.html, o.fuel_used, o.ms))
+            .map_err(|e| match limit_name(&e) {
+                Some(l) => PartialError::Limit(l),
+                None => PartialError::Failed(e.to_string()),
+            })
+    }
+
+    /// Answers `r-can` from the deployment's policies (#280).
+    pub fn with_authz(mut self, slot: renox_runtime::ops::authz::AuthzSlot) -> PageRenderer {
+        self.authz = Some(slot);
+        self
+    }
+
+    /// Every action the templates name in `r-can` (prepare checks them
+    /// against the merged action set).
+    pub fn template_actions(&self) -> &BTreeSet<String> {
+        self.renderer.actions()
+    }
+
+    /// The `Can` of one page render (`docs/11-authorization.md`, "In
+    /// templates"): with the deployment's engine and the request's
+    /// principal, the resource-less action set computed once and a check
+    /// per resource; dev mode collects a line per missing attribute.
+    /// Without policies, the loader data's `actions` (see
+    /// [`data_action_set`]).
+    fn can_for(
+        &self,
+        page: &PageRender,
+        now_ms: i64,
+    ) -> (Option<Arc<Can>>, Arc<Mutex<Vec<String>>>) {
+        use renox_authz::{PlatformContext, Reason};
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let state = self
+            .authz
+            .as_ref()
+            .and_then(|slot| slot.read().ok().and_then(|s| s.clone()))
+            .filter(|st| declares_actions(&st.engine));
+        let Some(st) = state else {
+            return (data_action_set(&page.data_json).map(Arc::new), warnings);
+        };
+        let Some(principal) = page.principal.clone() else {
+            // Policies but no principal (no tenant code ran): deny all.
+            return (Some(Arc::new(Can::default())), warnings);
+        };
+        let platform = PlatformContext {
+            now_ms,
+            request: None,
+        };
+        let actions = st.engine.action_set(&principal, &platform);
+        let engine = st.engine.clone();
+        let dev = st.dev;
+        let sink = warnings.clone();
+        let check = move |action: &str, resource: &serde_json::Value| {
+            let d = engine.check(&principal, action, Some(resource), None, None, &platform);
+            if dev
+                && d.reason == Reason::MissingAttribute
+                && let Ok(mut w) = sink.lock()
+            {
+                let ty = resource.get("type").and_then(|t| t.as_str()).unwrap_or("?");
+                w.push(format!(
+                    "r-can `{action}`: the {ty} resource lacks a declared attribute; denied"
+                ));
+            }
+            d.allow
+        };
+        (
+            Some(Arc::new(Can::actions(actions).with_check(Arc::new(check)))),
+            warnings,
+        )
     }
 
     /// The page shell tags of one response (`client-events.md` section 1).
@@ -382,7 +506,8 @@ impl PageRenderer {
         if let Some(now) = now_ms {
             cx.now_ms = now;
         }
-        cx.can = action_set(&page.data_json);
+        let (can, warnings) = self.can_for(page, cx.now_ms);
+        cx.can = can;
         let limits = RenderLimits::DEFAULT;
         let main: Vec<&str> = page.fragment.as_deref().into_iter().collect();
         let result = if page.oob_fragments.is_empty() {
@@ -392,7 +517,7 @@ impl PageRenderer {
             };
             self.renderer
                 .render(target, data, &cx, &limits)
-                .map(|o| (o.html, o.fuel_used, o.ms))
+                .map(|o| (o.html, o.fuel_used, o.ms, o.authz_evals))
         } else if main.is_empty() {
             // An htmx action with `{ fragments }` and no fragment selected by
             // `HX-Target`: only the out-of-band blocks.
@@ -401,7 +526,7 @@ impl PageRenderer {
                 .render_blocks(template, &blocks, data, &cx, &limits)
                 .map(|(parts, stats)| {
                     let html: String = parts.iter().map(|p| mark_oob(p)).collect();
-                    (html, stats.fuel_used, stats.ms)
+                    (html, stats.fuel_used, stats.ms, stats.authz_evals)
                 })
         } else {
             let mut blocks = main.clone();
@@ -417,11 +542,15 @@ impl PageRenderer {
                             html.push_str(&mark_oob(&p));
                         }
                     }
-                    (html, stats.fuel_used, stats.ms)
+                    (html, stats.fuel_used, stats.ms, stats.authz_evals)
                 })
         };
+        let authz_warnings = warnings
+            .lock()
+            .map(|mut w| std::mem::take(&mut *w))
+            .unwrap_or_default();
         match result {
-            Ok((html, fuel, ms)) => Rendered {
+            Ok((html, fuel, ms, authz_evals)) => Rendered {
                 // A whole page gets the shell tags; fragments do not.
                 response: html_response(
                     200,
@@ -439,6 +568,8 @@ impl PageRenderer {
                 limit: false,
                 log: None,
                 i18n_missing: self.take_missing(),
+                authz_evals,
+                authz_warnings,
             },
             Err(e) => {
                 let stats = e.stats();
@@ -447,13 +578,16 @@ impl PageRenderer {
                 } else {
                     Failure::internal("render_failed", Some(e.to_string()))
                 };
-                self.failure(
+                let mut page = self.failure(
                     request_id,
                     csp_nonce,
                     failure,
                     stats.fuel_used,
                     Some(stats.ms),
-                )
+                );
+                page.authz_evals = stats.authz_evals;
+                page.authz_warnings = authz_warnings;
+                page
             }
         }
     }
@@ -548,6 +682,8 @@ impl PageRenderer {
                 limit: false,
                 log: None,
                 i18n_missing: Vec::new(),
+                authz_evals: 0,
+                authz_warnings: Vec::new(),
             };
         };
         // Exactly the four fields (errors.md section 1).
@@ -569,6 +705,8 @@ impl PageRenderer {
                 limit: false,
                 log: None,
                 i18n_missing: Vec::new(),
+                authz_evals: 0,
+                authz_warnings: Vec::new(),
             },
             Err(e) => {
                 let stats = e.stats();
@@ -587,6 +725,8 @@ impl PageRenderer {
                     limit: false,
                     log: Some(("error page could not be rendered".into(), fields)),
                     i18n_missing: Vec::new(),
+                    authz_evals: 0,
+                    authz_warnings: Vec::new(),
                 }
             }
         }

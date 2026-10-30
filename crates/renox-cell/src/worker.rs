@@ -339,6 +339,8 @@ impl Worker {
                 platform_key,
             },
         );
+        manager.set_authz_config(config.authz.to_config());
+        manager.set_realtime_config(config.realtime.clone());
         // Litestream per tenant file (#255).
         let replication = config.replication.enabled.then(|| {
             let r = crate::replication::Replication::start(

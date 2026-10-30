@@ -197,6 +197,10 @@ struct Inner {
     evicted: std::sync::atomic::AtomicU64,
     /// Outbox delivery settings for new cells (#229).
     outbox: Mutex<crate::outbox::OutboxConfig>,
+    /// The worker's `[authz]` (#279): dev mode and the principal cache TTL.
+    authz: Mutex<crate::authz::AuthzConfig>,
+    /// The worker's `[realtime]` caps (#281).
+    realtime: Mutex<crate::config::RealtimeSection>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -256,6 +260,8 @@ impl CellManager {
                 created: Default::default(),
                 evicted: Default::default(),
                 outbox: Mutex::new(crate::outbox::OutboxConfig::default()),
+                authz: Mutex::new(crate::authz::AuthzConfig::default()),
+                realtime: Mutex::new(crate::config::RealtimeSection::default()),
                 trim_scheduled: Default::default(),
                 trims: Default::default(),
                 #[cfg(feature = "test-support")]
@@ -313,6 +319,16 @@ impl CellManager {
 
     /// Outbox delivery settings for cells created from now on (retries,
     /// backoff, dead-letter cap; ops.md 1.3.0 section 15.4).
+    /// Dev mode and the principal cache TTL of cells created from now on.
+    /// The worker's `[realtime]` (#281), for cells created from now on.
+    pub fn set_realtime_config(&self, config: crate::config::RealtimeSection) {
+        *self.inner.realtime.lock().expect("realtime lock") = config;
+    }
+
+    pub fn set_authz_config(&self, config: crate::authz::AuthzConfig) {
+        *self.inner.authz.lock().expect("authz lock") = config;
+    }
+
     pub fn set_outbox_config(&self, config: crate::outbox::OutboxConfig) {
         *self.inner.outbox.lock().expect("outbox lock") = config;
     }
@@ -507,6 +523,16 @@ impl CellManager {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Principal cache and decision counters of the live cells (#279).
+    pub fn authz_stats(&self) -> crate::authz::AuthzStats {
+        let mut stats = crate::authz::AuthzStats::default();
+        let cells = self.inner.cells.lock().expect("cells lock");
+        for cell in cells.values().filter_map(|slot| slot.get()) {
+            stats.add(&cell.isolate.authz_slot());
+        }
+        stats
+    }
+
     pub fn cells_evicted(&self) -> u64 {
         self.inner
             .evicted
@@ -653,7 +679,22 @@ impl CellManager {
                 (Ok((opened, migrated)), Ok(isolate)) => {
                     db_ms = opened.saturating_sub(artifact_ms);
                     migrate_ms = migrated;
-                    Ok(isolate)
+                    // ops.md 1.5.0 section 17: the policies are loaded (V24
+                    // at load) once the tables exist, before any request.
+                    let config = *self.inner.authz.lock().expect("authz lock");
+                    match crate::authz::build(&artifact_dir, &db, config).await {
+                        Ok(state) => {
+                            *isolate.authz_slot().write().expect("authz slot") = Some(state);
+                            Ok(isolate)
+                        }
+                        Err(reason) => {
+                            isolate.terminate();
+                            Err(CellError::Artifact(ArtifactError::Invalid {
+                                rule: "V24",
+                                reason,
+                            }))
+                        }
+                    }
                 }
                 (Err(e), Ok(isolate)) => {
                     isolate.terminate();
@@ -677,7 +718,14 @@ impl CellManager {
             }
         };
         let keys = SessionKeys::new(self.inner.config.platform_key.tenant_key(&key.tenant_id));
-        let web = match load_pages(&artifact_dir, &key.deployment_hash, keys).await {
+        let web = match load_pages(
+            &artifact_dir,
+            &key.deployment_hash,
+            keys,
+            isolate.authz_slot(),
+        )
+        .await
+        {
             Ok(p) => p,
             Err(e) => {
                 isolate.terminate();
@@ -691,7 +739,22 @@ impl CellManager {
             }
         };
         let stats = isolate.stats();
-        let cell = Arc::new(Cell::new(key.clone(), isolate, web));
+        // #281: one hub per cell, sized by the tier; the isolate reaches it
+        // through its realtime slot.
+        let host = crate::realtime::CellRealtime::new(
+            renox_realtime::Hub::new(
+                self.inner
+                    .realtime
+                    .lock()
+                    .expect("realtime lock")
+                    .limits(tier_name == TierName::Paid),
+            ),
+            web.pages.clone(),
+        );
+        *isolate.realtime_slot().write().expect("realtime slot") = Some(host.clone());
+        let mut cell = Cell::new(key.clone(), isolate, web);
+        cell.realtime = Some(host);
+        let cell = Arc::new(cell);
         self.inner
             .created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -935,6 +998,53 @@ impl CellManager {
         };
         let _guard = InFlightGuard(&cell);
         let (mut parts, body) = req.into_parts();
+        // #285: the App MCP endpoint and its metadata, on every app.
+        if crate::mcp::handles(parts.uri.path()) {
+            // The gateway has applied its body limit already.
+            let body = body
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            return to_body(crate::mcp::serve(self, &cell, ctx, &parts, body).await);
+        }
+        // #281: `ws` and `sse` routes are served by the realtime layer.
+        if let Some(route) = cell.isolate.realtime_route(parts.uri.path()) {
+            // #118: the Origin check (cross-site WebSocket hijacking), before
+            // the realtime layer and the isolate.
+            let header =
+                |n: http::header::HeaderName| parts.headers.get(n).and_then(|v| v.to_str().ok());
+            let kind = if parts.headers.contains_key(http::header::UPGRADE) {
+                renox_realtime::origin::Upgrade::Ws
+            } else {
+                renox_realtime::origin::Upgrade::Sse
+            };
+            if let Err(refusal) = renox_realtime::origin::check(
+                kind,
+                header(http::header::ORIGIN),
+                header(http::header::HOST).unwrap_or_default(),
+                &cell.web.origins,
+                parts.headers.contains_key(http::header::COOKIE),
+            ) {
+                tracing::info!(
+                    tenant_id = %ctx.tenant_id,
+                    request_id = %ctx.request_id,
+                    reason = refusal.as_str(),
+                    "realtime upgrade refused by the origin check"
+                );
+                return to_body(PlatformResponse::error(
+                    ErrorCode::Forbidden,
+                    &ctx.request_id,
+                ));
+            }
+            let session = cell
+                .web
+                .guard
+                .as_ref()
+                .and_then(|g| g.session_of(&parts.headers))
+                .unwrap_or_default();
+            return crate::realtime::serve(self, cell.clone(), ctx, parts, route, session).await;
+        }
         let is_head = parts.method == http::Method::HEAD;
         let get_or_head = is_head || parts.method == http::Method::GET;
         let wants_html = prefers_html(&parts.headers);
@@ -1135,7 +1245,10 @@ impl CellManager {
             out.meter.status = RuntimeStatus::Error;
         }
         let (mut render_fuel, mut render_ms, mut render_limit) = (0, None, false);
+        let mut render_evals = 0;
         if let Some(r) = rendered {
+            log_authz_warnings(&cell.isolate, &ctx.request_id, &r.authz_warnings);
+            render_evals = r.authz_evals;
             if let Some((message, fields)) = &r.log {
                 cell.isolate
                     .log("error", Some(&ctx.request_id), message, fields.clone());
@@ -1184,6 +1297,7 @@ impl CellManager {
             fuel: render_fuel,
             ms: render_ms,
             limit: render_limit,
+            authz_evals: render_evals,
         };
         self.record(
             &rc,
@@ -1193,6 +1307,22 @@ impl CellManager {
             &used,
         );
         to_body(out.response)
+    }
+
+    /// A realtime connection's record (#281), built by the realtime layer.
+    pub(crate) fn record_realtime(&self, r: MeterRecord) {
+        self.inner.meter.record(r);
+    }
+
+    /// The realtime counters of a live cell (#281): connections, messages,
+    /// refusals and closes by reason.
+    pub fn realtime_stats(&self, tenant_id: &str) -> Option<renox_realtime::Counters> {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        cells
+            .iter()
+            .filter(|(k, _)| k.tenant_id == tenant_id)
+            .filter_map(|(_, slot)| slot.get())
+            .find_map(|c| c.realtime.as_ref().map(|r| r.hub.snapshot()))
     }
 
     /// One meter record (`ops.md` section 7). 404 and 405 answered by
@@ -1224,8 +1354,13 @@ impl CellManager {
             fetch_blocked: m.fetch_blocked,
             db_ms: m.db_ms,
             db_rows: m.db_rows,
-            render_fuel: render.fuel,
-            render_ms: render.ms,
+            // #281: realtime fragments the invocation published.
+            render_fuel: render.fuel + m.render_fuel,
+            render_ms: match (render.ms, m.render_fuel > 0) {
+                (Some(ms), true) => Some(ms + m.render_ms),
+                (None, true) => Some(m.render_ms),
+                (ms, false) => ms,
+            },
             logs_dropped: m.logs_dropped,
             http_status,
             status: if render.limit {
@@ -1234,6 +1369,9 @@ impl CellManager {
                 meter_status(m.status)
             },
             kind: None,
+            authz_evals: Some(m.authz_evals + render.authz_evals).filter(|n| *n > 0),
+            realtime_conn_seconds: None,
+            realtime_messages: None,
         });
     }
 
@@ -1273,6 +1411,7 @@ impl CellManager {
                 fuel: shell.fuel,
                 ms: Some(shell.ms),
                 limit: false,
+                authz_evals: 0,
             };
             let mut live = sender.send(shell.html.as_bytes()).await;
             let mut out = dispatch.await;
@@ -1295,6 +1434,8 @@ impl CellManager {
                     })
                     .await;
                     used.fuel += rendered.fuel;
+                    used.authz_evals += rendered.authz_evals;
+                    log_authz_warnings(&isolate.isolate, &request_id, &rendered.authz_warnings);
                     used.ms = add_ms(used.ms, rendered.ms);
                     used.limit = rendered.limit;
                     if let Some((message, mut fields)) = rendered.log {
@@ -1420,6 +1561,22 @@ struct RenderUse {
     fuel: u64,
     ms: Option<f64>,
     limit: bool,
+    /// `r-can` evaluations of the render (#280).
+    authz_evals: u64,
+}
+
+/// Dev mode: one `warn` line per `r-can` resource that lacked a declared
+/// attribute (#280; `docs/11-authorization.md`, "In templates").
+fn log_authz_warnings(
+    isolate: &renox_runtime::isolate::IsolateHandle,
+    request_id: &str,
+    warnings: &[String],
+) {
+    for w in warnings {
+        let mut fields = serde_json::Map::new();
+        fields.insert("event".into(), "authz_missing_attribute".into());
+        isolate.log("warn", Some(request_id), w, fields);
+    }
 }
 
 /// One `i18n_missing` line per translation key first found missing in this
@@ -1455,10 +1612,10 @@ struct ShellSent {
 
 /// Keeps a cell counted as in flight while a streamed body is sent after
 /// `handle` returned, so a draining cell is not evicted mid-stream.
-struct OwnedInFlight(Option<Arc<Cell>>);
+pub(crate) struct OwnedInFlight(Option<Arc<Cell>>);
 
 impl OwnedInFlight {
-    fn take(cell: &Arc<Cell>) -> OwnedInFlight {
+    pub(crate) fn take(cell: &Arc<Cell>) -> OwnedInFlight {
         // The request is in flight already, so the cell is not evicted.
         OwnedInFlight(cell.try_admit().then(|| cell.clone()))
     }
@@ -1570,9 +1727,20 @@ impl BodySender {
 /// The connection's end of a streamed body. A truncation is held back for
 /// one poll: hyper drops the bytes it has buffered when a body fails, so it
 /// gets one round to flush the last chunk before the error.
-struct ChannelBody {
+pub(crate) struct ChannelBody {
     rx: tokio::sync::mpsc::Receiver<Result<Bytes, std::io::Error>>,
     error: Option<std::io::Error>,
+}
+
+impl ChannelBody {
+    /// A body fed by the returned sender (an SSE stream, #281).
+    pub(crate) fn channel() -> (
+        tokio::sync::mpsc::Sender<Result<Bytes, std::io::Error>>,
+        ChannelBody,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::channel(BODY_CHANNEL);
+        (tx, ChannelBody { rx, error: None })
+    }
 }
 
 impl hyper::body::Body for ChannelBody {
@@ -1615,6 +1783,8 @@ async fn on_render_pool(f: impl FnOnce() -> Rendered + Send + 'static) -> Render
             limit: false,
             log: None,
             i18n_missing: Vec::new(),
+            authz_evals: 0,
+            authz_warnings: Vec::new(),
         },
     }
 }
@@ -1626,12 +1796,13 @@ async fn load_pages(
     artifact_dir: &Path,
     deployment_hash: &str,
     keys: SessionKeys,
+    authz: renox_runtime::ops::authz::AuthzSlot,
 ) -> Result<WebLayer, CellError> {
     let dir = artifact_dir.to_path_buf();
     let hash = deployment_hash.to_string();
     tokio::task::spawn_blocking(move || {
         let raw = std::fs::read(dir.join("manifest.json"))
-            .map_err(|_| "V3: manifest.json cannot be read".to_string())?;
+            .map_err(|_| ("V14", "V3: manifest.json cannot be read".to_string()))?;
         // `client.events` (client-events.md Open 1), read the way the
         // gateway reads it, so the script tag and the endpoint agree.
         let client_script = std::str::from_utf8(&raw)
@@ -1639,40 +1810,57 @@ async fn load_pages(
             .and_then(|j| DeploymentInfo::parse(j).ok())
             .is_none_or(|i| i.client_events)
             .then(renox_gateway::client_script::script_src);
-        let manifest: renox_runtime::manifest::Manifest =
-            serde_json::from_slice(&raw).map_err(|e| format!("V3: manifest.json: {e}"))?;
+        let manifest: renox_runtime::manifest::Manifest = serde_json::from_slice(&raw)
+            .map_err(|e| ("V14", format!("V3: manifest.json: {e}")))?;
         let guard = PageGuard::new(&manifest.routes, keys);
         let security: SecurityConfig = match &manifest.security {
             Some(v) => serde_json::from_value(v.clone())
-                .map_err(|e| format!("V16: manifest.security: {e}"))?,
+                .map_err(|e| ("V14", format!("V16: manifest.security: {e}")))?,
             None => SecurityConfig::default(),
         };
         let buckets = RouteBuckets::new(&manifest.routes, &security.ratelimit);
-        PageRenderer::load(&dir, &manifest, &hash, client_script).map(|p| WebLayer {
-            pages: p.map(Arc::new),
+        let pages = PageRenderer::load(&dir, &manifest, &hash, client_script)
+            .map_err(|e| ("V14", e))?
+            .map(|p| p.with_authz(authz.clone()));
+        // #280: a template naming an action the merged action set lacks is
+        // refused at prepare (`RENOX_POLICY_INVALID`, V25).
+        let engine = authz
+            .read()
+            .ok()
+            .and_then(|s| s.clone())
+            .filter(|st| crate::render::declares_actions(&st.engine));
+        if let (Some(p), Some(st)) = (&pages, engine)
+            && let Some(unknown) = p
+                .template_actions()
+                .iter()
+                .find(|a| !st.engine.schema().actions.contains(*a))
+        {
+            return Err((
+                "V25",
+                format!("RENOX_POLICY_INVALID: a template names the action `{unknown}`, which no policy owner declares"),
+            ));
+        }
+        Ok::<_, (&'static str, String)>(WebLayer {
+            pages: pages.map(Arc::new),
             guard,
             buckets,
             // `SameSite=None` only when CORS with credentials is enabled
             // (docs/04-isolation-security.md, "Cookies").
             same_site_none: security.cors.credentials && !security.cors.origins.is_empty(),
+            origins: security.cors.origins.clone(),
         })
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| ("V14", e.to_string()))
     .and_then(|r| r)
-    .map_err(|reason| {
-        CellError::Artifact(ArtifactError::Invalid {
-            rule: "V14",
-            reason,
-        })
-    })
+    .map_err(|(rule, reason)| CellError::Artifact(ArtifactError::Invalid { rule, reason }))
 }
 
 fn to_body(r: Response<Bytes>) -> Response<Body> {
     r.map(Body::from)
 }
 
-fn meter_status(s: RuntimeStatus) -> MeterStatus {
+pub(crate) fn meter_status(s: RuntimeStatus) -> MeterStatus {
     match s {
         RuntimeStatus::Ok => MeterStatus::Ok,
         RuntimeStatus::Error => MeterStatus::Error,
@@ -1681,6 +1869,7 @@ fn meter_status(s: RuntimeStatus) -> MeterStatus {
         RuntimeStatus::Oom => MeterStatus::Oom,
         RuntimeStatus::BlockedFetch => MeterStatus::BlockedFetch,
         RuntimeStatus::Busy => MeterStatus::Busy,
+        RuntimeStatus::Forbidden => MeterStatus::Forbidden,
     }
 }
 

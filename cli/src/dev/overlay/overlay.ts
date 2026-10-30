@@ -45,6 +45,26 @@ export function overlayRows(status: number, d: ErrorDetails): { title: string; r
   if (d.wall_ms !== null) rows.push(["wall_ms", d.wall_ms.toFixed(1)]);
   if (d.template) rows.push(["template", d.line !== null ? `${d.template}:${d.line}` : d.template]);
   if (d.render_fuel !== null && d.code === "RENOX_RENDER_LIMIT") rows.push(["render_fuel", String(d.render_fuel)]);
+  // #294: an authorization denial: what was asked, by whom, and the policy that decided (dev mode names it).
+  if (d.code === "RENOX_FORBIDDEN") {
+    if (d.action) rows.push(["action", d.action]);
+    if (d.resource) rows.push(["resource", d.resource]);
+    if (d.principal) rows.push(["principal", d.principal]);
+    rows.push(["policy", d.policy ?? "no policy permits it (default deny)"]);
+    if (d.reason) rows.push(["reason", d.reason]);
+  }
+  // #294: a db.scoped() refusal: the owned table and the statement shape.
+  if (d.code === "RENOX_DB_SCOPE") {
+    const shapes: Record<string, string> = {
+      unscoped: "a statement on an owned table outside db.scoped()",
+      unprovable: "a shape the scope cannot be proven for (a subquery, a CTE, a set operation, a RIGHT/FULL join, UPDATE … FROM, INSERT … SELECT, INSERT without a column list, an upsert)",
+      owner_mismatch: "an INSERT with another owner than the scope",
+      scope_missing: "a scope without the value the table needs",
+    };
+    if (d.table) rows.push(["table", d.module ? `${d.table} (module ${d.module})` : d.table]);
+    if (d.reason) rows.push(["statement", `${d.reason}: ${shapes[d.reason] ?? d.reason}`]);
+    if (d.principal) rows.push(["principal", d.principal]);
+  }
   if (d.cause) rows.push(["cause", d.cause]);
   rows.push(["request id", d.request_id]);
   return { title: `renox dev: ${status} ${d.code ?? ""}`.trim(), rows };

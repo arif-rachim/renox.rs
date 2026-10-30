@@ -22,6 +22,14 @@
 //! threads created after it); the seccomp allowlist follows in
 //! `Worker::start` once the listeners are bound.
 //!
+//! `renox-worker check-policies`: V24 and policy test cases for the CLI
+//! (#283). Reads `{ "manifest": {..}, "policies": { "<artifact path>":
+//! "<text>" }, "cases"?: [{ principal: { type, id, roles?, attrs? },
+//! action, resource?, context? }], "explain"?: bool }` on stdin and prints
+//! `{ "errors": [{ file, line, column, message }], "results": [{ allow,
+//! reason, policies, explanation? }] }`: the engine the cell builds
+//! (`renox_cell::authz::engine_for_check`). No V8, no database.
+//!
 //! `renox-worker migrate <artifact dir> <db file>`: the artifact's migration
 //! plan against a local tenant file for `renox migrate` (#235): each
 //! installed module in the manifest's order under its own prefix, then the
@@ -37,7 +45,7 @@ use renox_cell::{Worker, WorkerConfig};
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker --config <worker.toml> --child <tenant> --socket <path> | renox-worker transpile | renox-worker migrate <artifact dir> <db file>"
+        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker --config <worker.toml> --child <tenant> --socket <path> | renox-worker transpile | renox-worker check-policies | renox-worker migrate <artifact dir> <db file>"
     );
     ExitCode::from(2)
 }
@@ -167,11 +175,106 @@ fn migrate(artifact: &str, db_file: &str) -> ExitCode {
     }
 }
 
+fn check_policies() -> ExitCode {
+    use std::io::Read;
+    #[derive(serde::Deserialize)]
+    struct Case {
+        principal: CasePrincipal,
+        action: String,
+        #[serde(default)]
+        resource: Option<serde_json::Value>,
+        #[serde(default)]
+        context: Option<serde_json::Map<String, serde_json::Value>>,
+    }
+    #[derive(serde::Deserialize)]
+    struct CasePrincipal {
+        #[serde(rename = "type")]
+        ty: String,
+        id: String,
+        #[serde(default)]
+        roles: Vec<String>,
+        #[serde(default)]
+        attrs: serde_json::Map<String, serde_json::Value>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Input {
+        manifest: serde_json::Value,
+        #[serde(default)]
+        policies: std::collections::BTreeMap<String, String>,
+        #[serde(default)]
+        cases: Vec<Case>,
+        #[serde(default)]
+        explain: bool,
+        /// Table → column → declared type of the entity tables (#292).
+        #[serde(default)]
+        columns: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    }
+    let mut raw = String::new();
+    if std::io::stdin().read_to_string(&mut raw).is_err() {
+        eprintln!("renox-worker check-policies: stdin is not UTF-8");
+        return ExitCode::from(2);
+    }
+    let input: Input = match serde_json::from_str(&raw) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("renox-worker check-policies: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let policies: Vec<(String, String)> = input.policies.into_iter().collect();
+    let engine = match renox_cell::authz::engine_for_check(
+        &input.manifest,
+        &policies,
+        &input.columns,
+    ) {
+        Ok(e) => e,
+        Err(errs) => {
+            let errors: Vec<serde_json::Value> = errs
+                .iter()
+                .map(|e| serde_json::json!({ "file": e.file, "line": e.line, "column": e.column, "message": e.message }))
+                .collect();
+            println!("{}", serde_json::json!({ "errors": errors, "results": [] }));
+            return ExitCode::SUCCESS;
+        }
+    };
+    let platform = renox_authz::PlatformContext::default();
+    let results: Vec<serde_json::Value> = input
+        .cases
+        .iter()
+        .map(|c| {
+            let mut p = match c.principal.ty.as_str() {
+                "System" => renox_authz::Principal::system(&c.principal.id),
+                "Anonymous" => renox_authz::Principal::anonymous(),
+                _ => renox_authz::Principal::user(&c.principal.id),
+            };
+            for r in &c.principal.roles {
+                p = p.with_role(r, "global", None);
+            }
+            for (k, v) in &c.principal.attrs {
+                p = p.with_attr(k, v.clone());
+            }
+            let d = engine.check(&p, &c.action, c.resource.as_ref(), None, c.context.as_ref(), &platform);
+            let mut out = serde_json::json!({ "allow": d.allow, "reason": d.reason.as_str(), "policies": d.policies });
+            if input.explain {
+                let x = engine.explain(&p, &c.action, c.resource.as_ref(), None, c.context.as_ref(), &platform);
+                out["explanation"] = serde_json::json!({ "decision": x.decision, "reasons": x.reasons, "errors": x.errors, "text": x.text() });
+            }
+            out
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({ "errors": [], "results": results })
+    );
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
         ["transpile"] => transpile(),
+        ["check-policies"] => check_policies(),
         ["migrate", artifact, db_file] => migrate(artifact, db_file),
         ["--sandbox-selftest", "--config", p] | ["--config", p, "--sandbox-selftest"] => {
             sandbox_selftest(PathBuf::from(p))

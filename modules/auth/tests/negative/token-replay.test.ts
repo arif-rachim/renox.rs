@@ -31,6 +31,24 @@ describe.skipIf(!worker)("token replay and expiry", () => {
     expect((await t.as("max-ff").request("GET", link.pathname, { headers: { "user-agent": "Mozilla/5.0 (X11) Gecko/20100101 Firefox/131.0" } })).status).toBe(400);
   });
 
+  // #275 item 3: the reset twin of the magic-link test above.
+  test("reset link: from another browser family refused, the password unchanged", async () => {
+    await t.as("max").action("/auth/reset", "default", { email: "max@example.com" });
+    const token = latest("password_reset").searchParams.get("token") as string;
+    // The action by hand: `action()` sends no user agent of its own.
+    const ff = t.as("max-ff2");
+    const ua = "Mozilla/5.0 (X11) Gecko/20100101 Firefox/131.0";
+    await ff.request("GET", `/auth/reset/confirm?token=${token}`, { headers: { "user-agent": ua } });
+    const other = await ff.request("POST", "/auth/reset/confirm?/default", {
+      headers: { "user-agent": ua, "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": ff.cookie("__Host-renox_csrf") ?? "" },
+      body: new URLSearchParams({ token, password: "firefox new passphrase" }).toString(),
+    });
+    expect(other.status).toBe(200);
+    expect(other.html).toContain("expired or was already used");
+    expect(authCookie(other)).toBeUndefined();
+    expect((await t.as("chk-ff").action("/auth/login", "default", { email: "max@example.com", password: "firefox new passphrase" })).status).toBe(200);
+  });
+
   test("reset: reuse refused, expiry refused", async () => {
     await t.as("max").action("/auth/reset", "default", { email: "max@example.com" });
     const token = latest("password_reset").searchParams.get("token") as string;

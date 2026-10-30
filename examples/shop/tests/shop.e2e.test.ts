@@ -23,27 +23,42 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   const out = mkdtempSync(join(tmpdir(), "renox-shop-build-"));
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
-  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql", "003_orders_org.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql", "003_orders_org.sql", "004_refunds.sql"]);
   // auth (#241): its migrations before the app's, its pages under /auth.
-  expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql", "004_phone_passkeys_uaepass.sql", "005_login_tickets.sql"]);
   // org (#242): after auth, its dependency; its pages under /org.
   expect(readdirSync(join(r.dir, "migrations/org")).sort()).toEqual(["001_init.sql", "002_orgs_locale.sql"]);
   // i18n (#244): first, auth and org depend on it; the shop's catalogs under code/i18n/.
-  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["i18n", "auth", "org"]);
+  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["audit", "i18n", "auth", "notifications", "org", "twofa"]);
   expect(readdirSync(join(r.dir, "code/i18n")).sort()).toEqual(["ar.json", "en.json"]);
-  expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${x.path}`).sort()).toEqual([
+  expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : x.kind === "page" ? "PAGE" : x.kind.toUpperCase()} ${"path" in x ? x.path : x.name}`).sort()).toEqual([
     "GET /api/products",
     "GET /api/products/:id",
     "GET /auth/oauth/:provider/callback",
     "GET /auth/oauth/:provider/start",
+    "GET /auth/oauth/authorize",
     "PAGE /",
+    "PAGE /2fa",
+    "PAGE /2fa/enroll/passkey",
+    "PAGE /2fa/enroll/totp",
+    "PAGE /2fa/recovery",
+    "PAGE /2fa/verify",
     "PAGE /auth/account",
     "PAGE /auth/login",
     "PAGE /auth/magic",
     "PAGE /auth/magic/:token",
+    "PAGE /auth/oauth/consent",
+    "PAGE /auth/passkeys/login",
+    "PAGE /auth/passkeys/register",
+    "PAGE /auth/phone",
+    "PAGE /auth/phone/verify",
     "PAGE /auth/register",
     "PAGE /auth/reset",
     "PAGE /auth/reset/confirm",
+    "PAGE /notifications",
+    "PAGE /notifications/prefs",
+    "PAGE /orders",
+    "PAGE /orders/live",
     "PAGE /org",
     "PAGE /org/accept/:token",
     "PAGE /org/members",
@@ -52,6 +67,11 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
     "POST /api/cart",
     "POST /api/checkout",
     "POST /api/dev/seed",
+    "POST /auth/oauth/register",
+    "POST /auth/oauth/token",
+    "SSE /notifications/sse/notifications",
+    "SSE /sse/orders",
+    "TOOL invite_member",
   ]);
   expect(r.manifest.templates?.["pages/products/index"]).toEqual({ kind: "page", fragments: { cart_badge: { target: "cart-badge" }, product_list: { target: "product-list" } } });
   expect(r.manifest.templates?.["pages/products/[id]"]?.fragments).toEqual({ cart_badge: { target: "cart-badge" }, product: { target: "product" } });

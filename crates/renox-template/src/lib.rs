@@ -45,8 +45,8 @@ pub use error_page::ErrorPage;
 pub use minijinja;
 #[cfg(feature = "render")]
 pub use render::{
-    CanFn, Catalogs, Dir, Locale, RenderContext, RenderError, RenderLimits, RenderOutput,
-    RenderTarget, Renderer,
+    CAN_FUEL, Can, Catalogs, CheckFn, Dir, Locale, RenderContext, RenderError, RenderLimits,
+    RenderOutput, RenderTarget, Renderer,
 };
 pub use shell::Shell;
 
@@ -165,12 +165,57 @@ impl CompiledTemplates {
             .map(|(id, t)| (format!("{id}.jinja"), t.source.as_str()))
     }
 
+    /// Every action a template names in `r-can` / `r-cannot` (and a slot
+    /// filler's `requires`): what `renox check` and the worker's prepare
+    /// compare with the merged action set (`RENOX_POLICY_INVALID`).
+    pub fn actions(&self) -> std::collections::BTreeSet<String> {
+        self.templates
+            .values()
+            .flat_map(|t| can_calls(&t.source))
+            .map(|(action, _)| action)
+            .collect()
+    }
+
     /// The `(id, source)` pairs a [`Renderer`] is built from.
     pub fn sources(&self) -> impl Iterator<Item = (&str, &str)> {
         self.templates
             .iter()
             .map(|(id, t)| (id.as_str(), t.source.as_str()))
     }
+}
+
+/// The `can(action, resource)` calls the compiler emitted into a template
+/// source (`r-can`, `r-cannot`, slot fillers' `requires`), in order:
+/// `(action, with_resource)`. Only `{% … %}` tags are read, so template
+/// text that looks like a call is not one.
+pub fn can_calls(source: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let mut rest = source;
+    while let Some(open) = rest.find("{%") {
+        let tag_and_after = &rest[open + 2..];
+        let end = tag_and_after.find("%}").unwrap_or(tag_and_after.len());
+        let mut tag = &tag_and_after[..end];
+        while let Some(at) = tag.find("can(\"") {
+            let ident_before = tag[..at]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_');
+            let after = &tag[at + 5..];
+            let Some(close) = after.find('"') else { break };
+            if !ident_before {
+                let action = after[..close].to_string();
+                let args = after[close + 1..].trim_start();
+                let resource = !args
+                    .strip_prefix(',')
+                    .map(str::trim_start)
+                    .is_some_and(|a| a.starts_with("none)"));
+                out.push((action, resource));
+            }
+            tag = &after[close + 1..];
+        }
+        rest = &tag_and_after[(end + 2).min(tag_and_after.len())..];
+    }
+    out
 }
 
 /// The fragment of `page` selected by an `HX-Target` value
@@ -217,6 +262,15 @@ mod tests {
         assert_eq!(TemplateKind::of_id("pages/_other"), None);
         assert_eq!(TemplateKind::of_id("pages/a/_x"), None);
         assert_eq!(TemplateKind::of_id("lib/x"), None);
+    }
+
+    #[test]
+    fn can_calls_read_only_tags() {
+        let src = r#"<p>can("x.y", none)</p>{% if can("a.b", none) %}{% if not can("c.d", item) %}{% endif %}{% endif %}{% if scan("e.f", none) %}"#;
+        assert_eq!(
+            can_calls(src),
+            vec![("a.b".to_string(), false), ("c.d".to_string(), true)]
+        );
     }
 
     #[test]

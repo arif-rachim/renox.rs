@@ -4,13 +4,14 @@
     "principal": {
       "type": "User",
       "id": "u_alice",
-      "roles": [
-        "member"
-      ]
+      "roles": [],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.read",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_a"
     },
     "expected": "allow"
@@ -20,13 +21,14 @@
     "principal": {
       "type": "User",
       "id": "u_alice",
-      "roles": [
-        "member"
-      ]
+      "roles": [],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.read",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_b"
     },
     "expected": "deny"
@@ -36,11 +38,14 @@
     "principal": {
       "type": "User",
       "id": "u_alice",
-      "roles": []
+      "roles": [],
+      "attrs": {
+        "org": "o_b"
+      }
     },
     "action": "org.read",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_a"
     },
     "expected": "deny"
@@ -52,11 +57,14 @@
       "id": "u_alice",
       "roles": [
         "admin"
-      ]
+      ],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.invite",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_a"
     },
     "expected": "allow"
@@ -68,11 +76,14 @@
       "id": "u_alice",
       "roles": [
         "owner"
-      ]
+      ],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.invite",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_a"
     },
     "expected": "allow"
@@ -82,13 +93,14 @@
     "principal": {
       "type": "User",
       "id": "u_alice",
-      "roles": [
-        "member"
-      ]
+      "roles": [],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.invite",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_a"
     },
     "expected": "deny"
@@ -100,11 +112,14 @@
       "id": "u_alice",
       "roles": [
         "admin"
-      ]
+      ],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.manage_members",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_a"
     },
     "expected": "allow"
@@ -114,13 +129,14 @@
     "principal": {
       "type": "User",
       "id": "u_alice",
-      "roles": [
-        "member"
-      ]
+      "roles": [],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.manage_members",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_a"
     },
     "expected": "deny"
@@ -132,11 +148,14 @@
       "id": "u_alice",
       "roles": [
         "owner"
-      ]
+      ],
+      "attrs": {
+        "org": "o_a"
+      }
     },
     "action": "org.manage_members",
     "resource": {
-      "type": "Org",
+      "type": "org:Org",
       "id": "o_b"
     },
     "expected": "deny"

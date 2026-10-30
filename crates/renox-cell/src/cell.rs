@@ -42,6 +42,9 @@ pub struct WebLayer {
     pub(crate) buckets: Option<RouteBuckets>,
     /// The session cookie may be `SameSite=None` (CORS with credentials).
     pub(crate) same_site_none: bool,
+    /// `[security.cors] origins`: besides the app's own host, the origins a
+    /// WebSocket or SSE upgrade may come from (#118).
+    pub(crate) origins: Vec<String>,
 }
 
 /// A live cell.
@@ -58,6 +61,11 @@ pub struct Cell {
     pub(crate) wake: Notify,
     /// The outbox delivery task (#229); dropped (stopped) at eviction.
     outbox: Mutex<Option<crate::outbox::OutboxWorker>>,
+    /// The deployment's realtime hub (#281), also the runtime's
+    /// `RealtimeHost`.
+    pub(crate) realtime: Option<std::sync::Arc<crate::realtime::CellRealtime>>,
+    /// App MCP (#285): agent token cache, per-token buckets, confirmations.
+    pub(crate) mcp: crate::mcp::Mcp,
 }
 
 impl Cell {
@@ -66,6 +74,8 @@ impl Cell {
             key,
             isolate,
             web,
+            realtime: None,
+            mcp: crate::mcp::Mcp::default(),
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
             draining: AtomicBool::new(false),

@@ -152,7 +152,8 @@ describe("activate", () => {
     await registeredNode(h, "node-1");
     const hashes: string[] = [];
     for (let i = 0; i < 52; i++) {
-      h.clock.now += 1;
+      // 6 s: one upload back in the token's bucket (10 per minute, #275).
+      h.clock.now += 6_000;
       await upload(h, token, "hello", variant(i));
       hashes.push(contentHash(variant(i)));
       expect((await activateReq(h, token, hashes[i] as string)).status).toBe(200);

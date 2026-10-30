@@ -174,6 +174,10 @@ impl Router {
     pub fn new(routes: &[RouteDef]) -> Result<Router, PatternError> {
         let mut compiled = Vec::with_capacity(routes.len());
         for (i, r) in routes.iter().enumerate() {
+            // Tool and job routes have no URL (artifact.md 1.3).
+            if matches!(r.kind, RouteKind::Tool | RouteKind::Job) {
+                continue;
+            }
             let segments = compile(&r.path)?;
             let page = r.kind == RouteKind::Page;
             let actions = page && r.page().is_some_and(|p| !p.actions.is_empty());
@@ -326,6 +330,9 @@ mod tests {
             module: "m".to_string(),
             export: method.as_str().to_string(),
             page: None,
+            guard: None,
+            tool: None,
+            job: None,
         }
     }
 

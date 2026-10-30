@@ -1,0 +1,5 @@
+---
+source: crates/renox-template/tests/permissions.rs
+expression: src
+---
+{% if can("admin.access", none) %}<a href="/admin">a</a>{% endif %}{% if not can("cart.add", p) %}<b>b</b>{% endif %}

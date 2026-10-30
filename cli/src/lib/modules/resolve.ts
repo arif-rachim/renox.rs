@@ -36,6 +36,13 @@ export interface ResolvedModule {
   hash: string;
 }
 
+/**
+ * Official modules whose catalog folder is not their module name
+ * (`manifest.md` section 1: the catalog's `2fa` is installed as `twofa`,
+ * a name cannot start with a digit; #287).
+ */
+const CATALOG_DIRS: Readonly<Record<string, string>> = { twofa: "2fa" };
+
 /** The official modules shipped with this CLI (manifest.md Open 1: the repository's modules/). */
 export const OFFICIAL_MODULES = resolvePath(import.meta.dir, "../../../../modules");
 
@@ -71,7 +78,7 @@ function git(args: string[], cwd?: string): string {
  * present), absent = the official module of this CLI.
  */
 export function fetchTree(project: string, name: string, source: string | undefined): TreeSource {
-  if (source === undefined || source === "official") return { tree: join(OFFICIAL_MODULES, name), source: "official" };
+  if (source === undefined || source === "official") return { tree: join(OFFICIAL_MODULES, CATALOG_DIRS[name] ?? name), source: "official" };
   if (source.startsWith("path:")) return { tree: resolvePath(project, source.slice("path:".length)), source };
   if (source.startsWith("git:")) {
     const spec = source.slice("git:".length);

@@ -9,6 +9,15 @@
 
 import { core, primordials } from "ext:core/mod.js";
 import {
+  op_authz_check,
+  op_authz_check_batch,
+  op_authz_explain,
+  op_authz_guard,
+  op_authz_principal_cached,
+  op_authz_principal_set,
+  op_authz_roles_assign,
+  op_authz_roles_list,
+  op_authz_roles_revoke,
   op_db_execute,
   op_db_query,
   op_db_query_one,
@@ -23,6 +32,11 @@ import {
   op_events_emit,
   op_password_hash,
   op_password_verify,
+  op_realtime_close,
+  op_realtime_publish,
+  op_realtime_send,
+  op_realtime_subscribe,
+  op_realtime_unsubscribe,
   op_renox_fetch,
   op_fetch_body_close,
   op_fetch_body_read,
@@ -56,6 +70,7 @@ const {
   ObjectGetOwnPropertyDescriptor,
   ObjectGetOwnPropertyNames,
   ObjectGetPrototypeOf,
+  ObjectPrototypeHasOwnProperty,
   ObjectPrototypeIsPrototypeOf,
   PromisePrototypeThen,
   PromiseReject,
@@ -159,6 +174,36 @@ class ModuleServiceError extends RenoxError {
   }
 }
 
+// ops.md 1.5.0 section 17: the typed errors of authorization and db.scoped().
+class ForbiddenError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_FORBIDDEN", message, details);
+    this.name = "ForbiddenError";
+  }
+}
+
+class DbScopeError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_DB_SCOPE", message, details);
+    this.name = "DbScopeError";
+  }
+}
+
+// ops.md 1.5.0 section 18: the typed errors of realtime.
+class RealtimeLimitError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_REALTIME_LIMIT", message, details);
+    this.name = "RealtimeLimitError";
+  }
+}
+
+class RealtimeBackpressureError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_REALTIME_BACKPRESSURE", message, details);
+    this.name = "RealtimeBackpressureError";
+  }
+}
+
 /** Ops reject with "CODE|json-details|message"; turn that into a RenoxError. */
 function toRenoxError(e) {
   const msg = typeof e?.message === "string" ? e.message : "";
@@ -173,7 +218,21 @@ function toRenoxError(e) {
   } catch {
     details = undefined;
   }
-  return new RenoxError(code, msg.slice(second + 1), details ?? undefined);
+  const message = msg.slice(second + 1);
+  switch (code) {
+    case "RENOX_FORBIDDEN":
+      return new ForbiddenError(message, details ?? undefined);
+    case "RENOX_DB_SCOPE":
+      return new DbScopeError(message, details ?? undefined);
+    case "RENOX_REALTIME_LIMIT":
+      return new RealtimeLimitError(message, details ?? undefined);
+    case "RENOX_REALTIME_BACKPRESSURE":
+      return new RealtimeBackpressureError(message, details ?? undefined);
+    case "RENOX_MODULE_UNDECLARED":
+      return new ModuleUndeclaredError(message, details ?? undefined);
+    default:
+      return new RenoxError(code, message, details ?? undefined);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,12 +390,12 @@ function toRows(out) {
   });
 }
 
-async function dbCall(op, sql, params, tx, module) {
+async function dbCall(op, sql, params, tx, module, scope = null) {
   const token = currentToken();
   if (typeof sql !== "string") throw new RenoxError("RENOX_DB_PARAM", "sql must be a string");
   const [wire, bytes] = encodeParams(params);
   try {
-    return await op(token, sql, wire, bytes, tx, moduleArg(module));
+    return await op(token, sql, wire, bytes, tx, moduleArg(module), scope);
   } catch (e) {
     throw toRenoxError(e);
   }
@@ -348,21 +407,37 @@ async function dbCall(op, sql, params, tx, module) {
  * (ops.md 1.3.0 section 1), which is how a service called from an action
  * writes in the action's transaction.
  */
-function statements(tx, module = "app") {
+function statements(tx, module = "app", scope = null) {
   const handle = () => (tx === "current" ? (txVar.get() ?? 0) : tx);
   return ObjectFreeze({
     async query(sql, params) {
-      return toRows(await dbCall(op_db_query, sql, params, handle(), module));
+      return toRows(await dbCall(op_db_query, sql, params, handle(), module, scope));
     },
     async queryOne(sql, params) {
-      const rows = toRows(await dbCall(op_db_query_one, sql, params, handle(), module));
+      const rows = toRows(await dbCall(op_db_query_one, sql, params, handle(), module, scope));
       return rows.length === 0 ? null : rows[0];
     },
     async execute(sql, params) {
-      const r = await dbCall(op_db_execute, sql, params, handle(), module);
+      const r = await dbCall(op_db_execute, sql, params, handle(), module, scope);
       return { changes: r.changes, lastInsertRowid: decodeCell(r.lastInsertRowid) };
     },
   });
+}
+
+/** `db.scoped(scope)` (ops.md 1.5.0 section 17): `{ user_id?, org_id?, session_id? }`, strings. */
+function checkScope(scope) {
+  if (scope === null || typeof scope !== "object" || ArrayIsArray(scope)) {
+    throw new TypeError("db.scoped: a scope object { user_id?, org_id?, session_id? }");
+  }
+  const out = {};
+  for (const k of new SafeArrayIterator(ObjectKeys(scope))) {
+    if (k !== "user_id" && k !== "org_id" && k !== "session_id") throw new TypeError(`db.scoped: unknown key ${k}`);
+    const v = scope[k];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== "string" && typeof v !== "number") throw new TypeError(`db.scoped: ${k} must be a string`);
+    out[k] = String(v);
+  }
+  return ObjectFreeze(out);
 }
 
 /**
@@ -371,12 +446,16 @@ function statements(tx, module = "app") {
  * `transaction(fn)` is IMMEDIATE, or a savepoint when a transaction is
  * current (ops.md 1.3.0 section 1, "Savepoints").
  */
-function makeDb(module) {
+function makeDb(module, scope = null, fixedTx = null) {
   return ObjectFreeze({
-    ...statements(module === "app" ? 0 : "current", module),
+    ...statements(fixedTx ?? (module === "app" ? 0 : "current"), module, scope),
+    scoped(s) {
+      return makeDb(module, checkScope(s), fixedTx);
+    },
     async transaction(fn) {
       const token = currentToken();
-      const outer = txVar.get();
+      // A tool preview's Db (#285): everything nests inside its transaction.
+      const outer = fixedTx ?? txVar.get();
       if (outer !== undefined && outer !== 0) {
         let sp;
         try {
@@ -386,7 +465,7 @@ function makeDb(module) {
         }
         let result;
         try {
-          result = await within([[txVar, outer]], () => fn(statements(outer, module)));
+          result = await within([[txVar, outer]], () => fn(statements(outer, module, scope)));
         } catch (e) {
           try {
             await op_db_savepoint_rollback(token, outer, sp);
@@ -410,7 +489,7 @@ function makeDb(module) {
       }
       let result;
       try {
-        result = await within([[txVar, tx]], () => fn(statements(tx, module)));
+        result = await within([[txVar, tx]], () => fn(statements(tx, module, scope)));
       } catch (e) {
         try {
           await op_db_tx_rollback(token, tx);
@@ -430,6 +509,20 @@ function makeDb(module) {
 }
 
 const db = makeDb("app");
+
+/**
+ * An action's `ctx.db` (ops.md section 14): the action's transaction, no
+ * `transaction()`; `scoped(scope)` (1.5.0 section 17) gives the same
+ * statements with the scope, in the same transaction.
+ */
+function actionDb(tx, module) {
+  return ObjectFreeze({
+    ...statements(tx, module),
+    scoped(s) {
+      return ObjectFreeze(statements(tx, module, checkScope(s)));
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Logging (ops.md section 4): ctx.log and console. Rust adds tenant,
@@ -769,6 +862,204 @@ const password = ObjectFreeze({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Authorization (ops.md 1.5.0 section 17): ctx.authz. Rust evaluates with
+// the request's own principal; tenant code never passes one.
+
+/** A resource or context as plain JSON (dates as strings, bigints as text). */
+function authzJson(v, what) {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "object" || ArrayIsArray(v)) throw new TypeError(`authz: ${what} must be an object`);
+  return JSONParse(JSONStringify(v, dataReplacer));
+}
+
+function checkAction(action) {
+  if (typeof action !== "string" || action.length === 0) throw new TypeError("authz: action must be a string");
+}
+
+/** `ctx.authz` of `module`. */
+function makeAuthz(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError ? e : toRenoxError(e);
+    }
+  };
+  const roleArgs = (userId, role, scope) => {
+    if (typeof userId !== "string" || typeof role !== "string") throw new TypeError("authz.roles: userId and role are strings");
+    if (scope !== undefined && (scope === null || typeof scope !== "object")) throw new TypeError("authz.roles: scope is { type, id }");
+    return { user_id: userId, role, scope_type: scope?.type ?? "global", scope_id: scope?.id ?? null };
+  };
+  return ObjectFreeze({
+    async require(action, resource = undefined, context = undefined) {
+      checkAction(action);
+      await call(op_authz_check, action, authzJson(resource, "resource"), authzJson(context, "context"), moduleArg(module), true);
+    },
+    async can(action, resource = undefined, context = undefined) {
+      checkAction(action);
+      const d = await call(op_authz_check, action, authzJson(resource, "resource"), authzJson(context, "context"), moduleArg(module), false);
+      return d.allow === true;
+    },
+    async canBatch(action, resources, context = undefined) {
+      checkAction(action);
+      if (!ArrayIsArray(resources)) throw new TypeError("authz.canBatch: resources must be an array");
+      if (resources.length > 1000) throw new RangeError("authz.canBatch: at most 1000 resources");
+      return await call(op_authz_check_batch, action, ArrayPrototypeMap(resources, (r) => authzJson(r, "resource")), authzJson(context, "context"), moduleArg(module));
+    },
+    async explain(action, resource = undefined, context = undefined) {
+      checkAction(action);
+      const x = await call(op_authz_explain, action, authzJson(resource, "resource"), authzJson(context, "context"), moduleArg(module));
+      return ObjectFreeze({ decision: x.decision, reasons: ObjectFreeze(x.reasons), errors: ObjectFreeze(x.errors) });
+    },
+    roles: ObjectFreeze({
+      async assign(userId, role, scope = undefined) {
+        await call(op_authz_roles_assign, roleArgs(userId, role, scope), moduleArg(module), txVar.get() ?? 0);
+      },
+      async revoke(userId, role, scope = undefined) {
+        return await call(op_authz_roles_revoke, roleArgs(userId, role, scope), moduleArg(module), txVar.get() ?? 0);
+      },
+      async list(userId) {
+        if (typeof userId !== "string") throw new TypeError("authz.roles.list: userId is a string");
+        return ObjectFreeze(ArrayPrototypeMap(await call(op_authz_roles_list, userId, moduleArg(module)), (r) => ObjectFreeze(r)));
+      },
+    }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Realtime (ops.md 1.5.0 section 18): ctx.realtime. Connections live in the
+// cell; the ops reach them by id. Fan-out never enters the isolate.
+
+const TOPIC = /^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*$/;
+
+function checkTopic(topic) {
+  if (typeof topic !== "string" || topic.length === 0 || topic.length > 256 || !RegExpPrototypeTest(TOPIC, topic)) {
+    throw new RangeError("realtime: a topic is 1 to 256 characters of segments [A-Za-z0-9_.-] split on ':'");
+  }
+}
+
+/** A `Conn` or its id. */
+function connId(conn) {
+  const id = typeof conn === "string" ? conn : conn?.id;
+  if (typeof id !== "string") throw new TypeError("realtime: conn is a Conn or its id");
+  return id;
+}
+
+/** `RealtimePayload` -> the wire shape of `ops.schema.json` `$defs/realtimePayload`. */
+function realtimePayload(module, p) {
+  if (typeof p === "string") return { kind: "text", text: p, event: null };
+  if (p === null || typeof p !== "object") throw new TypeError("realtime: payload is a string, { text }, { json }, or { fragment, data }");
+  const event = p.event ?? null;
+  if (event !== null && typeof event !== "string") throw new TypeError("realtime: event is a string");
+  if (typeof p.text === "string") return { kind: "text", text: p.text, event };
+  if (ObjectPrototypeHasOwnProperty(p, "json")) {
+    const text = JSONStringify(p.json, dataReplacer);
+    if (typeof text !== "string") throw new TypeError("realtime: json is not JSON-serialisable");
+    return { kind: "text", text, event };
+  }
+  if (typeof p.fragment === "string") {
+    const data = JSONStringify(p.data ?? {}, dataReplacer);
+    if (typeof data !== "string") throw new TypeError("realtime: fragment data is not JSON-serialisable");
+    return { kind: "fragment", fragment: p.fragment, data, module, event };
+  }
+  throw new TypeError("realtime: payload is a string, { text }, { json }, or { fragment, data }");
+}
+
+/** `ctx.realtime` of `module`. */
+function makeRealtime(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  };
+  return ObjectFreeze({
+    async subscribe(conn, topic) {
+      const id = connId(conn);
+      checkTopic(topic);
+      await call(op_realtime_subscribe, id, topic);
+    },
+    async unsubscribe(conn, topic) {
+      const id = connId(conn);
+      checkTopic(topic);
+      await call(op_realtime_unsubscribe, id, topic);
+    },
+    async publish(topic, payload) {
+      checkTopic(topic);
+      return await call(op_realtime_publish, topic, realtimePayload(module, payload));
+    },
+    async send(conn, payload) {
+      await call(op_realtime_send, connId(conn), realtimePayload(module, payload));
+    },
+    async close(conn, code = 1000, reason = null) {
+      if (typeof code !== "number") throw new TypeError("realtime.close: code is a number");
+      await call(op_realtime_close, connId(conn), code, reason ?? "");
+    },
+  });
+}
+
+/** A principal from Rust, frozen all the way down. */
+function freezePrincipal(p) {
+  if (p === null || p === undefined) return null;
+  return ObjectFreeze({
+    id: p.id,
+    kind: p.kind,
+    roles: ObjectFreeze(ArrayPrototypeMap(p.roles ?? [], (r) => ObjectFreeze({ ...r }))),
+    attrs: ObjectFreeze({ ...(p.attrs ?? {}) }),
+  });
+}
+
+/**
+ * The request's principal (ops.md 1.5.0 section 17, "Principal"): the
+ * cell's cache, else the `auth` module's `principal` service (which runs
+ * the `auth.principal` hook), else anonymous. A failing service gives the
+ * anonymous principal (fail closed) and a log line.
+ */
+async function resolvePrincipal(token, url, headers) {
+  const cached = op_authz_principal_cached(token);
+  if (cached.state !== "miss") return cached.principal ?? null;
+  const svc = serviceModules.get("auth")?.principal;
+  let answer = null;
+  if (typeof svc === "function") {
+    const req = new (requestMod().Request)(url, { method: "GET", headers });
+    const st0 = newRequestState({
+      req,
+      url: new (urlMod().URL)(url),
+      params: ObjectFreeze({}),
+      headers: req.headers,
+      principal: null,
+      deadline: requestDeadline,
+    });
+    try {
+      answer = await within(
+        [
+          [moduleVar, "auth"],
+          [stateVar, st0],
+        ],
+        () => svc(st0.ctxOf("auth"), cached.session ?? null),
+      );
+    } catch (e) {
+      within([[moduleVar, "auth"]], () => writeLog("error", "auth.principal threw; the request is anonymous", { error: describeThrow(e), code: "RENOX_INTERNAL" }));
+      answer = null;
+    }
+    if (answer !== null && (typeof answer !== "object" || typeof answer.id !== "string")) answer = null;
+  }
+  return await op_authz_principal_set(token, answer === null ? null : JSONParse(JSONStringify({ id: answer.id, attrs: answer.attrs ?? {} }, dataReplacer)));
+}
+
+/** Principal, then the route's guard; `{ forbidden }` stops the request. */
+async function prelude(token, url, headers) {
+  const principal = await resolvePrincipal(token, url, headers);
+  const g = await op_authz_guard(token);
+  if (!g.allow) {
+    const who = principal === null || principal === undefined ? { kind: "anonymous" } : { id: String(principal.id ?? ""), kind: String(principal.kind ?? "user"), roles: ArrayIsArray(principal.roles) ? ArrayPrototypeMap(principal.roles, (r) => (typeof r === "string" ? r : String(r?.role ?? ""))) : [] };
+    return { forbidden: { kind: KIND_FORBIDDEN, reason: g.reason ?? "deny", name: g.policy ?? undefined, details_json: JSONStringify({ principal: who }) } };
+  }
+  return { principal: freezePrincipal(principal) };
+}
+
 /** One frozen object of service proxies per installed module. */
 function buildProxies() {
   const out = {};
@@ -837,6 +1128,8 @@ function moduleFields(m) {
     services: serviceProxies,
     hooks: makeHooks(m),
     events: makeEvents(m),
+    authz: makeAuthz(m),
+    realtime: makeRealtime(m),
     password,
   };
 }
@@ -855,6 +1148,26 @@ const KIND_EVENT = 5;
 // A lazy route module failed its first evaluation or lacks the route's
 // export (ops.md 1.4.0 section 11, steps 4-5).
 const KIND_MODULE_EVAL = 6;
+// The route's guard denied before the handler (ops.md 1.5.0 section 17).
+const KIND_FORBIDDEN = 7;
+// A realtime run ended (ops.md 1.5.0 section 18): `result` is `ok` or `no_handler`.
+const KIND_REALTIME = 8;
+// A service or tool invocation ended (#285): `result` is `ok` (with
+// `data_json`), `no_handler`, or `output_too_large`.
+const KIND_INVOKE = 9;
+/** ops.md 1.5.0 section 19: a tool's output is at most 256 KB of JSON. */
+const MAX_TOOL_OUTPUT = 256 * 1024;
+
+/** `ctx.deadline`: the request's own (ops.md section 5). */
+const requestDeadline = ObjectFreeze({
+  remainingMs() {
+    try {
+      return op_deadline_remaining_ms(currentToken());
+    } catch (e) {
+      throw toRenoxError(e);
+    }
+  },
+});
 
 function safeString(v) {
   try {
@@ -864,17 +1177,34 @@ function safeString(v) {
   }
 }
 
+/** Who the request runs as, for a log line: id, kind and role names, never attributes. */
+function principalSummary() {
+  try {
+    const p = stateVar.get()?.base?.principal ?? null;
+    if (p === null || p === undefined) return { kind: "anonymous" };
+    const roles = ArrayIsArray(p.roles) ? ArrayPrototypeMap(p.roles, (r) => (typeof r === "string" ? r : String(r?.role ?? ""))) : [];
+    return { id: String(p.id ?? ""), kind: String(p.kind ?? "user"), roles };
+  } catch {
+    return null;
+  }
+}
+
 function describeThrow(err) {
   let name = "Error";
   let message = "";
   let stack = "";
   let code = null;
+  let detailsJson = undefined;
   try {
     if (ObjectPrototypeIsPrototypeOf(ErrorPrototype, err)) {
       name = safeString(err.name);
       message = safeString(err.message);
       stack = safeString(err.stack);
       if (typeof err.code === "string" && StringPrototypeStartsWith(err.code, "RENOX_")) code = err.code;
+      // #294: a denial's or a scope refusal's details and who asked, for the tenant log (dev overlay).
+      if ((code === "RENOX_FORBIDDEN" || code === "RENOX_DB_SCOPE") && err.details !== null && typeof err.details === "object") {
+        detailsJson = JSONStringify({ ...err.details, principal: principalSummary() });
+      }
     } else {
       name = typeof err;
       message = safeString(err);
@@ -882,7 +1212,7 @@ function describeThrow(err) {
   } catch {
     // A hostile getter: keep what we have.
   }
-  return { kind: KIND_THROW, name, message, stack, code };
+  return { kind: KIND_THROW, name, message, stack, code, details_json: detailsJson };
 }
 
 /**
@@ -1047,7 +1377,7 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
   };
   let res;
   try {
-    const ctx = ObjectFreeze({ ...st.ctxOf(owner), db: statements(tx, owner), form, action: page.action, fragment: page.fragment ?? null });
+    const ctx = ObjectFreeze({ ...st.ctxOf(owner), db: actionDb(tx, owner), form, action: page.action, fragment: page.fragment ?? null });
     // The action's transaction is current for the services it calls (ops.md 1.3.0 section 1).
     res = await within([[txVar, tx]], () => action(ctx));
   } catch (e) {
@@ -1108,10 +1438,29 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
  * template }`; for an action, `action` is the action function and
  * `handler` the page's `load` (or null).
  */
-function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app") {
-  if (handler !== null && typeof handler === "object" && typeof handler.lazy === "string") {
-    return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner);
+function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app", realtime = null) {
+  if (realtime !== null) return dispatchRealtime(handler, token, url, headers, body, params, owner, realtime);
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(owner);
+    return PromisePrototypeThen(
+      prelude(token, url, headers),
+      (pre) => {
+        if (pre.forbidden !== undefined) return pre.forbidden;
+        if (handler !== null && typeof handler === "object" && typeof handler.lazy === "string") {
+          return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner, pre.principal);
+        }
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, pre.principal);
+      },
+      describeThrow,
+    );
+  } finally {
+    core.setAsyncContext(previous);
   }
+}
+
+/** The handler, once the principal is known and the guard passed. */
+function run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1134,6 +1483,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
         url: new (urlMod().URL)(url),
         params: ObjectFreeze(params),
         headers: req.headers,
+        principal,
         deadline,
       };
       const st = newRequestState(base);
@@ -1148,7 +1498,8 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
         }
       }
       const ctx = st.ctxOf(owner);
-      p = PromiseResolve(handler(ctx));
+      // A guarded page without `load`: the template gets `{}`.
+      p = PromiseResolve(handler === null ? {} : handler(ctx));
     } catch (e) {
       p = PromiseReject(e);
     }
@@ -1160,6 +1511,140 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
       },
       describeThrow,
     );
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
+/**
+ * A `ws` / `sse` handler run (ops.md 1.5.0 section 18, "Dispatch"). Phase
+ * `connect` is the prelude alone (principal and guard, before the
+ * handshake); `open`, `message`, and `close` run the module's handler with
+ * the principal resolved at connect, `ctx.conn`, and the phase's fields.
+ */
+function dispatchRealtime(handler, token, url, headers, body, params, owner, rt) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(owner);
+    const go = async () => {
+      if (rt.phase === "connect") {
+        const pre = await prelude(token, url, headers);
+        if (pre.forbidden !== undefined) return pre.forbidden;
+        return { kind: KIND_REALTIME, result: "ok" };
+      }
+      const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
+      let handlers = handler;
+      if (handlers !== null && typeof handlers === "object" && typeof handlers.lazy === "string") {
+        let p = lazyModules.get(handlers.lazy);
+        if (p === undefined) {
+          p = import(handlers.lazy);
+          lazyModules.set(handlers.lazy, p);
+        }
+        let ns;
+        try {
+          ns = await p;
+        } catch (e) {
+          return lazyFailed(handlers, e);
+        }
+        const desc = handlers;
+        handlers = ns[desc.export];
+        if (handlers === null || typeof handlers !== "object") return lazyFailed(desc, new TypeError(`export ${desc.export} of ${desc.module} is missing or not an object`));
+      }
+      const h = handlers?.[rt.phase];
+      if (typeof h !== "function") return { kind: KIND_REALTIME, result: "no_handler" };
+      const req = new (requestMod().Request)(url, { method: "GET", headers });
+      const base = {
+        req,
+        url: new (urlMod().URL)(url),
+        params: ObjectFreeze(params),
+        headers: req.headers,
+        principal,
+        deadline: requestDeadline,
+        session: ObjectFreeze({ id: rt.session }),
+        conn: ObjectFreeze({ id: rt.conn, transport: rt.transport }),
+      };
+      if (rt.phase === "message") base.data = rt.binary ? new Uint8Array(body ?? []) : rt.text;
+      if (rt.phase === "close") base.close = ObjectFreeze({ code: rt.close_code, reason: rt.close_reason ?? "" });
+      const st = newRequestState(base);
+      const ctx = st.ctxOf(owner);
+      await within([[stateVar, st]], () => h(ctx));
+      return { kind: KIND_REALTIME, result: "ok" };
+    };
+    return PromisePrototypeThen(go(), undefined, describeThrow);
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
+/**
+ * Called by Rust for a call into module code that is not a request (#285):
+ * `{ kind: "service", module, name, args }` (a service the platform needs,
+ * through the broker, as the app) or `{ kind: "tool", name, input, client,
+ * preview }` (ops.md 1.5.0 section 19: the tool's `run` with the owning
+ * module's ctx without a request, the token's user as principal, and
+ * `ctx.tool`; a preview runs inside a transaction that is always rolled
+ * back). Resolves with `{ kind: KIND_INVOKE, result, data_json }`, or the
+ * description of a throw.
+ */
+function invoke(token, env, handler, owner) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(env.kind === "tool" ? owner : "app");
+    const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
+    const st = newRequestState({ deadline: requestDeadline, principal });
+    stateVar.enter(st);
+    const go = async () => {
+      if (env.kind === "service") {
+        const fn = serviceModules.get(env.module)?.[env.name];
+        if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+        const value = await within([[stateVar, st]], () => callService(env.module, env.name, JSONParse(env.args)));
+        return { kind: KIND_INVOKE, result: "ok", data_json: JSONStringify(value ?? null, dataReplacer) };
+      }
+      let def = handler;
+      if (def !== null && typeof def === "object" && typeof def.lazy === "string") {
+        let p = lazyModules.get(def.lazy);
+        if (p === undefined) {
+          p = import(def.lazy);
+          lazyModules.set(def.lazy, p);
+        }
+        def = (await p)[def.export];
+      }
+      if (def === null || typeof def !== "object" || typeof def.run !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+      // The tool's Cedar action as the token's user, before run (audited when sensitive).
+      try {
+        await op_authz_check(token, env.action, null, null, moduleArg(owner), true);
+      } catch {
+        return { kind: KIND_INVOKE, result: "forbidden" };
+      }
+      const tool = ObjectFreeze({ name: env.name, input: JSONParse(env.input), client: ObjectFreeze(JSONParse(env.client)), preview: env.preview === true });
+      let output;
+      if (env.preview === true) {
+        let tx;
+        try {
+          tx = await op_db_tx_begin(token, "immediate");
+        } catch (e) {
+          throw toRenoxError(e);
+        }
+        const ctx = ObjectFreeze({ ...st.ctxOf(owner), db: makeDb(owner, null, tx), tool });
+        try {
+          output = await within([[txVar, tx], [stateVar, st]], () => def.run(ctx));
+        } finally {
+          try {
+            await op_db_tx_rollback(token, tx);
+          } catch {
+            // Gone already (a callee rolled it back); Rust rolls back at the end anyway.
+          }
+        }
+      } else {
+        const ctx = ObjectFreeze({ ...st.ctxOf(owner), tool });
+        output = await within([[stateVar, st]], () => def.run(ctx));
+      }
+      const json = JSONStringify(output === undefined ? null : output, dataReplacer);
+      if (typeof json !== "string") return { kind: KIND_INVOKE, result: "ok", data_json: "null" };
+      if (json.length > MAX_TOOL_OUTPUT) return { kind: KIND_INVOKE, result: "output_too_large" };
+      return { kind: KIND_INVOKE, result: "ok", data_json: json };
+    };
+    return PromisePrototypeThen(go(), undefined, describeThrow);
   } finally {
     core.setAsyncContext(previous);
   }
@@ -1185,7 +1670,7 @@ function lazyFailed(desc, err) {
  * evaluation. Then the handler and the action are looked up (step 5) and
  * the request goes on as for an eager route.
  */
-function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner) {
+function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner, principal) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1208,7 +1693,7 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
           action = actions !== null && typeof actions === "object" ? actions[desc.action] : undefined;
           if (typeof action !== "function") return lazyFailed(desc, new TypeError(`action ${desc.action} of ${desc.module} is missing or not a function`));
         }
-        return dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner);
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal);
       },
       (e) => lazyFailed(desc, e),
     );
@@ -1230,15 +1715,9 @@ function deliver(token, id, name, payloadJson, attempt, module) {
     const h = eventHandlers.get(module)?.[name];
     if (typeof h !== "function") return PromiseResolve({ kind: KIND_EVENT, result: "no_handler" });
     const st = newRequestState({
-      deadline: ObjectFreeze({
-        remainingMs() {
-          try {
-            return op_deadline_remaining_ms(currentToken());
-          } catch (e) {
-            throw toRenoxError(e);
-          }
-        },
-      }),
+      deadline: requestDeadline,
+      // ops.md 1.5.0 section 17: event handlers run as Renox::System::"<module>".
+      principal: freezePrincipal({ id: module, kind: "system", roles: [], attrs: {} }),
     });
     stateVar.enter(st);
     const run = async () => {
@@ -1385,7 +1864,7 @@ function harden(modulesJson) {
 }
 
 ObjectDefineProperty(globalThis, "__renoxInternal", {
-  value: ObjectFreeze({ dispatch, deliver, harden, register }),
+  value: ObjectFreeze({ dispatch, deliver, invoke, harden, register }),
   writable: false,
   enumerable: false,
   configurable: true,

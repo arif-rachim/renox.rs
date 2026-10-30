@@ -12,6 +12,8 @@ arc-swap = "1.9.3"
 jsonschema = { version = "0.60", default-features = false }
 # The client script's ETag (#126).
 sha2 = "0.10"
+# `Sec-WebSocket-Accept` (RFC 6455; src/upgrade.rs, #281).
+sha1 = "0.10"
 # CSP nonces (#47).
 base64 = "0.22"
 getrandom = "0.3"

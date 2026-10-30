@@ -15,7 +15,7 @@ use crate::manifest::{Manifest, RouteDef};
 pub const MAX_DATA_JSON_BYTES: usize = 8 * 1024 * 1024;
 
 /// What the cell renders for one page request.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PageRender {
     /// The page template id; `None` for a `.ts`-only page (which never
     /// produces a `PageRender`: an object from it is 500).
@@ -32,6 +32,10 @@ pub struct PageRender {
     pub locale: Option<String>,
     /// `"ltr"` or `"rtl"` from `setLocale`; `None` = the locale's default.
     pub dir: Option<String>,
+    /// The request's principal (`ops.md` 1.5.0 section 17), for `r-can`:
+    /// the cell computes the action set and the resource checks from it.
+    /// `None` when no tenant code ran.
+    pub principal: Option<std::sync::Arc<renox_authz::Principal>>,
 }
 
 /// The session of a page request (`ops.md` section 14, "Session"). The cell

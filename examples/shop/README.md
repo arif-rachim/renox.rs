@@ -29,9 +29,47 @@ Every statement is parameterised (`renox check` passes). Prices are integers in 
 
 Building the shop compiles its templates with `renox-worker transpile` (`cli/README.md`, "Templates"), so `renox build`/`renox check`/`renox dev` need the worker binary.
 
+## F5: authorization, a second factor, a live screen (#292)
+
+The shop is the reference app for F5. Each piece sits in one file:
+
+| What | Where |
+| --- | --- |
+| Owned rows: `app__orders` by `user_id` and `org_id`; the orders page and checkout go through `db.scoped()` | `renox.toml` `[authz.ownership]`; `pages/orders/index.ts`; `functions/api/checkout.ts` |
+| Actions, the sensitive one, the entity, the default roles | `renox.toml` `[authz]` |
+| The policies: roles in the active organisation, the 10,000 AED threshold (finance_manager only above it), the second factor, the live topic | `policies/app/shop.cedar` |
+| Policy cases per role | `policies/tests/shop.json` (run by `renox test`) |
+| A guard: `order.list`, checked before the loader | `pages/orders/index.ts`, `pages/orders/live.ts` |
+| `r-can` on the refund button, with the order as resource | `pages/orders/index.html` |
+| The refund: the order from the database, then `ctx.authz.require` (a denial is answered 403 and its audit row committed), then `twofa.requireRecent`, then a notification | `pages/orders/index.ts` |
+| The live orders screen: checkout publishes the new order to `orders:<org>`, and `/orders/live` swaps it in over SSE | `functions/api/checkout.ts`, `functions/sse/orders.ts`, `pages/orders/live.html` |
+| Modules: 2fa (`/2fa`), audit, notifications (`/notifications`) next to auth, org, i18n | `renox.toml`, `renox.lock` |
+
+**The F5 done criterion**: a refund is denied for a user without the role or without the second factor. To see it in under five minutes:
+
+```
+cd examples/shop
+RENOX_WORKER_PATH=../../target/debug/renox-worker bun test tests/authz.test.ts tests/live.test.ts
+RENOX_WORKER_PATH=../../target/debug/renox-worker bun ../../cli/src/main.ts test   # + the 7 policy cases
+```
+
+`tests/authz.test.ts` walks the docs/11 example:
+
+- "without the second factor: no refund button, and the curl POST is denied". Fatima has the `finance` role but no second factor, so the button is hidden and `POST /orders?/refund` answers 403.
+- "after a TOTP verification: the button for the small order only; the refund goes through; over the threshold it is denied". After a TOTP sign-in (the 2fa module), the button shows for the 50 AED order and the refund goes through. The 20,000 AED order stays hidden and its POST is denied.
+- "the audit table has every decision on the sensitive action". `renox__authz_audit` holds deny, allow, deny.
+
+`tests/live.test.ts` "a checkout reaches its organisation's screen only" shows the live screen: one organisation's SSE client gets the new order, another organisation's does not.
+
+To try it by hand with `renox dev`, set `TWOFA_KEY` in `.env` (any 16 characters or more). Then:
+
+1. Register at `/auth/register`, sign in, and create an organisation at `/org`.
+2. Give yourself the `finance` role (`ctx.authz.roles.assign` from app code, or a row in `renox__role_assignments`), then check out a cart.
+3. `/orders` has no refund button. Set up TOTP at `/2fa`, sign out and in again, and the button appears.
+
 ## Data
 
-`migrations/001_init.sql`: `app__products` (id, name, description, price_fils, stock, category, image path) and `app__cart_items` (cart_id, product_id → products, quantity 1–99, created_at), with indexes on category, name, and cart. `seeds/products.sql` is generated: 100 products, 20 per category, four sizes each.
+`migrations/004_refunds.sql`: `app__refunds`, one per refunded order (#292). `migrations/001_init.sql`: `app__products` (id, name, description, price_fils, stock, category, image path) and `app__cart_items` (cart_id, product_id → products, quantity 1–99, created_at), with indexes on category, name, and cart. `seeds/products.sql` is generated: 100 products, 20 per category, four sizes each.
 
 ## Run
 
@@ -46,6 +84,18 @@ curl -X POST localhost:8787/api/checkout -H 'content-type: application/json' -d 
 ```
 
 `bun test` runs the functions against a fake `ctx` (bun:sqlite with the real migration and seed) and `renox build` + `renox check`; with `RENOX_WORKER_PATH` set it also runs every flow above through `renox dev` and the worker (`tests/shop.e2e.test.ts`).
+
+### Connect an agent
+
+The shop installs `auth`, so every tool of the shop and its modules (org's `invite_member`) is on `/mcp` for a signed-in user's agent:
+
+```
+# 1. Point the agent (Claude, an MCP client) at https://<shop host>/mcp
+# 2. It gets a 401 naming /.well-known/oauth-protected-resource/mcp and finds auth's OAuth server
+# 3. It registers itself and sends you to /auth/oauth/consent: sign in, read the scopes, Allow
+# 4. It calls tools as you, for one hour; a destructive tool asks it to confirm
+# 5. Disconnect it on /auth/account under "Connected agents"
+```
 
 ## Used by
 

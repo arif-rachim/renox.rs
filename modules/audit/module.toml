@@ -1,0 +1,28 @@
+[module]
+name = "audit"
+version = "1.0.0"
+description = "Append-only audit trail: audit__events, record and query, the platform's authorization decisions, retention and export"
+
+[config]
+retain_days = { type = "int", default = 365, min = 30, max = 3650, description = "Rows older than this many days may be pruned (prune); never fewer than 30" }
+
+[permissions]
+tables = "audit__*"
+roles = ["auditor"]
+
+[exports.services]
+record = "Append one audit event ({ action, actor, resource?, result?, details?, client?, request_id? }); details are redacted"
+query = "Audit events and the platform's authorization decisions, newest first, paged (requires audit.read)"
+exportEvents = "Run the audit.export hook over the events matching a filter, page by page (requires audit.read)"
+prune = "Delete events older than retain_days (at least 30 days); returns the count"
+
+[exports.hooks."audit.export"]
+args = { type = "object", required = ["events", "page", "last"], properties = { events = { type = "array" }, page = { type = "integer" }, last = { type = "boolean" }, purpose = { type = "string" } } }
+description = "One page of an export (F7 reports, the F6 erasure task): a filler writes the rows where they must go"
+
+[authz]
+actions = ["audit.read"]
+sensitive = ["audit.read"]
+
+[authz.default_roles]
+auditor = ["audit.read"]

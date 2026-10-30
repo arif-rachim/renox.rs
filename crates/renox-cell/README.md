@@ -34,7 +34,9 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[replication]` | off | `enabled`, `replica` (`file` \| `s3`), `path` (file), `bucket`, `prefix`, `region`, `endpoint`, `sse_kms_key_id` (s3), `allowed_regions` (`["me-central-1"]`), `sync_interval_ms` (1000), `retention_hours` (24), `snapshot_interval_secs` (3600), `stop_grace_ms` (3000), `litestream_bin` (`litestream` on `PATH`): "Replication" |
 | `[control] node_listen`, `node_listen_url` | — | The node listener the control plane calls (`docs/contracts/deploy-api.md` 0.3 section 15); a private address, refused at start when tenant `fetch` could reach it |
 | `[process]` | off | `enabled`, `max_children` (64), `child_idle_secs` (600), `restart_backoff_ms` (200), `run_dir` (`run`), `launcher` (`direct` \| `systemd`), `worker_bin`, `own_tenants` (local mode), `cgroup_root`, `child_cpu_quota_us` (200,000), `child_memory_bytes` (1 GiB), `child_pids` (512), `microvm_hook`: the process tiers of "Process tiers" |
+| `[realtime]` | 100 / 10,000 / 10 | `free_connections`, `paid_connections` (connections per tenant by tier), `user_connections` (per principal, or per client IP when anonymous): "Realtime". The other realtime limits are the contract's (`ops.md` 1.5.0 section 18) |
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
+| `[authz]` | `false` / 60 | `dev` (`ctx.authz.explain` works and `RENOX_FORBIDDEN` names the deciding policy), `principal_ttl_secs` (how long a resolved principal is cached per session, 0 to 3,600): "Authorization" |
 
 Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`). They name tenants, hashes, and request ids, never secret values or request content.
 
@@ -190,11 +192,56 @@ An artifact 1.1 with installed modules (`docs/contracts/artifact.md`, "Modules")
 
 - runs the migrations in `modules` order (each module under its own prefix, `renox_data::migrate_all`), then the app's, which may read every module's public views;
 - dispatches module routes like the app's: their paths already carry the `mount`, and the route's owner gives the loader its module ctx (`renox-runtime`);
-- gives the renderer the request's **action set** for `r-can` and slot fillers' `requires`. The set is empty until the policy engine (F5), unless the page loader's data has an `actions` array of action names (`src/render.rs`, `action_set`).
+- gives the renderer the request's **action set** for `r-can` and slot fillers' `requires` ("Authorization"). An artifact without an `authz` block (1.2 and older) has an empty set, unless the page loader's data has an `actions` array of action names (`src/render.rs`, `data_action_set`).
 
 Override drift is detected by `renox build` (#235), not here: the artifact carries the original's hash (`overrides.json`), but not the original file.
 
 Tests: `tests/modules_pages.rs`.
+
+## Authorization (#279)
+
+The cell enforces `docs/contracts/ops.md` 1.5.0 section 17 (`docs/11-authorization.md`, "Enforcement points"):
+
+- **Engine.** After the migrations, `authz::build` loads the artifact's `policies/**` (the app's `policies/app/*.cedar` and `schema.cedarschema`, each module's `policies/<module>/`) into one `renox_authz::Engine`; entity attribute types come from the owning tables (`pragma_table_info`). A policy or schema error is V24: the cell is not created and the request fails like any invalid artifact.
+- **Principal.** Before tenant code runs, the request's principal is looked up in the deployment's **principal cache**, keyed by `sha256(session id | cookie header)`. On a miss, the `auth` module's service `principal(ctx, session)` resolves it (the module runs its own `auth.principal` hook); the platform adds the user's roles from `renox__role_assignments` and caches the result for `principal_ttl_secs`. Without `auth` installed every request is `Anonymous`. The cell drops a user's cached principals when its own outbox delivers `authz.roles_changed`, `auth.login` or `auth.logout` (`authz::INVALIDATING_EVENTS`); an event without a `user_id` clears the cache.
+- **`guard`.** A route's `guard` (artifact route entry) is evaluated in Rust with the principal before the loader, the action, the handler, and on fragment requests. A deny answers 403 `RENOX_FORBIDDEN` (the policy id only in dev) and is metered with status `forbidden`; the loader never runs.
+- **`r-can`** (#280). The renderer gets a `Can` built from the engine and the request's principal: the resource-less action set computed once per render, one evaluation per distinct resource (`renox-template` README, "Permissions"), counted in the record's `authz_evals`. In dev mode a resource missing a declared attribute is denied with one `authz_missing_attribute` warn line. A page without `load` runs the principal prelude when any template calls `can`. At prepare, a template naming an action outside the merged action set refuses the deployment (V25, `RENOX_POLICY_INVALID`).
+- **Audit.** A decision on an action the manifest marks `sensitive` writes a `renox__authz_audit` row in the request's transaction; event handlers decide as `System::"<module>"`.
+- **Meter and counters.** Each record carries `authz_evals` (distinct decisions of the request). `CellManager::authz_stats()` sums the live cells' principal cache hits, misses, cached entries and decisions (`AuthzStats::hit_rate`).
+
+Tests: `tests/authz.rs`; the ops themselves: `renox-runtime` `tests/authz_ops.rs`.
+
+## Realtime (#281)
+
+`ws` and `sse` routes (`ops.md` 1.5.0 section 18) are served by `src/realtime/`, not by the page or function path. One `renox-realtime` hub per cell, sized by the tier and `[realtime]`, is also the runtime's `RealtimeHost` (the deployment's realtime slot):
+
+1. **Connect.** The isolate runs the prelude alone (phase `connect`): the principal from the session cookie and the route's `guard`. A deny is 403 with a `forbidden` record; nothing is upgraded.
+2. **Caps.** The hub accepts the connection or refuses it over the tenant or per-user cap: 503 `RENOX_REALTIME_LIMIT`, `Retry-After: 5`, a `busy` record.
+3. **Handshake.** 101 (the gateway's `WsUpgrade`) or `200 text/event-stream`. Then `open` runs with `ctx.conn`, each inbound frame runs `message` (in order; a throw drops that message), and the end runs `close` with the code. A throw in `open` closes with 1011, a denied `subscribe` with 1008. Every run uses the principal resolved at connect.
+4. **Ops.** `ctx.realtime.subscribe` is checked first: `realtime.subscribe` on `Renox::Topic::"<topic>"`, fail closed, one `authz_evals`. `publish` and `send` go to the hub; a `{ fragment, data }` payload names a `partial` of the caller's module and is rendered on the blocking pool, its fuel and CPU on the publishing invocation's record. The fan-out never enters the isolate.
+5. **Meter.** One record per connection at its end: route `WS <pattern>` / `SSE <pattern>`, `http_status` 101 / 200, the handler runs summed, `realtime_conn_seconds`, and `realtime_messages` (frames received plus messages delivered). The connection holds the cell in flight, so the cell is not evicted while it is open.
+
+`CellManager::realtime_stats(tenant)` returns the hub's counters (live, opened, connection-seconds, messages in and out, refusals and closes by reason). The change feed (`[realtime.feeds]`) is not wired: it needs a commit hook in `renox-data` (see #281).
+
+Tests: `tests/realtime.rs`; the gateway handshake: `renox-gateway` `tests/upgrade.rs`.
+
+## App MCP (#285)
+
+`/mcp` and `/.well-known/oauth-protected-resource/mcp` are reserved on every app (`src/mcp/`; `ops.md` 1.5.0 section 19). They answer 404 unless the `auth` module is installed and exports `verifyAgentToken`. The endpoint speaks JSON-RPC 2.0 over Streamable HTTP, statelessly: `POST /mcp` takes one request (a batch is `-32600`), and `GET /mcp` is 405. Methods: `initialize` (`2025-06-18`, the app name, the deployment hash's first 12 hex), `notifications/initialized` (202), `tools/list`, `tools/call`.
+
+A `tools/call` goes through these steps in order:
+
+1. **Token.** `Authorization: Bearer` is checked by the service `auth.verifyAgentToken(token)` (called with `IsolateHandle::invoke`, as the platform). The answer is cached per token SHA-256 for 60 s and dropped when the outbox delivers `auth.agent_token_revoked` (`{ token_hash }` or `{ user_id }`). No token or `null` is 401 with `WWW-Authenticate: Bearer resource_metadata="…"`.
+2. **Scope.** `tools:*`, `tools:<name>` or the bare name; otherwise 403 `RENOX_TOOL_SCOPE`. `tools/list` shows only the covered tools.
+3. **Rate limit.** 60 calls per minute per token (*proposed*, Open 16); over it, 429 with `Retry-After` and no body.
+4. **Input.** Validated against the tool's JSON Schema (`jsonschema`); otherwise 400 `RENOX_TOOL_INPUT` with `details: [{ field, reason }]`.
+5. **Confirmation.** A `confirm` tool's first call runs a preview: `ctx.tool.preview` is true and the app's `Db` sits in a transaction that is always rolled back. The answer carries `{ preview, confirmation: { token, expires_at } }`. The token is an HMAC (cell key) over the tool, the arguments' SHA-256, the agent token's hash and the expiry, valid 10 minutes and usable once. A missing, expired, replayed or mismatched token is 409 `RENOX_TOOL_CONFIRM`.
+6. **Authorization and `run`.** The tool's Cedar action is checked with the token's user as principal, inside the isolate before `run` (`op_authz_check` with `enforce`, so a sensitive action writes the audit row). A deny is 403 `RENOX_FORBIDDEN`, and `run` never starts.
+7. **Output.** At most 256 KB of JSON, else `isError` "The tool output is too large.". Secret values are redacted. Every result carries `_meta.untrusted` and its text and `structuredContent`. A throw or a limit gives `isError` with a fixed text, never the error's message.
+
+**Metering and audit.** Every call that reached `run`, the preview included, writes one record: `kind: "tool"`, route `TOOL <name>`, `http_status` 200, its own status. A throw is logged as `invocation threw`, with secret values redacted. The audit row of a sensitive action names the user.
+
+Tests: `tests/mcp.rs`.
 
 ## Outbox delivery (#229)
 
@@ -211,4 +258,4 @@ Tests: `tests/outbox.rs`.
 
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), realtime (F5), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).
+Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), the realtime change feed (#281), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).

@@ -153,7 +153,8 @@ fn shape(path: &str) -> Vec<String> {
 /// V8: two routes with the same method and the same shape conflict.
 pub fn check_route_conflicts(routes: &[RouteDef]) -> Result<(), ArtifactError> {
     let mut seen: HashMap<(String, Vec<String>), &str> = HashMap::new();
-    for r in routes {
+    // Tool and job routes have no URL (artifact.md 1.3).
+    for r in routes.iter().filter(|r| !r.path.is_empty()) {
         let names: Vec<&str> = r
             .path
             .split('/')

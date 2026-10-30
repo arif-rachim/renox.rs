@@ -69,6 +69,7 @@ Readers are opened read-only. Open flags exclude URI file names.
 | `QuotaExceeded` | `RENOX_DB_QUOTA` (reads continue) |
 | `Constraint { kind, message }` | `RENOX_DB_CONSTRAINT` |
 | `Param`, `ColumnName`, `MultiStatement`, `TxState` | `RENOX_DB_PARAM`, `RENOX_DB_COLUMN_NAME`, `RENOX_DB_MULTI_STATEMENT`, `RENOX_DB_TX_STATE` |
+| `Scope { table, module, reason }` | `RENOX_DB_SCOPE` (`reason`: `unscoped`, `scope_missing`, `owner_mismatch`, `unprovable`; see "`db.scoped()`") |
 | `Open` | `RENOX_INTERNAL` |
 
 `DbError::code()` returns the code. No message contains the file path; `TenantDb`'s `Debug` output leaves it out too.
@@ -94,6 +95,38 @@ Platform migrations under `migrations/` run on open after it, each idempotent:
 | File | Tables |
 | --- | --- |
 | `0001_outbox.sql` | `renox__outbox` (one row per delivery: `id`, `target` = handling module or `''` while the fan-out is pending, `name`, `payload`, `module` = emitter, `created_at`, `attempts`, `next_at`, `last_error`; index on `next_at`), `renox__outbox_dead` (the same plus `dead_at`), `renox__outbox_meta` (counters) |
+| `0002_authz.sql` | `renox__role_assignments` (`user_id`, `role`, `scope_type`, `scope_id` (`''` for a `global` assignment), `granted_by`, `at`; unique on the first four), `renox__authz_audit` (`id`, `principal`, `action`, `resource_type`, `resource_id`, `result` `allow`/`deny`, `policy`, `at`) and its view `renox__authz_audit_v1` |
+
+A new file's WAL is checkpointed once after these run, so the tenant's own WAL accounting starts from an empty log.
+
+### Authorization tables (`renox_data::roles`)
+
+`ops.md` 1.5.0 section 17 (#277). Called by the ops (#279) on the platform connection, through a `TenantDb` (autocommit) or a `Tx` (the request's transaction):
+
+| Function | What it does |
+| --- | --- |
+| `assign(db, &RoleAssignment, allowed)` | Inserts the assignment once (a second identical one is a no-op, `false`); `allowed` is the set a module may assign (`None` for the app); another role is refused before anything is written (`Param("role:<name>")`, which the op maps to `RENOX_MODULE_UNDECLARED`) |
+| `revoke(db, user, role, scope_type, scope_id, allowed)` | `true` when a row was removed |
+| `list(db, user)` | The user's assignments, by role, scope type, scope id |
+| `record(db, &AuditRow)` | Appends one decision to `renox__authz_audit` |
+
+`renox__authz_audit` is append-only for every connection, the platform's included: the authorizer refuses `UPDATE`, `DELETE`, `DROP`, `ALTER` (and dropping its view or a trigger on it). Modules never write it (it is a `renox__*` table); `SELECT` through `renox__authz_audit_v1` is allowed to the `audit` module and to modules that list `audit` among their read dependencies.
+
+### `db.scoped()` (`renox_data::scoped`)
+
+`docs/11-authorization.md`, "the RLS replacement" (D16), and `ops.md` 1.5.0 section 17 (#277). `Ownership` holds the owned tables (`[authz.ownership]`: owner column, optional org column); `Scope { user_id, org_id, session_id }` is the handle's scope. `rewrite(sql, params, &scope, &ownership)` parses the statement (`sqlparser`, SQLite dialect) and returns it with the owner predicates added, or refuses it:
+
+| Shape | Result |
+| --- | --- |
+| `SELECT` with owned tables in its top-level `FROM` / `JOIN` (aliases included; `INNER`, `LEFT`, `CROSS`) | `"<alias>"."<owner>" = '<value>'` (and the org column when the table and the scope have one) in `WHERE`, or in the join's `ON` |
+| `UPDATE` / `DELETE` of an owned table | the predicate ANDed to the parenthesised `WHERE` |
+| `INSERT … VALUES (…)` with a column list | a missing owner (org) column is added with the scope's value; an explicit equal value (literal or `?`/`?NNN` parameter) passes; another value is `owner_mismatch` |
+| an owned table in a subquery, a CTE, a set operation, a `RIGHT`/`FULL` join, `UPDATE … FROM`, `INSERT … SELECT`, `INSERT` without a column list, `INSERT OR REPLACE` / `REPLACE`, an upsert `DO UPDATE` | `unprovable`, refused whole |
+| a table whose owner column is `session_id` without `scope.session_id`, or a user column without `scope.user_id` | `scope_missing` |
+
+Scope values are SQL string literals with quotes doubled, never parameters, so the caller's `?` numbering stays valid. A statement without an owned table comes back unchanged. `tests/scoped.rs` lists the shapes it proves and refuses.
+
+The rewritten statement runs under the module's policy with `AuthorizerPolicy::with_scoped(true)`. A module policy carries its owned tables (`with_owned`); a statement of module code that reaches one without `with_scoped` is refused at prepare time with `Scope { reason: unscoped }`. The app's policy (`app`) never refuses: `renox check` warns instead (#283, D16). Triggers cannot reach an owned table: no module may create one.
 
 ### The outbox (`renox_data::outbox`)
 

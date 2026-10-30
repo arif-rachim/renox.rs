@@ -78,7 +78,10 @@ export const actions = {
     return { fragments: ["nope"] };
   },
   async nested({ db }) {
-    return { has_transaction: typeof db.transaction };
+    // #289: scoped() in the action's transaction, still no transaction().
+    const scoped = db.scoped({ user_id: "u" });
+    const n = await scoped.queryOne("select count(*) as n from app__cart");
+    return Response.json({ has_transaction: typeof db.transaction, has_scoped: typeof db.scoped, scoped_tx: typeof scoped.transaction, n: typeof n.n });
   },
 };
 "#;
@@ -457,6 +460,10 @@ meter_flush_ms = 50
     // The action's db is the transaction: no nested transaction().
     let r = hx("nested").await;
     assert_eq!(r.status, 200);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&r.body).unwrap(),
+        serde_json::json!({ "has_transaction": "undefined", "has_scoped": "function", "scoped_tx": "undefined", "n": "number" })
+    );
     // An unknown action is 404 with no tenant code; `default` exists only
     // where declared.
     assert_eq!(hx("nope").await.status, 404);

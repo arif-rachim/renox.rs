@@ -1,0 +1,17 @@
+<r-layout use="notifications">
+  <r-group slot="title"><r-t key="notifications.list.title" /></r-group>
+  <div hx-ext="sse" :sse-connect="sse">
+    <h1><r-t key="notifications.list.title" /> <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML">{{ notif_unread }}</span></h1>
+    <p class="notice" r-if="notice">{{ notice }}</p>
+    <p><a :href="prefs_url"><r-t key="notifications.list.prefs" /></a></p>
+    <x-form action="all" r-if="notif_unread"><button type="submit"><r-t key="notifications.list.mark_all" /></button></x-form>
+    <ul id="notif-list" sse-swap="notif-item" hx-swap="afterbegin">
+      <li r-for="n in items" class="renox-notif-item" :id="'notif-' + n.id">
+        <a r-if="n.link" :href="n.link"><strong>{{ n.title }}</strong></a><strong r-else>{{ n.title }}</strong>
+        <p r-if="n.body">{{ n.body }}</p>
+        <x-form action="read" r-if="!n.read_at"><input type="hidden" name="id" :value="n.id"><button type="submit"><r-t key="notifications.list.mark_read" /></button></x-form>
+      </li>
+      <li r-empty="items"><r-t key="notifications.list.none" /></li>
+    </ul>
+  </div>
+</r-layout>

@@ -1,0 +1,4 @@
+<li class="renox-notif-item" :id="'notif-' + n.id">
+  <a r-if="n.link" :href="n.link"><strong>{{ n.title }}</strong></a><strong r-else>{{ n.title }}</strong>
+  <p r-if="n.body">{{ n.body }}</p>
+</li>

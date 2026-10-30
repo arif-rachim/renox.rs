@@ -23,3 +23,19 @@ describe.skipIf(!worker)("password hashing", () => {
     expect(rows[0]?.password_hash).not.toBe(rows[1]?.password_hash);
   });
 });
+
+// docs/24-threat-model.md A, "Login brute force" (#275 item 2): the length
+// rule is the only composition rule; at the default password_min_length =
+// 12, 11 characters are refused and 12 lowercase letters are accepted (no
+// character-class rules, NIST SP 800-63B).
+describe.skipIf(!worker)("password length", () => {
+  test("an 11-character password is refused, 12 lowercase letters are accepted", async () => {
+    const short = await t.as("len11").action("/auth/register", "default", { email: "len11@example.com", password: "abcdefghijk", display_name: "Len" });
+    expect(short.html).toContain("Use a password of at least 12 characters.");
+    expect(t.db.query("select id from auth__users where email = 'len11@example.com'")).toEqual([]);
+    const ok = await t.as("len12").action("/auth/register", "default", { email: "len12@example.com", password: "abcdefghijkl", display_name: "Len" });
+    expect(ok.status).toBe(200);
+    expect(ok.html).not.toContain("Use a password of at least");
+    expect(t.db.query<{ n: number }>("select count(*) as n from auth__users where email = 'len12@example.com'")).toEqual([{ n: 1 }]);
+  });
+});

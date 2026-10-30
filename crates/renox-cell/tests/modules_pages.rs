@@ -43,6 +43,9 @@ export async function load(ctx) {
   return { title: "Sign in " + users, path: ctx.url.pathname, mod: ctx.module, actions: ctx.url.searchParams.has("billing") ? ["billing.view"] : [] };
 }
 "#;
+/// The tenant's override of `auth`'s `login-form`. It names `users`, which
+/// the module's loader computes but does not return (#275 item 4).
+const OVERRIDE: &str = r#"<form class="shop-login"><input name="email" placeholder="you@shop"></form><p id="leak">[{{ users }}]</p>"#;
 const INDEX_HTML: &str = r#"<r-layout use="main"><h1>Home</h1></r-layout>"#;
 
 fn module(name: &str, mount: &str, slots: &[&str]) -> serde_json::Value {
@@ -66,10 +69,7 @@ fn artifact(store: &Path) -> String {
         "modules/auth/partials/login-form.html",
         r#"<form class="auth-original"><input name="email"></form>"#,
     );
-    project.insert(
-        "overrides/auth/partials/login-form.html",
-        r#"<form class="shop-login"><input name="email" placeholder="you@shop"></form>"#,
-    );
+    project.insert("overrides/auth/partials/login-form.html", OVERRIDE);
     project.insert(
         "modules/auth/partials/account-menu.html",
         r#"<a class="account-menu" href="/auth/login">Account</a>"#,
@@ -105,11 +105,7 @@ fn artifact(store: &Path) -> String {
     std::fs::write(code, LOGIN_JS).unwrap();
     let over = tmp.join("overrides/auth/partials/login-form.html");
     std::fs::create_dir_all(over.parent().unwrap()).unwrap();
-    std::fs::write(
-        &over,
-        r#"<form class="shop-login"><input name="email" placeholder="you@shop"></form>"#,
-    )
-    .unwrap();
+    std::fs::write(&over, OVERRIDE).unwrap();
     std::fs::write(
         tmp.join("overrides.json"),
         serde_json::json!({ "version": 0, "files": { "auth/partials/login-form.html": {
@@ -250,6 +246,21 @@ async fn an_override_replaces_the_module_partial() {
     let (_, html) = n.get("/auth/login").await;
     assert!(html.contains(r#"class="shop-login""#), "{html}");
     assert!(!html.contains("auth-original"), "{html}");
+}
+
+/// An override cannot read loader data the module did not disclose
+/// (`docs/24-threat-model.md` D, "Template override reads module data";
+/// #275 item 4): `users` is a local of `auth`'s loader, not part of its
+/// result, so the override's `{{ users }}` compiles and renders empty
+/// (`renox-template` leaves an undefined name empty), while the values the
+/// loader returned still render.
+#[tokio::test]
+async fn an_override_cannot_read_data_the_loader_did_not_return() {
+    let n = node();
+    let (status, html) = n.get("/auth/login").await;
+    assert_eq!(status, 200, "{html}");
+    assert!(html.contains(r#"<p id="leak" dir="auto">[]</p>"#), "{html}");
+    assert!(html.contains(">Sign in 2</h1>"), "{html}");
 }
 
 /// The slot's fillers render in provider order; the filler with `requires`

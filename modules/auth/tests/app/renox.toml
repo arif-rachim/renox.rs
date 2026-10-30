@@ -5,6 +5,7 @@ timezone = "Asia/Dubai"
 
 [modules]
 i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
-auth = { version = "^1.0", source = "path:../..", mount = "/auth", config = { google_client_id = "test-google-client.apps.example" } }
+auth = { version = "^1.0", source = "path:../..", mount = "/auth", config = { google_client_id = "test-google-client.apps.example", phone_login = true, passkeys = true, passkey_rp_id = "shop.example", passkey_origin = "https://shop.example" } }
 mailer = { version = "^1.0", source = "path:../fixtures/mailer" }
 reader = { version = "^1.0", source = "path:../fixtures/reader" }
+otpbox = { version = "^1.0", source = "path:../fixtures/otpbox" }

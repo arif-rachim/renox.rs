@@ -12,7 +12,7 @@ import {
   exchange,
   finishSignIn,
   OAuthError,
-  PROVIDERS,
+  providerFor,
   profileOf,
   type ProviderName,
   readFlow,
@@ -35,7 +35,7 @@ const refused = (): Response =>
 
 export async function GET(ctx: Ctx): Promise<Response> {
   const name = String(ctx.params.provider ?? "") as ProviderName;
-  const p = PROVIDERS[name];
+  const p = providerFor(ctx, name);
   const creds = p ? credentials(ctx, name) : null;
   if (!p || creds === null) return new Response("Not found", { status: 404 });
   try {

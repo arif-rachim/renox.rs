@@ -22,6 +22,7 @@ interface Harness {
   prepare(project: string, seeds?: string[], worker?: string): Promise<Spec>;
   startTestWorker(spec: Spec): Promise<Worker>;
   changeModule(project: string, name: string, source: string, scratch?: { project: string; db: string }, worker?: string, version?: string): Promise<ModuleChange & { db: string }>;
+  evaluatePolicies(spec: Spec, casesFrom?: string): Promise<{ file: string; case: PolicyCase; result: { allow: boolean; reason: string }; ok: boolean }[]>;
   SERVICE_PATH: string;
 }
 interface Spec {
@@ -107,11 +108,159 @@ export interface TestApp {
   as(user: string): TestApp;
   /** Read a cookie of this user's jar, or plant one (an attacker's token, a forged state). */
   cookie(name: string, value?: string): string | undefined;
+  /** Open a WebSocket route as this user (its cookies, the app's origin); read messages with `next`. */
+  ws(path: string, options?: { headers?: Record<string, string> }): Promise<WsStream>;
+  /** Open an SSE route (`GET`, `Accept: text/event-stream`) as this user; read its events with `next`. */
+  sse(path: string, options?: { headers?: Record<string, string> }): Promise<SseStream>;
   /** Tenant log lines so far. */
   logs(): Record<string, unknown>[];
   /** Meter records so far (flushed about every second). */
   meters(): Record<string, unknown>[];
   stop(): Promise<void>;
+}
+
+/** One SSE event as received (ops.md section 18, "On the wire"). */
+export interface SseEvent {
+  id: string | null;
+  event: string | null;
+  data: string;
+}
+
+/** An open SSE connection of a test. */
+export interface SseStream {
+  status: number;
+  headers: Headers;
+  /** The next event, or null when none arrives within `ms` (default 2000) or the stream ended. */
+  next(ms?: number): Promise<SseEvent | null>;
+  /** Events received so far and not yet returned by `next`. */
+  pending(): SseEvent[];
+  close(): void;
+}
+
+/** Reads `body` as an SSE stream: comments and `retry:` are skipped. */
+function sseStream(res: Response, abort: AbortController): SseStream {
+  const queue: SseEvent[] = [];
+  const waiters: ((e: SseEvent | null) => void)[] = [];
+  let ended = false;
+  const push = (e: SseEvent | null) => {
+    const w = waiters.shift();
+    if (w) w(e);
+    else if (e) queue.push(e);
+  };
+  void (async () => {
+    const reader = res.body?.getReader();
+    if (!reader) return;
+    const dec = new TextDecoder();
+    let buf = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let cut: number;
+        while ((cut = buf.indexOf("\n\n")) >= 0) {
+          const block = buf.slice(0, cut);
+          buf = buf.slice(cut + 2);
+          let id: string | null = null;
+          let event: string | null = null;
+          const data: string[] = [];
+          for (const line of block.split("\n")) {
+            if (line.startsWith(":")) continue;
+            const i = line.indexOf(":");
+            const field = i < 0 ? line : line.slice(0, i);
+            const v = i < 0 ? "" : line.slice(i + 1).replace(/^ /u, "");
+            if (field === "id") id = v;
+            else if (field === "event") event = v;
+            else if (field === "data") data.push(v);
+          }
+          if (data.length || event !== null) push({ id, event, data: data.join("\n") });
+        }
+      }
+    } catch {
+      // aborted
+    }
+    ended = true;
+    while (waiters.length) push(null);
+  })();
+  return {
+    status: res.status,
+    headers: res.headers,
+    next(ms = 2000) {
+      const e = queue.shift();
+      if (e) return Promise.resolve(e);
+      if (ended) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        const w = (x: SseEvent | null) => {
+          clearTimeout(timer);
+          resolve(x);
+        };
+        const timer = setTimeout(() => {
+          const i = waiters.indexOf(w);
+          if (i >= 0) waiters.splice(i, 1);
+          resolve(null);
+        }, ms);
+        waiters.push(w);
+      });
+    },
+    pending: () => queue.splice(0),
+    close: () => abort.abort(),
+  };
+}
+
+/** An open WebSocket of a test. */
+export interface WsStream {
+  /** The next text message, or null when none arrives within `ms` (default 2000) or the socket closed. */
+  next(ms?: number): Promise<string | null>;
+  send(text: string): void;
+  /** Resolves with the close code (1008 for a refused subscribe, 1011 for a throwing `open`). */
+  closed: Promise<number>;
+  close(): void;
+}
+
+function wsStream(socket: WebSocket): Promise<WsStream> {
+  const queue: string[] = [];
+  const waiters: ((m: string | null) => void)[] = [];
+  let ended = false;
+  let resolveClosed: (code: number) => void = () => {};
+  const closed = new Promise<number>((r) => (resolveClosed = r));
+  socket.addEventListener("message", (e) => {
+    const text = typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data as ArrayBuffer);
+    const w = waiters.shift();
+    if (w) w(text);
+    else queue.push(text);
+  });
+  socket.addEventListener("close", (e) => {
+    ended = true;
+    while (waiters.length) (waiters.shift() as (m: string | null) => void)(null);
+    resolveClosed(e.code);
+  });
+  const stream: WsStream = {
+    next(ms = 2000) {
+      const m = queue.shift();
+      if (m !== undefined) return Promise.resolve(m);
+      if (ended) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        const w = (x: string | null) => {
+          clearTimeout(timer);
+          resolve(x);
+        };
+        const timer = setTimeout(() => {
+          const i = waiters.indexOf(w);
+          if (i >= 0) waiters.splice(i, 1);
+          resolve(null);
+        }, ms);
+        waiters.push(w);
+      });
+    },
+    send: (text) => socket.send(text),
+    closed,
+    close: () => socket.close(),
+  };
+  return new Promise((resolve) => {
+    if (socket.readyState === WebSocket.OPEN) resolve(stream);
+    socket.addEventListener("open", () => resolve(stream));
+    socket.addEventListener("close", () => resolve(stream));
+  });
 }
 
 type Jar = Map<string, string>;
@@ -163,6 +312,24 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
     };
     const self: TestApp = {
       request: send,
+      async ws(path, o = {}) {
+        const jar = jarOf(user);
+        const headers: Record<string, string> = { host: w.host, origin: `https://${w.host}`, ...o.headers };
+        if (jar.size && o.headers?.cookie === undefined) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+        // Bun's WebSocket takes request headers (the cookie, the Host the cell routes by).
+        const socket = new WebSocket(`${w.base.replace(/^http/u, "ws")}${path}`, { headers } as unknown as string[]);
+        afterAll(() => socket.close());
+        return wsStream(socket);
+      },
+      async sse(path, o = {}) {
+        const jar = jarOf(user);
+        const headers: Record<string, string> = { host: w.host, accept: "text/event-stream", ...o.headers };
+        if (jar.size && o.headers?.cookie === undefined) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+        const abort = new AbortController();
+        const res = await fetch(`${w.base}${path}`, { headers, redirect: "manual", signal: abort.signal });
+        afterAll(() => abort.abort());
+        return sseStream(res, abort);
+      },
       page: (path, o) => (o?.user ? make(o.user) : self).request("GET", path),
       async action(path, name, form, o) {
         const as = o?.user ? make(o.user) : self;
@@ -217,24 +384,36 @@ export function snapshot(html: string, options: { role: string }): string {
   return normalized;
 }
 
-/** One policy test case (`policies/tests/*.json`; evaluated from F5, when Cedar is wired). */
+/** One policy test case (`policies/tests/*.json`, #283): evaluated by the engine the cell builds. */
 export interface PolicyCase {
-  principal: { type: string; id: string; roles?: string[] };
+  principal: { type: string; id: string; roles?: string[]; attrs?: Record<string, unknown> };
   action: string;
-  resource: { type: string; id?: string };
+  /** `type` is an entity type of the app (`"Doc"`) or a module's (`"auth:Account"`), with its declared attributes. */
+  resource?: { type: string; id?: string; [attr: string]: unknown };
+  context?: Record<string, unknown>;
   expected: "allow" | "deny";
   description?: string;
 }
 
 const isCase = (v: unknown): v is PolicyCase => {
   const c = v as PolicyCase;
-  return typeof c === "object" && c !== null && typeof c.action === "string" && typeof c.principal?.type === "string" && typeof c.resource?.type === "string" && (c.expected === "allow" || c.expected === "deny");
+  return (
+    typeof c === "object" &&
+    c !== null &&
+    typeof c.action === "string" &&
+    typeof c.principal?.type === "string" &&
+    typeof c.principal?.id === "string" &&
+    (c.resource === undefined || typeof c.resource?.type === "string") &&
+    (c.expected === "allow" || c.expected === "deny")
+  );
 };
 
 /**
  * Reads `policies/tests/*.json` (each an array of cases, or `{ cases: [...] }`)
- * and registers each case as a pending test until F5 evaluates them. A file
- * that is not in this format fails.
+ * and registers one test per case that evaluates it with the engine the
+ * cell builds (`renox-worker check-policies`, #283) and expects its
+ * `expected` decision. A file that is not in this format fails. `renox
+ * test` also runs the project's cases before the test files.
  */
 export function policyCases(dir = join(process.env.RENOX_TEST_PROJECT ?? process.cwd(), "policies", "tests")): PolicyCase[] {
   if (!existsSync(dir)) return [];
@@ -243,13 +422,31 @@ export function policyCases(dir = join(process.env.RENOX_TEST_PROJECT ?? process
     const raw = JSON.parse(readFileSync(join(dir, f), "utf8")) as unknown;
     const list = Array.isArray(raw) ? raw : (raw as { cases?: unknown[] }).cases;
     if (!Array.isArray(list) || !list.every(isCase)) throw new Error(`policies/tests/${f}: expected [{ principal, action, resource, expected: "allow" | "deny" }]`);
-    for (const c of list) {
-      out.push(c);
-      test.todo(`policy ${f}: ${c.principal.type}${c.principal.roles?.length ? ` (${c.principal.roles.join(", ")})` : ""} ${c.action} ${c.resource.type} -> ${c.expected} (F5)`);
-    }
+    for (const c of list) out.push(c);
   }
+  if (out.length === 0) return out;
+  // One evaluation for all the cases of `dir`, shared by their tests.
+  const project = join(dir, "..", "..");
+  let outcomes: Promise<Awaited<ReturnType<Harness["evaluatePolicies"]>>> | undefined;
+  const evaluated = () => {
+    outcomes ??= (async () => {
+      const h = await harness();
+      return h.evaluatePolicies(await spec(h, process.env.RENOX_TEST_PROJECT ?? project), project);
+    })();
+    return outcomes;
+  };
+  out.forEach((c, i) => {
+    const who = `${c.principal.type}::${c.principal.id}${c.principal.roles?.length ? ` (${c.principal.roles.join(", ")})` : ""}`;
+    test(`policy: ${c.description ?? `${who} ${c.action} ${c.resource?.type ?? ""}`} -> ${c.expected}`, async () => {
+      const o = (await evaluated())[i];
+      expect(o?.result.allow ? "allow" : "deny").toBe(c.expected);
+    });
+  });
   return out;
 }
+
+/** `policyCases` of the current project (`policies/tests/*.json`). */
+export const policies = (): PolicyCase[] => policyCases();
 
 /** A module change on a scratch copy of the app: install, then upgrade with the returned handle. */
 export interface ModuleHandle extends ModuleChange {

@@ -52,6 +52,7 @@ use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
 use crate::manifest::{Artifact, CodeFormat, LoadError, RouteKind};
+use crate::ops::authz::AuthzSlot;
 use crate::ops::db::{DbEnv, DbHandle};
 use crate::ops::fetch::FetchEnv;
 use crate::ops::log::{LogEnv, RedactingSink};
@@ -109,6 +110,8 @@ pub enum MeterStatus {
     Oom,
     BlockedFetch,
     Busy,
+    /// ops.md 1.5.0 section 17: the route's `guard` denied (403).
+    Forbidden,
 }
 
 impl MeterStatus {
@@ -121,6 +124,7 @@ impl MeterStatus {
             MeterStatus::Oom => "oom",
             MeterStatus::BlockedFetch => "blocked_fetch",
             MeterStatus::Busy => "busy",
+            MeterStatus::Forbidden => "forbidden",
         }
     }
 }
@@ -145,6 +149,13 @@ pub struct InvocationMeter {
     pub db_rows: u64,
     /// Log lines dropped by the rate limit (`meter.md`, `logs_dropped`).
     pub logs_dropped: u64,
+    /// Cedar evaluations (`meter.md` 0.3, `authz_evals`).
+    pub authz_evals: u64,
+    /// Realtime `fragment` payloads rendered for this invocation's
+    /// `publish` / `send` (ops.md 1.5.0 section 18): the cell adds them to
+    /// `render_fuel` / `render_ms`.
+    pub render_fuel: u64,
+    pub render_ms: f64,
 }
 
 impl InvocationMeter {
@@ -160,8 +171,76 @@ impl InvocationMeter {
             db_ms: 0.0,
             db_rows: 0,
             logs_dropped: 0,
+            authz_evals: 0,
+            render_fuel: 0,
+            render_ms: 0.0,
         }
     }
+}
+
+/// A call into tenant code that is not an HTTP request (#285): a module
+/// service the cell needs (`auth.verifyAgentToken`), or a tool's `run`
+/// (ops.md 1.5.0 section 19, the tool envelope).
+#[derive(Debug, Clone)]
+pub enum Invoke {
+    /// `<module>.<name>(...args)` through the broker, as the platform
+    /// (`Renox::System::"renox"`); `args_json` is a JSON array.
+    Service {
+        module: String,
+        name: String,
+        args_json: String,
+    },
+    /// The tool named `name`'s `run` with the token's user as principal.
+    /// `preview`: inside a transaction that is always rolled back.
+    Tool {
+        name: String,
+        input_json: String,
+        client_json: String,
+        preview: bool,
+        principal: Arc<renox_authz::Principal>,
+    },
+}
+
+impl Invoke {
+    /// The meter route: `TOOL <name>` or `SERVICE <module>.<name>`.
+    pub fn route(&self) -> String {
+        match self {
+            Invoke::Service { module, name, .. } => format!("SERVICE {module}.{name}"),
+            Invoke::Tool { name, .. } => format!("TOOL {name}"),
+        }
+    }
+}
+
+/// How an [`Invoke`] ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvokeOutcome {
+    /// The value as JSON text.
+    Ok(String),
+    /// The code threw; its `code` when it was a `RenoxError`.
+    Threw { code: Option<String> },
+    /// The tool's output is over 256 KB of JSON (ops.md section 19).
+    OutputTooLarge,
+    /// No such tool or service.
+    NoHandler,
+    /// The tool's Cedar action denied the token's user before `run`.
+    Forbidden,
+    /// A platform error before or around the code (busy, deadline, a limit).
+    Failed(ErrorCode),
+}
+
+/// The result of [`IsolateHandle::invoke`].
+#[derive(Debug)]
+pub struct Invoked {
+    pub outcome: InvokeOutcome,
+    pub meter: InvocationMeter,
+}
+
+/// A `ws` or `sse` route (ops.md 1.5.0 section 18), for the cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RealtimeRoute {
+    pub transport: renox_realtime::Transport,
+    /// The route's pattern, for the meter's `WS <pattern>`.
+    pub pattern: String,
 }
 
 /// The result of one dispatch.
@@ -495,6 +574,12 @@ struct DispatchJob {
     page: Option<PageJob>,
     /// An event delivery instead of a request (`route` is unused).
     event: Option<EventEnvelope>,
+    /// The route has a `guard` (ops.md 1.5.0 section 17).
+    guarded: bool,
+    /// A `ws` / `sse` handler run (ops.md 1.5.0 section 18).
+    realtime: Option<crate::ops::realtime::RealtimeCall>,
+    /// A service or tool invocation (#285).
+    invoke: Option<Invoke>,
     ctx: RequestCtx,
     reply: oneshot::Sender<ThreadReply>,
 }
@@ -563,6 +648,19 @@ enum ThreadReply {
         /// `setLocale` (ops.md 1.3.0 section 14, "Locale").
         locale: Option<String>,
         dir: Option<String>,
+        /// The request's principal, for `r-can` in the cell's render.
+        principal: Option<Arc<renox_authz::Principal>>,
+        meter: InvocationMeter,
+    },
+    /// An invocation ended (#285).
+    Invoked {
+        outcome: InvokeOutcome,
+        meter: InvocationMeter,
+    },
+    /// A realtime run ended (ops.md 1.5.0 section 18).
+    Realtime {
+        result: crate::ops::realtime::RealtimeResult,
+        principal: Option<Arc<renox_authz::Principal>>,
         meter: InvocationMeter,
     },
     /// The request ended with a platform error.
@@ -664,6 +762,15 @@ pub struct Pool {
     /// Event name -> the modules with an `on` handler for it, by name
     /// (filled when a member registers the modules).
     event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
+    /// The policy engine, the principal cache, and dev mode, set by the cell
+    /// once the deployment's policies are loaded (ops.md 1.5.0 section 17).
+    authz: AuthzSlot,
+    /// The cell's realtime host (ops.md 1.5.0 section 18).
+    realtime: crate::ops::realtime::RealtimeSlot,
+    /// A template calls `can` (`r-can`, a slot filler's `requires`): a page
+    /// without `load` still runs the principal prelude, so the renderer has
+    /// the principal (#280).
+    templates_use_can: bool,
     /// The tenant log sink behind the isolate's redaction.
     sink: Arc<dyn LogSink>,
     limits: Limits,
@@ -705,7 +812,8 @@ impl IsolateHandle {
             .with_overrides(artifact.manifest.limits.as_ref());
         // ops.md 1.3.0 section 15: the installed modules (fail closed).
         let modules = ModuleRegistry::from_manifest(artifact.manifest.modules.as_ref())
-            .map_err(CreateError::Manifest)?;
+            .map_err(CreateError::Manifest)?
+            .with_app_authz(artifact.manifest.authz.as_ref());
         // ops.md section 3: only declared secrets, per module; short values
         // refused by name.
         let mut by_module = BTreeMap::new();
@@ -748,6 +856,10 @@ impl IsolateHandle {
             )));
         }
         let max_members = spec.max_isolates.max(1);
+        let templates_use_can = artifact.manifest.template_defs().any(|(id, _)| {
+            std::fs::read_to_string(artifact.root.join("templates").join(format!("{id}.jinja")))
+                .is_ok_and(|src| src.contains("can(\""))
+        });
         let pool = Pool {
             runtime,
             spec: Arc::new(spec),
@@ -757,6 +869,9 @@ impl IsolateHandle {
             secrets: Arc::new(by_module),
             modules: Arc::new(modules),
             event_handlers: Arc::default(),
+            authz: crate::ops::authz::new_slot(),
+            realtime: crate::ops::realtime::new_slot(),
+            templates_use_can,
             sink,
             limits,
             concurrency: ConcurrencyLimit::new(limits.concurrency),
@@ -800,6 +915,33 @@ impl IsolateHandle {
         self.inner.deliver_event(ctx, ev).await
     }
 
+    /// Runs a module service or a tool's `run` (#285) under the tier's
+    /// limits and a concurrency slot, like an event delivery.
+    pub async fn invoke(&self, ctx: RequestCtx, inv: Invoke) -> Invoked {
+        self.inner.invoke(ctx, inv).await
+    }
+
+    /// The deployment's manifest.
+    pub fn manifest(&self) -> &crate::manifest::Manifest {
+        &self.inner.artifact.manifest
+    }
+
+    /// The `tool` routes of the deployment (ops.md 1.5.0 section 19).
+    pub fn tools(&self) -> Vec<crate::manifest::ToolRoute> {
+        self.inner
+            .artifact
+            .manifest
+            .routes
+            .iter()
+            .filter_map(|r| r.tool.clone())
+            .collect()
+    }
+
+    /// Whether an installed module exports the service `module.name`.
+    pub fn has_service(&self, module: &str, name: &str) -> bool {
+        self.inner.modules.exports_service(module, name)
+    }
+
     /// The modules whose `hooks.ts` has an `on` handler for `event`, by
     /// module name: the targets of a durable event's fan-out (ops.md 1.3.0
     /// section 15.4, "Delivery").
@@ -816,6 +958,37 @@ impl IsolateHandle {
 
 impl Pool {
     /// The effective limits (tier limits lowered by the manifest).
+    /// The deployment's authorization slot: the cell puts the engine, the
+    /// principal cache, and dev mode in it (ops.md 1.5.0 section 17). Until
+    /// then every check denies.
+    pub fn authz_slot(&self) -> AuthzSlot {
+        self.authz.clone()
+    }
+
+    /// The deployment's realtime slot: the cell puts its hub in it (ops.md
+    /// 1.5.0 section 18). Until then `publish` reaches no one and
+    /// `subscribe` is refused.
+    pub fn realtime_slot(&self) -> crate::ops::realtime::RealtimeSlot {
+        self.realtime.clone()
+    }
+
+    /// The `ws` / `sse` route a `GET` of `path` matches, if any.
+    pub fn realtime_route(&self, path: &str) -> Option<RealtimeRoute> {
+        let RouteMatch::Found { route, .. } = self.router.find("GET", path) else {
+            return None;
+        };
+        let r = &self.artifact.manifest.routes[route];
+        let transport = match r.kind {
+            RouteKind::Ws => renox_realtime::Transport::Ws,
+            RouteKind::Sse => renox_realtime::Transport::Sse,
+            _ => return None,
+        };
+        Some(RealtimeRoute {
+            transport,
+            pattern: r.path.clone(),
+        })
+    }
+
     pub fn limits(&self) -> Limits {
         self.limits
     }
@@ -901,6 +1074,8 @@ impl Pool {
             secrets: self.secrets.clone(),
             modules: self.modules.clone(),
             event_handlers: self.event_handlers.clone(),
+            authz: self.authz.clone(),
+            realtime: self.realtime.clone(),
             sink: self.sink.clone(),
             shared: shared.clone(),
         };
@@ -1158,6 +1333,20 @@ impl Pool {
         let route_def = &self.artifact.manifest.routes[route];
         let route_name = format!("{} {}", route_def.method.as_str(), route_def.path);
         let is_page = route_def.kind == RouteKind::Page;
+        // ops.md 1.5.0 section 18: a `ws` / `sse` route runs only as the
+        // cell's realtime dispatch; any plain request to it is 405.
+        let realtime = parts
+            .extensions
+            .get::<crate::ops::realtime::RealtimeCall>()
+            .cloned();
+        let is_realtime = matches!(route_def.kind, RouteKind::Ws | RouteKind::Sse);
+        if is_realtime != realtime.is_some() {
+            return Dispatched::plain(
+                PlatformResponse::method_not_allowed(&ctx.request_id, "GET"),
+                InvocationMeter::new(None, MeterStatus::Ok),
+                false,
+            );
+        }
         let fragment = if is_page {
             select_fragment(&self.artifact.manifest, route_def, &parts.headers)
         } else {
@@ -1187,7 +1376,12 @@ impl Pool {
             .get::<PageSession>()
             .map(|s| s.id.clone())
             .unwrap_or_default();
-        if is_page && action.is_none() && route_def.handler_export().is_none() {
+        if is_page
+            && action.is_none()
+            && route_def.handler_export().is_none()
+            && route_def.guard.is_none()
+            && !self.templates_use_can
+        {
             // An `.html` page, or `.ts` + `.html` without `load`: no tenant
             // code runs; the template gets `{}`.
             return Dispatched {
@@ -1200,6 +1394,7 @@ impl Pool {
                     oob_fragments: Vec::new(),
                     locale: None,
                     dir: None,
+                    principal: None,
                 }),
                 page: true,
                 body: None,
@@ -1287,6 +1482,9 @@ impl Pool {
                 headers: headers.clone(),
                 body: body.clone(),
                 event: None,
+                guarded: route_def.guard.is_some(),
+                realtime: realtime.clone(),
+                invoke: None,
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1408,6 +1606,7 @@ impl Pool {
                 fragments,
                 locale,
                 dir,
+                principal,
                 mut meter,
             } => {
                 meter.route = Some(route_name.clone());
@@ -1452,6 +1651,7 @@ impl Pool {
                         oob_fragments: if htmx { fragments } else { Vec::new() },
                         locale,
                         dir,
+                        principal,
                     }),
                     page: true,
                     body: None,
@@ -1465,9 +1665,26 @@ impl Pool {
                     is_page,
                 )
             }
+            ThreadReply::Realtime {
+                result,
+                principal,
+                meter,
+            } => {
+                let mut response = http::Response::new(Bytes::new());
+                response
+                    .extensions_mut()
+                    .insert(crate::ops::realtime::RealtimeOutcome { result, principal });
+                Dispatched {
+                    response,
+                    meter,
+                    render: None,
+                    page: false,
+                    body: None,
+                }
+            }
             // Refused twice: both members died before the request started.
             // (`Event` never answers a request.)
-            ThreadReply::Refused | ThreadReply::Event { .. } => {
+            ThreadReply::Refused | ThreadReply::Event { .. } | ThreadReply::Invoked { .. } => {
                 fail(ErrorCode::Internal, MeterStatus::Error)
             }
         }
@@ -1518,6 +1735,9 @@ impl Pool {
                 want_body: false,
                 page: None,
                 event: Some(ev.clone()),
+                guarded: false,
+                realtime: None,
+                invoke: None,
                 ctx: ctx.clone(),
                 reply: reply_tx,
             };
@@ -1564,6 +1784,118 @@ impl Pool {
     }
 }
 
+impl Pool {
+    async fn invoke(self: &Arc<Self>, ctx: RequestCtx, inv: Invoke) -> Invoked {
+        let admitted = Instant::now();
+        let route_name = inv.route();
+        let failed = |code: ErrorCode, status: MeterStatus| Invoked {
+            outcome: InvokeOutcome::Failed(code),
+            meter: InvocationMeter::new(Some(route_name.clone()), status),
+        };
+        // A tool runs as its route (handler, owner); a service has none.
+        let route = match &inv {
+            Invoke::Tool { name, .. } => match self
+                .artifact
+                .manifest
+                .routes
+                .iter()
+                .position(|r| r.tool.as_ref().is_some_and(|t| &t.name == name))
+            {
+                Some(i) => i,
+                None => {
+                    return Invoked {
+                        outcome: InvokeOutcome::NoHandler,
+                        meter: InvocationMeter::new(Some(route_name), MeterStatus::Ok),
+                    };
+                }
+            },
+            Invoke::Service { .. } => usize::MAX,
+        };
+        let deadline = effective_deadline(ctx.deadline, self.limits.wall_ms, admitted);
+        let ctx = RequestCtx {
+            request_id: ctx.request_id,
+            deadline,
+        };
+        let Ok(_permit) = self.concurrency.acquire(deadline).await else {
+            return failed(ErrorCode::Busy, MeterStatus::Busy);
+        };
+        let mut attempts = 0;
+        let (member, seq, waited) = loop {
+            attempts += 1;
+            let member = match self.live_thread().await {
+                Ok(t) => t,
+                Err(e) => {
+                    let status = match e.code() {
+                        ErrorCode::CpuLimit => MeterStatus::CpuLimit,
+                        ErrorCode::Oom => MeterStatus::Oom,
+                        ErrorCode::Deadline => MeterStatus::Timeout,
+                        _ => MeterStatus::Error,
+                    };
+                    return failed(e.code(), status);
+                }
+            };
+            let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+            let (reply_tx, reply_rx) = oneshot::channel();
+            let job = DispatchJob {
+                seq,
+                route,
+                params: Arc::new(BTreeMap::new()),
+                method: String::new(),
+                url: String::new(),
+                headers: Arc::new(Vec::new()),
+                body: Bytes::new(),
+                want_body: false,
+                page: None,
+                event: None,
+                guarded: false,
+                realtime: None,
+                invoke: Some(inv.clone()),
+                ctx: ctx.clone(),
+                reply: reply_tx,
+            };
+            let _ = member.0.tx.send(Command::Dispatch(Box::new(job)));
+            let waited = tokio::time::timeout_at(deadline.into(), reply_rx).await;
+            match waited {
+                Ok(Ok(ThreadReply::Refused)) | Ok(Err(_)) if attempts < 2 => continue,
+                waited => break (member, seq, waited),
+            }
+        };
+        match waited {
+            Ok(Ok(ThreadReply::Invoked { outcome, mut meter })) => {
+                meter.route = Some(route_name);
+                Invoked { outcome, meter }
+            }
+            Ok(Ok(ThreadReply::Failed { code, mut meter })) => {
+                meter.route = Some(route_name);
+                Invoked {
+                    outcome: InvokeOutcome::Failed(code),
+                    meter,
+                }
+            }
+            Ok(_) => failed(ErrorCode::Internal, MeterStatus::Error),
+            Err(_elapsed) => {
+                let (meter_tx, meter_rx) = oneshot::channel();
+                let _ = member.0.tx.send(Command::Cancel {
+                    seq,
+                    meter: meter_tx,
+                    reason: CancelReason::Deadline,
+                });
+                let mut meter = tokio::time::timeout(Duration::from_millis(100), meter_rx)
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or_else(|| InvocationMeter::new(None, MeterStatus::Timeout));
+                meter.status = MeterStatus::Timeout;
+                meter.route = Some(route_name);
+                Invoked {
+                    outcome: InvokeOutcome::Failed(ErrorCode::Deadline),
+                    meter,
+                }
+            }
+        }
+    }
+}
+
 fn absolute_url(parts: &http::request::Parts) -> String {
     if parts.uri.scheme().is_some() && parts.uri.authority().is_some() {
         return parts.uri.to_string();
@@ -1593,6 +1925,8 @@ struct ThreadContext {
     secrets: Arc<BTreeMap<String, BTreeMap<String, String>>>,
     modules: Arc<ModuleRegistry>,
     event_handlers: Arc<Mutex<BTreeMap<String, Vec<String>>>>,
+    authz: AuthzSlot,
+    realtime: crate::ops::realtime::RealtimeSlot,
     sink: Arc<dyn LogSink>,
     shared: Arc<ThreadShared>,
 }
@@ -1604,15 +1938,21 @@ struct Platform {
     dispatch: v8::Global<v8::Function>,
     /// The bootstrap's event entry (ops.md 1.3.0 section 15.4).
     deliver: v8::Global<v8::Function>,
+    /// The bootstrap's service and tool entry (#285).
+    invoke: v8::Global<v8::Function>,
     /// One handler per `manifest.routes[]` entry; `None` for a page route
     /// without `load` (it never enters the isolate).
-    handlers: Vec<Option<v8::Global<v8::Function>>>,
+    /// The route's handler: a function, or the `ws` / `sse` object of a
+    /// realtime route.
+    handlers: Vec<Option<v8::Global<v8::Value>>>,
     /// Per route: action name -> function, from the page module's
     /// `export const actions` (empty for every other route).
     actions: Vec<BTreeMap<String, v8::Global<v8::Function>>>,
     /// Per route: the module that owns it (`app` or an installed module;
     /// `artifact.md` section 3, "Route merge").
     owners: Vec<String>,
+    /// Per route: a tool route's Cedar action (#285), empty otherwise.
+    tool_actions: Vec<String>,
     /// Per route: `Some` when its module is evaluated on first use (ops.md
     /// 1.4.0 section 11, step 4); `handlers` and `actions` are then empty
     /// and the bootstrap resolves them inside the request.
@@ -1813,6 +2153,27 @@ async fn create_worker(
             redactor: Arc::new(Redactor::new(ctx.spec.secrets.values())),
             modules: ctx.modules.clone(),
         }));
+        state.put(Rc::new(crate::ops::authz::AuthzEnv {
+            slot: ctx.authz.clone(),
+            guards: ctx
+                .artifact
+                .manifest
+                .routes
+                .iter()
+                .map(|r| r.guard.clone())
+                .collect(),
+            owners: ctx
+                .artifact
+                .manifest
+                .routes
+                .iter()
+                .map(route_owner)
+                .collect(),
+        }));
+        state.put(Rc::new(crate::ops::realtime::RealtimeEnv {
+            slot: ctx.realtime.clone(),
+            authz: ctx.authz.clone(),
+        }));
         state.put(LogEnv {
             sink: ctx.sink.clone(),
             limiter: ctx.runtime.inner.log_limiter.clone(),
@@ -1834,7 +2195,7 @@ async fn create_worker(
     };
 
     // Step 2: take the bootstrap's functions, remove the handle, harden.
-    let (dispatch, deliver, harden, register) = {
+    let (dispatch, deliver, invoke, harden, register) = {
         let internal = worker
             .js_runtime
             .execute_script(
@@ -1861,6 +2222,7 @@ async fn create_worker(
         (
             get(scope, "dispatch")?,
             get(scope, "deliver")?,
+            get(scope, "invoke")?,
             get(scope, "harden")?,
             get(scope, "register")?,
         )
@@ -2023,15 +2385,29 @@ async fn create_worker(
             let key = v8::String::new(scope, &r.export)
                 .ok_or_else(|| CreateError::Manifest("export name".into()))?;
             let v = ns.get(scope, key.into());
+            // ops.md 1.5.0 section 18: `export const ws` / `sse` is an
+            // object of handlers; every other route exports a function.
+            let realtime = matches!(r.kind, RouteKind::Ws | RouteKind::Sse | RouteKind::Tool);
             let f = v
-                .and_then(|v| v8::Local::<v8::Function>::try_from(v).ok())
+                .filter(|v| {
+                    if realtime {
+                        v.is_object()
+                    } else {
+                        v.is_function()
+                    }
+                })
                 .ok_or_else(|| {
                     CreateError::ModuleLoad(format!(
-                        "route {} {}: export {} of {} is missing or not a function",
+                        "route {} {}: export {} of {} is missing or not a {}",
                         r.method.as_str(),
                         r.path,
                         r.export,
-                        r.module
+                        r.module,
+                        if realtime {
+                            "handler object"
+                        } else {
+                            "function"
+                        }
                     ))
                 })?;
             handlers.push(Some(v8::Global::new(scope, f)));
@@ -2044,8 +2420,19 @@ async fn create_worker(
         Platform {
             dispatch,
             deliver,
+            invoke,
             handlers,
             actions,
+            tool_actions: manifest
+                .routes
+                .iter()
+                .map(|r| {
+                    r.tool
+                        .as_ref()
+                        .map(|t| t.action.clone())
+                        .unwrap_or_default()
+                })
+                .collect(),
             owners,
             lazy,
         },
@@ -2126,6 +2513,10 @@ struct JsOutcome {
     result: Option<String>,
     /// `KIND_MODULE_EVAL`: the first failure of that module on this isolate.
     first: Option<bool>,
+    /// `KIND_FORBIDDEN`, and `KIND_THROW` of a `RENOX_FORBIDDEN` or
+    /// `RENOX_DB_SCOPE`: the error's details and a principal summary, as
+    /// JSON, for the tenant log (the dev overlay reads them, #294).
+    details_json: Option<String>,
 }
 
 const KIND_OK: u8 = 0;
@@ -2140,6 +2531,15 @@ const KIND_EVENT: u8 = 5;
 /// A lazy route module failed its first evaluation, or lacks the route's
 /// export (ops.md 1.4.0 section 11, steps 4-5): 500 `RENOX_MODULE_EVAL`.
 const KIND_MODULE_EVAL: u8 = 6;
+/// The route's `guard` denied before the handler (ops.md 1.5.0 section 17):
+/// 403 `RENOX_FORBIDDEN`, meter `status: forbidden`.
+const KIND_FORBIDDEN: u8 = 7;
+/// A realtime run ended (ops.md 1.5.0 section 18): `result` is `ok` or
+/// `no_handler`.
+const KIND_REALTIME: u8 = 8;
+/// A service or tool invocation ended (#285): `result` is `ok` (with
+/// `data_json`), `no_handler`, or `output_too_large`.
+const KIND_INVOKE: u8 = 9;
 
 type JsResult<T> = Result<T, Box<deno_core::error::JsError>>;
 type CallFuture = Pin<Box<dyn Future<Output = JsResult<v8::Global<v8::Value>>>>>;
@@ -2153,6 +2553,10 @@ struct InFlight {
     route: usize,
     /// An event delivery: its `EVENT <module> <name>` route.
     event: Option<String>,
+    /// A realtime run: its phase, for the log line of a throw.
+    realtime_phase: Option<&'static str>,
+    /// An invocation (#285): its meter route.
+    invoke: Option<String>,
     /// Thread CPU charged to the request (ns); set from the CPU ledger when
     /// the request ends.
     cpu_ns: u64,
@@ -2170,9 +2574,10 @@ struct InFlight {
 
 impl InFlight {
     fn meter(&self, ctx: &ThreadContext, status: MeterStatus) -> InvocationMeter {
-        let route = match &self.event {
-            Some(e) => e.clone(),
-            None => {
+        let route = match (&self.event, &self.invoke) {
+            (Some(e), _) => e.clone(),
+            (None, Some(i)) => i.clone(),
+            (None, None) => {
                 let r = &ctx.artifact.manifest.routes[self.route];
                 format!("{} {}", r.method.as_str(), r.path)
             }
@@ -2188,6 +2593,9 @@ impl InFlight {
             db_ms: (self.used.db_ms * 1_000.0).round() / 1_000.0,
             db_rows: self.used.db_rows,
             logs_dropped: self.used.logs_dropped,
+            authz_evals: self.used.authz_evals,
+            render_fuel: self.used.render_fuel,
+            render_ms: self.used.render_ms,
         }
     }
 }
@@ -2579,7 +2987,7 @@ async fn serve(
 }
 
 /// What a request's ops used, and what had to be cleaned up when it ended.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct RequestEnd {
     fetch_sent_bytes: u64,
     fetch_received_bytes: u64,
@@ -2587,6 +2995,11 @@ struct RequestEnd {
     db_ms: f64,
     db_rows: u64,
     logs_dropped: u64,
+    authz_evals: u64,
+    render_fuel: u64,
+    render_ms: f64,
+    /// The principal the request ran as (`None` before the prelude).
+    principal: Option<Arc<renox_authz::Principal>>,
     /// An open transaction was rolled back.
     rolled_back_tx: bool,
     /// Bytes `op_response_write` took for a streamed body.
@@ -2656,6 +3069,10 @@ fn end_request(
         db_ms: request.db_ms,
         db_rows: request.db_rows,
         logs_dropped: request.logs_dropped,
+        authz_evals: request.authz.evals,
+        render_fuel: request.render_fuel,
+        render_ms: request.render_ms,
+        principal: request.authz.principal.clone(),
         rolled_back_tx,
         response_sent_bytes,
     }
@@ -2766,6 +3183,75 @@ fn log_line(
 
 type StartResult = Result<(CallFuture, InFlight), (oneshot::Sender<ThreadReply>, ErrorCode)>;
 
+/// What the authz ops need of the request (ops.md 1.5.0 section 17): the
+/// route and its parameters (`guard`), the method and path (Cedar
+/// `context.request`), the principal cache key; a System principal for an
+/// event delivery.
+fn request_authz(job: &DispatchJob) -> crate::ops::authz::RequestAuthz {
+    use crate::ops::authz::{RequestAuthz, cache_key};
+    if let Some(ev) = &job.event {
+        return RequestAuthz {
+            principal: Some(Arc::new(renox_authz::Principal::system(&ev.module))),
+            ..RequestAuthz::default()
+        };
+    }
+    match &job.invoke {
+        // ops.md 1.5.0 section 19: a tool runs as the token's user.
+        Some(Invoke::Tool { principal, .. }) => {
+            return RequestAuthz {
+                principal: Some(principal.clone()),
+                ..RequestAuthz::default()
+            };
+        }
+        // A service the platform calls (`auth.verifyAgentToken`).
+        Some(Invoke::Service { .. }) => {
+            return RequestAuthz {
+                principal: Some(Arc::new(renox_authz::Principal::system("renox"))),
+                ..RequestAuthz::default()
+            };
+        }
+        None => {}
+    }
+    let cookie = job
+        .headers
+        .iter()
+        .filter(|(k, _)| k.eq_ignore_ascii_case(b"cookie"))
+        .map(|(_, v)| String::from_utf8_lossy(v).into_owned())
+        .collect::<Vec<_>>()
+        .join("; ");
+    let session = job
+        .page
+        .as_ref()
+        .map(|p| p.session.clone())
+        .or_else(|| job.realtime.as_ref().map(|r| r.session.clone()))
+        .filter(|s| !s.is_empty());
+    let path = url::Url::parse(&job.url)
+        .map(|u| u.path().to_string())
+        .unwrap_or_default();
+    RequestAuthz {
+        route: Some(job.route),
+        method: job.method.clone(),
+        path,
+        params: job
+            .params
+            .iter()
+            .map(|(k, v)| {
+                let v = match v {
+                    ParamValue::One(s) => s.clone(),
+                    ParamValue::Many(l) => l.join("/"),
+                };
+                (k.clone(), v)
+            })
+            .collect(),
+        cache_key: cache_key(session.as_deref(), Some(&cookie)),
+        session,
+        // ops.md 1.5.0 section 18: a realtime handler run uses the principal
+        // resolved at connect, never one from a message.
+        principal: job.realtime.as_ref().and_then(|r| r.principal.clone()),
+        ..RequestAuthz::default()
+    }
+}
+
 fn start_dispatch(
     ctx: &ThreadContext,
     worker: &mut MainWorker,
@@ -2776,11 +3262,13 @@ fn start_dispatch(
     let (token, body) = {
         let state = worker.js_runtime.op_state();
         let mut state = state.borrow_mut();
-        let token = state.borrow_mut::<RequestTable>().begin(RequestState::new(
+        let mut request = RequestState::new(
             job.ctx.request_id.clone(),
             job.ctx.deadline,
             egress_limit_bytes,
-        ));
+        );
+        request.authz = request_authz(&job);
+        let token = state.borrow_mut::<RequestTable>().begin(request);
         // ops.md section 10: the response egress limit has the tier's
         // egress value, on a counter of its own.
         let body = state
@@ -2790,9 +3278,10 @@ fn start_dispatch(
     };
     let args = {
         deno_core::scope!(scope, &mut worker.js_runtime);
-        match &job.event {
-            Some(ev) => build_event_args(scope, token, ev),
-            None => build_args(scope, platform, token, &job),
+        match (&job.event, &job.invoke) {
+            (Some(ev), _) => build_event_args(scope, token, ev),
+            (None, Some(inv)) => build_invoke_args(scope, platform, token, job.route, inv),
+            (None, None) => build_args(scope, platform, token, &job),
         }
     };
     let args = match args {
@@ -2812,6 +3301,8 @@ fn start_dispatch(
     attribute(|l, now| l.switch(Some(token), now));
     let entry = if job.event.is_some() {
         &platform.deliver
+    } else if job.invoke.is_some() {
+        &platform.invoke
     } else {
         &platform.dispatch
     };
@@ -2825,6 +3316,8 @@ fn start_dispatch(
             ctx: job.ctx,
             route: job.route,
             event: job.event.as_ref().map(EventEnvelope::route),
+            realtime_phase: job.realtime.as_ref().map(|r| r.phase.as_str()),
+            invoke: job.invoke.as_ref().map(Invoke::route),
             cpu_ns: 0,
             peak_heap: 0,
             used: RequestEnd::default(),
@@ -2856,9 +3349,13 @@ fn build_args(
             }),
         )?,
         (h, None) => match h {
-            Some(h) => v8::Local::new(scope, h).into(),
-            // An action on a page without `load`.
-            None if action_name.is_some() => v8::null(scope).into(),
+            Some(h) => v8::Local::new(scope, h),
+            // An action on a page without `load`, or a page without `load`
+            // that is guarded (the guard runs in the isolate's prelude) or
+            // whose templates call `can` (the renderer needs the principal).
+            None if action_name.is_some() || job.guarded || job.page.is_some() => {
+                v8::null(scope).into()
+            }
             None => return Err(serde_v8::Error::Message("route has no handler".into())),
         },
     };
@@ -2872,12 +3369,42 @@ fn build_args(
     };
     let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
     let method: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.method)?;
+    // ops.md 1.5.0 section 18: the realtime envelope; a binary frame
+    // crosses as the body.
+    let mut frame: Option<Vec<u8>> = None;
+    let realtime: v8::Local<v8::Value> = match &job.realtime {
+        Some(rt) => {
+            use crate::ops::realtime::RealtimeData;
+            let text = match &rt.data {
+                Some(RealtimeData::Text(t)) => Some(t.clone()),
+                Some(RealtimeData::Binary(b)) => {
+                    frame = Some(b.clone());
+                    None
+                }
+                None => None,
+            };
+            serde_v8::to_v8(
+                scope,
+                serde_json::json!({
+                    "phase": rt.phase.as_str(),
+                    "conn": rt.conn,
+                    "transport": rt.transport.as_str(),
+                    "session": rt.session,
+                    "text": text,
+                    "binary": frame.is_some(),
+                    "close_code": rt.close.as_ref().map(|c| c.0),
+                    "close_reason": rt.close.as_ref().map(|c| c.1.clone()),
+                }),
+            )?
+        }
+        None => v8::null(scope).into(),
+    };
     let url: v8::Local<v8::Value> = serde_v8::to_v8(scope, &job.url)?;
     let headers: v8::Local<v8::Value> = serde_v8::to_v8(scope, job.headers.as_slice())?;
-    let body: v8::Local<v8::Value> = if job.body.is_empty() {
-        v8::null(scope).into()
-    } else {
-        serde_v8::to_v8(scope, ToJsBuffer::from(job.body.to_vec()))?
+    let body: v8::Local<v8::Value> = match frame {
+        Some(b) => serde_v8::to_v8(scope, ToJsBuffer::from(b))?,
+        None if job.body.is_empty() => v8::null(scope).into(),
+        None => serde_v8::to_v8(scope, ToJsBuffer::from(job.body.to_vec()))?,
     };
     let params_json: serde_json::Map<String, serde_json::Value> = job
         .params
@@ -2911,11 +3438,136 @@ fn build_args(
     };
     let owner: v8::Local<v8::Value> = serde_v8::to_v8(scope, &platform.owners[job.route])?;
     Ok([
-        handler, token_v, method, url, headers, body, params, want, page, action, owner,
+        handler, token_v, method, url, headers, body, params, want, page, action, owner, realtime,
     ]
     .into_iter()
     .map(|l| v8::Global::new(scope, l))
     .collect())
+}
+
+/// `invoke(token, envelope, handler, owner)` (#285): the envelope as JSON
+/// (`{ kind: "service", module, name, args }` or `{ kind: "tool", name,
+/// input, client, preview }`), the tool's handler object or lazy
+/// descriptor (null for a service), and the owning module.
+fn build_invoke_args(
+    scope: &mut v8::PinScope,
+    platform: &Platform,
+    token: u32,
+    route: usize,
+    inv: &Invoke,
+) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
+    let token_v: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, token).into();
+    let (envelope, handler, owner): (serde_json::Value, v8::Local<v8::Value>, String) = match inv {
+        Invoke::Service {
+            module,
+            name,
+            args_json,
+        } => (
+            serde_json::json!({ "kind": "service", "module": module, "name": name, "args": args_json }),
+            v8::null(scope).into(),
+            module.clone(),
+        ),
+        Invoke::Tool {
+            name,
+            input_json,
+            client_json,
+            preview,
+            ..
+        } => {
+            let handler: v8::Local<v8::Value> = match (
+                &platform.handlers[route],
+                platform.lazy[route].as_ref(),
+            ) {
+                (_, Some(l)) => serde_v8::to_v8(
+                    scope,
+                    serde_json::json!({ "lazy": l.lazy, "module": l.module, "export": l.export, "action": null }),
+                )?,
+                (Some(h), None) => v8::Local::new(scope, h),
+                (None, None) => v8::null(scope).into(),
+            };
+            let action = platform.tool_actions[route].clone();
+            (
+                serde_json::json!({ "kind": "tool", "name": name, "input": input_json, "client": client_json, "preview": preview, "action": action }),
+                handler,
+                platform.owners[route].clone(),
+            )
+        }
+    };
+    let envelope: v8::Local<v8::Value> = serde_v8::to_v8(scope, &envelope)?;
+    let owner: v8::Local<v8::Value> = serde_v8::to_v8(scope, &owner)?;
+    Ok([token_v, envelope, handler, owner]
+        .into_iter()
+        .map(|l| v8::Global::new(scope, l))
+        .collect())
+}
+
+/// An invocation's outcome (#285); a throw is logged with its route.
+fn finish_invoke(
+    ctx: &ThreadContext,
+    flight: &InFlight,
+    outcome: Result<JsOutcome, String>,
+) -> ThreadReply {
+    let route = flight.invoke.clone().unwrap_or_default();
+    let (result, status) = match &outcome {
+        Ok(o) if o.kind == KIND_INVOKE => match o.result.as_deref() {
+            Some("ok") => {
+                // ops.md 1.5.0 section 19: secret values never leave the cell.
+                let json = o.data_json.clone().unwrap_or_else(|| "null".into());
+                let redactor = crate::ops::secrets::Redactor::new(ctx.spec.secrets.values());
+                (
+                    InvokeOutcome::Ok(redactor.redact(&json).into_owned()),
+                    MeterStatus::Ok,
+                )
+            }
+            Some("output_too_large") => (InvokeOutcome::OutputTooLarge, MeterStatus::Error),
+            Some("forbidden") => (InvokeOutcome::Forbidden, MeterStatus::Forbidden),
+            _ => (InvokeOutcome::NoHandler, MeterStatus::Ok),
+        },
+        Ok(o) => (
+            InvokeOutcome::Threw {
+                code: o.code.clone(),
+            },
+            MeterStatus::Error,
+        ),
+        Err(_) => (InvokeOutcome::Threw { code: None }, MeterStatus::Error),
+    };
+    if matches!(result, InvokeOutcome::Threw { .. }) {
+        let mut f = serde_json::Map::new();
+        f.insert("code".into(), "RENOX_INTERNAL".into());
+        f.insert("route".into(), route.clone().into());
+        match &outcome {
+            Ok(o) => {
+                if let Some(code) = &o.code {
+                    f.insert("cause_code".into(), code.clone().into());
+                }
+                f.insert(
+                    "cause_name".into(),
+                    o.name.clone().unwrap_or_default().into(),
+                );
+                f.insert(
+                    "cause_message".into(),
+                    o.message.clone().unwrap_or_default().into(),
+                );
+                f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+            }
+            Err(e) => {
+                f.insert("cause_message".into(), e.clone().into());
+            }
+        }
+        log_line(
+            ctx,
+            "error",
+            Some(&flight.ctx.request_id),
+            "invocation threw",
+            f,
+        );
+    }
+    let mut meter = flight.meter(ctx, status);
+    meter.route = Some(route);
+    ThreadReply::Invoked {
+        outcome: result,
+        meter,
+    }
 }
 
 /// `deliver(token, id, name, payloadJson, attempt, module)`.
@@ -2934,6 +3586,90 @@ fn build_event_args(
         .into_iter()
         .map(|l| v8::Global::new(scope, l))
         .collect())
+}
+
+/// Copies the action, resource, reason, policy and principal of a denial
+/// (`details_json` of the outcome, #294) into a log line's fields.
+fn add_details(f: &mut serde_json::Map<String, serde_json::Value>, details: Option<&str>) {
+    let Some(serde_json::Value::Object(d)) = details.and_then(|j| serde_json::from_str(j).ok())
+    else {
+        return;
+    };
+    for key in ["action", "resource", "reason", "policy", "principal"] {
+        if let Some(v) = d.get(key).filter(|v| !v.is_null()) {
+            f.entry(key).or_insert_with(|| v.clone());
+        }
+    }
+}
+
+/// A realtime run's outcome (ops.md 1.5.0 section 18, "Failures"): a throw
+/// is logged with the phase; a `RENOX_FORBIDDEN` (a denied `guard` at
+/// connect, or an uncaught `ForbiddenError`) is `Forbidden`, which the cell
+/// answers with 403 or a 1008 close.
+fn finish_realtime(
+    ctx: &ThreadContext,
+    flight: &InFlight,
+    outcome: Result<JsOutcome, String>,
+) -> ThreadReply {
+    use crate::ops::realtime::RealtimeResult;
+    let route = &ctx.artifact.manifest.routes[flight.route];
+    let kind = if route.kind == RouteKind::Ws {
+        "WS"
+    } else {
+        "SSE"
+    };
+    let route_name = format!("{kind} {}", route.path);
+    let phase = flight.realtime_phase.unwrap_or("open");
+    let (result, status) = match &outcome {
+        Ok(o) if o.kind == KIND_REALTIME => match o.result.as_deref() {
+            Some("no_handler") => (RealtimeResult::NoHandler, MeterStatus::Ok),
+            _ => (RealtimeResult::Ok, MeterStatus::Ok),
+        },
+        Ok(o) if o.kind == KIND_FORBIDDEN => (RealtimeResult::Forbidden, MeterStatus::Forbidden),
+        Ok(o) if o.kind == KIND_THROW && o.code.as_deref() == Some("RENOX_FORBIDDEN") => {
+            (RealtimeResult::Forbidden, MeterStatus::Ok)
+        }
+        _ => (RealtimeResult::Threw, MeterStatus::Error),
+    };
+    if result == RealtimeResult::Threw {
+        let mut f = serde_json::Map::new();
+        f.insert("code".into(), "RENOX_INTERNAL".into());
+        f.insert("route".into(), route_name.clone().into());
+        f.insert("phase".into(), phase.into());
+        match &outcome {
+            Ok(o) => {
+                if let Some(code) = &o.code {
+                    f.insert("cause_code".into(), code.clone().into());
+                }
+                f.insert(
+                    "cause_name".into(),
+                    o.name.clone().unwrap_or_default().into(),
+                );
+                f.insert(
+                    "cause_message".into(),
+                    o.message.clone().unwrap_or_default().into(),
+                );
+                f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+            }
+            Err(e) => {
+                f.insert("cause_message".into(), e.clone().into());
+            }
+        }
+        log_line(
+            ctx,
+            "error",
+            Some(&flight.ctx.request_id),
+            "realtime handler threw",
+            f,
+        );
+    }
+    let mut meter = flight.meter(ctx, status);
+    meter.route = Some(route_name);
+    ThreadReply::Realtime {
+        result,
+        principal: flight.used.principal.clone(),
+        meter,
+    }
 }
 
 /// An event delivery's outcome; the cause of a throw goes to the tenant
@@ -3015,7 +3751,13 @@ fn finish_dispatch(
     if flight.event.is_some() {
         return finish_event(ctx, flight, outcome);
     }
+    if flight.invoke.is_some() {
+        return finish_invoke(ctx, flight, outcome);
+    }
     let route = &ctx.artifact.manifest.routes[flight.route];
+    if matches!(route.kind, RouteKind::Ws | RouteKind::Sse) {
+        return finish_realtime(ctx, flight, outcome);
+    }
     let route_name = format!("{} {}", route.method.as_str(), route.path);
     let no_template = route.page().is_some_and(|p| p.template.is_none());
     let page_internal = |reason: &str, detail: Option<String>| {
@@ -3055,6 +3797,7 @@ fn finish_dispatch(
                 fragments: o.fragments.unwrap_or_default(),
                 locale: o.locale,
                 dir: o.dir,
+                principal: flight.used.principal.clone(),
                 meter: flight.meter(ctx, MeterStatus::Ok),
             },
             None => page_internal("data_not_serialisable", None),
@@ -3097,6 +3840,40 @@ fn finish_dispatch(
                 meter: flight.meter(ctx, MeterStatus::Error),
             }
         }
+        Ok(o) if o.kind == KIND_FORBIDDEN => {
+            let mut f = serde_json::Map::new();
+            f.insert("code".into(), "RENOX_FORBIDDEN".into());
+            f.insert("route".into(), route_name.clone().into());
+            f.insert("reason".into(), o.reason.clone().unwrap_or_default().into());
+            if let Some(name) = &o.name {
+                f.insert("policy".into(), name.clone().into());
+            }
+            // #294: the guard's action and who asked, for the dev overlay.
+            if let Some(g) = &route.guard {
+                f.insert("action".into(), g.action.clone().into());
+            }
+            add_details(&mut f, o.details_json.as_deref());
+            log_line(ctx, "info", Some(&flight.ctx.request_id), "guard denied", f);
+            ThreadReply::Failed {
+                code: ErrorCode::Forbidden,
+                meter: flight.meter(ctx, MeterStatus::Forbidden),
+            }
+        }
+        // ops.md 1.5.0 section 17: an uncaught ForbiddenError is 403, not
+        // 500; the meter status stays `ok` (meter.md 0.3, `forbidden`).
+        Ok(o) if o.kind == KIND_THROW && o.code.as_deref() == Some("RENOX_FORBIDDEN") => {
+            // #294: the denied action, resource, reason and (dev) policy,
+            // and who asked: what the dev overlay shows.
+            let mut f = serde_json::Map::new();
+            f.insert("code".into(), "RENOX_FORBIDDEN".into());
+            f.insert("route".into(), route_name.clone().into());
+            add_details(&mut f, o.details_json.as_deref());
+            log_line(ctx, "info", Some(&flight.ctx.request_id), "forbidden", f);
+            ThreadReply::Failed {
+                code: ErrorCode::Forbidden,
+                meter: flight.meter(ctx, MeterStatus::Ok),
+            }
+        }
         Ok(o) if o.kind == KIND_OK => ThreadReply::Ok {
             status: o.status.unwrap_or(200),
             headers: o.headers.unwrap_or_default(),
@@ -3127,6 +3904,14 @@ fn finish_dispatch(
                     o.message.clone().unwrap_or_default().into(),
                 );
                 f.insert("stack".into(), o.stack.clone().unwrap_or_default().into());
+                // #294: a RENOX_DB_SCOPE names the table and why (never the SQL).
+                if let Some(d) = o
+                    .details_json
+                    .as_deref()
+                    .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+                {
+                    f.insert("details".into(), d);
+                }
                 "handler threw"
             } else {
                 f.insert(

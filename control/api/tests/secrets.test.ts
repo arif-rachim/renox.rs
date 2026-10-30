@@ -70,7 +70,11 @@ describe("secrets API", () => {
     expect(await code(put(h.request, token, "BIG", "é".repeat(40_000)))).toEqual([400, "RENOX_VALIDATION"]);
     expect(await code(put(h.request, token, "lower_case", "12345678"))).toEqual([400, "RENOX_VALIDATION"]);
     expect(await code(h.request("PUT", "/v1/apps/hello/secrets/X", { token, json: { value: "12345678", echo: true } }))).toEqual([400, "RENOX_VALIDATION"]);
-    for (let i = 1; i < 100; i++) expect((await put(h.request, token, `K${i}`, "12345678")).status).toBe(200);
+    // 50 ms each: within the token's 20 requests per second (#275).
+    for (let i = 1; i < 100; i++) {
+      h.clock.now += 50;
+      expect((await put(h.request, token, `K${i}`, "12345678")).status).toBe(200);
+    }
     expect(await code(put(h.request, token, "K100", "12345678"))).toEqual([400, "RENOX_VALIDATION"]);
     expect((await put(h.request, token, "K1", "87654321")).status).toBe(200);
   });

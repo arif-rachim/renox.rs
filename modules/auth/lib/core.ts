@@ -49,7 +49,7 @@ export const GENERIC_LOGIN_ERROR = "The email or password is incorrect, or there
  */
 const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=1$YXV0aC10aW1pbmctc2FsdA$Hk5oYhG8b6q3U0mW1Vd8Ow3Y0bBqX9Y4s2y1zQm4n2c";
 
-const now = (): number => Math.floor(Date.now() / 1000);
+export const now = (): number => Math.floor(Date.now() / 1000);
 
 const intConfig = (ctx: AuthCtx, key: string, fallback: number): number => {
   const v = ctx.config[key];
@@ -142,7 +142,7 @@ export async function startSession(ctx: AuthCtx, userId: string): Promise<{ id: 
 }
 
 /** Bucket counts after `failed` (one more failure) or read only. */
-async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> {
+export async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> {
   const t = now();
   const row = await ctx.db.queryOne<{ count: number; window_start: number }>("select count, window_start from auth__attempts where bucket = ?", [key]);
   const fresh = row === null || t - row.window_start >= WINDOW_SECONDS;
@@ -153,7 +153,41 @@ async function bucket(ctx: AuthCtx, key: string, add: boolean): Promise<number> 
   return count + 1;
 }
 
-const clientIp = (headers: Headers): string => headers.get("x-renox-client-ip") ?? "unknown";
+export const clientIp = (headers: Headers): string => headers.get("x-renox-client-ip") ?? "unknown";
+
+export const TICKET_SECONDS = 10 * 60;
+
+/**
+ * `auth.after_login` for every sign-in method (password, magic link, OAuth,
+ * phone, passkey): the fillers get `{ user_id, next?, resume }`. `resume` is
+ * a single-use ticket (10 minutes, stored hashed): a filler that halts (2fa,
+ * #287) keeps it and, once its own check passed, calls `auth.resumeLogin`
+ * with it to start the session. Without a halt the ticket is spent at once.
+ */
+export async function afterLogin(ctx: AuthCtx, userId: string, next?: string): Promise<{ halt: false } | { halt: true; response: Response }> {
+  const ticket = randomHex(32);
+  const hash = await sha256Hex(ticket);
+  await ctx.db.execute("insert into auth__login_tickets (ticket_hash, user_id, next, expires_at) values (?, ?, ?, ?)", [hash, userId, next ?? null, now() + TICKET_SECONDS]);
+  const hook = await ctx.hooks.run("auth.after_login", { user_id: userId, ...(next ? { next } : {}), resume: ticket });
+  if (hook.halt) return { halt: true, response: hook.response };
+  await ctx.db.execute("delete from auth__login_tickets where ticket_hash = ?", [hash]);
+  return { halt: false };
+}
+
+/** Redeems a ticket of `afterLogin` once: a new session and `auth.login`, with no second run of the hook. */
+export async function resumeLogin(ctx: AuthCtx, ticket: unknown): Promise<{ cookie: string; session_id: string; user_id: string; next: string | null } | null> {
+  if (typeof ticket !== "string" || !/^[0-9a-f]{64}$/u.test(ticket)) return null;
+  const hash = await sha256Hex(ticket);
+  const t = now();
+  const used = await ctx.db.execute("update auth__login_tickets set used_at = ? where ticket_hash = ? and used_at is null and expires_at > ?", [t, hash, t]);
+  if (used.changes !== 1) return null;
+  const row = await ctx.db.queryOne<{ user_id: string; next: string | null }>("select user_id, next from auth__login_tickets where ticket_hash = ?", [hash]);
+  if (row === null) return null;
+  await ctx.db.execute("delete from auth__login_tickets where expires_at < ?", [t]);
+  const session = await startSession(ctx, row.user_id);
+  await ctx.events.emit("auth.login", { user_id: row.user_id, at: t });
+  return { cookie: session.cookie, session_id: session.id, user_id: row.user_id, next: row.next };
+}
 
 /** `halt`: a filler of `auth.after_login` answered; no session was started and `cookie` is empty. */
 export type LoginResult = { ok: true; user: User; cookie: string; halt?: Response } | { ok: false; error: string };
@@ -176,7 +210,7 @@ export async function login(ctx: AuthCtx, input: { email?: unknown; password?: u
   await ctx.db.execute("delete from auth__attempts where bucket = ?", [acct]);
   const user: User = { id: row.id, email: row.email, display_name: row.display_name, created_at: row.created_at };
   // A filler that halts (2fa, F5) answers instead; no session is started yet.
-  const hook = await ctx.hooks.run("auth.after_login", { user_id: user.id, ...(input.next ? { next: input.next } : {}) });
+  const hook = await afterLogin(ctx, user.id, input.next);
   if (hook.halt) return { ok: true, user, cookie: "", halt: hook.response };
   const session = await startSession(ctx, user.id);
   await ctx.events.emit("auth.login", { user_id: user.id, at: now() });
@@ -215,10 +249,14 @@ export async function register(ctx: AuthCtx, input: { email?: unknown; password?
   return { ok: true, created: true, user };
 }
 
-/** Revoke the request's session. */
+/** Revoke the request's session; `auth.logout` drops the principal from the cell's cache (ops.md 1.5.0 section 17). */
 export async function logout(ctx: AuthCtx): Promise<void> {
   const token = sessionToken(ctx.headers);
-  if (token !== null) await ctx.db.execute("update auth__sessions set revoked_at = ? where token_hash = ? and revoked_at is null", [now(), await sha256Hex(token)]);
+  if (token === null) return;
+  const hash = await sha256Hex(token);
+  const s = await ctx.db.queryOne<{ user_id: string }>("select user_id from auth__sessions where token_hash = ? and revoked_at is null", [hash]);
+  await ctx.db.execute("update auth__sessions set revoked_at = ? where token_hash = ? and revoked_at is null", [now(), hash]);
+  if (s !== null) await ctx.events.emit("auth.logout", { user_id: s.user_id, at: now() });
 }
 
 /** Change the password: checks the current one, revokes every other session, rotates this one. */
@@ -253,17 +291,30 @@ export async function revokeAll(ctx: AuthCtx, userId: string): Promise<void> {
   await ctx.db.execute("update auth__sessions set revoked_at = ? where user_id = ? and revoked_at is null", [now(), userId]);
 }
 
+// `redirect.safe()` of "renox" (sdk/src/redirect.ts, #111) decides every
+// redirect below. A module tree has no node_modules (its hash covers every
+// file), so `renox` cannot be bundled into it; `safePath` is
+// `safeRedirectTarget(target)` with no allowed origins, and
+// tests/auth.test.ts holds the two to the same answers on #111's list.
+const CONTROL = /[\u0000-\u001f\u007f]/u;
+
+/** `target` when it is a path of this app (`/…`, not `//…`, no `\`, no control characters, at most 2048 characters), else null. */
+export function safePath(target: unknown): string | null {
+  if (typeof target !== "string" || target.length === 0 || target.length > 2048) return null;
+  if (CONTROL.test(target) || target.includes("\\")) return null;
+  return target.startsWith("/") && !target.startsWith("//") ? target : null;
+}
+
 /** The login page (config `login_path`), with `next` kept only when it is a path of the app. */
 export function loginUrl(ctx: Pick<AuthCtx, "config">, next?: string): string {
-  const base = typeof ctx.config.login_path === "string" && ctx.config.login_path.startsWith("/") ? ctx.config.login_path : "/auth/login";
-  return next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? `${base}?next=${encodeURIComponent(next)}` : base;
+  const base = safePath(ctx.config.login_path) ?? "/auth/login";
+  const safe = safePath(next);
+  return safe === null ? base : `${base}?next=${encodeURIComponent(safe)}`;
 }
 
 /** A 303 to `target` if it is a path of the app (`redirect.safe` rules), else to `fallback`, with `cookies` set. */
 export function redirectWith(target: string | null | undefined, cookies: string[], fallback = "/"): Response {
-  const t = typeof target === "string" ? target : "";
-  const safe = t.startsWith("/") && !t.startsWith("//") && !t.includes("\\") && !/[\u0000-\u001f\u007f]/u.test(t) && t.length <= 2048 ? t : fallback;
-  const headers = new Headers({ location: safe });
+  const headers = new Headers({ location: safePath(target) ?? safePath(fallback) ?? "/" });
   for (const c of cookies) if (c) headers.append("set-cookie", c);
   return new Response(null, { status: 303, headers });
 }

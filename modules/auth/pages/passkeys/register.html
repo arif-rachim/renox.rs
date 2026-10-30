@@ -1,0 +1,27 @@
+<r-layout use="auth">
+  <r-group slot="title"><r-t key="auth.passkeys.add_title" /></r-group>
+  <h1><r-t key="auth.passkeys.add_title" /></h1>
+  <p class="error" id="error" r-if="error">{{ error }}</p>
+  <x-form action="default" id="passkey-form" :data-options="options">
+    <label><r-t key="auth.passkeys.name" /> <input type="text" name="name" maxlength="60" placeholder="Laptop"></label>
+    <input type="hidden" name="client_data">
+    <input type="hidden" name="attestation_object">
+    <button type="button" id="passkey-go"><r-t key="auth.passkeys.create" /></button>
+  </x-form>
+  <p><a href="../account"><r-t key="auth.passkeys.back" /></a></p>
+  <script>
+    (() => {
+      const form = document.getElementById("passkey-form");
+      const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+      const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      document.getElementById("passkey-go").addEventListener("click", async () => {
+        const o = JSON.parse(form.dataset.options);
+        const publicKey = { ...o, challenge: b64(o.challenge), user: { ...o.user, id: b64(o.user.id) }, excludeCredentials: o.excludeCredentials.map((c) => ({ ...c, id: b64(c.id) })) };
+        const cred = await navigator.credentials.create({ publicKey });
+        form.client_data.value = enc(cred.response.clientDataJSON);
+        form.attestation_object.value = enc(cred.response.attestationObject);
+        form.submit();
+      });
+    })();
+  </script>
+</r-layout>

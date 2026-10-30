@@ -24,6 +24,7 @@ import { registerNodeArtifacts } from "./nodes/artifacts.ts";
 import { registerPrepareResults } from "./nodes/prepare_results.ts";
 import { registerActivation } from "./deployments/activate.ts";
 import { registerAccounts } from "./auth/accounts.ts";
+import { registerMfa } from "./auth/mfa.ts";
 import { registerTeam } from "./tenancy/team.ts";
 import { registerDomains } from "./domains/routes.ts";
 import { registerMcp } from "./mcp/server.ts";
@@ -101,6 +102,6 @@ export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surf
     await next();
   });
 
-  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerClientErrors, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerTeam, registerDomains, registerMcp, registerBackups, registerBackupActions, registerOps, ...modules]) register(app, deps);
+  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerClientErrors, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerMfa, registerTeam, registerDomains, registerMcp, registerBackups, registerBackupActions, registerOps, ...modules]) register(app, deps);
   return app;
 }

@@ -361,9 +361,16 @@ fn ddl_needs_allow_ddl_and_stays_inside_the_prefix() {
             "billing__tmp",
             "CREATE_TEMP_TABLE",
         ),
+        // #288: a trigger on another module's table, or named outside the
+        // prefix, is refused; a module's own guard trigger is allowed below.
         (
-            "create trigger billing__t after insert on billing__invoices begin select 1; end",
+            "create trigger billing__t after insert on auth__users begin select 1; end",
             "billing__t",
+            "CREATE_TRIGGER",
+        ),
+        (
+            "create trigger evil after insert on billing__invoices begin select 1; end",
+            "evil",
             "CREATE_TRIGGER",
         ),
         ("pragma writable_schema = on", "writable_schema", "PRAGMA"),
@@ -374,6 +381,12 @@ fn ddl_needs_allow_ddl_and_stays_inside_the_prefix() {
             "{sql}"
         );
     }
+    // #288: the module's own trigger on its own table.
+    migr.execute(
+        "create trigger billing__guard before delete on billing__invoices begin select raise(abort, 'append-only'); end",
+        &[],
+    )
+    .unwrap();
     // DDL does not widen data access.
     assert_eq!(
         migr.query("select * from auth__users", &[]).unwrap_err(),

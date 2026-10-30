@@ -831,6 +831,12 @@ pub fn error_details(e: &DbError) -> serde_json::Value {
     match e {
         DbError::Auth { table, action } => serde_json::json!({ "table": table, "action": action }),
         DbError::Constraint { kind, .. } => serde_json::json!({ "kind": kind.as_str() }),
+        // ops.md 1.5.0 section 17: logged with these, never the SQL.
+        DbError::Scope {
+            table,
+            module,
+            reason,
+        } => serde_json::json!({ "table": table, "module": module, "reason": reason.as_str() }),
         _ => serde_json::Value::Null,
     }
 }
@@ -966,6 +972,7 @@ mod v8_ops {
         bytes: Vec<JsBuffer>,
         tx: u32,
         module: Option<String>,
+        scope: Option<serde_json::Value>,
     ) -> Result<StmtOut, JsErrorBox> {
         let request = live_request(&state.borrow(), token)?;
         let env = env(&state);
@@ -982,6 +989,44 @@ mod v8_ops {
             )
         })?;
         let params = convert_params(&sql, decode(params, bytes)).map_err(usage)?;
+        // ops.md 1.5.0 section 17, `db.scoped()`: the owner predicates of
+        // the calling module's (or the app's) owned tables, and the policy
+        // marked scoped so the authorizer lets the owned tables through.
+        let (sql, policy) = match scope {
+            None => (sql, policy),
+            Some(scope) => {
+                let field = |k: &str| {
+                    scope.get(k).and_then(|v| match v {
+                        serde_json::Value::String(s) => Some(s.clone()),
+                        serde_json::Value::Number(n) => Some(n.to_string()),
+                        _ => None,
+                    })
+                };
+                let sc = renox_data::Scope {
+                    user_id: field("user_id"),
+                    org_id: field("org_id"),
+                    session_id: field("session_id"),
+                };
+                let owned = env
+                    .modules
+                    .ownership(module.as_deref().filter(|m| *m != crate::ops::modules::APP));
+                let sql = renox_data::scoped::rewrite(&sql, &params, &sc, &owned).map_err(|e| {
+                    let e = match e {
+                        DbError::Scope { table, reason, .. } => DbError::Scope {
+                            table,
+                            module: module.clone().unwrap_or_else(|| "app".into()).into(),
+                            reason,
+                        },
+                        e => e,
+                    };
+                    db_error(&env.redactor, &e)
+                })?;
+                (
+                    sql,
+                    policy.map(|p| Arc::new((*p).clone().with_scoped(true))),
+                )
+            }
+        };
         let tx = if tx == 0 {
             None
         } else if request.borrow().resources.db_tx == Some(tx) {
@@ -1035,6 +1080,7 @@ mod v8_ops {
         #[serde] bytes: Vec<JsBuffer>,
         tx: u32,
         #[string] module: Option<String>,
+        #[serde] scope: Option<serde_json::Value>,
     ) -> Result<WireRows, JsErrorBox> {
         match statement(
             state,
@@ -1045,6 +1091,7 @@ mod v8_ops {
             bytes,
             tx,
             module,
+            scope,
         )
         .await?
         {
@@ -1063,6 +1110,7 @@ mod v8_ops {
         #[serde] bytes: Vec<JsBuffer>,
         tx: u32,
         #[string] module: Option<String>,
+        #[serde] scope: Option<serde_json::Value>,
     ) -> Result<WireRows, JsErrorBox> {
         match statement(
             state,
@@ -1073,6 +1121,7 @@ mod v8_ops {
             bytes,
             tx,
             module,
+            scope,
         )
         .await?
         {
@@ -1093,6 +1142,7 @@ mod v8_ops {
         #[serde] bytes: Vec<JsBuffer>,
         tx: u32,
         #[string] module: Option<String>,
+        #[serde] scope: Option<serde_json::Value>,
     ) -> Result<WireExec, JsErrorBox> {
         match statement(
             state,
@@ -1103,6 +1153,7 @@ mod v8_ops {
             bytes,
             tx,
             module,
+            scope,
         )
         .await?
         {

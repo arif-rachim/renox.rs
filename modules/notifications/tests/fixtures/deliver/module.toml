@@ -1,0 +1,8 @@
+[module]
+name = "deliver"
+version = "1.0.0"
+description = "Test fixture: fills notifications.deliver with a recorder (stands in for whatsapp, #290)"
+
+[permissions]
+tables = "deliver__*"
+hooks = ["notifications.deliver"]

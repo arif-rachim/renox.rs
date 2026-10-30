@@ -245,3 +245,139 @@ exports[`error overlay rows not_found 1`] = `
 `;
 
 exports[`the proxy injects the overlay script with the nonce, id, and status 1`] = `"<!doctype html><html><head></head><body><h1>503</h1><script src="/__renox/dev/error-overlay.js" nonce="QUJDRA==" data-request-id="01JBQ3Z7MA0000000000000101" data-status="503"></script></body></html>"`;
+
+exports[`error overlay rows guard_denied 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_FORBIDDEN",
+    ],
+    [
+      "what happened",
+      "guard denied",
+    ],
+    [
+      "route",
+      "GET /orders",
+    ],
+    [
+      "cpu_ms",
+      "0.3",
+    ],
+    [
+      "heap",
+      "1.9 MB",
+    ],
+    [
+      "wall_ms",
+      "0.9",
+    ],
+    [
+      "action",
+      "order.list",
+    ],
+    [
+      "principal",
+      "u_fatima (user; roles finance)",
+    ],
+    [
+      "policy",
+      "policies/app/shop.cedar#5",
+    ],
+    [
+      "reason",
+      "deny",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 403 RENOX_FORBIDDEN",
+}
+`;
+
+exports[`error overlay rows forbidden_action 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_FORBIDDEN",
+    ],
+    [
+      "what happened",
+      "forbidden",
+    ],
+    [
+      "route",
+      "POST /orders",
+    ],
+    [
+      "action",
+      "invoice.refund",
+    ],
+    [
+      "resource",
+      "Order:42",
+    ],
+    [
+      "principal",
+      "anonymous",
+    ],
+    [
+      "policy",
+      "no policy permits it (default deny)",
+    ],
+    [
+      "reason",
+      "deny",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 403 RENOX_FORBIDDEN",
+}
+`;
+
+exports[`error overlay rows db_scope 1`] = `
+{
+  "rows": [
+    [
+      "code",
+      "RENOX_DB_SCOPE",
+    ],
+    [
+      "what happened",
+      "handler threw",
+    ],
+    [
+      "route",
+      "GET /notes",
+    ],
+    [
+      "table",
+      "app__notes (module app)",
+    ],
+    [
+      "statement",
+      "unprovable: a shape the scope cannot be proven for (a subquery, a CTE, a set operation, a RIGHT/FULL join, UPDATE … FROM, INSERT … SELECT, INSERT without a column list, an upsert)",
+    ],
+    [
+      "principal",
+      "u_1 (user; no roles)",
+    ],
+    [
+      "cause",
+      "the statement on app__notes could not be scoped",
+    ],
+    [
+      "request id",
+      "01JBQ3Z7MA0000000000000101",
+    ],
+  ],
+  "title": "renox dev: 500 RENOX_DB_SCOPE",
+}
+`;

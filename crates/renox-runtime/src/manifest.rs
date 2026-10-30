@@ -62,6 +62,36 @@ pub enum RouteKind {
     Function,
     /// Version 1: a `pages/` route (`artifact.md` section 3, "Page routes").
     Page,
+    /// Version 1.3: `functions/ws/**`, the module's `export const ws`
+    /// (`ops.md` 1.5.0 section 18).
+    Ws,
+    /// Version 1.3: `functions/sse/**`, `export const sse`.
+    Sse,
+    /// Version 1.3: an App MCP tool (`ops.md` 1.5.0 section 19); no path,
+    /// reached through `/mcp`. The module default-exports `tool(...)`.
+    Tool,
+    /// Version 1.3: a scheduled job (`ops.md` section 20); no path. Run by
+    /// the F6 scheduler (#297).
+    Job,
+}
+
+/// The fields of a `tool` route (`artifact.md` 1.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolRoute {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema of the input (the keyword subset of the SDK's `tool()`).
+    pub input: serde_json::Value,
+    pub action: String,
+    pub confirm: bool,
+}
+
+/// The fields of a `job` route (`artifact.md` 1.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobRoute {
+    pub name: String,
+    pub schedule: String,
+    pub tz: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -86,6 +116,13 @@ pub struct RouteDef {
     pub module: String,
     pub export: String,
     pub page: Option<PageRoute>,
+    /// Artifact 1.3: the module's `export const guard`, as `renox build`
+    /// recorded it (`ops.md` 1.5.0 section 17, "`guard`").
+    pub guard: Option<crate::ops::authz::Guard>,
+    /// A `tool` route's fields.
+    pub tool: Option<ToolRoute>,
+    /// A `job` route's fields.
+    pub job: Option<JobRoute>,
 }
 
 /// The page fields of a version 1 page route.
@@ -117,6 +154,36 @@ enum WireRoute {
         path: String,
         module: String,
         export: String,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
+    },
+    Ws {
+        path: String,
+        module: String,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
+    },
+    Tool {
+        name: String,
+        module: String,
+        description: String,
+        input: serde_json::Value,
+        action: String,
+        #[serde(default)]
+        confirm: bool,
+    },
+    Job {
+        name: String,
+        module: String,
+        schedule: String,
+        #[serde(default)]
+        tz: Option<String>,
+    },
+    Sse {
+        path: String,
+        module: String,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
     },
     Page {
         path: String,
@@ -128,6 +195,8 @@ enum WireRoute {
         actions: Vec<String>,
         #[serde(default)]
         template: Option<String>,
+        #[serde(default)]
+        guard: Option<crate::ops::authz::Guard>,
     },
 }
 
@@ -141,6 +210,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 path,
                 module,
                 export,
+                guard,
             } => RouteDef {
                 kind: RouteKind::Function,
                 method,
@@ -148,6 +218,79 @@ impl TryFrom<WireRoute> for RouteDef {
                 module,
                 export,
                 page: None,
+                guard,
+                tool: None,
+                job: None,
+            },
+            WireRoute::Ws {
+                path,
+                module,
+                guard,
+            } => RouteDef {
+                kind: RouteKind::Ws,
+                method: Method::Get,
+                path,
+                module,
+                export: "ws".into(),
+                page: None,
+                guard,
+                tool: None,
+                job: None,
+            },
+            WireRoute::Sse {
+                path,
+                module,
+                guard,
+            } => RouteDef {
+                kind: RouteKind::Sse,
+                method: Method::Get,
+                path,
+                module,
+                export: "sse".into(),
+                page: None,
+                guard,
+                tool: None,
+                job: None,
+            },
+            WireRoute::Tool {
+                name,
+                module,
+                description,
+                input,
+                action,
+                confirm,
+            } => RouteDef {
+                kind: RouteKind::Tool,
+                method: Method::Post,
+                path: String::new(),
+                module,
+                export: "default".into(),
+                page: None,
+                guard: None,
+                tool: Some(ToolRoute {
+                    name,
+                    description,
+                    input,
+                    action,
+                    confirm,
+                }),
+                job: None,
+            },
+            WireRoute::Job {
+                name,
+                module,
+                schedule,
+                tz,
+            } => RouteDef {
+                kind: RouteKind::Job,
+                method: Method::Post,
+                path: String::new(),
+                module,
+                export: "run".into(),
+                page: None,
+                guard: None,
+                tool: None,
+                job: Some(JobRoute { name, schedule, tz }),
             },
             WireRoute::Page {
                 path,
@@ -155,6 +298,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 load,
                 actions,
                 template,
+                guard,
             } => RouteDef {
                 kind: RouteKind::Page,
                 method: Method::Get,
@@ -167,6 +311,9 @@ impl TryFrom<WireRoute> for RouteDef {
                     actions,
                     template,
                 }),
+                guard,
+                tool: None,
+                job: None,
             },
         })
     }
@@ -268,6 +415,14 @@ pub struct Manifest {
     /// Absent: every entry is eager.
     #[serde(default)]
     pub entries: Option<BTreeMap<String, EntryInfo>>,
+    /// Artifact 1.3: the app's resolved `renox.toml [authz]` (`actions`,
+    /// `ownership`, `entities`, `default_roles`, `sensitive`); read by the
+    /// cell's engine and by `db.scoped()` (`ops.md` 1.5.0 section 17).
+    #[serde(default)]
+    pub authz: Option<serde_json::Value>,
+    /// Artifact 1.3: the app's `renox.toml [realtime]` (`feeds`).
+    #[serde(default)]
+    pub realtime: Option<serde_json::Value>,
     /// Free-text note the schema allows at the top level; ignored (#147).
     #[serde(rename = "$comment", default)]
     pub comment: Option<String>,
@@ -472,6 +627,14 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         let allowed = match top {
             "manifest.json" | "code" | "migrations" | "public" => true,
             "templates" | "public.json" => version >= 1,
+            // Artifact 1.3: the app's own policies and schema (V24).
+            "policies"
+                if version >= 1
+                    && (rel.starts_with("policies/app/")
+                        || rel == "policies/schema.cedarschema") =>
+            {
+                true
+            }
             // Artifact 1.1 (`artifact.md` section 1): only with installed modules.
             "policies" | "overrides" | "overrides.json" => {
                 version >= 1
@@ -564,7 +727,9 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
                 ),
             ));
         }
-        if r.export != r.method.as_str() {
+        // A `ws` / `sse` route's handler is its `ws` / `sse` export
+        // (artifact.md 1.3, V23).
+        if matches!(r.kind, RouteKind::Function) && r.export != r.method.as_str() {
             return Err(load_err(
                 "V7",
                 format!(
