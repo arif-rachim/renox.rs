@@ -85,3 +85,10 @@ test.skipIf(!worker)("examples/shop passes; its artifact records entries with la
   expect(entries["modules/auth/services"]?.eager).toBeUndefined();
   expect(entries["modules/auth/services"]?.exports).toContain("currentUser");
 }, 120_000);
+
+test("MF1: a module named authz is reserved (#304, manifest.md: authz.roles_changed is a platform event)", async () => {
+  const { manifestRules, moduleNameProblem } = await import("../src/lib/modules/manifest.ts");
+  for (const name of ["app", "renox", "authz"]) expect(moduleNameProblem(name)).toBe("is reserved");
+  expect(moduleNameProblem("authz_extra")).toBeNull();
+  expect(manifestRules({ module: { name: "authz" } })).toContain('MF1: [module].name "authz" is reserved');
+});

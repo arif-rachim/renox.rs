@@ -97,7 +97,7 @@ No other tables or keys are allowed at any level (`additionalProperties: false`)
 
 | Key | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `name` | `^[a-z][a-z0-9_]{0,31}$`, no `__`, no trailing `_`, not `app` or `renox` (MF1) | yes | The module's name **and its table prefix** `<name>__`. `app` is the tenant's own code (`artifact.md` section 1); `renox` is the platform (`renox__*` tables). The catalog name in `docs/18-build-plan.md` may differ where it is not a valid name: `gcc-data` is installed as `gcc` (tables `gcc__*`), `2fa` as `twofa` |
+| `name` | `^[a-z][a-z0-9_]{0,31}$`, no `__`, no trailing `_`, not `app`, `renox` or `authz` (MF1) | yes | The module's name **and its table prefix** `<name>__`. `app` is the tenant's own code (`artifact.md` section 1); `renox` is the platform (`renox__*` tables); `authz` is the platform's event namespace (`authz.roles_changed`, #272). The catalog name in `docs/18-build-plan.md` may differ where it is not a valid name: `gcc-data` is installed as `gcc` (tables `gcc__*`), `2fa` as `twofa` |
 | `version` | semver `MAJOR.MINOR.PATCH[-pre]`, no build metadata | yes | The version of this tree. Public API changes follow semver (`docs/10-modules.md`, rule 3) |
 | `isolation` | `"shared"` \| `"isolate"` | no, default `"shared"` | D12. The least isolation the module accepts; a tenant may raise it, never lower it (MF11). `shared`: one context with the app and other modules; `isolate`: its own isolate (`ops.md` 1.3.0, #226) |
 | `description` | string, ≤ 200 | no | One line for `renox add` and the dashboard |

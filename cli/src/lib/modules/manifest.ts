@@ -61,7 +61,8 @@ export function moduleNameProblem(name: string): string | null {
   if (!/^[a-z][a-z0-9_]{0,31}$/u.test(name)) return "does not match ^[a-z][a-z0-9_]{0,31}$";
   if (name.includes("__")) return 'contains "__"';
   if (name.endsWith("_")) return 'ends with "_"';
-  if (name === "app" || name === "renox") return "is reserved";
+  // MF1: `app` is the tenant's code, `renox` the platform, `authz` the platform's event namespace (`authz.roles_changed`, #272).
+  if (name === "app" || name === "renox" || name === "authz") return "is reserved";
   return null;
 }
 

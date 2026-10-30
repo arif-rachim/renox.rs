@@ -8,7 +8,7 @@ import publicSchema from "../../../docs/contracts/schemas/public-manifest.schema
 import routeTableSchema from "../../../docs/contracts/schemas/route-table.schema.json";
 import { contentHash, sha256Hex } from "./hash.ts";
 import { pathProblem } from "./paths.ts";
-import { isObject, validate, type Json, type JsonObject } from "./schema.ts";
+import { isObject, unsupportedKeywords, validate, type Json, type JsonObject } from "./schema.ts";
 
 /** One broken rule: never a filesystem path of the machine doing the check. */
 export interface Violation {
@@ -73,11 +73,80 @@ const schemaViolations = (rule: string, schema: Json, doc: Json, what: string): 
     return { rule, field: `${what}${(where ?? "$").slice(1)}`, reason: rest.join(": ") };
   });
 
-/** The methods a route answers: its own for a function, GET and HEAD (and POST with actions) for a page. */
+/** The methods a route answers: its own for a function, GET and HEAD (and POST with actions) for a page, GET for ws and sse (1.3). */
 function routeMethods(route: JsonObject): string[] {
+  if (route.kind === "ws" || route.kind === "sse") return ["GET"];
   if (route.kind !== "page") return [route.method as string];
   const actions = (route.actions as string[] | undefined) ?? [];
   return actions.length > 0 ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
+}
+
+/** Version 1.3: tool and job routes have no path (#304); everything else takes part in matching. */
+const hasPath = (route: JsonObject): boolean => route.kind !== "tool" && route.kind !== "job";
+
+/** Version 1.3: the module-id prefix a route kind requires (V7), for the app and for a module. */
+function routePrefix(kind: string, owner: string): string {
+  switch (kind) {
+    case "page":
+      return "pages/";
+    case "ws":
+      return "functions/ws/";
+    case "sse":
+      return "functions/sse/";
+    case "tool":
+      return owner === "app" ? "functions/tools/" : "tools/";
+    case "job":
+      return "jobs/";
+    default:
+      return "functions/";
+  }
+}
+
+/** The exports a route needs in its module's `entries` record (V23). */
+function routeExports(route: JsonObject): string[] {
+  const need: string[] = [];
+  if (route.kind === "function" && typeof route.export === "string") need.push(route.export);
+  if (route.kind === "page") {
+    if (route.load === true) need.push("load");
+    if (Array.isArray(route.actions) && route.actions.length > 0) need.push("actions");
+  }
+  if (route.kind === "ws" || route.kind === "sse") need.push(route.kind as string);
+  if (route.kind === "tool") need.push("default");
+  if (route.kind === "job") need.push("run", "schedule");
+  if (isObject(route.guard)) need.push("guard");
+  return need;
+}
+
+// artifact.md 1.3: the platform actions every app may name in a guard, a tool or a policy.
+const PLATFORM_ACTIONS = ["realtime.subscribe"];
+const RESERVED_PATHS = ["/mcp", "/.well-known/oauth-protected-resource/mcp"];
+const obj = (v: Json | undefined): JsonObject => (isObject(v) ? v : {});
+
+/** V27: a five-field cron expression with numbers, `*`, lists, ranges and steps (ops.md section 20). */
+export function cronProblem(expr: string): string | null {
+  const fields = expr.split(" ");
+  if (fields.length !== 5) return `${fields.length} fields, expected 5`;
+  const bounds: [number, number][] = [
+    [0, 59],
+    [0, 23],
+    [1, 31],
+    [1, 12],
+    [0, 7],
+  ];
+  for (const [i, field] of fields.entries()) {
+    const [lo, hi] = bounds[i] as [number, number];
+    for (const item of field.split(",")) {
+      const m = /^(\*|([0-9]+)(?:-([0-9]+))?)(?:\/([0-9]+))?$/u.exec(item);
+      if (m === null) return `field ${i + 1}: "${item}" is not a number, a range, * or a step`;
+      if (m[2] !== undefined) {
+        const a = Number(m[2]);
+        const b = m[3] === undefined ? a : Number(m[3]);
+        if (a < lo || b > hi || a > b) return `field ${i + 1}: "${item}" is outside ${lo}-${hi}`;
+      }
+      if (m[4] !== undefined && Number(m[4]) < 1) return `field ${i + 1}: a step is at least 1`;
+    }
+  }
+  return null;
 }
 
 /** Version 1.1: ids of an installed module start with modules/<name>/; every other id is the app's. */
@@ -89,7 +158,8 @@ const localId = (id: string): string => id.replace(MODULE_PREFIX, "");
 function moduleNameProblem(name: string): string | null {
   if (name.includes("__")) return 'contains "__"';
   if (name.endsWith("_")) return 'ends with "_"';
-  if (name === "app" || name === "renox") return "is reserved";
+  // MF1: `app` is the tenant's code, `renox` the platform, `authz` the platform's event namespace (`authz.roles_changed`, #272).
+  if (name === "app" || name === "renox" || name === "authz") return "is reserved (MF1)";
   return null;
 }
 
@@ -166,6 +236,7 @@ function moduleRules(manifest: JsonObject): Violation[] {
     if (owner === "app") return;
     const m = listed.get(owner);
     if (m === undefined) return void out.push({ rule: "V18", field: `routes[${i}]`, reason: `module "${owner}" is not in modules` });
+    if (!hasPath(route)) return;
     const mount = m.mount as string;
     const path = route.path as string;
     if (mount !== "/" && path !== mount && !path.startsWith(`${mount}/`)) out.push({ rule: "V21", field: `routes[${i}]`, reason: `${path} is not under ${owner}'s mount ${mount}` });
@@ -215,16 +286,23 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
   routes.forEach((route, i) => {
     const field = `routes[${i}]`;
     const page = route.kind === "page";
-    const where = page ? `page ${route.path}` : `${route.method} ${route.path}`;
+    const kind = route.kind as string;
+    const where = page ? `page ${route.path}` : hasPath(route) ? `${(route.method as string | undefined) ?? kind.toUpperCase()} ${route.path}` : `${kind} ${route.name}`;
     const module = route.module as string | undefined;
     if (module !== undefined) {
       used.add(module);
       if (!(module in entry)) out.push({ rule: "V7", field, reason: `${where}: module "${module}" is not a key of code.entry` });
-      const prefix = page ? "pages/" : "functions/";
+      const prefix = routePrefix(kind, ownerOf(module));
       if (!localId(module).startsWith(prefix)) out.push({ rule: "V7", field, reason: `${where}: module "${module}" must be under ${prefix}` });
     }
-    if (!page && route.export !== route.method) {
+    if (kind === "function" && route.export !== route.method) {
       out.push({ rule: "V7", field, reason: `${where}: export "${route.export}" must equal the method` });
+    }
+    // Tool and job routes have no path (artifact 1.3): V8 and V21 do not apply; V25 and V27 check them below.
+    if (!hasPath(route)) return;
+    const path = route.path as string;
+    if (RESERVED_PATHS.includes(path) || path.startsWith("/.well-known/oauth-protected-resource/")) {
+      out.push({ rule: "V21", field, reason: `${where}: the path is reserved for the cell (ops.md section 19)` });
     }
     if (page) {
       const load = route.load === true;
@@ -300,7 +378,7 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
   if (cors.credentials === true && (!Array.isArray(cors.origins) || cors.origins.length === 0)) {
     out.push({ rule: "V16", field: "security.cors", reason: "credentials requires a non-empty cors.origins" });
   }
-  const answered = new Set(routes.flatMap((r) => routeMethods(r).map((m) => `${m} ${r.path}`)));
+  const answered = new Set(routes.filter(hasPath).flatMap((r) => routeMethods(r).map((m) => `${m} ${r.path}`)));
   const buckets = new Set<string>();
   ((security.ratelimit as JsonObject[] | undefined) ?? []).forEach((b, i) => {
     const key = `${b.method} ${b.path}`;
@@ -318,6 +396,8 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
   });
 
   out.push(...moduleRules(manifest));
+  out.push(...entriesRules(manifest));
+  out.push(...authzRules(manifest));
 
   if (tier !== undefined && isObject(manifest.limits)) {
     for (const [key, value] of Object.entries(manifest.limits)) {
@@ -331,13 +411,123 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
 }
 
 /** V3 (schema) and the manifest rules on a parsed manifest.json. */
+/**
+ * V23 (version 1.2): `entries` names exactly the `code.entry` ids; each route's
+ * handler is among its module's recorded exports; a module's `services` entry
+ * exports every service of `exports.services`, and the `services` and `hooks`
+ * entries stay eager (ops.md 1.4.0 section 11).
+ */
+function entriesRules(manifest: JsonObject): Violation[] {
+  if (!isObject(manifest.entries)) return [];
+  const out: Violation[] = [];
+  const version = (manifest.artifact as JsonObject).version;
+  if (version !== 1) out.push({ rule: "V23", field: "entries", reason: `needs artifact.version 1 (version 1.2), got ${version}` });
+  const entries = manifest.entries as Record<string, JsonObject>;
+  const code = (manifest.code as JsonObject).entry as JsonObject;
+  for (const id of Object.keys(code)) if (!(id in entries)) out.push({ rule: "V23", field: `code.entry.${id}`, reason: "has no entries record" });
+  for (const id of Object.keys(entries)) if (!(id in code)) out.push({ rule: "V23", field: `entries.${id}`, reason: "is not a key of code.entry" });
+  const exportsOf = (id: string): string[] => strings(entries[id]?.exports);
+  (manifest.routes as JsonObject[]).forEach((route, i) => {
+    const id = route.module as string | undefined;
+    if (id === undefined || !(id in entries)) return;
+    for (const name of routeExports(route)) if (!exportsOf(id).includes(name)) out.push({ rule: "V23", field: `routes[${i}]`, reason: `module "${id}" does not export "${name}"` });
+  });
+  for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) {
+    for (const part of ["services", "hooks"]) {
+      const id = `modules/${m.name}/${part}`;
+      if (entries[id]?.eager === false) out.push({ rule: "V23", field: `entries.${id}`, reason: "must be eager (hooks and services are checked at isolate creation)" });
+    }
+    const id = `modules/${m.name}/services`;
+    if (id in entries) for (const s of strings(obj(m.exports).services)) if (!exportsOf(id).includes(s)) out.push({ rule: "V23", field: `entries.${id}`, reason: `does not export service "${s}"` });
+  }
+  return out;
+}
+
+/**
+ * V25 (references of an authz block, guards, tools), V26 (the single-file part:
+ * ownership and feed tables under the owner's prefix, feed topics) and V27
+ * (job schedules) on a manifest that passed the schema; the migration part of
+ * V26 is in checkArtifactFiles. A tool route carries its `name` (unique across
+ * the app and its modules) and a job route its `name` (unique per owner) and
+ * `schedule` instead of a path (#304).
+ */
+function authzRules(manifest: JsonObject): Violation[] {
+  const out: Violation[] = [];
+  const owners: [string, JsonObject, JsonObject][] = [["app", obj(manifest.authz), obj(manifest.realtime)]];
+  for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) owners.push([m.name as string, obj(m.authz), obj(m.realtime)]);
+  const actions = new Set(PLATFORM_ACTIONS);
+  for (const [, authz] of owners) for (const a of strings(authz.actions)) actions.add(a);
+  const entities = new Map<string, Set<string>>();
+  for (const [owner, authz, realtime] of owners) {
+    const prefix = `${owner}__`;
+    const own = new Set(strings(authz.actions));
+    for (const a of strings(authz.sensitive)) if (!own.has(a)) out.push({ rule: "V25", field: `${owner}.authz.sensitive`, reason: `"${a}" is not one of its actions` });
+    for (const [role, acts] of Object.entries(obj(authz.default_roles))) {
+      for (const a of strings(acts)) if (!actions.has(a)) out.push({ rule: "V25", field: `${owner}.authz.default_roles.${role}`, reason: `"${a}" is not in the merged action set` });
+    }
+    entities.set(owner, new Set(Object.keys(obj(authz.entities))));
+    for (const [type, decl] of Object.entries(obj(authz.entities))) {
+      const table = obj(decl).table;
+      if (typeof table === "string" && !table.startsWith(prefix)) out.push({ rule: "V25", field: `${owner}.authz.entities.${type}.table`, reason: `"${table}" is not under ${prefix}` });
+    }
+    for (const table of Object.keys(obj(authz.ownership))) if (!table.startsWith(prefix)) out.push({ rule: "V25", field: `${owner}.authz.ownership`, reason: `"${table}" is not under ${prefix}` });
+    for (const [table, pattern] of Object.entries(obj(realtime.feeds))) {
+      if (!table.startsWith(prefix)) out.push({ rule: "V26", field: `${owner}.realtime.feeds`, reason: `"${table}" is not under ${prefix}` });
+      const topic = String(pattern).replace(/\{[a-z][a-z0-9_]{0,63}\}/gu, "x");
+      if (!/^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*$/u.test(topic)) out.push({ rule: "V26", field: `${owner}.realtime.feeds.${table}`, reason: `"${pattern}" is not a topic` });
+    }
+  }
+  const toolNames = new Set<string>();
+  const jobNames = new Set<string>();
+  (manifest.routes as JsonObject[]).forEach((route, i) => {
+    const owner = ownerOf((route.module ?? route.template) as string | undefined);
+    const field = `routes[${i}]`;
+    const guard = route.guard;
+    if (isObject(guard)) {
+      if (!actions.has(guard.action as string)) out.push({ rule: "V25", field, reason: `guard.action "${guard.action}" is not in the merged action set` });
+      const resource = guard.resource;
+      if (isObject(resource)) {
+        const type = resource.type as string;
+        const [typeOwner, typeName] = type.includes(":") ? (type.split(":") as [string, string]) : [owner, type];
+        if (!(entities.get(typeOwner)?.has(typeName) ?? false)) out.push({ rule: "V25", field, reason: `guard.resource.type "${type}" is not a declared entity of ${typeOwner}` });
+        const id = resource.id as string;
+        if (id.startsWith(":") && !(hasPath(route) && parsePattern(route.path as string).some((s) => s.kind !== "static" && s.text === id.slice(1)))) {
+          out.push({ rule: "V25", field, reason: `guard.resource.id "${id}" names no parameter of ${String(route.path)}` });
+        }
+      }
+    }
+    if (route.kind === "tool") {
+      const name = route.name as string;
+      if (toolNames.has(name)) out.push({ rule: "V25", field, reason: `tool "${name}" is declared twice` });
+      toolNames.add(name);
+      if (!actions.has(route.action as string)) out.push({ rule: "V25", field, reason: `tool "${name}": action "${route.action}" is not in the merged action set` });
+      for (const p of unsupportedKeywords(route.input as Json)) out.push({ rule: "V25", field, reason: `tool "${name}" input ${p}` });
+    }
+    if (route.kind === "job") {
+      const key = `${owner} ${route.name}`;
+      if (jobNames.has(key)) out.push({ rule: "V27", field, reason: `job "${route.name}" of ${owner} is declared twice` });
+      jobNames.add(key);
+      const problem = cronProblem(route.schedule as string);
+      if (problem !== null) out.push({ rule: "V27", field, reason: `job "${route.name}": schedule "${route.schedule}": ${problem}` });
+      if (typeof route.tz === "string") {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: route.tz });
+        } catch {
+          out.push({ rule: "V27", field, reason: `job "${route.name}": tz "${route.tz}" is not an IANA time zone` });
+        }
+      }
+    }
+  });
+  return out;
+}
+
 export function checkManifest(manifest: Json, tier?: TierLimits): Violation[] {
   const schemaErrors = schemaViolations("V3", manifestSchema as Json, manifest, "");
   if (schemaErrors.length > 0 || !isObject(manifest)) return schemaErrors;
   return manifestRules(manifest, tier);
 }
 
-/** V1-V12, V14-V22 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
+/** V1-V12, V14-V27 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
 export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, options: CheckOptions = {}): CheckResult {
   const out: Violation[] = [];
   const hash = contentHash(files);
@@ -376,9 +566,12 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
     if (other !== undefined) out.push({ rule: "V1", path, reason: `differs from ${other} only in case` });
     folded.set(key, path);
     const top = path.split("/")[0] as string;
-    if (withModules && (top === "policies" || top === "overrides" || path === "overrides.json")) continue;
-    if (top === "policies") out.push({ rule: "V1", path, reason: "policies/ is reserved and must be absent" });
-    else if (version === 0 && (top === "templates" || path === "public.json")) {
+    if (withModules && (top === "overrides" || path === "overrides.json")) continue;
+    if (top === "policies") {
+      // Version 1.3: the app's own policy set and schema (V24); version 1.1: a listed module's files (V18).
+      if (version === 0) out.push({ rule: "V1", path, reason: "policies/ must be absent in version 0" });
+      continue;
+    } else if (version === 0 && (top === "templates" || path === "public.json")) {
       out.push({ rule: "V1", path, reason: `${top === "templates" ? "templates/" : "public.json"} must be absent in version 0` });
     } else if (!(path === "manifest.json" || path === "public.json" || (["code", "migrations", "public", "templates"].includes(top) && path.includes("/")))) {
       out.push({ rule: "V1", path, reason: "not an allowed top-level entry" });
@@ -485,21 +678,56 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
   }
   for (const id of templateIds) if (!files.has(`templates/${id}.jinja`)) out.push({ rule: "V14", path: `templates/${id}.jinja`, reason: "missing" });
 
+  out.push(...policyAndFeedRules(files, manifest));
   if (withModules) out.push(...moduleTreeRules(files, manifest));
   return result(manifest);
 }
 
-/** V18 (policies), V19, V20 on the files of a version 1.1 artifact whose manifest passed the schema. */
+/**
+ * V24 (version 1.3): policies/app/<name>.cedar and policies/schema.cedarschema
+ * of the app, and V18: policies/<module>/<name>.cedar of a listed module; each
+ * non-empty UTF-8. V26: every feed and ownership table is created by a
+ * migration of its owner.
+ */
+function policyAndFeedRules(files: ReadonlyMap<string, Uint8Array>, manifest: JsonObject): Violation[] {
+  const out: Violation[] = [];
+  const listed = installed(manifest);
+  const paths = [...files.keys()];
+  for (const p of paths.filter((f) => f.startsWith("policies/"))) {
+    const app = p === "policies/schema.cedarschema" || /^policies\/app\/[A-Za-z0-9_.-]+\.cedar$/u.test(p);
+    const m = /^policies\/([a-z][a-z0-9_]{0,31})\/[A-Za-z0-9_.-]+\.cedar$/u.exec(p);
+    if (!app && m === null) out.push({ rule: "V24", path: p, reason: "not policies/app/<name>.cedar, policies/schema.cedarschema, or policies/<module>/<name>.cedar" });
+    else if (!app && !listed.has(m?.[1] as string)) out.push({ rule: "V18", path: p, reason: `module "${m?.[1]}" is not in modules` });
+    const bytes = files.get(p) as Uint8Array;
+    if (bytes.length === 0) out.push({ rule: "V24", path: p, reason: "empty" });
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      out.push({ rule: "V24", path: p, reason: "not valid UTF-8" });
+    }
+  }
+  const created = new Map<string, Set<string>>();
+  for (const p of paths.filter((f) => /^migrations\/[^/]+\/.+\.sql$/u.test(f))) {
+    const owner = p.split("/")[1] as string;
+    const tables = created.get(owner) ?? new Set<string>();
+    for (const m of new TextDecoder().decode(files.get(p)).matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?["`]?([a-z][a-z0-9_]*)["`]?/giu)) tables.add((m[1] as string).toLowerCase());
+    created.set(owner, tables);
+  }
+  const owners: [string, JsonObject, JsonObject][] = [["app", obj(manifest.authz), obj(manifest.realtime)]];
+  for (const [name, m] of listed) owners.push([name, obj(m.authz), obj(m.realtime)]);
+  for (const [owner, authz, realtime] of owners) {
+    const tables = created.get(owner) ?? new Set<string>();
+    for (const t of Object.keys(obj(realtime.feeds))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.realtime.feeds`, reason: `"${t}": no migration of ${owner} creates it` });
+    for (const t of Object.keys(obj(authz.ownership))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.authz.ownership`, reason: `"${t}": no migration of ${owner} creates it` });
+  }
+  return out;
+}
+
+/** V19, V20 on the files of a version 1.1 artifact whose manifest passed the schema. */
 function moduleTreeRules(files: ReadonlyMap<string, Uint8Array>, manifest: JsonObject): Violation[] {
   const out: Violation[] = [];
   const listed = installed(manifest);
   const paths = [...files.keys()];
-
-  for (const p of paths.filter((f) => f.startsWith("policies/"))) {
-    const m = /^policies\/([a-z][a-z0-9_]{0,31})\/[A-Za-z0-9_.-]+\.cedar$/u.exec(p);
-    if (m === null) out.push({ rule: "V18", path: p, reason: "not policies/<module>/<name>.cedar" });
-    else if (!listed.has(m[1] as string)) out.push({ rule: "V18", path: p, reason: `module "${m[1]}" is not in modules` });
-  }
 
   // V19: migrations for every module that has tables, and none for a module that is not installed with tables.
   const migrated = new Set(paths.filter((p) => /^migrations\/[^/]+\/.+\.sql$/u.test(p)).map((p) => p.split("/")[1] as string));
