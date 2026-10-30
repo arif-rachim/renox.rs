@@ -46,10 +46,10 @@ jobs:
     steps:
       # No token left in .git: bun install and cargo-deny run in this job.
       # The repository is public, so paths-filter fetches on push without it.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           # On push: compare with the commit before this push, not with the
@@ -190,7 +190,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # rustup on the runner reads rust-toolchain.toml and installs the pinned version.
       - run: rustup show active-toolchain || rustup toolchain install
       # The prebuilt V8 archive, checked against ops/v8-checksums.txt before
@@ -205,7 +205,7 @@ jobs:
         run: |
           bin=$(ops/scripts/fetch-litestream.sh x86_64-unknown-linux-gnu "$RUNNER_TEMP/bin")
           echo "$(dirname "$bin")" >> "$GITHUB_PATH"
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       # Caches ~/.cargo and target/. The key is the job, the rustc version
       # (rust-toolchain.toml), Cargo.lock and the Cargo.toml files.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -269,7 +269,7 @@ jobs:
       # systemd cannot run in a container.
       - name: Node bootstrap in a systemd container
         run: ops/scripts/bootstrap-node.test.sh "$RUNNER_TEMP/worker/renox-worker"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: renox-worker-ci
           path: ${{ runner.temp }}/worker/renox-worker
@@ -297,11 +297,11 @@ jobs:
       # Reading the worker artifact of an earlier run on main.
       actions: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.rust.result == 'success'
         with:
           name: renox-worker-ci
@@ -372,7 +372,7 @@ jobs:
       CONTROL_TEST_HARNESS_URL: postgres://renox:renox-ci@localhost:5432/renox_harness
       CONTROL_TEST_DATABASE_URL: postgres://renox:renox-ci@localhost:5432/renox_test
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
