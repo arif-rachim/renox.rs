@@ -28,6 +28,7 @@ invoice = "One invoice or credit note by number -> document | null"
 vatReport = "The VAT return totals of a period: (from_ms, to_ms) -> { standard, zero, exempt, output_vat }"
 recordPurchase = "A purchase for input VAT: ({ supplier, supplier_trn?, net_fils, rate?, booked_at? }) -> { id, net_fils, vat_fils }; VAT recoverable only with the supplier's TRN"
 vatReturn = "The FTA VAT201 boxes this module fills for a period: (from_ms, to_ms) -> { boxes: 1, 4, 5, 8, 9, 12, 13, 14 }"
+documents = "The tax invoices and credit notes issued in a period, oldest first: (from_ms, to_ms) -> documents (at most 10,000)"
 
 [authz]
 actions = ["tax.manage"]

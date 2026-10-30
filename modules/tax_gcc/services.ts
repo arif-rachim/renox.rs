@@ -9,3 +9,4 @@ export const invoice = (ctx: Ctx, number: unknown) => core.invoice(ctx, number);
 export const vatReport = (ctx: Ctx, from: unknown, to: unknown) => core.vatReport(ctx, from, to);
 export const recordPurchase = (ctx: Ctx, p: Parameters<typeof core.recordPurchase>[1]) => core.recordPurchase(ctx, p ?? {});
 export const vatReturn = (ctx: Ctx, from: unknown, to: unknown) => core.vatReturn(ctx, from, to);
+export const documents = (ctx: Ctx, from: unknown, to: unknown) => core.documents(ctx, from, to);

@@ -217,3 +217,9 @@ export async function submitEInvoice(ctx: TaxCtx, number: unknown, provider: imp
   );
   return r;
 }
+
+/** The documents issued in [from, to), oldest first (for reports, #333). */
+export async function documents(ctx: TaxCtx, from: unknown, to: unknown) {
+  const rows = await ctx.db.query<{ body: string }>("select body from tax_gcc__documents where issued_at >= ? and issued_at < ? order by issued_at, number limit 10000", [typeof from === "number" ? from : 0, typeof to === "number" ? to : Number.MAX_SAFE_INTEGER]);
+  return rows.map((r) => JSON.parse(r.body));
+}

@@ -93,12 +93,23 @@ approved = { tables = "storage__*", network = [], secrets = [], slots = [], hook
 name = "tax_gcc"
 version = "1.0.0"
 source = "official"
-hash = "0faf84ad0a30201d772559446376da57492923a3165ff6ba98995f3280c1eecd"
+hash = "82df8733efdf234b149d332f059d0b5657b682e6f5ca744b3fdb575424c19ca3"
 isolation = "shared"
 mount = "/tax"
 dependencies = ["auth", "i18n"]
 config = { seller_name = "", seller_trn = "", seller_address = "", prefix = "INV", base_path = "/tax" }
 approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "reports"
+version = "1.0.0"
+source = "official"
+hash = "f11a48f52878004a2ed99fdebb89d8e3f537b859bfdd301c0212536a9327f4a3"
+isolation = "shared"
+mount = "/reports"
+dependencies = ["auth", "email", "i18n", "tax_gcc"]
+config = { email_to = "", base_path = "/reports" }
+approved = { tables = "reports__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]
 name = "twofa"

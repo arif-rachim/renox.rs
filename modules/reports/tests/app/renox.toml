@@ -1,0 +1,13 @@
+# The app the reports module's worker tests run in (renox test, #333).
+[app]
+name = "reportstest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+email = { version = "^1.0", source = "path:../../../email", mount = "/email", config = { from = "shop@example.com" } }
+billing = { version = "^1.0", source = "path:../../../billing", mount = "/billing" }
+tax_gcc = { version = "^1.0", source = "path:../../../tax_gcc", mount = "/tax", config = { seller_name = "Hello Trading LLC", seller_trn = "100123456700003", seller_address = "Dubai" } }
+reports = { version = "^1.0", source = "path:../..", mount = "/reports", config = { email_to = "owner@example.com" } }
