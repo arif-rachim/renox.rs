@@ -35,6 +35,9 @@ export const ACTIONS = [
   "secrets:write",
   "domains:write",
   "tokens:write",
+  // deploy-api.md 0.5 section 19: the module registry.
+  "registry:read",
+  "registry:publish",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 

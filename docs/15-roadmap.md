@@ -41,12 +41,12 @@ F3 (control plane) depends only on F1's artifact format and route table contract
 | --- | --- | --- |
 | Target node size | 8 GB vs 16 GB; affects warm isolate count and tiers | After B3 |
 | UAE region provider | AWS me-central-1 vs Azure UAE North vs local colocation; cost of reserved capacity and egress | F1 |
-| Pricing model | Per request + CPU-ms (Cloudflare style), flat per tenant with quotas, or hybrid; AED tiers in `01-business.md` are hypotheses | F7, after unit-economics data from F3 meters |
+| Pricing model | Per request + CPU-ms (Cloudflare style), flat per tenant with quotas, or hybrid; AED tiers in `01-business.md` are hypotheses. Data available from `deploy-api.md` 0.5 section 20: the plans with their quotas (`listPlans`), usage per dimension and period (`getBilling`), and `meters_hourly` per tenant (section 11); the plan numbers there are proposals (Open 18) | F7, after unit-economics data from F3 meters; the decision stays the owner's |
 | Bring-your-own Postgres | From the start, or only on the top tier | F6 |
 | Second region (Saudi Arabia) | Requires in-country hosting and ZATCA e-invoicing; not before UAE traction | After first external customers |
 | UAE PASS | Onboarding requirements for private providers; whether to ship in M16 or later (shipped behind config in M16, #291; owner steps in `modules/auth/README.md`, "UAE PASS") | F5 |
 | E-invoicing | Phase timing for SMEs and the accredited-provider route for `tax-gcc` | F7 (verify, see `21-uae-gcc-strategy.md`) |
 | Data-plane license | Open source (contributors, trust) vs closed (protect the hosting business) | Before F7 |
-| Marketplace revenue share | Percentage and payout mechanism | F7 |
+| Marketplace revenue share | Percentage and payout mechanism. Data available from `deploy-api.md` 0.5 section 19: publishers, versions and their informational `price` (`manifest.md` 1.2), and the approvals per app (`listAppModules`), so installs per module can be counted; no payout operation exists | F7; the decision stays the owner's |
 
 Decided (no longer open): dogfooding products are booking for salons/clinics and QR ordering for F&B; the first region is the UAE.

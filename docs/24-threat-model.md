@@ -107,7 +107,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | Compromised GitHub Action | Every action pinned to a commit SHA; minimal `permissions:` per job; no secrets in PR builds from forks | Branch protection, required reviews, signed commits encouraged | #109 | F1 |
 | Tampered release of `renox-worker` or the `renox` CLI (runs on every tenant laptop via `renox dev`) | Releases signed with sigstore/cosign with SLSA provenance; the CLI verifies the worker's signature and hash before executing it | Checksums published; reproducible build goal | #129 | F3 |
 | Secret leaked through CI logs | Secrets masked; no `set -x` with secrets; tokens short-lived (OIDC to cloud) | — | #109 | F1 |
-| Tenant dependencies frozen at deploy but vulnerable | SBOM per artifact; advisory scan at deploy with a dashboard warning | Future: block on critical | #123 (warning only) | F7 |
+| Tenant dependencies frozen at deploy but vulnerable | SBOM per artifact; advisory scan at deploy with a dashboard warning | Future: block on critical | #123 (warning only); `getAdvisories` (`deploy-api.md` 0.5 section 11.2) | F7 |
 
 ## G. Operator / insider → tenant data
 
@@ -125,16 +125,16 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | --- | --- | --- | --- | --- |
 | Prompt injection through tenant content reaching `ctx.ai` or app MCP tools | Tool outputs treated as data; mutating tools require confirmation tokens; per-tool permissions in the manifest | Audit of every tool call | `20-ai-agents-mcp.md`; #62 | F3/F7 |
 | Agent deploys malicious code with a leaked token | Same as E (scoped, expiring tokens; confirmation for mutations) | Notification on deploy from a new client | #113 | F3 |
-| AI gateway secret or quota abuse | Provider keys held by the platform, never by the isolate; metered per tenant | Allowlisted providers | `ctx.ai` tests (#85) | F7 |
+| AI gateway secret or quota abuse | Provider keys held by the platform, never by the isolate; metered per tenant | Allowlisted providers | `ctx.ai` tests (#85); `aiChat`, the quota, cache and key rules (`deploy-api.md` 0.5 section 23), #327 | F7 |
 
 ## Abuse of the platform (not a boundary, but a threat)
 
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
-| Phishing or malware sites on `*.renox.app` | Public Suffix List entry; abuse report endpoint and `abuse@` contact; takedown SLA with suspension; Safe Browsing lookups on deployed hostnames | Free tier requires a verified email and has no custom domains until a payment method exists | `TODO` → #123 | F7 |
+| Phishing or malware sites on `*.renox.app` | Public Suffix List entry; abuse report endpoint and `abuse@` contact; takedown SLA with suspension; Safe Browsing lookups on deployed hostnames | Free tier requires a verified email and has no custom domains until a payment method exists | `TODO` → #123; `reportAbuse`, `setAbuseTicket` and the `abuse` states, Safe Browsing on `getOpsTenant` (`deploy-api.md` 0.5 section 22) | F7 |
 | Card testing through tenant checkouts | Billing module: rate limit on payment attempts per IP and session, 3DS by default, CAPTCHA signal hook | Provider-side fraud tools | #123 | F7 |
 | Outbound spam through the `email` module | Per-tenant send rate and daily cap; SPF/DKIM per sending domain; suppression list; complaint feedback loop pauses the tenant | Shared sending domain only for transactional templates | #123 | F7 |
-| Bot signups | Email verification, disposable-domain blocklist, signup rate per IP, delayed quota growth for new tenants | Manual review for free tier anomalies | #123 | F7 |
+| Bot signups | Email verification, disposable-domain blocklist, signup rate per IP, delayed quota growth for new tenants | Manual review for free tier anomalies | #123; `signup` friction and new-tenant `restrictions` (`deploy-api.md` 0.5 section 21) | F7 |
 | Crypto mining, proxying | CPU and egress quotas; anomaly detection on meters; suspend | Move to microVM | #85 | F7 |
 
 ## Security process
