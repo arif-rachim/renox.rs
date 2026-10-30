@@ -1,0 +1,21 @@
+<r-layout use="main">
+  <r-group slot="title">Data processing agreement · Renox</r-group>
+  <section class="narrow legal">
+    <h1>Data processing agreement</h1>
+    <p class="muted">Version 2026-10-30. Draft for legal review (docs/21-uae-gcc-strategy.md section 7): the text below states the commitments the platform implements; the reviewed wording replaces it before the first paying tenant.</p>
+    <h2>1. Roles</h2>
+    <p>You (the customer) are the controller of the personal data your apps process. Renox processes it on your behalf, only to run, store, back up and secure your apps, and only on your documented instructions: your code, your configuration and this agreement.</p>
+    <h2>2. Where data is processed</h2>
+    <p>Tenant databases, files and backups are stored in the hosting region Renox names for the workspace. Moving them to another region needs your written instruction, except where the law requires it.</p>
+    <h2>3. Security</h2>
+    <p>Each tenant runs in its own isolate with its own database file, per-tenant limits enforced by the platform, outbound requests to private addresses blocked, and secrets encrypted at rest and never written to logs. Operator access to tenant data happens only through a time-boxed, audited break-glass session with a stated reason, and the workspace owner is emailed when one starts and ends.</p>
+    <h2>4. Sub-processors</h2>
+    <p>The infrastructure, email and payment providers that process data for Renox are listed on the status page; you are told 30 days before a new one is added and may object.</p>
+    <h2>5. Breaches</h2>
+    <p>Renox tells the workspace owner without undue delay, and within 72 hours, after becoming aware of a personal data breach that affects the workspace, with what is known and the steps taken.</p>
+    <h2>6. Your requests and deletion</h2>
+    <p>You can export a database at any time. Erasing a workspace deletes its databases, files, replicas and backups within the retention the dashboard shows, and the erasure record states when it completed.</p>
+    <h2>7. Acceptance</h2>
+    <p>Accepting this agreement at sign-up records this version and the time on your workspace.</p>
+  </section>
+</r-layout>

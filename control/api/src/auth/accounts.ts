@@ -11,6 +11,7 @@
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { operation } from "../audit.ts";
 import { check } from "../contract.ts";
+import { DPA_VERSION } from "../signup/dpa.ts";
 import type { Deps, Env, Principal } from "../context.ts";
 import { num, numOrNull, type Db } from "../db/db.ts";
 import { ApiError, conflict, invalid, notFound } from "../errors.ts";
@@ -234,7 +235,9 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
       );
       if (inserted.length === 0) return { exists: true as const };
       if (tenantId !== undefined) {
-        await tx.query("insert into tenants (id, name, tier, created_at) values ($1, $2, 'free', $3)", [tenantId, tenantName, now]);
+        // #326: the DPA version and time, when the sign-up accepted it.
+        const dpa = body.dpa_accepted === true ? [DPA_VERSION, now] : [null, null];
+        await tx.query("insert into tenants (id, name, tier, created_at, dpa_version, dpa_accepted_at) values ($1, $2, 'free', $3, $4, $5)", [tenantId, tenantName, now, ...dpa]);
         await tx.query("insert into memberships (tenant_id, user_id, role, created_at) values ($1, $2, 'owner', $3)", [tenantId, userId, now]);
       }
       return { exists: false as const, userId, verify: await emailToken(tx, userId, "verify", now) };
@@ -255,8 +258,14 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
       await tx.query("update users set email_verified_at = coalesce(email_verified_at, $1) where id = $2", [now, id]);
       return id;
     });
-    c.set("auditTarget", { user_id: userId });
-    return c.json({ user_id: userId, email_verified: true });
+    // deploy-api.md 0.5 section 21 (#326): the verified user is signed in as `login` would sign them in.
+    const user = await userById(db, userId);
+    const tenant = (await memberships(db, userId))[0] ?? null;
+    const session = await createSession(db, userId, tenant?.tenant_id ?? null, now, clientIp(c), c.req.header("user-agent") ?? null, await sessionState(db, user, now));
+    c.set("principal", { kind: "user", userId, sessionId: session.id, tenantId: tenant?.tenant_id ?? null });
+    c.set("auditTarget", { user_id: userId, session_id: session.id });
+    setSessionCookie(c, session.value);
+    return c.json({ user_id: userId, email_verified: true, ...(tenant === null ? {} : { tenant_id: tenant.tenant_id }) });
   });
 
   app.post("/v1/account/verify/resend", operation(deps, "resendVerification"), accountAuth(deps), async (c) => {

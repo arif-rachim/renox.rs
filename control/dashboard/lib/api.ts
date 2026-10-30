@@ -63,6 +63,9 @@ export interface TenantView {
   tier: string;
   state: string;
   created_at: number;
+  /** 0.5 section 21 (#326): the first activation, and the new-tenant restrictions in force. */
+  first_deploy_at?: number | null;
+  restrictions?: string[];
   erasure: { state: "pending" | "erasing" | "done" | "failed"; requested_at: number; completed_at: number | null; failure: string | null; replica_purged_at?: number | null } | null;
 }
 
@@ -163,6 +166,56 @@ export interface LogLine {
   message: string;
   fields: Record<string, unknown> | null;
   source: "server" | "client";
+}
+
+/** What a module version asks for (deploy-api.md 0.5 section 19; manifest.md 1.2 `[permissions]`). */
+export interface ModulePermissions {
+  tables?: string;
+  network: string[];
+  secrets: string[];
+  slots: string[];
+  hooks: string[];
+  roles?: string[];
+}
+
+/** `RegistryModuleVersion`. */
+export interface RegistryVersion {
+  publisher: string;
+  name: string;
+  version: string;
+  hash: string;
+  key_id: string;
+  description: string | null;
+  isolation: string;
+  permissions: ModulePermissions;
+  migrations: number;
+  price: { amount: string; currency: string; period: string } | null;
+  published_at: number;
+  disabled: { at: number; reason: string } | null;
+}
+
+/** `AppModule`: an installation record of one app. */
+export interface AppModule {
+  name: string;
+  source: string;
+  version: string;
+  hash: string;
+  approved: ModulePermissions;
+  approved_at: number;
+  approved_by: string | null;
+  disabled: { at: number; reason: string } | null;
+}
+
+type PermissionSide = { tables: string | null; network: string[]; secrets: string[]; slots: string[]; hooks: string[]; roles: string[] };
+
+/** `ModuleVersionDiff`: what an upgrade adds and removes. */
+export interface ModuleDiff {
+  from: string;
+  to: string;
+  permissions: { added: PermissionSide; removed: PermissionSide };
+  migrations: string[];
+  contract: { ops_from: string | null; ops_to: string | null };
+  templates: string[];
 }
 
 /** A call that did not give a value: the API's error, or why the API was not reached. */
@@ -286,7 +339,8 @@ export class Api {
   ) {}
 
   private async call(method: string, path: string, body?: unknown): Promise<Result<{ res: Response; text: string | null }>> {
-    const headers: Record<string, string> = { authorization: `Bearer ${this.token}`, accept: "application/json" };
+    // The onboarding client (`publicApi`) has no token and sends no Authorization header.
+    const headers: Record<string, string> = { accept: "application/json", ...(this.token === "" ? {} : { authorization: `Bearer ${this.token}` }) };
     if (body !== undefined) headers["content-type"] = "application/json";
     let res: Response;
     try {
@@ -326,6 +380,11 @@ export class Api {
 
   createApp(name: string): Promise<Result<App>> {
     return this.json("POST", "/v1/apps", { name });
+  }
+
+  /** `createAppFromTemplate` (deploy-api.md 0.5 section 21, #326): the app, uploaded and activated. */
+  createAppFromTemplate(name: string, template: string): Promise<Result<{ app: string; template: string; hash: string; url: string }>> {
+    return this.json("POST", "/v1/apps/from-template", { name, template });
   }
 
   /** `getTenant` (deploy-api.md 0.4 section 3): the tenant and its erasure record (the tombstone after an erasure). */
@@ -373,6 +432,29 @@ export class Api {
 
   setClientErrorStatus(app: string, fingerprint: string, status: ClientErrorStatus): Promise<Result<ClientErrorGroup>> {
     return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/client-errors/${encodeURIComponent(fingerprint)}`, { status });
+  }
+
+  // The module registry (deploy-api.md 0.5 section 19, #324).
+
+  listRegistry(q = ""): Promise<Result<{ items: RegistryVersion[]; next_cursor: string | null }>> {
+    return this.json("GET", `/v1/registry${q === "" ? "" : `?q=${encodeURIComponent(q)}`}`);
+  }
+
+  getModuleVersion(publisher: string, name: string, version: string): Promise<Result<RegistryVersion>> {
+    return this.json("GET", `/v1/registry/${encodeURIComponent(publisher)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
+  }
+
+  diffModule(publisher: string, name: string, from: string, to: string): Promise<Result<ModuleDiff>> {
+    return this.json("GET", `/v1/registry/${encodeURIComponent(publisher)}/${encodeURIComponent(name)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  }
+
+  listAppModules(app: string): Promise<Result<{ items: AppModule[] }>> {
+    return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/modules`);
+  }
+
+  /** `installModule`: `approved` must be the version's own request, which the user reviewed. */
+  installModule(app: string, body: { source: string; version: string; hash: string; approved: ModulePermissions }): Promise<Result<AppModule>> {
+    return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/modules`, body);
   }
 
   listSecrets(app: string): Promise<Result<SecretList>> {
@@ -438,6 +520,23 @@ export class Api {
     if (!r.ok) return r;
     return { ok: true, value: parseLogEvents(r.value.text ?? "") };
   }
+}
+
+/**
+ * The two onboarding calls that need no sign-in (deploy-api.md 0.5 section
+ * 21, #326): `signup` and `verifyEmail`. No token is sent; the password
+ * passes through once and is never kept.
+ */
+export function publicApi(fetch: Fetch, secrets: Secrets): Api {
+  return new Api(fetch, "", apiBase(secrets));
+}
+
+export function signupAccount(fetch: Fetch, secrets: Secrets, body: { email: string; password: string; tenant_id: string; tenant_name?: string; dpa_accepted: true; captcha_token?: string }): Promise<Result<{ status: "check_email" }>> {
+  return publicApi(fetch, secrets).json("POST", "/v1/account/signup", body);
+}
+
+export function verifyAccount(fetch: Fetch, secrets: Secrets, token: string): Promise<Result<{ user_id: string; email_verified: true; tenant_id?: string }>> {
+  return publicApi(fetch, secrets).json("POST", "/v1/account/verify", { token });
 }
 
 /** The `log` events of a Server-Sent Events body; other events, comments and malformed data are skipped. */

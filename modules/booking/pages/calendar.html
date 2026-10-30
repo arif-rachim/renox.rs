@@ -1,0 +1,8 @@
+<r-layout use="booking">
+  <r-group slot="title"><r-t key="booking.calendar" /></r-group>
+  <h1><r-t key="booking.calendar" /> · {{ staff }} · {{ day }}</h1>
+  <ul id="booking-calendar" hx-ext="sse" sse-connect="sse/calendar" hx-trigger="sse:change" hx-get="" hx-select="#booking-calendar" hx-swap="outerHTML">
+    <li r-for="b in bookings">{{ b.time }} · {{ b.service }} · {{ b.status }}</li>
+    <li r-empty="bookings"><r-t key="booking.none" /></li>
+  </ul>
+</r-layout>

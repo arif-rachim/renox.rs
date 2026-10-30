@@ -10,6 +10,9 @@ i18n = "^1.0"
 [config]
 base_path = { type = "string", default = "/jobs", max_length = 100, description = "Where the app mounts the module's pages" }
 
+[permissions]
+slots = ["admin.sidebar"]
+
 [exports.services]
 list = "Jobs in one state, never the payload: (state: scheduled | queued | running | dead, { limit?, cursor? }) -> { items, next_cursor } (requires jobs.read)"
 retry = "Put a dead run back in the queue with its attempts reset (id) (requires jobs.manage; audited)"
@@ -25,3 +28,9 @@ sensitive = ["jobs.manage"]
 [authz.default_roles]
 admin = ["jobs.read", "jobs.manage"]
 operator = ["jobs.read"]
+
+# The back office's sidebar (#335): a link to this module's page.
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-link.html"
+requires = "jobs.read"

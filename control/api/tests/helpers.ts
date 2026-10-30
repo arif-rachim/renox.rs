@@ -13,7 +13,7 @@ import { MemoryObjectStore } from "../src/storage/object-store.ts";
 import { createTenantToken, newTokenValue, sha256hex } from "../src/auth/tokens.ts";
 import { MemoryMailer } from "../src/auth/mailer.ts";
 import { guardDb } from "../src/tenancy/scope.ts";
-import { CSRF_HEADER, SESSION_COOKIE } from "../src/auth/sessions.ts";
+import { CSRF_HEADER, csrfOf, SESSION_COOKIE } from "../src/auth/sessions.ts";
 import { routeService } from "../src/routes/service.ts";
 
 let shared: Promise<Db> | undefined;
@@ -239,6 +239,11 @@ export async function signup(h: Harness, email: string, tenantId?: string, verif
   if (verify) {
     const v = await h.request("POST", "/v1/account/verify", { json: { token: mailToken(h, email, "verify_email") } });
     if (v.status !== 200) throw new Error(`verify ${email}: ${v.status}`);
+    // deploy-api.md 0.5 section 21 (#326): verification signs the user in. The tests sign in with `login`
+    // (its device notice and buckets), so that session is ended first and the user holds one session.
+    const cookie = setCookie(v, SESSION_COOKIE) as string;
+    const out = await h.request("POST", "/v1/account/logout", { session: { cookie, csrf: csrfOf(cookie) } });
+    if (out.status !== 204 && out.status !== 200) throw new Error(`logout after verify ${email}: ${out.status}`);
   }
   return login(h, email);
 }

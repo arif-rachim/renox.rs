@@ -1,0 +1,27 @@
+<r-layout use="main">
+  <r-group slot="title">Operator · registry · Renox dashboard</r-group>
+  <section id="page" r-fragment="page">
+    <h1>Module registry</h1>
+    <p class="muted">Operator console. Disabling a version's tree refuses its downloads for every tenant, marks every installation, and emails each tenant owner. Running deployments keep running. Every action needs your operator token (used for this one request, never kept) and a reason of {{ reason_min }} to {{ reason_max }} characters.</p>
+    <p class="problem" r-if="form_error">{{ form_error }}</p>
+    <x-problem :problem="action_problem" r-if="action_problem" />
+    <r-group r-if="result">
+      <p class="notice">{{ result.notice }}</p>
+      <p>Tree <code>{{ result.hash }}</code></p>
+    </r-group>
+    <h2>Disable by hash</h2>
+    <x-form action="disable" hx-target="#page" hx-swap="outerHTML" class="row">
+      <label>Tree hash <input name="hash" required pattern="[0-9a-f]{64}" autocomplete="off" spellcheck="false"></label>
+      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max"></label>
+      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit">Disable</button>
+    </x-form>
+    <h2>Enable again</h2>
+    <x-form action="enable" hx-target="#page" hx-swap="outerHTML" class="row">
+      <label>Tree hash <input name="hash" required pattern="[0-9a-f]{64}" autocomplete="off" spellcheck="false"></label>
+      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max"></label>
+      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit">Enable</button>
+    </x-form>
+  </section>
+</r-layout>

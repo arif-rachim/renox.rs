@@ -25,7 +25,17 @@ export interface MeterRecord {
   render_ms?: number;
   logs_dropped: number;
   http_status: number;
-  status: "ok" | "error" | "timeout" | "cpu_limit" | "oom" | "blocked_fetch" | "busy" | "render_limit";
+  status: "ok" | "error" | "timeout" | "cpu_limit" | "oom" | "blocked_fetch" | "busy" | "render_limit" | "forbidden";
+  // Optional fields of meter.md 0.2 to 0.4 (F5 to F7), read by the unit-cost report.
+  kind?: "request" | "event" | "tool" | "job" | "image";
+  authz_evals?: number;
+  realtime_conn_seconds?: number;
+  realtime_messages?: number;
+  storage_bytes?: number;
+  image_variants?: number;
+  ai_tokens_in?: number;
+  ai_tokens_out?: number;
+  render_pdf_ms?: number;
 }
 
 export interface MeterBatch {

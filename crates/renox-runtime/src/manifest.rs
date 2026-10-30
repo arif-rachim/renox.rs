@@ -673,6 +673,8 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         let allowed = match top {
             "manifest.json" | "code" | "migrations" | "public" => true,
             "templates" | "public.json" => version >= 1,
+            // Artifact 1.4 (#123): the CycloneDX SBOM of the bundled code (V29 is the CLI's and the API's).
+            "sbom.cdx.json" => version >= 1,
             // Artifact 1.3: the app's own policies and schema (V24).
             "policies"
                 if version >= 1
@@ -994,6 +996,41 @@ mod tests {
         fs::rename(&src, &dir).unwrap();
         let err = load_artifact(&dir).unwrap_err();
         assert_eq!(err.rule, "V3", "{err}");
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// Artifact 1.4 (#123): a version 1 artifact may carry `sbom.cdx.json`;
+    /// a version 0 one may not (V1).
+    #[test]
+    fn sbom_member_is_accepted_from_version_1() {
+        let tmp = std::env::temp_dir().join(format!("renox-manifest-sbom-{}", std::process::id()));
+        for version in [1, 0] {
+            let src = tmp.join(format!("src{version}"));
+            fs::create_dir_all(src.join("code")).unwrap();
+            fs::write(src.join("code/x.js"), "export function GET() {}").unwrap();
+            fs::write(
+                src.join("sbom.cdx.json"),
+                r#"{"bomFormat":"CycloneDX","specVersion":"1.5","components":[]}"#,
+            )
+            .unwrap();
+            let manifest = serde_json::json!({
+                "artifact": { "version": version },
+                "app": { "name": "x", "timezone": "UTC" },
+                "code": { "format": "esm-dir", "entry": { "functions/x": "x.js" } },
+                "routes": [{ "kind": "function", "method": "GET", "path": "/", "module": "functions/x", "export": "GET" }],
+                "permissions": { "network": [], "secrets": [] }
+            });
+            fs::write(src.join("manifest.json"), manifest.to_string()).unwrap();
+            let hash = content_hash(&src).unwrap();
+            let dir = tmp.join(&hash);
+            fs::rename(&src, &dir).unwrap();
+            let r = load_artifact(&dir);
+            if version == 1 {
+                assert!(r.is_ok(), "{:?}", r.err());
+            } else {
+                assert_eq!(r.unwrap_err().rule, "V1");
+            }
+        }
         fs::remove_dir_all(&tmp).unwrap();
     }
 

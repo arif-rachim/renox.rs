@@ -78,7 +78,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
-| Malicious or compromised marketplace module | Ed25519 signature verification; permission review at install; diff on upgrade | `isolate` mode; global disable by hash; tenant notification | #84; `isolate` mode: `crates/renox-cell/tests/isolate_mode.rs` (no app globals, only approved secrets, own table prefix and hosts, the 1 MiB cap, its own heap limit) (#320) | F7 |
+| Malicious or compromised marketplace module | Ed25519 signature verification; permission review at install; diff on upgrade | `isolate` mode; global disable by hash; tenant notification | `control/api/tests/registry.test.ts` and `control/dashboard/tests/modules.test.ts` (signature, permission review, upgrade diff, disable by hash with the owner's mail and banner; #324); `isolate` mode: `crates/renox-cell/tests/isolate_mode.rs` (no app globals, only approved secrets, own table prefix and hosts, the 1 MiB cap, its own heap limit) (#320) | F7 |
 | Module calling a service or hook it did not declare | Broker checks the manifest on every call | Authorizer for tables | broker tests (#63) | F4 |
 | Module migration touching another module's tables | Authorizer attached to migration connections too | Migration runner per module prefix | migration tests (#117) | F4 |
 | Module reading secrets it did not declare | Secrets filtered per module at injection | Tenant approves the list at install | secrets tests | F4 |
@@ -132,10 +132,10 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
 | Phishing or malware sites on `*.renox.app` | Public Suffix List entry; abuse report endpoint and `abuse@` contact; takedown SLA with suspension; Safe Browsing lookups on deployed hostnames | Free tier requires a verified email and has no custom domains until a payment method exists | `TODO` → #123; `reportAbuse`, `setAbuseTicket` and the `abuse` states, Safe Browsing on `getOpsTenant` (`deploy-api.md` 0.5 section 22) | F7 |
-| Card testing through tenant checkouts | Billing module: rate limit on payment attempts per IP and session, 3DS by default, CAPTCHA signal hook | Provider-side fraud tools | #123 | F7 |
+| Card testing through tenant checkouts | Billing module: rate limit on payment attempts per IP and session, 3DS by default, CAPTCHA signal hook | Provider-side fraud tools | The hook point `billing.fraud_signal` runs before every checkout session and a halt refuses it before the PSP is called (`modules/billing/tests/billing.test.ts` "billing.fraud_signal…", #329); the limits that fill it are #123 | F7 |
 | Outbound spam through the `email` module | Per-tenant send rate and daily cap; SPF/DKIM per sending domain; suppression list; complaint feedback loop pauses the tenant | Shared sending domain only for transactional templates | #123 | F7 |
 | Bot signups | Email verification, disposable-domain blocklist, signup rate per IP, delayed quota growth for new tenants | Manual review for free tier anomalies | #123; `signup` friction and new-tenant `restrictions` (`deploy-api.md` 0.5 section 21) | F7 |
-| Crypto mining, proxying | CPU and egress quotas; anomaly detection on meters; suspend | Move to microVM | #85 | F7 |
+| Crypto mining, proxying | CPU and egress quotas; anomaly detection on meters; suspend | Move to microVM | `control/api/tests/billing.test.ts` (the tier pass to `suspended` with the owner's emails; the anomaly rule writes one review row and the signal), `control/billing/tests/tier.test.ts` (#325); the gateway's neutral page is not built (the route table has no `suspended` status) | F7 |
 
 ## Security process
 

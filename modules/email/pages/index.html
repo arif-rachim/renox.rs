@@ -1,0 +1,21 @@
+<r-layout use="email">
+  <r-group slot="title"><r-t key="email.title" /></r-group>
+  <h1><r-t key="email.title" /></h1>
+  <p class="notice" r-if="notice == 'lifted'"><r-t key="email.notice.lifted" /></p>
+  <table id="email-messages">
+    <thead><tr><th><r-t key="email.col.to" /></th><th><r-t key="email.col.subject" /></th><th><r-t key="email.col.template" /></th><th><r-t key="email.col.status" /></th><th><r-t key="email.col.attempts" /></th><th><r-t key="email.col.at" /></th></tr></thead>
+    <tbody>
+      <tr r-for="m in messages"><td>{{ m.to_address }}</td><td>{{ m.subject }}</td><td>{{ m.template }}</td><td>{{ m.status }}</td><td>{{ m.attempts }}</td><td><time :datetime="m.at">{{ m.at }}</time></td></tr>
+      <tr r-empty="messages"><td colspan="6"><r-t key="email.none" /></td></tr>
+    </tbody>
+  </table>
+  <h2><r-t key="email.suppressions.title" /></h2>
+  <table id="email-suppressions">
+    <thead><tr><th><r-t key="email.col.to" /></th><th><r-t key="email.suppressions.reason" /></th><th></th></tr></thead>
+    <tbody>
+      <tr r-for="s in suppressions"><td>{{ s.address }}</td><td>{{ s.reason }}</td>
+        <td r-can="email.manage"><x-form action="lift"><input type="hidden" name="address" :value="s.address"><button type="submit"><r-t key="email.suppressions.lift" /></button></x-form></td></tr>
+      <tr r-empty="suppressions"><td colspan="3"><r-t key="email.suppressions.none" /></td></tr>
+    </tbody>
+  </table>
+</r-layout>

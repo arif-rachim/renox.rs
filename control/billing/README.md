@@ -12,6 +12,30 @@ Billing v0 (P14, #56): the control plane turns meter records (`docs/contracts/me
 
 The tables `meters_raw` and `meters_hourly` are created by `control/api/migrations/0001_init.sql`; billing owns no migrations.
 
+## Platform billing (F7, #325)
+
+deploy API 0.5 section 20. This package holds the pure parts, and `control/api/src/billing/` holds the endpoints and the hourly pass.
+
+| Piece | Where | What |
+| --- | --- | --- |
+| Plans | `src/plans.ts` | Free, Starter, Pro and Agency in AED, with the quotas per dimension (proposals, Open 18). `listPlans` answers them |
+| Invoices | `src/invoice.ts` | Amounts in fils, 5 % VAT rounded half up, numbers `INV-<year>-<6 digits>`, both TRNs, and the bilingual HTML |
+| Tier machine | `src/tier.ts` | `active → over_quota → grace → suspended` and back, as `x-renox-state-machines.tier`; the anomaly rule (an hour over 10 times the 7-day hourly median) |
+| Hourly pass | `control/api/src/billing/sweep.ts`, started by `control/api/src/main.ts` | Each hour and for each tenant: closes a period that has ended into its invoice, runs the anomaly rule (an operator review row in `billing_reviews`), ticks the tier machine with the quota signal, and emails the owner at each step (`tier_over_quota`, `tier_grace` with the date, `tier_suspended`, `tier_reinstated`) |
+
+The close needs `RENOX_SELLER_TRN`, Renox's 15-digit TRN. Without it no tax invoice is issued and the close waits, with a log line.
+
+A pending downgrade takes effect at the start of the next period. Overage is not invoiced, because the plans have no overage price yet.
+
+Not built:
+- The gateway's neutral suspension page: the route table has no `suspended` status, so a suspended tenant's hostnames have no entries.
+- The invoice PDF.
+- The dashboard billing page: the billing operations refuse tokens, and the dashboard signs in with one (D23).
+
+#325's issue comment lists what each of these needs.
+
+The F7 unit-cost numbers are in `reports/2026-10-30-unit-cost-f7.md`: 0.696 ms of billed CPU per request (mean) on a pages and API mix, $0.13 per 1M requests, and 1.87 ms of worker-process CPU per request. The F5 to F7 meter fields stay at 0 until a load signs users in and uses realtime, storage, AI or PDF.
+
 ## Rollup columns
 
 From `meter.md` section 7:

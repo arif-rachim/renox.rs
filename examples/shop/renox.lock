@@ -5,7 +5,7 @@ version = 1
 name = "audit"
 version = "1.0.0"
 source = "official"
-hash = "afdef92fc39942028de41aceca151ccd2470fac99fdc9b67b5122d490d1de7e8"
+hash = "af95c4f9be252e48ae6bc1ab43f824697758b2c2352c391774c08e3cb6c03057"
 isolation = "shared"
 mount = "/audit"
 dependencies = []
@@ -16,7 +16,7 @@ approved = { tables = "audit__*", network = [], secrets = [], slots = [], hooks 
 name = "i18n"
 version = "1.0.0"
 source = "official"
-hash = "b69e811fb50fe054ab4b9be071623ac1042ddb4324e163733934a67fa7296bd0"
+hash = "f6fe9ee37f9f3fd57c801c212f697ffe07b7d97dbb1b325679e7ea089083cf2f"
 isolation = "shared"
 mount = "/i18n"
 dependencies = []
@@ -35,15 +35,48 @@ config = { session_idle_hours = 24, session_absolute_days = 30, password_min_len
 approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
 
 [[module]]
+name = "admin"
+version = "1.0.0"
+source = "official"
+hash = "1ddee17c128cd429013bbb9e7af3f2db0faaa19a708be780b30d46d7503aa1f7"
+isolation = "shared"
+mount = "/admin"
+dependencies = ["audit", "auth", "i18n"]
+config = { base_path = "/admin", title = "Admin" }
+approved = { tables = "admin__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "billing"
+version = "1.0.0"
+source = "official"
+hash = "d36954f49623b6cb5ec3b6a10d6af59905aa99c46bb43b2a20d1f23890077228"
+isolation = "shared"
+mount = "/billing"
+dependencies = ["auth", "i18n"]
+config = { currency = "AED", success_url = "/billing/thanks", cancel_url = "/billing", base_path = "/billing", methods = "card", bank_name = "", bank_beneficiary = "", bank_iban = "" }
+approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = ["admin.sidebar"], hooks = [] }
+
+[[module]]
+name = "email"
+version = "1.0.0"
+source = "official"
+hash = "3b8e20852a1a1f62e8cfde8428b82326693cad2706538df60791ab62de6da4a2"
+isolation = "shared"
+mount = "/email"
+dependencies = ["auth", "i18n"]
+config = { provider = "resend", from = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
+approved = { tables = "email__*", network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"], secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_mail"] }
+
+[[module]]
 name = "notifications"
 version = "1.0.0"
 source = "official"
-hash = "0498c4abb3a7ad550b62ec4375c554cbfb2772c21e1154c4980b1753610695c1"
+hash = "8e8b897fe7f22a1acddc238bf4a006b5ec68901982e33b509dfcbe4c5bc968b1"
 isolation = "shared"
 mount = "/notifications"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/notifications", channels = "" }
-approved = { tables = "notifications__*", network = [], secrets = [], slots = ["app.header"], hooks = [] }
+approved = { tables = "notifications__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = [] }
 
 [[module]]
 name = "org"
@@ -55,6 +88,39 @@ mount = "/org"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/org", invite_days = 7 }
 approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
+
+[[module]]
+name = "storage"
+version = "1.0.0"
+source = "official"
+hash = "baa2c197f152391f010fe48b6df9ebdcc70424f13a7482c9c10917e8a4abcf0c"
+isolation = "shared"
+mount = "/files"
+dependencies = ["auth", "i18n"]
+config = { max_upload_bytes = 10485760, allow_svg = false, quota_mb = 0, base_path = "/files" }
+approved = { network = [], secrets = [], slots = ["admin.sidebar"], hooks = [] }
+
+[[module]]
+name = "tax_gcc"
+version = "1.0.0"
+source = "official"
+hash = "82df8733efdf234b149d332f059d0b5657b682e6f5ca744b3fdb575424c19ca3"
+isolation = "shared"
+mount = "/tax"
+dependencies = ["auth", "i18n"]
+config = { seller_name = "", seller_trn = "", seller_address = "", prefix = "INV", base_path = "/tax" }
+approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "reports"
+version = "1.0.0"
+source = "official"
+hash = "f11a48f52878004a2ed99fdebb89d8e3f537b859bfdd301c0212536a9327f4a3"
+isolation = "shared"
+mount = "/reports"
+dependencies = ["auth", "email", "i18n", "tax_gcc"]
+config = { email_to = "", base_path = "/reports" }
+approved = { tables = "reports__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]
 name = "twofa"

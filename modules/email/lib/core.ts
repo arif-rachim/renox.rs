@@ -3,6 +3,9 @@
 // retries a throw, so a provider 5xx is retried and a 4xx is final), and a
 // suppression list that bounces and complaints fill. Bodies are never logged.
 
+import { renderMail } from "./templates.ts";
+import * as reputation from "../src/reputation/reputation.ts";
+
 export interface Db {
   query<T>(sql: string, params?: unknown[]): Promise<T[]>;
   queryOne<T>(sql: string, params?: unknown[]): Promise<T | null>;
@@ -17,13 +20,15 @@ export interface EmailCtx {
   secrets: Record<string, string | undefined>;
   config: { provider?: string; from?: string; ses_region?: string; sends_per_minute?: number };
   events: { emit(name: string, payload: unknown): Promise<void> };
+  /** `email.before_send` (this module's hook point): a filler that halts stops the message. */
+  hooks?: { run(name: string, args?: unknown): Promise<{ halt: boolean }> };
   log: { info(msg: string, fields?: Record<string, unknown>): void; warn(msg: string, fields?: Record<string, unknown>): void };
 }
 
 export class EmailError extends Error {
   constructor(
     message: string,
-    readonly code: "INVALID" | "SUPPRESSED" | "RATE_LIMITED" | "NOT_CONFIGURED",
+    readonly code: "INVALID" | "SUPPRESSED" | "RATE_LIMITED" | "NOT_CONFIGURED" | "PAUSED",
   ) {
     super(message);
     this.name = "EmailError";
@@ -47,19 +52,40 @@ export async function suppressed(ctx: EmailCtx, to: unknown): Promise<boolean> {
   return (await ctx.db.queryOne("select 1 as x from email__suppressions where address = ?", [address(to)])) !== null;
 }
 
-export async function send(ctx: EmailCtx, msg: { to?: unknown; subject?: unknown; text?: unknown; html?: unknown }): Promise<{ id: string }> {
+/** A message from one of the module's templates (lib/templates.ts) in the recipient's locale. */
+export async function sendTemplate(ctx: EmailCtx, to: unknown, template: unknown, data: unknown, opts: { locale?: unknown; reply_to?: unknown } = {}): Promise<{ id: string | null; cancelled?: true }> {
+  if (typeof template !== "string") throw new EmailError("a template name", "INVALID");
+  const locale = opts.locale === "ar" ? "ar" : "en";
+  const m = renderMail(template, (data ?? {}) as Record<string, unknown>, locale);
+  if (m === null) throw new EmailError(`no template ${template}`, "INVALID");
+  return sendRaw(ctx, { to, ...m, reply_to: opts.reply_to, template, locale });
+}
+
+/** A message given whole: `{ to, subject, text?, html?, reply_to? }`. */
+export async function sendRaw(ctx: EmailCtx, msg: { to?: unknown; subject?: unknown; text?: unknown; html?: unknown; reply_to?: unknown; template?: string; locale?: string }): Promise<{ id: string | null; cancelled?: true }> {
   const to = address(msg.to);
+  const replyTo = msg.reply_to === undefined || msg.reply_to === null || msg.reply_to === "" ? null : address(msg.reply_to);
   if (typeof msg.subject !== "string" || msg.subject.length === 0 || msg.subject.length > 998 || /[\r\n]/u.test(msg.subject)) throw new EmailError("a one-line subject", "INVALID");
   const text = typeof msg.text === "string" ? msg.text : "";
   const html = typeof msg.html === "string" ? msg.html : "";
   if (text === "" && html === "") throw new EmailError("text or html", "INVALID");
   if (await suppressed(ctx, to)) throw new EmailError("the address is suppressed (a bounce or a complaint)", "SUPPRESSED");
+  // Reputation (#123): a paused tenant sends nothing; a young one has a daily cap.
+  const pause = await reputation.paused(ctx.db);
+  if (pause !== null) throw new EmailError(`sending is paused: ${pause.reason}`, "PAUSED");
+  if (!(await reputation.underDailyCap(ctx.db))) throw new EmailError("the daily cap of a new sender is reached", "RATE_LIMITED");
+  // The app's last word (never the body: the template, the locale and the recipient's domain).
+  const hook = await ctx.hooks?.run("email.before_send", { template: msg.template ?? null, locale: msg.locale ?? null, to_domain: to.split("@")[1] as string });
+  if (hook?.halt === true) return { id: null, cancelled: true };
   const limit = Number(ctx.config.sends_per_minute ?? 120);
   const t = Date.now();
   const recent = (await ctx.db.queryOne<{ n: number }>("select count(*) as n from email__messages where at > ?", [t - 60_000]))?.n ?? 0;
   if (recent >= limit) throw new EmailError(`at most ${limit} messages a minute`, "RATE_LIMITED");
   const id = newId();
-  await ctx.db.execute("insert into email__messages (id, to_address, subject, text_body, html_body, status, at, updated_at) values (?, ?, ?, ?, ?, 'queued', ?, ?)", [id, to, msg.subject, text, html, t, t]);
+  await ctx.db.execute(
+    "insert into email__messages (id, to_address, subject, text_body, html_body, status, at, updated_at, template, locale, reply_to) values (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
+    [id, to, msg.subject, text, html, t, t, msg.template ?? null, msg.locale ?? null, replyTo],
+  );
   await ctx.events.emit("email.send_requested", { message_id: id });
   return { id };
 }
@@ -92,6 +118,7 @@ export interface SendResult {
 export interface Outgoing {
   from: string;
   to: string;
+  reply_to?: string | null;
   subject: string;
   text: string;
   html: string;
@@ -103,7 +130,7 @@ export async function sendResend(fetchFn: FetchFn, key: string, m: Outgoing): Pr
     res = await fetchFn("https://api.resend.com/emails", {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-      body: JSON.stringify({ from: m.from, to: [m.to], subject: m.subject, ...(m.text ? { text: m.text } : {}), ...(m.html ? { html: m.html } : {}) }),
+      body: JSON.stringify({ from: m.from, to: [m.to], subject: m.subject, ...(m.reply_to ? { reply_to: m.reply_to } : {}), ...(m.text ? { text: m.text } : {}), ...(m.html ? { html: m.html } : {}) }),
     });
   } catch {
     return { ok: false, retry: true, status: 0, error: "network" };
@@ -138,6 +165,7 @@ export async function sendSes(fetchFn: FetchFn, access: string, secret: string, 
   const body = JSON.stringify({
     FromEmailAddress: m.from,
     Destination: { ToAddresses: [m.to] },
+    ...(m.reply_to ? { ReplyToAddresses: [m.reply_to] } : {}),
     Content: { Simple: { Subject: { Data: m.subject, Charset: "UTF-8" }, Body: { ...(m.text ? { Text: { Data: m.text, Charset: "UTF-8" } } : {}), ...(m.html ? { Html: { Data: m.html, Charset: "UTF-8" } } : {}) } } },
   });
   const amzDate = now.toISOString().replace(/[-:]/gu, "").replace(/\.\d{3}/u, "");
@@ -158,7 +186,7 @@ export async function sendSes(fetchFn: FetchFn, access: string, secret: string, 
 
 /** The `email.send_requested` handler: one provider call; throws to have the outbox retry. */
 export async function deliverQueued(ctx: EmailCtx, id: string): Promise<SendResult | null> {
-  const m = await ctx.db.queryOne<{ id: string; to_address: string; subject: string; text_body: string; html_body: string; status: string }>("select * from email__messages where id = ?", [id]);
+  const m = await ctx.db.queryOne<{ id: string; to_address: string; subject: string; text_body: string; html_body: string; status: string; reply_to: string | null }>("select * from email__messages where id = ?", [id]);
   if (m === null || m.status !== "queued") return null;
   const t = Date.now();
   if (await suppressed(ctx, m.to_address)) {
@@ -166,7 +194,7 @@ export async function deliverQueued(ctx: EmailCtx, id: string): Promise<SendResu
     return null;
   }
   const from = ctx.config.from ?? "";
-  const out: Outgoing = { from, to: m.to_address, subject: m.subject, text: m.text_body, html: m.html_body };
+  const out: Outgoing = { from, to: m.to_address, reply_to: m.reply_to, subject: m.subject, text: m.text_body, html: m.html_body };
   let r: SendResult;
   if (from === "") r = { ok: false, retry: false, status: 0, error: "not_configured" };
   else if ((ctx.config.provider ?? "resend") === "ses") {
@@ -178,6 +206,7 @@ export async function deliverQueued(ctx: EmailCtx, id: string): Promise<SendResu
   }
   if (r.ok) {
     await ctx.db.execute("update email__messages set status = 'sent', provider_id = ?, error = null, attempts = attempts + 1, updated_at = ? where id = ?", [r.id ?? null, t, id]);
+    await reputation.count(ctx.db, "sent");
     return r;
   }
   await ctx.db.execute(`update email__messages set ${r.retry ? "" : "status = 'failed', "}error = ?, attempts = attempts + 1, updated_at = ? where id = ?`, [r.error ?? "failed", t, id]);
@@ -193,5 +222,19 @@ export async function recordFeedback(ctx: EmailCtx, payload: unknown): Promise<{
   const raw = Array.isArray(p.data?.to) ? p.data?.to[0] : (p.data?.to ?? p.data?.email);
   if (kind === null || typeof raw !== "string") return { suppressed: null };
   await suppress(ctx, raw, kind);
-  return { suppressed: address(raw) };
+  const addr = address(raw);
+  await reputation.count(ctx.db, kind === "bounce" ? "bounced" : "complained");
+  const pausedFor = await reputation.judge(ctx.db);
+  // The owner learns of it through this event (the app's handler, or notifications).
+  if (pausedFor !== null) await ctx.events.emit("email.paused", { reason: pausedFor });
+  // Other modules (billing's dunning, the app) learn of it; the address only, never the provider's payload.
+  await ctx.events.emit(kind === "bounce" ? "email.bounced" : "email.complained", { address: addr });
+  return { suppressed: addr };
+}
+
+/** Resumes a paused tenant's sending (email.manage). */
+export async function resume(ctx: EmailCtx & { authz?: { require(action: string): Promise<void> } }): Promise<{ ok: true }> {
+  await ctx.authz?.require("email.manage");
+  await reputation.resume(ctx.db);
+  return { ok: true };
 }

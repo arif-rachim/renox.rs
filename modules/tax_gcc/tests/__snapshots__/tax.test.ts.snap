@@ -1,0 +1,14 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the VAT return against a seeded ledger: output by category, recoverable input VAT only with the supplier's TRN, the payable box; CSV 1`] = `
+"box,description,amount_aed,vat_aed
+1,Standard rated supplies,600.00,30.00
+4,Zero rated supplies,50.00,
+5,Exempt supplies,1000.00,
+8,Totals,1650.00,30.00
+9,Standard rated expenses,280.00,10.00
+12,Total value of due tax,,30.00
+13,Total value of recoverable tax,,10.00
+14,Payable tax for the period,,20.00
+"
+`;

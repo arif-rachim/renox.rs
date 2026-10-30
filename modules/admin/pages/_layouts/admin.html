@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><slot name="title">Admin</slot></title>
+</head>
+<body class="renox-admin">
+  <nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./"><r-t key="admin.nav.dashboard" /></a>
+    <a href="users"><r-t key="admin.nav.users" /></a>
+    <a href="audit"><r-t key="admin.nav.audit" /></a>
+    <r-slot name="admin.sidebar" />
+  </nav>
+  <main><slot /></main>
+</body>
+</html>

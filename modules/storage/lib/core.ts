@@ -21,11 +21,11 @@ export interface StorageCtx {
     sign(key: string, ttl: number): Promise<{ url: string; expires_at: number }>;
     list(prefix: string, o?: { limit?: number; cursor?: string | null }): Promise<{ items: StoredFile[]; next_cursor: string | null }>;
   };
-  config: { max_upload_bytes?: number; allow_svg?: boolean };
+  config: { max_upload_bytes?: number; allow_svg?: boolean; quota_mb?: number };
 }
 
 export class UploadError extends Error {
-  constructor(message: string, readonly code: "INVALID" | "TOO_LARGE" | "SVG") {
+  constructor(message: string, readonly code: "INVALID" | "TOO_LARGE" | "SVG" | "QUOTA") {
     super(message);
     this.name = "UploadError";
   }
@@ -79,3 +79,37 @@ export async function upload(ctx: StorageCtx, owner: unknown, name: unknown, byt
 export const list = (ctx: StorageCtx, owner: unknown, o: { limit?: number; cursor?: string | null } = {}) => ctx.storage.list(`${keyOf(owner, "x").slice(0, -1)}`, o);
 export const remove = (ctx: StorageCtx, owner: unknown, name: unknown) => ctx.storage.delete(keyOf(owner, name));
 export const link = (ctx: StorageCtx, owner: unknown, name: unknown, ttl: unknown) => ctx.storage.sign(keyOf(owner, name), typeof ttl === "number" ? ttl : 3600);
+
+// #332 F67-B: per-owner quotas.
+
+/** Every file of an owner (all pages of the listing). */
+async function allOf(ctx: StorageCtx, owner: unknown): Promise<StoredFile[]> {
+  const out: StoredFile[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < 100; i++) {
+    const page = await list(ctx, owner, { limit: 1000, cursor });
+    out.push(...page.items);
+    if (page.next_cursor === null) break;
+    cursor = page.next_cursor;
+  }
+  return out;
+}
+
+/** What an owner has stored against `config.quota_mb` (0: no per-owner quota; the tenant's own quota of the tier still applies). */
+export async function quota(ctx: StorageCtx, owner: unknown): Promise<{ used_bytes: number; limit_bytes: number | null; files: number }> {
+  const files = await allOf(ctx, owner);
+  const mb = Number(ctx.config.quota_mb ?? 0);
+  return { used_bytes: files.reduce((s, f) => s + f.bytes, 0), limit_bytes: mb > 0 ? mb * 1024 * 1024 : null, files: files.length };
+}
+
+/** An upload that keeps the owner within `config.quota_mb` (a replaced file counts once). */
+export async function uploadWithin(ctx: StorageCtx, owner: unknown, name: unknown, bytes: unknown, contentType: unknown, opts: { public?: boolean } = {}): Promise<StoredFile> {
+  const mb = Number(ctx.config.quota_mb ?? 0);
+  if (mb > 0 && bytes instanceof Uint8Array) {
+    const key = keyOf(owner, name);
+    const files = await allOf(ctx, owner);
+    const used = files.filter((f) => f.key !== key).reduce((s, f) => s + f.bytes, 0);
+    if (used + bytes.length > mb * 1024 * 1024) throw new UploadError(`over the ${mb} MB quota of this owner`, "QUOTA");
+  }
+  return upload(ctx, owner, name, bytes, contentType, opts);
+}

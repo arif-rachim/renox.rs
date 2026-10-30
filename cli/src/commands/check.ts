@@ -16,7 +16,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CliError, EXIT, location, UserError } from "../errors.ts";
 import { artifactsDir, buildFiles } from "../lib/build.ts";
 import { scanBundle, SECRET_HINT } from "../lib/secrets.ts";
-import { type Finding, lintBody, lintFetch, lintGlobalState, lintMissingGuard, lintRedirect, lintSql, lintUnscoped, policyActions } from "../lib/lint.ts";
+import { type Finding, lintBody, lintCatalogs, lintFetch, lintGlobalState, lintMissingGuard, lintRedirect, lintSql, lintUnscoped, policyActions } from "../lib/lint.ts";
 import { mergedActions, PolicyError } from "../lib/policies.ts";
 import { readProject } from "../lib/project.ts";
 import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
@@ -123,6 +123,9 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     }
   }
   findings.push(...noPublicSourcemaps(project));
+  // #336: every declared locale has every key, the app's and each installed module's.
+  findings.push(...lintCatalogs(project));
+  if (existsSync(join(project, "renox.toml"))) for (const m of installedModules(project).modules) findings.push(...lintCatalogs(m.tree, `modules/${m.lock.name}`));
   for (const f of sources(project)) {
     if (f.startsWith("tests/") || /\.(test|spec)\.(ts|js|mjs)$/u.test(f)) continue;
     const src = readFileSync(join(project, f), "utf8");

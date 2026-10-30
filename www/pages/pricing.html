@@ -1,0 +1,13 @@
+<r-layout use="main">
+  <r-group slot="title">Pricing · Renox</r-group>
+  <h1>Pricing</h1>
+  <p class="muted">Monthly, in {{ currency }}. Prices exclude 5 % VAT; a tax invoice is issued every month.</p>
+  <div class="plans">
+    <section class="plan" r-for="p in plans">
+      <h2>{{ p.name }}</h2>
+      <p class="price">{{ currency }} {{ p.price }}</p>
+      <p class="muted">{{ currency }} {{ p.with_vat }} with VAT</p>
+      <ul><li r-for="q in p.quotas">{{ q.label }}: {{ q.value }}</li></ul>
+    </section>
+  </div>
+</r-layout>

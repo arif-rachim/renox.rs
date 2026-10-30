@@ -21,7 +21,7 @@ Sign up ──► Create app (template) ──► renox dev locally ──► re
 First app live on <app>.renox.app within ~10 minutes
 ```
 
-Activation metric: time from sign-up to first successful deploy (target ≤ 10 minutes with the `shop` template).
+Activation metric: time from sign-up to first successful deploy (target ≤ 10 minutes with the `shop` template). Measured from the control plane by the funnel report (`control/api/src/signup/funnel.ts`, #326); the scripted run is `bench/results/2026-10-30-activation.md`.
 
 ## 2. Information architecture (tenant dashboard)
 
@@ -160,6 +160,8 @@ Each line expands to the trace (loader → queries → render) from OpenTelemetr
 ```
 
 ### 3.7 Modules (installed + registry)
+
+An app's own back office (not the platform's) is the `admin` module: `modules/admin` (#335), with the sidebar and dashboard slots the other modules fill.
 
 ```
 ┌ Modules ─────────────────────────────────────────────── [ Browse registry ] ┐

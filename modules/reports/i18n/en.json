@@ -1,0 +1,22 @@
+{
+  "reports": {
+    "title": "Reports",
+    "from": "From",
+    "to": "To",
+    "show": "Show",
+    "sales": "Sales",
+    "cash": "Cash",
+    "none": "Nothing in this period.",
+    "export": "Export",
+    "download": "Download",
+    "col": {
+      "date": "Date",
+      "documents": "Documents",
+      "net": "Net",
+      "vat": "VAT",
+      "total": "Total",
+      "received": "Received",
+      "refunded": "Refunded"
+    }
+  }
+}

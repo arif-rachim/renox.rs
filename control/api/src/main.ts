@@ -20,6 +20,7 @@ import { routeService } from "./routes/service.ts";
 import { sweep } from "./workers/health.ts";
 import { NullMailer, OutboxDirMailer } from "./auth/mailer.ts";
 import { startDomainJobs } from "./domains/jobs.ts";
+import { sweepBilling } from "./billing/sweep.ts";
 
 const log = createLogger();
 const config = loadConfig();
@@ -58,6 +59,8 @@ await startDomainJobs(deps);
 // Break-glass impersonations past their 60 minutes end with an audit row and the owner's email (#310).
 setInterval(() => void endExpiredImpersonations(deps).catch((e: unknown) => log.error("impersonation sweep failed", { error: String(e) })), 30_000);
 setInterval(() => void sweepErasures(deps).catch((e: unknown) => log.error("erasure sweep failed", { error: String(e) })), Math.min(60_000, config.erasureRetryMs ?? 60_000));
+// Platform billing (#325): the tier signal, the owner's emails, the anomaly reviews and the monthly close, hourly.
+setInterval(() => void sweepBilling(deps).catch((e: unknown) => log.error("billing sweep failed", { error: String(e) })), 3_600_000);
 if ((config.exportKmsKeyId ?? null) === null) log.warn("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (local mode only)");
 
 const server = Bun.serve({ port: config.port, fetch: publicApp.fetch, idleTimeout: 0 });

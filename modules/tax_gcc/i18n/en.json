@@ -1,0 +1,20 @@
+{
+  "tax": {
+    "title": "Tax",
+    "from": "From",
+    "to": "To",
+    "show": "Show",
+    "return": "VAT return (VAT201)",
+    "csv": "Download CSV",
+    "documents": "Tax documents",
+    "none": "No documents in this period.",
+    "col": {
+      "box": "Box",
+      "amount": "Amount (AED)",
+      "vat": "VAT (AED)",
+      "number": "Number",
+      "net": "Net (AED)",
+      "date": "Date"
+    }
+  }
+}

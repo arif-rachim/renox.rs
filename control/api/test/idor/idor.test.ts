@@ -221,6 +221,8 @@ const NO_ID_CASES: Record<string, NoIdCase> = {
   disableMfa: { json: () => ({ password: "wrong", code: "000000" }), session: 429, token: 401, why: "A's password and factors only" },
   setTeamMfaRequired: { json: () => ({ required: false }), session: 200, why: "the flag of A's own team" },
   // deploy-api.md 0.5 section 19 (#324): the registry catalog is shared by design; a publisher is A's own.
+  // #326: B's app name through the template route is the API's own 409 (one namespace); no template is read for a taken name.
+  createAppFromTemplate: { json: (b) => ({ name: b.app, template: "hello" }), session: 409, why: "app names are one namespace; the answer names no owner" },
   createPublisher: { json: () => ({ name: "idor-pub", public_key: "A".repeat(43) }), token: 201, session: 409, why: "the token creates A's own publisher; the session's repeat of the same name is 409, which names no owner" },
   listRegistryModules: { session: 200, why: "the public catalog: published versions only, never another tenant's installs" },
 };

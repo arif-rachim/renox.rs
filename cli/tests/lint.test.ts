@@ -1,7 +1,7 @@
 // `renox check` lints: SQL interpolation (docs/24-threat-model.md, SQL
 // injection row; docs/12-developer-experience.md "renox check") and
 // undeclared fetch hosts.
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -131,4 +131,40 @@ export async function PUT({ req }) {
 }`;
   const f = lintBody(src, "functions/api/cart.ts");
   expect(f.map((x) => x.line)).toEqual([13]);
+});
+
+// #336: catalog completeness (renox check's i18n-missing-key).
+import { mkdirSync as mkdirP, mkdtempSync as tempDir, readdirSync as dirList, writeFileSync as writeText } from "node:fs";
+import { tmpdir as osTmp } from "node:os";
+import { join as pathJoin } from "node:path";
+
+import { lintCatalogs } from "../src/lib/lint.ts";
+
+describe("i18n-missing-key (#336)", () => {
+  test("a key in one locale and not another, and a template key no locale has, are errors; _meta is not text", () => {
+    const d = tempDir(pathJoin(osTmp(), "catalogs-"));
+    mkdirP(pathJoin(d, "i18n"));
+    mkdirP(pathJoin(d, "pages"));
+    writeText(pathJoin(d, "i18n/en.json"), JSON.stringify({ shop: { title: "Shop", cart: { empty: "Empty" } } }));
+    writeText(pathJoin(d, "i18n/ar.json"), JSON.stringify({ _meta: { status: "reviewed" }, shop: { title: "المتجر" } }));
+    writeText(pathJoin(d, "pages/index.html"), '<h1><r-t key="shop.title" /></h1>\n<p><r-t key="shop.missing" /></p>\n');
+    const f = lintCatalogs(d, "app");
+    expect(f.map((x) => [x.file, x.line, x.message])).toEqual([
+      ["app/i18n/ar.json", 1, "\"shop.cart.empty\" is in another locale's catalog but not in ar"],
+      ["app/pages/index.html", 2, '<r-t key="shop.missing"> has no ar translation'],
+      ["app/pages/index.html", 2, '<r-t key="shop.missing"> has no en translation'],
+    ]);
+    expect(f.every((x) => x.rule === "i18n-missing-key" && x.severity === "error")).toBe(true);
+  });
+
+  test("a tree without catalogs declares no locale", () => {
+    expect(lintCatalogs(tempDir(pathJoin(osTmp(), "no-catalogs-")))).toEqual([]);
+  });
+
+  test("the repository: every module, the examples and the dashboard are complete in en and ar", () => {
+    const root = pathJoin(import.meta.dir, "../..");
+    const trees = [...dirList(pathJoin(root, "modules")).map((m) => `modules/${m}`), "examples/shop", "examples/chat", "control/dashboard", "www"];
+    const findings = trees.flatMap((t) => lintCatalogs(pathJoin(root, t), t));
+    expect(findings.map((f) => `${f.file}:${f.line} ${f.message}`)).toEqual([]);
+  });
 });

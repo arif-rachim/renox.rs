@@ -8,7 +8,8 @@ import { createHmac } from "node:crypto";
 
 import { contentHash } from "@renox/artifact-validate";
 
-import { setPsp, stripePsp, tickTier } from "../src/billing/routes.ts";
+import { MONTH, setPsp, stripePsp, tickTier } from "../src/billing/routes.ts";
+import { sweepBilling } from "../src/billing/sweep.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { assertScoped, harness, registeredNode, signup, type Harness, type Session } from "./helpers.ts";
 
@@ -106,5 +107,78 @@ describe("billing (section 20)", () => {
     expect(await tickTier(h.deps, T, true, now + 86_400_000)).toBe("grace");
     expect(await tickTier(h.deps, T, true, now + 86_400_000 + 7 * 86_400_000)).toBe("suspended");
     expect((await h.db.query<{ state: string }>("select state from tenants where id = $1", [T]))[0]?.state).toBe("suspended");
+  });
+
+  test("the monthly close: gapless numbers per year, both TRNs, the next period, a pending downgrade; free bills nothing; no seller TRN, no invoice", async () => {
+    const h = await harness();
+    const now = h.clock.now;
+    for (const t of ["t_a", "t_b", "t_c"]) await h.db.query("insert into tenants (id, name, tier, created_at) values ($1, $1, 'paid', $2)", [t, now]);
+    const start = now - MONTH - 1000;
+    await h.db.query("insert into tenant_billing (tenant_id, plan, state_since, period_start, profile) values ('t_a', 'starter', $1, $1, $2)", [start, JSON.stringify({ legal_name: "A LLC", email: "a@a.ae", address: "Dubai", country: "AE", trn: "100000000000003" })]);
+    await h.db.query("insert into tenant_billing (tenant_id, plan, pending_plan, state_since, period_start) values ('t_b', 'pro', 'free', $1, $1)", [start]);
+    await h.db.query("insert into tenant_billing (tenant_id, plan, state_since, period_start) values ('t_c', 'free', $1, $1)", [start]);
+    const saved = process.env.RENOX_SELLER_TRN;
+    try {
+      delete process.env.RENOX_SELLER_TRN;
+      expect((await sweepBilling(h.deps, now)).invoices).toEqual([]);
+      expect((await h.db.query<{ n: number }>("select count(*)::int as n from invoices"))[0]?.n).toBe(0);
+      process.env.RENOX_SELLER_TRN = "100000000000001";
+      const r = await sweepBilling(h.deps, now);
+      const year = new Date(start + MONTH - 1).getUTCFullYear();
+      expect(r.invoices).toEqual([`INV-${year}-000001`, `INV-${year}-000002`]);
+      const a = JSON.parse((await h.db.query<{ body: string }>("select body from invoices where tenant_id = 't_a'"))[0]?.body ?? "{}");
+      expect(a).toMatchObject({ seller_trn: "100000000000001", buyer_trn: "100000000000003", subtotal: "79.00", vat: "3.95", total: "82.95", status: "open", period: { start, end: start + MONTH } });
+      const rows = await h.db.query<{ tenant_id: string; plan: string; pending_plan: string | null; period_start: unknown }>("select tenant_id, plan, pending_plan, period_start from tenant_billing order by tenant_id");
+      expect(rows.map((x) => [x.tenant_id, x.plan, x.pending_plan, Number(x.period_start)])).toEqual([
+        ["t_a", "starter", null, start + MONTH],
+        ["t_b", "free", null, start + MONTH],
+        ["t_c", "free", null, start + MONTH],
+      ]);
+      expect((await h.db.query<{ tier: string }>("select tier from tenants where id = 't_b'"))[0]?.tier).toBe("free");
+      // A second pass in the same period closes nothing.
+      expect((await sweepBilling(h.deps, now)).invoices).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env.RENOX_SELLER_TRN;
+      else process.env.RENOX_SELLER_TRN = saved;
+    }
+  });
+
+  test("the hourly pass drives a free tenant over quota through over_quota, grace and suspended, emailing the owner at each step", async () => {
+    const { h } = await setup();
+    const now = h.clock.now;
+    await sweepBilling(h.deps, now);
+    // 200,000 requests this period: the Free quota is 100,000.
+    await h.db.query("insert into meters_hourly (tenant_id, deployment_hash, hour_start, requests) values ($1, $2, $3, 200000)", [T, "a".repeat(64), now]);
+    await sweepBilling(h.deps, now + 1000);
+    expect((await h.db.query<{ state: string }>("select state from tenant_billing where tenant_id = $1", [T]))[0]?.state).toBe("over_quota");
+    expect(h.mailer.last("owner@bill.ae", "tier_over_quota")?.text).toContain("requests");
+    await sweepBilling(h.deps, now + 86_400_000 + 2000);
+    const grace = h.mailer.last("owner@bill.ae", "tier_grace")?.text ?? "";
+    expect(grace).toContain(new Date(now + 86_400_000 + 2000 + 7 * 86_400_000).toISOString().slice(0, 10));
+    await sweepBilling(h.deps, now + 86_400_000 + 2000 + 7 * 86_400_000);
+    expect((await h.db.query<{ state: string }>("select state from tenants where id = $1", [T]))[0]?.state).toBe("suspended");
+    expect(h.mailer.last("owner@bill.ae", "tier_suspended")?.subject).toBe("Your Renox tenant is suspended");
+  });
+
+  test("the anomaly rule: a spike against the 7-day median writes one review row and the signal; a paid tenant is reviewed, not moved", async () => {
+    const { h, session } = await setup();
+    const HOUR = 3_600_000;
+    const now = Math.floor(h.clock.now / HOUR) * HOUR + 5 * 60_000;
+    const last = Math.floor(now / HOUR) * HOUR - HOUR;
+    const hash = "b".repeat(64);
+    for (let i = 1; i <= 48; i++) await h.db.query("insert into meters_hourly (tenant_id, deployment_hash, hour_start, requests) values ($1, $2, $3, 150)", [T, hash, last - i * HOUR]);
+    await h.db.query("insert into meters_hourly (tenant_id, deployment_hash, hour_start, requests) values ($1, $2, $3, 4000)", [T, hash, last]);
+    await h.db.query("insert into tenant_billing (tenant_id, plan, state_since, period_start) values ($1, 'starter', $2, $2)", [T, now - 1000]);
+    const r = await sweepBilling(h.deps, now);
+    expect(r.reviews).toBe(1);
+    const rows = await h.db.query<{ dimension: string; observed: number; median: number; state: string }>("select dimension, observed, median, state from billing_reviews where tenant_id = $1", [T]);
+    expect(rows).toEqual([{ dimension: "requests", observed: 4000, median: 150, state: "open" }]);
+    // The same hour again: no second row.
+    expect((await sweepBilling(h.deps, now + 60_000)).reviews).toBe(1);
+    expect((await h.db.query<{ n: number }>("select count(*)::int as n from billing_reviews"))[0]?.n).toBe(1);
+    expect((await h.db.query<{ state: string }>("select state from tenant_billing where tenant_id = $1", [T]))[0]?.state).toBe("active");
+    h.clock.now = now;
+    const b = (await (await h.request("GET", `/v1/tenants/${T}/billing`, { session })).json()) as { signal: { anomaly: boolean } };
+    expect(b.signal.anomaly).toBe(true);
   });
 });

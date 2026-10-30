@@ -1,0 +1,58 @@
+# The platform plans (#326; deploy-api.md 0.5 section 20): the pricing page reads
+# this file, and control/billing/src/plans.ts must equal it (www/tests/pages.test.ts).
+# Proposals (deploy-api.md Open 18): the owner sets the numbers. A quota of -1 is unlimited.
+
+currency = "AED"
+vat_rate = "0.05"
+
+[[plan]]
+id = "free"
+name = "Free"
+price_month = "0.00"
+requests = 100000
+cpu_ms = 3600000
+egress_bytes = 5368709120
+db_bytes = 104857600
+storage_bytes = 1073741824
+ai_tokens = 0
+apps = 2
+custom_domains = 0
+
+[[plan]]
+id = "starter"
+name = "Starter"
+price_month = "79.00"
+requests = 2000000
+cpu_ms = 36000000
+egress_bytes = 53687091200
+db_bytes = 1073741824
+storage_bytes = 10737418240
+ai_tokens = 1000000
+apps = 5
+custom_domains = 3
+
+[[plan]]
+id = "pro"
+name = "Pro"
+price_month = "299.00"
+requests = 20000000
+cpu_ms = 360000000
+egress_bytes = 268435456000
+db_bytes = 10737418240
+storage_bytes = 53687091200
+ai_tokens = 10000000
+apps = 20
+custom_domains = 20
+
+[[plan]]
+id = "agency"
+name = "Agency"
+price_month = "499.00"
+requests = -1
+cpu_ms = -1
+egress_bytes = -1
+db_bytes = 53687091200
+storage_bytes = 214748364800
+ai_tokens = 50000000
+apps = -1
+custom_domains = 100

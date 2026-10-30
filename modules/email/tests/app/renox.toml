@@ -1,0 +1,10 @@
+# The app the email module's worker tests run in (renox test, #328).
+[app]
+name = "emailtest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+email = { version = "^1.0", source = "path:../..", mount = "/email", config = { provider = "resend", from = "shop@example.com" } }

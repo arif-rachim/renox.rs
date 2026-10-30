@@ -17,5 +17,5 @@ export { PLANS, planOf, tierOfPlan, VAT_RATE } from "./plans.ts";
 export type { Plan, PlanId, PlanQuotas } from "./plans.ts";
 export { aed, closePeriod, fils, invoiceHtml, invoiceNumber, vatOf } from "./invoice.ts";
 export type { Invoice, InvoiceLine } from "./invoice.ts";
-export { anomalous, GRACE_MS, nextState, reinstate, TRANSITIONS } from "./tier.ts";
+export { anomalous, DAY_MS, GRACE_MS, nextState, reinstate, TRANSITIONS } from "./tier.ts";
 export type { TierInput, TierState } from "./tier.ts";
