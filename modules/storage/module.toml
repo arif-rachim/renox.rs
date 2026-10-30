@@ -14,6 +14,7 @@ quota_mb = { type = "int", default = 0, min = 0, max = 102400, description = "Me
 base_path = { type = "string", default = "/files", max_length = 100, description = "Where the app mounts the file browser" }
 
 [permissions]
+slots = ["admin.sidebar"]
 tables = "storage__*"
 
 [storage]
@@ -36,3 +37,9 @@ sensitive = ["storage.manage"]
 
 [authz.default_roles]
 admin = ["storage.manage"]
+
+# The back office's sidebar (#335): a link to this module's page.
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-link.html"
+requires = "storage.manage"

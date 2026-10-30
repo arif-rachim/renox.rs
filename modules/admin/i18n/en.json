@@ -1,0 +1,32 @@
+{
+  "admin": {
+    "nav": {
+      "dashboard": "Dashboard",
+      "users": "Users",
+      "audit": "Audit trail"
+    },
+    "open": "Open",
+    "recent": "Recent activity",
+    "search": "Search",
+    "none": "Nothing here.",
+    "more": "More",
+    "users": {
+      "email": "Email",
+      "name": "Name",
+      "role": "Role",
+      "grant": "Make admin",
+      "revoke": "Remove admin",
+      "granted": "The admin role was granted.",
+      "revoked": "The admin role was removed.",
+      "self": "You cannot remove your own admin role."
+    },
+    "audit": {
+      "refused": "Reading the audit trail needs the auditor role.",
+      "actor": "Actor",
+      "action": "Action",
+      "at": "When",
+      "resource": "Resource",
+      "result": "Result"
+    }
+  }
+}

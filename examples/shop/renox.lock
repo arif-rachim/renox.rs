@@ -35,15 +35,26 @@ config = { session_idle_hours = 24, session_absolute_days = 30, password_min_len
 approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
 
 [[module]]
+name = "admin"
+version = "1.0.0"
+source = "official"
+hash = "1ddee17c128cd429013bbb9e7af3f2db0faaa19a708be780b30d46d7503aa1f7"
+isolation = "shared"
+mount = "/admin"
+dependencies = ["audit", "auth", "i18n"]
+config = { base_path = "/admin", title = "Admin" }
+approved = { tables = "admin__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
 name = "billing"
 version = "1.0.0"
 source = "official"
-hash = "0d3d3076563f39f16e56655aa3d74af4073edb476804a2a84773baf67da9a4d3"
+hash = "62b91c01dcc30a5c7a3969ab5ae2ec484d0d6c77b77db50695bb251a4a47ca29"
 isolation = "shared"
 mount = "/billing"
 dependencies = ["auth", "i18n"]
 config = { currency = "AED", success_url = "/billing/thanks", cancel_url = "/billing", base_path = "/billing", methods = "card", bank_name = "", bank_beneficiary = "", bank_iban = "" }
-approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = [], hooks = [] }
+approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = ["admin.sidebar"], hooks = [] }
 
 [[module]]
 name = "email"
@@ -60,12 +71,12 @@ approved = { tables = "email__*", network = ["api.resend.com", "email.me-central
 name = "notifications"
 version = "1.0.0"
 source = "official"
-hash = "0498c4abb3a7ad550b62ec4375c554cbfb2772c21e1154c4980b1753610695c1"
+hash = "8e8b897fe7f22a1acddc238bf4a006b5ec68901982e33b509dfcbe4c5bc968b1"
 isolation = "shared"
 mount = "/notifications"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/notifications", channels = "" }
-approved = { tables = "notifications__*", network = [], secrets = [], slots = ["app.header"], hooks = [] }
+approved = { tables = "notifications__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = [] }
 
 [[module]]
 name = "org"
@@ -82,12 +93,12 @@ approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header
 name = "storage"
 version = "1.0.0"
 source = "official"
-hash = "b8a0706aaf620bda69cd978905376f489dc169cd51ca712cbfc98b845665ff66"
+hash = "e17aaf015e8ac31a5e972c5a3599a27d3bf1e2b901063545d60d28b159fb4723"
 isolation = "shared"
 mount = "/files"
 dependencies = ["auth", "i18n"]
 config = { max_upload_bytes = 10485760, allow_svg = false, quota_mb = 0, base_path = "/files" }
-approved = { tables = "storage__*", network = [], secrets = [], slots = [], hooks = [] }
+approved = { tables = "storage__*", network = [], secrets = [], slots = ["admin.sidebar"], hooks = [] }
 
 [[module]]
 name = "tax_gcc"

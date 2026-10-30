@@ -1,0 +1,12 @@
+<r-layout use="admin">
+  <r-group slot="title">{{ title }}</r-group>
+  <h1>{{ title }}</h1>
+  <section class="renox-admin-cards">
+    <article id="admin-card-users"><h2><r-t key="admin.nav.users" /></h2><p>{{ users }}</p><a href="users"><r-t key="admin.open" /></a></article>
+    <r-slot name="admin.dashboard" />
+  </section>
+  <section id="admin-recent" r-if="recent">
+    <h2><r-t key="admin.recent" /></h2>
+    <ul><li r-for="e in recent"><time :datetime="e.at">{{ e.at }}</time> {{ e.action }} · {{ e.actor }}</li></ul>
+  </section>
+</r-layout>

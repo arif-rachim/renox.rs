@@ -1,0 +1,5 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`admin in an app the users page in ltr and rtl: users ltr 1`] = `"<thead><tr><th>Email</th><th>Name</th><th>Role</th><th></th></tr></thead>"`;
+
+exports[`admin in an app the users page in ltr and rtl: users rtl 1`] = `"<thead><tr><th>البريد الإلكتروني</th><th>الاسم</th><th>الدور</th><th></th></tr></thead>"`;

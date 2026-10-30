@@ -28,6 +28,7 @@ billing = { version = "^1.0.0" }
 tax_gcc = { version = "^1.0.0", mount = "/tax" }
 storage = { version = "^1.0.0", mount = "/files" }
 reports = { version = "^1.0.0", mount = "/reports" }
+admin = { version = "^1.0.0", mount = "/admin" }
 [authz]
 actions = ["order.list", "order.read", "invoice.refund"]
 sensitive = ["invoice.refund"]

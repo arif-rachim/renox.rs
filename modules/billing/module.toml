@@ -18,6 +18,7 @@ bank_beneficiary = { type = "string", default = "", max_length = 140, descriptio
 bank_iban = { type = "string", default = "", max_length = 34, description = "Bank transfer: the receiving IBAN" }
 
 [permissions]
+slots = ["admin.sidebar"]
 tables = "billing__*"
 network = ["api.stripe.com"]
 secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"]
@@ -82,3 +83,9 @@ sensitive = ["billing.refund"]
 [authz.default_roles]
 admin = ["billing.manage", "billing.refund"]
 finance = ["billing.manage"]
+
+# The back office's sidebar (#335): a link to this module's page.
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-link.html"
+requires = "billing.manage"

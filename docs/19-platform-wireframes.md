@@ -161,6 +161,8 @@ Each line expands to the trace (loader → queries → render) from OpenTelemetr
 
 ### 3.7 Modules (installed + registry)
 
+An app's own back office (not the platform's) is the `admin` module: `modules/admin` (#335), with the sidebar and dashboard slots the other modules fill.
+
 ```
 ┌ Modules ─────────────────────────────────────────────── [ Browse registry ] ┐
 │ Installed                                                                    │
