@@ -218,6 +218,7 @@ pub struct Pruning {
 
 impl Pruning {
     pub fn new(sweeper: Sweeper, logs_spool: Option<Queue>, counters: Arc<Counters>) -> Pruning {
+        crate::telemetry::counters::register_pruning(counters.clone());
         Pruning {
             sweeper: Arc::new(sweeper),
             logs_spool,

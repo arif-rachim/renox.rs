@@ -77,6 +77,9 @@ enum Job {
         /// "Module argument"); `None` keeps the handle's own (the app's).
         policy: Option<Arc<AuthorizerPolicy>>,
         deadline: Instant,
+        /// The span current where the statement was sent (the request's,
+        /// #295): entered on the DB thread, so `db.query` is its child.
+        span: tracing::Span,
         reply: Reply<Measured>,
     },
     /// A savepoint of the open transaction `tx` (`ops.md` 1.3.0 section 1).
@@ -193,6 +196,7 @@ impl DbHandle {
             tx,
             policy,
             deadline,
+            span: tracing::Span::current(),
             reply,
         };
         let failed = |e| Measured {
@@ -483,8 +487,10 @@ impl DbLoop {
                         tx: Some(t),
                         policy,
                         deadline,
+                        span,
                         reply,
                     } if t == id => {
+                        let _entered = span.enter();
                         let _ = reply.send(with_module(db, policy.as_ref(), || {
                             on_tx(db, tx, kind, &sql, &params, deadline)
                         }));
@@ -516,8 +522,10 @@ impl DbLoop {
                         tx: None,
                         policy,
                         deadline,
+                        span,
                         reply,
                     } => {
+                        let _entered = span.enter();
                         // Reads outside the transaction run on a reader.
                         let _ = reply.send(with_module(db, policy.as_ref(), || {
                             on_db(db, kind, &sql, &params, deadline)
@@ -630,8 +638,10 @@ fn db_thread(db: TenantDb, rx: mpsc::Receiver<Job>) {
                 tx: None,
                 policy,
                 deadline,
+                span,
                 reply,
             } => {
+                let _entered = span.enter();
                 let _ = reply.send(with_module(&db, policy.as_ref(), || {
                     on_db(&db, kind, &sql, &params, deadline)
                 }));
@@ -1041,7 +1051,12 @@ mod v8_ops {
             let r = request.borrow();
             (r.deadline, r.cancel.clone())
         };
-        let fut = db.statement(kind, sql, params, tx, policy, deadline);
+        // #295: the statement's span hangs under the request's.
+        let parent = crate::trace::parent(&request.borrow().request_id);
+        let fut = tracing::Instrument::instrument(
+            db.statement(kind, sql, params, tx, policy, deadline),
+            parent,
+        );
         let measured = match fut.or_cancel(cancel).await {
             Ok(m) => m,
             Err(_) => {

@@ -16,6 +16,7 @@ pub mod manifest;
 pub mod ops;
 pub mod pages;
 pub mod router;
+pub mod trace;
 
 #[cfg(feature = "v8")]
 mod globals;

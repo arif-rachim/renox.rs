@@ -188,7 +188,8 @@ struct Node {
 }
 
 fn node(with_auth: bool) -> Node {
-    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    // One subscriber for the binary: the in-memory exporter of the span test (#295).
+    exporter();
     let data = scratch("data");
     let artifacts = scratch("artifacts");
     let hash = artifact(&artifacts, with_auth);
@@ -648,4 +649,86 @@ async fn without_auth_the_endpoint_is_404() {
         .status,
         404
     );
+}
+
+/// One global subscriber with an in-memory exporter for this test binary
+/// (#295: the span tree of a tool call).
+fn exporter() -> &'static (
+    opentelemetry_sdk::trace::InMemorySpanExporter,
+    opentelemetry_sdk::trace::SdkTracerProvider,
+) {
+    use tracing_subscriber::layer::SubscriberExt;
+    static E: std::sync::OnceLock<(
+        opentelemetry_sdk::trace::InMemorySpanExporter,
+        opentelemetry_sdk::trace::SdkTracerProvider,
+    )> = std::sync::OnceLock::new();
+    E.get_or_init(|| {
+        let exporter = opentelemetry_sdk::trace::InMemorySpanExporter::default();
+        let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+            .with_simple_exporter(exporter.clone())
+            .with_sampler(renox_cell::telemetry::sampler(1.0))
+            .build();
+        let subscriber = tracing_subscriber::registry()
+            .with(renox_cell::telemetry::layer(&provider))
+            .with(tracing_subscriber::EnvFilter::new("info"));
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        (exporter, provider)
+    })
+}
+
+/// #295: a tool call is an `mcp.tool` span with the tool's name only, and
+/// the tool's statement is its child in the same trace.
+#[tokio::test]
+async fn a_tool_call_is_one_span_tree() {
+    let (exporter, provider) = exporter();
+    let n = node(true);
+    let ok = n
+        .call("tok_full", "list_notes", serde_json::json!({ "limit": 5 }))
+        .await;
+    assert_eq!(ok.status, 200, "{}", ok.body);
+    let _ = provider.force_flush();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let spans = exporter.get_finished_spans().unwrap();
+    let tool = spans
+        .iter()
+        .find(|s| {
+            s.name == "mcp.tool"
+                && s.attributes
+                    .iter()
+                    .any(|kv| kv.key.as_str() == "tool" && kv.value.to_string() == "list_notes")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "an mcp.tool span for list_notes: {:?}",
+                spans
+                    .iter()
+                    .map(|s| (
+                        s.name.to_string(),
+                        s.attributes
+                            .iter()
+                            .map(|kv| format!("{}={}", kv.key, kv.value))
+                            .collect::<Vec<_>>()
+                    ))
+                    .collect::<Vec<_>>()
+            )
+        });
+    let children: Vec<&str> = spans
+        .iter()
+        .filter(|s| s.parent_span_id == tool.span_context.span_id())
+        .map(|s| s.name.as_ref())
+        .collect();
+    assert!(children.contains(&"db.query"), "{children:?}");
+    for s in spans
+        .iter()
+        .filter(|s| s.span_context.trace_id() == tool.span_context.trace_id())
+    {
+        for kv in &s.attributes {
+            assert!(
+                !kv.value.to_string().contains("tok_full"),
+                "{} on {}",
+                kv.key,
+                s.name
+            );
+        }
+    }
 }

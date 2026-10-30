@@ -370,6 +370,13 @@ impl<D: CellDispatcher> Supervisor<D> {
         tokio::spawn(async move {
             let status = child.wait().await;
             running.store(false, Ordering::SeqCst);
+            {
+                use std::os::unix::process::ExitStatusExt;
+                // SIGSYS: the seccomp filter killed the child (#253).
+                if status.as_ref().ok().and_then(|s| s.signal()) == Some(31) {
+                    crate::telemetry::counters::sandbox_denied("seccomp");
+                }
+            }
             watcher
                 .exited(
                     &slot,
@@ -441,6 +448,7 @@ impl<D: CellDispatcher> Supervisor<D> {
             }
             return;
         }
+        crate::telemetry::counters::process_restarted(&slot.tenant);
         let mut st = slot.state.lock().await;
         st.restarts = if st.started_at.elapsed() >= STABLE_AFTER {
             1

@@ -589,6 +589,11 @@ pub(crate) async fn serve(
                     .and_then(|n| n.as_str())
                     .unwrap_or_default()
             );
+            let _trace = renox_runtime::trace::register(
+                &ctx.request_id,
+                span.clone(),
+                crate::telemetry::trace_id(&span),
+            );
             tracing::Instrument::instrument(
                 call(
                     manager,

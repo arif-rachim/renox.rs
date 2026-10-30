@@ -290,6 +290,11 @@ impl Session {
             }
             _ => tracing::info_span!("realtime.open", route = %self.route.pattern),
         };
+        let _trace = renox_runtime::trace::register(
+            &rt_ctx.request_id,
+            span.clone(),
+            crate::telemetry::trace_id(&span),
+        );
         let out =
             tracing::Instrument::instrument(self.cell.isolate.dispatch(rt_ctx, req), span).await;
         self.usage.add(&out.meter);

@@ -49,6 +49,8 @@ import {
   op_response_end,
   op_response_write,
   op_secrets_get_all,
+  op_span_service_begin,
+  op_span_service_end,
 } from "ext:core/ops";
 
 const {
@@ -721,6 +723,13 @@ async function callService(target, service, args) {
   }
   const fn = serviceModules.get(target)?.[service];
   const calleeCtx = st.ctxOf(target);
+  // #295: one module.service span per call (caller, callee, name; never the arguments).
+  let span = 0;
+  try {
+    span = op_span_service_begin(currentToken(), caller, target, service);
+  } catch {
+    // Outside a request (module evaluation): no span.
+  }
   try {
     return await within(
       [
@@ -731,6 +740,8 @@ async function callService(target, service, args) {
     );
   } catch (e) {
     throw await calleeFailed(e, { module: target, service }, `${target}.${service}`);
+  } finally {
+    if (span !== 0) op_span_service_end(span);
   }
 }
 

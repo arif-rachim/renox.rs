@@ -329,3 +329,54 @@ mod tests {
         assert!(ModuleRegistry::from_manifest(Some(&serde_json::json!([secret]))).is_err());
     }
 }
+
+#[cfg(feature = "v8")]
+pub(crate) use span_ops::*;
+
+/// `module.service` spans (#295): services are brokered in the bootstrap's
+/// JavaScript, so the bootstrap opens a span before calling a callee and
+/// closes it after; the span is a child of the request's (`crate::trace`).
+#[cfg(feature = "v8")]
+mod span_ops {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    use deno_core::{OpState, op2};
+
+    thread_local! {
+        static OPEN: RefCell<(u32, HashMap<u32, tracing::Span>)> = RefCell::new((0, HashMap::new()));
+    }
+
+    #[op2(fast)]
+    pub(crate) fn op_span_service_begin(
+        state: &mut OpState,
+        token: u32,
+        #[string] caller: &str,
+        #[string] callee: &str,
+        #[string] name: &str,
+    ) -> u32 {
+        let request_id = state
+            .borrow::<crate::ops::request::RequestTable>()
+            .get(token)
+            .map(|r| r.borrow().request_id.clone());
+        let parent = request_id
+            .as_deref()
+            .map_or_else(tracing::Span::none, crate::trace::parent);
+        let span = tracing::info_span!(parent: &parent, "module.service", caller = %caller, callee = %callee, name = %name);
+        OPEN.with(|o| {
+            let mut o = o.borrow_mut();
+            o.0 = o.0.wrapping_add(1).max(1);
+            let id = o.0;
+            o.1.insert(id, span);
+            id
+        })
+    }
+
+    /// Closes the span `id` (dropping it ends it); an unknown id is ignored.
+    #[op2(fast)]
+    pub(crate) fn op_span_service_end(id: u32) {
+        OPEN.with(|o| {
+            o.borrow_mut().1.remove(&id);
+        });
+    }
+}

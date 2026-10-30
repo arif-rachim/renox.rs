@@ -273,6 +273,70 @@ impl Metrics {
                 esc(id)
             );
         }
+        // #295: the families whose counters live in the sandbox, supervisor,
+        // replication and pruning code (telemetry::counters).
+        {
+            let c = crate::telemetry::counters::view();
+            family(
+                &mut out,
+                "renox_worker_sandbox_denials_total",
+                "counter",
+                "Sandbox denials the node sees (seccomp: a child killed by SIGSYS).",
+            );
+            {
+                let kind = "seccomp";
+                let n = c.denials.get(kind).copied().unwrap_or(0);
+                let _ = writeln!(
+                    out,
+                    "renox_worker_sandbox_denials_total{{kind=\"{kind}\"}} {n}"
+                );
+            }
+            family(
+                &mut out,
+                "renox_worker_replication_lag_seconds",
+                "gauge",
+                "Lag of the last replication status computed per database.",
+            );
+            for ((t, db), lag) in &c.lags {
+                let _ = writeln!(
+                    out,
+                    "renox_worker_replication_lag_seconds{{tenant_id=\"{}\",database=\"{}\"}} {lag}",
+                    esc(t),
+                    esc(db)
+                );
+            }
+            family(
+                &mut out,
+                "renox_worker_process_restarts_total",
+                "counter",
+                "Restarts of a tenant's child process.",
+            );
+            for (t, n) in &c.restarts {
+                let _ = writeln!(
+                    out,
+                    "renox_worker_process_restarts_total{{tenant_id=\"{}\"}} {n}",
+                    esc(t)
+                );
+            }
+            family(
+                &mut out,
+                "renox_worker_db_unavailable",
+                "gauge",
+                "Databases being restored after damage.",
+            );
+            let _ = writeln!(out, "renox_worker_db_unavailable {}", c.db_unavailable);
+            family(
+                &mut out,
+                "renox_worker_log_lines_sampled_out_total",
+                "counter",
+                "Tenant log lines the volume limit sampled out.",
+            );
+            let _ = writeln!(
+                out,
+                "renox_worker_log_lines_sampled_out_total {}",
+                c.log_lines_sampled_out
+            );
+        }
         // #297: the scheduler and job runs of this node.
         {
             use std::sync::atomic::Ordering::Relaxed;

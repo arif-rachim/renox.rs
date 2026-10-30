@@ -21,6 +21,7 @@ use crate::ops::events::{op_events_ack, op_events_emit};
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
 use crate::ops::jobs::{op_jobs_ack, op_jobs_cancel, op_jobs_enqueue, op_jobs_list, op_jobs_retry};
 use crate::ops::log::op_log;
+use crate::ops::modules::{op_span_service_begin, op_span_service_end};
 use crate::ops::password::{op_password_hash, op_password_verify};
 use crate::ops::realtime::{
     op_realtime_close, op_realtime_publish, op_realtime_send, op_realtime_subscribe,
@@ -114,6 +115,8 @@ deno_core::extension!(
         op_jobs_list,
         op_jobs_retry,
         op_jobs_cancel,
+        op_span_service_begin,
+        op_span_service_end,
         op_password_hash,
         op_password_verify,
         op_log,

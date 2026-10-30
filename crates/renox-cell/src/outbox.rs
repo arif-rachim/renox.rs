@@ -244,13 +244,33 @@ async fn pass(d: &Delivery) -> Option<Option<i64>> {
 
 /// One delivery attempt and its bookkeeping.
 async fn attempt(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option<()> {
-    // #295: one span per attempt (never the payload).
-    let span = tracing::info_span!(
-        "outbox.deliver",
-        tenant_id = %cell.key.tenant_id,
-        event = %row.name,
-        module = %row.target,
-        attempt = row.attempts + 1,
+    // #295: one span per attempt (never the payload): `job.run` for a job
+    // run (#297), `outbox.deliver` for an event.
+    let span = match renox_runtime::ops::jobs::job_name(&row.name) {
+        Some(job) => tracing::info_span!(
+            "job.run",
+            tenant_id = %cell.key.tenant_id,
+            job = %job,
+            module = %row.target,
+            attempt = row.attempts + 1,
+        ),
+        None => tracing::info_span!(
+            "outbox.deliver",
+            tenant_id = %cell.key.tenant_id,
+            event = %row.name,
+            module = %row.target,
+            attempt = row.attempts + 1,
+        ),
+    };
+    let request_id = if renox_runtime::ops::jobs::job_name(&row.name).is_some() {
+        format!("{}_{}", row.id, row.attempts + 1)
+    } else {
+        format!("{}_{}_{}", row.id, row.target, row.attempts + 1)
+    };
+    let _trace = renox_runtime::trace::register(
+        &request_id,
+        span.clone(),
+        crate::telemetry::trace_id(&span),
     );
     tracing::Instrument::instrument(attempt_inner(d, cell, row), span).await
 }

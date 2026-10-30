@@ -1316,6 +1316,13 @@ impl CellManager {
             (true, _) => tracing::info_span!("cell.action"),
             _ => tracing::info_span!("cell.function"),
         };
+        // #295: db.query, fetch and module.service on the isolate and DB
+        // threads hang under the handler span; op_log lines carry its trace id.
+        let _trace = renox_runtime::trace::register(
+            &rt_ctx.request_id,
+            handler_span.clone(),
+            crate::telemetry::trace_id(&handler_span),
+        );
         let mut dispatch: DispatchFuture = Box::pin(tracing::Instrument::instrument(
             async move {
                 dispatching

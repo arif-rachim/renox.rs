@@ -51,6 +51,7 @@ fn exporter() -> &'static (InMemorySpanExporter, SdkTracerProvider) {
 
 const PAGE_JS: &str = r#"
 export async function load(ctx) {
+  ctx.log.info("loading items");
   const rows = await ctx.db.query("select name from app__items where name != ?", [ctx.url.searchParams.get("token") ?? ""]);
   return { title: "Items", items: rows.map((r) => r.name) };
 }
@@ -117,7 +118,7 @@ fn write_artifact(artifacts: &Path) -> String {
     hash
 }
 
-async fn start() -> Worker {
+async fn start() -> (Worker, PathBuf) {
     let root = scratch("worker");
     let text = r#"
 listen = "127.0.0.1:0"
@@ -137,7 +138,25 @@ meter_flush_ms = 50
         { "hostname": "t.test", "tenant_id": "t_tel", "deployment_hash": hash, "status": "active", "updated_at": 1 }
     ]});
     std::fs::write(&config.routes_file, routes.to_string()).unwrap();
-    Worker::start(config).await.unwrap()
+    let logs = config.logs_dir.clone();
+    (Worker::start(config).await.unwrap(), logs)
+}
+
+/// Every tenant log line written under `dir` so far.
+fn log_lines(dir: &Path) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if let Ok(text) = std::fs::read_to_string(&p) {
+                out.extend(text.lines().filter_map(|l| serde_json::from_str(l).ok()));
+            }
+        }
+    }
+    out
 }
 
 async fn send(addr: std::net::SocketAddr, head: &str) -> String {
@@ -165,7 +184,7 @@ fn attr(s: &SpanData, key: &str) -> Option<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_page_request_is_one_trace_and_no_secret_reaches_spans_or_metrics() {
     let (exporter, provider) = exporter();
-    let worker = start().await;
+    let (worker, logs) = start().await;
     let post = send(
         worker.addr,
         &format!("POST /api/items?token={SECRET} HTTP/1.1\r\nHost: t.test\r\nx-api-key: {SECRET}\r\nCookie: s={SECRET}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
@@ -240,6 +259,20 @@ async fn one_page_request_is_one_trace_and_no_secret_reaches_spans_or_metrics() 
             .iter()
             .any(|q| attr(q, "kind").as_deref() == Some("select"))
     );
+    // #295: a statement on the DB thread is a child of its request's
+    // handler span, in the request's trace (no longer a trace of its own).
+    let loader = spans
+        .iter()
+        .find(|s| s.name == "cell.loader" && s.span_context.trace_id() == trace)
+        .expect("the page's cell.loader");
+    assert!(
+        queries
+            .iter()
+            .any(|q| q.parent_span_id == loader.span_context.span_id()
+                && q.span_context.trace_id() == trace
+                && attr(q, "kind").as_deref() == Some("select")),
+        "the page's select is a child of cell.loader: {queries:?}"
+    );
 
     // Redaction: the secret is in no span name or attribute.
     for s in &spans {
@@ -269,9 +302,33 @@ async fn one_page_request_is_one_trace_and_no_secret_reaches_spans_or_metrics() 
         "renox_worker_dead_letters_total{tenant_id=\"t_tel\"} 0",
         "renox_worker_authz_decisions_total{tenant_id=\"t_tel\",decision=\"all\"}",
         "renox_worker_disk_level 0",
+        // The families #295 had pending (telemetry::counters).
+        "renox_worker_sandbox_denials_total{kind=\"seccomp\"} 0",
+        "# TYPE renox_worker_replication_lag_seconds gauge",
+        "# TYPE renox_worker_process_restarts_total counter",
+        "renox_worker_db_unavailable 0",
+        "renox_worker_log_lines_sampled_out_total",
+        // #297.
+        "renox_worker_job_runs_total",
     ] {
         assert!(text.contains(family), "missing {family} in\n{text}");
     }
     assert!(!text.contains(SECRET));
+    // #295: the tenant's own log line names the request's trace.
+    let mut line = None;
+    for _ in 0..50 {
+        line = log_lines(&logs)
+            .into_iter()
+            .find(|l| l.to_string().contains("loading items"));
+        if line.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let line = line.expect("the loader's log line");
+    assert!(
+        line.to_string().contains(&trace.to_string()),
+        "the line carries trace_id {trace}: {line}"
+    );
     worker.shutdown().await;
 }
