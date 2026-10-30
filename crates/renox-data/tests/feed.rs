@@ -32,7 +32,10 @@ fn open() -> (tempfile::TempDir, TenantDb, Seen) {
     (dir, db, seen)
 }
 
-fn ops(seen: &Seen) -> Vec<Vec<(ChangeOp, i64, Vec<(String, Value)>)>> {
+/// One delivered change as (op, rowid, columns).
+type Seen1 = (ChangeOp, i64, Vec<(String, Value)>);
+
+fn ops(seen: &Seen) -> Vec<Vec<Seen1>> {
     seen.lock()
         .unwrap()
         .iter()
