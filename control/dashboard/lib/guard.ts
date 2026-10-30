@@ -33,7 +33,21 @@ export async function signedIn(ctx: Context): Promise<Api | Response> {
     throw e;
   }
   if (token === null) return toSignIn(ctx.url);
-  return new Api(ctx.fetch, token, apiBase(ctx.secrets));
+  const api = new Api(ctx.fetch, token, apiBase(ctx.secrets));
+  // #310: a break-glass sign-in shows a banner on every page, and ends at its time box.
+  const imp = await ctx.db.queryOne<{ impersonation_id: string; tenant_id: string; expires_at: number }>(
+    "select impersonation_id, tenant_id, expires_at from app__impersonations where session_id = ?",
+    [ctx.session.id],
+  );
+  if (imp !== null) {
+    if (Date.now() >= imp.expires_at) {
+      await ctx.db.execute("delete from app__impersonations where session_id = ?", [ctx.session.id]);
+      await signOut(ctx.db, ctx.session.id);
+      return toSignIn(ctx.url);
+    }
+    api.impersonation = { tenant_id: imp.tenant_id, impersonation_id: imp.impersonation_id, until: new Date(imp.expires_at).toISOString().replace(/\.\d{3}Z$/u, "Z") };
+  }
+  return api;
 }
 
 /** What a page shows for a failed call; a 401 also ends the dashboard sign-in. */

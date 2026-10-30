@@ -91,6 +91,8 @@ The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table
 | `tokens:write` | yes | yes | yes | — |
 | `team:read` | yes | yes | yes | yes |
 | `team:write` | yes | yes | — | — |
+| `registry:read` | yes | yes | yes | yes |
+| `registry:publish` | yes | yes | — | — |
 | `billing` | yes | — | — | — |
 | `apps:delete` | yes | yes | — | — |
 | `tenant:delete` | yes | — | — | — |

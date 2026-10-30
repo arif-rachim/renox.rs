@@ -1,0 +1,17 @@
+{
+  "$comment": "invalid: an unknown provider [expect: oneOf]",
+  "op": "op_webhook_verify",
+  "args": [
+    "paypal",
+    null,
+    null,
+    null
+  ],
+  "result": {
+    "provider": "stripe",
+    "event_id": "x",
+    "received_at": 1,
+    "payload_json": "{}",
+    "duplicate": false
+  }
+}

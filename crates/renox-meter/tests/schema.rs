@@ -107,6 +107,11 @@ fn event_records_validate_and_route_form_follows_kind() {
         authz_evals: None,
         realtime_conn_seconds: None,
         realtime_messages: None,
+        storage_bytes: None,
+        image_variants: None,
+        ai_tokens_in: None,
+        ai_tokens_out: None,
+        render_pdf_ms: None,
         route: "EVENT email billing.invoice_paid".into(),
         request_id: "01JBQ3Z7MA0000000000000001_email_1".into(),
         ingress_bytes: 0,
@@ -131,6 +136,11 @@ fn event_records_validate_and_route_form_follows_kind() {
         authz_evals: None,
         realtime_conn_seconds: None,
         realtime_messages: None,
+        storage_bytes: None,
+        image_variants: None,
+        ai_tokens_in: None,
+        ai_tokens_out: None,
+        render_pdf_ms: None,
         ..event
     };
     for r in [wrong_route, as_request] {

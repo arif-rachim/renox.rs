@@ -1,0 +1,42 @@
+{
+  "$comment": "invalid (schema): storage is not allowed in version 0 [expect: storage]",
+  "artifact": {
+    "version": 0
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "Asia/Dubai"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "functions/api/health": "functions/api/health.js"
+    }
+  },
+  "routes": [
+    {
+      "kind": "function",
+      "method": "GET",
+      "path": "/api/health",
+      "module": "functions/api/health",
+      "export": "GET"
+    }
+  ],
+  "permissions": {
+    "network": [
+      "api.anthropic.com",
+      "api.stripe.com"
+    ],
+    "secrets": [
+      "AI_ANTHROPIC_KEY",
+      "WEBHOOK_STRIPE_SECRET"
+    ]
+  },
+  "storage": {
+    "images": {
+      "widths": [
+        400
+      ]
+    }
+  }
+}

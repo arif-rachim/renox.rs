@@ -1,0 +1,10 @@
+# The app the jobs module's tests run in (renox test, #297).
+[app]
+name = "jobstest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+jobs = { version = "^1.0", source = "path:../..", mount = "/jobs" }

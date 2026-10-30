@@ -1,0 +1,9 @@
+{
+  "$comment": "invalid: four arguments [expect: minItems]",
+  "op": "op_render_pdf",
+  "args": [
+    "partials/invoice",
+    "{}"
+  ],
+  "result": "JVBERi0xLjcK"
+}

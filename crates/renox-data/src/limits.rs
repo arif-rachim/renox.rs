@@ -103,3 +103,19 @@ pub struct CheckpointResult {
     /// Frames copied into the database file.
     pub checkpointed_frames: u64,
 }
+
+/// The node's disk is at the write watermark (95 %, #103 and #311): tenant
+/// and module writes are refused in the data layer too, for the writes that
+/// never pass the HTTP dispatcher's check (event handlers, jobs, realtime
+/// handlers). Platform work (the outbox's bookkeeping, migrations) is not
+/// refused. Set by the cell's disk monitor; one flag per process (one node,
+/// one data disk).
+static WRITES_REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn refuse_writes(on: bool) {
+    WRITES_REFUSED.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn writes_refused() -> bool {
+    WRITES_REFUSED.load(std::sync::atomic::Ordering::SeqCst)
+}

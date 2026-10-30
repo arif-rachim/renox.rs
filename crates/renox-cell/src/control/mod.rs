@@ -392,10 +392,19 @@ impl Controller {
             tick.tick().await;
             loop {
                 tick.tick().await;
+                // `sent_at` is required by control-messages.schema.json: without
+                // it the control plane refused every heartbeat with 400, so a
+                // node counted as healthy only until 30 s after it registered
+                // (found by the chaos run of batch F67-ALL).
+                let sent_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
                 let mut body = json!({
                     "type": "heartbeat",
                     "schema_version": 0,
                     "node_id": self.client.node_id(),
+                    "sent_at": sent_at,
                     "route_version": self.routes.version(),
                     "cells": self.manager.cell_count(),
                 });
@@ -459,6 +468,53 @@ fn event_data(event: &[u8]) -> Option<String> {
         .map(|l| l.strip_prefix(' ').unwrap_or(l))
         .collect();
     (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// `ctx.ai` in gateway mode (#322; deploy-api.md 0.5 section 23): the
+/// request goes to the control plane's `POST /v1/ai/chat` with the node
+/// token; the provider keys never reach the node.
+pub struct AiForward {
+    pub client: ControlClient,
+}
+
+impl renox_runtime::ops::ai::AiGateway for AiForward {
+    fn chat(
+        &self,
+        body: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<String, renox_runtime::ops::ai::GatewayError>>
+                + Send,
+        >,
+    > {
+        use renox_runtime::ops::ai::GatewayError;
+        let client = self.client.clone();
+        Box::pin(async move {
+            let answer = client
+                .send(
+                    ::http::Method::POST,
+                    "/v1/ai/chat",
+                    Some(body.into_bytes()),
+                    &[],
+                    std::time::Duration::from_secs(60),
+                )
+                .await
+                .map_err(|e| GatewayError::Unavailable(e.to_string()))?;
+            let status = answer.status.as_u16();
+            let bytes = answer
+                .bytes(4 * 1024 * 1024)
+                .await
+                .map_err(|e| GatewayError::Unavailable(e.to_string()))?;
+            match status {
+                200 => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+                429 => Err(GatewayError::Quota),
+                400 => Err(GatewayError::Invalid(
+                    "the gateway refused the request".into(),
+                )),
+                s => Err(GatewayError::Unavailable(format!("gateway answered {s}"))),
+            }
+        })
+    }
 }
 
 #[cfg(test)]

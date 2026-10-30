@@ -26,8 +26,10 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
   const out = mkdtempSync(join(tmpdir(), "renox-dashboard-build-"));
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
-  expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : "PAGE"} ${"path" in x ? x.path : x.kind}`).sort()).toEqual([
+  expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : x.kind === "page" ? "PAGE" : x.kind.toUpperCase()} ${"path" in x ? x.path : x.name}`).sort()).toEqual([
+    "JOB log-follower",
     "PAGE /",
+    "PAGE /account/security",
     "PAGE /apps",
     "PAGE /apps/:app",
     "PAGE /apps/:app/client-errors",
@@ -35,15 +37,17 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
     "PAGE /apps/:app/deployments",
     "PAGE /apps/:app/logs",
     "PAGE /apps/:app/secrets",
+    "PAGE /apps/:app/settings",
     "PAGE /apps/:app/usage",
     "PAGE /ops/tenants/:tenant",
     "PAGE /signin",
     "PAGE /signout",
+    "SSE /sse/logs",
   ]);
   expect(r.manifest.templates?.["pages/apps/[app]/logs"]?.fragments).toEqual({ log_lines: { target: "log-lines" } });
   expect(r.manifest.templates?.["pages/apps/[app]/deployments"]?.fragments).toEqual({ page: { target: "page" } });
   expect(r.manifest.permissions).toEqual({ network: ["api.renox.app"], secrets: ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL"] });
-  expect(readdirSync(join(r.dir, "migrations/app"))).toEqual(["001_sessions.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_sessions.sql", "002_log_followers.sql", "003_impersonations.sql"]);
   expect(await check(app)).toEqual({ errors: [], findings: [] });
 });
 

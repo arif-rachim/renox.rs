@@ -4,6 +4,11 @@
 //!   "SQLite file corrupted, WAL unreadable" (corrupt file → 503
 //!   `RENOX_DB_UNAVAILABLE`, automatic restore, then 200; quarantine kept).
 //!   Needs `litestream` on `PATH` (skipped with the reason otherwise).
+//! - `a_file_damaged_mid_request_answers_503_then_is_restored` (#311):
+//!   the same row for damage found by a statement while the cell is open
+//!   (`SQLITE_NOTADB` on a fresh reader): 503 `RENOX_DB_UNAVAILABLE` with
+//!   `Retry-After`, the cells drained, the file quarantined and restored,
+//!   then 200; another tenant unaffected. Needs `litestream` on `PATH`.
 //! - `each_disk_watermark_behaves_as_documented`: "Disk full on node" (a
 //!   loop device filled to each watermark). Needs root, `losetup` (through
 //!   `mount -o loop`) and `mkfs.ext4`; skipped with the reason otherwise.
@@ -395,5 +400,73 @@ async fn each_disk_watermark_behaves_as_documented() {
 
     worker.shutdown().await;
     drop(disk);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_damaged_mid_request_answers_503_then_is_restored() {
+    logs();
+    if !have("litestream", "version") {
+        eprintln!(
+            "skipped: litestream is not on PATH (ops/scripts/fetch-litestream.sh installs the pinned release)"
+        );
+        return;
+    }
+    let root = scratch("corrupt-mid");
+    let worker = Worker::start(worker_config(&root, &root.join("data"), true))
+        .await
+        .unwrap();
+    let repl = worker.replication.clone().expect("[replication] enabled");
+    // One write: the writer and the first reader are open; the next read
+    // goes to the second reader, opened on first use.
+    let (status, _, body) = http(worker.addr, "POST", "a.test", "/api/hits").await;
+    assert_eq!((status, count(&body)), (200, 1), "{body}");
+    eventually("frames shipped", Duration::from_secs(15), || {
+        repl.state("t_a") == State::Replicating
+            && repl.status("t_a", "t_a")["last_sync_at"].is_u64()
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(worker.manager.db_open("t_a"), "the cell is still open");
+
+    // Damage the file under the open cell (and its WAL, which would hide it).
+    let file = root.join("data/t_a/app.db");
+    for suffix in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+    }
+    std::fs::write(&file, vec![0xAB; 8192]).unwrap();
+
+    let (status, head, body) = http(worker.addr, "GET", "a.test", "/api/hits").await;
+    assert_eq!(status, 503, "{head}\n{body}");
+    assert!(body.contains("RENOX_DB_UNAVAILABLE"), "{body}");
+    assert!(
+        head.to_ascii_lowercase().contains("retry-after: 30"),
+        "{head}"
+    );
+    // Another tenant on the node is not affected.
+    let (status, _, body) = http(worker.addr, "POST", "b.test", "/api/hits").await;
+    assert_eq!((status, count(&body)), (200, 1), "{body}");
+
+    eventually("the automatic restore", Duration::from_secs(30), || {
+        repl.recovered() == 1 && repl.unavailable("t_a").is_none()
+    })
+    .await;
+    let (status, _, body) = http(worker.addr, "GET", "a.test", "/api/hits").await;
+    assert_eq!(
+        (status, count(&body)),
+        (200, 1),
+        "the replicated row is back: {body}"
+    );
+    let quarantined = std::fs::read_dir(root.join("data/t_a"))
+        .unwrap()
+        .flatten()
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("app.db.corrupt-")
+        })
+        .count();
+    assert_eq!(quarantined, 1);
+    worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&root);
 }

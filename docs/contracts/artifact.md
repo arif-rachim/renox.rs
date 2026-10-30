@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1.3** (F5, #272: the app's policy set and schema under `policies/`, route kinds `ws`, `sse`, `tool`, `job`, the `guard` of a route, the `authz` and `realtime` blocks of the app and of each module, rules V24–V27; for `ops.md` 1.5.0). 1.2 (#263) added `entries`; 1.1 (#227) added modules. The major number is written into every manifest as `artifact.version`; 1.1 to 1.3 are additive and keep `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
+| Version | **1.4** (F7, #318: route kind `webhook`, the `storage` and `ai` objects of the app and of each module, the optional `sbom.cdx.json` member, the `isolate` mode taking effect, rules V28–V29; for `ops.md` 1.7.0). 1.3 (F5, #272: the app's policy set and schema under `policies/`, route kinds `ws`, `sse`, `tool`, `job`, the `guard` of a route, the `authz` and `realtime` blocks of the app and of each module, rules V24–V27; for `ops.md` 1.5.0). 1.2 (#263) added `entries`; 1.1 (#227) added modules. The major number is written into every manifest as `artifact.version`; 1.1 to 1.3 are additive and keep `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
 | Producers | `cli/` (P11): `renox build` writes an artifact directory; examples are also written by hand |
 | Consumers | `crates/renox-cell` (P5) and `crates/renox-runtime` (P1): load and verify an artifact; `crates/renox-gateway` (P3): reads the route table, the public index, and the `security` object; `control/api` (P12, F3): validates, stores, and routes artifacts |
 | Machine-readable | [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json), [`schemas/migrations-checksums.schema.json`](schemas/migrations-checksums.schema.json), [`schemas/public-manifest.schema.json`](schemas/public-manifest.schema.json) (JSON Schema draft 2020-12) |
@@ -33,6 +33,7 @@ An artifact is everything one deployment needs to run, frozen at build time and 
 ├── overrides.json                   version 1.1: required when overrides/ exists; the override index (section 3, "Modules")
 ├── overrides/                       version 1.1, optional: tenant template overrides
 │   └── <module>/<path>.html         the override source of a module template
+├── sbom.cdx.json                    version 1.4, optional: the CycloneDX 1.5 JSON SBOM of the bundled code (written by renox build, #123)
 └── policies/                        version 1.1: policies/<module>/<name>.cedar of installed modules (carried; evaluated from F5).
     ├── schema.cedarschema           version 1.3, optional: the app's Cedar schema (its own entity types and actions)
     ├── app/<name>.cedar             version 1.3, optional: the app's own policy set
@@ -136,12 +137,14 @@ Version 1, abridged from [`examples/artifact/shop-artifact/`](examples/artifact/
 | `slots` | version 1.1: object, slot name → fillers | no | The slot registry (section 3, "Modules"). Absent: no slot is filled |
 | `authz` | object | version 1.3, optional | The app's `renox.toml [authz]`, resolved: `actions`, `ownership`, `entities`, `default_roles`, `sensitive` (below, "Authorization and realtime"). Absent: the app defines no actions of its own |
 | `realtime` | object | version 1.3, optional | The app's `renox.toml [realtime]`: `feeds` (below). Absent: no change feed |
+| `storage` | object | version 1.4, optional | The app's `renox.toml [storage]`: `allowed_types` and `images.widths` (below, "Storage, AI, and the SBOM"). Absent: the defaults of `ops.md` section 21 |
+| `ai` | object | version 1.4, optional | The app's `renox.toml [ai]`: `mode` (below). Absent: `gateway` unless the app declares a provider key secret (`ops.md` section 23) |
 
 No other keys are allowed at any level of the manifest (`additionalProperties: false` throughout). In particular, an unknown key under `permissions` or `security` is rejected rather than ignored, so a typo can never silently grant or drop a permission or a protection. Reserved for later versions: `signature` (F7).
 
 ### Route objects
 
-Each route object has a `kind`. Version 0 has only `"function"`; version 1 adds `"page"`; version 1.3 adds `"ws"`, `"sse"`, `"tool"`, and `"job"` (below, "Realtime, tool, and job routes").
+Each route object has a `kind`. Version 0 has only `"function"`; version 1 adds `"page"`; version 1.3 adds `"ws"`, `"sse"`, `"tool"`, and `"job"` (below, "Realtime, tool, and job routes"); version 1.4 adds `"webhook"` (below, "Webhook routes").
 
 **`guard` (version 1.3).** A function, page, `ws`, or `sse` route may carry `guard: { action, resource? }`, the module's `export const guard` as `renox build` read it (`ops.md` section 17, "`guard`"): `action` is in the merged action set (V25) and `resource` is `{ type, id }` with `type` a declared entity type and `id` a literal or `:<param>` naming a parameter of the route's pattern (V25). The cell evaluates it before the module is evaluated and before any handler, and on every fragment request.
 
@@ -229,6 +232,34 @@ A tool route has no `path`: every tool is reached through `/mcp`.
 | `tz` | IANA zone name, optional | The zone of the schedule; UTC when absent |
 
 A job route has no `path`. `renox build` writes one per `jobs/*.ts` file; the cell's scheduler reads them at load (#297).
+
+### Webhook routes (version 1.4)
+
+**`webhook` routes** (`functions/webhooks/*.ts` of the app, `functions/webhooks/*.ts` of a module; `ops.md` section 22):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | `"webhook"` | |
+| `path` | route pattern (section 5), static segments only | `/webhooks/<stem>` for `functions/webhooks/<stem>.ts`, prefixed by the module's `mount` |
+| `module` | module id under `functions/webhooks/` (the app) or `modules/<name>/functions/webhooks/` (a module), a key of `code.entry` | The module that exports `POST` (`entries` records `POST`) |
+| `export` | `"POST"` | The only handler a webhook route has |
+| `provider` | one of the providers of `ops.md` section 22, optional | The provider `renox build` read from `export const provider`; the cell applies that provider's unverified-request rate limit before the isolate. Absent: the `generic` bucket |
+
+A webhook route takes part in matching for `POST` only (V8), is exempt from the CSRF check, and carries no `guard` (the signature is its authentication; `ops.md` section 22). The CLI writes it instead of a function route for every file under `functions/webhooks/`; a function route whose module id is under `functions/webhooks/` is refused (V28).
+
+### Storage, AI, and the SBOM (version 1.4)
+
+`storage` and `ai` are the resolved `renox.toml [storage]` and `[ai]` of the app; a module entry carries its own `storage` from its `module.toml` (`manifest.md` 1.2). An absent field takes the default in the right-hand column.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `storage.allowed_types` | array of MIME types `type/subtype`, unique, at most 64 | the sniffed types of `ops.md` section 21 except `application/octet-stream`: `image/jpeg`, `image/png`, `image/webp`, `image/avif`, `image/gif`, `application/pdf`, `text/plain`, `text/csv` | What `op_storage_put` accepts from this owner (`RENOX_STORAGE_TYPE` otherwise). `image/svg+xml` is allowed only when listed **and** the put passes `sanitised: true` (`ops.md` section 21) |
+| `storage.images.widths` | array of integers 16–4096, ascending, unique, 1–16 entries | `[200, 400, 800, 1600]` | The widths `/_img` serves; any other `w` is rounded to the nearest one. App only: a module's images use the app's widths |
+| `ai.mode` | `"direct"` \| `"gateway"` | `gateway`, or `direct` when the app declares `AI_<PROVIDER>_KEY` in `permissions.secrets` | How `op_ai_chat` reaches the model (`ops.md` section 23). `direct` requires the provider's host in `permissions.network` (V29). App only |
+
+**`sbom.cdx.json`** is a CycloneDX 1.5 JSON document (`bomFormat: "CycloneDX"`, `specVersion: "1.5"`) listing the npm packages bundled into `code/`, with name, version, `purl`, and the SHA-512 integrity of each; `renox build` writes it from the lockfile (#123). It is covered by the content hash like every other file, so the SBOM a deployment shows is the SBOM of the code it runs. The worker never reads it; the control plane stores and serves it (`deploy-api.md`). Its absence is valid.
+
+**`isolation: "isolate"`** (Open 7, settled): a module entry with `isolation: "isolate"` runs in its own isolate inside the tenant's process with the semantics of `ops.md` section 15.6; the field and its source are unchanged from 1.1 (the lock entry). From 1.4 the CLI builds such entries and the worker runs them (#320).
 
 ### Authorization and realtime (version 1.3)
 
@@ -487,8 +518,10 @@ One set of rules, applied by `renox check` and `renox build` (P11), by the worke
 | V25 | **Actions** (version 1.3): every `guard.action`, every tool route's `action`, every `sensitive` action, and every action of a `default_roles` entry is in the merged action set (the app's and every module's `authz.actions`, plus `realtime.subscribe`); a `guard.resource.type` is a declared entity type of the route's owner and its `:<param>` names a parameter of the route's pattern; tool names are unique across the app and its modules; a tool's `input` uses only the keyword subset of `validate.ts`; each `authz` block's `sensitive` is a subset of its own `actions`, `ownership` and `entities.table` name tables of its owner's prefix | check, *load* |
 | V26 | **Feeds and ownership** (version 1.3): every `realtime.feeds` key (the app's and each module's) is a table of its owner's prefix that a `CREATE TABLE` in the owner's migrations creates, its topic pattern is a topic (`ops.md` section 18) whose `{column}` placeholders are identifiers; every `ownership` table likewise exists in the owner's migrations | check, *load* |
 | V27 | **Schedules** (version 1.3): every job route's `schedule` is a five-field cron expression (minute 0–59, hour 0–23, day of month 1–31, month 1–12, day of week 0–7; `*`, lists, ranges, steps; numbers only) and its `tz`, when present, is an IANA zone known to `Intl` (V4's rule); job names are unique per owner | check, *load* |
+| V28 | **Webhooks** (version 1.4): every `webhook` route's `module` is under `functions/webhooks/` of its owner, its `path` has static segments only, its `export` is `POST` and is in the module's `entries` exports; no `function` route's module is under `functions/webhooks/`; webhook paths are unique | check, *load* |
+| V29 | **Storage and AI** (version 1.4): `storage.allowed_types` entries are `type/subtype` MIME types without parameters; `storage.images.widths` is ascending and unique, each 16–4096; `ai.mode = "direct"` needs at least one `AI_<PROVIDER>_KEY` in `permissions.secrets` and the provider's host in `permissions.network`; `sbom.cdx.json`, when present, is a JSON object with `bomFormat` `CycloneDX` and `specVersion` `1.5` | check, *load* |
 
-Every rejection names the rule (`V1`–`V27`), the path or field, and a one-line reason; it never contains a filesystem path of the machine doing the check. In F3, a rejected upload sets the deployment state `rejected` with `RENOX_DEPLOY_REJECTED` (`errors.md`); a V24 Cedar failure is `RENOX_POLICY_INVALID`.
+Every rejection names the rule (`V1`–`V29`), the path or field, and a one-line reason; it never contains a filesystem path of the machine doing the check. In F3, a rejected upload sets the deployment state `rejected` with `RENOX_DEPLOY_REJECTED` (`errors.md`); a V24 Cedar failure is `RENOX_POLICY_INVALID`.
 
 ## 7. Worked examples
 
@@ -513,6 +546,7 @@ Every rejection names the rule (`V1`–`V27`), the path or field, and a one-line
 - **Version 1.1** (#227) keeps `artifact.version: 1`: an artifact without modules is byte-for-byte a version 1 artifact, and one with modules carries the new `modules` array, `slots`, and top-level entries. The consumers learn them in #232 (`crates/renox-cell` loads module code, migrations in `modules` order, the slot registry, and the module list for the bootstrap) and #235 (the CLI writes them). Until then a consumer that refuses a manifest whose `modules` is a non-empty array, with V3, is correct, not a bug. `packages/artifact-validate`, and so `control/api` uploads, accept 1.1 from this version on.
 - **Version 1.2** (#263) keeps `artifact.version: 1`: `entries` is optional, and without it everything behaves as in 1.1. The consumers learn it in #265: the CLI writes it, the cell checks it at prepare, and the runtime evaluates `eager: false` entries on first use. Until then a consumer that ignores `entries` and evaluates every entry eagerly is correct, not a bug: that is the 1.1 behaviour.
 - **Version 1.3** (#272) keeps `artifact.version: 1`: an artifact without the new route kinds, `guard`, `authz`, `realtime`, and app policies is byte-for-byte a version 1.2 artifact. The consumers learn it in F5: the CLI writes it (#283, #284), the worker checks V24–V27 at prepare and loads the policies (#276, #279), the cell serves the routes (#281, #285) and, in F6, the jobs (#297). Until then a consumer that refuses a manifest with a `ws`, `sse`, `tool`, or `job` route, a `guard`, or an `authz` block, with V3, is correct, not a bug; `packages/artifact-validate` accepts 1.3 from the CLI task on.
+- **Version 1.4** (#318) keeps `artifact.version: 1`: an artifact without `webhook` routes, `storage`, `ai`, `sbom.cdx.json`, and `isolate` modules is byte-for-byte a version 1.3 artifact. The consumers learn it in F7: the CLI writes webhook routes (#322) and the SBOM (#123), the cell serves `/_img` and applies `storage` (#321), `ai` (#323), and runs `isolate` modules (#320). Until then a consumer that refuses a `webhook` route with V3 is correct.
 - A future breaking change bumps the version again. A field added under an existing object, with a default that keeps old behaviour, is a minor change and does not bump the version.
 
 ## Open
@@ -523,7 +557,7 @@ Every rejection names the rule (`V1`–`V27`), the path or field, and a one-line
 4. **Template file size.** No per-template cap beyond V5's artifact total. #38 measures compile time on large templates and proposes one if needed.
 5. **Lock and module tree at upload.** V17's lock match and V20's original hashes need `renox.lock` and the module trees, which only `renox build` has. The control plane checks what the artifact alone proves; carrying the lock in the artifact would let it check more, as a minor change, if a hand-built upload ever matters.
 6. **Per-route `cors` and `frame` exports.** `docs/04-isolation-security.md` allows `export const cors` on a function and `export const frame` on a page. Reading them needs the CLI to evaluate module exports at build time. When #47 implements that, they are added as optional route fields (`cors`, `frame_ancestors`), a minor change.
-7. **`isolate` modules.** An entry with `isolation: "isolate"` is valid here; the runtime that runs it is not scheduled in F4 (`manifest.md` Open 2), and #235 refuses to build one until it is.
+7. **`isolate` modules.** Settled in version 1.4 (section 3, "Storage, AI, and the SBOM"): the runtime is `ops.md` section 15.6, implemented by #320.
 8. **Event and hook exports.** `exports` copies the module's public API for the broker (ops 1.3.0, #226, not merged yet: blocked on the SDK type sync). If #226 lands with different names, `exports` follows it as a minor change before #232 reads it.
 
 Settled in version 1: the `public/manifest.json` name clash (version 0 Open 1, now section 4: the index moved to `public.json`) and trailing slashes (version 0 Open 4, now section 3, "Trailing slashes"). Settled in version 1.1: module templates and overrides (version 1 Open 5): a module's ids are prefixed with `modules/<name>/` instead of a `<module>:` namespace, so an id stays a path and the template file stays `templates/<id>.jinja`.
@@ -540,3 +574,4 @@ Settled in version 1: the `public/manifest.json` name clash (version 0 Open 1, n
 | 1.1 | #227 | Minor (additive), `artifact.version` stays `1`. **Modules:** the `modules` array copied from `renox.lock` in topological (migration) order, each entry with `name`, `version`, `hash`, `source`, `mount`, `isolation`, `dependencies`, `config`, `permissions`, `approved`, `exports`; module code under `code/modules/<name>/`, code ids and template ids under `modules/<name>/`, the `services` and `hooks` entries; `migrations/<name>/`; `policies/<name>/*.cedar` (carried, F5); `overrides/<name>/…` with `overrides.json`; module routes under their `mount`; the `slots` registry. **Rules:** V17–V22 added; V1, V7, V14 extended. Open 5 settled |
 | 1.2 | #263 | Minor (additive), `artifact.version` stays `1`. **Entries:** optional `entries`, code entry id → `{ exports, eager? }`, written by `renox build`: each module's static export names and whether the runtime evaluates it at isolate creation (`ops.md` 1.4.0, lazy route modules). **Rule:** V23 (keys match `code.entry`, route handlers and services are among the recorded exports, `services` and `hooks` stay eager, the worker re-checks the exports at prepare). Without `entries` an artifact behaves as in 1.1 |
 | 1.3 | #272 | Minor (additive), `artifact.version` stays `1`. **Routes:** kinds `ws` and `sse` (`functions/ws/**`, `functions/sse/**`, `GET` only in the matcher), `tool` (`name`, `description`, `input`, `action`, `confirm`; no path, reached through `/mcp`), `job` (`name`, `schedule`, `tz`; no path); optional `guard` on function, page, `ws`, and `sse` routes; module ids under `functions/ws/`, `functions/sse/`, `functions/tools/`, `jobs/`, `modules/<name>/tools/`, `modules/<name>/jobs/`. **Authorization:** the `authz` block (`actions`, `ownership`, `entities`, `default_roles`, `sensitive`) and `realtime.feeds` of the app and of each module entry; `permissions.roles` and `approved.roles`; the app's `policies/app/*.cedar` and `policies/schema.cedarschema`; the merged schema and action set. **Rules:** V24–V27 added; V1, V7, V8, V21 (`/mcp` reserved), V22, V23 extended. For `ops.md` 1.5.0 sections 17–20 |
+| 1.4 | #318 | Minor (additive), `artifact.version` stays `1`. **Routes:** kind `webhook` (`functions/webhooks/*.ts`, `POST` only, CSRF-exempt, no `guard`, optional `provider`). **Manifest:** optional `storage` (`allowed_types`, `images.widths`) of the app and of each module entry, optional `ai` (`mode`) of the app. **Layout:** optional `sbom.cdx.json` (CycloneDX 1.5). **Modules:** `isolation: "isolate"` takes effect (Open 7 settled; `ops.md` section 15.6). **Rules:** V28 (webhooks), V29 (storage, AI, SBOM). For `ops.md` 1.7.0 |

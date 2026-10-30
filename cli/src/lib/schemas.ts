@@ -70,6 +70,21 @@ export const renoxTomlSchema: Json = {
         feeds: { type: "object" },
       },
     },
+    // Artifact 1.4 (#323): the app's [storage] and [ai]; checked in depth
+    // against manifest.schema.json (V29) at build.
+    storage: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        allowed_types: { type: "array", items: { type: "string" }, uniqueItems: true },
+        images: { type: "object", additionalProperties: false, properties: { widths: { type: "array", items: { type: "integer", minimum: 16, maximum: 4096 } } } },
+      },
+    },
+    ai: {
+      type: "object",
+      additionalProperties: false,
+      properties: { mode: { enum: ["direct", "gateway"] } },
+    },
     limits: {
       type: "object",
       additionalProperties: false,

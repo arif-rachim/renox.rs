@@ -44,6 +44,7 @@ use crate::config::{Mode, ReplicaKind, ReplicationSection};
 use crate::manager::DbLifecycle;
 
 pub mod litestream;
+pub mod purge;
 pub mod restore;
 pub mod status;
 
@@ -248,6 +249,7 @@ impl Replication {
                 return;
             }
             marks.insert(database.to_string(), "restoring");
+            crate::telemetry::counters::set_db_unavailable(marks.len());
         }
         let file = self.file_of(database);
         match restore::quarantine(&file, now_ms()) {
@@ -267,11 +269,11 @@ impl Replication {
             loop {
                 match me.restore_blocking(&database, None, None) {
                     Ok(r) => {
-                        me.inner
-                            .unavailable
-                            .lock()
-                            .expect("unavailable lock")
-                            .remove(&database);
+                        {
+                            let mut marks = me.inner.unavailable.lock().expect("unavailable lock");
+                            marks.remove(&database);
+                            crate::telemetry::counters::set_db_unavailable(marks.len());
+                        }
                         me.inner.recovered.fetch_add(1, Ordering::SeqCst);
                         tracing::warn!(%database, generation = ?r.generation, elapsed_ms = r.elapsed_ms, "damaged tenant file restored");
                         return;

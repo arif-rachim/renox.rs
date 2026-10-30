@@ -30,6 +30,11 @@ import {
   op_deadline_remaining_ms,
   op_events_ack,
   op_events_emit,
+  op_jobs_ack,
+  op_jobs_cancel,
+  op_jobs_enqueue,
+  op_jobs_list,
+  op_jobs_retry,
   op_password_hash,
   op_password_verify,
   op_realtime_close,
@@ -44,10 +49,27 @@ import {
   op_response_end,
   op_response_write,
   op_secrets_get_all,
+  op_span_service_begin,
+  op_span_service_end,
+  op_modules_call,
+  op_storage_put,
+  op_storage_get,
+  op_storage_read,
+  op_storage_delete,
+  op_storage_sign,
+  op_storage_list,
+  op_webhook_verify,
+  op_ai_env,
+  op_ai_gateway,
+  op_ai_meter,
+  op_render_pdf,
 } from "ext:core/ops";
 
 const {
   ArrayIsArray,
+  ArrayPrototypeFind,
+  ArrayPrototypeFilter,
+  ArrayPrototypeEvery,
   ArrayPrototypeIncludes,
   ArrayPrototypeJoin,
   ArrayPrototypeSort,
@@ -72,6 +94,9 @@ const {
   ObjectGetPrototypeOf,
   ObjectPrototypeHasOwnProperty,
   ObjectPrototypeIsPrototypeOf,
+  SymbolFor,
+  Uint8ArrayPrototype,
+  NumberIsInteger,
   PromisePrototypeThen,
   PromiseReject,
   PromiseResolve,
@@ -204,6 +229,51 @@ class RealtimeBackpressureError extends RenoxError {
   }
 }
 
+// ops.md 1.6.0 section 20: the typed errors of the jobs ops.
+class JobNotFoundError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_JOB_NOT_FOUND", message, details);
+    this.name = "JobNotFoundError";
+  }
+}
+
+class JobStateError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_JOB_STATE", message, details);
+    this.name = "JobStateError";
+  }
+}
+
+// ops.md 1.7.0 section 23.
+class AiQuotaError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_AI_QUOTA", message, details);
+    this.name = "AiQuotaError";
+  }
+}
+class AiUnavailableError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_AI_UNAVAILABLE", message, details);
+    this.name = "AiUnavailableError";
+  }
+}
+
+// ops.md 1.7.0 section 24.
+class PdfLimitError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_PDF_LIMIT", message, details);
+    this.name = "PdfLimitError";
+  }
+}
+
+// ops.md 1.7.0 section 21: every RENOX_STORAGE_* code.
+class StorageError extends RenoxError {
+  constructor(code, message, details) {
+    super(code, message, details);
+    this.name = "StorageError";
+  }
+}
+
 /** Ops reject with "CODE|json-details|message"; turn that into a RenoxError. */
 function toRenoxError(e) {
   const msg = typeof e?.message === "string" ? e.message : "";
@@ -230,6 +300,22 @@ function toRenoxError(e) {
       return new RealtimeBackpressureError(message, details ?? undefined);
     case "RENOX_MODULE_UNDECLARED":
       return new ModuleUndeclaredError(message, details ?? undefined);
+    case "RENOX_JOB_NOT_FOUND":
+      return new JobNotFoundError(message, details ?? undefined);
+    case "RENOX_JOB_STATE":
+      return new JobStateError(message, details ?? undefined);
+    case "RENOX_PDF_LIMIT":
+      return new PdfLimitError(message, details ?? undefined);
+    case "RENOX_AI_QUOTA":
+      return new AiQuotaError(message, details ?? undefined);
+    case "RENOX_AI_UNAVAILABLE":
+      return new AiUnavailableError(message, details ?? undefined);
+    case "RENOX_STORAGE_QUOTA":
+    case "RENOX_STORAGE_TYPE":
+    case "RENOX_STORAGE_TOO_LARGE":
+    case "RENOX_STORAGE_KEY":
+    case "RENOX_STORAGE_NOT_FOUND":
+      return new StorageError(code, message, details ?? undefined);
     default:
       return new RenoxError(code, message, details ?? undefined);
   }
@@ -647,6 +733,49 @@ const eventHandlers = new SafeMap();
 /** Installed module name -> frozen proxies of its services (renox:modules, ctx.services). */
 let serviceProxies = ObjectFreeze({});
 const MAX_CALL_DEPTH = 16;
+/** ops.md 1.7.0 section 15.6: the most JSON that crosses between isolates per call, each way. */
+const MAX_CROSS = 1024 * 1024;
+
+/** Whether `module`'s code runs in this isolate (ops.md 1.7.0 section 15.6). */
+function isLocal(module) {
+  return infoOf(module)?.local !== false;
+}
+
+/**
+ * A call into the isolate of another module (`isolate` mode): the
+ * structured clone (JSON) of the arguments and the result, at most
+ * MAX_CROSS each way, with this request's transaction and principal.
+ */
+async function crossCall(kind, target, name, args) {
+  const caller = currentModule();
+  const json = JSONStringify(args ?? null, dataReplacer) ?? "null";
+  if (json.length > MAX_CROSS) {
+    throw new ModuleServiceError(`${target}.${name} failed: the arguments are over 1 MiB`, { module: target, service: name, reason: "too_large", cause_code: null });
+  }
+  try {
+    const out = await op_modules_call(currentToken(), kind, caller, target, name, json, txVar.get() ?? 0);
+    return JSONParse(out);
+  } catch (e) {
+    const err = toRenoxError(e);
+    const details = err?.details ?? {};
+    if (details.reason === "too_large") {
+      throw new ModuleServiceError(`${target}.${name} failed: the result is over 1 MiB`, { module: target, service: name, reason: "too_large", cause_code: null });
+    }
+    // The callee threw or its isolate failed: as in shared mode, the
+    // current transaction is rolled back (the callee logged its throw).
+    const st = stateVar.get();
+    const tx = txVar.get();
+    if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx)) {
+      st.rolledBack.add(tx);
+      try {
+        await op_db_tx_rollback(currentToken(), tx);
+      } catch {
+        // Already gone.
+      }
+    }
+    throw new ModuleServiceError(`${target}.${name} failed`, { module: target, service: name, cause_code: details.cause_code ?? null });
+  }
+}
 
 function requestState() {
   const st = stateVar.get();
@@ -668,7 +797,8 @@ function infoOf(module) {
 async function calleeFailed(e, details, label) {
   const st = stateVar.get();
   const tx = txVar.get();
-  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx)) {
+  // A transaction lent by another isolate's caller is the caller's to roll back.
+  if (tx !== undefined && tx !== 0 && st !== undefined && !st.rolledBack.has(tx) && st.borrowedTx !== tx) {
     st.rolledBack.add(tx);
     try {
       await op_db_tx_rollback(currentToken(), tx);
@@ -695,8 +825,16 @@ async function callService(target, service, args) {
   if (depth > MAX_CALL_DEPTH) {
     throw new ModuleServiceError(`${target}.${service} failed: call depth`, { module: target, service, cause_code: null });
   }
+  if (!isLocal(target)) return await crossCall("service", target, service, args);
   const fn = serviceModules.get(target)?.[service];
   const calleeCtx = st.ctxOf(target);
+  // #295: one module.service span per call (caller, callee, name; never the arguments).
+  let span = 0;
+  try {
+    span = op_span_service_begin(currentToken(), caller, target, service);
+  } catch {
+    // Outside a request (module evaluation): no span.
+  }
   try {
     return await within(
       [
@@ -707,6 +845,8 @@ async function callService(target, service, args) {
     );
   } catch (e) {
     throw await calleeFailed(e, { module: target, service }, `${target}.${service}`);
+  } finally {
+    if (span !== 0) op_span_service_end(span);
   }
 }
 
@@ -719,7 +859,7 @@ function makeHooks(module) {
         throw new ModuleUndeclaredError(`module ${module} does not export hook ${name}`, { module, target: name });
       }
       for (const f of new SafeArrayIterator(hookFillers.get(name) ?? [])) {
-        const fillerCtx = st.ctxOf(f.module);
+        const fillerCtx = f.remote === true ? null : st.ctxOf(f.module);
         let r;
         try {
           r = await within([[moduleVar, f.module]], () => f.handle(fillerCtx, args));
@@ -736,9 +876,27 @@ function makeHooks(module) {
   });
 }
 
+/** A hook filler of another isolate's module: its `{ halt, response }` crosses as status, headers and body. */
+async function remoteFiller(module, hook, args) {
+  const r = await crossCall("hook", module, hook, args);
+  if (r === null || r === undefined || r.halt !== true) return undefined;
+  const res = r.response ?? {};
+  return { halt: true, response: new Response(res.body ?? null, { status: res.status ?? 200, headers: res.headers ?? [] }) };
+}
+
 /** Called by Rust after the tenant modules loaded (ops.md 1.3.0 section 11, step 5). */
 function register(namespaces) {
   for (const [name, info] of new SafeArrayIterator([...modules])) {
+    if (info.local === false) {
+      // ops.md 1.7.0 section 15.6: the fillers of a module that runs in
+      // another isolate, from its manifest, run there (priority 100).
+      for (const hook of new SafeArrayIterator(info.permissions?.hooks ?? [])) {
+        const list = hookFillers.get(hook) ?? [];
+        ArrayPrototypePush(list, { module: name, priority: 100, remote: true, handle: (_ctx, args) => remoteFiller(name, hook, args) });
+        hookFillers.set(hook, list);
+      }
+      continue;
+    }
     const ns = namespaces[name] ?? {};
     const services = ns.services;
     for (const svc of new SafeArrayIterator(info.exports?.services ?? [])) {
@@ -800,6 +958,19 @@ async function runInMemory(st, id, name, payload) {
   }
 }
 
+/** A JobContext (ops.md section 20): the module's ctx without the request, `db` the attempt's transaction, `job` the run. */
+function jobCtx(base, statementsOf, info) {
+  const c = { ...base, db: statementsOf, job: info };
+  delete c.req;
+  delete c.url;
+  delete c.params;
+  delete c.headers;
+  delete c.setLocale;
+  delete c.session;
+  delete c.fragment;
+  return ObjectFreeze(c);
+}
+
 /** An EventContext: the module's ctx without the request, `db` given. */
 function eventCtx(base, module, statementsOf, e) {
   const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }) };
@@ -838,6 +1009,260 @@ function makeEvents(module) {
       }
       if (!durable) await runInMemory(st, id, name, JSONParse(json));
       return id;
+    },
+  });
+}
+
+/** `ctx.jobs` of `module` (ops.md 1.6.0 section 20). */
+/**
+ * `ctx.ai` of `module` (ops.md 1.7.0 section 23): one Messages call, or a
+ * loop while the model asks for local tools (`run`), which execute here
+ * with the caller's ctx under the request's limits. Direct mode fetches
+ * the provider through the module's allowlist with the app's own key;
+ * gateway mode goes through the cell. Nothing of the conversation is logged.
+ */
+function makeAi(module) {
+  return ObjectFreeze({
+    async chat(request) {
+      if (request === null || typeof request !== "object" || !ArrayIsArray(request.messages) || request.messages.length === 0) {
+        throw new TypeError("ai.chat: messages is a non-empty array");
+      }
+      const env = op_ai_env();
+      const maxTokens = request.maxTokens ?? 1024;
+      if (typeof maxTokens !== "number" || !NumberIsInteger(maxTokens) || maxTokens < 1 || maxTokens > env.max_tokens) {
+        throw new RangeError(`ai.chat: maxTokens is 1 to ${env.max_tokens}`);
+      }
+      const tools = ArrayIsArray(request.tools) ? request.tools : [];
+      const byName = new SafeMap();
+      for (const t of new SafeArrayIterator(tools)) byName.set(t.name, t);
+      const wire = ArrayPrototypeMap(tools, (t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+      const messages = [...request.messages];
+      let tokensIn = 0;
+      let tokensOut = 0;
+      for (let round = 0; round <= env.max_rounds; round++) {
+        const body = { model: request.model ?? "default", messages, max_tokens: maxTokens };
+        if (typeof request.system === "string") body.system = request.system;
+        if (wire.length > 0) body.tools = wire;
+        const res = env.mode === "direct" ? await aiDirect(module, env, body) : await aiGateway(body);
+        const used = res.usage ?? {};
+        tokensIn += used.input_tokens ?? 0;
+        tokensOut += used.output_tokens ?? 0;
+        op_ai_meter(currentToken(), used.input_tokens ?? 0, used.output_tokens ?? 0);
+        const content = ArrayIsArray(res.content) ? res.content : [];
+        const uses = ArrayPrototypeFilter(content, (c) => c?.type === "tool_use");
+        const local = uses.length > 0 && ArrayPrototypeEvery(uses, (u) => typeof byName.get(u.name)?.run === "function");
+        if (res.stop_reason !== "tool_use" || !local) {
+          return ObjectFreeze({ id: res.id ?? "", model: res.model ?? body.model, content: ObjectFreeze(content), stop_reason: res.stop_reason ?? "end_turn", usage: ObjectFreeze({ input_tokens: tokensIn, output_tokens: tokensOut }) });
+        }
+        ArrayPrototypePush(messages, { role: "assistant", content });
+        const results = [];
+        for (const u of new SafeArrayIterator(uses)) {
+          const out = await byName.get(u.name).run(u.input);
+          ArrayPrototypePush(results, { type: "tool_result", tool_use_id: u.id, content: typeof out === "string" ? out : (JSONStringify(out ?? null, dataReplacer) ?? "null") });
+        }
+        ArrayPrototypePush(messages, { role: "user", content: results });
+      }
+      throw new AiUnavailableError(`ai.chat: more than ${env.max_rounds} tool rounds`);
+    },
+  });
+}
+
+/** `ctx.pdf` (ops.md 1.7.0 section 24): a template of the deployment, rendered and converted in Rust. */
+const pdf = ObjectFreeze({
+  async render(template, data, options = undefined) {
+    if (typeof template !== "string" || template.length === 0) throw new TypeError("pdf.render: template is a template id");
+    const json = JSONStringify(data ?? {}, dataReplacer);
+    try {
+      return await op_render_pdf(currentToken(), template, json ?? "{}", JSONStringify(options ?? {}));
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  },
+});
+
+/** Direct mode: the Anthropic Messages API with the app's own key, through `fetch`. */
+async function aiDirect(module, env, body) {
+  const key = (module === "app" ? secrets : moduleSecrets.get(module) ?? {})[env.key_name ?? ""];
+  if (typeof key !== "string") throw new AiUnavailableError("ai.chat: direct mode needs the key secret", { reason: "no_key" });
+  const wire = { ...body, model: body.model === "default" ? "claude-opus-5-5" : body.model };
+  let res;
+  try {
+    res = await moduleFetch(module, `${env.base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSONStringify(wire),
+    });
+  } catch (e) {
+    if (e?.code === "RENOX_FETCH_BLOCKED") throw e;
+    throw new AiUnavailableError("ai.chat: the provider did not answer", { reason: "fetch" });
+  }
+  if (!res.ok) {
+    try {
+      await res.body?.cancel();
+    } catch {
+      // Gone.
+    }
+    throw new AiUnavailableError(`ai.chat: the provider answered ${res.status}`, { status: res.status });
+  }
+  return await res.json();
+}
+
+/** Gateway mode: the platform's gateway through the cell; the key stays there. */
+async function aiGateway(body) {
+  try {
+    return JSONParse(await op_ai_gateway(currentToken(), JSONStringify(body)));
+  } catch (e) {
+    throw e instanceof TypeError ? e : toRenoxError(e);
+  }
+}
+
+// ops.md 1.7.0 section 22: a duplicate delivery ends the handler with 200.
+const WEBHOOK_DUPLICATE = SymbolFor("renox.webhook.duplicate");
+
+/** `ctx.webhook` of a webhook route: `verify(req, { provider } | { secret, header })`. */
+function makeWebhook(module, req) {
+  const own = moduleSecrets.get(module) ?? (module === "app" ? secrets : undefined) ?? {};
+  return ObjectFreeze({
+    async verify(r, options) {
+      const provider = typeof options?.provider === "string" ? options.provider : options?.secret !== undefined ? "generic" : null;
+      if (provider === null) throw new TypeError("webhook.verify: options.provider, or options.secret and options.header");
+      const source = r ?? req;
+      const bytes = new Uint8Array(await source.clone().arrayBuffer());
+      const hs = [];
+      for (const [k, v] of source.headers) ArrayPrototypePush(hs, [k, v]);
+      // A module's secrets carry its prefix (MF4): `<MODULE>_WEBHOOK_<PROVIDER>_SECRET`.
+      const p = StringPrototypeToUpperCase(provider);
+      const secret = provider === "generic" ? options.secret : (own[`WEBHOOK_${p}_SECRET`] ?? own[`${StringPrototypeToUpperCase(module)}_WEBHOOK_${p}_SECRET`]);
+      let out;
+      try {
+        out = await op_webhook_verify(currentToken(), provider, typeof secret === "string" ? secret : null, options?.header ?? null, bytes, hs);
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      let payload = null;
+      try {
+        payload = JSONParse(out.payload_json);
+      } catch {
+        payload = out.payload_json;
+      }
+      const event = ObjectFreeze({ provider: out.provider, event_id: out.event_id, received_at: out.received_at, payload, duplicate: out.duplicate });
+      // The provider stops retrying; the handler does not run on.
+      if (out.duplicate) throw { [WEBHOOK_DUPLICATE]: true, event };
+      return event;
+    },
+  });
+}
+
+/** A webhook handler's throw: a duplicate is 200, a bad signature 401, the unverified bucket 429. */
+function webhookOutcome(e) {
+  if (e !== null && typeof e === "object" && e[WEBHOOK_DUPLICATE] === true) return ResponseJson({ duplicate: true });
+  const code = e?.code;
+  if (code === "RENOX_WEBHOOK_SIGNATURE") {
+    return ResponseJson({ error: { code, message: "The webhook signature is not valid." } }, 401);
+  }
+  if (code === "RENOX_RATE_LIMITED") {
+    return ResponseJson({ error: { code, message: "Too many requests." } }, 429, { "retry-after": "1" });
+  }
+  throw e;
+}
+
+function ResponseJson(body, status = 200, headers = {}) {
+  return new (responseMod().Response)(JSONStringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+}
+
+/** `ctx.storage` of `module` (ops.md 1.7.0 section 21): keys under `<module>/`. */
+function makeStorage(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  };
+  const checkKey = (key, what) => {
+    if (typeof key !== "string" || key.length === 0) throw new TypeError(`storage.${what}: key must be a string`);
+  };
+  return ObjectFreeze({
+    async put(key, bytes, options) {
+      checkKey(key, "put");
+      if (!ObjectPrototypeIsPrototypeOf(Uint8ArrayPrototype, bytes)) throw new TypeError("storage.put: bytes must be a Uint8Array");
+      const contentType = options?.contentType;
+      if (typeof contentType !== "string" || contentType.length === 0) throw new TypeError("storage.put: options.contentType is required");
+      return ObjectFreeze(await call(op_storage_put, key, bytes, contentType, options?.public === true, options?.sanitised === true, moduleArg(module)));
+    },
+    async get(key) {
+      checkKey(key, "get");
+      return ObjectFreeze(await call(op_storage_get, key, moduleArg(module)));
+    },
+    async read(key) {
+      checkKey(key, "read");
+      return await call(op_storage_read, key, moduleArg(module));
+    },
+    async delete(key) {
+      checkKey(key, "delete");
+      return await call(op_storage_delete, key, moduleArg(module));
+    },
+    async sign(key, ttlSeconds) {
+      checkKey(key, "sign");
+      if (typeof ttlSeconds !== "number" || !NumberIsInteger(ttlSeconds)) throw new TypeError("storage.sign: ttlSeconds must be an integer");
+      return ObjectFreeze(await call(op_storage_sign, key, ttlSeconds, moduleArg(module)));
+    },
+    async list(prefix, options = undefined) {
+      if (typeof prefix !== "string") throw new TypeError("storage.list: prefix must be a string");
+      const limit = options?.limit ?? 100;
+      const page = await call(op_storage_list, prefix, limit, options?.cursor ?? null, moduleArg(module));
+      return ObjectFreeze({ items: ObjectFreeze(ArrayPrototypeMap(page.items, (f) => ObjectFreeze(f))), next_cursor: page.next_cursor ?? null });
+    },
+  });
+}
+
+function makeJobs(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  };
+  const checkId = (id, what) => {
+    if (typeof id !== "string" || id.length === 0) throw new TypeError(`jobs.${what}: id must be a string`);
+  };
+  return ObjectFreeze({
+    async enqueue(name, payload, options = undefined) {
+      if (typeof name !== "string") throw new TypeError("jobs.enqueue: name must be a string");
+      let json;
+      try {
+        json = JSONStringify(payload);
+      } catch {
+        json = undefined;
+      }
+      if (typeof json !== "string" || payload === null || typeof payload !== "object" || ArrayIsArray(payload) || json.length > 64 * 1024) {
+        throw new RangeError("jobs.enqueue: the payload is a JSON object of at most 64 KiB");
+      }
+      const runAt = options?.runAt ?? null;
+      let at = null;
+      if (runAt !== null) {
+        at = typeof runAt === "number" ? runAt : typeof runAt?.getTime === "function" ? runAt.getTime() : NaN;
+        if (typeof at !== "number" || at !== at || at === Infinity || at === -Infinity) throw new TypeError("jobs.enqueue: runAt is a Date or Unix ms");
+      }
+      return await call(op_jobs_enqueue, name, json, at, moduleArg(module), txVar.get() ?? 0);
+    },
+    async list(state, options = undefined) {
+      if (typeof state !== "string") throw new TypeError("jobs.list: state must be a string");
+      const limit = options?.limit ?? 50;
+      if (typeof limit !== "number" || limit < 1 || limit > 100 || limit !== (limit | 0)) throw new RangeError("jobs.list: limit is 1 to 100");
+      const cursor = options?.cursor ?? null;
+      if (cursor !== null && typeof cursor !== "string") throw new TypeError("jobs.list: cursor must be a string or null");
+      const page = await call(op_jobs_list, state, limit, cursor, moduleArg(module));
+      return ObjectFreeze({ items: ObjectFreeze(ArrayPrototypeMap(page.items, (r) => ObjectFreeze(r))), next_cursor: page.next_cursor ?? null });
+    },
+    async retry(id) {
+      checkId(id, "retry");
+      await call(op_jobs_retry, id, moduleArg(module), txVar.get() ?? 0);
+    },
+    async cancel(id) {
+      checkId(id, "cancel");
+      await call(op_jobs_cancel, id, moduleArg(module), txVar.get() ?? 0);
     },
   });
 }
@@ -1128,6 +1553,10 @@ function moduleFields(m) {
     services: serviceProxies,
     hooks: makeHooks(m),
     events: makeEvents(m),
+    jobs: makeJobs(m),
+    storage: makeStorage(m),
+    ai: makeAi(m),
+    pdf,
     authz: makeAuthz(m),
     realtime: makeRealtime(m),
     password,
@@ -1438,7 +1867,7 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
  * template }`; for an action, `action` is the action function and
  * `handler` the page's `load` (or null).
  */
-function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app", realtime = null) {
+function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app", realtime = null, webhook = null) {
   if (realtime !== null) return dispatchRealtime(handler, token, url, headers, body, params, owner, realtime);
   const previous = requestVar.enter(token);
   try {
@@ -1448,9 +1877,9 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
       (pre) => {
         if (pre.forbidden !== undefined) return pre.forbidden;
         if (handler !== null && typeof handler === "object" && typeof handler.lazy === "string") {
-          return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner, pre.principal);
+          return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner, pre.principal, webhook);
         }
-        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, pre.principal);
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, pre.principal, webhook);
       },
       describeThrow,
     );
@@ -1460,7 +1889,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
 }
 
 /** The handler, once the principal is known and the guard passed. */
-function run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal) {
+function run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal, webhook = null) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1486,6 +1915,8 @@ function run(handler, token, method, url, headers, body, params, wantBody, page,
         principal,
         deadline,
       };
+      // ops.md 1.7.0 section 22: `ctx.webhook` on a webhook route.
+      if (webhook !== null) base.webhook = makeWebhook(owner, req);
       const st = newRequestState(base);
       stateVar.enter(st);
       if (page !== null) {
@@ -1500,6 +1931,7 @@ function run(handler, token, method, url, headers, body, params, wantBody, page,
       const ctx = st.ctxOf(owner);
       // A guarded page without `load`: the template gets `{}`.
       p = PromiseResolve(handler === null ? {} : handler(ctx));
+      if (webhook !== null) p = PromisePrototypeThen(p, undefined, webhookOutcome);
     } catch (e) {
       p = PromiseReject(e);
     }
@@ -1589,11 +2021,12 @@ function dispatchRealtime(handler, token, url, headers, body, params, owner, rt)
 function invoke(token, env, handler, owner) {
   const previous = requestVar.enter(token);
   try {
-    moduleVar.enter(env.kind === "tool" ? owner : "app");
+    moduleVar.enter(env.kind === "tool" || env.kind === "cross" ? owner : "app");
     const principal = freezePrincipal(op_authz_principal_cached(token).principal ?? null);
     const st = newRequestState({ deadline: requestDeadline, principal });
     stateVar.enter(st);
     const go = async () => {
+      if (env.kind === "cross") return await crossServe(st, env);
       if (env.kind === "service") {
         const fn = serviceModules.get(env.module)?.[env.name];
         if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
@@ -1650,6 +2083,43 @@ function invoke(token, env, handler, owner) {
   }
 }
 
+/**
+ * The callee side of a cross-isolate call (ops.md 1.7.0 section 15.6):
+ * `{ what: "service" | "hook", caller, module, name, args, tx }`. The
+ * statements join the caller's transaction `tx`; the result goes back as
+ * JSON (a filler's Response as status, headers and body text).
+ */
+async function crossServe(st, env) {
+  const tx = env.tx ?? 0;
+  if (tx !== 0) st.borrowedTx = tx;
+  const vars = [
+    [stateVar, st],
+    [moduleVar, env.module],
+  ];
+  if (tx !== 0) ArrayPrototypePush(vars, [txVar, tx]);
+  const args = JSONParse(env.args);
+  let value;
+  if (env.what === "hook") {
+    const f = ArrayPrototypeFind(hookFillers.get(env.name) ?? [], (x) => x.module === env.module && x.remote !== true);
+    if (f === undefined) return { kind: KIND_INVOKE, result: "no_handler" };
+    const r = await within(vars, () => f.handle(st.ctxOf(env.module), args));
+    if (r === undefined) value = { halt: false };
+    else if (r !== null && typeof r === "object" && r.halt === true && isResponse(r.response)) {
+      const headers = [];
+      for (const [k, v] of r.response.headers) ArrayPrototypePush(headers, [k, v]);
+      value = { halt: true, response: { status: r.response.status, headers, body: await r.response.text() } };
+    } else throw new TypeError("a hook filler returns undefined or { halt: true, response }");
+  } else {
+    const fn = serviceModules.get(env.module)?.[env.name];
+    if (typeof fn !== "function") return { kind: KIND_INVOKE, result: "no_handler" };
+    value = await within(vars, () => fn(st.ctxOf(env.module), ...(ArrayIsArray(args) ? args : [])));
+  }
+  const json = JSONStringify(value ?? null, dataReplacer);
+  if (typeof json !== "string") return { kind: KIND_INVOKE, result: "ok", data_json: "null" };
+  if (json.length > MAX_CROSS) return { kind: KIND_INVOKE, result: "output_too_large" };
+  return { kind: KIND_INVOKE, result: "ok", data_json: json };
+}
+
 /** Code entry specifier -> the promise of its namespace: one evaluation per isolate; a rejection stays cached until the isolate is replaced. */
 const lazyModules = new SafeMap();
 /** Module ids whose failure was reported already (logged once per isolate). */
@@ -1670,7 +2140,7 @@ function lazyFailed(desc, err) {
  * evaluation. Then the handler and the action are looked up (step 5) and
  * the request goes on as for an eager route.
  */
-function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner, principal) {
+function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner, principal, webhook = null) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1693,7 +2163,7 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
           action = actions !== null && typeof actions === "object" ? actions[desc.action] : undefined;
           if (typeof action !== "function") return lazyFailed(desc, new TypeError(`action ${desc.action} of ${desc.module} is missing or not a function`));
         }
-        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal);
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal, webhook);
       },
       (e) => lazyFailed(desc, e),
     );
@@ -1708,7 +2178,8 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
  * that module, `db` its own IMMEDIATE transaction; when it resolves, the
  * delivery is acknowledged in that transaction and it commits. Never rejects.
  */
-function deliver(token, id, name, payloadJson, attempt, module) {
+function deliver(token, id, name, payloadJson, attempt, module, job) {
+  if (job !== null && job !== undefined) return deliverJob(token, id, payloadJson, attempt, module, job);
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(module);
@@ -1747,6 +2218,68 @@ function deliver(token, id, name, payloadJson, attempt, module) {
       return { kind: KIND_EVENT, result: "ok" };
     };
     return PromisePrototypeThen(run(), undefined, (err) => ({ ...describeThrow(err), kind: KIND_EVENT, result: "threw" }));
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
+/**
+ * Called by Rust for one attempt of a job run (ops.md 1.6.0 section 20,
+ * "Delivery path"): `job` is `{ name, tick, handler }`, `handler` the
+ * module's exported `run` (or its lazy descriptor), null when the active
+ * deployment has no such job. `run(ctx)` gets a JobContext with its own
+ * IMMEDIATE transaction and the System principal of its module; when it
+ * resolves, the run is acknowledged in that transaction and it commits.
+ * Never rejects.
+ */
+function deliverJob(token, id, payloadJson, attempt, module, job) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(module);
+    const st = newRequestState({
+      deadline: requestDeadline,
+      // docs/11: jobs run as Renox::System::"<module>", never as a superuser.
+      principal: freezePrincipal({ id: module, kind: "system", roles: [], attrs: {} }),
+    });
+    stateVar.enter(st);
+    const go = async () => {
+      let fn = job.handler;
+      if (fn !== null && typeof fn === "object" && typeof fn.lazy === "string") {
+        let p = lazyModules.get(fn.lazy);
+        if (p === undefined) {
+          p = import(fn.lazy);
+          lazyModules.set(fn.lazy, p);
+        }
+        fn = (await p)[fn.export];
+      }
+      if (typeof fn !== "function") return { kind: KIND_EVENT, result: "no_handler" };
+      let tx;
+      try {
+        tx = await op_db_tx_begin(token, "immediate");
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      const tick = typeof job.tick === "number" ? job.tick : null;
+      const info = ObjectFreeze({ id, name: job.name, tick, attempt, payload: payloadJson === "null" ? null : ObjectFreeze(JSONParse(payloadJson)) });
+      const jctx = jobCtx(st.ctxOf(module), statements(tx, module), info);
+      try {
+        await within([[txVar, tx]], () => fn(jctx));
+        if (st.rolledBack.has(tx)) throw new ModuleServiceError(`${module} job ${job.name}: a callee failed`, { module, job: job.name, cause_code: null });
+        await op_jobs_ack(token, tx, id, module, job.name, tick);
+        await op_db_tx_commit(token, tx);
+      } catch (err) {
+        if (!st.rolledBack.has(tx)) {
+          try {
+            await op_db_tx_rollback(token, tx);
+          } catch {
+            // The request may have ended; Rust rolls back in that case.
+          }
+        }
+        throw err;
+      }
+      return { kind: KIND_EVENT, result: "ok" };
+    };
+    return PromisePrototypeThen(go(), undefined, (err) => ({ ...describeThrow(err), kind: KIND_EVENT, result: "threw" }));
   } finally {
     core.setAsyncContext(previous);
   }

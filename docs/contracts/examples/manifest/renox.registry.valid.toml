@@ -1,0 +1,3 @@
+# 1.2: a registry source.
+[modules]
+tax_gcc = { version = "^2.0", source = "registry:gulfsoft/tax_gcc", mount = "/tax" }

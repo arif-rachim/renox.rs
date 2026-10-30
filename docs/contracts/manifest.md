@@ -2,12 +2,12 @@
 
 | | |
 | --- | --- |
-| Version | **1.1** (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
+| Version | **1.2** (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
 | Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
 | Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
 | Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
 | Examples | [`examples/manifest/`](examples/manifest/): single files and whole projects (section 8) |
-| Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules MF1–MF12) |
+| Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules MF1–MF15) |
 | Sources | `docs/10-modules.md` (the module system), `docs/18-build-plan.md` (catalog, definition of done for a module), `docs/13-decisions.md` D12 (isolation modes), D14 (outbox), D17 (forward-only migrations, versioned views), `docs/06-data.md` (authorizer and prefixes), `docs/24-threat-model.md` (module publisher boundary) |
 
 A module is a mini app with the same folder structure as an app (`docs/10-modules.md`). Its `module.toml` says what it is, what it needs, and what it offers. A tenant installs modules in `renox.toml [modules]`; the CLI resolves them, asks the tenant to approve their permissions, and records the result in `renox.lock`. The lock is the only input the artifact takes from this contract: what the runtime enforces is what the tenant approved, never what a manifest asks for later.
@@ -21,6 +21,7 @@ All three files are TOML. The schemas validate the document a TOML parser produc
 | `module.toml` | module author | root of the module tree (`modules/<name>/module.toml`, or a `path:`/`git:` source) | Section 2 |
 | `renox.toml` `[modules]` | tenant | app root | Section 4. The other sections of `renox.toml` belong to the CLI and to `artifact.md` |
 | `renox.lock` | CLI | app root, committed with the app | Section 5. Never edited by hand: `renox check` refuses a lock that does not match (MF12) |
+| `module.sig` | `renox publish` (1.2) | root of a module tree published to the registry | Section 5, "Registry modules". Not part of the module tree hash |
 
 Generated from these files and defined elsewhere:
 
@@ -99,8 +100,22 @@ No other tables or keys are allowed at any level (`additionalProperties: false`)
 | --- | --- | --- | --- |
 | `name` | `^[a-z][a-z0-9_]{0,31}$`, no `__`, no trailing `_`, not `app`, `renox` or `authz` (MF1) | yes | The module's name **and its table prefix** `<name>__`. `app` is the tenant's own code (`artifact.md` section 1); `renox` is the platform (`renox__*` tables); `authz` is the platform's event namespace (`authz.roles_changed`, #272). The catalog name in `docs/18-build-plan.md` may differ where it is not a valid name: `gcc-data` is installed as `gcc` (tables `gcc__*`), `2fa` as `twofa` |
 | `version` | semver `MAJOR.MINOR.PATCH[-pre]`, no build metadata | yes | The version of this tree. Public API changes follow semver (`docs/10-modules.md`, rule 3) |
-| `isolation` | `"shared"` \| `"isolate"` | no, default `"shared"` | D12. The least isolation the module accepts; a tenant may raise it, never lower it (MF11). `shared`: one context with the app and other modules; `isolate`: its own isolate (`ops.md` 1.3.0, #226) |
+| `isolation` | `"shared"` \| `"isolate"` | no, default `"shared"` | D12. The least isolation the module accepts; a tenant may raise it, never lower it (MF11). `shared`: one context with the app and other modules; `isolate`: its own isolate with its own heap limit, serialised service calls, and only its approved secrets (`ops.md` 1.7.0, section 15.6; runs from #320) |
 | `description` | string, ≤ 200 | no | One line for `renox add` and the dashboard |
+| `price` | `{ amount, currency, period }` (1.2) | no | Informational, shown by the registry and `renox add`: `amount` a decimal string (`"49.00"`), `currency` ISO 4217 (`"AED"`), `period` `"once"`, `"month"`, or `"year"`. Nothing is charged through it in F7 (payouts are an owner decision, `docs/15`) |
+
+### `[publisher]` (1.2)
+
+Required in a tree published with `renox publish`; ignored for `path:` and `git:` sources.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `name` | `^[a-z0-9][a-z0-9-]{0,38}$` | The registry publisher; `registry:<publisher>/<name>` names the module (section 4). Claimed once in the registry, never reused |
+| `key_id` | `ed25519:<base64url of the 32-byte public key, no padding>` | The publisher's signing key. The registry lists a publisher's keys; a revoked key fails MF15 at install |
+
+### `[storage]` (1.2)
+
+`allowed_types`: the content types the module's `ctx.storage.put` accepts (`ops.md` section 21), MIME `type/subtype` without parameters, at most 64. Absent: the platform defaults (`artifact.md` 1.4, "Storage, AI, and the SBOM"). Copied to the artifact's module entry as `storage`.
 
 ### `[dependencies]`
 
@@ -225,7 +240,7 @@ The key is the module's name and must equal the manifest's `[module].name` (MF3)
 | Key | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `version` | range (section 2) | yes | The versions the tenant accepts. The lock's version must satisfy it and every dependant's range (MF2) |
-| `source` | `path:<dir>` \| `git:https://<repo>#<ref>` | no | Where the module tree is. `path:` is relative to the app root (`..` allowed, no absolute path, no drive letter); `git:` names a tag or a commit, which the lock pins to a 40-hex commit. **Absent = an official module**, resolved by the CLI from the official module set of its own release (Open 1). `registry` sources are F7 and rejected now (`docs/10-modules.md` writes `registry = "acme/reports"`; that key is not accepted until the registry contract) |
+| `source` | `path:<dir>` \| `git:https://<repo>#<ref>` | no | Where the module tree is. `path:` is relative to the app root (`..` allowed, no absolute path, no drive letter); `git:` names a tag or a commit, which the lock pins to a 40-hex commit. **Absent = an official module**, resolved by the CLI from the official module set of its own release (Open 1). 1.2: `registry:<publisher>/<name>` resolves from the Renox module registry (section 5, "Registry modules"); `<name>` is the module's name (MF3). `docs/10-modules.md` writes `registry = "acme/reports"`; the contract spells it as a `source` value so one key names where a module comes from |
 | `mount` | `/` or `/<segment>(/<segment>)*`, static segments | no, default `/<name>` | The path prefix of the module's routes (`artifact.md` section 3, "Modules"). Collisions after mounting are rejected at build (`artifact.md` V21) |
 | `config` | key → string, integer, or boolean | no | Values for the module's `[config]` keys. Unknown keys, wrong types, values outside bounds, and missing required keys are rejected (MF10) |
 | `isolation` | `"shared"` \| `"isolate"` | no, default: the manifest's | Overrides the mode **downward only**: from `shared` to `isolate`. Asking for `shared` when the manifest says `isolate` is rejected (MF11) |
@@ -245,6 +260,20 @@ mount = "/auth"
 dependencies = []
 config = { registration = "open", session_days = 30, magic_links = true }
 approved = { tables = "auth__*", network = ["accounts.google.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET"], slots = [], hooks = [], roles = ["admin", "member"] }
+
+[[module]]                                       # 1.2: a registry module
+name = "tax_gcc"
+version = "2.1.0"
+source = "registry:gulfsoft/tax_gcc"
+hash = "<64 hex>"
+key_id = "ed25519:<43 base64url>"
+signature = "<86 base64url>"
+approved_version = "2.0.0"
+isolation = "isolate"
+mount = "/tax"
+dependencies = []
+config = {}
+approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hooks = [] }
 ```
 
 | Key | Meaning |
@@ -252,13 +281,22 @@ approved = { tables = "auth__*", network = ["accounts.google.com"], secrets = ["
 | `version` | `1`, this contract's lock format |
 | `module[]` | One entry per installed module, in **topological order**: every module after all its dependencies, ties by name. This is the migration order and the artifact's `modules` order (`artifact.md` section 3) |
 | `name`, `version` | The manifest's name and version (MF3, MF12) |
-| `source` | `official`, `path:<dir>` (as in `renox.toml`), or `git:https://<repo>#<40-hex commit>` |
+| `source` | `official`, `path:<dir>` (as in `renox.toml`), `git:https://<repo>#<40-hex commit>`, or (1.2) `registry:<publisher>/<name>` |
 | `hash` | SHA-256 of the module tree: the canonical listing of `artifact.md` section 2 over every regular file under the module directory, `module.toml` included. Reproducible with the `sha256sum` pipeline there. A `path:` module whose tree changed fails MF12 until `renox install` updates the lock |
 | `isolation` | The effective mode after the `renox.toml` override (MF11) |
 | `mount` | The effective mount (`renox.toml` or the default) |
 | `dependencies` | The names of the manifest's `[dependencies]`, sorted: the dependency edges (MF12) |
 | `config` | The resolved config: every declared key that has a value, from `renox.toml` or the default (MF12) |
 | `approved` | The permissions the tenant approved: `tables` (absent when none), `network`, `secrets`, `slots`, `hooks`, and from 1.1 `roles` (absent or empty when the module assigns no role; section 3) |
+| `key_id`, `signature` | 1.2, registry sources only (MF15): the publisher key and the `module.sig` signature the CLI verified at install. Absent for every other source |
+| `approved_version` | 1.2, optional: the module version `approved` was given for. Absent = `version`. After `renox install` upgrades a module whose permissions did not change, the approval carries over and this keeps the older version; when they changed, MF12 fails until `renox approve`, which shows the diff from the `approved_version` set and then sets `approved_version = version` |
+
+### Registry modules (1.2)
+
+- **Publishing.** `renox publish` (run in a module tree with `[publisher]`) computes the module tree hash (above), signs it, writes `module.sig`, and uploads the tree to the registry under `<publisher>/<name>@<version>`. A version, once published, is immutable; the registry refuses a second upload of the same version.
+- **`module.sig`** is a JSON object (`module-manifest.schema.json` `$defs/moduleSig`): `{ "version": 1, "publisher", "key_id", "name", "module_version", "hash", "signature" }`. `signature` is the Ed25519 signature (base64url, no padding) of the UTF-8 bytes `renox-module-v1\n<publisher>/<name>@<module_version>\n<hash>\n`. The tree hash is computed **without** `module.sig`, so the signature does not sign itself.
+- **Installing.** `renox add` and `renox install` download the tree, recompute the hash, check `module.sig` against the publisher's key from the registry (refusing a revoked key), check that `[publisher].name` and `[module].name` match the source, and then show the permissions for approval as for any source (section 3). The lock records `key_id` and `signature`; `renox check` re-verifies the signature over the locked hash offline (MF15).
+- **Upgrades.** A registry upgrade with changed `[permissions]` shows the diff against the approved set (`approved_version`) and needs `renox approve` (section 3, MF12); `docs/23-failure-modes.md`, "Marketplace module asks for new permissions".
 
 The lock is the input to the build: `renox build` resolves nothing; it reads the lock, checks it (MF1–MF12), and copies it into the artifact. `renox install` resolves (newest version satisfying every range) and rewrites the lock; `renox approve` rewrites `approved`.
 
@@ -278,12 +316,13 @@ Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `valid
 | MF8 | **Fills.** `permissions.slots` is exactly the set of `[[slots]].name`; every hook in `permissions.hooks` is exported by an installed module other than this one | single file, project |
 | MF9 | **References.** Every `[[slots]].template` exists in the module tree; every `[[slots]].requires` and `[[tools]].action` is in `[authz].actions` | single file, project |
 | MF10 | **Config.** A declaration's `default` has its `type` and passes `values`, `min`, `max`, `max_length`; `min ≤ max`; `required = true` has no `default`. Every `renox.toml` config key is declared; every value has the declared type and passes its bounds; every required key has a value | single file, project |
-| MF11 | **Sources and isolation.** `source` is `path:` or `git:` (no registry); a `renox.toml` `isolation` is never lower than the manifest's (`shared` below `isolate`); the lock's `isolation` is the effective one | project |
+| MF11 | **Sources and isolation.** `source` is `path:`, `git:`, or (1.2) `registry:`; a `renox.toml` `isolation` is never lower than the manifest's (`shared` below `isolate`); the lock's `isolation` is the effective one | project |
 | MF12 | **Lock matches.** For each module: the lock's `version` is the manifest's; `hash` is the hash of the module tree; `dependencies` are the manifest's; `config` is the resolved config; `mount` and `source` are the `renox.toml` values (or the defaults); **`approved` equals the manifest's `[permissions]`** (section 3), `roles` included from 1.1 | project |
 | MF13 | **Actions and roles** (1.1). `permissions.roles` is exactly the set of `[authz.default_roles]` keys; every action of a `default_roles` entry, every `sensitive` action, every `slots[].requires`, and every `tools[].action` is in `[authz].actions` (MF9 for the last two); for the app's `renox.toml [authz]`, the same with the merged action set | single file |
 | MF14 | **Own prefix** (1.1). Every `[authz.ownership]` table, every `[authz.entities].table`, and every `[realtime.feeds]` table starts with `<name>__` (`app__` in `renox.toml`); every `[[tools]].file` exists in the module tree | single file, project (the file) |
+| MF15 | **Registry signatures** (1.2). A lock entry has `key_id` and `signature` exactly when its `source` is `registry:`; the source's `<name>` is the entry's `name`; the manifest of a registry module has `[publisher]` with the source's publisher and the lock's `key_id`; the signature verifies over the locked hash (section 5, "Registry modules") | single file (lock); the publisher and signature checks run in the CLI at install and in `renox check` (they need the registry tree and key) |
 
-Every rejection names the rule (`MF1`–`MF14`), the file and key, and a one-line reason, and never a filesystem path outside the app.
+Every rejection names the rule (`MF1`–`MF15`), the file and key, and a one-line reason, and never a filesystem path outside the app.
 
 ## 7. What the other F4 contracts take from here
 
@@ -294,6 +333,7 @@ Every rejection names the rule (`MF1`–`MF14`), the file and key, and a one-lin
 | SDK (#236) | `[exports.services]` and the services' signatures | `renox-modules.d.ts` |
 | Migrations (#234) | Lock order as migration order; `permissions.tables` for which modules must have migrations | `artifact.md` V19 |
 | Artifact 1.3 and ops 1.5.0 (#272, F5) | `[authz]`, `[realtime]`, `[[tools]]` on the module entry and as `tool` routes; `approved.roles` for `op_authz_roles_*`; the `auth.principal` service and hook for the principal | `artifact.md` section 3, "Authorization and realtime"; `ops.md` sections 17–19 |
+| Artifact 1.4 and ops 1.7.0 (#318, F7) | `[storage]` on the module entry; `isolation = "isolate"` run by #320; `registry:` sources in the entry's `source` | `artifact.md` section 3, "Storage, AI, and the SBOM"; `ops.md` sections 15.6, 21 |
 
 ## 8. Examples
 
@@ -315,8 +355,8 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 ## Open
 
 1. **Official module distribution.** A `renox.toml` entry without `source` is an official module "from the CLI's release". Whether the CLI embeds `modules/*` or downloads them from the release assets (signed like the worker, #129) is decided by #235; the lock records `source = "official"` either way, and the hash pins the tree.
-2. **`isolate` mode.** The manifest accepts `isolation = "isolate"` now (D12), but the F4 runtime runs every module `shared` (`ops.md` 1.3.0, #226). A tenant who asks for `isolate` before it exists gets a build error from #235, not a silent `shared`.
-3. **Registry sources (F7).** `registry = "<publisher>/<name>"` from `docs/10-modules.md` is rejected until the registry contract defines publishers, signatures, and the permission-diff flow of `docs/23-failure-modes.md`.
+2. **`isolate` mode.** Settled in 1.2: the runtime semantics are `ops.md` 1.7.0 section 15.6, implemented by #320. Until #320 lands, #235's build error for `isolate` stays.
+3. **Registry sources.** Settled in 1.2 (sections 2, 4, 5; MF15). Still open: the registry's own HTTP API (publish, fetch, key listing and revocation) belongs to the registry service of #329 and is not a tenant-facing contract here; payouts for `price` are an owner decision (`docs/15`).
 4. **Slot exports.** A slot is filled by name; nothing declares which module renders `<r-slot name="admin.sidebar">`. A filled slot that nothing renders is harmless (it never appears). An `[exports].slots` list can be added as a minor change if `renox check` needs to warn about it.
 5. **App events.** The app has no manifest, so it cannot export events or hook points in F4. `renox.toml [exports]` can be added as a minor change.
 
@@ -326,3 +366,4 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 | --- | --- | --- |
 | 1 | #225 | First version (F4): `module.toml` (`[module]`, `[dependencies]`, `[config]`, `[permissions]`, `[exports]`, `[imports]`, `[[slots]]`, `[[tools]]`, `[authz]`), `renox.toml [modules]`, `renox.lock` with approved permissions, rules MF1–MF12 |
 | 1.1 | #272 | Minor (no lock version bump; every new key is optional). `[authz] sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`; `[realtime.feeds]`; `[[tools]]` carried in the artifact (`artifact.md` 1.3); `permissions.roles` and `approved.roles`; the `auth.principal` service and hook convention; `renox.toml [authz]` and `[realtime]` for the app; `authz` a reserved name (MF1); rules MF13–MF14. For `ops.md` 1.5.0 sections 17–19 |
+| 1.2 | #318 | Minor (no lock version bump; every new key is optional). `source = "registry:<publisher>/<name>"` in `renox.toml` and the lock (MF11 relaxed); `[publisher]` (`name`, `key_id`) and `[module] price` in `module.toml`; `[storage] allowed_types`; the `module.sig` file and its signed message; the lock's `key_id`, `signature` (registry only), and `approved_version` for the upgrade diff; `renox publish`; the `isolate` mode settled (Open 2) and registry sources settled (Open 3); rule MF15. For `artifact.md` 1.4 and `ops.md` 1.7.0 |

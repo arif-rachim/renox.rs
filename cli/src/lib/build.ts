@@ -42,7 +42,7 @@ import { readLock } from "./modules/lock.ts";
 import { readProject, type ProjectConfig } from "./project.ts";
 import { isTimeZone, parseSchedule } from "../../../sdk/src/jobs.ts";
 import { toolInputSchema } from "../../../sdk/src/tools.ts";
-import { type ArtifactRoute, discoverFunctions, discoverJobs, discoverPages, discoverRealtime, discoverTools, exportedString, type JobRoute, routeConflicts, routesOf, type Route, type ToolRoute } from "./routes.ts";
+import { type ArtifactRoute, discoverFunctions, discoverJobs, discoverPages, discoverRealtime, discoverTools, discoverWebhooks, exportedString, type JobRoute, routeConflicts, routesOf, type Route, type ToolRoute } from "./routes.ts";
 import { type CompiledTemplate, TemplateCache, templateFiles, templatesKey, transpile } from "./templates-compile.ts";
 import { type Json, validate } from "./schema.ts";
 import { schemas } from "./schemas.ts";
@@ -87,6 +87,9 @@ export interface Manifest {
   authz?: AuthzBlock;
   /** Artifact 1.3: the app's `renox.toml [realtime]` (`feeds`, #284). */
   realtime?: { feeds?: Record<string, string> };
+  /** Artifact 1.4 (#323). */
+  storage?: { allowed_types?: string[]; images?: { widths?: number[] } };
+  ai?: { mode?: "direct" | "gateway" };
 }
 
 type JsonObjectLike = Record<string, Json>;
@@ -342,16 +345,19 @@ export async function buildFiles(
   const pages = discoverPages(project);
   // Artifact 1.3 (#284): realtime routes, tools and jobs.
   const realtime = discoverRealtime(project);
+  // Artifact 1.4 (#323): webhook routes.
+  const webhooks = discoverWebhooks(project);
   const toolModules = discoverTools(project);
   const jobModules = discoverJobs(project);
-  if (fns.length === 0 && pages.length === 0 && realtime.length === 0 && toolModules.length === 0 && jobModules.length === 0 && !mods?.routes.length)
+  if (fns.length === 0 && pages.length === 0 && realtime.length === 0 && webhooks.length === 0 && toolModules.length === 0 && jobModules.length === 0 && !mods?.routes.length)
     throw new BuildError("no routes: functions/ has no module exporting GET, POST, ... and pages/ has no page");
-  const routes: Route[] = [...routesOf(fns, pages), ...realtime.map((r): Route => ({ kind: r.kind, path: r.pattern, module: r.id })), ...(mods?.routes ?? [])];
+  const routes: Route[] = [...routesOf(fns, pages), ...realtime.map((r): Route => ({ kind: r.kind, path: r.pattern, module: r.id })), ...webhooks.map((w): Route => ({ kind: "webhook", path: w.pattern, module: w.id, export: "POST", ...(w.provider ? { provider: w.provider } : {}) })), ...(mods?.routes ?? [])];
   // Artifact 1.3 (#283): each route module's `export const guard`, read
   // statically, into its route entry.
   const sourceOf = new Map<string, string>([
     ...fns.map((f): [string, string] => [f.id, join(project, f.source)]),
     ...realtime.map((r): [string, string] => [r.id, join(project, r.source)]),
+    ...webhooks.map((w): [string, string] => [w.id, join(project, w.source)]),
     ...pages.flatMap((p): [string, string][] => (p.source ? [[p.id, join(project, p.source)]] : [])),
     ...(mods?.entries ?? []).map((e): [string, string] => [e.id, join(e.tree, e.source)]),
   ]);
@@ -377,6 +383,7 @@ export async function buildFiles(
     ...fns,
     ...pages.flatMap((p) => (p.source ? [{ id: p.id, source: p.source }] : [])),
     ...realtime.map((r) => ({ id: r.id, source: r.source })),
+    ...webhooks.map((w) => ({ id: w.id, source: w.source })),
     ...toolModules,
     ...jobModules.map((j) => ({ id: j.id, source: j.source })),
   ];
@@ -526,6 +533,9 @@ export async function buildFiles(
     ...(mods && Object.keys(mods.slots).length ? { slots: mods.slots } : {}),
     ...(authz ? { authz } : {}),
     ...(appRealtime ? { realtime: appRealtime } : {}),
+    // Artifact 1.4: renox.toml [storage] and [ai].
+    ...(config.storage ? { storage: config.storage } : {}),
+    ...(config.ai ? { ai: config.ai } : {}),
   };
   const errs = validate(schemas.manifest, manifest as unknown as Json);
   if (errs.length) throw new BuildError("manifest.json does not validate", errs);

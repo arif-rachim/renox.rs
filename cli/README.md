@@ -35,6 +35,10 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox remove <module>` | Uninstalls a module; its tables stay |
 | `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs the policy test cases of `policies/tests/*.json`, then `tests/*.test.ts` with `renox/test` on the worker, a fresh tenant file per test file (below) |
 | `renox authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]` | Why the app's policies allow or deny one request: the decision, the deciding policies with their text, evaluation errors. Roles and the resource's declared attributes come from the dev tenant file (below, "Authorization") |
+| `renox dev --jobs` | Also runs the app's and modules' scheduled jobs (`jobs/*.ts`, ops.md section 20) and prints `jobs: <job> tick <time>` lines; without it, only queued runs (`ctx.jobs.enqueue`) run |
+| `renox jobs list [--state scheduled\|queued\|running\|dead] [--json]` | The dev app's jobs from `.renox/data/dev/app.db`: next and last runs, the queue, running runs, dead runs with their last error; never a payload (#297) |
+| `renox jobs run <name> [--module <m>]` | A tick of the scheduled job now (coalescing into its waiting run, as the scheduler does); `renox dev` runs it within a second |
+| `renox jobs retry <id>` | A dead run back in the queue with its attempts reset |
 | `renox migrate [--db <file>]` | Builds, then runs the artifact's migration plan (installed modules in lock order, then the app's) on the dev tenant file `.renox/data/dev/app.db` through `renox-worker migrate` (below) |
 | `renox deploy [--json]` | Builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
 | `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |

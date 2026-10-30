@@ -257,7 +257,8 @@ pub struct StreamEncoder {
 }
 
 enum StreamInner {
-    Gzip(flate2::write::GzEncoder<Vec<u8>>),
+    // Both boxed: the encoders' state is large and of different sizes.
+    Gzip(Box<flate2::write::GzEncoder<Vec<u8>>>),
     Br(Box<brotli::CompressorWriter<Vec<u8>>>),
 }
 
@@ -276,10 +277,10 @@ impl std::fmt::Debug for StreamEncoder {
 impl StreamEncoder {
     pub fn new(encoding: Encoding) -> StreamEncoder {
         let inner = match encoding {
-            Encoding::Gzip => StreamInner::Gzip(flate2::write::GzEncoder::new(
+            Encoding::Gzip => StreamInner::Gzip(Box::new(flate2::write::GzEncoder::new(
                 Vec::new(),
                 flate2::Compression::default(),
-            )),
+            ))),
             Encoding::Br => StreamInner::Br(Box::new(brotli::CompressorWriter::new(
                 Vec::new(),
                 4096,

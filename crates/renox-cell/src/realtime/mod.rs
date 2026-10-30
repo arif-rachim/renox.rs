@@ -290,6 +290,11 @@ impl Session {
             }
             _ => tracing::info_span!("realtime.open", route = %self.route.pattern),
         };
+        let _trace = renox_runtime::trace::register(
+            &rt_ctx.request_id,
+            span.clone(),
+            crate::telemetry::trace_id(&span),
+        );
         let out =
             tracing::Instrument::instrument(self.cell.isolate.dispatch(rt_ctx, req), span).await;
         self.usage.add(&out.meter);
@@ -402,6 +407,11 @@ pub(crate) async fn serve(
             authz_evals: Some(s.usage.authz_evals).filter(|n| *n > 0),
             realtime_conn_seconds: conn.map(|(secs, _)| (secs * 1000.0).round() / 1000.0),
             realtime_messages: conn.map(|(_, n)| n),
+            storage_bytes: None,
+            image_variants: None,
+            ai_tokens_in: None,
+            ai_tokens_out: None,
+            render_pdf_ms: None,
         });
     };
 

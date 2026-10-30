@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0.4** (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
+| Version | **0.5** (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
 | Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12, [`deploy-api.md`](deploy-api.md)) and `cli/` (P11) |
 | Consumers | `sdk/` (P10) error classes; `cli/` (P11) and the dashboard (P13), which quote these rows; the public docs; tenants' own API clients |
 | Related | [`ops.md`](ops.md) section 13 (which codes ops throw and which the platform answers with), [`meter.md`](meter.md) (`status`), `docs/23-failure-modes.md` (when each failure happens) |
@@ -120,6 +120,16 @@ Columns: **HTTP** = status of the platform response ("—" = never a response by
 
 | `RENOX_JOB_NOT_FOUND` | F6 | — | `op_jobs_retry` or `op_jobs_cancel` named an id that is not a job row of this tenant | — | When uncaught: `id`, `op` | Reload the list; the row was cancelled or pruned | `ops.md` §20 (1.6.0) |
 | `RENOX_JOB_STATE` | F6 | — | `op_jobs_retry` on a row that is not dead, or `op_jobs_cancel` on a running row | — | When uncaught: `id`, `state`, `op` | Retry only dead letters; wait for a running job to end before cancelling | `ops.md` §20 (1.6.0) |
+| `RENOX_STORAGE_QUOTA` | F7 | — | `op_storage_put` would take the tenant past its storage bytes | — | When uncaught: `limit_bytes`, `used_bytes` | Delete files or move to the paid tier | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_TYPE` | F7 | — | A content type outside `[storage] allowed_types`, one the sniffed bytes contradict, or SVG that was not sanitised | — | When uncaught: `declared`, `sniffed` | Upload a file of an allowed type; send SVG through the `storage` module's sanitiser | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_TOO_LARGE` | F7 | — | One file is over the tier's per-file limit | — | When uncaught: `limit_bytes` | Split or compress the file | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_KEY` | F7 | — | A key outside the pattern, with a `..` segment, or under another module's prefix | — | When uncaught: `key` (truncated to 64 characters) | Use the module's own keys | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_NOT_FOUND` | F7 | — | No file under that key | — | When uncaught: `key` (truncated) | Check the key | `ops.md` §21 (1.7.0) |
+| `RENOX_IMAGE_RATE` | F7 | 429 | The tenant's image transform rate is spent (`Retry-After`) | Too many image requests. Try again shortly. | `route` | Use the allowed widths; variants are cached after the first request | `ops.md` §21 (1.7.0) |
+| `RENOX_WEBHOOK_SIGNATURE` | F7 | 401 | A webhook's signature is missing or wrong, or its timestamp is outside the tolerance; the handler does not go on | The request could not be verified. | `provider`, `reason` (`missing` / `mismatch` / `expired`); never the body or a header value | Check the secret `WEBHOOK_<PROVIDER>_SECRET` and the provider's endpoint settings | `ops.md` §22 (1.7.0) |
+| `RENOX_AI_QUOTA` | F7 | 429 | The tenant's monthly AI tokens are spent | The service is temporarily unavailable. | `used_tokens`, `limit_tokens` | Wait for the next month or move to the paid tier; use a key of your own (`[ai] mode = "direct"`) | `ops.md` §23 (1.7.0) |
+| `RENOX_AI_UNAVAILABLE` | F7 | 503 | The model provider (or the platform gateway) did not answer or failed | The service is temporarily unavailable. | `provider`, `status`; never the provider's body | Retry later, or handle the error in the app | `ops.md` §23 (1.7.0) |
+| `RENOX_PDF_LIMIT` | F7 | — | A PDF would be over 200 pages or 20 MB | — | When uncaught: `pages`, `bytes` | Page the report, or produce several files | `ops.md` §24 (1.7.0) |
 
 `RENOX_DB_UNAVAILABLE` has an HTTP status because it fails the request before any tenant code runs (the cell cannot open the file). When it happens during a request it is thrown like the other `RENOX_DB_*` codes.
 
@@ -187,3 +197,4 @@ Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](depl
 | 0.2 | #50 | Deploy API (F3): section "Control API" (`RENOX_VALIDATION`, `RENOX_UNAUTHENTICATED`, `RENOX_TOKEN_SCOPE`, `RENOX_NOT_FOUND`, `RENOX_CONFLICT`, `RENOX_RATE_LIMITED`); `RENOX_ACTIVATION_FAILED`, `RENOX_CLI_WORKER_UNVERIFIED`; `RENOX_DEPLOY_REJECTED` gains T1-T8 and its message; `RENOX_UNAVAILABLE` covers the deploy API |
 | 0.3 | #251 | Deploy API 0.3 (F6): `RENOX_BACKUP_UNAVAILABLE`, `RENOX_RESTORE_POINT_UNKNOWN`, `RENOX_IMPORT_REJECTED`, `RENOX_TENANT_MOVING` in "Control API" |
 | 0.4 | #272 | Ops 1.5.0 (F5): `RENOX_REALTIME_LIMIT` and `RENOX_REALTIME_BACKPRESSURE` in "Request limits"; the new section "App MCP" with `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`; `RENOX_POLICY_INVALID` in "Deploy"; the `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` rows completed (reasons, logged fields, the uncaught-is-403 rule) |
+| 0.5 | #318 | Ops 1.7.0 (F7): the storage, image, webhook, AI and PDF codes |

@@ -28,6 +28,7 @@ import { onTenantState } from "../routes/activation.ts";
 import { routeService } from "../routes/service.ts";
 import { requestScope, tenantDb } from "../tenancy/scope.ts";
 import { nodeCall, nodeTarget } from "../workers/failover.ts";
+import { logIngest } from "../ingest/logs.ts";
 
 export type ErasureState = "pending" | "erasing" | "done" | "failed";
 
@@ -44,17 +45,25 @@ export interface Erasure {
   requested_at: number;
   completed_at: number | null;
   failure: Step | null;
+  /** 0.4.1: when the owning node confirmed the replica purge; null until then. */
+  replica_purged_at: number | null;
 }
 
 /** The erasure record of `tenantId`, or null. */
 export async function erasureOf(db: Db, tenantId: string): Promise<Erasure | null> {
-  const rows = await db.query<{ state: ErasureState; requested_at: unknown; completed_at: unknown; failure: Step | null }>(
-    "select state, requested_at, completed_at, failure from tenant_erasures where tenant_id = $1",
+  const rows = await db.query<{ state: ErasureState; requested_at: unknown; completed_at: unknown; failure: Step | null; replica_purged_at: unknown }>(
+    "select state, requested_at, completed_at, failure, replica_purged_at from tenant_erasures where tenant_id = $1",
     [tenantId],
   );
   const r = rows[0];
   if (r === undefined) return null;
-  return { state: r.state, requested_at: num(r.requested_at), completed_at: r.completed_at === null ? null : num(r.completed_at), failure: r.failure };
+  return {
+    state: r.state,
+    requested_at: num(r.requested_at),
+    completed_at: r.completed_at === null ? null : num(r.completed_at),
+    failure: r.failure,
+    replica_purged_at: r.replica_purged_at === null ? null : num(r.replica_purged_at),
+  };
 }
 
 /** The tenant's records, deleted in this order (children before `apps`); static statements (tests/sql-lint.test.ts). */
@@ -103,8 +112,16 @@ async function step(deps: Deps, db: Db, tenantId: string, s: Step, now: number):
         const target = await nodeTarget(deps, db, node);
         if (target.listen_url === null || target.token === null) continue;
         try {
-          const res = await nodeCall(deps)(target, "DELETE", `/nodes/${node}/tenants/${tenantId}`, undefined, 30_000);
-          if (res.status !== 200) all = false;
+          // 0.4.1: the node also purges every generation of the tenant from the replica store.
+          const res = await nodeCall(deps)(target, "DELETE", `/nodes/${node}/tenants/${tenantId}?purge_replica=true`, undefined, 60_000);
+          if (res.status !== 200) {
+            all = false;
+            continue;
+          }
+          const at = (res.body as { replica_purged_at?: unknown } | null)?.replica_purged_at;
+          if (typeof at === "number") {
+            await db.query("update tenant_erasures set replica_purged_at = greatest(coalesce(replica_purged_at, 0), $2) where tenant_id = $1", [tenantId, at]);
+          }
         } catch {
           all = false;
         }
@@ -123,6 +140,8 @@ async function step(deps: Deps, db: Db, tenantId: string, s: Step, now: number):
       await db.transaction(async (tx) => {
         for (const sql of RECORD_DELETES) await tx.query(sql, [tenantId]);
       });
+      // deploy-api.md 0.4 section 3: the tenant's log lines go too.
+      await logIngest(deps).store.dropTenant(tenantId);
       return true;
   }
 }
@@ -177,7 +196,7 @@ export async function runErasure(deps: Deps, tenantId: string): Promise<ErasureS
       await writeAudit(db, { at: now, tenantId, actor: "platform", action: "deleteTenant", target: { tenant_id: tenantId, state: "failed", step: failed }, status: 500, requestId: `erasure-${tenantId}` });
       return "failed";
     }
-    await db.query("update tenant_erasures set next_at = $2 where tenant_id = $1", [tenantId, now + RETRY_MS]);
+    await db.query("update tenant_erasures set next_at = $2 where tenant_id = $1", [tenantId, now + (deps.config.erasureRetryMs ?? RETRY_MS)]);
     return "erasing";
   } finally {
     busy.delete(tenantId);
@@ -213,6 +232,17 @@ async function busyReason(db: Db, tenantId: string): Promise<string | null> {
   return rows[0] !== undefined && rows[0].moving_since !== null ? "moving" : null;
 }
 
+/**
+ * deploy-api.md 0.5 section 21: a new free tenant has reduced quotas and no
+ * custom domain until a payment method is confirmed, or 7 days pass.
+ */
+export async function newTenantRestrictions(db: Db, tenantId: string, createdAt: number, now: number): Promise<string[]> {
+  if (now - createdAt >= 7 * 86_400_000) return [];
+  const pm = await db.query<Record<string, unknown>>("select payment_method from tenant_billing where tenant_id = $1", [tenantId]);
+  if (pm[0]?.payment_method !== undefined && pm[0]?.payment_method !== null) return [];
+  return ["reduced_quotas", "no_custom_domain"];
+}
+
 export function registerErasure(app: Hono<Env>, deps: Deps): void {
   app.get("/v1/tenants/:tenant_id", operation(deps, "getTenant"), tenantAuth(deps, "apps:read"), async (c) => {
     const db = tenantDb(deps, c);
@@ -220,7 +250,10 @@ export function registerErasure(app: Hono<Env>, deps: Deps): void {
     const rows = await db.query<Record<string, unknown>>("select id, name, tier, state, created_at from tenants where id = $1", [db.tenantId]);
     const r = rows[0];
     if (r === undefined) throw notFound();
-    return c.json({ tenant_id: r.id, name: r.name, tier: r.tier, state: r.state, created_at: num(r.created_at), erasure: await erasureOf(db, db.tenantId) });
+    // deploy-api.md 0.5 section 21 (#326): the first activation, and the new-tenant limits still in force.
+    const first = (await db.query<Record<string, unknown>>("select min(activated_at) as t from deployments where tenant_id = $1 and activated_at is not null", [db.tenantId]))[0]?.t;
+    const restrictions = await newTenantRestrictions(db, db.tenantId, num(r.created_at), deps.now());
+    return c.json({ tenant_id: r.id, name: r.name, tier: r.tier, state: r.state, created_at: num(r.created_at), first_deploy_at: first === null || first === undefined ? null : num(first), restrictions, erasure: await erasureOf(db, db.tenantId) });
   });
 
   app.delete("/v1/tenants/:tenant_id", operation(deps, "deleteTenant"), tenantAuth(deps, "tenant:delete"), async (c) => {

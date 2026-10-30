@@ -197,10 +197,26 @@ struct Inner {
     evicted: std::sync::atomic::AtomicU64,
     /// Outbox delivery settings for new cells (#229).
     outbox: Mutex<crate::outbox::OutboxConfig>,
+    /// `[jobs] enabled` (#297): whether cells run their scheduler.
+    jobs: std::sync::atomic::AtomicBool,
+    /// `[jobs] poll_ms` (development only; 0 = never).
+    jobs_poll_ms: std::sync::atomic::AtomicU64,
+    /// The active `(tenant, deployment)` pairs of the last route sync, so a
+    /// job wake-up never revives a superseded deployment; `None` before
+    /// the first sync (local mode).
+    active: Mutex<Option<HashSet<(String, String)>>>,
     /// The worker's `[authz]` (#279): dev mode and the principal cache TTL.
     authz: Mutex<crate::authz::AuthzConfig>,
     /// The worker's `[realtime]` caps (#281).
     realtime: Mutex<crate::config::RealtimeSection>,
+    /// The node's file store for `ctx.storage`, `/_img` and `/_files` (#321):
+    /// `<data_dir>/files` unless the worker config names a bucket.
+    files: Mutex<Arc<dyn crate::storage::ObjectStore>>,
+    /// The `/_img` transform rate of new cells: per second and burst (#321).
+    image_rate: Mutex<(f64, f64)>,
+    /// The platform's AI gateway for `ctx.ai` in gateway mode (#322):
+    /// the control plane in controlled mode, none in local mode.
+    ai: Mutex<Option<renox_runtime::ops::ai::AiSlot>>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -227,6 +243,13 @@ pub type SyncObserver = Arc<dyn Fn(&[RouteEntry]) + Send + Sync>;
 
 /// What happens around a tenant file's life in this process (#255: the
 /// Litestream sidecar, `crate::replication`).
+/// A response whose request found its tenant file damaged (#311): the
+/// node dispatcher (`worker.rs`) answers 503 and starts the restore.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbCorrupt {
+    pub database: String,
+}
+
 pub trait DbLifecycle: Send + Sync + 'static {
     /// Before the file is opened, on the database thread (blocking is fine):
     /// restore a missing or corrupt file. An error refuses the open.
@@ -252,16 +275,23 @@ pub struct CellManager {
 
 impl CellManager {
     pub fn new(runtime: Runtime, meter: Meter, config: ManagerConfig) -> CellManager {
+        let files = Mutex::new(crate::storage::local_store(&config.data_dir));
         CellManager {
             inner: Arc::new(Inner {
                 runtime,
                 meter,
+                files,
+                image_rate: Mutex::new((crate::images::RATE_PER_SECOND, crate::images::RATE_BURST)),
+                ai: Mutex::new(None),
                 config,
                 cells: Mutex::new(HashMap::new()),
                 dbs: Mutex::new(HashMap::new()),
                 created: Default::default(),
                 evicted: Default::default(),
                 outbox: Mutex::new(crate::outbox::OutboxConfig::default()),
+                jobs: std::sync::atomic::AtomicBool::new(true),
+                jobs_poll_ms: std::sync::atomic::AtomicU64::new(0),
+                active: Mutex::new(None),
                 authz: Mutex::new(crate::authz::AuthzConfig::default()),
                 realtime: Mutex::new(crate::config::RealtimeSection::default()),
                 trim_scheduled: Default::default(),
@@ -330,6 +360,17 @@ impl CellManager {
 
     pub fn set_authz_config(&self, config: crate::authz::AuthzConfig) {
         *self.inner.authz.lock().expect("authz lock") = config;
+    }
+
+    /// `[jobs]` of the worker config (#297): `enabled = false` runs no
+    /// scheduler (queued runs are still delivered).
+    pub fn set_jobs_config(&self, config: crate::config::JobsSection) {
+        self.inner
+            .jobs
+            .store(config.enabled, std::sync::atomic::Ordering::Relaxed);
+        self.inner
+            .jobs_poll_ms
+            .store(config.poll_ms, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn set_outbox_config(&self, config: crate::outbox::OutboxConfig) {
@@ -597,7 +638,27 @@ impl CellManager {
                 snap.outbox.insert(tenant, (stats.pending, age, stats.dead));
             }
         }
-        self.inner.metrics.render(&snap)
+        let mut text = self.inner.metrics.render(&snap);
+        // ops.md 1.7.0 section 15.6: the isolates of `isolate` modules, beside the cells'.
+        text.push_str("# HELP renox_module_isolates Live isolates of modules installed with isolation = \"isolate\".\n");
+        text.push_str("# TYPE renox_module_isolates gauge\n");
+        text.push_str(&format!(
+            "renox_module_isolates {}\n",
+            live.iter()
+                .map(|c| c.isolate.module_isolates().len())
+                .sum::<usize>()
+        ));
+        text
+    }
+
+    /// Live isolates of `isolate` modules over every cell (ops.md 1.7.0 section 15.6).
+    pub fn module_isolates(&self) -> usize {
+        let cells = self.inner.cells.lock().expect("cells lock");
+        cells
+            .values()
+            .filter_map(|slot| slot.get())
+            .map(|c| c.isolate.module_isolates().len())
+            .sum()
     }
 
     /// Principal cache and decision counters of the live cells (#279).
@@ -626,6 +687,7 @@ impl CellManager {
             .filter(|e| e.status == RouteStatus::Active)
             .map(|e| (e.tenant_id.clone(), e.deployment_hash.clone()))
             .collect();
+        *self.inner.active.lock().expect("active lock") = Some(active.clone());
         {
             let cells = self.inner.cells.lock().expect("cells lock");
             for (key, slot) in cells.iter() {
@@ -734,6 +796,12 @@ impl CellManager {
                 TierName::Free => Limits::FREE,
                 TierName::Paid => Limits::PAID,
             };
+            let cell_storage = Arc::new(crate::storage::CellStorage::new(
+                self.inner.files.lock().expect("files lock").clone(),
+                &self.inner.config.platform_key,
+                &key.tenant_id,
+                crate::storage::limits_for(tier_name),
+            ));
             let spec = IsolateSpec {
                 tenant_id: key.tenant_id.clone(),
                 deployment_hash: key.deployment_hash.clone(),
@@ -742,6 +810,9 @@ impl CellManager {
                 secrets,
                 db: Some(db.clone()),
                 max_isolates: max_isolates(tier_name),
+                storage: Some(renox_runtime::StorageSlot(cell_storage.clone())),
+                ai: self.inner.ai.lock().expect("ai lock").clone(),
+                templates: crate::render::pdf_templates(&artifact_dir),
             };
             let prepare_db = async {
                 db.ready().await.map_err(CellError::Db)?;
@@ -831,8 +902,38 @@ impl CellManager {
         *isolate.realtime_slot().write().expect("realtime slot") = Some(host.clone());
         // #305: `[realtime.feeds]` publish committed row changes through the hub.
         crate::cell::attach_feeds(&artifact_dir, &db, &host.hub).await;
+        // #321: `/_img` widths from `[storage.images]`, the cell's own store and rate.
+        let widths: Vec<u32> = isolate
+            .manifest()
+            .storage
+            .as_ref()
+            .and_then(|s| s.get("images"))
+            .and_then(|i| i.get("widths"))
+            .and_then(|w| w.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u32))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let files = crate::images::Files {
+            storage: Arc::new(crate::storage::CellStorage::new(
+                self.inner.files.lock().expect("files lock").clone(),
+                &self.inner.config.platform_key,
+                &key.tenant_id,
+                crate::storage::limits_for(tier_name),
+            )),
+            db: db.clone(),
+            tenant_id: key.tenant_id.clone(),
+            widths,
+            rate: {
+                let (per_second, burst) = *self.inner.image_rate.lock().expect("rate lock");
+                crate::images::Rate::new(per_second, burst)
+            },
+        };
         let mut cell = Cell::new(key.clone(), isolate, web);
         cell.realtime = Some(host);
+        cell.files = Some(files);
         let cell = Arc::new(cell);
         self.inner
             .created
@@ -860,6 +961,20 @@ impl CellManager {
             meter: self.inner.meter.clone(),
             config: *self.inner.outbox.lock().expect("outbox lock"),
             admit: Box::new(move |c| this.admit_delivery(c)),
+            jobs: if self.inner.jobs.load(std::sync::atomic::Ordering::Relaxed) {
+                cell.isolate.jobs()
+            } else {
+                Vec::new()
+            },
+            next_tick: cell.next_tick.clone(),
+            poll: match self
+                .inner
+                .jobs_poll_ms
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                0 => None,
+                ms => Some(Duration::from_millis(ms)),
+            },
         }));
         Ok(cell)
     }
@@ -983,6 +1098,12 @@ impl CellManager {
             "cell evicted"
         );
         cell.stop_outbox();
+        let next_tick = *cell.next_tick.lock().expect("next tick lock");
+        if !cell.is_draining()
+            && let Some(at) = next_tick
+        {
+            self.wake_for_jobs(cell.key.clone(), at);
+        }
         cell.isolate.terminate();
         let db_key = self
             .inner
@@ -997,6 +1118,43 @@ impl CellManager {
             .evicted
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.schedule_trim();
+    }
+
+    /// An evicted cell's jobs tick at `at` (Unix ms): bring the cell back
+    /// then so its scheduler writes the run (#297). Skipped when a cell
+    /// already exists or the deployment is no longer active.
+    fn wake_for_jobs(&self, key: CellKey, at: i64) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            let wait =
+                u64::try_from(at.saturating_sub(renox_runtime::ops::jobs::now_ms())).unwrap_or(0);
+            tokio::time::sleep(Duration::from_millis(wait)).await;
+            let still_active = this
+                .inner
+                .active
+                .lock()
+                .expect("active lock")
+                .as_ref()
+                .is_none_or(|a| a.contains(&(key.tenant_id.clone(), key.deployment_hash.clone())));
+            let live = this
+                .inner
+                .cells
+                .lock()
+                .expect("cells lock")
+                .contains_key(&key);
+            if !still_active || live {
+                return;
+            }
+            match this.admit(&key).await {
+                Ok(cell) => {
+                    tracing::info!(tenant_id = %key.tenant_id, deployment_hash = %key.deployment_hash, "cell woken for its jobs");
+                    drop(crate::cell::InFlightGuard(&cell));
+                }
+                Err(e) => {
+                    tracing::warn!(tenant_id = %key.tenant_id, error = %e, "job wake-up failed")
+                }
+            }
+        });
     }
 
     /// Allocator trims run since start.
@@ -1080,6 +1238,23 @@ impl CellManager {
         };
         let _guard = InFlightGuard(&cell);
         let (mut parts, body) = req.into_parts();
+        // #321: stored files and image variants, without the isolate.
+        if crate::images::handles(parts.uri.path())
+            && let Some(files) = &cell.files
+        {
+            let served = crate::images::serve(files, &parts, &ctx.request_id).await;
+            if let Some((route, stored)) = served.created {
+                self.record_image(
+                    &ctx,
+                    &route,
+                    stored,
+                    started_at,
+                    t0,
+                    served.response.body().len() as u64,
+                );
+            }
+            return served.response.map(Body::from);
+        }
         // #285: the App MCP endpoint and its metadata, on every app.
         if crate::mcp::handles(parts.uri.path()) {
             // The gateway has applied its body limit already.
@@ -1236,6 +1411,13 @@ impl CellManager {
             (true, _) => tracing::info_span!("cell.action"),
             _ => tracing::info_span!("cell.function"),
         };
+        // #295: db.query, fetch and module.service on the isolate and DB
+        // threads hang under the handler span; op_log lines carry its trace id.
+        let _trace = renox_runtime::trace::register(
+            &rt_ctx.request_id,
+            handler_span.clone(),
+            crate::telemetry::trace_id(&handler_span),
+        );
         let mut dispatch: DispatchFuture = Box::pin(tracing::Instrument::instrument(
             async move {
                 dispatching
@@ -1276,6 +1458,23 @@ impl CellManager {
             }
             _ => dispatch.await,
         };
+        // #311: a statement found the file damaged. The node dispatcher
+        // answers 503 RENOX_DB_UNAVAILABLE, drains the database's cells and
+        // hands the file to the restore (worker.rs).
+        if out.meter.db_corrupt {
+            let database = self
+                .inner
+                .db_keys
+                .lock()
+                .expect("db keys lock")
+                .get(&cell.key)
+                .cloned()
+                .unwrap_or_else(|| cell.key.tenant_id.clone());
+            tracing::error!(tenant_id = %cell.key.tenant_id, %database, request_id = %ctx.request_id, "tenant file damaged mid-request");
+            out.response.extensions_mut().insert(DbCorrupt { database });
+            // The record says the request failed, whatever the handler answered.
+            out.meter.status = RuntimeStatus::Error;
+        }
         // Pages (ops.md section 14): render off the isolate thread; platform
         // errors on page routes and HTML 404s get the error pages
         // (errors.md section 1).
@@ -1472,7 +1671,73 @@ impl CellManager {
             authz_evals: Some(m.authz_evals + render.authz_evals).filter(|n| *n > 0),
             realtime_conn_seconds: None,
             realtime_messages: None,
+            storage_bytes: m.storage_bytes,
+            image_variants: None,
+            ai_tokens_in: Some(m.ai_tokens_in).filter(|n| *n > 0),
+            ai_tokens_out: Some(m.ai_tokens_out).filter(|n| *n > 0),
+            render_pdf_ms: Some(m.render_pdf_ms).filter(|ms| *ms > 0.0),
         });
+    }
+
+    /// One `image` record (meter.md 0.4): a variant created on `/_img`. No
+    /// tenant code ran: `cpu_ms` 0, the transform is platform time.
+    fn record_image(
+        &self,
+        ctx: &RequestCtx,
+        route: &str,
+        stored: u64,
+        started_at: u64,
+        t0: Instant,
+        egress: u64,
+    ) {
+        self.inner.meter.record(MeterRecord {
+            request_id: ctx.request_id.clone(),
+            tenant_id: ctx.tenant_id.clone(),
+            deployment_hash: ctx.deployment_hash.clone(),
+            route: route.to_string(),
+            started_at,
+            cpu_ms: 0.0,
+            wall_ms: t0.elapsed().as_secs_f64() * 1000.0,
+            peak_heap_bytes: 0,
+            ingress_bytes: 0,
+            egress_bytes: egress,
+            fetch_sent_bytes: 0,
+            fetch_received_bytes: 0,
+            fetch_blocked: 0,
+            db_ms: 0.0,
+            db_rows: 0,
+            render_fuel: 0,
+            render_ms: None,
+            logs_dropped: 0,
+            http_status: 200,
+            status: MeterStatus::Ok,
+            kind: Some(renox_meter::MeterKind::Image),
+            authz_evals: None,
+            realtime_conn_seconds: None,
+            realtime_messages: None,
+            storage_bytes: Some(stored),
+            image_variants: Some(1),
+            ai_tokens_in: None,
+            ai_tokens_out: None,
+            render_pdf_ms: None,
+        });
+    }
+
+    /// The AI gateway of cells created afterwards (#322; `control::AiForward`).
+    pub fn set_ai_gateway(&self, gateway: Arc<dyn renox_runtime::ops::ai::AiGateway>) {
+        *self.inner.ai.lock().expect("ai lock") = Some(renox_runtime::ops::ai::AiSlot(gateway));
+    }
+
+    /// The `/_img` transform rate of cells created afterwards (tests; the
+    /// default is the contract's 20 per second, a burst of 100).
+    pub fn set_image_rate(&self, per_second: f64, burst: f64) {
+        *self.inner.image_rate.lock().expect("rate lock") = (per_second, burst);
+    }
+
+    /// The node's file store (#321): a bucket from the worker config, or a
+    /// directory. Cells created afterwards use it.
+    pub fn set_file_store(&self, store: Arc<dyn crate::storage::ObjectStore>) {
+        *self.inner.files.lock().expect("files lock") = store;
     }
 
     /// The loader is slower than [`SHELL_DELAY`] and the page has a shell

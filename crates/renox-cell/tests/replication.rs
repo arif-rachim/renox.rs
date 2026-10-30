@@ -458,6 +458,36 @@ async fn node_listener_restores_before_serving() {
     assert_eq!(dropped["type"], "tenant_dropped");
     assert_eq!(dropped["cells_drained"], 1);
     assert!(!worker.manager.db_open("t_repl"));
+    // #308 (deploy-api.md 0.4.1): the erasure's drop also purges every
+    // generation of the tenant from the replica store, and says when.
+    let replica = root.join("replica").join("t_repl");
+    assert!(replica.exists(), "the replica of t_repl before the purge");
+    std::fs::create_dir_all(root.join("replica/t_other/generations/g")).unwrap();
+    let (status, answer) = http(
+        addr,
+        "DELETE",
+        "node",
+        "/nodes/node-local/tenants/t_repl?purge_replica=true",
+        &[auth],
+        "",
+    )
+    .await;
+    assert_eq!(status, 200, "{answer}");
+    let purged: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(purged["type"], "tenant_dropped");
+    assert!(
+        purged["replica_generations_deleted"].as_u64().unwrap() >= 1,
+        "{purged}"
+    );
+    assert!(
+        purged["replica_purged_at"].as_u64().unwrap() > 0,
+        "{purged}"
+    );
+    assert!(!replica.exists(), "every generation of t_repl is gone");
+    assert!(
+        root.join("replica/t_other").exists(),
+        "another tenant's replica stays"
+    );
 
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&root);

@@ -85,9 +85,9 @@
         },
         "route": {
           "type": "string",
-          "description": "<METHOD> <route pattern from manifest.routes[]>, never a concrete URL; for kind event (0.2), EVENT <module> <event name>; from 0.3 WS <pattern> / SSE <pattern> for a realtime connection, TOOL <name> for kind tool, JOB <module> <name> for kind job.",
+          "description": "<METHOD> <route pattern from manifest.routes[]>, never a concrete URL; for kind event (0.2), EVENT <module> <event name>; from 0.3 WS <pattern> / SSE <pattern> for a realtime connection, TOOL <name> for kind tool, JOB <module> <name> for kind job. From 0.4: IMG <width>w <format> for kind image.",
           "maxLength": 1032,
-          "pattern": "^((GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|WS|SSE) (/|(/([A-Za-z0-9._~-]+|:[a-z_][a-z0-9_]{0,31}|\\*[a-z_][a-z0-9_]{0,31}))+)|EVENT [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_]{0,31}\\.[a-z][a-z0-9_]{0,63}|TOOL [a-z][a-z0-9_]{0,63}|JOB [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_-]{0,63})$"
+          "pattern": "^((GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|WS|SSE) (/|(/([A-Za-z0-9._~-]+|:[a-z_][a-z0-9_]{0,31}|\\*[a-z_][a-z0-9_]{0,31}))+)|EVENT [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_]{0,31}\\.[a-z][a-z0-9_]{0,63}|TOOL [a-z][a-z0-9_]{0,63}|JOB [a-z][a-z0-9_]{0,31} [a-z][a-z0-9_-]{0,63}|IMG [0-9]{1,5}w (avif|webp|jpeg|png))$"
         },
         "started_at": {
           "$ref": "#/$defs/count",
@@ -157,9 +157,10 @@
             "request",
             "event",
             "tool",
-            "job"
+            "job",
+            "image"
           ],
-          "description": "Optional (0.2): absent = request. 0.3: tool (one tools/call through /mcp), job (one attempt of a job)."
+          "description": "Optional (0.2): absent = request. 0.3: tool (one tools/call through /mcp), job (one attempt of a job). 0.4: image (one image variant created on /_img; no tenant code)."
         },
         "authz_evals": {
           "$ref": "#/$defs/count",
@@ -173,6 +174,31 @@
         "realtime_messages": {
           "$ref": "#/$defs/count",
           "description": "Optional (0.3): frames received plus messages delivered to the connection, on its record only. Absent = 0."
+        },
+        "storage_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0.4: the tenant's stored bytes after the invocation (ops.md section 21)."
+        },
+        "image_variants": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0.4: image variants created."
+        },
+        "ai_tokens_in": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0.4: input tokens of ai.chat (ops.md section 23)."
+        },
+        "ai_tokens_out": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0.4: output tokens of ai.chat."
+        },
+        "render_pdf_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "0.4: HTML-to-PDF time, outside cpu_ms (ops.md section 24)."
         }
       },
       "allOf": [
@@ -325,6 +351,40 @@
             "properties": {
               "route": {
                 "pattern": "^(WS|SSE) "
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "image"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "image_variants"
+            ],
+            "properties": {
+              "route": {
+                "pattern": "^IMG [0-9]+w (avif|webp|jpeg|png)$"
+              },
+              "cpu_ms": {
+                "const": 0
+              },
+              "ingress_bytes": {
+                "const": 0
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "error"
+                ]
               }
             }
           }

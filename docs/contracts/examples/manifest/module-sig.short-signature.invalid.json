@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid (schema): the signature is 64 bytes, 86 base64url characters [expect: pattern]",
+  "version": 1,
+  "publisher": "gulfsoft",
+  "key_id": "ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "name": "tax_gcc",
+  "module_version": "2.1.0",
+  "hash": "3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4",
+  "signature": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd"
+}

@@ -1,0 +1,75 @@
+<r-layout use="main">
+  <r-group slot="title">Security · Renox dashboard</r-group>
+  <section id="page" r-fragment="page">
+    <h1>Account security</h1>
+    <x-problem :problem="problem" r-if="problem" />
+    <p class="notice" r-if="notice">{{ notice }}</p>
+    <r-group r-if="status">
+      <table class="list">
+        <tbody>
+          <tr><th>Authenticator app</th><td r-if="status.totp">On</td><td r-else>Off</td></tr>
+          <tr><th>Passkeys</th><td>{{ status.passkeys }}</td></tr>
+          <tr><th>Recovery codes left</th><td>{{ status.recovery_left }}</td></tr>
+          <tr><th>Verified with this sign-in</th><td r-if="status.verified">{{ status.verified }}</td><td r-else class="muted">not in the last 15 minutes</td></tr>
+        </tbody>
+      </table>
+      <p class="problem" r-if="status.grace_until">Your team requires a second factor: add one before {{ status.grace_until }}.</p>
+      <p class="muted" r-if="status.required">A second factor is required for your account.</p>
+      <p class="muted">Whether your team requires a second factor is set by an owner from a signed-in API session (<code>POST /v1/team/mfa-required</code>); the dashboard's token cannot change it.</p>
+
+      <div id="step-up" r-if="step_up">
+        <h2>Confirm it is you</h2>
+        <p>Enter a code from your authenticator app or a recovery code to continue.</p>
+        <x-form action="verify" hx-target="#page" hx-swap="outerHTML" class="row">
+          <input type="hidden" name="then" :value="step_up">
+          <label>Code <input name="code" required autocomplete="one-time-code" inputmode="text" maxlength="24" spellcheck="false"></label>
+          <button type="submit">Verify</button>
+        </x-form>
+      </div>
+
+      <div id="recovery-codes" r-if="recovery_codes">
+        <h2>Recovery codes</h2>
+        <p>Each code works once. They are shown only now.</p>
+        <ul class="codes"><li r-for="c in recovery_codes"><code>{{ c }}</code></li></ul>
+      </div>
+
+      <div id="totp-setup" r-if="totp_setup">
+        <h2>Add an authenticator app</h2>
+        <p>Add this key to your app (or open the link on your phone), then enter the code it shows.</p>
+        <p><code>{{ totp_setup.secret }}</code></p>
+        <p><a :href="totp_setup.uri">Open in the authenticator app</a></p>
+        <x-form action="totp_confirm" hx-target="#page" hx-swap="outerHTML" class="row">
+          <label>Code <input name="code" required pattern="[0-9 ]{6,7}" inputmode="numeric" autocomplete="one-time-code"></label>
+          <button type="submit">Confirm</button>
+        </x-form>
+      </div>
+
+      <div id="passkey-setup" r-if="passkey_options" :data-options="passkey_options">
+        <h2>Add a passkey</h2>
+        <x-form action="passkey_register" hx-target="#page" hx-swap="outerHTML" class="row" id="passkey-form">
+          <input type="hidden" name="client_data">
+          <input type="hidden" name="attestation_object">
+          <label>Name <input name="name" maxlength="60" placeholder="Laptop"></label>
+          <button type="submit">Create the passkey</button>
+        </x-form>
+        <x-script src="/passkey.js"></x-script>
+      </div>
+
+      <h2>Add a factor</h2>
+      <div class="row">
+        <x-form action="totp_start" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="!status.totp"><button type="submit">Authenticator app</button></x-form>
+        <x-form action="passkey_options" hx-target="#page" hx-swap="outerHTML" class="inline"><button type="submit">Passkey</button></x-form>
+        <x-form action="recovery" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="status.enrolled"><button type="submit">New recovery codes</button></x-form>
+      </div>
+
+      <r-group r-if="status.enrolled">
+        <h2>Remove second factors</h2>
+        <x-form action="disable" hx-target="#page" hx-swap="outerHTML" class="row" hx-confirm="Remove every second factor from your account?">
+          <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
+          <label>Code <input name="code" required autocomplete="one-time-code" maxlength="24"></label>
+          <button type="submit">Remove</button>
+        </x-form>
+      </r-group>
+    </r-group>
+  </section>
+</r-layout>

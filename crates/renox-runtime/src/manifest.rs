@@ -123,6 +123,10 @@ pub struct RouteDef {
     pub tool: Option<ToolRoute>,
     /// A `job` route's fields.
     pub job: Option<JobRoute>,
+    /// Artifact 1.4: a `webhook` route (`functions/webhooks/*.ts`, `POST`
+    /// only; ops.md 1.7.0 section 22): its `provider`, `generic` when absent.
+    /// The route is otherwise a function route.
+    pub webhook: Option<String>,
 }
 
 /// The page fields of a version 1 page route.
@@ -162,6 +166,13 @@ enum WireRoute {
         module: String,
         #[serde(default)]
         guard: Option<crate::ops::authz::Guard>,
+    },
+    Webhook {
+        path: String,
+        module: String,
+        export: String,
+        #[serde(default)]
+        provider: Option<String>,
     },
     Tool {
         name: String,
@@ -221,7 +232,30 @@ impl TryFrom<WireRoute> for RouteDef {
                 guard,
                 tool: None,
                 job: None,
+                webhook: None,
             },
+            WireRoute::Webhook {
+                path,
+                module,
+                export,
+                provider,
+            } => {
+                if export != "POST" {
+                    return Err(format!("webhook route {path}: export must be POST"));
+                }
+                RouteDef {
+                    kind: RouteKind::Function,
+                    method: Method::Post,
+                    path,
+                    module,
+                    export,
+                    page: None,
+                    guard: None,
+                    tool: None,
+                    job: None,
+                    webhook: Some(provider.unwrap_or_else(|| "generic".into())),
+                }
+            }
             WireRoute::Ws {
                 path,
                 module,
@@ -236,6 +270,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 guard,
                 tool: None,
                 job: None,
+                webhook: None,
             },
             WireRoute::Sse {
                 path,
@@ -251,6 +286,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 guard,
                 tool: None,
                 job: None,
+                webhook: None,
             },
             WireRoute::Tool {
                 name,
@@ -275,6 +311,7 @@ impl TryFrom<WireRoute> for RouteDef {
                     confirm,
                 }),
                 job: None,
+                webhook: None,
             },
             WireRoute::Job {
                 name,
@@ -290,6 +327,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 page: None,
                 guard: None,
                 tool: None,
+                webhook: None,
                 job: Some(JobRoute { name, schedule, tz }),
             },
             WireRoute::Page {
@@ -314,6 +352,7 @@ impl TryFrom<WireRoute> for RouteDef {
                 guard,
                 tool: None,
                 job: None,
+                webhook: None,
             },
         })
     }
@@ -423,6 +462,13 @@ pub struct Manifest {
     /// Artifact 1.3: the app's `renox.toml [realtime]` (`feeds`).
     #[serde(default)]
     pub realtime: Option<serde_json::Value>,
+    /// Artifact 1.4: the app's `renox.toml [storage]` (`allowed_types`,
+    /// `images.widths`; ops.md 1.7.0 section 21).
+    #[serde(default)]
+    pub storage: Option<serde_json::Value>,
+    /// Artifact 1.4: the app's `renox.toml [ai]` (`mode`; ops.md section 23).
+    #[serde(default)]
+    pub ai: Option<serde_json::Value>,
     /// Free-text note the schema allows at the top level; ignored (#147).
     #[serde(rename = "$comment", default)]
     pub comment: Option<String>,

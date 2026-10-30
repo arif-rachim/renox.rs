@@ -111,3 +111,28 @@ export function stateView(r: ActionResult): StateView {
     notice: what,
   };
 }
+
+/** deploy-api.yaml `Impersonation` (0.4 section 17): `token` is returned once. */
+export interface Impersonation {
+  impersonation_id: string;
+  tenant_id: string;
+  operator: string;
+  reason: string;
+  scopes: string[];
+  started_at: number;
+  expires_at: number;
+  ended_at: number | null;
+  token?: string;
+}
+
+/** `impersonateTenant` with the operator's `ops:impersonate` token, used for this one call. */
+export function impersonate(fetch: Fetch, secrets: Secrets, token: string, tenant: string, reason: string): Promise<Result<Impersonation>> {
+  return new Api(fetch, token, apiBase(secrets)).json("POST", `/v1/ops/tenants/${encodeURIComponent(tenant)}/impersonate`, { reason });
+}
+
+/** `endImpersonation`. */
+export function endImpersonation(fetch: Fetch, secrets: Secrets, token: string, tenant: string, id: string): Promise<Result<Impersonation>> {
+  return new Api(fetch, token, apiBase(secrets)).json("DELETE", `/v1/ops/tenants/${encodeURIComponent(tenant)}/impersonate/${encodeURIComponent(id)}`);
+}
+
+export const IMPERSONATION_ID = /^imp_[0-9A-HJKMNP-TV-Z]{26}$/u;

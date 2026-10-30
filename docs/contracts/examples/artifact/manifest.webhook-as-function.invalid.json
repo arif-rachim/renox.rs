@@ -1,0 +1,76 @@
+{
+  "$comment": "invalid (V28): a module under functions/webhooks/ is a webhook route, not a function route [expect: V28]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "shop",
+    "timezone": "Asia/Dubai"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "functions/api/health": "functions/api/health.js",
+      "functions/webhooks/stripe": "functions/webhooks/stripe.js"
+    }
+  },
+  "entries": {
+    "functions/api/health": {
+      "exports": [
+        "GET"
+      ],
+      "eager": false
+    },
+    "functions/webhooks/stripe": {
+      "exports": [
+        "POST",
+        "provider"
+      ],
+      "eager": false
+    }
+  },
+  "routes": [
+    {
+      "kind": "function",
+      "method": "GET",
+      "path": "/api/health",
+      "module": "functions/api/health",
+      "export": "GET"
+    },
+    {
+      "kind": "function",
+      "method": "POST",
+      "path": "/webhooks/stripe",
+      "module": "functions/webhooks/stripe",
+      "export": "POST"
+    }
+  ],
+  "permissions": {
+    "network": [
+      "api.anthropic.com",
+      "api.stripe.com"
+    ],
+    "secrets": [
+      "AI_ANTHROPIC_KEY",
+      "WEBHOOK_STRIPE_SECRET"
+    ]
+  },
+  "storage": {
+    "allowed_types": [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf"
+    ],
+    "images": {
+      "widths": [
+        320,
+        640,
+        1280
+      ]
+    }
+  },
+  "ai": {
+    "mode": "direct"
+  }
+}

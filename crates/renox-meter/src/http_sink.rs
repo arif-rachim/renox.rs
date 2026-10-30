@@ -97,6 +97,11 @@ mod tests {
                 authz_evals: None,
                 realtime_conn_seconds: None,
                 realtime_messages: None,
+                storage_bytes: None,
+                image_variants: None,
+                ai_tokens_in: None,
+                ai_tokens_out: None,
+                render_pdf_ms: None,
             }],
         }
     }

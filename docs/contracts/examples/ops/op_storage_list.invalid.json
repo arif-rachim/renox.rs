@@ -1,0 +1,14 @@
+{
+  "$comment": "invalid: limit 0 [expect: minimum]",
+  "op": "op_storage_list",
+  "args": [
+    "app/",
+    0,
+    null,
+    null
+  ],
+  "result": {
+    "items": [],
+    "next_cursor": null
+  }
+}

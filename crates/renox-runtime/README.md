@@ -229,6 +229,22 @@ Tests: `tests/modules.rs`. Not yet: slot fillers with the provider's ctx (#232),
 
 Tests: `tests/events.rs`, `tests/password.rs`.
 
+## Webhooks, AI and PDF (`ops.md` 1.7.0 sections 22–24, #322)
+
+- **Webhooks.** A `webhook` route (`functions/webhooks/*.ts`) is a `POST` function route with a provider. `ctx.webhook.verify(req, { provider })` reads the raw body and the secret `WEBHOOK_<PROVIDER>_SECRET` of the caller and calls `op_webhook_verify` (`src/ops/webhook.rs`): HMAC-SHA256 per provider (Stripe's `t.body` with a 300 s tolerance; Checkout.com, Telr, PayTabs, N-Genius, Tabby and Tamara over the body; `generic` with the caller's header), compared in constant time. A verified event id goes into `renox__webhook_events` in the request's transaction. A duplicate ends the handler with 200 `{"duplicate":true}`, a bad signature with 401 `RENOX_WEBHOOK_SIGNATURE`. Past the per-provider bucket of **unverified** requests (50 per second, a burst of 500) the answer is 429; a verified delivery is never dropped. Apple (JWS chain) and Google (Pub/Sub JWT) are refused until their verification lands.
+- **AI.** `ctx.ai.chat` (bootstrap) runs the Messages loop: in direct mode (`[ai] mode`, or an `AI_<PROVIDER>_KEY` secret) it calls the provider through `fetch` with the app's key and allowlist; in gateway mode `op_ai_gateway` hands the request to the cell's `AiGateway` (`crates/renox-cell/src/control/mod.rs`, `AiForward`: `POST /v1/ai/chat` with the node token), so no platform key reaches the isolate. Local tools (`run`) execute in the isolate under the request's limits, at most 8 rounds. Tokens go to the meter record (`ai_tokens_in`, `ai_tokens_out`, `op_ai_meter`); the quota is the gateway's (`RENOX_AI_QUOTA`). Nothing of the conversation is logged.
+- **PDF.** `ctx.pdf.render(template, data, options)` asks the cell's renderer (`TemplateHost`) for the template's HTML, then `src/ops/pdf.rs` turns the HTML subset of invoices and reports into typst code (every text node a string literal, never markup) and lays it out with `typst` 0.15 and the bundled Noto Sans and Noto Naskh Arabic (`fonts/`, SIL OFL 1.1), on the blocking pool; `render_pdf_ms` is metered; past 200 pages or 20 MB it is `RENOX_PDF_LIMIT`.
+
+PDF crate choice, on the bilingual invoice of `tests/pdf.rs`:
+
+| Option | Arabic shaping and bidi | Fonts | Output | Time (debug) | Taken |
+| --- | --- | --- | --- | --- | --- |
+| `typst` + `typst-pdf` 0.15 | yes (rustybuzz, Unicode bidi) | embedded, subset | 36 KB | 11 ms | yes |
+| `printpdf` + own layout | shaping and bidi to write ourselves | embedded | — | — | no: a layout engine of our own |
+| HTML-to-PDF via a headless browser | yes | system | — | — | no: a browser in the worker |
+
+`pdf-extract` could not be used to read the text back (its `aes` conflicts with `deno_crypto`'s pin), so the tests read the laid-out runs (`text_runs`) instead.
+
 ## Thread model
 
 One OS thread per isolate (`renox-isolate-<hash>`), each with a single-threaded Tokio runtime that owns the `MainWorker`, plus its CPU watchdog thread (`renox-cpu-watchdog`). `IsolateHandle` is the deployment's handle: it owns the pool's members and talks to each over an unbounded channel; a dispatch is a message with a `oneshot` reply. The thread's loop polls the channel, the `deno_core` event loop, and the in-flight dispatch futures together, so many requests can be in flight on one isolate at once.

@@ -23,7 +23,7 @@ export async function load(ctx: LoaderContext) {
   const fp = fpRaw !== null && FINGERPRINT.test(fpRaw) ? fpRaw : null;
   const now = Date.now();
   const base = {
-    signed_in: true,
+    signed_in: true, impersonation: api.impersonation,
     api_host: new URL(apiBase(ctx.secrets)).host,
     app: name,
     section: "client-errors",

@@ -38,19 +38,20 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 | `[authz]` | `false` / 60 | `dev` (`ctx.authz.explain` works and `RENOX_FORBIDDEN` names the deciding policy), `principal_ttl_secs` (how long a resolved principal is cached per session, 0 to 3,600): "Authorization" |
 
+| `[jobs]` | `true` / 0 | `enabled` (cells run the scheduler of their `job` routes; `renox dev` sets false unless `--jobs`), `poll_ms` (development only: also look for due outbox rows this often, for rows `renox jobs` writes from another connection; 0 never polls): "Jobs" |
 | `[telemetry]` | off / 0.1 / `renox-worker` | `otlp_endpoint` (OTLP/HTTP traces URL, `http(s)://…/v1/traces`; absent: no export), `sample_ratio` (share of root traces kept; a child follows its parent), `service_name`: "Telemetry" |
 
 Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`), with the current span and the span list, so a line inside a request carries `gateway.request`'s `request_id`, `tenant_id` and `trace_id` (#295). They name tenants, hashes, and request ids, never secret values or request content.
 
 ## Telemetry (#295)
 
-`src/telemetry/`. **Traces:** one trace per request, rooted at `gateway.request` (`renox-gateway`), with `cell.request`, `cell.loader` / `cell.action` / `cell.function`, `template.render`, `realtime.open` / `realtime.message` / `realtime.close`, `mcp.tool` and `outbox.deliver` under it; `db.query` (`renox-data`: the verb and the table names) and `fetch` (`renox-runtime`: the host) run on the isolate's thread and are traces of their own. Attributes are ids, verbs, table names, hosts and numbers only: never SQL text or parameters, a path or a query, a header or a cookie, a body, or a secret. Export is OTLP/HTTP with protobuf through this crate's hyper (no gRPC); the batch exporter is flushed at shutdown.
+`src/telemetry/`. **Traces:** one trace per request, rooted at `gateway.request` (`renox-gateway`), with `cell.request`, `cell.loader` / `cell.action` / `cell.function`, `template.render`, `realtime.open` / `realtime.message` / `realtime.close`, `mcp.tool`, `outbox.deliver` and `job.run` (#297) under it. `db.query` (`renox-data`: the verb and the table names), `fetch` (`renox-runtime`: the host) and `module.service` (caller, callee, service name; opened by the bootstrap around a broker call) run on the isolate's or the DB thread: the cell registers the handler span per request id (`renox_runtime::trace`), so they are its children in the request's trace, and a tenant `op_log` line carries the trace id in `fields.trace_id`. Attributes are ids, verbs, table names, hosts and numbers only: never SQL text or parameters, a path or a query, a header or a cookie, a body, or a secret. Export is OTLP/HTTP with protobuf through this crate's hyper (no gRPC); the batch exporter is flushed at shutdown.
 
-**Metrics:** `GET /metrics` (Prometheus text) on the operator listener of `[control] health_listen`, beside `/healthz`: `renox_worker_requests_total{tenant_id,status_class}`, `renox_worker_request_duration_seconds` (histogram per tenant), `renox_worker_cpu_seconds_total`, `renox_worker_heap_bytes`, `renox_worker_cold_starts_total`, `renox_worker_cold_start_duration_seconds`, `renox_worker_cells`, `renox_worker_outbox_pending`, `renox_worker_outbox_oldest_age_seconds`, `renox_worker_dead_letters_total`, `renox_worker_realtime_connections`, `renox_worker_realtime_messages_total`, `renox_worker_authz_decisions_total{tenant_id,decision="all"}`, `renox_worker_authz_principal_cache_total{tenant_id,result}`, `renox_worker_disk_used_ratio`, `renox_worker_disk_level`, `renox_worker_degraded{component}`: the names of `ops/observability/README.md` (#296), so its panels and alert rules read them.
+**Metrics:** `GET /metrics` (Prometheus text) on the operator listener of `[control] health_listen`, beside `/healthz`: `renox_worker_requests_total{tenant_id,status_class}`, `renox_worker_request_duration_seconds` (histogram per tenant), `renox_worker_cpu_seconds_total`, `renox_worker_heap_bytes`, `renox_worker_cold_starts_total`, `renox_worker_cold_start_duration_seconds`, `renox_worker_cells`, `renox_worker_outbox_pending`, `renox_worker_outbox_oldest_age_seconds`, `renox_worker_dead_letters_total`, `renox_worker_realtime_connections`, `renox_worker_realtime_messages_total`, `renox_worker_authz_decisions_total{tenant_id,decision="all"}`, `renox_worker_authz_principal_cache_total{tenant_id,result}`, `renox_worker_disk_used_ratio`, `renox_worker_disk_level`, `renox_worker_degraded{component}`, `renox_worker_sandbox_denials_total{kind}` (a child killed by seccomp), `renox_worker_replication_lag_seconds{tenant_id,database}` (the last replication status computed), `renox_worker_process_restarts_total{tenant_id}`, `renox_worker_db_unavailable`, `renox_worker_log_lines_sampled_out_total` (`src/telemetry/counters.rs`), and the `renox_worker_job_*` families of "Jobs": the names of `ops/observability/README.md` (#296), so its panels and alert rules read them.
 
 **A local trace** (not in CI): run a collector, `docker run --rm -p 4318:4318 otel/opentelemetry-collector:0.114.0` (its default config logs what it receives), set `[telemetry] otlp_endpoint = "http://127.0.0.1:4318/v1/traces"` and `sample_ratio = 1.0` in `worker.toml`, start `renox-worker --config worker.toml`, send one request, and the collector's log shows the `gateway.request` trace with its children.
 
-Tests: `tests/telemetry.rs` (the span tree of a page request, `db.query` attributes, a secret in a header, a cookie and the query in no span and not in `/metrics`, the metric families); `src/telemetry/metrics.rs` unit tests.
+Tests: `tests/telemetry.rs` (the span tree of a page request with `db.query` under `cell.loader`, the loader's log line with the trace id, `db.query` attributes, a secret in a header, a cookie and the query in no span and not in `/metrics`, the metric families); `tests/mcp.rs` `a_tool_call_is_one_span_tree`; `src/telemetry/metrics.rs` unit tests.
 
 ## Tiers
 
@@ -210,6 +211,33 @@ Override drift is detected by `renox build` (#235), not here: the artifact carri
 
 Tests: `tests/modules_pages.rs`.
 
+### `isolate` mode (#320)
+
+A module installed with `isolation = "isolate"` (D12; `docs/contracts/ops.md` 1.7.0 section 15.6) runs in an isolate of its own inside the tenant's process, created on its first call (and at start when it has `hooks.ts`, for the event fan-out), with the tier's heap and CPU limits of one isolate. The app's isolate never evaluates its code and never holds its secrets; the module's isolate evaluates only its code and holds only its approved secrets. Its routes, jobs, durable events and tool calls are sent to its isolate; service calls and hook fillers cross through `op_modules_call` as JSON of at most 1 MiB each way, with the caller's request id, deadline, principal and open transaction (the callee's statements join it; the caller commits or rolls back). Tables, secrets and hosts stay enforced in Rust from the `module` argument, as in `shared` mode. The callee's CPU, database time, fetch bytes and Cedar evaluations are charged to the caller's meter record; a heap or CPU limit ends the module's isolate only, and the next call creates it again. `/metrics` counts the live ones (`renox_module_isolates`). In-memory (non-durable) `on` handlers of an `isolate` module are not run from another isolate; durable events reach it through the outbox.
+
+Tests: `tests/isolate_mode.rs`.
+
+## Storage and images (#321)
+
+`ctx.storage` (`docs/contracts/ops.md` 1.7.0 section 21) runs in Rust: `renox_runtime::ops::storage` checks the key (`<module>/…`), sniffs the type, checks `[storage] allowed_types`, the per-file limit and the quota (the sum of the platform table `renox__files`, written through the platform handle in the request's transaction), and hands the bytes to `src/storage.rs`. The store is `<data_dir>/files` (local mode, `renox dev`) or the bucket of `worker.toml [storage]` (`bucket`, `region`, `endpoint`; SigV4 with the credentials of the environment, like the replica purge). Objects are `tenants/<id>/files/<key>`; the isolate never holds a credential. Signed URLs are HMAC-SHA256 with a per-tenant key derived from the platform key (`storage:<tenant>`), over `/_files/<key>?exp=`.
+
+`/_files/<key>` and `/_img/<key>` (`src/images/`) are answered before route matching, never by the isolate. `/_img` rounds `w` to the nearest of `[storage.images] widths` (never above the original), picks AVIF, then WebP from `Accept` for `f=auto` (else the original's JPEG or PNG), and looks the variant `tenants/<id>/variants/<sha256>-w<w>-<fmt>` up first; a miss takes a token of the tenant's transform rate (20 per second, a burst of 100: 429 `RENOX_IMAGE_RATE`), is decoded, resized and encoded on the blocking pool (platform time), stored once, and metered as an `image` record (`IMG <w>w <fmt>`, `image_variants` 1, `storage_bytes`). Only pixels are re-encoded, so EXIF, XMP and GPS never reach a variant. `fit` and `focus` are validated and carried in the URL; without a target height they do not change the output (cropping needs one; `focus=face` falls back to `center` until a detector exists). Public variants are served `public, max-age=31536000, immutable` with an `ETag` and `Vary: Accept`; a private original needs the same signature as `/_files`.
+
+Crates: `image` 0.25 (already in the tree through `deno_canvas`) for decoding JPEG, PNG and WebP and encoding JPEG, PNG and lossless WebP; its `avif` feature (`ravif`, `rav1e`, pure Rust, speed 10, quality 70) for AVIF. libvips was not taken: a C dependency in the worker for a gain the measurements below do not need yet. `rav1e` builds at `opt-level = 3` in dev too.
+
+Transform times (`tests/images.rs`, debug build of the workspace with dependencies at `opt-level` 1, rav1e at 3, this machine, 2026-10-30), from a 4000 x 3000 JPEG:
+
+| Variant | Time |
+| --- | --- |
+| AVIF 400 w | 788 ms |
+| JPEG 400 w | 435 ms |
+| WebP 800 w (lossless) | 593 ms |
+| Cache hit | 0 ms |
+
+Most of each miss is decoding the 12-megapixel original. A release build is several times faster; B-series numbers for the release worker come with #106.
+
+Tests: `tests/storage.rs`, `tests/images.rs`; `<x-image>` in `crates/renox-template/tests/x_image.rs`.
+
 ## Authorization (#279)
 
 The cell enforces `docs/contracts/ops.md` 1.5.0 section 17 (`docs/11-authorization.md`, "Enforcement points"):
@@ -267,6 +295,19 @@ Each cell runs one delivery task (`src/outbox.rs`) for the durable events of `do
 - **Gauge.** `CellManager::outbox_stats(tenant)` returns the pending deliveries and dead letters of a tenant whose file is open on the node.
 
 Tests: `tests/outbox.rs`.
+
+## Jobs (#297)
+
+Scheduled and queued jobs (`docs/contracts/ops.md` 1.6.0 section 20) ride on the outbox above:
+
+- **Rows.** A run is a row of `renox__outbox` named `job:<name>` whose `target` and `module` are the job's module (`app` for the app's). The scheduler writes a scheduled run with payload `null`; `ctx.jobs.enqueue` writes a queued run with its payload, in the caller's transaction. `renox__outbox_meta` keeps the coalescing key `job_tick:<module>:<name>`, the next tick `job_next:…`, the last finish `job_last:…`, and `job_running:<id>` while a run is in flight. The SQL is `renox_runtime::ops::jobs`, shared with the ops.
+- **Scheduler** (`src/scheduler/`). One task per cell, started and stopped with the outbox task. Five-field cron expressions (numbers, `*`, lists, ranges, steps; day of month and day of week combine as in Vixie cron) in the job's `tz` (the system tzdb through `jiff`; UTC when absent). At a tick it writes one row, or moves the waiting row's tick when one exists. The next tick is persisted, so a cell that starts after an eviction or downtime writes one run for the latest missed tick. An evicted cell with jobs is woken by the manager at its next tick (`CellManager::wake_for_jobs`), unless its deployment is no longer active.
+- **No overlap.** A run holds an in-memory lease per tenant and job (one node owns a tenant); a row whose job is leased waits a second. The ack of a scheduled run keeps its row, due now, when the job ticked again during the run. At start, `job_running:*` markers are cleared: a row left running by a dead process is queued again with its attempts unchanged.
+- **Attempt.** Like an event delivery: its own IMMEDIATE transaction committed with the ack (`op_jobs_ack`), the tier's limits, the retry schedule and dead-letter of the outbox (`job_dead` in the tenant log; the dead scheduled row frees the coalescing key, so the next tick writes a new row). The principal is `Renox::System::"<module>"`.
+- **Meter.** One record per attempt: `kind: "job"`, route `JOB <module> <name>`, request id `<row id>_<attempt>`.
+- **Metrics.** `renox_worker_job_runs_total`, `renox_worker_job_failures_total`, `renox_worker_job_ticks_total`, `renox_worker_job_lag_seconds` (start of the last scheduled run minus its tick).
+
+Tests: `tests/jobs.rs`, `src/scheduler/mod.rs` (cron and zones, the lease), `renox-runtime` `src/ops/jobs.rs` (coalescing, listing, retry and cancel states).
 
 ## Not here yet
 

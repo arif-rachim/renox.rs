@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { erasureOf, runErasure, TIME_BOX_MS } from "../src/tenants/erasure.ts";
 import { setNodeCall } from "../src/workers/failover.ts";
+import { logIngest } from "../src/ingest/logs.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { addMember, assertScoped, auditRows, createApp_, harness, login, nodeToken, scopedToken, signup, type Harness, type Session } from "./helpers.ts";
 
@@ -53,7 +54,11 @@ async function setup(): Promise<Setup> {
   setNodeCall(h.deps, async (_target, method, path) => {
     calls.push({ method, path });
     if (!nodeUp.up) throw new Error("unreachable");
-    return { status: 200, body: { type: "tenant_dropped", schema_version: 0, node_id: "node-1", tenant_id: T, cells_drained: 1 } };
+    const purge = path.endsWith("?purge_replica=true");
+    return {
+      status: 200,
+      body: { type: "tenant_dropped", schema_version: 0, node_id: "node-1", tenant_id: T, cells_drained: 1, file: "kept", ...(purge ? { replica_generations_deleted: 3, replica_purged_at: 1_793_300_000_000 } : {}) },
+    };
   });
   return { h, owner, token, calls, nodeUp };
 }
@@ -76,23 +81,26 @@ describe("deleteTenant (deploy-api.md 0.4 section 3)", () => {
   test("the owner erases the tenant: 202 pending, then done with the routes, tokens, node file, exports and records gone; audited; emailed", async () => {
     const { h, owner, token, calls } = await setup();
     expect(await count(h, "route_entries")).toBeGreaterThan(0);
+    await logIngest(h.deps).store.append([{ ts: h.clock.now, tenant_id: T, app: "shop", deployment_hash: "0".repeat(64), request_id: null, module: "functions/x", level: "info", message: "a line of the tenant", fields: null, source: "server", node_id: "node-1" }]);
     const res = await h.request("DELETE", `/v1/tenants/${T}`, { session: owner, json: { confirm: T } });
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ state: "pending", requested_at: h.clock.now, completed_at: null, failure: null });
     expect(await settle(h)).toBe("done");
+    // The tenant's log lines are gone too (deploy-api.md 0.4 section 3).
+    expect(await logIngest(h.deps).store.read(T, "shop", { since: 0 })).toEqual([]);
 
     expect(await count(h, "route_entries")).toBe(0);
     expect(await count(h, "apps")).toBe(0);
     expect(await count(h, "deployments")).toBe(0);
     expect(await count(h, "exports")).toBe(0);
     expect([...h.store.objects.keys()].some((k) => k.startsWith(`exports/${T}/`))).toBe(false);
-    expect(calls.some((c) => c.method === "DELETE" && c.path === `/nodes/node-1/tenants/${T}`)).toBe(true);
+    expect(calls.some((c) => c.method === "DELETE" && c.path === `/nodes/node-1/tenants/${T}?purge_replica=true`)).toBe(true);
     // Every token is revoked.
     expect((await h.request("GET", "/v1/apps", { token })).status).toBe(401);
     // The tombstone: the owner's session still reads the tenant and its erasure.
     const view = await h.request("GET", `/v1/tenants/${T}`, { session: owner });
     expect(view.status).toBe(200);
-    expect(await view.json()).toMatchObject({ tenant_id: T, state: "suspended", erasure: { state: "done", completed_at: h.clock.now, failure: null } });
+    expect(await view.json()).toMatchObject({ tenant_id: T, state: "suspended", erasure: { state: "done", completed_at: h.clock.now, failure: null, replica_purged_at: 1_793_300_000_000 } });
     const audit = (await auditRows(h)).filter((r) => r.action === "deleteTenant");
     expect(audit.map((r) => [r.actor === "platform" ? "platform" : "user", r.status])).toEqual([
       ["user", 202],

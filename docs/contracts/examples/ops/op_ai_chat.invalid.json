@@ -1,0 +1,18 @@
+{
+  "$comment": "invalid: usage counts are integers [expect: type]",
+  "op": "op_ai_chat",
+  "args": [
+    "{\"messages\":[]}",
+    null
+  ],
+  "result": {
+    "id": "msg_01",
+    "model": "m",
+    "content": [],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": "many",
+      "output_tokens": 0
+    }
+  }
+}

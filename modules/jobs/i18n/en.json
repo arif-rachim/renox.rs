@@ -1,0 +1,13 @@
+{
+  "jobs": {
+    "title": "Jobs",
+    "col": { "job": "Job", "next": "Next run", "last": "Last run", "due": "Due", "attempts": "Attempts", "failed": "Failed", "error": "Last error" },
+    "scheduled": { "title": "Scheduled", "none": "No scheduled jobs." },
+    "queued": { "title": "Queued", "none": "Nothing queued." },
+    "running": { "title": "Running", "none": "Nothing running." },
+    "dead": { "title": "Failed (dead letters)", "none": "No failed runs." },
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "notice": { "retried": "The run is queued again.", "cancelled": "The run is cancelled." }
+  }
+}

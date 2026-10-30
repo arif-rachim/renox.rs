@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renox.dev/contracts/manifest/v1/module-manifest.schema.json",
-  "title": "Renox module manifest (module.toml) and renox.toml [modules], [authz], [realtime], manifest contract version 1.1",
+  "title": "Renox module manifest (module.toml) and renox.toml [modules], [authz], [realtime], manifest contract version 1.2",
   "description": "The root validates a parsed module.toml. $defs/renoxToml validates a parsed renox.toml, of which this contract owns only [modules]. Prose: docs/contracts/manifest.md. Rules the schema cannot express (reserved names, own prefix, dependency graph, imports, config types, the lock) are MF1-MF12 in section 6. Version 1.1 (#272) adds [authz] ownership, entities, default_roles and sensitive, [realtime.feeds], permissions.roles, and the same [authz] and [realtime] on renox.toml for the app; rules MF13-MF14.",
   "type": "object",
   "additionalProperties": false,
@@ -29,6 +29,33 @@
         "description": {
           "type": "string",
           "maxLength": 200
+        },
+        "price": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "currency",
+            "period"
+          ],
+          "description": "1.2: informational only (manifest.md section 2).",
+          "properties": {
+            "amount": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,2})?$"
+            },
+            "currency": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            },
+            "period": {
+              "enum": [
+                "once",
+                "month",
+                "year"
+              ]
+            }
+          }
         }
       }
     },
@@ -230,6 +257,40 @@
     },
     "realtime": {
       "$ref": "#/$defs/realtime"
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "key_id"
+      ],
+      "description": "1.2: the registry publisher (manifest.md section 2, \"[publisher]\").",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/publisherName"
+        },
+        "key_id": {
+          "$ref": "#/$defs/keyId"
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "1.2: the module's storage settings (ops.md section 21).",
+      "properties": {
+        "allowed_types": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 127,
+            "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$"
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -459,9 +520,9 @@
     },
     "installSource": {
       "type": "string",
-      "description": "path:<relative dir> or git:https://<repo>#<tag or 40-hex commit>. Absent = an official module. registry: is F7 and rejected now.",
+      "description": "path:<relative dir>, git:https://<repo>#<tag or 40-hex commit>, or (1.2) registry:<publisher>/<name>. Absent = an official module.",
       "maxLength": 512,
-      "pattern": "^(path:(?![/\\\\])(?![A-Za-z]:)[^\\u0000-\\u001f\\\\:]+|git:https://[A-Za-z0-9._~%/-]+(:[0-9]{1,5})?[A-Za-z0-9._~%/-]*#[A-Za-z0-9._/-]{1,128})$"
+      "pattern": "^(path:(?![/\\\\])(?![A-Za-z]:)[^\\u0000-\\u001f\\\\:]+|git:https://[A-Za-z0-9._~%/-]+(:[0-9]{1,5})?[A-Za-z0-9._~%/-]*#[A-Za-z0-9._/-]{1,128}|registry:[a-z0-9][a-z0-9-]{0,38}/[a-z][a-z0-9_]{0,31})$"
     },
     "renoxModule": {
       "type": "object",
@@ -640,6 +701,59 @@
             "pattern": "^([A-Za-z0-9_.-]|\\{[a-z][a-z0-9_]{0,63}\\})+(:([A-Za-z0-9_.-]|\\{[a-z][a-z0-9_]{0,63}\\})+)*$",
             "description": "A topic pattern: segments split on ':', none empty, with {column} placeholders (ops.md section 18)."
           }
+        }
+      }
+    },
+    "publisherName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,38}$"
+    },
+    "keyId": {
+      "type": "string",
+      "description": "ed25519:<base64url of the 32-byte public key, no padding>.",
+      "pattern": "^ed25519:[A-Za-z0-9_-]{43}$"
+    },
+    "moduleSig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "1.2: module.sig at the root of a published module tree (manifest.md section 5, \"Registry modules\").",
+      "required": [
+        "version",
+        "publisher",
+        "key_id",
+        "name",
+        "module_version",
+        "hash",
+        "signature"
+      ],
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "Ignored; for hand-written examples."
+        },
+        "version": {
+          "const": 1
+        },
+        "publisher": {
+          "$ref": "#/$defs/publisherName"
+        },
+        "key_id": {
+          "$ref": "#/$defs/keyId"
+        },
+        "name": {
+          "$ref": "#/$defs/moduleName"
+        },
+        "module_version": {
+          "$ref": "#/$defs/version"
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "signature": {
+          "type": "string",
+          "description": "Ed25519, base64url without padding.",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
         }
       }
     }

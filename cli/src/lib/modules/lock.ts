@@ -17,6 +17,11 @@ export interface LockEntry {
   dependencies: string[];
   config: Record<string, string | number | boolean>;
   approved: Permissions;
+  /** manifest.md 1.2: registry sources only (MF15). */
+  key_id?: string;
+  signature?: string;
+  /** manifest.md 1.2: the version `approved` was given for; absent = `version`. */
+  approved_version?: string;
 }
 
 export const LOCK_FILE = "renox.lock";
@@ -53,6 +58,9 @@ export function readLock(project: string): { entries: LockEntry[] | null; proble
       dependencies: strings(e.dependencies),
       config: obj(e.config) as LockEntry["config"],
       approved: permissionsOf(obj(e.approved)),
+      ...(typeof e.key_id === "string" ? { key_id: e.key_id } : {}),
+      ...(typeof e.signature === "string" ? { signature: e.signature } : {}),
+      ...(typeof e.approved_version === "string" ? { approved_version: e.approved_version } : {}),
     };
   });
   return { entries, problems };
@@ -67,6 +75,9 @@ export function formatLock(entries: LockEntry[]): string {
       ["version", e.version],
       ["source", e.source],
       ["hash", e.hash],
+      ...(e.key_id !== undefined ? ([["key_id", e.key_id]] as [string, Json][]) : []),
+      ...(e.signature !== undefined ? ([["signature", e.signature]] as [string, Json][]) : []),
+      ...(e.approved_version !== undefined ? ([["approved_version", e.approved_version]] as [string, Json][]) : []),
       ["isolation", e.isolation],
       ["mount", e.mount],
       ["dependencies", e.dependencies],

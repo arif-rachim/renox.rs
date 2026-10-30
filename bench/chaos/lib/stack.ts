@@ -7,7 +7,7 @@
 // GET. Same shape as B18 (bench/scenarios/B18/failover.ts), made reusable.
 
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -168,6 +168,10 @@ export class Stack {
         CONTROL_OPERATOR_TOKEN_SHA256: sha256(this.operator),
         CONTROL_MASTER_KEY: this.masterKey,
         CONTROL_PLATFORM_DOMAIN: DOMAIN,
+        // #308: the owner's verification mail is read from here, and a failed
+        // erasure step is retried after 2 s instead of an hour.
+        CONTROL_MAIL_OUTBOX_DIR: join(this.root, "mail"),
+        CONTROL_ERASURE_RETRY_MS: "2000",
         ...(s3 === undefined
           ? {}
           : { CONTROL_S3_ENDPOINT: s3.endpoint, CONTROL_S3_ACCESS_KEY_ID: s3.accessKeyId, CONTROL_S3_SECRET_ACCESS_KEY: s3.secretAccessKey, CONTROL_S3_BUCKET: s3.bucket ?? "renox-artifacts" }),
@@ -220,6 +224,48 @@ export class Stack {
     await this.deploy(t);
     this.tenants.push(t);
     return t;
+  }
+
+  /**
+   * A tenant with an owner account (#308: erasure is the owner's, by
+   * session): sign up with the tenant id, verify the address from the mail
+   * the API wrote, sign in, and deploy the app with a token the session
+   * created. Returns the tenant and the owner's session.
+   */
+  async ownedTenant(id: string): Promise<{ t: Tenant; session: { cookie: string; csrf: string } }> {
+    const email = `owner-${id}@chaos.test`;
+    const password = "correct horse battery";
+    const json = (b: unknown) => ({ "content-type": "application/json", body: JSON.stringify(b) });
+    const up = await fetch(`${this.apiUrl}/v1/account/signup`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password, tenant_id: id }) });
+    if (up.status !== 202) throw new Error(`signup ${id}: ${up.status} ${await up.text()}`);
+    const mailDir = join(this.root, "mail");
+    const token = await until(`the verification mail of ${email}`, 10_000, async () => {
+      for (const f of readdirSync(mailDir).filter((n) => n.endsWith("verify_email.txt"))) {
+        const text = readFileSync(join(mailDir, f), "utf8");
+        const m = text.includes(`To: ${email}`) ? /#token=([a-z2-7]{32})/u.exec(text) : null;
+        if (m) return m[1] as string;
+      }
+      return null;
+    });
+    const verified = await fetch(`${this.apiUrl}/v1/account/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+    if (verified.status !== 200) throw new Error(`verify ${email}: ${verified.status}`);
+    const login = await fetch(`${this.apiUrl}/v1/account/login`, { method: "POST", ...json({ email, password }), headers: { "content-type": "application/json" } });
+    if (login.status !== 200) throw new Error(`login ${email}: ${login.status}`);
+    const cookie = (/__Host-renox_session=([^;]+)/u.exec(login.headers.getSetCookie().join("\n"))?.[1] ?? "") as string;
+    const session = { cookie, csrf: ((await login.json()) as { csrf: string }).csrf };
+    const made = await fetch(`${this.apiUrl}/v1/tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: `__Host-renox_session=${session.cookie}`, "x-renox-csrf": session.csrf },
+      body: JSON.stringify({ name: "chaos", scopes: ["*"], expires_in_days: 1 }),
+    });
+    if (made.status !== 201) throw new Error(`token ${id}: ${made.status} ${await made.text()}`);
+    const tok = ((await made.json()) as { token: string }).token;
+    await fetch(`${this.apiUrl}/v1/apps`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify({ name: id }) });
+    const { hash, tar } = artifact(join(this.root, `artifact-${id}`), id);
+    const t: Tenant = { id, app: id, host: `${id}.${DOMAIN}`, token: tok, hash, tar };
+    await this.deploy(t);
+    this.tenants.push(t);
+    return { t, session };
   }
 
   async deploy(t: Tenant): Promise<void> {

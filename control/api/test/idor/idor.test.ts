@@ -71,7 +71,7 @@ export const EXTRA_ROUTES: Record<string, string> = {
   "POST /v1/team/owner-transfer/accept": "acceptOwnerTransfer",
   "DELETE /v1/team/owner-transfer": "cancelOwnerTransfer",
   "GET /v1/apps/:app/usage": "getUsage",
-  // Second factors (#293, src/auth/mfa.ts): the session's own account only.
+  // Second factors (#293, src/auth/mfa.ts): the caller's own account only, by session or (0.4, #307) the user's own token.
   "GET /v1/account/mfa": "getMfa",
   "POST /v1/account/mfa/totp": "startTotp",
   "POST /v1/account/mfa/totp/confirm": "confirmTotp",
@@ -208,16 +208,21 @@ const NO_ID_CASES: Record<string, NoIdCase> = {
   revokeAllSessions: { session: 200, token: 401, why: "A's user's sessions only" },
   logout: { session: 204, token: 401, fresh: true, why: "A's session only" },
   // #293: every MFA operation acts on the session's own user; nothing in the request names another.
-  getMfa: { session: 200, token: 401, why: "A's user's factors only" },
-  startTotp: { session: 201, token: 401, why: "a secret for A's user" },
-  confirmTotp: { json: () => ({ code: "000000" }), session: 400, token: 401, why: "A's own pending secret" },
-  passkeyOptions: { session: 200, token: 401, why: "options for A's user" },
-  registerPasskey: { json: () => ({ client_data: "e30", attestation_object: "e30" }), session: 400, token: 401, why: "a challenge of A's user only" },
-  mfaChallenge: { session: 404, token: 401, why: "A's user has no passkey" },
+  // deploy-api.md 0.4 section 18 (#307): A's own token acts for A's user on the MFA operations.
+  getMfa: { session: 200, token: 200, why: "A's user's factors only" },
+  startTotp: { session: 201, token: 201, why: "a secret for A's user" },
+  confirmTotp: { json: () => ({ code: "000000" }), session: 400, token: 400, why: "A's own pending secret" },
+  passkeyOptions: { session: 200, token: 200, why: "options for A's user" },
+  registerPasskey: { json: () => ({ client_data: "e30", attestation_object: "e30" }), session: 400, token: 400, why: "a challenge of A's user only" },
+  mfaChallenge: { session: 404, token: 404, why: "A's user has no passkey" },
   verifyMfa: { json: () => ({ method: "totp", code: "000000" }), session: 401, token: 401, why: "A's own factors only" },
-  regenerateRecoveryCodes: { session: 409, token: 401, why: "A's user has no factor" },
-  disableMfa: { json: () => ({ password: "wrong", code: "000000" }), session: 401, token: 401, why: "A's password and factors only" },
+  regenerateRecoveryCodes: { session: 409, token: 409, why: "A's user has no factor" },
+  // The token's attempt and the two verifyMfa attempts spend the verify bucket of A's address first.
+  disableMfa: { json: () => ({ password: "wrong", code: "000000" }), session: 429, token: 401, why: "A's password and factors only" },
   setTeamMfaRequired: { json: () => ({ required: false }), session: 200, why: "the flag of A's own team" },
+  // deploy-api.md 0.5 section 19 (#324): the registry catalog is shared by design; a publisher is A's own.
+  createPublisher: { json: () => ({ name: "idor-pub", public_key: "A".repeat(43) }), token: 201, session: 409, why: "the token creates A's own publisher; the session's repeat of the same name is 409, which names no owner" },
+  listRegistryModules: { session: 200, why: "the public catalog: published versions only, never another tenant's installs" },
 };
 /** Runs after every other case: it ends all of A's sessions. */
 const LAST = ["revokeAllSessions"];

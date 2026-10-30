@@ -386,6 +386,11 @@ fn record(
         authz_evals: Some(meter.authz_evals).filter(|n| *n > 0),
         realtime_conn_seconds: None,
         realtime_messages: None,
+        storage_bytes: None,
+        image_variants: None,
+        ai_tokens_in: None,
+        ai_tokens_out: None,
+        render_pdf_ms: None,
     });
 }
 
@@ -588,6 +593,11 @@ pub(crate) async fn serve(
                     .get("name")
                     .and_then(|n| n.as_str())
                     .unwrap_or_default()
+            );
+            let _trace = renox_runtime::trace::register(
+                &ctx.request_id,
+                span.clone(),
+                crate::telemetry::trace_id(&span),
             );
             tracing::Instrument::instrument(
                 call(

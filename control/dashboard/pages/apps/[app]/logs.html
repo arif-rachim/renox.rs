@@ -17,11 +17,15 @@
       <a class="button" :href="pause_url" r-if="filters.live">Live ● pause</a>
       <a class="button" :href="live_url" r-else>Live ○</a>
     </form>
-    <div r-if="filters.live" hx-get="{{ poll_url }}" hx-trigger="every 2s" hx-target="#log-lines" hx-swap="outerHTML"></div>
+    <r-group r-if="filters.live">
+      <div id="log-live" :data-sse="sse_url" hidden></div>
+      <div id="log-poll" hx-get="{{ poll_url }}" hx-trigger="every 2s [window.renoxLogsPoll === true]" hx-target="#log-lines" hx-swap="outerHTML"></div>
+      <x-script src="/live-logs.js"></x-script>
+    </r-group>
     <div id="log-lines" r-fragment="log_lines">
       <x-problem :problem="problem" r-if="problem" />
       <table class="list logs">
-        <tbody>
+        <tbody id="log-rows">
           <tr r-for="l in lines" :class="l.level_class">
             <td class="when">{{ l.when }}</td>
             <td class="level">{{ l.level }}</td>

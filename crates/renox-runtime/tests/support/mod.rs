@@ -99,6 +99,9 @@ pub fn spec(dir: &Path, hash: &str, limits: Limits) -> IsolateSpec {
         secrets: Default::default(),
         db: None,
         max_isolates: test_pool(),
+        storage: None,
+        ai: None,
+        templates: None,
     }
 }
 

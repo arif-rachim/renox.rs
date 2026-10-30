@@ -99,6 +99,21 @@ export function ctx(sqlite: Database, method: string, url: string, init: { body?
       send: () => Promise.resolve(),
       close: () => Promise.resolve(),
     },
-    jobs: { enqueue: () => Promise.reject(new Error("no jobs in unit tests")) },
+    jobs: {
+      enqueue: () => Promise.reject(new Error("no jobs in unit tests")),
+      list: () => Promise.reject(new Error("no jobs in unit tests")),
+      retry: () => Promise.reject(new Error("no jobs in unit tests")),
+      cancel: () => Promise.reject(new Error("no jobs in unit tests")),
+    },
+    storage: {
+      put: () => Promise.reject(new Error("no storage in unit tests")),
+      get: () => Promise.reject(new Error("no storage in unit tests")),
+      read: () => Promise.reject(new Error("no storage in unit tests")),
+      delete: () => Promise.reject(new Error("no storage in unit tests")),
+      sign: () => Promise.reject(new Error("no storage in unit tests")),
+      list: () => Promise.reject(new Error("no storage in unit tests")),
+    },
+    ai: { chat: () => Promise.reject(new Error("no ai in unit tests")) },
+    pdf: { render: () => Promise.reject(new Error("no pdf in unit tests")) },
   };
 }

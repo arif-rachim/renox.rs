@@ -1,0 +1,13 @@
+{
+  "$comment": "invalid: a ttl over 7 days [expect: maximum]",
+  "op": "op_storage_sign",
+  "args": [
+    "app/receipts/r-1.png",
+    9999999,
+    null
+  ],
+  "result": {
+    "url": "/_files/app/receipts/r-1.png?exp=1&sig=x",
+    "expires_at": 1
+  }
+}

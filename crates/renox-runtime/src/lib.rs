@@ -16,6 +16,7 @@ pub mod manifest;
 pub mod ops;
 pub mod pages;
 pub mod router;
+pub mod trace;
 
 #[cfg(feature = "v8")]
 mod globals;
@@ -30,7 +31,8 @@ pub mod runtime;
 
 #[cfg(feature = "v8")]
 pub use isolate::{
-    Dispatched, EventDelivered, EventEnvelope, EventOutcome, IsolateHandle, IsolateSpec, RequestCtx,
+    Dispatched, EventDelivered, EventEnvelope, EventOutcome, IsolateHandle, IsolateSpec, JobRun,
+    RequestCtx, StorageSlot,
 };
 #[cfg(feature = "v8")]
 pub use runtime::{LogLine, LogSink, Runtime, RuntimeConfig};

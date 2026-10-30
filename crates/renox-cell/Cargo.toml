@@ -54,7 +54,14 @@ serde = { version = "1", features = ["derive"] }
 # float_roundtrip: loader data parsed exactly as V8 printed it (B9, #40).
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
+# The image pipeline (#321; ops.md 1.7.0 section 21): decode JPEG, PNG,
+# WebP; encode AVIF (ravif, pure Rust), WebP (lossless), JPEG, PNG. Already in
+# the tree through deno_canvas; `avif` adds ravif and rav1e. README, "Images".
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "avif"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "fs"] }
+# The zone of a job's `tz` (ops.md section 20, #297): the system tzdb,
+# already in the tree through other crates.
+jiff = "0.2.38"
 toml = "0.9"
 # NFC check of tar entry paths (src/tar_safe.rs, T4).
 unicode-normalization = "0.1"

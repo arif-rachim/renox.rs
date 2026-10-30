@@ -1,0 +1,17 @@
+# [expect: schema] currency is ISO 4217 upper case and period is once, month or year
+[module]
+name = "tax_gcc"
+version = "2.1.0"
+isolation = "isolate"
+description = "UAE VAT and KSA ZATCA tax invoices"
+price = { amount = "49", currency = "aed", period = "week" }
+
+[publisher]
+name = "gulfsoft"
+key_id = "ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+
+[storage]
+allowed_types = ["application/pdf", "application/xml"]
+
+[permissions]
+tables = "tax_gcc__*"

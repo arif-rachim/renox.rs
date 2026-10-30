@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **0.4.1** (F6, #315: patch; `nodeDropTenant` with `purge_replica` and the answer's `replica_generations_deleted` / `replica_purged_at` (section 15), `replica_purged_at` on the erasure record (section 3)). 0.4 (F6, #303: the account and MFA endpoints of #113 and #293 as section 18, with a user token accepted on them; tenant erasure `deleteTenant` and `getTenant` in section 3; break-glass impersonation in section 17 with the scope `ops:impersonate`; `disk` on the heartbeat and `getNode` in section 7; latency percentiles and realtime fields on `UsageHour` in section 11; the reach of an `ops:read`-only token in section 2). 0.3.1 (F6, #273: patch, no new behaviour; the `fields.frames` sentence of section 11 for #261, `renox_op_` in `TokenCreated`, the operator id form, `GET /v1/ops/tenants/{tenant_id}` with the `ops:read` scope for the console of #259 and the status panel of #296, Open 5 closed by D23). 0.3 (F6, #251). HTTP paths are under `/v1`; every worker message carries `schema_version: 0`. Adding an endpoint, an optional request field, a rule id, or an error row is minor. Removing or renaming a field, a path, or a state, or changing a status code, is breaking: `/v2` and `schema_version: 1`. History: "Changelog" at the bottom |
+| Version | **0.5** (F7, #319: the module registry (section 19), platform billing in AED (section 20), onboarding (section 21), abuse reports and takedowns (section 22), deployment advisories (section 11.2), the AI gateway (section 23); scopes `registry:publish` and `registry:read`; state machines `tier` and `abuse`). 0.4.1 (F6, #315: patch; `nodeDropTenant` with `purge_replica` and the answer's `replica_generations_deleted` / `replica_purged_at` (section 15), `replica_purged_at` on the erasure record (section 3)). 0.4 (F6, #303: the account and MFA endpoints of #113 and #293 as section 18, with a user token accepted on them; tenant erasure `deleteTenant` and `getTenant` in section 3; break-glass impersonation in section 17 with the scope `ops:impersonate`; `disk` on the heartbeat and `getNode` in section 7; latency percentiles and realtime fields on `UsageHour` in section 11; the reach of an `ops:read`-only token in section 2). 0.3.1 (F6, #273: patch, no new behaviour; the `fields.frames` sentence of section 11 for #261, `renox_op_` in `TokenCreated`, the operator id form, `GET /v1/ops/tenants/{tenant_id}` with the `ops:read` scope for the console of #259 and the status panel of #296, Open 5 closed by D23). 0.3 (F6, #251). HTTP paths are under `/v1`; every worker message carries `schema_version: 0`. Adding an endpoint, an optional request field, a rule id, or an error row is minor. Removing or renaming a field, a path, or a state, or changing a status code, is breaking: `/v2` and `schema_version: 1`. History: "Changelog" at the bottom |
 | Producers | `control/api` (P12) |
 | Consumers | `cli/` (P11): `renox deploy`, `logs`, `secrets`, `domains`, `tokens` (#58, #113); `crates/renox-cell` (P5): the controlled-mode worker (#55, #96, #97, #98, #162); the dashboard (P13, #57, including the usage screen of section 11, the Database screen of section 14, #258, and the operator console of section 17, #259); the remote MCP (#62); from 0.3 the control plane is also a client of each node's listener (section 15: `crates/renox-cell`, #255, #259; `control/api`, #257, #258) |
 | Machine-readable | [`schemas/deploy-api.yaml`](schemas/deploy-api.yaml) (OpenAPI 3.1, every endpoint with request and response examples); [`schemas/control-messages.schema.json`](schemas/control-messages.schema.json) (JSON Schema 2020-12: worker registration, heartbeat, route table, activation, bundles, log batches, and the node listener messages of 0.3); [`schemas/node-listener.yaml`](schemas/node-listener.yaml) (OpenAPI 3.1: the endpoints a node serves to the control plane, section 15); meter batches are [`schemas/meter-record.schema.json`](schemas/meter-record.schema.json) |
@@ -52,7 +52,7 @@ Rules:
 - **401 `RENOX_UNAUTHENTICATED`** with `WWW-Authenticate: Bearer realm="renox"`: no `Authorization` header, a malformed or unknown token, an expired or revoked token, or a token of the wrong kind for the endpoint (a node token on a tenant endpoint and the reverse). The body does not say which.
 - **403 `RENOX_TOKEN_SCOPE`**: a valid token without the operation's scope (`x-renox-scope` in the OpenAPI file), or a node token whose `node_id` differs from the `{node_id}` in the path or a `node_id` in the body.
 - **404 `RENOX_NOT_FOUND`** for any resource outside the caller's tenant, never 403, so ids of other tenants cannot be enumerated (`docs/24-threat-model.md` E, IDOR row). The tenant id always comes from the token, never from a path, query, header or body.
-- **Scopes** (tenant tokens): `apps:read`, `apps:write`, `deploy`, `logs:read`, `secrets:read` (names only), `secrets:write`, `domains:write`, `tokens:write`; each either alone (every app of the tenant) or as `<scope>:<app>` (one app); `*` holds all of them. `ops:write` (0.3) and `ops:read` (0.3.1) are not tenant scopes: no role holds them, `*` does not include them, and only an account flagged `operator` can create a token with them (403 `RENOX_TOKEN_SCOPE` otherwise); such a token holds nothing else and acts on no tenant's own endpoints (section 17). `ops:write` grants `ops:read`: a token with `ops:write` reads the operator endpoints too, and `ops:read` alone is a read-only operator token (for the console's status panel and the observability page, #296). **Reach of an `ops:read`-only token (0.4):** `getOpsTenant` and `getNode` (section 7), and nothing else of this contract: every `ops:write` operation, `ops:impersonate` and every tenant, node and account endpoint answer it 403 `RENOX_TOKEN_SCOPE`. `createToken` accepts `scopes: ["ops:read"]` alone from an operator account. **`ops:impersonate` (0.4)** is the break-glass scope of section 17: neither `ops:write` nor the bootstrap token grants it, only a token an operator account creates with it explicitly (alone or with `ops:read`, expiry at most 1 day) holds it. A token creates only tokens whose every scope it holds itself (400 `RENOX_VALIDATION` otherwise), so no token can mint a stronger one. Expiry: 1 to 365 days, default 90. Roles and the operation table: section 2.1.
+- **Scopes** (tenant tokens): `apps:read`, `apps:write`, `deploy`, `logs:read`, `secrets:read` (names only), `secrets:write`, `domains:write`, `tokens:write`, and from 0.5 `registry:read` and `registry:publish` (section 19); each either alone (every app of the tenant) or as `<scope>:<app>` (one app); `*` holds all of them. `ops:write` (0.3) and `ops:read` (0.3.1) are not tenant scopes: no role holds them, `*` does not include them, and only an account flagged `operator` can create a token with them (403 `RENOX_TOKEN_SCOPE` otherwise); such a token holds nothing else and acts on no tenant's own endpoints (section 17). `ops:write` grants `ops:read`: a token with `ops:write` reads the operator endpoints too, and `ops:read` alone is a read-only operator token (for the console's status panel and the observability page, #296). **Reach of an `ops:read`-only token (0.4):** `getOpsTenant` and `getNode` (section 7), and nothing else of this contract: every `ops:write` operation, `ops:impersonate` and every tenant, node and account endpoint answer it 403 `RENOX_TOKEN_SCOPE`. `createToken` accepts `scopes: ["ops:read"]` alone from an operator account. **`ops:impersonate` (0.4)** is the break-glass scope of section 17: neither `ops:write` nor the bootstrap token grants it, only a token an operator account creates with it explicitly (alone or with `ops:read`, expiry at most 1 day) holds it. A token creates only tokens whose every scope it holds itself (400 `RENOX_VALIDATION` otherwise), so no token can mint a stronger one. Expiry: 1 to 365 days, default 90. Roles and the operation table: section 2.1.
 - **Rate limits** (*proposed*): per tenant token 20 requests/s with a burst of 100, and 10 uploads per minute; per source IP for unauthenticated requests 5/s. Over the limit: 429 `RENOX_RATE_LIMITED` with `Retry-After` in seconds. Node tokens are not rate limited in version 0.
 - **Audit.** Every mutating request (`POST`, `PUT`, `DELETE`), whatever its outcome, writes one audit row: time, tenant, actor (`token:<id>`, `node:<id>`, or `operator`), action (the `operationId`), target (app, hash, secret name, hostname, token id), HTTP status, request id. Audit rows never contain a request body, a secret value, or a token value. Audit rows are append-only. A read of operator data (`getOpsTenant`, 0.3.1) is audited too, as the one exception to "mutating requests only": operators read other people's tenants.
 - **Operator ids (0.3.1).** Wherever this contract names the operator who acted (`move_request.operator` on the node listener, the `operator` of an action in `getOpsTenant`, the audit row's target), the value is `operator` for the bootstrap token or the **account id** `acct_<ulid>` of the operator account (`^(operator|acct_[0-9A-Za-z]{16,32})$`, `OperatorId` in the OpenAPI file). The control plane's own user ids, `usr_<ulid>` (the account endpoints of #113, sessions, the `users` table), never leave the API through an operator reference: the API maps `usr_<ulid>` to `acct_<ulid>` (same ULID) when it sends one. 0.3 wrote `acct_…` in the schema and `usr_…` in its prose; the schema was right.
@@ -84,6 +84,8 @@ Matrix (`yes` = the role holds the permission). Source of truth in code: `MATRIX
 | `team:read` | yes | yes | yes | yes |
 | `team:write` | yes | yes | — | — |
 | `billing` | yes | — | — | — |
+| `registry:read` | yes | yes | yes | yes |
+| `registry:publish` | yes | yes | — | — |
 | `apps:delete` | yes | yes | — | — |
 | `tenant:delete` | yes | — | — | — |
 
@@ -94,8 +96,8 @@ Which permission each operation of this contract needs (`x-renox-scope` in the O
 <!-- operation-table -->
 | Permission | Operations |
 | --- | --- |
-| `apps:read` | `listApps`, `getApp`, `listDeployments`, `getDeployment`, `listDomains`, `getDomain`, `getUsage`, `getBackups`, `getTenant` |
-| `apps:write` | `createApp`, `setClientErrorStatus`, `exportBackup`, `restoreBackup`, `importDatabase` |
+| `apps:read` | `listApps`, `getApp`, `listDeployments`, `getDeployment`, `listDomains`, `getDomain`, `getUsage`, `getBackups`, `getTenant`, `listAppModules`, `getAdvisories` |
+| `apps:write` | `createApp`, `setClientErrorStatus`, `exportBackup`, `restoreBackup`, `importDatabase`, `installModule`, `createAppFromTemplate` |
 | `deploy` | `uploadDeployment`, `putSourcemaps`, `activateDeployment`, `rollbackDeployment` |
 | `logs:read` | `streamLogs`, `listClientErrors`, `getClientError` |
 | `secrets:read` | `listSecrets` (names only) |
@@ -103,11 +105,14 @@ Which permission each operation of this contract needs (`x-renox-scope` in the O
 | `domains:write` | `addDomain`, `removeDomain` |
 | `tokens:write` | `createToken`, `listTokens`, `revokeToken`, `approveDeviceLogin` |
 | `team:write` | `setTeamMfaRequired` |
+| `registry:read` | `listRegistryModules`, `getModuleVersion`, `downloadModuleVersion`, `diffModuleVersions` |
+| `registry:publish` | `createPublisher`, `rotatePublisherKey`, `publishModuleVersion` |
+| `billing` | `getBilling`, `changePlan`, `setBillingProfile`, `startPaymentMethodSetup`, `confirmPaymentMethod`, `listInvoices`, `getInvoice` |
 | `tenant:delete` | `deleteTenant` |
 | signed-in user | `logout`, `getMfa`, `startTotp`, `confirmTotp`, `passkeyOptions`, `registerPasskey`, `mfaChallenge`, `verifyMfa`, `regenerateRecoveryCodes`, `disableMfa` |
-| node token | `registerNode`, `heartbeat`, `nodeStream`, `routeSnapshot`, `prepareResult`, `fetchArtifact`, `fetchSecrets`, `fetchCertificate`, `ingestMeters`, `ingestLogs` |
-| operator token | `createTenant`, `suspendTenant`, `reinstateTenant`, `createNodeToken`, `setTenantTier`, `moveTenant` (`ops:write`), `getOpsTenant` (`ops:read`, 0.3.1), `getNode` (`ops:read`, 0.4), `impersonateTenant`, `endImpersonation` (`ops:impersonate`, 0.4) |
-| none | `getHealth`, `login`, `startDeviceLogin`, `pollDeviceLogin` |
+| node token | `registerNode`, `heartbeat`, `nodeStream`, `routeSnapshot`, `prepareResult`, `fetchArtifact`, `fetchSecrets`, `fetchCertificate`, `ingestMeters`, `ingestLogs`, `aiChat` (0.5) |
+| operator token | `createTenant`, `suspendTenant`, `reinstateTenant`, `createNodeToken`, `setTenantTier`, `moveTenant` (`ops:write`), `getOpsTenant` (`ops:read`, 0.3.1), `getNode` (`ops:read`, 0.4), `impersonateTenant`, `endImpersonation` (`ops:impersonate`, 0.4), `disableModuleVersion`, `setAbuseTicket` (`ops:write`, 0.5), `listAbuseTickets` (`ops:read`, 0.5) |
+| none | `getHealth`, `login`, `startDeviceLogin`, `pollDeviceLogin`, `listPlans`, `billingWebhook`, `signup`, `verifyEmail`, `reportAbuse` (0.5) |
 
 The session-only permissions guard the account and team endpoints of #113 (`team:read`, `team:write`) and the billing and delete operations that arrive with #57 and F7; they appear in this contract when those endpoints do: from 0.4 `team:write` (`setTeamMfaRequired`, section 18) and `tenant:delete` (`deleteTenant`, section 3). A **signed-in user** row is a caller of section 18: a session, or (0.4) a user token, with no tenant permission needed.
 
@@ -318,6 +323,10 @@ Every client line with `kind` `js.*`, `htmx.*`, `csp.violation` or `realtime.*` 
 - A fingerprint that is not 16 lowercase hex characters cannot exist, so it is 404 `RENOX_NOT_FOUND` like an unknown group or one of another tenant.
 - Event text is untrusted: anyone can post to the client-events endpoint (`client-events.md` section 9). Consumers escape every field.
 
+### 11.2 Advisories (0.5)
+
+`getAdvisories` (`GET /v1/apps/{app}/deployments/{hash}/advisories`, `apps:read`) answers the known vulnerabilities of the packages in the deployment's `sbom.cdx.json` (`artifact.md` 1.4), looked up in OSV by `purl` at upload and again daily for active deployments (#123). The answer is a **warning only**: no state of section 5 depends on it, and an artifact without an SBOM answers `sbom: false` and no items. The dashboard shows the count on the deployment, and `renox deploy` prints high and critical items after the upload (`docs/24-threat-model.md`, "Tenant dependencies frozen at deploy but vulnerable").
+
 ## 12. Error codes
 
 | Code | HTTP | Where | `details` |
@@ -448,6 +457,99 @@ The account endpoints that the CLI's `renox login` and the dashboard's sign-in a
 - **Step-up.** For a user with a factor, a **session** needs a verification within the last 15 minutes for: `putSecret`, `deleteSecret`, `bumpSecrets`; `createToken`, `revokeToken`, `approveDeviceLogin`; `changeMemberRole`, `removeMember`, `proposeOwnerTransfer` (README); `setTeamMfaRequired`, `regenerateRecoveryCodes`; and replacing a factor (`startTotp` and `passkeyOptions` when one is enrolled). Otherwise 403 `RENOX_TOKEN_SCOPE` with `details: [{ field: "mfa", reason: "step_up_required" }]`; the client verifies (`mfaChallenge`, `verifyMfa`) and retries the original request.
 - **User token rule (0.4).** The MFA operations of this section (`getMfa` to `disableMfa`) also accept `Authorization: Bearer renox_pat_…` of a token **a user created** (`renox login`, the dashboard), acting for that user, so the dashboard, which signs in with the user's own token (D23), can show a security page. A token without a user (a bootstrap token, an impersonation token of section 17) is 401. With a token there is no session state: `getMfa.session_state` is `null`, and `verified_at` and the step-up window are kept **per token** (a verification made with the token counts for that token only), so `regenerateRecoveryCodes` with a token needs a `verifyMfa` with the same token in the last 15 minutes. The other stepped-up operations keep the rule of #293 for tokens (a token is a credential of its own, created by a stepped-up session, and is not stepped up again). `setTeamMfaRequired` and `approveDeviceLogin` stay session only. `logout` with a token is 401: a token is revoked with `revokeToken`.
 
+## 19. Module registry (0.5)
+
+The registry holds modules published by tenants for other tenants (`manifest.md` 1.2, "Registry modules"; `docs/05-tenant-lifecycle.md`, "Marketplace modules"). It lives in `control/api` (#324). A **publisher** is owned by one tenant; tokens of that tenant with `registry:publish` act for it.
+
+| Operation | Path | Caller | Audit row | Errors |
+| --- | --- | --- | --- | --- |
+| `createPublisher` | `POST /v1/publishers` | `registry:publish` | publisher, key id | 400, 401, 403, 409 (name taken or reserved: `renox`, `official`, `app`) |
+| `rotatePublisherKey` | `POST /v1/publishers/{publisher}/keys` | `registry:publish`, the publisher's tenant | publisher, key added, keys revoked | 400, 401, 403, 404, 409 (revoking the last key) |
+| `publishModuleVersion` | `PUT /v1/registry/{publisher}/{name}/{version}` | `registry:publish`, the publisher's tenant | publisher, name, version, hash, key id | 400, 401, 403, 404, 409 (version exists), 413 (over 20 MiB), 422 `RENOX_DEPLOY_REJECTED` (`module.sig` missing or not verifying, a revoked key, `[publisher]` or `[module].name` not the path's, a manifest rule that fails) |
+| `listRegistryModules`, `getModuleVersion`, `downloadModuleVersion`, `diffModuleVersions` | `GET /v1/registry`, `…/{version}`, `…/{version}/tree`, `…/diff?from=&to=` | `registry:read` | none (reads) | 400, 401, 403, 404; 409 on `downloadModuleVersion` of a disabled version |
+| `listAppModules`, `installModule` | `GET`, `POST /v1/apps/{app}/modules` | `apps:read`, `apps:write` | app, name, version, hash, approved (install) | 400, 401, 403, 404, 409 (`approved` is not the version's request; a disabled version) |
+| `disableModuleVersion` | `POST /v1/registry/disable` | operator, `ops:write` | operator, hash, reason, tenants notified | 400, 401, 403, 404 |
+
+- **Immutable versions.** `<publisher>/<name>@<version>` is written once; a second `PUT` of the same version is 409 even with identical bytes. A mistake is fixed by a new version. The tar is stored under `registry/<publisher>/<name>/<version>.tar` in the platform's object store.
+- **Verification at publish.** The API recomputes the tree hash (`artifact.md` section 2, over every file but `module.sig`), checks `module.sig` against an unrevoked key of the publisher, and applies the single-tree manifest rules (MF1, MF4, MF6, MF9, MF10, MF13, MF14). The CLI verifies again at install (MF15), so a compromised registry cannot hand out a tree the publisher did not sign.
+- **Permission summary.** `getModuleVersion` answers the version's `[permissions]` as `permissions`, which the dashboard shows before install (`docs/19-platform-wireframes.md` 3.7). `diffModuleVersions` answers what an upgrade adds and removes (permissions, migration files, the `ops.md` version the module was built against, changed templates), which the upgrade review shows; `docs/23-failure-modes.md`, "Marketplace module asks for new permissions".
+- **Approval records.** `installModule` records what the tenant approved in the dashboard. `approved` must equal the version's request, so the record is what the tenant saw. The CLI still writes `renox.lock`; an upload whose lock names a registry module without a record writes the record from the lock.
+- **Global disable.** `disableModuleVersion` by tree hash refuses new installs and downloads of that hash everywhere, marks it on every app that has it (`listAppModules.disabled`), and emails each owner. Running deployments keep running: removing a module is the tenant's deploy, not the platform's. A takedown of a tenant is section 22. `enabled: true` undoes it.
+- **Not in 0.5.** Payouts to publishers and any revenue share (`price` is informational; `docs/15-roadmap.md` open question "Marketplace revenue share").
+
+## 20. Platform billing (0.5)
+
+Plans, payment methods and invoices of the platform in AED, built on the hourly usage of section 11 (`control/billing`, #325). Every operation but `listPlans` and `billingWebhook` takes the session permission `billing` (owner only, section 2.1); a token is refused.
+
+| Operation | Path | Caller | Audit row | Errors |
+| --- | --- | --- | --- | --- |
+| `listPlans` | `GET /v1/billing/plans` | anyone | none | 429 |
+| `getBilling` | `GET /v1/tenants/{tenant_id}/billing` | `billing` | none (read) | 401, 403, 404 |
+| `changePlan` | `POST /v1/tenants/{tenant_id}/billing/plan` | `billing` | tenant, from, to, effective date | 400, 401, 403, 404, 409 (a paid plan without a payment method; a plan below current use of `apps` or `custom_domains`) |
+| `setBillingProfile` | `PUT /v1/tenants/{tenant_id}/billing/profile` | `billing` | tenant, fields changed | 400, 401, 403, 404 |
+| `startPaymentMethodSetup`, `confirmPaymentMethod` | `POST …/billing/payment-methods/setup`, `POST …/billing/payment-methods` | `billing` | tenant, provider, payment method id | 400, 401, 403, 404, 409 (the PSP did not confirm the setup), 429, 503 (PSP unreachable) |
+| `listInvoices`, `getInvoice` | `GET /v1/tenants/{tenant_id}/invoices`, `…/{invoice_id}` | `billing` | none (reads) | 401, 403, 404 |
+| `billingWebhook` | `POST /v1/billing/webhooks/{provider}` | the PSP (signature) | provider, event id, type, tenant | 400, 401 (signature) |
+
+- **Plans** (*proposed*, from `docs/01-business.md`; the owner sets the numbers): Free AED 0, Starter AED 79, Pro AED 299, Agency AED 499 per month, excluding 5 % VAT; quotas per month for requests, CPU-ms, egress, database bytes, storage bytes, AI tokens, apps, and custom domains (`Plan.quotas`). `listPlans` is the source the dashboard and the marketing site read.
+- **Changing plans.** An upgrade takes effect at once with a prorated line on the next invoice; a downgrade at the end of the period (`pending_plan`). The tier the data plane enforces (section 17, `setTenantTier`) follows the plan: `free` is the free tier, every paid plan the paid tier.
+- **Payment methods.** The PSP is Stripe (UAE) first. The API creates a setup intent and answers its client secret; the card details go from the browser to the PSP's script and **never reach the API**. `confirmPaymentMethod` stores the PSP's payment method id, brand, last four digits and expiry only (`docs/24-threat-model.md`, card data out of scope by design).
+- **Invoices.** One per tenant per month, numbered `INV-<year>-<6 digits>` without gaps, with 5 % VAT (rounded half up to fils), Renox's TRN (`seller_trn`) and the tenant's TRN when the profile has one (`buyer_trn`). `getInvoice` with `Accept: application/pdf` answers the bilingual tax invoice (English and Arabic, rendered with the PDF op of `ops.md` section 24).
+- **Tier signal.** Every hour the control plane derives from `meters_hourly` the dimensions over the plan's quota and an anomaly flag (usage over 10 times the tenant's 7-day hourly median, *proposed*), the `signal` of `getBilling`, and drives the tier states below.
+
+<!-- state-machine: tier -->
+| State | Meaning | Next |
+| --- | --- | --- |
+| `active` | Within quota, or a paid plan whose overage is billed | `over_quota`, `suspended` (an operator, or a chargeback) |
+| `over_quota` | A free tenant over a quota for the period; the owner is emailed with the dimension and an upgrade link | `active` (upgrade, or a new period), `grace` (still over after 24 hours) |
+| `grace` | Seven days in which requests are served; the dashboard and every email show the date | `active` (upgrade, or a new period), `suspended` (the seven days end, or an invoice is unpaid 14 days after its date) |
+| `suspended` | The route table serves the neutral suspension page (`crates/renox-gateway`, 503 with `Retry-After`, no tenant code, the tenant's name only); data, deployments and the dashboard stay | `active` (payment, an upgrade, or an operator) |
+
+- **PSP webhooks.** `billingWebhook` verifies the provider's signature before anything is read (Stripe: `Stripe-Signature`, 300 s tolerance), de-duplicates on the event id, and handles setup and payment results, paid and failed invoices, disputes and refunds. A dispute moves the tenant to `suspended` at once (card testing and fraud, `docs/24-threat-model.md`).
+
+## 21. Onboarding (0.5)
+
+| Operation | Path | Caller | Audit row | Errors |
+| --- | --- | --- | --- | --- |
+| `signup` | `POST /v1/account/signup` | anyone (friction rules below) | user; the tenant on creation | 400, 409 (`tenant_id` taken), 429 |
+| `verifyEmail` | `POST /v1/account/verify` | the holder of the emailed token | user | 404 (unknown, used or expired token), 429 |
+| `createAppFromTemplate` | `POST /v1/apps/from-template` | `apps:write` | app, template, hash | 400, 401, 403, 409 (name taken), 503 (no healthy node) |
+
+- **Sign-up.** Both operations exist in `control/api` since #113 (`src/auth/accounts.ts`); 0.5 puts them in the contract as implemented and adds `dpa_accepted` and `captcha_token`. `{ email, password, tenant_id?, tenant_name?, dpa_accepted: true, captcha_token, locale? }` answers 202 `{ status: "check_email" }` whether or not the address has an account, so addresses cannot be enumerated; an existing account gets a notice instead. The account, with `tenant_id` its tenant (owner role, tier `free`), and a verification email are created. `verifyEmail` with the emailed token answers `{ user_id, email_verified: true }`; from #326 it also sets the session as `login` does (section 18) and answers `tenant_id`. `dpa_accepted` records the data processing agreement version and time on the tenant.
+- **Friction** (stated here, implemented by #123 in `control/api/src/signup/friction.ts`): a domain on the disposable-address list is 400 (`details: [{ field: "email", reason: "disposable" }]`); more than 3 sign-ups per IP per hour or 20 per ASN per day is 429; the CAPTCHA token is checked with the provider before anything is stored.
+- **New tenants.** A tenant starts on `free` with `restrictions: ["reduced_quotas", "no_custom_domain"]` (half of the free quotas, no `addDomain`). Both are lifted when a payment method is confirmed, or after 7 days without an abuse flag (section 22) or an anomaly (section 20).
+- **First app.** `createAppFromTemplate` creates the app and uploads and activates the template's artifact (templates built from `examples/`); `getTenant` answers `first_deploy_at`, the time of the tenant's first activation, which the activation metric (sign-up to first deploy within 10 minutes, `docs/19-platform-wireframes.md` section 1) is computed from.
+
+## 22. Abuse reports and takedowns (0.5)
+
+| Operation | Path | Caller | Audit row | Errors |
+| --- | --- | --- | --- | --- |
+| `reportAbuse` | `POST /v1/abuse` | anyone (CAPTCHA; 5 per IP per hour) | ticket, hostname, category | 400, 429 |
+| `listAbuseTickets` | `GET /v1/ops/abuse` | operator, `ops:read` | operator (a read) | 401, 403 |
+| `setAbuseTicket` | `POST /v1/ops/abuse/{ticket_id}` | operator, `ops:write` | operator, ticket, from, to, reason | 400, 401, 403, 404, 409 (a transition not in the table) |
+
+<!-- state-machine: abuse -->
+| State | Meaning | Next |
+| --- | --- | --- |
+| `open` | Reported; the hostname is resolved to its tenant and checked with Safe Browsing (`safe_browsing`) | `reviewing`, `taken_down` (Safe Browsing says unsafe and the category is phishing or malware: at once, then reviewed), `dismissed` |
+| `reviewing` | An operator looks at it | `taken_down`, `dismissed` |
+| `taken_down` | Every route of the tenant serves the neutral page of section 20 and the owner is emailed with the reason; data stays | `restored` |
+| `dismissed` | No abuse found; the reporter, when an address was given, is told | `reviewing` (a new report of the same hostname) |
+| `restored` | The takedown was lifted (an appeal, or a fixed site) | `reviewing` |
+
+- The reporter's address, when given, is used only to send the ticket id and the outcome, and is deleted with the ticket after 90 days. The audit row never holds it.
+- `getOpsTenant` answers, from 0.5, `safe_browsing: [{ hostname, verdict, checked_at }]` for each hostname of the tenant (the daily check of #123) and the tenant's open tickets.
+
+## 23. AI gateway (0.5)
+
+`aiChat` (`POST /v1/ai/chat`, node token) is the gateway mode of `op_ai_chat` (`ops.md` section 23): the platform holds the provider keys, and **the isolate and the node never see them**. It lives in `control/api` for F7 (#327).
+
+- **Caller.** A node, for a tenant it owns (403 `RENOX_TOKEN_SCOPE` otherwise). The body carries `tenant_id`, `app`, the tenant request's `request_id`, and the request of `ops.md` section 23.
+- **Models.** A provider table maps `model` to a provider and its model id; `default` is the latest Claude model of the table (Anthropic first, e.g. `claude-sonnet-5-5`). A model outside the table is 400. A row may list a second provider; the gateway tries it when the first answers 5xx or times out (30 s), else 503 `RENOX_AI_UNAVAILABLE`.
+- **Quota and meter.** Before the call, the tenant's monthly `ai_tokens` quota (section 20) is checked against the tokens used this period plus `max_tokens`; over it is 429 `RENOX_AI_QUOTA`. After the call the input and output tokens are added to the tenant's usage and returned as `usage`, which the node copies into the meter record (`meter.md` 0.4, `ai_tokens_in`, `ai_tokens_out`).
+- **Cache.** The key is SHA-256 over the tenant id and the canonical JSON of `{ model, system, messages, tools, max_tokens }`; a hit within 24 hours answers `cached: true` and charges no tokens. Keys never cross tenants.
+- **Spend limit.** Besides the plan quota, an operator can cap a tenant's monthly AI tokens lower (section 17, a field of `setTenantTier` in a later patch); the gateway applies the lower of the two. Requests and answers are not logged; the audit row of a refusal names the tenant, the model and the reason only.
+
 ## Open
 
 1. **Presigned uploads.** Version 0 uploads through the API (100 MiB cap). A presigned direct-to-storage upload with a `POST …/deployments/{hash}/complete` step can be added as a minor change if uploads become a bottleneck (B15, #60).
@@ -467,6 +569,10 @@ The account endpoints that the CLI's `renox login` and the dashboard's sign-in a
 15. **Impersonation writes.** 0.4 allows only read scopes under break-glass. A write scope (an operator fixing a tenant's data) needs a second operator's approval and is a minor change if the tabletop of #121 shows it is needed.
 16. **Erasure of backups held by the store's versioning.** Section 3 relies on the bucket lifecycle (`ops/terraform`) for object versions; an erasure that also deletes every noncurrent version at once needs the delete-versions permission on the API's role, which the owner decides with #309.
 17. **Replica purge permission (0.4.1).** `purge_replica` uses the sidecar's credentials, which can already write the replica prefix; deleting generations needs the delete permission on that prefix. The owner confirms the policy of `ops/terraform` grants it to the node role and not to the control plane, with #309's follow-up. The noncurrent object versions of item 16 are not touched.
+18. **Plan numbers (0.5).** Prices and quotas in section 20 are proposals from `docs/01-business.md`; the owner fixes them before #325 goes live (`docs/15-roadmap.md`, "Pricing model").
+19. **Registry API placement (0.5).** The registry is served by `control/api` under `/v1/registry`. A separate registry host (and a CDN in front of `downloadModuleVersion`) is a deployment choice that does not change the operations.
+20. **AI spend limit (0.5).** The operator cap of section 23 has no operation yet; until it has one the plan quota is the only limit.
+21. **Advisories path (0.5).** #319 named `GET /v1/deployments/{id}/advisories`; deployments are addressed as `/v1/apps/{app}/deployments/{hash}` everywhere else, so the operation follows that form.
 
 ## Changelog
 
@@ -479,3 +585,4 @@ The account endpoints that the CLI's `renox login` and the dashboard's sign-in a
 | 0.4 | #303 | Minor. Section 18: the account and MFA endpoints (`login`, `logout`, the device flow, `getMfa`, TOTP, passkeys, `mfaChallenge`, `verifyMfa`, recovery codes, `disableMfa`, `setTeamMfaRequired`), the session states `verify` and `enrol`, `step_up_required` and the stepped-up operations, a user token accepted on the MFA endpoints. Section 3: `getTenant`, `deleteTenant` and the `erasure` state machine. Section 17: `impersonateTenant`, `endImpersonation`, the scope `ops:impersonate`, active impersonations in `getOpsTenant.actions[]`. Section 7: optional `disk` on `heartbeat`, `getNode`. Section 11: optional `latency_p50_ms`, `latency_p95_ms`, `realtime_conn_seconds`, `realtime_messages` on `UsageHour`. Section 2: the reach of an `ops:read`-only token. Open 15–16 |
 | 0.3.1 | #273 | Patch, no new behaviour. Section 11: `fields.frames` on a server line with a stack (#261). Section 2 and `TokenCreated.token`: `renox_op_` tokens of operator accounts (`^renox_(pat\|op)_`); the operator id form `operator` or `acct_<ulid>` everywhere this contract names an operator (`OperatorId`), `usr_<ulid>` staying internal. Section 17: `GET /v1/ops/tenants/{tenant_id}` (`getOpsTenant`) with the new scope `ops:read`, granted by `ops:write`, audited as a read; `OpsTenant` in the OpenAPI file. Open 5 closed by D23 |
 | 0.4.1 | #315 | Patch (additive, optional fields and an optional query parameter). Section 15 and `schemas/node-listener.yaml`: `nodeDropTenant` accepts `purge_replica=true` and answers `replica_generations_deleted` and `replica_purged_at`; 503 `RENOX_BACKUP_UNAVAILABLE` when the replica store does not answer. Section 3 and `Erasure`: optional `replica_purged_at`; erasure step 3 sends the parameter. `control-messages.schema.json` `tenant_dropped`: the two optional fields. Open 17 |
+| 0.5 | #319 | Minor (additive). **Registry (section 19):** `createPublisher`, `rotatePublisherKey`, `publishModuleVersion` (immutable, `module.sig` verified), `listRegistryModules`, `getModuleVersion` (the permission summary), `downloadModuleVersion`, `diffModuleVersions`, `listAppModules`, `installModule`, `disableModuleVersion` (operator, by hash); scopes `registry:read`, `registry:publish`. **Billing (section 20):** `listPlans` in AED, `getBilling` (usage, estimate, `signal`, `restrictions`), `changePlan`, `setBillingProfile` (TRN), `startPaymentMethodSetup` and `confirmPaymentMethod` (setup intent, no card data), `listInvoices`, `getInvoice` (JSON or PDF, 5 % VAT), `billingWebhook`; the `tier` state machine. **Onboarding (section 21):** `signup`, `verifyEmail`, `createAppFromTemplate`, the friction rules, new-tenant restrictions, `first_deploy_at`. **Abuse (section 22):** `reportAbuse`, `listAbuseTickets`, `setAbuseTicket`, the `abuse` state machine, Safe Browsing results on `getOpsTenant`. **Advisories (section 11.2):** `getAdvisories`. **AI gateway (section 23):** `aiChat` for nodes, the provider table, quota, meter and cache rules |

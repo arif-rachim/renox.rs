@@ -139,6 +139,18 @@ impl renox_gateway::CellDispatcher for NodeDispatcher {
             Dispatch::Shared(d) => d.dispatch(ctx.clone(), req).await,
             Dispatch::Tiers(s) => s.dispatch(ctx.clone(), req).await,
         };
+        // #311: a statement found the file damaged mid-request (SQLITE_CORRUPT,
+        // SQLITE_NOTADB). The tenant's cells of that database are drained,
+        // the file goes to the quarantine-and-restore path of #103, and this
+        // request answers what the following ones answer while it runs.
+        if let Some(c) = res.extensions().get::<crate::manager::DbCorrupt>().cloned() {
+            let drained = self.manager.drain_database(&c.database);
+            tracing::error!(tenant_id = %ctx.tenant_id, database = %c.database, drained, "damaged tenant file: cells drained, restoring");
+            if let Some(r) = &self.replication {
+                r.recover_corrupt(&c.database);
+            }
+            return unavailable("RENOX_DB_UNAVAILABLE", "30", &ctx, &headers);
+        }
         // The request that found the damage failed opening the file (500):
         // it answers what the following ones answer while the restore runs.
         if res.status() == http::StatusCode::INTERNAL_SERVER_ERROR && restoring(&ctx).is_some() {
@@ -401,6 +413,30 @@ impl Worker {
         );
         manager.set_authz_config(config.authz.to_config());
         manager.set_realtime_config(config.realtime.clone());
+        manager.set_jobs_config(config.jobs.clone());
+        // #322: `ctx.ai` in gateway mode forwards to the control plane.
+        if let Some(client) = &control {
+            manager.set_ai_gateway(std::sync::Arc::new(crate::control::AiForward {
+                client: client.clone(),
+            }));
+        }
+        // #321: the platform bucket of tenant files, when configured.
+        if let Some(bucket) = &config.storage.bucket {
+            match crate::storage::S3Store::new(
+                config.storage.endpoint.clone(),
+                config
+                    .storage
+                    .region
+                    .clone()
+                    .unwrap_or_else(|| "us-east-1".into()),
+                bucket.clone(),
+            ) {
+                Ok(s3) => manager.set_file_store(std::sync::Arc::new(std::sync::Arc::new(s3))),
+                Err(e) => {
+                    tracing::error!(error = %e, "[storage] bucket configured but unusable; files stay local")
+                }
+            }
+        }
         // Litestream per tenant file (#255).
         let replication = config.replication.enabled.then(|| {
             let r = crate::replication::Replication::start(

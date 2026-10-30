@@ -31,7 +31,7 @@ export async function load(ctx: LoaderContext) {
   // Whole hours, the current one included.
   const to = (Math.floor(Date.now() / HOUR) + 1) * HOUR;
   const from = to - slots * HOUR;
-  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "usage", range, ranges: Object.keys(RANGES), chart: CHART };
+  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "usage", range, ranges: Object.keys(RANGES), chart: CHART };
   const r = await api.usage(name, from, to);
   if (!r.ok) return { ...base, problem: await problem(ctx, r), totals: null, charts: [], quota: null };
   const u = r.value;

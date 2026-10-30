@@ -1,4 +1,4 @@
-# Renox deploy API, contract version 0.4 (F6).
+# Renox deploy API, contract version 0.5 (F7).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renox deploy API
-  version: 0.4.0
+  version: 0.5.0
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -56,6 +56,16 @@ tags:
     description: "The caller's own tenant and its erasure (section 3, 0.4)"
   - name: account
     description: "Sign-in, the device flow, second factors (section 18, 0.4)"
+  - name: registry
+    description: "Publishers, module versions, the upgrade diff, app approvals (section 19, 0.5)"
+  - name: billing
+    description: "Plans in AED, the billing state, payment methods, invoices, the PSP's webhooks (section 20, 0.5)"
+  - name: onboarding
+    description: "Sign-up, email verification, the first app from a template (section 21, 0.5)"
+  - name: abuse
+    description: "The public abuse report (section 22, 0.5); the operator side is tagged ops"
+  - name: ai
+    description: "The AI gateway for cells (section 23, 0.5)"
 
 x-renox-state-machines:
   deployment:
@@ -83,6 +93,21 @@ x-renox-state-machines:
       erasing: [done, failed]
       done: []
       failed: [erasing]
+  tier:
+    initial: [active]
+    transitions:
+      active: [over_quota, suspended]
+      over_quota: [active, grace]
+      grace: [active, suspended]
+      suspended: [active]
+  abuse:
+    initial: [open]
+    transitions:
+      open: [reviewing, taken_down, dismissed]
+      reviewing: [taken_down, dismissed]
+      taken_down: [restored]
+      dismissed: [reviewing]
+      restored: [reviewing]
 
 security:
   - tenantToken: []
@@ -2674,6 +2699,976 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/StepUp" }
 
+  # ---------------------------------------------------------------------------
+  # 0.5 (F7, #319): registry (section 19), billing (20), onboarding (21),
+  # abuse (22), advisories (11.2), AI gateway (23).
+  # ---------------------------------------------------------------------------
+
+  /v1/publishers:
+    post:
+      operationId: createPublisher
+      tags: [registry]
+      summary: Claim a publisher name with its first Ed25519 key (section 19)
+      x-renox-scope: registry:publish
+      x-renox-audit: createPublisher (publisher, key_id)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, public_key]
+              properties:
+                name: { $ref: "#/components/schemas/PublisherName" }
+                public_key: { $ref: "#/components/schemas/Ed25519PublicKey" }
+            examples:
+              gulfsoft: { value: { name: gulfsoft, public_key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8 } }
+            x-renox-invalid-examples:
+              upper: { value: { name: GulfSoft, public_key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8 }, x-expect: pattern }
+      responses:
+        "201":
+          description: The publisher, owned by the caller's tenant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Publisher" }
+              examples:
+                created: { $ref: "#/components/examples/PublisherNew" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/publishers/{publisher}/keys:
+    parameters:
+      - $ref: "#/components/parameters/Publisher"
+    post:
+      operationId: rotatePublisherKey
+      tags: [registry]
+      summary: Add a signing key and revoke older ones (section 19)
+      x-renox-scope: registry:publish
+      x-renox-audit: rotatePublisherKey (publisher, key_id added, key_ids revoked)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [public_key]
+              properties:
+                public_key: { $ref: "#/components/schemas/Ed25519PublicKey" }
+                revoke: { type: array, maxItems: 16, uniqueItems: true, items: { $ref: "#/components/schemas/KeyId" } }
+            examples:
+              rotate: { value: { public_key: ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8, revoke: ["ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"] } }
+            x-renox-invalid-examples:
+              short: { value: { public_key: abc }, x-expect: pattern }
+      responses:
+        "200":
+          description: The publisher with its keys. A revoked key no longer verifies new installs; installed locks keep working until the next `renox install`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Publisher" }
+              examples:
+                rotated: { $ref: "#/components/examples/PublisherRotated" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/registry:
+    get:
+      operationId: listRegistryModules
+      tags: [registry]
+      summary: List and search the registry (section 19)
+      x-renox-scope: registry:read
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE]
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string, maxLength: 100 }, description: "Words matched against publisher, name and description" }
+        - { name: cursor, in: query, required: false, schema: { type: string, maxLength: 200 } }
+      responses:
+        "200":
+          description: The newest enabled version of each matching module, 50 per page.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/RegistryModule" } }
+                  next_cursor: { type: [string, "null"], maxLength: 200 }
+              examples:
+                search: { $ref: "#/components/examples/RegistryList" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+
+  /v1/registry/{publisher}/{name}/{version}:
+    parameters:
+      - $ref: "#/components/parameters/Publisher"
+      - $ref: "#/components/parameters/ModuleName"
+      - $ref: "#/components/parameters/ModuleVersion"
+    put:
+      operationId: publishModuleVersion
+      tags: [registry]
+      summary: Publish one immutable module version (section 19)
+      description: >-
+        The body is the module tree as a POSIX tar with `module.sig` at its root (manifest.md 1.2,
+        section 5). The API recomputes the tree hash without `module.sig`, checks the signature
+        against an unrevoked key of the publisher, checks the manifest (MF1-MF15 that a single tree
+        can prove) and stores the tar under registry/<publisher>/<name>/<version>.tar. A version
+        that exists is refused with 409, even with the same bytes.
+      x-renox-scope: registry:publish
+      x-renox-audit: publishModuleVersion (publisher, name, version, hash, key_id)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT, RENOX_BODY_TOO_LARGE, RENOX_DEPLOY_REJECTED]
+      requestBody:
+        required: true
+        content:
+          application/x-tar:
+            schema: { type: string, format: binary, maxLength: 20971520 }
+            examples:
+              tax: { summary: "The tax_gcc 2.1.0 tree with module.sig", value: "<tar of the tax_gcc module tree>" }
+      responses:
+        "201":
+          description: Published.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegistryModule" }
+              examples:
+                tax: { $ref: "#/components/examples/RegistryModuleTax" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/BodyTooLarge" }
+    get:
+      operationId: getModuleVersion
+      tags: [registry]
+      summary: One module version with the permission summary shown at install (section 19)
+      x-renox-scope: registry:read
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: The version, disabled or not.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegistryModule" }
+              examples:
+                tax: { $ref: "#/components/examples/RegistryModuleTax" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/registry/{publisher}/{name}/{version}/tree:
+    parameters:
+      - $ref: "#/components/parameters/Publisher"
+      - $ref: "#/components/parameters/ModuleName"
+      - $ref: "#/components/parameters/ModuleVersion"
+    get:
+      operationId: downloadModuleVersion
+      tags: [registry]
+      summary: The published tar, for `renox add` and `renox install` (section 19)
+      x-renox-scope: registry:read
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      responses:
+        "200":
+          description: The tar as published; the CLI verifies the hash and module.sig itself.
+          content:
+            application/x-tar:
+              schema: { type: string, format: binary }
+              examples:
+                tax: { value: "<tar of the tax_gcc module tree>" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The version is disabled (section 19, "Global disable").
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                disabled: { value: { error: { code: RENOX_CONFLICT, message: The request conflicts with the current state., request_id: 01JBQ3Z7MA0000000000000301, details: [{ field: hash, reason: disabled }] } } }
+
+  /v1/registry/{publisher}/{name}/diff:
+    parameters:
+      - $ref: "#/components/parameters/Publisher"
+      - $ref: "#/components/parameters/ModuleName"
+    get:
+      operationId: diffModuleVersions
+      tags: [registry]
+      summary: What an upgrade changes, for the upgrade review (section 19)
+      x-renox-scope: registry:read
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      parameters:
+        - { name: from, in: query, required: true, schema: { $ref: "#/components/schemas/Semver" } }
+        - { name: to, in: query, required: true, schema: { $ref: "#/components/schemas/Semver" } }
+      responses:
+        "200":
+          description: Permissions added and removed, new migrations, the contract versions, templates a tenant override may have drifted from.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModuleDiff" }
+              examples:
+                tax: { $ref: "#/components/examples/ModuleDiffTax" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/registry/disable:
+    post:
+      operationId: disableModuleVersion
+      tags: [ops]
+      summary: Disable a module version everywhere by its tree hash (section 19; operator)
+      description: >-
+        Refuses new installs and downloads of the hash, marks every app that has it installed,
+        and emails each owner. Deployed artifacts keep running: a disable is not a takedown of a
+        tenant (section 22 is). Undone by the same call with `enabled: true`.
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:write
+      x-renox-audit: disableModuleVersion (operator, hash, reason, tenants notified)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [hash, reason]
+              properties:
+                hash: { $ref: "#/components/schemas/Sha256" }
+                reason: { type: string, minLength: 10, maxLength: 500 }
+                enabled: { type: boolean, default: false }
+            examples:
+              malware: { value: { hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, reason: "GHSA-xxxx: exfiltrates TRNs to a third-party host" } }
+            x-renox-invalid-examples:
+              short: { value: { hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, reason: bad }, x-expect: minLength }
+      responses:
+        "200":
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [hash, disabled_at, tenants_notified]
+                properties:
+                  hash: { $ref: "#/components/schemas/Sha256" }
+                  disabled_at: { type: [integer, "null"], minimum: 0, description: "Unix ms; null after `enabled: true`" }
+                  tenants_notified: { type: integer, minimum: 0 }
+              examples:
+                malware: { value: { hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, disabled_at: 1793318400000, tenants_notified: 3 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/apps/{app}/modules:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    get:
+      operationId: listAppModules
+      tags: [registry]
+      summary: The registry modules an app has approved, with any disable (section 19)
+      x-renox-scope: apps:read
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: One row per approved module of the app.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/AppModule" } }
+              examples:
+                one: { value: { items: [{ name: tax_gcc, source: "registry:gulfsoft/tax_gcc", version: "2.1.0", hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, approved: { tables: "tax_gcc__*", network: [], secrets: [], slots: [], hooks: [] }, approved_at: 1793318400000, approved_by: usr_01JBQ40000000000US, disabled: null }] } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: installModule
+      tags: [registry]
+      summary: Record the approval of a module version for an app (section 19)
+      description: >-
+        The dashboard's install and upgrade review end here; the CLI still writes renox.lock.
+        `approved` must equal the version's permission request, so the record says what the
+        tenant saw. An upload whose artifact carries a registry module without a matching
+        record is accepted (the lock is the tenant's approval), and the record is written then.
+      x-renox-scope: apps:write
+      x-renox-audit: installModule (app, name, version, hash, approved)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [source, version, hash, approved]
+              properties:
+                source: { type: string, pattern: "^registry:[a-z0-9][a-z0-9-]{0,38}/[a-z][a-z0-9_]{0,31}$" }
+                version: { $ref: "#/components/schemas/Semver" }
+                hash: { $ref: "#/components/schemas/Sha256" }
+                approved: { $ref: "#/components/schemas/ModulePermissions" }
+            examples:
+              tax: { value: { source: "registry:gulfsoft/tax_gcc", version: "2.1.0", hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, approved: { tables: "tax_gcc__*", network: [], secrets: [], slots: [], hooks: [] } } }
+            x-renox-invalid-examples:
+              git: { value: { source: "git:https://github.com/acme/x#v1", version: "1.0.0", hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, approved: { network: [], secrets: [], slots: [], hooks: [] } }, x-expect: pattern }
+      responses:
+        "201":
+          description: The approval record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppModule" }
+              examples:
+                tax: { value: { name: tax_gcc, source: "registry:gulfsoft/tax_gcc", version: "2.1.0", hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, approved: { tables: "tax_gcc__*", network: [], secrets: [], slots: [], hooks: [] }, approved_at: 1793318400000, approved_by: usr_01JBQ40000000000US, disabled: null } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/billing/plans:
+    get:
+      operationId: listPlans
+      tags: [billing]
+      summary: The plans in AED with their quotas (section 20)
+      security: []
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_RATE_LIMITED]
+      responses:
+        "200":
+          description: Every plan a tenant can choose; prices exclude 5 % VAT.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [currency, vat_rate, plans]
+                properties:
+                  currency: { const: AED }
+                  vat_rate: { type: string, pattern: "^0\\.[0-9]{1,4}$" }
+                  plans: { type: array, minItems: 1, maxItems: 8, items: { $ref: "#/components/schemas/Plan" } }
+              examples:
+                plans: { $ref: "#/components/examples/Plans" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/tenants/{tenant_id}/billing:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: getBilling
+      tags: [billing]
+      summary: Plan, tier state, usage this period per dimension, the estimate (section 20)
+      x-renox-scope: billing
+      security:
+        - sessionCookie: []
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: The tenant's billing state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Billing" }
+              examples:
+                starter: { $ref: "#/components/examples/BillingStarter" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/tenants/{tenant_id}/billing/plan:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: changePlan
+      tags: [billing]
+      summary: Change the plan; an upgrade starts now and is prorated, a downgrade at the period end (section 20)
+      x-renox-scope: billing
+      security:
+        - sessionCookie: []
+      x-renox-audit: changePlan (tenant, from, to, effective_at)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [plan]
+              properties:
+                plan: { $ref: "#/components/schemas/PlanId" }
+            examples:
+              pro: { value: { plan: pro } }
+            x-renox-invalid-examples:
+              gold: { value: { plan: gold }, x-expect: enum }
+      responses:
+        "200":
+          description: "The billing state after the change. A paid plan without a payment method is 409 (details field payment_method, reason required)."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Billing" }
+              examples:
+                starter: { $ref: "#/components/examples/BillingStarter" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/tenants/{tenant_id}/billing/profile:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    put:
+      operationId: setBillingProfile
+      tags: [billing]
+      summary: The invoice addressee and the tenant's TRN (section 20)
+      x-renox-scope: billing
+      security:
+        - sessionCookie: []
+      x-renox-audit: setBillingProfile (tenant; the fields changed, never their values)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingProfile" }
+            examples:
+              uae: { value: { legal_name: "Hello Trading LLC", email: "accounts@hello.ae", trn: "100123456700003", address: "Office 12, Al Quoz 3, Dubai", country: AE } }
+            x-renox-invalid-examples:
+              trn: { value: { legal_name: "Hello Trading LLC", email: "accounts@hello.ae", trn: "12345", address: "Dubai", country: AE }, x-expect: pattern }
+      responses:
+        "200":
+          description: Stored; the next invoice uses it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingProfile" }
+              examples:
+                uae: { value: { legal_name: "Hello Trading LLC", email: "accounts@hello.ae", trn: "100123456700003", address: "Office 12, Al Quoz 3, Dubai", country: AE } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/tenants/{tenant_id}/billing/payment-methods/setup:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: startPaymentMethodSetup
+      tags: [billing]
+      summary: Start the PSP's setup-intent handshake; card data goes from the browser to the PSP only (section 20)
+      x-renox-scope: billing
+      security:
+        - sessionCookie: []
+      x-renox-audit: startPaymentMethodSetup (tenant, provider)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_RATE_LIMITED, RENOX_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [provider]
+              properties:
+                provider: { enum: [stripe] }
+            examples:
+              stripe: { value: { provider: stripe } }
+            x-renox-invalid-examples:
+              telr: { value: { provider: telr }, x-expect: enum }
+      responses:
+        "201":
+          description: The client secret the dashboard hands to the PSP's script. Valid for one confirmation.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [provider, setup_id, client_secret, publishable_key]
+                properties:
+                  provider: { enum: [stripe] }
+                  setup_id: { type: string, pattern: "^seti_[A-Za-z0-9]{8,64}$" }
+                  client_secret: { type: string, minLength: 16, maxLength: 200 }
+                  publishable_key: { type: string, pattern: "^pk_(live|test)_[A-Za-z0-9]{8,200}$" }
+              examples:
+                stripe: { value: { provider: stripe, setup_id: seti_1Q2w3E4r5T6y7U8i, client_secret: seti_1Q2w3E4r5T6y7U8i_secret_abcdefgh, publishable_key: pk_test_51Abcdefgh } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /v1/tenants/{tenant_id}/billing/payment-methods:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: confirmPaymentMethod
+      tags: [billing]
+      summary: Attach the payment method the PSP confirmed (section 20)
+      x-renox-scope: billing
+      security:
+        - sessionCookie: []
+      x-renox-audit: confirmPaymentMethod (tenant, provider, payment method id)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [setup_id]
+              properties:
+                setup_id: { type: string, pattern: "^seti_[A-Za-z0-9]{8,64}$" }
+            examples:
+              stripe: { value: { setup_id: seti_1Q2w3E4r5T6y7U8i } }
+            x-renox-invalid-examples:
+              card: { value: { setup_id: seti_1Q2w3E4r5T6y7U8i, card_number: "4242424242424242" }, x-expect: not allowed }
+      responses:
+        "201":
+          description: The default payment method; the API keeps the PSP's id, brand, last four digits and expiry only.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentMethod" }
+              examples:
+                visa: { value: { id: pm_1Q2w3E4r5T6y7U8i, provider: stripe, brand: visa, last4: "4242", exp_month: 12, exp_year: 2029, added_at: 1793318400000 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/tenants/{tenant_id}/invoices:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: listInvoices
+      tags: [billing]
+      summary: The tenant's invoices, newest first (section 20)
+      x-renox-scope: billing
+      security:
+        - sessionCookie: []
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: At most 24 invoices.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: { type: array, maxItems: 24, items: { $ref: "#/components/schemas/Invoice" } }
+              examples:
+                one: { $ref: "#/components/examples/InvoiceList" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/tenants/{tenant_id}/invoices/{invoice_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - { name: invoice_id, in: path, required: true, schema: { $ref: "#/components/schemas/InvoiceId" } }
+    get:
+      operationId: getInvoice
+      tags: [billing]
+      summary: One invoice as JSON, or as the tax invoice PDF with `Accept application/pdf` (section 20)
+      x-renox-scope: billing
+      security:
+        - sessionCookie: []
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: The invoice.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+              examples:
+                october: { $ref: "#/components/examples/InvoiceOctober" }
+            application/pdf:
+              schema: { type: string, format: binary }
+              examples:
+                october: { value: "<PDF tax invoice INV-2026-000123, English and Arabic>" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/billing/webhooks/{provider}:
+    parameters:
+      - { name: provider, in: path, required: true, schema: { enum: [stripe] } }
+    post:
+      operationId: billingWebhook
+      tags: [billing]
+      summary: The PSP's events on the control plane (section 20)
+      description: >-
+        Verified with the provider's signature scheme (Stripe-Signature, 300 s tolerance) before
+        anything is read; 401 otherwise. Event ids are de-duplicated; a duplicate answers 200.
+        Handled: setup and payment succeeded or failed, invoice paid, charge disputed, charge refunded.
+      security: []
+      x-renox-audit: billingWebhook (provider, event id, type, tenant)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_VALIDATION]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [id, type], properties: { id: { type: string, maxLength: 255 }, type: { type: string, maxLength: 100 } } }
+            examples:
+              paid: { value: { id: evt_1Q2w3E4r5T6y7U8i, type: invoice.paid, data: { object: { id: in_1Q2w3E4r5T6y7U8i } } } }
+            x-renox-invalid-examples:
+              noid: { value: { type: invoice.paid }, x-expect: required }
+      responses:
+        "200":
+          description: Accepted or a duplicate.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [received], properties: { received: { const: true }, duplicate: { type: boolean } } }
+              examples:
+                ok: { value: { received: true } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/account/signup:
+    post:
+      operationId: signup
+      tags: [onboarding]
+      summary: Create an account and, with tenant_id, its free tenant; sends the verification email (section 21)
+      description: >-
+        As control/api implements it since #113, plus the 0.5 fields `dpa_accepted` and
+        `captcha_token` (#326, #123). Answers 202 whether or not the address already has an
+        account, so addresses cannot be enumerated (an existing account gets a notice instead).
+        Refused before anything is stored: a disposable domain, more than 3 sign-ups per IP per
+        hour or 20 per ASN per day, a missing or failed CAPTCHA token, `dpa_accepted` not true
+        (section 21, "Friction").
+      security: []
+      x-renox-audit: signup (email domain, tenant on creation; never the address or the password)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_RATE_LIMITED]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password, dpa_accepted, captcha_token]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, minLength: 12, maxLength: 256 }
+                tenant_id: { $ref: "#/components/schemas/TenantId" }
+                tenant_name: { type: string, minLength: 1, maxLength: 128 }
+                dpa_accepted: { const: true }
+                captcha_token: { type: string, minLength: 1, maxLength: 4096 }
+                locale: { enum: [en, ar] }
+            examples:
+              new: { value: { email: "founder@hello.ae", password: "correct horse battery staple", tenant_id: t_hello, tenant_name: "Hello Trading", dpa_accepted: true, captcha_token: "0.turnstile-token", locale: en } }
+            x-renox-invalid-examples:
+              nodpa: { value: { email: "founder@hello.ae", password: "correct horse battery staple", tenant_name: "Hello Trading", dpa_accepted: false, captcha_token: "x" }, x-expect: const }
+      responses:
+        "202":
+          description: A verification email is on its way (or a sign-in notice to an existing account).
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [status], properties: { status: { const: check_email } } }
+              examples:
+                sent: { value: { status: check_email } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/account/verify:
+    post:
+      operationId: verifyEmail
+      tags: [onboarding]
+      summary: Confirm the address with the emailed token (section 21; from 0.5 also signs the user in, #326)
+      security: []
+      x-renox-audit: verifyEmail (user, tenant)
+      x-renox-errors: [RENOX_NOT_FOUND, RENOX_RATE_LIMITED]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [token], properties: { token: { type: string, pattern: "^[a-z2-7]{32}$" } } }
+            examples:
+              token: { value: { token: "abcdefghijklmnopqrstuvwxyz234567" } }
+            x-renox-invalid-examples:
+              short: { value: { token: abc }, x-expect: pattern }
+      responses:
+        "200":
+          description: Verified; the session cookie is set as by `login` (section 18).
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [user_id, email_verified], properties: { user_id: { $ref: "#/components/schemas/UserId" }, tenant_id: { $ref: "#/components/schemas/TenantId" }, email_verified: { const: true } } }
+              examples:
+                ok: { value: { user_id: usr_01JBQ40000000000US, tenant_id: t_hello, email_verified: true } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/apps/from-template:
+    post:
+      operationId: createAppFromTemplate
+      tags: [onboarding]
+      summary: Create an app and deploy a starter template in one call (section 21)
+      x-renox-scope: apps:write
+      x-renox-audit: createAppFromTemplate (app, template, hash)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_CONFLICT, RENOX_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, template]
+              properties:
+                name: { $ref: "#/components/schemas/AppName" }
+                template: { enum: [hello, shop, booking, invoices] }
+            examples:
+              shop: { value: { name: hello-shop, template: shop } }
+            x-renox-invalid-examples:
+              unknown: { value: { name: hello-shop, template: wordpress }, x-expect: enum }
+      responses:
+        "201":
+          description: The app, with the template's artifact uploaded and activated; `first_deploy_at` of the tenant is set by the first activation (section 21).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [app, template, hash, url]
+                properties:
+                  app: { $ref: "#/components/schemas/AppName" }
+                  template: { type: string }
+                  hash: { $ref: "#/components/schemas/Sha256" }
+                  url: { type: string, pattern: "^https://" }
+              examples:
+                shop: { value: { app: hello-shop, template: shop, hash: 802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a, url: "https://hello-shop.renox.app" } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /v1/abuse:
+    post:
+      operationId: reportAbuse
+      tags: [abuse]
+      summary: Report phishing, malware or other abuse on a Renox host (section 22; public)
+      security: []
+      x-renox-audit: reportAbuse (ticket, hostname, category; never the reporter's address)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_RATE_LIMITED]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url, category, description, captcha_token]
+              properties:
+                url: { type: string, pattern: "^https?://", maxLength: 2048 }
+                category: { $ref: "#/components/schemas/AbuseCategory" }
+                description: { type: string, minLength: 10, maxLength: 4000 }
+                reporter_email: { type: string, format: email, maxLength: 254 }
+                captcha_token: { type: string, minLength: 1, maxLength: 4096 }
+            examples:
+              phishing: { value: { url: "https://secure-login-bank.renox.app/verify", category: phishing, description: "Imitates a UAE bank's login and posts the password to a form", captcha_token: "0.turnstile-token" } }
+            x-renox-invalid-examples:
+              category: { value: { url: "https://x.renox.app", category: rude, description: "a long enough text", captcha_token: x }, x-expect: enum }
+      responses:
+        "202":
+          description: A ticket; the reporter, when an address is given, gets its id and the outcome.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [ticket_id], properties: { ticket_id: { $ref: "#/components/schemas/AbuseTicketId" } } }
+              examples:
+                ticket: { value: { ticket_id: abt_01JBQ3Z7MA0000000000000001 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/ops/abuse:
+    get:
+      operationId: listAbuseTickets
+      tags: [ops]
+      summary: Open and recent abuse tickets (section 22; operator)
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:read
+      x-renox-audit: listAbuseTickets (operator; a read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE]
+      parameters:
+        - { name: state, in: query, required: false, schema: { $ref: "#/components/schemas/AbuseState" } }
+      responses:
+        "200":
+          description: At most 100 tickets, oldest open first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/AbuseTicket" } }
+              examples:
+                open: { value: { items: [{ id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.app, tenant_id: t_phish, category: phishing, state: open, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793318400000, reason: null }] } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+
+  /v1/ops/abuse/{ticket_id}:
+    parameters:
+      - { name: ticket_id, in: path, required: true, schema: { $ref: "#/components/schemas/AbuseTicketId" } }
+    post:
+      operationId: setAbuseTicket
+      tags: [ops]
+      summary: Move a ticket through the takedown states (section 22; operator)
+      description: >-
+        `taken_down` suspends every route of the hostname's tenant with the neutral page of
+        section 20 (the tenant's data stays) and emails the owner with the reason; `restored`
+        undoes it. Transitions follow the abuse table of section 22.
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:write
+      x-renox-audit: setAbuseTicket (operator, ticket, from, to, reason)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state, reason]
+              properties:
+                state: { $ref: "#/components/schemas/AbuseState" }
+                reason: { type: string, minLength: 10, maxLength: 500 }
+            examples:
+              takedown: { value: { state: taken_down, reason: "Confirmed bank phishing; Safe Browsing unsafe" } }
+            x-renox-invalid-examples:
+              short: { value: { state: taken_down, reason: "yes" }, x-expect: minLength }
+      responses:
+        "200":
+          description: The ticket after the transition.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AbuseTicket" }
+              examples:
+                down: { value: { id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.app, tenant_id: t_phish, category: phishing, state: taken_down, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793322000000, reason: "Confirmed bank phishing; Safe Browsing unsafe" } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/apps/{app}/deployments/{hash}/advisories:
+    parameters:
+      - $ref: "#/components/parameters/App"
+      - $ref: "#/components/parameters/Hash"
+    get:
+      operationId: getAdvisories
+      tags: [deployments]
+      summary: Known vulnerabilities of the deployment's bundled packages, from its SBOM (section 11.2)
+      x-renox-scope: apps:read
+      x-renox-audit: none (read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: OSV results for the components of `sbom.cdx.json`; a warning, never a block. Empty without an SBOM.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [hash, sbom, checked_at, items]
+                properties:
+                  hash: { $ref: "#/components/schemas/Sha256" }
+                  sbom: { type: boolean, description: "Whether the artifact carries sbom.cdx.json" }
+                  checked_at: { type: [integer, "null"], minimum: 0 }
+                  items:
+                    type: array
+                    maxItems: 500
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [id, package, version, severity, summary, fixed_in]
+                      properties:
+                        id: { type: string, maxLength: 64, description: "OSV id (GHSA-..., CVE-...)" }
+                        package: { type: string, maxLength: 214 }
+                        version: { type: string, maxLength: 64 }
+                        severity: { enum: [low, moderate, high, critical, unknown] }
+                        summary: { type: string, maxLength: 500 }
+                        fixed_in: { type: [string, "null"], maxLength: 64 }
+              examples:
+                one: { value: { hash: 802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a, sbom: true, checked_at: 1793318400000, items: [{ id: GHSA-9c47-m6qq-7p4h, package: json5, version: "2.2.1", severity: high, summary: "Prototype pollution in JSON5 via parse", fixed_in: "2.2.2" }] } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/ai/chat:
+    post:
+      operationId: aiChat
+      tags: [ai]
+      summary: The AI gateway for cells (section 23); the platform holds the provider keys
+      description: >-
+        A node calls it for a tenant's `ctx.ai.chat` in gateway mode (ops.md section 23). The
+        node token's node must own the tenant. The gateway checks the tenant's monthly token
+        quota before the call, meters input and output tokens after it, and answers from its
+        cache for a byte-identical request of the same tenant (section 23, "Cache").
+      security:
+        - nodeToken: []
+      x-renox-audit: none (metered; a refusal writes an audit row)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_AI_QUOTA, RENOX_AI_UNAVAILABLE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiChatRequest" }
+            examples:
+              invoice: { value: { tenant_id: t_hello, app: hello-shop, request_id: 01JBQ3Z7MA0000000000000400, model: default, system: "You write short invoice notes.", messages: [{ role: user, content: "Summarise invoice INV-42 in one line" }], max_tokens: 200 } }
+            x-renox-invalid-examples:
+              tokens: { value: { tenant_id: t_hello, app: hello-shop, request_id: 01JBQ3Z7MA0000000000000400, model: default, messages: [{ role: user, content: hi }], max_tokens: 0 }, x-expect: minimum }
+      responses:
+        "200":
+          description: The model's answer and the tokens charged.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiChatResult" }
+              examples:
+                invoice: { value: { model: claude-sonnet-5-5, content: [{ type: text, text: "INV-42: 3 items, AED 1,050 incl. VAT, due 15 Nov." }], stop_reason: end_turn, usage: { input_tokens: 41, output_tokens: 18 }, cached: false } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "429":
+          description: The tenant's monthly AI tokens are used up.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                quota: { value: { error: { code: RENOX_AI_QUOTA, message: The monthly AI quota is used up., request_id: 01JBQ3Z7MA0000000000000401 } } }
+        "503":
+          description: Every provider of the model's row failed or timed out.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                down: { value: { error: { code: RENOX_AI_UNAVAILABLE, message: The AI provider is unavailable., request_id: 01JBQ3Z7MA0000000000000402 } } }
+
 components:
   securitySchemes:
     tenantToken:
@@ -2726,6 +3721,21 @@ components:
       required: true
       schema: { $ref: "#/components/schemas/TenantId" }
 
+    Publisher:
+      name: publisher
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PublisherName" }
+    ModuleName:
+      name: name
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$" }
+    ModuleVersion:
+      name: version
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/Semver" }
   schemas:
     Sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
     TenantId: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,62}$" }
@@ -2744,7 +3754,7 @@ components:
     Tier: { enum: [free, paid] }
     Scope:
       type: string
-      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?|ops:write|ops:read|ops:impersonate)$"
+      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write|registry:read|registry:publish)(:[a-z][a-z0-9-]{0,49})?|ops:write|ops:read|ops:impersonate)$"
       description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those. `ops:write` (0.3) and `ops:read` (0.3.1, granted by `ops:write`; section 17) only on tokens an operator account creates; `*` never includes them. `ops:impersonate` (0.4) is the break-glass scope of section 17, granted by nothing else."
 
     Health:
@@ -3200,6 +4210,8 @@ components:
         tier: { $ref: "#/components/schemas/Tier" }
         state: { enum: [active, suspended] }
         created_at: { $ref: "#/components/schemas/UnixMs" }
+        first_deploy_at: { type: [integer, "null"], minimum: 0, description: "0.5 (section 21): the tenant's first activation, or null." }
+        restrictions: { type: array, uniqueItems: true, items: { enum: [reduced_quotas, no_custom_domain] }, description: "0.5 (section 21): the new-tenant limits still in force." }
 
     TenantCreated:
       type: object
@@ -3401,6 +4413,19 @@ components:
         microvm_at: { type: [integer, "null"], minimum: 0, description: "When a microVM move last succeeded (hook exit 0), or null." }
         replication: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/OpsReplication" } }
         actions: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/OpsAction" }, description: "The last five operator actions, newest first." }
+        safe_browsing:
+          type: array
+          maxItems: 64
+          description: "0.5 (section 22): the last Safe Browsing check of each hostname of the tenant."
+          items:
+            type: object
+            additionalProperties: false
+            required: [hostname, verdict, checked_at]
+            properties:
+              hostname: { $ref: "#/components/schemas/Hostname" }
+              verdict: { enum: [safe, unsafe, unknown] }
+              checked_at: { $ref: "#/components/schemas/UnixMs" }
+        abuse_tickets: { type: array, maxItems: 20, items: { $ref: "#/components/schemas/AbuseTicketId" }, description: "0.5: the tenant's open abuse tickets." }
 
     SetTierRequest:
       type: object
@@ -3650,7 +4675,360 @@ components:
         excludeCredentials: { type: array, items: { type: object, additionalProperties: false, required: [type, id], properties: { type: { const: public-key }, id: { type: string } } } }
         authenticatorSelection: { type: object, additionalProperties: false, properties: { userVerification: { enum: [preferred, required, discouraged] } } }
 
+    # 0.5 (#319): registry, billing, abuse, AI gateway.
+    UserId: { type: string, pattern: "^usr_[0-9A-Za-z]{16,32}$" }
+    Semver: { type: string, maxLength: 64, pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$" }
+    PublisherName: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,38}$" }
+    Ed25519PublicKey: { type: string, pattern: "^[A-Za-z0-9_-]{43}$", description: "The 32-byte public key, base64url without padding." }
+    KeyId: { type: string, pattern: "^ed25519:[A-Za-z0-9_-]{43}$", description: "manifest.md 1.2 `[publisher].key_id`." }
+    Publisher:
+      type: object
+      additionalProperties: false
+      required: [name, tenant_id, keys, created_at]
+      properties:
+        name: { $ref: "#/components/schemas/PublisherName" }
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            type: object
+            additionalProperties: false
+            required: [key_id, added_at, revoked_at]
+            properties:
+              key_id: { $ref: "#/components/schemas/KeyId" }
+              added_at: { $ref: "#/components/schemas/UnixMs" }
+              revoked_at: { type: [integer, "null"], minimum: 0 }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+    ModulePermissions:
+      type: object
+      additionalProperties: false
+      required: [network, secrets, slots, hooks]
+      description: "manifest.md section 2 `[permissions]`, the form of a lock entry's `approved`."
+      properties:
+        tables: { type: string, pattern: "^[a-z][a-z0-9_]{0,31}__\\*$" }
+        network: { type: array, maxItems: 64, items: { type: string, maxLength: 253 } }
+        secrets: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/SecretName" } }
+        slots: { type: array, maxItems: 64, items: { type: string, maxLength: 64 } }
+        hooks: { type: array, maxItems: 64, items: { type: string, maxLength: 128 } }
+        roles: { type: array, maxItems: 64, items: { type: string, maxLength: 64 } }
+    RegistryModule:
+      type: object
+      additionalProperties: false
+      required: [publisher, name, version, hash, key_id, description, isolation, permissions, migrations, price, published_at, disabled]
+      properties:
+        publisher: { $ref: "#/components/schemas/PublisherName" }
+        name: { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$" }
+        version: { $ref: "#/components/schemas/Semver" }
+        hash: { $ref: "#/components/schemas/Sha256" }
+        key_id: { $ref: "#/components/schemas/KeyId" }
+        description: { type: [string, "null"], maxLength: 200 }
+        isolation: { enum: [shared, isolate] }
+        permissions: { $ref: "#/components/schemas/ModulePermissions" }
+        migrations: { type: integer, minimum: 0, description: "Number of migration files in the tree" }
+        price:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [amount, currency, period]
+          properties:
+            amount: { type: string, pattern: "^(0|[1-9][0-9]{0,8})(\\.[0-9]{1,2})?$" }
+            currency: { type: string, pattern: "^[A-Z]{3}$" }
+            period: { enum: [once, month, year] }
+        published_at: { $ref: "#/components/schemas/UnixMs" }
+        disabled:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [at, reason]
+          properties:
+            at: { $ref: "#/components/schemas/UnixMs" }
+            reason: { type: string, maxLength: 500 }
+    PermissionChange:
+      type: object
+      additionalProperties: false
+      required: [network, secrets, slots, hooks, roles]
+      properties:
+        tables: { type: [string, "null"] }
+        network: { type: array, items: { type: string } }
+        secrets: { type: array, items: { type: string } }
+        slots: { type: array, items: { type: string } }
+        hooks: { type: array, items: { type: string } }
+        roles: { type: array, items: { type: string } }
+    ModuleDiff:
+      type: object
+      additionalProperties: false
+      required: [from, to, permissions, migrations, contract, templates]
+      properties:
+        from: { $ref: "#/components/schemas/Semver" }
+        to: { $ref: "#/components/schemas/Semver" }
+        permissions:
+          type: object
+          additionalProperties: false
+          required: [added, removed]
+          properties:
+            added: { $ref: "#/components/schemas/PermissionChange" }
+            removed: { $ref: "#/components/schemas/PermissionChange" }
+        migrations: { type: array, maxItems: 500, items: { type: string, pattern: "^[0-9]{3}_[a-z0-9_]{1,64}\\.sql$" }, description: "Migration files in `to` that `from` lacks, in order" }
+        contract:
+          type: object
+          additionalProperties: false
+          required: [ops_from, ops_to]
+          properties:
+            ops_from: { type: [string, "null"], maxLength: 16 }
+            ops_to: { type: [string, "null"], maxLength: 16 }
+        templates: { type: array, maxItems: 500, items: { type: string, maxLength: 256 }, description: "Template files changed between the versions; an app that overrides one sees the drift (artifact.md V20)" }
+    AppModule:
+      type: object
+      additionalProperties: false
+      required: [name, source, version, hash, approved, approved_at, approved_by, disabled]
+      properties:
+        name: { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$" }
+        source: { type: string, pattern: "^registry:[a-z0-9][a-z0-9-]{0,38}/[a-z][a-z0-9_]{0,31}$" }
+        version: { $ref: "#/components/schemas/Semver" }
+        hash: { $ref: "#/components/schemas/Sha256" }
+        approved: { $ref: "#/components/schemas/ModulePermissions" }
+        approved_at: { $ref: "#/components/schemas/UnixMs" }
+        approved_by: { type: [string, "null"], pattern: "^usr_[0-9A-Za-z]{16,32}$" }
+        disabled:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [at, reason]
+          properties:
+            at: { $ref: "#/components/schemas/UnixMs" }
+            reason: { type: string, maxLength: 500 }
+    PlanId: { enum: [free, starter, pro, agency] }
+    TierState: { enum: [active, over_quota, grace, suspended] }
+    Quotas:
+      type: object
+      additionalProperties: false
+      required: [requests, cpu_ms, egress_bytes, db_bytes, storage_bytes, ai_tokens, apps, custom_domains]
+      description: "Monthly quotas per dimension (section 20); `null` = unlimited within the fair-use limits."
+      properties:
+        requests: { type: [integer, "null"], minimum: 0 }
+        cpu_ms: { type: [integer, "null"], minimum: 0 }
+        egress_bytes: { type: [integer, "null"], minimum: 0 }
+        db_bytes: { type: [integer, "null"], minimum: 0 }
+        storage_bytes: { type: [integer, "null"], minimum: 0 }
+        ai_tokens: { type: [integer, "null"], minimum: 0 }
+        apps: { type: [integer, "null"], minimum: 1 }
+        custom_domains: { type: integer, minimum: 0 }
+    Plan:
+      type: object
+      additionalProperties: false
+      required: [id, name, price_month, quotas]
+      properties:
+        id: { $ref: "#/components/schemas/PlanId" }
+        name: { type: string, maxLength: 40 }
+        price_month: { type: string, pattern: "^(0|[1-9][0-9]{0,6})\\.[0-9]{2}$", description: "AED, excluding VAT" }
+        quotas: { $ref: "#/components/schemas/Quotas" }
+    Billing:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, plan, state, period, usage, estimate, signal, payment_method, profile, restrictions]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        plan: { $ref: "#/components/schemas/PlanId" }
+        pending_plan: { type: [string, "null"], enum: [free, starter, pro, agency, null], description: "A downgrade that takes effect at the period end" }
+        state: { $ref: "#/components/schemas/TierState" }
+        state_since: { $ref: "#/components/schemas/UnixMs" }
+        period:
+          type: object
+          additionalProperties: false
+          required: [start, end]
+          properties:
+            start: { $ref: "#/components/schemas/UnixMs" }
+            end: { $ref: "#/components/schemas/UnixMs" }
+        usage:
+          type: object
+          additionalProperties: false
+          required: [requests, cpu_ms, egress_bytes, db_bytes, storage_bytes, ai_tokens]
+          description: "This period so far, from meters_hourly (meter.md section 7)."
+          properties:
+            requests: { type: integer, minimum: 0 }
+            cpu_ms: { type: integer, minimum: 0 }
+            egress_bytes: { type: integer, minimum: 0 }
+            db_bytes: { type: integer, minimum: 0 }
+            storage_bytes: { type: integer, minimum: 0 }
+            ai_tokens: { type: integer, minimum: 0 }
+        estimate:
+          type: object
+          additionalProperties: false
+          required: [subtotal, vat, total, currency]
+          properties:
+            subtotal: { type: string, pattern: "^(0|[1-9][0-9]{0,8})\\.[0-9]{2}$" }
+            vat: { type: string, pattern: "^(0|[1-9][0-9]{0,8})\\.[0-9]{2}$" }
+            total: { type: string, pattern: "^(0|[1-9][0-9]{0,8})\\.[0-9]{2}$" }
+            currency: { const: AED }
+        signal:
+          type: object
+          additionalProperties: false
+          required: [over_quota, anomaly]
+          description: "The tier_signal of section 20: the dimensions over quota and an anomaly flag."
+          properties:
+            over_quota: { type: array, uniqueItems: true, items: { enum: [requests, cpu_ms, egress_bytes, db_bytes, storage_bytes, ai_tokens] } }
+            anomaly: { type: boolean }
+        payment_method: { oneOf: [{ $ref: "#/components/schemas/PaymentMethod" }, { type: "null" }] }
+        profile: { oneOf: [{ $ref: "#/components/schemas/BillingProfile" }, { type: "null" }] }
+        restrictions:
+          type: array
+          uniqueItems: true
+          description: "Section 21: the new-tenant limits still in force."
+          items: { enum: [reduced_quotas, no_custom_domain] }
+    BillingProfile:
+      type: object
+      additionalProperties: false
+      required: [legal_name, email, address, country]
+      properties:
+        legal_name: { type: string, minLength: 1, maxLength: 200 }
+        email: { type: string, format: email, maxLength: 254 }
+        trn: { type: string, pattern: "^[0-9]{15}$", description: "UAE Tax Registration Number; printed on the tax invoice when given" }
+        address: { type: string, minLength: 1, maxLength: 500 }
+        country: { type: string, pattern: "^[A-Z]{2}$" }
+    PaymentMethod:
+      type: object
+      additionalProperties: false
+      required: [id, provider, brand, last4, exp_month, exp_year, added_at]
+      properties:
+        id: { type: string, pattern: "^pm_[A-Za-z0-9]{8,64}$" }
+        provider: { enum: [stripe] }
+        brand: { type: string, maxLength: 20 }
+        last4: { type: string, pattern: "^[0-9]{4}$" }
+        exp_month: { type: integer, minimum: 1, maximum: 12 }
+        exp_year: { type: integer, minimum: 2000, maximum: 2100 }
+        added_at: { $ref: "#/components/schemas/UnixMs" }
+    InvoiceId: { type: string, pattern: "^INV-[0-9]{4}-[0-9]{6}$" }
+    Invoice:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, period, status, lines, subtotal, vat, total, currency, seller_trn, buyer_trn, issued_at, paid_at]
+      properties:
+        id: { $ref: "#/components/schemas/InvoiceId" }
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        period:
+          type: object
+          additionalProperties: false
+          required: [start, end]
+          properties:
+            start: { $ref: "#/components/schemas/UnixMs" }
+            end: { $ref: "#/components/schemas/UnixMs" }
+        status: { enum: [open, paid, failed, void] }
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [description, quantity, unit_price, amount]
+            properties:
+              description: { type: string, maxLength: 200 }
+              quantity: { type: string, pattern: "^[0-9]+(\\.[0-9]{1,6})?$" }
+              unit_price: { type: string, pattern: "^[0-9]+\\.[0-9]{2,6}$" }
+              amount: { type: string, pattern: "^[0-9]+\\.[0-9]{2}$" }
+        subtotal: { type: string, pattern: "^[0-9]+\\.[0-9]{2}$" }
+        vat: { type: string, pattern: "^[0-9]+\\.[0-9]{2}$", description: "5 % of the subtotal, rounded half up to fils" }
+        total: { type: string, pattern: "^[0-9]+\\.[0-9]{2}$" }
+        currency: { const: AED }
+        seller_trn: { type: string, pattern: "^[0-9]{15}$" }
+        buyer_trn: { type: [string, "null"], pattern: "^[0-9]{15}$" }
+        issued_at: { $ref: "#/components/schemas/UnixMs" }
+        paid_at: { type: [integer, "null"], minimum: 0 }
+    AbuseCategory: { enum: [phishing, malware, spam, csam, copyright, other] }
+    AbuseState: { enum: [open, reviewing, taken_down, dismissed, restored] }
+    AbuseTicketId: { type: string, pattern: "^abt_[0-9A-Za-z]{16,32}$" }
+    AbuseTicket:
+      type: object
+      additionalProperties: false
+      required: [id, hostname, tenant_id, category, state, safe_browsing, reported_at, updated_at, reason]
+      properties:
+        id: { $ref: "#/components/schemas/AbuseTicketId" }
+        hostname: { $ref: "#/components/schemas/Hostname" }
+        tenant_id: { type: [string, "null"], pattern: "^[a-z0-9][a-z0-9_-]{0,62}$", description: "null when the hostname is not a Renox host" }
+        category: { $ref: "#/components/schemas/AbuseCategory" }
+        state: { $ref: "#/components/schemas/AbuseState" }
+        safe_browsing: { enum: [safe, unsafe, unknown] }
+        reported_at: { $ref: "#/components/schemas/UnixMs" }
+        updated_at: { $ref: "#/components/schemas/UnixMs" }
+        reason: { type: [string, "null"], maxLength: 500 }
+    AiMessage:
+      type: object
+      additionalProperties: false
+      required: [role, content]
+      properties:
+        role: { enum: [user, assistant] }
+        content:
+          oneOf:
+            - { type: string, maxLength: 200000 }
+            - { type: array, maxItems: 100, items: { type: object } }
+    AiChatRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, app, request_id, model, messages, max_tokens]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        app: { $ref: "#/components/schemas/AppName" }
+        request_id: { type: string, pattern: "^[0-9A-Za-z_-]{8,64}$" }
+        model: { type: string, pattern: "^(default|[a-z0-9][a-z0-9.-]{0,63})$", description: "`default` or a model of the gateway's table (section 23)" }
+        system: { type: string, maxLength: 100000 }
+        messages: { type: array, minItems: 1, maxItems: 200, items: { $ref: "#/components/schemas/AiMessage" } }
+        tools: { type: array, maxItems: 64, items: { type: object, required: [name, input_schema], properties: { name: { type: string, pattern: "^[a-zA-Z0-9_-]{1,64}$" }, description: { type: string }, input_schema: { type: object } } } }
+        max_tokens: { type: integer, minimum: 1, maximum: 64000 }
+    AiChatResult:
+      type: object
+      additionalProperties: false
+      required: [model, content, stop_reason, usage, cached]
+      properties:
+        model: { type: string, maxLength: 64 }
+        content: { type: array, maxItems: 100, items: { type: object, required: [type], properties: { type: { enum: [text, tool_use] } } } }
+        stop_reason: { enum: [end_turn, max_tokens, tool_use, stop_sequence] }
+        usage:
+          type: object
+          additionalProperties: false
+          required: [input_tokens, output_tokens]
+          properties:
+            input_tokens: { type: integer, minimum: 0 }
+            output_tokens: { type: integer, minimum: 0 }
+        cached: { type: boolean }
+
   examples:
+    # 0.5 (#319)
+    PublisherNew:
+      value: { name: gulfsoft, tenant_id: t_gulfsoft, keys: [{ key_id: "ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", added_at: 1793318400000, revoked_at: null }], created_at: 1793318400000 }
+    PublisherRotated:
+      value: { name: gulfsoft, tenant_id: t_gulfsoft, keys: [{ key_id: "ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", added_at: 1793318400000, revoked_at: 1795910400000 }, { key_id: "ed25519:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8", added_at: 1795910400000, revoked_at: null }], created_at: 1793318400000 }
+    RegistryModuleTax:
+      value: { publisher: gulfsoft, name: tax_gcc, version: "2.1.0", hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, key_id: "ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", description: "UAE VAT and KSA ZATCA tax invoices", isolation: isolate, permissions: { tables: "tax_gcc__*", network: [], secrets: [], slots: [], hooks: [] }, migrations: 3, price: { amount: "49.00", currency: AED, period: month }, published_at: 1793318400000, disabled: null }
+    RegistryList:
+      value: { items: [{ publisher: gulfsoft, name: tax_gcc, version: "2.1.0", hash: 3f1d6c2b9a8e7f5d4c3b2a1908f7e6d5c4b3a2918f7e6d5c4b3a291807f6e5d4, key_id: "ed25519:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", description: "UAE VAT and KSA ZATCA tax invoices", isolation: isolate, permissions: { tables: "tax_gcc__*", network: [], secrets: [], slots: [], hooks: [] }, migrations: 3, price: { amount: "49.00", currency: AED, period: month }, published_at: 1793318400000, disabled: null }], next_cursor: null }
+    ModuleDiffTax:
+      value: { from: "2.0.0", to: "2.1.0", permissions: { added: { network: ["api.zatca.gov.sa"], secrets: ["TAX_GCC_ZATCA_KEY"], slots: [], hooks: [], roles: [] }, removed: { network: [], secrets: [], slots: [], hooks: [], roles: [] } }, migrations: ["003_zatca_queue.sql"], contract: { ops_from: "1.6.0", ops_to: "1.7.0" }, templates: ["pages/invoices/[id].html"] }
+    Plans:
+      value:
+        currency: AED
+        vat_rate: "0.05"
+        plans:
+          - { id: free, name: Free, price_month: "0.00", quotas: { requests: 100000, cpu_ms: 3600000, egress_bytes: 5368709120, db_bytes: 104857600, storage_bytes: 1073741824, ai_tokens: 0, apps: 2, custom_domains: 0 } }
+          - { id: starter, name: Starter, price_month: "79.00", quotas: { requests: 2000000, cpu_ms: 36000000, egress_bytes: 53687091200, db_bytes: 1073741824, storage_bytes: 10737418240, ai_tokens: 1000000, apps: 5, custom_domains: 3 } }
+          - { id: pro, name: Pro, price_month: "299.00", quotas: { requests: 20000000, cpu_ms: 360000000, egress_bytes: 268435456000, db_bytes: 10737418240, storage_bytes: 53687091200, ai_tokens: 10000000, apps: 20, custom_domains: 20 } }
+          - { id: agency, name: Agency, price_month: "499.00", quotas: { requests: null, cpu_ms: null, egress_bytes: null, db_bytes: 53687091200, storage_bytes: 214748364800, ai_tokens: 50000000, apps: null, custom_domains: 100 } }
+    BillingStarter:
+      value:
+        tenant_id: t_hello
+        plan: starter
+        pending_plan: null
+        state: active
+        state_since: 1793318400000
+        period: { start: 1793318400000, end: 1795910400000 }
+        usage: { requests: 412000, cpu_ms: 5100000, egress_bytes: 2147483648, db_bytes: 52428800, storage_bytes: 104857600, ai_tokens: 12000 }
+        estimate: { subtotal: "79.00", vat: "3.95", total: "82.95", currency: AED }
+        signal: { over_quota: [], anomaly: false }
+        payment_method: { id: pm_1Q2w3E4r5T6y7U8i, provider: stripe, brand: visa, last4: "4242", exp_month: 12, exp_year: 2029, added_at: 1793318400000 }
+        profile: { legal_name: "Hello Trading LLC", email: "accounts@hello.ae", trn: "100123456700003", address: "Office 12, Al Quoz 3, Dubai", country: AE }
+        restrictions: []
+    InvoiceOctober:
+      value: { id: INV-2026-000123, tenant_id: t_hello, period: { start: 1790726400000, end: 1793318400000 }, status: paid, lines: [{ description: "Starter plan, October 2026", quantity: "1", unit_price: "79.00", amount: "79.00" }], subtotal: "79.00", vat: "3.95", total: "82.95", currency: AED, seller_trn: "100987654300003", buyer_trn: "100123456700003", issued_at: 1793318400000, paid_at: 1793322000000 }
+    InvoiceList:
+      value: { items: [{ id: INV-2026-000123, tenant_id: t_hello, period: { start: 1790726400000, end: 1793318400000 }, status: paid, lines: [{ description: "Starter plan, October 2026", quantity: "1", unit_price: "79.00", amount: "79.00" }], subtotal: "79.00", vat: "3.95", total: "82.95", currency: AED, seller_trn: "100987654300003", buyer_trn: "100123456700003", issued_at: 1793318400000, paid_at: 1793322000000 }] }
     AppNew:
       value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renox.app] }
     AppLive:

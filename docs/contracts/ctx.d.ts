@@ -1,4 +1,4 @@
-// TypeScript view of docs/contracts/ops.md, contract version 1.5.0.
+// TypeScript view of docs/contracts/ops.md, contract version 1.7.0.
 // Plain declarations, no implementation: the SDK package (#31) implements and
 // re-exports these types. Section numbers refer to ops.md.
 
@@ -35,7 +35,10 @@ export type RenoxErrorCode =
   | ModuleErrorCode
   | AuthzErrorCode
   | RealtimeErrorCode
-  | JobErrorCode;
+  | JobErrorCode
+  | StorageErrorCode
+  | AiErrorCode
+  | "RENOX_PDF_LIMIT";
 
 /** Codes of the module broker (section 15, 1.3.0). */
 export type ModuleErrorCode = "RENOX_MODULE_UNDECLARED" | "RENOX_MODULE_SERVICE" | "RENOX_EVENT_PAYLOAD";
@@ -70,7 +73,11 @@ export type ResponseErrorCode =
   | "RENOX_MODULE_EVAL"
   | AuthzErrorCode
   | RealtimeErrorCode
-  | ToolErrorCode;
+  | ToolErrorCode
+  /** 1.7.0: the tenant's image transform rate (section 21). */
+  | "RENOX_IMAGE_RATE"
+  /** 1.7.0: a webhook's signature does not hold (section 22). */
+  | "RENOX_WEBHOOK_SIGNATURE";
 
 /** Body of a platform error response on an API route (errors.md, "Response body"). */
 export interface ErrorResponseBody {
@@ -350,8 +357,14 @@ export interface Ctx {
   readonly realtime: Realtime;
   /** Queued jobs (section 20, 1.5.0). */
   readonly jobs: Jobs;
-  // Reserved (section 8): render, webhook, kv (F2); datasource (F6–F7); ai,
-  // domains (F7); offload. `auth` is a service of the `auth` module, not a
+  /** Files of the caller under the tenant's prefix (section 21, 1.7.0). */
+  readonly storage: Storage;
+  /** Model calls, direct or through the platform gateway (section 23, 1.7.0). */
+  readonly ai: Ai;
+  /** Templates to PDF in Rust (section 24, 1.7.0). */
+  readonly pdf: Pdf;
+  // Reserved (section 8): render, kv (F2); datasource (F6–F7); domains (F7);
+  // offload. `webhook` is on WebhookContext (section 22). `auth` is a service of the `auth` module, not a
   // ctx field. Pages get more fields (section 14, below).
 }
 
@@ -934,4 +947,124 @@ export interface Ops {
   op_jobs_cancel(id: string, module: string | null, tx: TxHandle | null): Promise<void>;
 
   op_deadline_remaining_ms(): number;
+}
+
+// ---------------------------------------------------------------------------
+// Storage and images (section 21, 1.7.0)
+// ---------------------------------------------------------------------------
+
+/** A file in the platform store under the caller's prefix. */
+export interface StoredFile {
+  readonly key: string;
+  readonly bytes: number;
+  readonly content_type: string;
+  readonly sha256: string;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly public: boolean;
+  readonly created_at: number;
+}
+export interface StoragePage {
+  readonly items: readonly StoredFile[];
+  readonly next_cursor: string | null;
+}
+export interface StoragePutOptions {
+  readonly contentType: string;
+  readonly public?: boolean;
+  /** Set only by the `storage` module's SVG sanitiser. */
+  readonly sanitised?: boolean;
+}
+export interface Storage {
+  put(key: string, bytes: Uint8Array, options: StoragePutOptions): Promise<StoredFile>;
+  get(key: string): Promise<StoredFile>;
+  read(key: string): Promise<Uint8Array>;
+  delete(key: string): Promise<boolean>;
+  /** A signed URL on the app's host, `/_files/<key>?exp=&sig=`, valid for 60 s to 7 days. */
+  sign(key: string, ttlSeconds: number): Promise<{ readonly url: string; readonly expires_at: number }>;
+  list(prefix: string, options?: { readonly limit?: number; readonly cursor?: string | null }): Promise<StoragePage>;
+}
+export type StorageErrorCode = "RENOX_STORAGE_QUOTA" | "RENOX_STORAGE_TYPE" | "RENOX_STORAGE_TOO_LARGE" | "RENOX_STORAGE_KEY" | "RENOX_STORAGE_NOT_FOUND";
+/** One of the storage refusals (section 21). */
+export declare class StorageError extends RenoxError {
+  readonly code: StorageErrorCode;
+}
+
+// ---------------------------------------------------------------------------
+// Webhooks (section 22, 1.7.0)
+// ---------------------------------------------------------------------------
+
+export type WebhookProvider = "stripe" | "checkout" | "telr" | "paytabs" | "ngenius" | "tabby" | "tamara" | "apple" | "google" | "generic";
+export interface WebhookEvent {
+  readonly provider: WebhookProvider;
+  readonly event_id: string;
+  readonly received_at: number;
+  /** The verified payload; for a duplicate the handler does not go on. */
+  readonly payload: JsonValue;
+  readonly duplicate: boolean;
+}
+export interface Webhook {
+  /** Rejects with 401 `RENOX_WEBHOOK_SIGNATURE` (the handler does not go on) unless the signature holds. */
+  verify(req: Request, options: { readonly provider: WebhookProvider } | { readonly secret: string; readonly header: string }): Promise<WebhookEvent>;
+}
+/** The ctx of a `functions/webhooks/*.ts` `POST`. */
+export interface WebhookContext extends Ctx {
+  readonly webhook: Webhook;
+}
+
+// ---------------------------------------------------------------------------
+// AI (section 23, 1.7.0)
+// ---------------------------------------------------------------------------
+
+export type AiContent = { readonly type: "text"; readonly text: string } | { readonly type: "tool_use"; readonly id: string; readonly name: string; readonly input: JsonValue } | { readonly type: "tool_result"; readonly tool_use_id: string; readonly content: string };
+export interface AiMessage {
+  readonly role: "user" | "assistant";
+  readonly content: string | readonly AiContent[];
+}
+export interface AiTool {
+  readonly name: string;
+  readonly description: string;
+  readonly input_schema: JsonValue;
+  /** A local tool: run in the isolate with the caller's authorization. */
+  readonly run?: (input: JsonValue) => Promise<JsonValue> | JsonValue;
+}
+export interface AiRequest {
+  readonly model?: string;
+  readonly system?: string;
+  readonly messages: readonly AiMessage[];
+  readonly tools?: readonly AiTool[];
+  readonly maxTokens?: number;
+}
+export interface AiResult {
+  readonly id: string;
+  readonly model: string;
+  readonly content: readonly AiContent[];
+  readonly stop_reason: string;
+  readonly usage: { readonly input_tokens: number; readonly output_tokens: number };
+}
+export interface Ai {
+  chat(request: AiRequest): Promise<AiResult>;
+}
+export type AiErrorCode = "RENOX_AI_QUOTA" | "RENOX_AI_UNAVAILABLE";
+export declare class AiQuotaError extends RenoxError {
+  readonly code: "RENOX_AI_QUOTA";
+}
+export declare class AiUnavailableError extends RenoxError {
+  readonly code: "RENOX_AI_UNAVAILABLE";
+}
+
+// ---------------------------------------------------------------------------
+// PDF (section 24, 1.7.0)
+// ---------------------------------------------------------------------------
+
+export interface PdfOptions {
+  readonly page?: "A4" | "Letter" | "A5";
+  readonly orientation?: "portrait" | "landscape";
+  readonly marginMm?: number;
+}
+export interface Pdf {
+  /** Renders `template` (a page or partial of the caller) with `data` and converts it to PDF in Rust. */
+  render(template: string, data: Readonly<Record<string, unknown>>, options?: PdfOptions): Promise<Uint8Array>;
+}
+export declare class PdfLimitError extends RenoxError {
+  readonly code: "RENOX_PDF_LIMIT";
 }

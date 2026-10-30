@@ -41,6 +41,8 @@ pub enum MeterKind {
     Tool,
     /// Contract 0.3: one job attempt (`JOB <module> <name>`).
     Job,
+    /// Contract 0.4: one image variant created on `/_img` (`IMG <width>w <format>`).
+    Image,
 }
 
 /// One invocation record (contract section 2). All fields are required
@@ -103,6 +105,25 @@ pub struct MeterRecord {
     /// connection (absent = 0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realtime_messages: Option<u64>,
+    /// Contract 0.4: the tenant's stored bytes after a put or delete, and on
+    /// every `image` record (absent = nothing stored).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_bytes: Option<u64>,
+    /// Contract 0.4: image variants created (1 on an `image` record).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_variants: Option<u64>,
+    /// Contract 0.4: input and output tokens of `ai.chat` calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_tokens_in: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_tokens_out: Option<u64>,
+    /// Contract 0.4: HTML-to-PDF time, outside `cpu_ms` like `render_ms`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "opt_millis"
+    )]
+    pub render_pdf_ms: Option<f64>,
 }
 
 /// One batch envelope: one line of the ndjson sink (contract section 3).

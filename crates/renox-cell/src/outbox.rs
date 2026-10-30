@@ -17,6 +17,12 @@
 //! | No handler any more | Deleted and logged, not retried |
 //!
 //! Every attempt is one meter record with `kind: "event"` (`meter.md` 0.2).
+//!
+//! Job runs (`ops.md` 1.6.0 section 20, #297) are rows of the same table
+//! with `name` `job:<name>` and the job's module as `target`: delivered the
+//! same way with `kind: "job"` envelopes, one at a time per job (a
+//! [`crate::scheduler::Lease`]), metered `kind: "job"`. The cell's scheduler
+//! starts and stops with this worker.
 
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -107,11 +113,22 @@ pub(crate) struct Delivery {
     pub config: OutboxConfig,
     /// Admit one delivery on the cell (false: it is being evicted).
     pub admit: Admit,
+    /// The deployment's `job` routes to schedule (empty: no scheduler,
+    /// as under `renox dev` without `--jobs`); queued runs are delivered
+    /// either way.
+    pub jobs: Vec<renox_runtime::ops::jobs::JobDef>,
+    /// Where the scheduler keeps its earliest next tick (the manager's
+    /// wake-up after an eviction).
+    pub next_tick: crate::scheduler::NextTick,
+    /// `[jobs] poll_ms` of a development worker: also pass every `poll`
+    /// (rows the CLI wrote from another connection). `None` in production.
+    pub poll: Option<Duration>,
 }
 
 /// The worker's handle on its cell: dropping it stops the task.
 pub(crate) struct OutboxWorker {
     stop: Arc<Notify>,
+    _scheduler: Option<crate::scheduler::SchedulerTask>,
 }
 
 impl Drop for OutboxWorker {
@@ -124,8 +141,21 @@ impl Drop for OutboxWorker {
 pub(crate) fn spawn(d: Delivery) -> OutboxWorker {
     let stop = Arc::new(Notify::new());
     let wake = Arc::new(Notify::new());
-    let worker = OutboxWorker { stop: stop.clone() };
+    let tenant = d
+        .cell
+        .upgrade()
+        .map(|c| c.key.tenant_id.clone())
+        .unwrap_or_default();
+    let scheduler =
+        crate::scheduler::spawn(tenant, d.db.clone(), d.jobs.clone(), d.next_tick.clone());
+    let worker = OutboxWorker {
+        stop: stop.clone(),
+        _scheduler: scheduler,
+    };
     tokio::spawn(async move {
+        // Section 20, "Lease": a row left running by a dead process is
+        // queued again, attempts unchanged.
+        let _ = d.db.call(renox_runtime::ops::jobs::requeue_running).await;
         // The hook holds only a weak reference: a stopped worker's wake-up
         // does nothing, and the next cell of the tenant installs its own.
         let w = Arc::downgrade(&wake);
@@ -146,6 +176,12 @@ pub(crate) fn spawn(d: Delivery) -> OutboxWorker {
                 Some(next) => next,
                 None => return,
             };
+            let poll = async {
+                match d.poll {
+                    Some(p) => tokio::time::sleep(p).await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
             let sleep = async {
                 match next {
                     Some(at) => {
@@ -159,6 +195,7 @@ pub(crate) fn spawn(d: Delivery) -> OutboxWorker {
                 _ = stop.notified() => return,
                 _ = wake.notified() => {}
                 _ = sleep => {}
+                _ = poll => {}
             }
         }
     });
@@ -207,24 +244,87 @@ async fn pass(d: &Delivery) -> Option<Option<i64>> {
 
 /// One delivery attempt and its bookkeeping.
 async fn attempt(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option<()> {
-    // #295: one span per attempt (never the payload).
-    let span = tracing::info_span!(
-        "outbox.deliver",
-        tenant_id = %cell.key.tenant_id,
-        event = %row.name,
-        module = %row.target,
-        attempt = row.attempts + 1,
+    // #295: one span per attempt (never the payload): `job.run` for a job
+    // run (#297), `outbox.deliver` for an event.
+    let span = match renox_runtime::ops::jobs::job_name(&row.name) {
+        Some(job) => tracing::info_span!(
+            "job.run",
+            tenant_id = %cell.key.tenant_id,
+            job = %job,
+            module = %row.target,
+            attempt = row.attempts + 1,
+        ),
+        None => tracing::info_span!(
+            "outbox.deliver",
+            tenant_id = %cell.key.tenant_id,
+            event = %row.name,
+            module = %row.target,
+            attempt = row.attempts + 1,
+        ),
+    };
+    let request_id = if renox_runtime::ops::jobs::job_name(&row.name).is_some() {
+        format!("{}_{}", row.id, row.attempts + 1)
+    } else {
+        format!("{}_{}_{}", row.id, row.target, row.attempts + 1)
+    };
+    let _trace = renox_runtime::trace::register(
+        &request_id,
+        span.clone(),
+        crate::telemetry::trace_id(&span),
     );
     tracing::Instrument::instrument(attempt_inner(d, cell, row), span).await
 }
 
 async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option<()> {
+    use renox_runtime::ops::jobs;
+    let job_name = jobs::job_name(&row.name).map(str::to_string);
+    let mut _lease = None;
+    let mut job = None;
+    if let Some(name) = &job_name {
+        // One run at a time per job: a leased job's row waits a second.
+        match crate::scheduler::try_lease(&cell.key.tenant_id, &row.target, name) {
+            Some(l) => _lease = Some(l),
+            None => {
+                let (id, target) = (row.id.clone(), row.target.clone());
+                let at = now_ms() + 1000;
+                d.db.call(move |db| jobs::defer(db, &id, &target, at))
+                    .await
+                    .ok()?
+                    .ok()?;
+                return Some(());
+            }
+        }
+        let (m, n, p) = (row.target.clone(), name.clone(), row.payload.clone());
+        let tick =
+            d.db.call(move |db| jobs::run_tick(db, &m, &n, &p))
+                .await
+                .ok()?
+                .ok()?;
+        let id = row.id.clone();
+        let now = now_ms();
+        d.db.call(move |db| jobs::started(db, &id, now))
+            .await
+            .ok()?
+            .ok()?;
+        crate::scheduler::RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(t) = tick {
+            crate::scheduler::LAST_LAG_MS.store(
+                u64::try_from(now.saturating_sub(t)).unwrap_or(0),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        job = Some(renox_runtime::JobRun {
+            name: name.clone(),
+            tick,
+        });
+    }
     let ev = EventEnvelope {
         id: row.id.clone(),
         name: row.name.clone(),
         payload_json: row.payload.clone(),
         attempt: row.attempts + 1,
         module: row.target.clone(),
+        job,
     };
     let started_at = now_ms();
     let t0 = Instant::now();
@@ -267,13 +367,33 @@ async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option
             logs_dropped: m.logs_dropped,
             http_status: if status == MeterStatus::Ok { 200 } else { 500 },
             status,
-            kind: Some(MeterKind::Event),
+            kind: Some(if job_name.is_some() {
+                MeterKind::Job
+            } else {
+                MeterKind::Event
+            }),
             authz_evals: (m.authz_evals > 0).then_some(m.authz_evals),
             realtime_conn_seconds: None,
             realtime_messages: None,
+            storage_bytes: None,
+            image_variants: None,
+            ai_tokens_in: None,
+            ai_tokens_out: None,
+            render_pdf_ms: None,
         });
     }
     let (id, target) = (row.id.clone(), row.target.clone());
+    if job_name.is_some() && out.outcome != EventOutcome::Ok {
+        // The run ended without its ack: no longer running.
+        let id = id.clone();
+        d.db.call(move |db| jobs::stopped(db, &id))
+            .await
+            .ok()?
+            .ok()?;
+        if !matches!(out.outcome, EventOutcome::NoHandler) {
+            crate::scheduler::FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
     match out.outcome {
         // The handler's transaction deleted the row with its writes.
         EventOutcome::Ok => Some(()),
@@ -283,6 +403,14 @@ async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option
                 .await
                 .ok()?
                 .ok()?;
+            if let Some(name) = &job_name {
+                // ops.md section 20: the deployment has no such job any more.
+                let (m, n) = (row.target.clone(), name.clone());
+                d.db.call(move |db| jobs::forget_tick(db, &m, &n))
+                    .await
+                    .ok()?
+                    .ok()?;
+            }
             Some(())
         }
         EventOutcome::Threw | EventOutcome::Failed(_) => {
@@ -303,7 +431,23 @@ async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option
                     .ok()?
                     .ok()?;
                 let mut f = serde_json::Map::new();
-                f.insert("reason".into(), "event_dead".into());
+                f.insert(
+                    "reason".into(),
+                    if job_name.is_some() {
+                        "job_dead"
+                    } else {
+                        "event_dead"
+                    }
+                    .into(),
+                );
+                if let Some(name) = &job_name {
+                    // The next tick writes a new row (the dead one waits for a retry).
+                    let (m, n) = (row.target.clone(), name.clone());
+                    d.db.call(move |db| jobs::forget_tick(db, &m, &n))
+                        .await
+                        .ok()?
+                        .ok()?;
+                }
                 f.insert("event_id".into(), row.id.clone().into());
                 f.insert("event".into(), row.name.clone().into());
                 f.insert("module".into(), row.target.clone().into());

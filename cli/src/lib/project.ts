@@ -16,6 +16,9 @@ export interface ProjectConfig {
   limits?: { cpu_ms?: number; wall_ms?: number; memory_mb?: number; concurrency?: number };
   /** `[security]`, as written (validated by src/check/security.ts at build). */
   security?: SecurityConfig;
+  /** Artifact 1.4: `[storage]` and `[ai]` (ops.md 1.7.0 sections 21, 23). */
+  storage?: { allowed_types?: string[]; images?: { widths?: number[] } };
+  ai?: { mode?: "direct" | "gateway" };
 }
 
 /** A renox.toml problem: exit 2, except a missing file (exit 1: not in an app folder). */
@@ -180,6 +183,8 @@ export function readProject(dir: string): ProjectConfig {
     },
     ...(isObject(c.limits) ? { limits: c.limits as ProjectConfig["limits"] } : {}),
     ...(isObject(c.security) ? { security: c.security as SecurityConfig } : {}),
+    ...(isObject(c.storage) ? { storage: c.storage as ProjectConfig["storage"] } : {}),
+    ...(isObject(c.ai) ? { ai: c.ai as ProjectConfig["ai"] } : {}),
   };
 }
 

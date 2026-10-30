@@ -17,6 +17,10 @@
       "types": "./src/drizzle.ts",
       "default": "./src/drizzle.ts"
     },
+    "./fakes": {
+      "types": "./src/fakes.ts",
+      "default": "./src/fakes.ts"
+    },
     "./test": {
       "types": "./src/test.ts",
       "default": "./src/test.ts"

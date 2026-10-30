@@ -299,10 +299,18 @@ mod v8_ops {
                         f,
                     ));
                 }
+                let mut fields = clean_fields(fields.unwrap_or_default());
+                // #295: the line names its request's trace, when exported.
+                if let Some(t) = request
+                    .as_ref()
+                    .and_then(|r| crate::trace::trace_id(&r.borrow().request_id))
+                {
+                    fields.insert("trace_id".into(), t.into());
+                }
                 env.sink.log(line(
                     level(level_name),
                     truncate(message, MAX_MESSAGE_BYTES),
-                    clean_fields(fields.unwrap_or_default()),
+                    fields,
                 ));
             }
         }

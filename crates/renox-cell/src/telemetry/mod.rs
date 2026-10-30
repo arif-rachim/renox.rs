@@ -51,6 +51,7 @@ use opentelemetry_otlp::{Protocol, WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider, SpanExporter};
 
+pub mod counters;
 pub mod metrics;
 
 /// `[telemetry]` of `worker.toml`.

@@ -19,6 +19,7 @@
       </table>
     </r-group>
 
+    <p class="notice" r-if="notice">{{ notice }}</p>
     <h2>Status</h2>
     <x-form action="status" hx-target="#page" hx-swap="outerHTML" class="row">
       <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
@@ -50,14 +51,27 @@
       <h3>Last actions</h3>
       <p class="muted" r-if="!status.actions">No operator action on this tenant yet.</p>
       <table class="list" r-if="status.actions">
-        <thead><tr><th>When (UTC)</th><th>Action</th><th>Result</th><th>Operator</th><th>Reason</th></tr></thead>
+        <thead><tr><th>When (UTC)</th><th>Action</th><th>Result</th><th>Operator</th><th>Reason</th><th></th></tr></thead>
         <tbody>
           <tr r-for="a in status.actions">
-            <td>{{ a.at }}</td><td>{{ a.action }}</td><td>{{ a.result }}</td><td><code>{{ a.operator }}</code></td><td>{{ a.reason }}</td>
+            <td>{{ a.at }}</td><td>{{ a.action }}</td><td>{{ a.result }}<r-group r-if="a.expires"> until {{ a.expires }}</r-group></td><td><code>{{ a.operator }}</code></td><td>{{ a.reason }}</td>
+            <td><x-form action="end" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="a.active_impersonation">
+              <input type="hidden" name="impersonation_id" :value="a.active_impersonation">
+              <input type="password" name="token" required placeholder="Operator token" autocomplete="off" spellcheck="false">
+              <button type="submit">End</button>
+            </x-form></td>
           </tr>
         </tbody>
       </table>
     </r-group>
+
+    <h2>Break-glass: read this tenant's data</h2>
+    <p class="muted">For 60 minutes, read only (apps, logs, secret names). This dashboard session signs in as the impersonation, every request is audited as yours with the reason, and the tenant's owner is emailed at the start and the end. It needs a token created with <code>ops:impersonate</code> (<code>ops/security/access-review.md</code>).</p>
+    <x-form action="impersonate" hx-target="#page" hx-swap="outerHTML" hx-confirm="Read {{ tenant }}'s data for 60 minutes? Its owner is emailed now." class="row">
+      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit">Start break-glass</button>
+    </x-form>
 
     <h2>Change tier</h2>
     <x-form action="tier" hx-target="#page" hx-swap="outerHTML" hx-confirm="Change the tier of {{ tenant }}? Its route entries are republished with the new process tier." class="row">

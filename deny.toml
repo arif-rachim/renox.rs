@@ -14,6 +14,17 @@ yanked = "deny"
 # Review on every deno_runtime bump; delete an entry as soon as the lockfile
 # moves past it (cargo deny then warns "advisory-not-detected").
 ignore = [
+  # The PDF stack of #322 (typst 0.15.1, crates/renox-runtime/src/ops/pdf.rs).
+  # Review on every typst bump; the typst World there refuses every file read
+  # (no bibliography, no images, no includes) and template text is always a
+  # typst string literal, so none of these paths parses tenant input.
+  { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38 via citationberg (hayagriva, typst-library): CSL bibliography XML only; ops/pdf.rs reads no file, so no XML is ever parsed" },
+  { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.38 via citationberg (hayagriva, typst-library): as RUSTSEC-2026-0194" },
+  { id = "RUSTSEC-2025-0141", reason = "bincode via syntect (typst-library syntax highlighting): unmaintained, no fix upstream; pinned by typst 0.15.1" },
+  { id = "RUSTSEC-2026-0206", reason = "rustybuzz: unmaintained, typst 0.15.1's shaper (Arabic shaping of ctx.pdf); move with typst to harfrust" },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser: unmaintained, typst 0.15.1's font parser; only the bundled Noto fonts (crates/renox-runtime/fonts) are ever parsed" },
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml via serde_yaml (typst-library yaml()): ops/pdf.rs reads no file, so no YAML is ever parsed" },
+  { id = "RUSTSEC-2024-0320", reason = "yaml-rust via syntect (typst-library): unmaintained, no YAML of tenant input is parsed" },
   # rustls =0.23.40 is an exact pin of deno_tls 0.247 (deno_runtime 0.268);
   # fixed in 0.23.45/0.23.46. Follow-up: next deno_runtime release.
   { id = "RUSTSEC-2026-0285", reason = "rustls pinned =0.23.40 by deno_tls (deno_runtime 0.268)" },
@@ -66,6 +77,10 @@ allow = [
   # fluent-uri, referencing, jsonschema), used by renox-cell to validate
   # manifests against docs/contracts/schemas/manifest.schema.json (#30).
   "MIT-0",
+  # NCSA (University of Illinois, OSI approved, permissive): libfuzzer-sys,
+  # a `cfg(fuzzing)` dependency of rav1e, the AVIF encoder of the image
+  # pipeline (#321). Never compiled into the worker.
+  "NCSA",
   # MPL-2.0 is file-level copyleft: allowed for unmodified dependencies; a
   # patched MPL file must be published with its changes.
   "MPL-2.0",

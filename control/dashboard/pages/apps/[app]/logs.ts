@@ -1,8 +1,12 @@
 // GET /apps/:app/logs: the app's log lines (docs/19-platform-wireframes.md,
-// 3.5) with level, source, search and time-window filters. "Live" polls the
-// `log_lines` fragment every 2 s (htmx); each poll is one non-follow
-// `GET /v1/apps/{app}/logs?since=` (lib/api.ts), so no request outlives the
-// tenant wall-clock limit. Messages are rendered escaped; they were redacted
+// 3.5) with level, source, search and time-window filters. "Live" (#307)
+// opens the SSE route `/sse/logs` (functions/sse/logs.ts): a follower job
+// per open page (jobs/log-follower.ts) reads the new lines once a second and
+// publishes them as rows of `partials/log-rows`, which public/live-logs.js
+// puts on top of the table. When the stream cannot open (realtime off, the
+// connection cap), the page falls back to polling the `log_lines` fragment
+// every 2 s; each poll is one non-follow `GET /v1/apps/{app}/logs?since=`
+// (lib/api.ts), so no request outlives the tenant wall-clock limit. Messages are rendered escaped; they were redacted
 // on the node. A server stack's frames (`fields.frames`, #261) are listed at
 // their original TypeScript position, with the bundled one beside it.
 import type { LoaderContext } from "renox";
@@ -71,7 +75,7 @@ export async function load(ctx: LoaderContext) {
   const f = filters(ctx.url);
   const query = new URLSearchParams({ level: f.level, source: f.source, window: f.window, q: f.q, ...(f.deployment === null ? {} : { deployment: f.deployment }) });
   const base = {
-    signed_in: true,
+    signed_in: true, impersonation: api.impersonation,
     api_host: new URL(apiBase(ctx.secrets)).host,
     app: name,
     section: "logs",
@@ -87,23 +91,30 @@ export async function load(ctx: LoaderContext) {
     source: f.source,
     ...(f.deployment === null ? {} : { deployment: f.deployment }),
   });
-  if (!r.ok) return { ...base, problem: await problem(ctx, r), lines: [] };
+  if (!r.ok) return { ...base, problem: await problem(ctx, r), sse_url: null, lines: [] };
+  return { ...base, problem: null, sse_url: liveUrl(name, f), lines: visible(r.value, f).map((l) => lineRow(l, name)) };
+}
+
+/** One line as the table renders it (here and in the live rows the follower job publishes). */
+export function lineRow(l: LogLine, name: string) {
   return {
-    ...base,
-    problem: null,
-    lines: visible(r.value, f).map((l) => ({
-      when: clock(l.ts),
-      level: l.level.toUpperCase(),
-      level_class: l.level,
-      source: l.source,
-      request_id: l.request_id ?? "—",
-      deployment: shortHash(l.deployment_hash),
-      module: l.module,
-      message: l.message,
-      fields: fieldsText(l.fields),
-      frames: frameRows(l.fields),
-      // A browser error links to its group (the control plane adds `fields.fingerprint` at ingestion).
-      group_url: l.source === "client" && typeof l.fields?.fingerprint === "string" && /^[0-9a-f]{16}$/u.test(l.fields.fingerprint) ? `/apps/${name}/client-errors?fp=${l.fields.fingerprint}` : null,
-    })),
+    when: clock(l.ts),
+    level: l.level.toUpperCase(),
+    level_class: l.level,
+    source: l.source,
+    request_id: l.request_id ?? "—",
+    deployment: shortHash(l.deployment_hash),
+    module: l.module,
+    message: l.message,
+    fields: fieldsText(l.fields),
+    frames: frameRows(l.fields),
+    // A browser error links to its group (the control plane adds `fields.fingerprint` at ingestion).
+    group_url: l.source === "client" && typeof l.fields?.fingerprint === "string" && /^[0-9a-f]{16}$/u.test(l.fields.fingerprint) ? `/apps/${name}/client-errors?fp=${l.fields.fingerprint}` : null,
   };
+}
+
+/** The SSE route of the live view (#307): the filters ride along, the follower job applies them. */
+export function liveUrl(name: string, f: ReturnType<typeof filters>): string {
+  const q = new URLSearchParams({ app: name, level: f.level, source: f.source, q: f.q, ...(f.deployment === null ? {} : { deployment: f.deployment }) });
+  return `/sse/logs?${q}`;
 }

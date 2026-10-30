@@ -1,0 +1,9 @@
+{
+  "$comment": "valid (1.7.0): the storage module deletes one of its files",
+  "op": "op_storage_delete",
+  "args": [
+    "storage/u/1.jpg",
+    "storage"
+  ],
+  "result": true
+}

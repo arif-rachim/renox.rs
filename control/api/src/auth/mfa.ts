@@ -19,7 +19,7 @@
 //   the account (a new-device style notice).
 
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
-import type { Context, Hono } from "hono";
+import type { Context, Hono, MiddlewareHandler } from "hono";
 import { operation } from "../audit.ts";
 import type { Deps, Env } from "../context.ts";
 import { num, numOrNull, type Db } from "../db/db.ts";
@@ -33,7 +33,7 @@ import { withTenant } from "../tenancy/scope.ts";
 import { accountAuth, sessionUser, tenantAuth } from "./middleware.ts";
 import { sendMfaChanged } from "./notify.ts";
 import { verifyPassword } from "./password.ts";
-import { sha256hex } from "./tokens.ts";
+import { parseBearer, sha256hex } from "./tokens.ts";
 
 export const STEP_UP_MS = 15 * 60_000;
 export const CHALLENGE_TTL_MS = 5 * 60_000;
@@ -153,13 +153,48 @@ export async function sessionState(db: Db, user: { id: string; created_at: numbe
 /** Step-up: the user has a factor and the session has not verified within 15 minutes. */
 export async function needsStepUp(db: Db, userId: string, sessionId: string, now: number): Promise<boolean> {
   if (!enrolled(await status(db, userId))) return false;
-  const rows = await db.query<{ mfa_at: unknown }>("select mfa_at from sessions where id = $1", [sessionId]);
-  const at = numOrNull(rows[0]?.mfa_at ?? null);
+  const at = (await sessionStateOf(db, sessionId)).mfa_at;
   return at === null || now - at > STEP_UP_MS;
 }
 
+/**
+ * The holder of an MFA call: a session id, or `token:<id>` for a user token
+ * (deploy-api.md 0.4 section 18, "User token rule"), whose verification and
+ * step-up window are its own (`token_mfa`), with no session state.
+ */
+const TOKEN_HOLDER = "token:";
+const tokenOf = (holder: string): string | null => (holder.startsWith(TOKEN_HOLDER) ? holder.slice(TOKEN_HOLDER.length) : null);
+
 async function passed(db: Db, sessionId: string, now: number): Promise<void> {
+  const token = tokenOf(sessionId);
+  if (token !== null) {
+    await db.query("insert into token_mfa (token_id, mfa_at) values ($1, $2) on conflict (token_id) do update set mfa_at = excluded.mfa_at", [token, now]);
+    return;
+  }
   await db.query("update sessions set mfa_state = null, mfa_at = $1 where id = $2", [now, sessionId]);
+}
+
+/**
+ * `accountAuth` for the MFA operations of section 18: a session, or (0.4) a
+ * token a user created, acting for that user. A token without a user (a
+ * bootstrap token) or an impersonation token is 401.
+ */
+export function mfaAuth(deps: Deps): MiddlewareHandler<Env> {
+  const session = accountAuth(deps);
+  return async (c, next) => {
+    const bearer = parseBearer(c.req.header("authorization"));
+    if (bearer === null || bearer.kind !== "pat") return session(c, next);
+    const now = deps.now();
+    const rows = await deps.db.query<{ id: string; user_id: string | null; tenant_id: string; imp: string | null }>(
+      `select t.id, t.user_id, t.tenant_id, i.id as imp from tokens t left join impersonations i on i.token_id = t.id
+        where t.token_sha256 = $1 and t.revoked_at is null and t.expires_at > $2`,
+      [sha256hex(bearer.value), now],
+    );
+    const t = rows[0];
+    if (t === undefined || t.user_id === null || t.imp !== null) throw new ApiError("RENOX_UNAUTHENTICATED");
+    c.set("principal", { kind: "user", userId: t.user_id, sessionId: `${TOKEN_HOLDER}${t.id}`, tenantId: t.tenant_id });
+    await next();
+  };
 }
 
 const RECOVERY_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
@@ -268,6 +303,11 @@ function limitVerify(deps: Deps, email: string): void {
 }
 
 async function sessionStateOf(db: Db, sessionId: string): Promise<{ state: string | null; mfa_at: number | null }> {
+  const token = tokenOf(sessionId);
+  if (token !== null) {
+    const t = await db.query<{ mfa_at: unknown }>("select mfa_at from token_mfa where token_id = $1", [token]);
+    return { state: null, mfa_at: numOrNull(t[0]?.mfa_at ?? null) };
+  }
   const rows = await db.query<{ mfa_state: string | null; mfa_at: unknown }>("select mfa_state, mfa_at from sessions where id = $1", [sessionId]);
   return { state: rows[0]?.mfa_state ?? null, mfa_at: numOrNull(rows[0]?.mfa_at ?? null) };
 }
@@ -282,7 +322,7 @@ async function requireFresh(deps: Deps, userId: string, sessionId: string): Prom
 export function registerMfa(app: Hono<Env>, deps: Deps): void {
   const { db } = deps;
 
-  app.get("/v1/account/mfa", operation(deps, "getMfa"), accountAuth(deps), async (c) => {
+  app.get("/v1/account/mfa", operation(deps, "getMfa"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     const user = await userRow(db, u.userId);
     const now = deps.now();
@@ -292,7 +332,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     return c.json({ ...s, enrolled: enrolled(s), required: req.required || enrolled(s), grace_until: req.grace_until, session_state: session.state, verified_at: session.mfa_at });
   });
 
-  app.post("/v1/account/mfa/totp", operation(deps, "startTotp"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/totp", operation(deps, "startTotp"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     if (enrolled(await status(db, u.userId))) await requireFresh(deps, u.userId, u.sessionId);
     const user = await userRow(db, u.userId);
@@ -305,7 +345,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     return c.json({ secret, otpauth_uri: totpUri({ secret, issuer: "Renox", account: user.email }) }, 201);
   });
 
-  app.post("/v1/account/mfa/totp/confirm", operation(deps, "confirmTotp"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/totp/confirm", operation(deps, "confirmTotp"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     const user = await userRow(db, u.userId);
     limitVerify(deps, user.email);
@@ -323,7 +363,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     return c.json({ totp: true, recovery_codes: codes });
   });
 
-  app.post("/v1/account/mfa/passkeys/options", operation(deps, "passkeyOptions"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/passkeys/options", operation(deps, "passkeyOptions"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     if (enrolled(await status(db, u.userId))) await requireFresh(deps, u.userId, u.sessionId);
     const user = await userRow(db, u.userId);
@@ -342,7 +382,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     });
   });
 
-  app.post("/v1/account/mfa/passkeys", operation(deps, "registerPasskey"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/passkeys", operation(deps, "registerPasskey"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     const user = await userRow(db, u.userId);
     const body = await objectBody(c);
@@ -367,14 +407,14 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     return c.json({ passkeys: (await status(db, u.userId)).passkeys, recovery_codes: codes }, 201);
   });
 
-  app.post("/v1/account/mfa/challenge", operation(deps, "mfaChallenge"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/challenge", operation(deps, "mfaChallenge"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     const creds = await db.query<{ credential_id: string }>("select credential_id from account_mfa_webauthn where user_id = $1", [u.userId]);
     if (creds.length === 0) throw notFound();
     return c.json({ challenge: await newChallenge(db, u.userId, "verify", deps.now()), rpId: relyingParty(deps).rpId, allowCredentials: creds.map((x) => ({ type: "public-key", id: x.credential_id })), userVerification: "preferred" });
   });
 
-  app.post("/v1/account/mfa/verify", operation(deps, "verifyMfa"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/verify", operation(deps, "verifyMfa"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     const user = await userRow(db, u.userId);
     limitVerify(deps, user.email);
@@ -389,7 +429,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     return c.json({ verified_at: now });
   });
 
-  app.post("/v1/account/mfa/recovery-codes", operation(deps, "regenerateRecoveryCodes"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/recovery-codes", operation(deps, "regenerateRecoveryCodes"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     if (!enrolled(await status(db, u.userId))) throw new ApiError("RENOX_CONFLICT", [{ field: "mfa", reason: "no second factor" }]);
     await requireFresh(deps, u.userId, u.sessionId);
@@ -397,7 +437,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     return c.json({ recovery_codes: await newRecoveryCodes(db, u.userId, deps.now()) });
   });
 
-  app.post("/v1/account/mfa/disable", operation(deps, "disableMfa"), accountAuth(deps), async (c) => {
+  app.post("/v1/account/mfa/disable", operation(deps, "disableMfa"), mfaAuth(deps), async (c) => {
     const u = sessionUser(c);
     const user = await userRow(db, u.userId);
     limitVerify(deps, user.email);
@@ -413,6 +453,8 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     // An owner or admin past the grace period is back to enrolment.
     const state = (await requirement(db, user, now)).required ? "enrol" : null;
     await db.query("update sessions set mfa_state = $1, mfa_at = null where id = $2", [state, u.sessionId]);
+    const token = tokenOf(u.sessionId);
+    if (token !== null) await db.query("delete from token_mfa where token_id = $1", [token]);
     await sendMfaChanged(deps, user.email, "mfa_disabled");
     return c.json({ enrolled: false, session_state: state });
   });

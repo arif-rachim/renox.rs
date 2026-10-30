@@ -1,0 +1,23 @@
+{
+  "$comment": "valid (1.7.0): one turn through the gateway (ops.md section 23)",
+  "op": "op_ai_chat",
+  "args": [
+    "{\"messages\":[{\"role\":\"user\",\"content\":\"Where is order 42?\"}],\"max_tokens\":400}",
+    null
+  ],
+  "result": {
+    "id": "msg_01",
+    "model": "claude-sonnet-5-5",
+    "content": [
+      {
+        "type": "text",
+        "text": "Order 42 shipped yesterday."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 21,
+      "output_tokens": 9
+    }
+  }
+}

@@ -41,6 +41,9 @@ pub fn status(r: &Replication, tenant_id: &str, database: &str) -> Value {
         (Some(s), Some(w)) => Some((w.saturating_sub(s)) as f64 / 1000.0),
         _ => None,
     };
+    if let Some(l) = lag {
+        crate::telemetry::counters::replication_lag(tenant_id, database, l);
+    }
     let state = r.state(database);
     json!({
         "type": "replication_status",

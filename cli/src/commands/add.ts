@@ -15,12 +15,16 @@ import { readLock, writeLock } from "../lib/modules/lock.ts";
 import { type ModuleProblem, obj } from "../lib/modules/manifest.ts";
 import { type InstallSpec, type ResolvedModule, lockEntryOf, readModulesTable, resolveModules, resolvedConfig } from "../lib/modules/resolve.ts";
 import { setTableEntry } from "../lib/modules/toml.ts";
+import { download, REGISTRY } from "../lib/modules/registry.ts";
+import { apiRequest, defaultIo, type Io } from "./login.ts";
 
 export interface AddOptions {
   version?: string;
   source?: string;
   mount?: string;
   yes?: boolean;
+  /** The registry client (tests pass a fake). */
+  io?: Io;
 }
 
 const list = (xs: string[]): string => (xs.length ? xs.join(", ") : "(none)");
@@ -77,6 +81,21 @@ export async function addModule(project: string, name: string, options: AddOptio
     ...(options.source !== undefined ? { source: options.source } : {}),
     ...(options.mount !== undefined ? { mount: options.mount } : {}),
   };
+  // manifest.md 1.2: a registry module is downloaded and verified (MF15) first.
+  if (spec.source?.startsWith("registry:")) {
+    const io = options.io ?? defaultIo();
+    const [, publisher, mod] = REGISTRY.exec(spec.source) ?? [];
+    if (publisher === undefined) throw new UserError(`${spec.source} is not registry:<publisher>/<name>`);
+    const list = await apiRequest(io, "GET", `/v1/registry?q=${encodeURIComponent(mod as string)}`);
+    if (!list.ok) throw new UserError(`the registry answered ${list.status}`);
+    const found = ((await list.json()) as { items: { publisher: string; name: string; version: string }[] }).items.find((m) => m.publisher === publisher && m.name === mod);
+    if (found === undefined) throw new UserError(`${spec.source} is not in the registry`);
+    try {
+      await download(io, project, spec.source, found.version);
+    } catch (e) {
+      throw new ValidationError((e as Error).message, { file: "renox.toml" });
+    }
+  }
   // Without a range: the fetched version, as ^X.Y.Z (filled in below).
   const all: Record<string, InstallSpec> = { ...specs, [name]: { ...spec, version: spec.version === "*" ? "0.0.0" : spec.version } };
   const pinned = Object.fromEntries((entries ?? []).filter((e) => e.name !== name && e.source.startsWith("git:")).map((e) => [e.name, e.source]));

@@ -32,7 +32,8 @@ test("inputs of different lengths are never equal", () => {
 /**
  * Grep test (#111): every secret comparison uses a constant-time compare.
  * The SDK: any module that verifies a signature or token imports
- * timingSafeEqual (`webhook.verify` does not exist yet; it must when built).
+ * timingSafeEqual. `webhook.verify` (ops 1.7.0) is only the type of
+ * `op_webhook_verify`, which compares in Rust (#322 tests it there).
  * The cell's CSRF check (Rust) compares with `session::same` (subtle's
  * `ct_eq`), never `==`.
  */
@@ -41,8 +42,12 @@ test("signature and token checks use a constant-time compare", () => {
   for (const f of readdirSync(src)) {
     // `Password.verify` (ctx.ts) is only the type of the argon2id op, which
     // compares in constant time in Rust (ops.md section 16).
-    const text = readFileSync(join(src, f), "utf8").replace(/^\s*verify\(password: string, hash: string\): Promise<boolean>;$/gmu, "");
-    if (/\b(verify|signature|hmac)\b/iu.test(text) && f !== "crypto.ts") expect([f, text.includes("timingSafeEqual")]).toEqual([f, true]);
+    // `Webhook.verify` (ctx.ts, ops 1.7.0) is likewise the type of `op_webhook_verify`, with its doc comment.
+    const text = readFileSync(join(src, f), "utf8")
+      .replace(/^\s*verify\(password: string, hash: string\): Promise<boolean>;$/gmu, "")
+      .replace(/^\s*\/\*\* Rejects with 401 `RENOX_WEBHOOK_SIGNATURE`.*\*\/\n\s*verify\(req: Request, .*$/gmu, "");
+    // fakes.ts (#323) only produces signatures for tests; it never checks one.
+    if (/\b(verify|signature|hmac)\b/iu.test(text) && f !== "crypto.ts" && f !== "fakes.ts") expect([f, text.includes("timingSafeEqual")]).toEqual([f, true]);
   }
   const pages = join(import.meta.dir, "../../crates/renox-cell/src/pages");
   const guard = readFileSync(join(pages, "mod.rs"), "utf8");

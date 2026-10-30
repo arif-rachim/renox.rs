@@ -1,0 +1,25 @@
+{
+  "$comment": "valid (1.7.0): one page under a prefix",
+  "op": "op_storage_list",
+  "args": [
+    "app/receipts/",
+    50,
+    null,
+    null
+  ],
+  "result": {
+    "items": [
+      {
+        "key": "app/receipts/r-1.png",
+        "bytes": 2048,
+        "content_type": "image/png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "width": 400,
+        "height": 300,
+        "public": false,
+        "created_at": 1793404800000
+      }
+    ],
+    "next_cursor": null
+  }
+}

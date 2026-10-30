@@ -14,6 +14,8 @@ import { type Json, type JsonObject, isObject, validate } from "../schema.ts";
 import { type LockEntry, readLock } from "./lock.ts";
 import { type Manifest, type ModuleProblem, configValueProblem, moduleNameProblem, obj, readManifest, samePermissions, schemas, strings } from "./manifest.ts";
 import { isRange, satisfies } from "./semver.ts";
+import { type ModuleSig } from "../sign.ts";
+import { cachedTree } from "./registry.ts";
 
 /** One `renox.toml [modules]` entry. */
 export interface InstallSpec {
@@ -34,6 +36,8 @@ export interface ResolvedModule {
   /** The lock's `source`: `official`, `path:<dir>`, or `git:<url>#<40-hex>`. */
   source: string;
   hash: string;
+  /** A registry module's verified signature (manifest.md 1.2, MF15). */
+  sig?: ModuleSig;
 }
 
 /**
@@ -48,6 +52,8 @@ export const OFFICIAL_MODULES = resolvePath(import.meta.dir, "../../../../module
 
 /** Where a module tree comes from, after the `git:` ref is resolved to a commit. */
 export interface TreeSource {
+  /** A registry module's verified signature (manifest.md 1.2). */
+  sig?: ModuleSig;
   tree: string;
   source: string;
 }
@@ -105,6 +111,11 @@ export function fetchTree(project: string, name: string, source: string | undefi
     }
     return { tree, source: `git:${url}#${commit}` };
   }
+  // manifest.md 1.2: a registry module, downloaded and verified (MF15) by renox add / install.
+  if (source.startsWith("registry:")) {
+    const { tree, sig } = cachedTree(project, source);
+    return { tree, source, sig };
+  }
   throw new Error(`unsupported source ${source}`);
 }
 
@@ -141,7 +152,7 @@ export function resolveModules(project: string, specs: Record<string, InstallSpe
     if (!isRange(spec.version)) problems.push({ rule: "MF2", file: "renox.toml", message: `${name}: "${spec.version}" is not a range of manifest.md section 2` });
     else if (!satisfies(manifest.version, spec.version)) problems.push({ rule: "MF2", file: "renox.toml", message: `${name} ${manifest.version} (${src.source}) does not satisfy renox.toml "${spec.version}"` });
     if (manifest.isolation === "isolate" && spec.isolation === "shared") problems.push({ rule: "MF11", file: "renox.toml", message: `${name}: renox.toml lowers isolation from isolate to shared` });
-    found.set(name, { name, spec, manifest, tree: src.tree, source: src.source, hash: treeHash(src.tree) });
+    found.set(name, { name, spec, manifest, tree: src.tree, source: src.source, hash: src.sig?.hash ?? treeHash(src.tree), ...(src.sig ? { sig: src.sig } : {}) });
   }
   for (const a of Object.keys(specs)) for (const b of Object.keys(specs)) if (a !== b && b.startsWith(`${a}__`)) problems.push({ rule: "MF3", file: "renox.toml", message: `the prefix ${a}__ is a prefix of ${b}__` });
   // Ranges across the graph.
@@ -217,6 +228,7 @@ export function lockEntryOf(m: ResolvedModule, approved = m.manifest.permissions
     dependencies: Object.keys(m.manifest.dependencies).sort(),
     config: resolvedConfig(m).config,
     approved,
+    ...(m.sig ? { key_id: m.sig.key_id, signature: m.sig.signature } : {}),
   };
 }
 

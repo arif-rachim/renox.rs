@@ -57,12 +57,29 @@ pub(crate) struct RequestState {
     pub db_rows: u64,
     /// `logs_dropped` of the meter record.
     pub logs_dropped: u64,
+    /// A statement found the file damaged (`SQLITE_CORRUPT`, `SQLITE_NOTADB`;
+    /// #311): the cell answers 503 and restores the file.
+    pub db_corrupt: bool,
     /// `render_fuel` / `render_ms` of realtime `fragment` payloads the
     /// request published (ops.md 1.5.0 section 18).
     pub render_fuel: u64,
     pub render_ms: f64,
     /// Set when the request ends; an op still holding the state sees it.
     pub ended: bool,
+    /// `isolate` mode (ops.md 1.7.0 section 15.6): the open transaction is
+    /// the caller's, lent to this cross-isolate call; it is not rolled back
+    /// when the call ends.
+    pub tx_borrowed: bool,
+    /// CPU the callees in other isolates used for this request (`op_modules_call`).
+    pub cross_cpu_ms: f64,
+    /// ops.md 1.7.0 section 21: the tenant's stored bytes after this
+    /// request's last put or delete (`meter.md` 0.4, `storage_bytes`).
+    pub storage_bytes: Option<u64>,
+    /// ops.md 1.7.0 section 23: tokens of the request's `ai.chat` calls.
+    pub ai_tokens_in: u64,
+    pub ai_tokens_out: u64,
+    /// ops.md 1.7.0 section 24: time of the request's PDF conversions.
+    pub render_pdf_ms: f64,
     /// The principal, the route's guard inputs, `authz_evals` (ops.md
     /// 1.5.0 section 17; `ops/authz.rs`).
     pub authz: crate::ops::authz::RequestAuthz,
@@ -82,9 +99,16 @@ impl RequestState {
             db_ms: 0.0,
             db_rows: 0,
             logs_dropped: 0,
+            db_corrupt: false,
             render_fuel: 0,
             render_ms: 0.0,
             ended: false,
+            tx_borrowed: false,
+            cross_cpu_ms: 0.0,
+            storage_bytes: None,
+            ai_tokens_in: 0,
+            ai_tokens_out: 0,
+            render_pdf_ms: 0.0,
             authz: Default::default(),
         }
     }

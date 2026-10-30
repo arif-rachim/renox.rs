@@ -76,6 +76,7 @@ const schemaViolations = (rule: string, schema: Json, doc: Json, what: string): 
 /** The methods a route answers: its own for a function, GET and HEAD (and POST with actions) for a page, GET for ws and sse (1.3). */
 function routeMethods(route: JsonObject): string[] {
   if (route.kind === "ws" || route.kind === "sse") return ["GET"];
+  if (route.kind === "webhook") return ["POST"];
   if (route.kind !== "page") return [route.method as string];
   const actions = (route.actions as string[] | undefined) ?? [];
   return actions.length > 0 ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
@@ -97,6 +98,8 @@ function routePrefix(kind: string, owner: string): string {
       return owner === "app" ? "functions/tools/" : "tools/";
     case "job":
       return "jobs/";
+    case "webhook":
+      return "functions/webhooks/";
     default:
       return "functions/";
   }
@@ -112,6 +115,7 @@ function routeExports(route: JsonObject): string[] {
   }
   if (route.kind === "ws" || route.kind === "sse") need.push(route.kind as string);
   if (route.kind === "tool") need.push("default");
+  if (route.kind === "webhook") need.push("POST");
   if (route.kind === "job") need.push("run", "schedule");
   if (isObject(route.guard)) need.push("guard");
   return need;
@@ -398,6 +402,7 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
   out.push(...moduleRules(manifest));
   out.push(...entriesRules(manifest));
   out.push(...authzRules(manifest));
+  out.push(...webhookStorageRules(manifest));
 
   if (tier !== undefined && isObject(manifest.limits)) {
     for (const [key, value] of Object.entries(manifest.limits)) {
@@ -527,7 +532,7 @@ export function checkManifest(manifest: Json, tier?: TierLimits): Violation[] {
   return manifestRules(manifest, tier);
 }
 
-/** V1-V12, V14-V27 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
+/** V1-V12, V14-V29 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
 export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, options: CheckOptions = {}): CheckResult {
   const out: Violation[] = [];
   const hash = contentHash(files);
@@ -573,6 +578,9 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
       continue;
     } else if (version === 0 && (top === "templates" || path === "public.json")) {
       out.push({ rule: "V1", path, reason: `${top === "templates" ? "templates/" : "public.json"} must be absent in version 0` });
+    } else if (path === "sbom.cdx.json") {
+      // Version 1.4: the optional SBOM (V29 checks its header below).
+      if (version === 0) out.push({ rule: "V1", path, reason: "sbom.cdx.json must be absent in version 0" });
     } else if (!(path === "manifest.json" || path === "public.json" || (["code", "migrations", "public", "templates"].includes(top) && path.includes("/")))) {
       out.push({ rule: "V1", path, reason: "not an allowed top-level entry" });
     }
@@ -583,6 +591,16 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
   if (!isObject(manifest) || manifestErrors.some((v) => v.rule === "V3")) return result(null);
   if (options.app !== undefined && (manifest.app as JsonObject).name !== options.app) {
     out.push({ rule: "V3", field: "app.name", reason: `"${(manifest.app as JsonObject).name}" is not the app "${options.app}"` });
+  }
+
+  if (files.has("sbom.cdx.json")) {
+    let sbom: Json = null;
+    try {
+      sbom = JSON.parse(text("sbom.cdx.json")) as Json;
+    } catch {
+      // Reported below as not a CycloneDX document.
+    }
+    if (!isObject(sbom) || sbom.bomFormat !== "CycloneDX" || sbom.specVersion !== "1.5") out.push({ rule: "V29", path: "sbom.cdx.json", reason: "not a CycloneDX 1.5 JSON document" });
   }
 
   let codeBytes = 0;
@@ -719,6 +737,32 @@ function policyAndFeedRules(files: ReadonlyMap<string, Uint8Array>, manifest: Js
     const tables = created.get(owner) ?? new Set<string>();
     for (const t of Object.keys(obj(realtime.feeds))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.realtime.feeds`, reason: `"${t}": no migration of ${owner} creates it` });
     for (const t of Object.keys(obj(authz.ownership))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.authz.ownership`, reason: `"${t}": no migration of ${owner} creates it` });
+  }
+  return out;
+}
+
+/** V28 (webhook routes) and V29 (storage, AI) on a manifest that passed the schema (artifact 1.4); the SBOM part of V29 is in validateArtifact. */
+function webhookStorageRules(manifest: JsonObject): Violation[] {
+  const out: Violation[] = [];
+  ((manifest.routes as JsonObject[]) ?? []).forEach((route, i) => {
+    const field = `routes[${i}]`;
+    const local = localId((route.module as string | undefined) ?? "");
+    if (route.kind === "function" && local.startsWith("functions/webhooks/")) out.push({ rule: "V28", field, reason: "a module under functions/webhooks/ is a webhook route, not a function route" });
+    if (route.kind !== "webhook") return;
+    if (!local.startsWith("functions/webhooks/")) out.push({ rule: "V28", field, reason: `module "${route.module}" is not under functions/webhooks/` });
+    if (parsePattern(route.path as string).some((seg) => seg.kind !== "static")) out.push({ rule: "V28", field, reason: `path "${route.path}" must have static segments only` });
+  });
+  const check = (field: string, storage: JsonObject) => {
+    for (const t of strings(storage.allowed_types)) if (t.includes(";")) out.push({ rule: "V29", field: `${field}.allowed_types`, reason: `"${t}" carries parameters` });
+    const widths = (obj(storage.images).widths as number[] | undefined) ?? [];
+    if (widths.some((w, j) => j > 0 && w <= (widths[j - 1] as number))) out.push({ rule: "V29", field: `${field}.images.widths`, reason: "not ascending" });
+  };
+  check("storage", obj(manifest.storage));
+  (Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []).forEach((m, i) => check(`modules[${i}].storage`, obj(m.storage)));
+  if (obj(manifest.ai).mode === "direct") {
+    const permissions = obj(manifest.permissions);
+    if (!strings(permissions.secrets).some((n) => /^AI_[A-Z0-9]+_KEY$/u.test(n))) out.push({ rule: "V29", field: "ai.mode", reason: "\"direct\" needs an AI_<PROVIDER>_KEY in permissions.secrets" });
+    if (strings(permissions.network).length === 0) out.push({ rule: "V29", field: "ai.mode", reason: "\"direct\" needs the provider's host in permissions.network" });
   }
   return out;
 }

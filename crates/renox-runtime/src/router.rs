@@ -333,6 +333,7 @@ mod tests {
             guard: None,
             tool: None,
             job: None,
+            webhook: None,
         }
     }
 

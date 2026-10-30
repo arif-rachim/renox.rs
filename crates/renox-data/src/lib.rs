@@ -9,7 +9,7 @@ mod authorizer;
 mod db;
 mod error;
 pub mod integrity;
-mod limits;
+pub mod limits;
 mod migrate;
 pub mod outbox;
 pub mod roles;

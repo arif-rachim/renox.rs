@@ -61,11 +61,16 @@ pub struct Cell {
     pub(crate) wake: Notify,
     /// The outbox delivery task (#229); dropped (stopped) at eviction.
     outbox: Mutex<Option<crate::outbox::OutboxWorker>>,
+    /// The scheduler's earliest next tick (#297): the manager wakes the
+    /// tenant at it after this cell is evicted.
+    pub(crate) next_tick: crate::scheduler::NextTick,
     /// The deployment's realtime hub (#281), also the runtime's
     /// `RealtimeHost`.
     pub(crate) realtime: Option<std::sync::Arc<crate::realtime::CellRealtime>>,
     /// App MCP (#285): agent token cache, per-token buckets, confirmations.
     pub(crate) mcp: crate::mcp::Mcp,
+    /// `/_img` and `/_files` (#321; ops.md 1.7.0 section 21).
+    pub(crate) files: Option<crate::images::Files>,
 }
 
 impl Cell {
@@ -75,6 +80,7 @@ impl Cell {
             isolate,
             web,
             realtime: None,
+            files: None,
             mcp: crate::mcp::Mcp::default(),
             inflight: AtomicUsize::new(0),
             last_used: Mutex::new(Instant::now()),
@@ -82,6 +88,7 @@ impl Cell {
             evicted: AtomicBool::new(false),
             wake: Notify::new(),
             outbox: Mutex::new(None),
+            next_tick: crate::scheduler::NextTick::default(),
         }
     }
 

@@ -16,7 +16,7 @@ export async function load(ctx: LoaderContext) {
   if (name === null) return notFound();
   const selected = hashParam(ctx.url.searchParams.get("hash"));
   const now = Date.now();
-  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "deployments", notice: null, action_problem: null };
+  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "deployments", notice: null, action_problem: null };
   const [list, one] = await Promise.all([api.listDeployments(name, 50), selected === null ? null : api.getDeployment(name, selected)]);
   if (!list.ok) return { ...base, problem: await problem(ctx, list), deployments: [], detail: null, detail_problem: null };
   let detail = null;

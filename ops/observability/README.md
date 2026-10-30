@@ -48,16 +48,16 @@ Two sources. The **control plane** (`control/api/src/ops/metrics.ts`) answers to
 | `renox_worker_authz_decisions_total` | counter | `tenant_id`, `decision` | worker (`decision` is `all` until the engine counts allows and denies apart) | exists (#295) |
 | `renox_worker_authz_principal_cache_total` | counter | `tenant_id`, `result` | worker | exists (#295) |
 | `renox_worker_cells` | gauge | | worker | exists (#295) |
-| `renox_worker_sandbox_denials_total` | counter | `kind` | worker | pending #295 |
-| `renox_worker_replication_lag_seconds` | gauge | `tenant_id`, `database` | worker | pending #295 |
-| `renox_worker_process_restarts_total` | counter | `tenant_id` | worker | pending #295 |
+| `renox_worker_sandbox_denials_total` | counter | `kind` | worker | exists (#295, `telemetry::counters`) |
+| `renox_worker_replication_lag_seconds` | gauge | `tenant_id`, `database` | worker | exists (#295, `telemetry::counters`) |
+| `renox_worker_process_restarts_total` | counter | `tenant_id` | worker | exists (#295, `telemetry::counters`) |
 | `renox_worker_degraded` | gauge | `component` | worker (`/healthz` reasons) | exists (#295) |
 | `renox_worker_disk_used_ratio` | gauge | | worker (`crate::disk`, #103) | exists (#295) |
 | `renox_worker_disk_level` | gauge | | worker (`crate::disk`, #103: 0 ok, 1 warn, 2 no new cells, 3 no writes) | exists (#295) |
-| `renox_worker_db_unavailable` | gauge | | worker (files being restored after damage, #103) | pending #295 |
-| `renox_worker_log_lines_sampled_out_total` | counter | | worker (`crate::pruning`, #103) | pending #295 |
+| `renox_worker_db_unavailable` | gauge | | worker (files being restored after damage, #103) | exists (#295, `telemetry::counters`) |
+| `renox_worker_log_lines_sampled_out_total` | counter | | worker (`crate::pruning`, #103) | exists (#295, `telemetry::counters`) |
 
-The worker families are served by `GET /metrics` on the worker's operator listener (`[control] health_listen`, #295: `crates/renox-cell/src/telemetry/metrics.rs`) under these names. Still pending: `renox_worker_sandbox_denials_total`, `renox_worker_replication_lag_seconds`, `renox_worker_process_restarts_total`, `renox_worker_db_unavailable` and `renox_worker_log_lines_sampled_out_total`, whose counters live in the sandbox, replication, supervisor and pruning code that #295 did not wire; a change to a name changes this table, the rules and the dashboards in the same PR (`check.ts` fails otherwise).
+The worker families are served by `GET /metrics` on the worker's operator listener (`[control] health_listen`, #295: `crates/renox-cell/src/telemetry/metrics.rs`) under these names. The last five families (`renox_worker_sandbox_denials_total`, `renox_worker_replication_lag_seconds`, `renox_worker_process_restarts_total`, `renox_worker_db_unavailable`, `renox_worker_log_lines_sampled_out_total`) are counted where their events happen (`crates/renox-cell/src/telemetry/counters.rs`): a child killed by seccomp (SIGSYS), a child restart, the lag of the last replication status computed, the databases being restored after damage, the lines the volume limit sampled out; a change to a name changes this table, the rules and the dashboards in the same PR (`check.ts` fails otherwise).
 
 ## Alerts
 

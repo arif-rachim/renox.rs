@@ -7,6 +7,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use deno_core::{OpDecl, OpState, op2};
 
+use crate::ops::ai::{op_ai_env, op_ai_gateway, op_ai_meter};
 use crate::ops::authz::{
     op_authz_check, op_authz_check_batch, op_authz_explain, op_authz_guard,
     op_authz_principal_cached, op_authz_principal_set, op_authz_roles_assign, op_authz_roles_list,
@@ -19,8 +20,11 @@ use crate::ops::db::{
 use crate::ops::deadline::op_deadline_remaining_ms;
 use crate::ops::events::{op_events_ack, op_events_emit};
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
+use crate::ops::jobs::{op_jobs_ack, op_jobs_cancel, op_jobs_enqueue, op_jobs_list, op_jobs_retry};
 use crate::ops::log::op_log;
+use crate::ops::modules::{op_modules_call, op_span_service_begin, op_span_service_end};
 use crate::ops::password::{op_password_hash, op_password_verify};
+use crate::ops::pdf::op_render_pdf;
 use crate::ops::realtime::{
     op_realtime_close, op_realtime_publish, op_realtime_send, op_realtime_subscribe,
     op_realtime_unsubscribe,
@@ -28,6 +32,11 @@ use crate::ops::realtime::{
 use crate::ops::request::RequestTable;
 use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_response_write};
 use crate::ops::secrets::op_secrets_get_all;
+use crate::ops::storage::{
+    op_storage_delete, op_storage_get, op_storage_list, op_storage_put, op_storage_read,
+    op_storage_sign,
+};
+use crate::ops::webhook::op_webhook_verify;
 
 /// Our own time origin for the coarsened clock ops.
 struct CoarseClockStart(Instant);
@@ -108,6 +117,25 @@ deno_core::extension!(
         op_realtime_close,
         op_events_emit,
         op_events_ack,
+        op_jobs_enqueue,
+        op_jobs_ack,
+        op_jobs_list,
+        op_jobs_retry,
+        op_jobs_cancel,
+        op_span_service_begin,
+        op_span_service_end,
+        op_modules_call,
+        op_storage_put,
+        op_storage_get,
+        op_storage_read,
+        op_storage_delete,
+        op_storage_sign,
+        op_storage_list,
+        op_webhook_verify,
+        op_ai_env,
+        op_ai_gateway,
+        op_ai_meter,
+        op_render_pdf,
         op_password_hash,
         op_password_verify,
         op_log,

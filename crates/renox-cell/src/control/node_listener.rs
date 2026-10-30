@@ -361,7 +361,10 @@ impl NodeListener {
                 Ok(body) => self.restore(&tenant, body).await,
                 Err(r) => *r,
             },
-            (Method::DELETE, "") => self.drop_tenant(&tenant).await,
+            (Method::DELETE, "") => {
+                let purge = query_param(&query, "purge_replica").is_some_and(|v| v == "true");
+                self.drop_tenant(&tenant, purge).await
+            }
             (Method::POST, "move") => match read_json(req).await {
                 Ok(body) => self.move_tenant(&tenant, body).await,
                 Err(r) => *r,
@@ -479,11 +482,64 @@ impl NodeListener {
     /// drain; the node serves only entries that name it, so it refuses the
     /// tenant until one does again. The file is kept (never served from
     /// here) and its sidecar stops after the grace period.
-    async fn drop_tenant(&self, tenant: &str) -> Resp {
+    ///
+    /// With `purge_replica` (0.4.1, the erasure of #308): once the cells are
+    /// drained and the file is closed (which stops the sidecar after its
+    /// last frames), every generation of every database of the tenant is
+    /// deleted from the replica store (`replication::purge`). A store that
+    /// fails is 503 `RENOX_BACKUP_UNAVAILABLE` and nothing is reported
+    /// purged; the control plane retries.
+    async fn drop_tenant(&self, tenant: &str, purge: bool) -> Resp {
         let drained = self.manager.drain_tenant(tenant);
         let deadline = Instant::now() + Duration::from_secs(25);
         while self.manager.db_open(tenant) && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        if purge {
+            let purged = match &self.replication {
+                Some(r) => {
+                    // The sidecar ships its last frames within its grace.
+                    tokio::time::sleep(Duration::from_millis(
+                        r.section().stop_grace_ms.min(10_000),
+                    ))
+                    .await;
+                    crate::replication::purge::purge(r.section(), tenant).await
+                }
+                None => Ok(crate::replication::purge::Purged { deleted: 0 }),
+            };
+            let purged = match purged {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!(tenant_id = tenant, error = %e, "replica purge failed");
+                    return backup_unavailable(
+                        "replica",
+                        "the replica store did not confirm the purge",
+                    );
+                }
+            };
+            let at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            tracing::info!(
+                tenant_id = tenant,
+                cells_drained = drained,
+                generations = purged.deleted,
+                "tenant dropped and its replica purged (erasure)"
+            );
+            return json_response(
+                StatusCode::OK,
+                json!({
+                    "type": "tenant_dropped",
+                    "schema_version": 0,
+                    "node_id": self.node_id,
+                    "tenant_id": tenant,
+                    "cells_drained": drained,
+                    "file": "kept",
+                    "replica_generations_deleted": purged.deleted,
+                    "replica_purged_at": at,
+                }),
+            );
         }
         tracing::info!(
             tenant_id = tenant,

@@ -442,7 +442,11 @@ pub(crate) async fn op_renox_fetch(
         .ok()
         .and_then(|u| u.host_str().map(str::to_string))
         .unwrap_or_default();
-    let span = tracing::info_span!("fetch", host = %host);
+    // #295: a child of the request's span (registered by the cell).
+    let parent = crate::ops::request::live_request(&state.borrow(), token)
+        .map(|r| crate::trace::parent(&r.borrow().request_id))
+        .unwrap_or_else(|_| tracing::Span::none());
+    let span = tracing::info_span!(parent: &parent, "fetch", host = %host);
     tracing::Instrument::instrument(fetch_inner(state, token, req), span).await
 }
 

@@ -57,6 +57,31 @@ export interface Deployment {
   violations: Violation[] | null;
 }
 
+export interface TenantView {
+  tenant_id: string;
+  name: string;
+  tier: string;
+  state: string;
+  created_at: number;
+  erasure: { state: "pending" | "erasing" | "done" | "failed"; requested_at: number; completed_at: number | null; failure: string | null; replica_purged_at?: number | null } | null;
+}
+
+/** `getMfa` (deploy-api.md 0.4 section 18): with a token, `session_state` is null and `verified_at` is the token's own. */
+export interface MfaStatus {
+  totp: boolean;
+  passkeys: number;
+  recovery_left: number;
+  enrolled: boolean;
+  required: boolean;
+  grace_until: number;
+  session_state: "verify" | "enrol" | null;
+  verified_at: number | null;
+}
+
+/** A failure the API answers when a recent second factor is needed (`step_up_required`). */
+export const needsStepUp = (f: ApiFailure): boolean =>
+  f.status === 403 && f.details.some((d) => typeof d === "object" && d !== null && (d as { reason?: unknown }).reason === "step_up_required");
+
 export interface UsageHour {
   hour_start: number;
   requests: number;
@@ -166,7 +191,17 @@ export interface OpsTenant {
   moving_since: number | null;
   microvm_at: number | null;
   replication: OpsReplication[];
-  actions: { audit_id: string; at: number; action: "setTenantTier" | "moveTenant"; operator: string; reason: string; result: string }[];
+  actions: {
+    audit_id: string;
+    at: number;
+    action: "setTenantTier" | "moveTenant" | "impersonateTenant" | "endImpersonation";
+    operator: string;
+    reason: string;
+    result: string;
+    /** 0.4: an active or ended impersonation. */
+    impersonation_id?: string;
+    expires_at?: number;
+  }[];
 }
 
 export interface ApiFailure {
@@ -233,7 +268,17 @@ function failureOf(res: Response, text: string | null): ApiFailure {
 }
 
 /** The API client of one request: the signed-in user's token, the tenant's `fetch`. */
+/** A dashboard session signed in with a break-glass token (#310): every page shows it. */
+export interface ImpersonationBanner {
+  tenant_id: string;
+  impersonation_id: string;
+  until: string;
+}
+
 export class Api {
+  /** Set by the guard when the session is an impersonation. */
+  impersonation: ImpersonationBanner | null = null;
+
   constructor(
     private readonly fetch: Fetch,
     private readonly token: string,
@@ -281,6 +326,11 @@ export class Api {
 
   createApp(name: string): Promise<Result<App>> {
     return this.json("POST", "/v1/apps", { name });
+  }
+
+  /** `getTenant` (deploy-api.md 0.4 section 3): the tenant and its erasure record (the tombstone after an erasure). */
+  getTenant(tenant: string): Promise<Result<TenantView>> {
+    return this.json("GET", `/v1/tenants/${encodeURIComponent(tenant)}`);
   }
 
   getApp(app: string): Promise<Result<App>> {
@@ -343,6 +393,41 @@ export class Api {
    * rather than holding a `follow=true` stream open, which the tenant
    * wall-clock limit would end.
    */
+  // Second factors (deploy-api.md 0.4 section 18): the API accepts the
+  // user's own token on these, with a step-up window of the token's own.
+
+  getMfa(): Promise<Result<MfaStatus>> {
+    return this.json("GET", "/v1/account/mfa");
+  }
+
+  startTotp(): Promise<Result<{ secret: string; otpauth_uri: string }>> {
+    return this.json("POST", "/v1/account/mfa/totp", {});
+  }
+
+  confirmTotp(code: string): Promise<Result<{ totp: true; recovery_codes: string[] }>> {
+    return this.json("POST", "/v1/account/mfa/totp/confirm", { code });
+  }
+
+  passkeyOptions(): Promise<Result<Record<string, unknown>>> {
+    return this.json("POST", "/v1/account/mfa/passkeys/options", {});
+  }
+
+  registerPasskey(body: { client_data: string; attestation_object: string; name?: string }): Promise<Result<{ passkeys: number; recovery_codes: string[] | null }>> {
+    return this.json("POST", "/v1/account/mfa/passkeys", body);
+  }
+
+  verifyMfa(body: { method: "totp" | "recovery"; code: string }): Promise<Result<{ verified_at: number }>> {
+    return this.json("POST", "/v1/account/mfa/verify", body);
+  }
+
+  regenerateRecoveryCodes(): Promise<Result<{ recovery_codes: string[] }>> {
+    return this.json("POST", "/v1/account/mfa/recovery-codes", {});
+  }
+
+  disableMfa(password: string, code: string): Promise<Result<{ enrolled: false }>> {
+    return this.json("POST", "/v1/account/mfa/disable", { password, code });
+  }
+
   async logs(app: string, opts: { since?: number; source?: "all" | "server" | "client"; deployment?: string } = {}): Promise<Result<LogLine[]>> {
     const q = new URLSearchParams();
     if (opts.since !== undefined) q.set("since", String(opts.since));

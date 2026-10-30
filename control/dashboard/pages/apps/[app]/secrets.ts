@@ -19,7 +19,7 @@ export async function load(ctx: LoaderContext) {
   const name = appParam(ctx.params.app);
   if (name === null) return notFound();
   const now = Date.now();
-  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "secrets", notice: null, form_error: null, action_problem: null };
+  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "secrets", notice: null, form_error: null, action_problem: null };
   const r = await api.listSecrets(name);
   if (!r.ok) return { ...base, problem: await problem(ctx, r), version: null, secrets: [] };
   return {

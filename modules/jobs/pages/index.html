@@ -1,0 +1,48 @@
+<r-layout use="jobs">
+  <r-group slot="title"><r-t key="jobs.title" /></r-group>
+  <h1><r-t key="jobs.title" /></h1>
+  <p class="notice" r-if="notice == 'retried'"><r-t key="jobs.notice.retried" /></p>
+  <p class="notice" r-if="notice == 'cancelled'"><r-t key="jobs.notice.cancelled" /></p>
+  <section id="jobs-scheduled">
+    <h2><r-t key="jobs.scheduled.title" /></h2>
+    <table>
+      <thead><tr><th><r-t key="jobs.col.job" /></th><th><r-t key="jobs.col.next" /></th><th><r-t key="jobs.col.last" /></th></tr></thead>
+      <tbody>
+        <tr r-for="j in scheduled"><td>{{ j.job }}</td><td><time :datetime="j.next">{{ j.next }}</time></td><td><time r-if="j.last" :datetime="j.last">{{ j.last }}</time><span r-else>-</span></td></tr>
+        <tr r-empty="scheduled"><td colspan="3"><r-t key="jobs.scheduled.none" /></td></tr>
+      </tbody>
+    </table>
+  </section>
+  <section id="jobs-queued">
+    <h2><r-t key="jobs.queued.title" /></h2>
+    <table>
+      <thead><tr><th><r-t key="jobs.col.job" /></th><th><r-t key="jobs.col.due" /></th><th><r-t key="jobs.col.attempts" /></th><th></th></tr></thead>
+      <tbody>
+        <tr r-for="j in queued" :id="'job-' + j.id"><td>{{ j.job }}</td><td><time :datetime="j.next">{{ j.next }}</time></td><td>{{ j.attempts }}</td>
+          <td r-can="jobs.manage"><x-form action="cancel"><input type="hidden" name="id" :value="j.id"><button type="submit"><r-t key="jobs.cancel" /></button></x-form></td></tr>
+        <tr r-empty="queued"><td colspan="4"><r-t key="jobs.queued.none" /></td></tr>
+      </tbody>
+    </table>
+  </section>
+  <section id="jobs-running">
+    <h2><r-t key="jobs.running.title" /></h2>
+    <ul>
+      <li r-for="j in running">{{ j.job }} <time :datetime="j.started">{{ j.started }}</time></li>
+      <li r-empty="running"><r-t key="jobs.running.none" /></li>
+    </ul>
+  </section>
+  <section id="jobs-dead">
+    <h2><r-t key="jobs.dead.title" /></h2>
+    <table>
+      <thead><tr><th><r-t key="jobs.col.job" /></th><th><r-t key="jobs.col.failed" /></th><th><r-t key="jobs.col.attempts" /></th><th><r-t key="jobs.col.error" /></th><th></th></tr></thead>
+      <tbody>
+        <tr r-for="j in dead" :id="'job-' + j.id"><td>{{ j.job }}</td><td><time :datetime="j.last">{{ j.last }}</time></td><td>{{ j.attempts }}</td><td><code dir="auto">{{ j.error }}</code></td>
+          <td r-can="jobs.manage">
+            <x-form action="retry"><input type="hidden" name="id" :value="j.id"><button type="submit"><r-t key="jobs.retry" /></button></x-form>
+            <x-form action="cancel"><input type="hidden" name="id" :value="j.id"><button type="submit"><r-t key="jobs.cancel" /></button></x-form>
+          </td></tr>
+        <tr r-empty="dead"><td colspan="5"><r-t key="jobs.dead.none" /></td></tr>
+      </tbody>
+    </table>
+  </section>
+</r-layout>
