@@ -46,7 +46,12 @@ function ctx(path: string, over: Partial<Ctx> = {}): Ctx {
       send: () => Promise.resolve(),
       close: () => Promise.resolve(),
     },
-    jobs: { enqueue: () => Promise.reject(new Error("no jobs in unit tests")) },
+    jobs: {
+      enqueue: () => Promise.reject(new Error("no jobs in unit tests")),
+      list: () => Promise.reject(new Error("no jobs in unit tests")),
+      retry: () => Promise.reject(new Error("no jobs in unit tests")),
+      cancel: () => Promise.reject(new Error("no jobs in unit tests")),
+    },
     ...over,
   };
 }
