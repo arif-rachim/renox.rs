@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { sha256Hex } from "../hash.ts";
 import { type Json, type JsonObject } from "../schema.ts";
-import { discoverFunctions, discoverPages, discoverRealtime, type Route } from "../routes.ts";
+import { discoverFunctions, discoverPages, discoverRealtime, discoverWebhooks, type Route } from "../routes.ts";
 import { type LockEntry, readLock } from "./lock.ts";
 import { type Manifest as ModuleManifest, obj, readManifest, samePermissions, strings } from "./manifest.ts";
 import { fetchTree } from "./resolve.ts";
@@ -207,6 +207,12 @@ export function moduleParts(project: string): ModuleParts {
       const id = `${prefix}/${rt.id}`;
       parts.entries.push({ module: name, tree, id, source: rt.source });
       parts.routes.push({ kind: rt.kind, path: mounted(lock.mount, rt.pattern), module: id });
+    }
+    // Webhook routes (artifact 1.4, #329): functions/webhooks/ under the mount, as for the app.
+    for (const w of discoverWebhooks(tree)) {
+      const id = `${prefix}/${w.id}`;
+      parts.entries.push({ module: name, tree, id, source: w.source });
+      parts.routes.push({ kind: "webhook", path: mounted(lock.mount, w.pattern), module: id, export: "POST", ...(w.provider ? { provider: w.provider } : {}) });
     }
     // Tools ([[tools]], carried as tool routes from manifest 1.1) and jobs (#284).
     for (const t of Array.isArray(manifest.doc.tools) ? (manifest.doc.tools as JsonObject[]) : []) {

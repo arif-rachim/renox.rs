@@ -1,0 +1,53 @@
+{
+  "billing": {
+    "title": "Billing",
+    "plans": {
+      "title": "Plans",
+      "none": "No plans yet.",
+      "subscribe": "Subscribe",
+      "per": {
+        "month": "per month",
+        "year": "per year"
+      }
+    },
+    "mine": {
+      "title": "Your subscription",
+      "none": "You have no subscription.",
+      "status": "Status",
+      "until": "Paid until"
+    },
+    "invoices": {
+      "title": "Invoices",
+      "none": "No invoices.",
+      "manage": "All invoices"
+    },
+    "col": {
+      "invoice": "Invoice",
+      "customer": "Customer",
+      "amount": "Amount",
+      "status": "Status",
+      "refunded": "Refunded",
+      "date": "Date"
+    },
+    "refund": {
+      "action": "Refund",
+      "amount": "Amount (minor units)",
+      "done": "Refunded."
+    },
+    "pending": {
+      "title": "Your order",
+      "paid": "Paid. Thank you.",
+      "bank": "Pay by bank transfer",
+      "reference": "Reference to quote",
+      "beneficiary": "Beneficiary",
+      "bank_name": "Bank",
+      "quote": "Quote the reference exactly in the transfer's description; the order is confirmed when the transfer reaches the account.",
+      "cod": "Cash on delivery"
+    },
+    "import": {
+      "title": "Bank statement import",
+      "paste": "Paste the statement (CSV with date, amount, description)",
+      "match": "Match transfers"
+    }
+  }
+}

@@ -1,21 +1,51 @@
 [module]
 name = "booking"
 version = "1.0.0"
-description = "Appointments: services, staff, weekly and seasonal hours, slot search in the tenant's time zone, holds and confirmations"
+description = "Appointments: services, staff, weekly and seasonal hours, slots in the tenant's time zone, holds, deposits through billing, reminders, the staff's live calendar"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
+billing = "^1.0"
+email = "^1.0"
 
 [config]
 slot_minutes = { type = "int", default = 15, min = 5, max = 120, description = "The grid on which slots start" }
 hold_minutes = { type = "int", default = 10, min = 1, max = 60, description = "How long a slot is held before a deposit or confirmation" }
+base_path = { type = "string", default = "/booking", max_length = 100, description = "Where the app mounts the module's pages" }
 
 [permissions]
 tables = "booking__*"
 
+[imports]
+services = ["auth.loginUrl", "i18n.detectLocale", "billing.createCheckout", "email.sendRaw"]
+views = ["auth__public_users_v1"]
+
+[realtime.feeds]
+"booking__bookings" = "calendar:{staff_id}"
+
 [exports.services]
 slots = "Free slots: (service, day, { staff? }) -> [{ start, end, staff }]; day is YYYY-MM-DD in the app's time zone offset"
-hold = "Hold a slot for a customer: (service, staff, start, customer) -> { id, expires_at }; refused when taken"
-confirm = "Confirm a held booking: (id) -> booking"
-cancel = "Cancel a booking: (id) -> boolean"
+hold = "Hold a slot for a customer: (service, staff, start, customer) -> { id, expires_at, pay_url }; refused when taken; pay_url when the service takes a deposit"
+book = "The same as hold"
+confirm = "Confirm a held booking: (id) -> booking; schedules the 24 h and 2 h reminders"
+cancel = "Cancel a booking: (id) -> boolean; emits booking.cancelled with whether the deposit is retained"
+addService = "Define a service: ({ id, name, minutes, buffer?, deposit_fils?, cancel_hours? }) (booking.manage)"
+addStaff = "Define a staff member: ({ id, name, user_id?, services }) (booking.manage)"
+setHours = "Opening hours: (staff, weekday 0-6 or YYYY-MM-DD, open_min, close_min) (booking.manage)"
+noShow = "Mark a confirmed booking whose start has passed as a no-show: (id) -> boolean"
 
 [exports.events."booking.confirmed"]
 payload = { type = "object", required = ["booking_id"], additionalProperties = false, properties = { booking_id = { type = "string" } } }
 description = "A booking was confirmed (deposits, reminders and notifications hang off it)"
+
+[exports.events."booking.cancelled"]
+payload = { type = "object", required = ["booking_id", "deposit_retained"], additionalProperties = false, properties = { booking_id = { type = "string" }, deposit_retained = { type = "boolean" } } }
+description = "A booking was cancelled; inside the service's cancellation window a paid deposit is retained"
+
+[authz]
+actions = ["booking.manage", "booking.view_calendar"]
+
+[authz.default_roles]
+admin = ["booking.manage", "booking.view_calendar"]
+staff = ["booking.view_calendar"]

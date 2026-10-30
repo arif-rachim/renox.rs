@@ -1,0 +1,9 @@
+{
+  "email": {
+    "title": "Email log",
+    "col": { "to": "To", "subject": "Subject", "template": "Template", "status": "Status", "attempts": "Attempts", "at": "Queued" },
+    "none": "No messages yet.",
+    "suppressions": { "title": "Suppressed addresses", "none": "No suppressed address.", "reason": "Reason", "lift": "Allow again" },
+    "notice": { "lifted": "The address can receive email again." }
+  }
+}

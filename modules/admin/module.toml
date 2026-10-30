@@ -1,0 +1,27 @@
+[module]
+name = "admin"
+version = "1.0.0"
+description = "The app's back office: a layout with the admin.sidebar slot, a dashboard with the admin.dashboard slot that other modules fill, users and the admin role, the audit viewer"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
+audit = "^1.0"
+
+[config]
+base_path = { type = "string", default = "/admin", max_length = 100, description = "Where the app mounts the back office" }
+title = { type = "string", default = "Admin", max_length = 80, description = "The back office's name in its header" }
+
+[permissions]
+tables = "admin__*"
+
+[imports]
+services = ["auth.loginUrl", "i18n.detectLocale", "audit.query"]
+views = ["auth__public_users_v1"]
+
+[authz]
+actions = ["admin.access", "admin.users"]
+sensitive = ["admin.users"]
+
+[authz.default_roles]
+admin = ["admin.access", "admin.users"]

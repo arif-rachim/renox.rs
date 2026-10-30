@@ -76,6 +76,16 @@ Each module ships `i18n/<locale>.json`. Nested objects are flattened to dotted k
   3. Add the official modules' keys you want translated; missing keys fall back to English.
 - **Machine translation:** a catalog that was machine translated says so under `_meta`. The Arabic catalogs of `auth`, `org`, `shop` and this module are, until a native speaker reviews them (an owner task).
 
+## Completeness and the glossary (#336)
+
+`renox check` reports `i18n-missing-key` (an error) in two cases:
+- a key that one of the app's or a module's `i18n/<locale>.json` catalogs has and another does not;
+- a `<r-t key>` in a template that a declared locale does not translate.
+
+`_meta` (a catalog's review status) is not text and is not compared. `cli/tests/lint.test.ts` runs the rule over every module, the examples, the dashboard and `www/`.
+
+The Arabic terms the modules share are in [GLOSSARY.md](GLOSSARY.md).
+
 ## RTL baseline
 
 `public/i18n.css` uses logical properties (`margin-inline`, `padding-inline`, `text-align: start`). It keeps numbers, phone numbers, emails and codes left to right inside Arabic text, and places htmx indicators after their control. Modules cannot serve public files yet (artifact 1.1), so copy it into the app's `public/`. The shop's own fixes are in `examples/shop/public/app.css`.

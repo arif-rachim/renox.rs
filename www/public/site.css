@@ -1,0 +1,17 @@
+:root { --fg: #1b1f24; --muted: #5b6470; --line: #d9dee4; --accent: #0b6e4f; font-family: system-ui, sans-serif; }
+body { margin: 0; color: var(--fg); line-height: 1.55; }
+header.top { display: flex; gap: 1.25rem; align-items: center; padding: .75rem 1.5rem; border-bottom: 1px solid var(--line); }
+header.top a { color: inherit; text-decoration: none; }
+main { max-width: 72rem; margin: 0 auto; padding: 1.5rem; }
+footer { padding: 1.5rem; border-top: 1px solid var(--line); text-align: center; }
+.muted { color: var(--muted); }
+.docs { display: grid; grid-template-columns: 16rem 1fr; gap: 2rem; }
+.docs nav ol { padding-left: 1.2rem; font-size: .92rem; }
+.docs nav a.current { font-weight: 600; color: var(--accent); }
+article table { border-collapse: collapse; display: block; overflow-x: auto; font-size: .9rem; }
+article th, article td { border: 1px solid var(--line); padding: .3rem .5rem; vertical-align: top; text-align: start; }
+article pre { background: #f4f6f8; padding: .75rem; overflow-x: auto; }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+.plan { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; }
+.plan .price { font-size: 1.6rem; font-weight: 600; }
+@media (max-width: 48rem) { .docs { grid-template-columns: 1fr; } }

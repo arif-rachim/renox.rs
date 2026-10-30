@@ -1,0 +1,11 @@
+# The app the tax_gcc module's worker tests run in (renox test, #331).
+[app]
+name = "taxtest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+billing = { version = "^1.0", source = "path:../../../billing", mount = "/billing" }
+tax_gcc = { version = "^1.0", source = "path:../..", mount = "/tax", config = { seller_name = "Hello Trading LLC", seller_trn = "100123456700003", seller_address = "Dubai" } }

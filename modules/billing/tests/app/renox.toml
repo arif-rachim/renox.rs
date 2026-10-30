@@ -1,0 +1,10 @@
+# The app the billing module's worker tests run in (renox test, #329).
+[app]
+name = "billingtest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+billing = { version = "^1.0", source = "path:../..", mount = "/billing", config = { methods = "card,cod,bank", bank_name = "Example Bank", bank_beneficiary = "Example Shop LLC", bank_iban = "AE070331234567890123456" } }

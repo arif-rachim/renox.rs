@@ -1,0 +1,19 @@
+<r-layout use="admin">
+  <r-group slot="title"><r-t key="admin.nav.users" /></r-group>
+  <h1><r-t key="admin.nav.users" /></h1>
+  <p class="notice" r-if="notice == 'granted'"><r-t key="admin.users.granted" /></p>
+  <p class="notice" r-if="notice == 'revoked'"><r-t key="admin.users.revoked" /></p>
+  <p class="problem" r-if="notice == 'self'"><r-t key="admin.users.self" /></p>
+  <form method="get"><label><r-t key="admin.search" /> <input name="q" :value="q" maxlength="100"></label><button type="submit"><r-t key="admin.search" /></button></form>
+  <table id="admin-users">
+    <thead><tr><th><r-t key="admin.users.email" /></th><th><r-t key="admin.users.name" /></th><th><r-t key="admin.users.role" /></th><th></th></tr></thead>
+    <tbody>
+      <tr r-for="u in users"><td>{{ u.email }}</td><td>{{ u.name }}</td><td><span r-if="u.admin">admin</span></td>
+        <td r-can="admin.users">
+          <x-form action="grant" class="inline" r-if="!u.admin"><input type="hidden" name="user_id" :value="u.id"><button type="submit"><r-t key="admin.users.grant" /></button></x-form>
+          <x-form action="revoke" class="inline" r-if="u.admin && !u.self"><input type="hidden" name="user_id" :value="u.id"><button type="submit"><r-t key="admin.users.revoke" /></button></x-form>
+        </td></tr>
+      <tr r-empty="users"><td colspan="4"><r-t key="admin.none" /></td></tr>
+    </tbody>
+  </table>
+</r-layout>

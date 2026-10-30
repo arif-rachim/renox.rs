@@ -1,0 +1,10 @@
+# The app the storage module's worker tests run in (renox test, #332).
+[app]
+name = "storagetest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+storage = { version = "^1.0", source = "path:../..", mount = "/files", config = { quota_mb = 1 } }

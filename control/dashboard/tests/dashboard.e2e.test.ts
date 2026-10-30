@@ -36,12 +36,19 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
     "PAGE /apps/:app/database",
     "PAGE /apps/:app/deployments",
     "PAGE /apps/:app/logs",
+    "PAGE /apps/:app/modules",
     "PAGE /apps/:app/secrets",
     "PAGE /apps/:app/settings",
     "PAGE /apps/:app/usage",
+    "PAGE /apps/new",
+    "PAGE /legal/dpa",
+    "PAGE /legal/terms",
+    "PAGE /ops/registry",
     "PAGE /ops/tenants/:tenant",
     "PAGE /signin",
     "PAGE /signout",
+    "PAGE /signup",
+    "PAGE /signup/verify",
     "SSE /sse/logs",
   ]);
   expect(r.manifest.templates?.["pages/apps/[app]/logs"]?.fragments).toEqual({ log_lines: { target: "log-lines" } });
@@ -74,7 +81,8 @@ test.skipIf(!worker)(
     try {
       const home = await fetch(`${base}/`, { redirect: "manual" });
       expect(home.status).toBe(303);
-      expect(home.headers.get("location")).toBe("/apps");
+      // #326: home is the getting-started checklist (signed in) before it is the app list.
+      expect(home.headers.get("location")).toBe("/signin?next=%2F");
       for (const path of ["/apps", "/apps/shop/logs?level=warn"]) {
         const r = await fetch(`${base}${path}`, { redirect: "manual" });
         expect(r.status).toBe(303);

@@ -1,0 +1,20 @@
+<r-layout use="admin">
+  <r-group slot="title"><r-t key="admin.nav.audit" /></r-group>
+  <h1><r-t key="admin.nav.audit" /></h1>
+  <p class="problem" r-if="!allowed"><r-t key="admin.audit.refused" /></p>
+  <r-group r-if="allowed">
+    <form method="get">
+      <label><r-t key="admin.audit.actor" /> <input name="actor" :value="actor"></label>
+      <label><r-t key="admin.audit.action" /> <input name="action" :value="action"></label>
+      <button type="submit"><r-t key="admin.search" /></button>
+    </form>
+    <table id="admin-audit">
+      <thead><tr><th><r-t key="admin.audit.at" /></th><th><r-t key="admin.audit.action" /></th><th><r-t key="admin.audit.actor" /></th><th><r-t key="admin.audit.resource" /></th><th><r-t key="admin.audit.result" /></th></tr></thead>
+      <tbody>
+        <tr r-for="e in events"><td><time :datetime="e.at">{{ e.at }}</time></td><td>{{ e.action }}</td><td>{{ e.actor }}</td><td>{{ e.resource }}</td><td>{{ e.result }}</td></tr>
+        <tr r-empty="events"><td colspan="5"><r-t key="admin.none" /></td></tr>
+      </tbody>
+    </table>
+    <p r-if="next"><a href="?actor={{ actor }}&action={{ action }}&cursor={{ next }}"><r-t key="admin.more" /></a></p>
+  </r-group>
+</r-layout>

@@ -17,6 +17,7 @@ import { ApiError, conflict, invalid, notFound } from "../errors.ts";
 import { pathParam, readBody } from "../http.ts";
 import { onTenantState } from "../routes/activation.ts";
 import { requestScope, tenantDb } from "../tenancy/scope.ts";
+import { newTenantRestrictions } from "../tenants/erasure.ts";
 
 type Row = Record<string, unknown>;
 
@@ -62,7 +63,8 @@ export function setPsp(p: Psp): void {
   psp = p;
 }
 
-const MONTH = 30 * 86_400_000;
+/** A billing period (30 days). */
+export const MONTH = 30 * 86_400_000;
 
 async function billingRow(db: Db, tenantId: string, now: number): Promise<Row> {
   await db.query("insert into tenant_billing (tenant_id, state_since, period_start) values ($1, $2, $2) on conflict (tenant_id) do nothing", [tenantId, now]);
@@ -98,10 +100,12 @@ async function view(deps: Deps, db: Db, tenantId: string, now: number): Promise<
     period: { start, end: start + MONTH },
     usage: used,
     estimate: { subtotal: aed(subtotal), vat: aed(vat), total: aed(subtotal + vat), currency: "AED" },
-    signal: { over_quota: over, anomaly: false },
+    // An anomaly review of the last 24 hours that an operator has not closed (sweep.ts).
+    signal: { over_quota: over, anomaly: (await db.query<Row>("select 1 from billing_reviews where tenant_id = $1 and state = 'open' and created_at > $2 limit 1", [tenantId, now - 86_400_000])).length > 0 },
     payment_method: b.payment_method === null ? null : JSON.parse(b.payment_method as string),
     profile: b.profile === null ? null : JSON.parse(b.profile as string),
-    restrictions: [],
+    // deploy-api.md 0.5 section 21 (#326): the new-tenant restrictions still in force.
+    restrictions: await newTenantRestrictions(db, tenantId, num((await db.query<Row>("select created_at from tenants where id = $1", [tenantId]))[0]?.created_at), now),
   };
 }
 

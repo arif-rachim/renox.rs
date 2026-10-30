@@ -1,0 +1,14 @@
+# The app the admin module's worker tests run in (renox test, #335): jobs is
+# installed so its admin.sidebar filler is rendered; billing is not, so its
+# filler is absent.
+[app]
+name = "admintest"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+org = { version = "^1.0", source = "path:../../../org", mount = "/org" }
+audit = { version = "^1.0", source = "path:../../../audit" }
+jobs = { version = "^1.0", source = "path:../../../jobs", mount = "/jobs" }
+admin = { version = "^1.0", source = "path:../..", mount = "/admin" }

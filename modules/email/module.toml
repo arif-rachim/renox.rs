@@ -1,27 +1,61 @@
 [module]
 name = "email"
 version = "1.0.0"
-description = "Transactional email: Resend or Amazon SES, queued through the outbox with retries, a suppression list fed by bounces and complaints"
+description = "Transactional email: bilingual (English and Arabic) templates, Resend or Amazon SES, queued through the outbox with retries, a suppression list fed by bounces and complaints, a message log"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
 
 [config]
 provider = { type = "enum", values = ["resend", "ses"], default = "resend", description = "The sending provider" }
 from = { type = "string", default = "", max_length = 254, description = "The From address, on a domain verified with the provider" }
 ses_region = { type = "string", default = "me-central-1", max_length = 30, description = "The SES region (provider = ses)" }
 sends_per_minute = { type = "int", default = 120, min = 1, max = 6000, description = "Outgoing messages per minute for the tenant; past it, send rejects" }
+base_path = { type = "string", default = "/email", max_length = 100, description = "Where the app mounts the message log page" }
 
 [permissions]
 tables = "email__*"
 network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"]
 secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"]
-hooks = ["notifications.deliver"]
+hooks = ["notifications.deliver", "auth.send_mail"]
+
+[imports]
+services = ["auth.loginUrl", "i18n.detectLocale"]
+views = ["auth__public_users_v1"]
 
 [exports.services]
-send = "Queue a message: ({ to, subject, text?, html? }) -> { id }; refused for a suppressed address; sent by the outbox, retried on a 5xx"
+send = "Queue a template in the recipient's locale: (to, template, data, { locale?, reply_to? }) -> { id }; { id: null, cancelled: true } when email.before_send halts"
+sendRaw = "Queue a message given whole: ({ to, subject, text?, html?, reply_to? }) -> { id }"
 status = "A queued message's state: (id) -> { status, attempts, error } | null"
 suppress = "Stop sending to an address: (address, reason) -> { ok }"
 unsuppress = "Allow an address again: (address) -> { ok }"
-suppressed = "Whether an address is suppressed: (address) -> boolean"
+isSuppressed = "Whether an address is suppressed: (address) -> boolean"
+resume = "Resume sending after a reputation pause (email.manage)"
 
 [exports.events."email.send_requested"]
 payload = { type = "object", required = ["message_id"], additionalProperties = false, properties = { message_id = { type = "string" } } }
 description = "A message was queued; the module's own handler sends it (a 5xx is retried by the outbox)"
+
+[exports.events."email.bounced"]
+payload = { type = "object", required = ["address"], additionalProperties = false, properties = { address = { type = "string" } } }
+description = "The provider reported a bounce; the address is suppressed"
+
+[exports.events."email.complained"]
+payload = { type = "object", required = ["address"], additionalProperties = false, properties = { address = { type = "string" } } }
+description = "The recipient marked a message as spam; the address is suppressed"
+
+[exports.events."email.paused"]
+payload = { type = "object", required = ["reason"], additionalProperties = false, properties = { reason = { type = "string" } } }
+description = "Complaints or bounces over the last 7 days passed the thresholds: sending is paused until resumed (#123)"
+
+[exports.hooks."email.before_send"]
+args = { type = "object", required = ["to_domain"], properties = { template = { type = ["string", "null"] }, locale = { type = ["string", "null"] }, to_domain = { type = "string" } } }
+description = "Before a message is queued (never its body): a filler that halts stops it; the app's own policy on what may be sent"
+
+[authz]
+actions = ["email.read_log", "email.manage"]
+sensitive = ["email.manage"]
+
+[authz.default_roles]
+admin = ["email.read_log", "email.manage"]

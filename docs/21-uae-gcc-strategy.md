@@ -95,7 +95,7 @@ Infrastructure costs rise 2–3x; prices rise 3–5x. Margins improve, provided 
 | --- | --- | --- |
 | Legal entity | UAE free-zone technology license (for example DMCC, IFZA, DTEC) to invoice in AED, sign contracts, and open a local bank account; incorporation and banking can take 1–3 months | Start in parallel with F1 |
 | VAT | Register with the FTA when turnover crosses the threshold; non-resident digital services to UAE consumers are also in scope — **verify** | Before first paid tenant |
-| PDPL | DPA template, records of processing, data classification, breach procedure; DIFC/ADGM variants for tenants established there | F6 |
+| PDPL | DPA template (the draft at `www/pages/legal/dpa.html` and the dashboard's `/legal/dpa`, its version recorded on the tenant at sign-up, #326; legal review pending), records of processing, data classification, breach procedure; DIFC/ADGM variants for tenants established there | F6 |
 | Health data | In-country guarantee tier; no health-data tenants before it exists | F7 |
 | Payments | Renox never holds funds; all through PSPs licensed by the Central Bank of the UAE | Always |
 | E-invoicing | Design `tax-gcc` around an adapter so SME-phase obligations can be met through an accredited provider when the SME phase begins — **verify** timeline | F7 |
@@ -120,7 +120,7 @@ Infrastructure costs rise 2–3x; prices rise 3–5x. Margins improve, provided 
 
 ## 10. Items to verify before roadmap commitments
 
-- Current status, phases, and SME thresholds of UAE e-invoicing.
+- Current status, phases, and SME thresholds of UAE e-invoicing, and which accredited service provider to use: `modules/tax_gcc` ships the `EInvoiceProvider` interface (submit, status, cancel) with a recording fake and no live provider until this is settled (#331).
 - UAE PASS onboarding process and eligibility for private-sector service providers.
 - Adoption and merchant availability of Aani and Jaywan.
 - VAT obligations for a non-resident provider before the UAE entity exists.

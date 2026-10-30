@@ -1,0 +1,9 @@
+<r-layout use="booking">
+  <r-group slot="title"><r-t key="booking.mine" /></r-group>
+  <h1><r-t key="booking.mine" /></h1>
+  <p class="notice" r-if="notice == 'cancelled'"><r-t key="booking.cancelled" /></p>
+  <ul id="booking-mine">
+    <li r-for="b in bookings">{{ b.service }} · {{ b.when }} · {{ b.status }} <x-form action="cancel" class="inline"><input type="hidden" name="id" :value="b.id"><button type="submit"><r-t key="booking.cancel" /></button></x-form></li>
+    <li r-empty="bookings"><r-t key="booking.none" /></li>
+  </ul>
+</r-layout>

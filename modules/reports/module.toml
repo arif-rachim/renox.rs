@@ -1,18 +1,35 @@
 [module]
 name = "reports"
 version = "1.0.0"
-description = "Sales and VAT reports from tax_gcc documents, CSV export, and import files for Xero, QuickBooks and Zoho Books"
+description = "Sales (from tax_gcc) and cash (from billing) reports per period: a page, CSV and Excel exports, import files for Xero, QuickBooks and Zoho Books, a nightly emailed summary"
 
 [dependencies]
 tax_gcc = "^1.0"
+email = "^1.0"
+auth = "^1.0"
+i18n = "^1.0"
+
+[config]
+email_to = { type = "string", default = "", max_length = 254, description = "Where the nightly report goes (empty: kept as a snapshot only)" }
+base_path = { type = "string", default = "/reports", max_length = 100, description = "Where the app mounts the report page" }
 
 [permissions]
 tables = "reports__*"
+
+[imports]
+services = ["tax_gcc.invoice", "tax_gcc.documents", "email.sendRaw", "auth.loginUrl", "i18n.detectLocale"]
 
 [exports.services]
 sales = "Sales per day of a period from tax_gcc documents: (from_ms, to_ms, documents) -> rows"
 csv = "Rows as RFC 4180 CSV with a UTF-8 BOM (Excel opens Arabic text correctly)"
 accounting = "tax_gcc documents as an import file: (system: xero|quickbooks|zoho, documents) -> csv"
+nightly = "The nightly report for the day before a time: (now_ms) -> { day, sent_to }; the snapshot, and the email when email_to is set (the job runs it at 03:00 UTC)"
+cash = "Money received and refunded per day of a period, from billing's events: (from_ms, to_ms) -> rows (fils)"
 
-[imports]
-services = ["tax_gcc.invoice"]
+[authz]
+actions = ["reports.view", "reports.export"]
+sensitive = ["reports.export"]
+
+[authz.default_roles]
+admin = ["reports.view", "reports.export"]
+finance = ["reports.view", "reports.export"]

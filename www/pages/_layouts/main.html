@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><slot name="title">Renox</slot></title>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/"><strong>Renox</strong></a>
+    <a href="/docs">Docs</a>
+    <a href="/pricing">Pricing</a>
+    <a href="https://dashboard.renox.app/signup">Sign up</a>
+  </header>
+  <main><slot /></main>
+  <footer class="muted">
+    <a href="/legal/dpa">Data processing agreement</a> · <a href="/legal/terms">Terms</a>
+  </footer>
+</body>
+</html>

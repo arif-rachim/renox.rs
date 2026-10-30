@@ -8,7 +8,8 @@
     "packages/*",
     "modules/*",
     "examples/*",
-    "bench*"
+    "bench*",
+    "www"
   ],
   "scripts": {
     "check": "bun run --filter '*' check",

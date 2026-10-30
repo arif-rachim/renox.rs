@@ -1,0 +1,12 @@
+<r-layout use="main">
+  <r-group slot="title">{{ title }} · Renox docs</r-group>
+  <div class="docs">
+    <nav aria-label="Documentation">
+      <ol><li r-for="n in nav"><a href="/docs/{{ n.slug }}" :class="{ current: n.current }">{{ n.title }}</a></li></ol>
+    </nav>
+    <article>
+      <div r-html="html"></div>
+      <p class="muted"><a :href="source">Source on GitHub</a></p>
+    </article>
+  </div>
+</r-layout>

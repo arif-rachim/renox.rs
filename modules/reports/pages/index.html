@@ -1,0 +1,34 @@
+<r-layout use="reports">
+  <r-group slot="title"><r-t key="reports.title" /></r-group>
+  <h1><r-t key="reports.title" /></h1>
+  <form method="get">
+    <label><r-t key="reports.from" /> <input type="date" name="from" :value="from"></label>
+    <label><r-t key="reports.to" /> <input type="date" name="to" :value="to"></label>
+    <button type="submit"><r-t key="reports.show" /></button>
+  </form>
+  <h2><r-t key="reports.sales" /></h2>
+  <table id="reports-sales">
+    <thead><tr><th><r-t key="reports.col.date" /></th><th><r-t key="reports.col.documents" /></th><th><r-t key="reports.col.net" /></th><th><r-t key="reports.col.vat" /></th><th><r-t key="reports.col.total" /></th></tr></thead>
+    <tbody>
+      <tr r-for="s in sales"><td>{{ s.date }}</td><td>{{ s.documents }}</td><td>{{ s.net }}</td><td>{{ s.vat }}</td><td>{{ s.total }}</td></tr>
+      <tr r-empty="sales"><td colspan="5"><r-t key="reports.none" /></td></tr>
+    </tbody>
+  </table>
+  <h2><r-t key="reports.cash" /></h2>
+  <table id="reports-cash">
+    <thead><tr><th><r-t key="reports.col.date" /></th><th><r-t key="reports.col.received" /></th><th><r-t key="reports.col.refunded" /></th><th><r-t key="reports.col.net" /></th></tr></thead>
+    <tbody>
+      <tr r-for="c in cash"><td>{{ c.date }}</td><td>{{ c.received }}</td><td>{{ c.refunded }}</td><td>{{ c.net }}</td></tr>
+      <tr r-empty="cash"><td colspan="4"><r-t key="reports.none" /></td></tr>
+    </tbody>
+  </table>
+  <section r-can="reports.export">
+    <h2><r-t key="reports.export" /></h2>
+    <x-form action="export">
+      <input type="hidden" name="from" :value="from"><input type="hidden" name="to" :value="to">
+      <select name="kind"><option r-for="k in kinds" :value="k">{{ k }}</option></select>
+      <select name="format"><option value="csv">CSV</option><option value="xlsx">Excel (.xlsx)</option></select>
+      <button type="submit"><r-t key="reports.download" /></button>
+    </x-form>
+  </section>
+</r-layout>

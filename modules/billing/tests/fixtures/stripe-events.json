@@ -1,0 +1,6 @@
+{
+  "one_off_completed": { "id": "evt_1", "type": "checkout.session.completed", "data": { "object": { "id": "cs_2", "mode": "payment", "amount_total": 12500, "currency": "aed", "payment_intent": "pi_2", "client_reference_id": "cust_2", "metadata": { "customer_id": "cust_2", "order_id": "order-1001" } } } },
+  "invoice_finalized": { "id": "evt_2", "type": "invoice.finalized", "data": { "object": { "id": "in_2", "customer": "cus_9", "amount_due": 29900, "currency": "aed", "metadata": {} } } },
+  "invoice_payment_failed": { "id": "evt_3", "type": "invoice.payment_failed", "data": { "object": { "id": "in_2", "customer": "cus_9", "metadata": {} } } },
+  "unknown": { "id": "evt_4", "type": "customer.created", "data": { "object": { "id": "cus_x" } } }
+}

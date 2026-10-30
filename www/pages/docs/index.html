@@ -1,0 +1,12 @@
+<r-layout use="main">
+  <r-group slot="title">Documentation · Renox</r-group>
+  <h1>Documentation</h1>
+  <form method="get" action="/docs">
+    <label>Search titles <input name="q" :value="q" maxlength="100"></label>
+    <button type="submit">Search</button>
+  </form>
+  <ol>
+    <li r-for="d in docs"><a href="/docs/{{ d.slug }}">{{ d.title }}</a> <span class="muted"><code>{{ d.path }}</code></span></li>
+    <li r-empty="docs">No title matches.</li>
+  </ol>
+</r-layout>
