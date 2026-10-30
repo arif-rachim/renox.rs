@@ -1,5 +1,7 @@
 # Replica spike: plain file, Litestream 1 s, LiteFS, libSQL embedded replica (#256)
 
+> Superseded by [the 2026-10-30 run on `node-small`](2026-10-30-replica-spike.md), which measured all four candidates.
+
 | | |
 | --- | --- |
 | Date | 2026-10-29 |
