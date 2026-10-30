@@ -23,7 +23,7 @@ import type { Principal } from "../context.ts";
 
 /** Tables shared by all tenants, read and written by the platform on a tenant's behalf. */
 // deploy-api.md 0.5 section 19: the module registry is one catalog for every tenant (#324).
-export const PLATFORM_TABLES = new Set(["route_entries", "route_changes", "workers", "audit", "registry_publishers", "registry_keys", "registry_versions"]);
+export const PLATFORM_TABLES = new Set(["route_entries", "route_changes", "workers", "audit", "registry_publishers", "registry_keys", "registry_versions", "billing_events"]);
 
 interface Scope {
   tenantId: string;

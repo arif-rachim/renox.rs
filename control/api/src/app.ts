@@ -35,6 +35,7 @@ import { registerBackupActions, registerBackups } from "./tenants/backups.ts";
 import { registerOps } from "./ops/tenants.ts";
 import { registerOpsMetrics } from "./ops/metrics.ts";
 import { registerRegistry } from "./registry/routes.ts";
+import { registerBilling } from "./billing/routes.ts";
 
 export type RouteModule = (app: Hono<Env>, deps: Deps) => void;
 
@@ -107,6 +108,6 @@ export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surf
     await next();
   });
 
-  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerClientErrors, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerMfa, registerTeam, registerDomains, registerMcp, registerBackups, registerBackupActions, registerErasure, registerBreakGlass, registerWellKnown, registerOps, registerOpsMetrics, registerRegistry, ...modules]) register(app, deps);
+  for (const register of [registerHealth, registerApps, registerTokens, registerAdmin, registerDeployments, registerRoutes, registerWorkers, registerSecrets, registerIngest, registerLogIngest, registerLogStream, registerClientErrors, registerNodeArtifacts, registerPrepareResults, registerActivation, registerAccounts, registerMfa, registerTeam, registerDomains, registerMcp, registerBackups, registerBackupActions, registerErasure, registerBreakGlass, registerWellKnown, registerOps, registerOpsMetrics, registerRegistry, registerBilling, ...modules]) register(app, deps);
   return app;
 }
