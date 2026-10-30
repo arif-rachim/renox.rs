@@ -1,0 +1,27 @@
+{
+  "$comment": "valid (1.6.0): the jobs module lists dead letters (ops.md section 20); no payload in the row",
+  "op": "op_jobs_list",
+  "args": [
+    "dead",
+    50,
+    null,
+    "jobs"
+  ],
+  "result": {
+    "items": [
+      {
+        "id": "01JBQ3Z7MA0000000000000402",
+        "name": "send-reminder",
+        "module": "billing",
+        "tick": null,
+        "next_at": null,
+        "run_at": 1793404800000,
+        "attempts": 8,
+        "started_at": 1793404801000,
+        "finished_at": 1793404802000,
+        "last_error": "RENOX_FETCH_FAILED: connect timed out"
+      }
+    ],
+    "next_cursor": null
+  }
+}

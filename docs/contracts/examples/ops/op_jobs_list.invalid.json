@@ -1,0 +1,14 @@
+{
+  "$comment": "invalid: limit is 1 to 100 [expect: maximum]",
+  "op": "op_jobs_list",
+  "args": [
+    "dead",
+    500,
+    null,
+    "jobs"
+  ],
+  "result": {
+    "items": [],
+    "next_cursor": null
+  }
+}

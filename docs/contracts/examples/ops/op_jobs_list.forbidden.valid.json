@@ -1,0 +1,21 @@
+{
+  "$comment": "valid (1.6.0): any module but jobs is refused",
+  "op": "op_jobs_list",
+  "args": [
+    "dead",
+    50,
+    null,
+    "billing"
+  ],
+  "error": {
+    "name": "ForbiddenError",
+    "code": "RENOX_FORBIDDEN",
+    "message": "op_jobs_list is limited to the jobs module",
+    "details": {
+      "action": "jobs.list",
+      "resource": null,
+      "reason": "deny",
+      "policy": null
+    }
+  }
+}

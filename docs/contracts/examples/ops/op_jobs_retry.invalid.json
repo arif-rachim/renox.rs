@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: the id is a ULID [expect: pattern]",
+  "op": "op_jobs_retry",
+  "args": [
+    "not-a-ulid",
+    "jobs",
+    3
+  ],
+  "result": null
+}

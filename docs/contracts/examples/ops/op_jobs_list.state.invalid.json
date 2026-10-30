@@ -1,0 +1,14 @@
+{
+  "$comment": "invalid: state is scheduled, queued, running or dead [expect: enum]",
+  "op": "op_jobs_list",
+  "args": [
+    "done",
+    50,
+    null,
+    "jobs"
+  ],
+  "result": {
+    "items": [],
+    "next_cursor": null
+  }
+}

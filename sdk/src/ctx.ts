@@ -251,6 +251,34 @@ export interface EnqueueOptions {
 export interface Jobs {
   /** Writes a queued run of a job of this module in the current transaction; resolves with its id. */
   enqueue(name: string, payload: Readonly<Record<string, unknown>>, options?: EnqueueOptions): Promise<string>;
+  /** 1.6.0, module `jobs` only (`RENOX_FORBIDDEN` for any other caller): one page of jobs in a state, never the payload. */
+  list(state: JobState, options?: { readonly limit?: number; readonly cursor?: string | null }): Promise<JobPage>;
+  /** 1.6.0, module `jobs` only: a dead letter goes back to the queue with its attempts reset. */
+  retry(id: string): Promise<void>;
+  /** 1.6.0, module `jobs` only: deletes a queued or dead row. */
+  cancel(id: string): Promise<void>;
+}
+
+export type JobState = "scheduled" | "queued" | "running" | "dead";
+
+/** One job row as the `jobs` module sees it (section 20, 1.6.0). */
+export interface JobRow {
+  readonly id: string;
+  readonly name: string;
+  readonly module: string;
+  readonly tick: number | null;
+  readonly next_at: number | null;
+  readonly run_at: number | null;
+  readonly attempts: number;
+  readonly started_at: number | null;
+  readonly finished_at: number | null;
+  /** Redacted, at most 512 characters. */
+  readonly last_error: string | null;
+}
+
+export interface JobPage {
+  readonly items: readonly JobRow[];
+  readonly next_cursor: string | null;
 }
 
 export interface JobInfo<P = unknown> {
