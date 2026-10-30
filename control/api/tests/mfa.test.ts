@@ -185,3 +185,43 @@ describe("one account, its own factors", () => {
     expect(await h.db.query("select user_id from account_mfa_totp where confirmed_at is not null")).toHaveLength(1);
   });
 });
+
+describe("user token rule (deploy-api.md 0.4 section 18, #307)", () => {
+  test("a user's token reaches the MFA endpoints with its own step-up window; a bootstrap or impersonation token is 401", async () => {
+    const h = await harness();
+    const s = await signup(h, "tok@example.test", "t-tok");
+    const { secret } = await enrolTotp(h, s);
+    const made = await h.request("POST", "/v1/tokens", { session: s, json: { name: "dashboard", scopes: ["*"], expires_in_days: 30 } });
+    expect(made.status).toBe(201);
+    const token = ((await made.json()) as { token: string }).token;
+    const status = await h.request("GET", "/v1/account/mfa", { token });
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ enrolled: true, session_state: null, verified_at: null });
+    // The session's verification does not count for the token.
+    const stale = await h.request("POST", "/v1/account/mfa/recovery-codes", { token, json: {} });
+    expect(stale.status).toBe(403);
+    expect(JSON.stringify(await stale.json())).toContain("step_up_required");
+    expect((await h.request("POST", "/v1/account/mfa/verify", { token, json: { method: "totp", code: await code(h, secret, 1) } })).status).toBe(200);
+    const fresh = await h.request("POST", "/v1/account/mfa/recovery-codes", { token, json: {} });
+    expect(fresh.status).toBe(200);
+    expect(((await fresh.json()) as { recovery_codes: string[] }).recovery_codes).toHaveLength(10);
+    expect((await h.request("GET", "/v1/account/mfa", { token })).status).toBe(200);
+    // The window is per token: after 15 minutes it is stale again.
+    h.clock.now += STEP_UP_MS + 60_000;
+    expect((await h.request("POST", "/v1/account/mfa/recovery-codes", { token, json: {} })).status).toBe(403);
+    const [row] = await h.db.query<{ id: string; tenant_id: string }>("select id, tenant_id from tokens where name = 'dashboard'");
+    // An impersonation token (break-glass, section 17) is refused.
+    await h.db.query(
+      "insert into impersonations (id, tenant_id, operator, reason, scopes, token_id, audit_id, started_at, expires_at) values ('imp_1', $1, 'operator', 'support ticket 42', '[]', $2, 'aud_1', 0, $3)",
+      [row?.tenant_id as string, row?.id as string, h.clock.now + 3_600_000],
+    );
+    expect((await h.request("GET", "/v1/account/mfa", { token })).status).toBe(401);
+    await h.db.query("delete from impersonations where id = 'imp_1'");
+    // A token without a user is refused.
+    await h.db.query("update tokens set user_id = null where id = $1", [row?.id as string]);
+    expect((await h.request("GET", "/v1/account/mfa", { token })).status).toBe(401);
+    // The team flag stays session only.
+    await h.db.query("update tokens set user_id = (select id from users where email = 'tok@example.test') where id = $1", [row?.id as string]);
+    expect((await h.request("POST", "/v1/team/mfa-required", { token, json: { required: true } })).status).not.toBe(200);
+  });
+});

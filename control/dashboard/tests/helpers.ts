@@ -4,7 +4,7 @@
 // host is refused the way the runtime refuses it (`RENOX_FETCH_BLOCKED`).
 // `db` is bun:sqlite with the dashboard's own migration.
 import { Database } from "bun:sqlite";
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,7 +30,10 @@ export async function apiHarness(): Promise<Harness> {
 
 export function dashDb(): Database {
   const sqlite = new Database(":memory:", { strict: false });
-  sqlite.exec(readFileSync(join(import.meta.dir, "../migrations/001_sessions.sql"), "utf8"));
+  // Every migration of the dashboard, in order (#307 added the live followers).
+  for (const f of readdirSync(join(import.meta.dir, "../migrations")).filter((n) => n.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
+  }
   return sqlite;
 }
 
