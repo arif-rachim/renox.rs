@@ -43,7 +43,7 @@ jobs:
 
   bucket-policy:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       RENOX_OPS_CI: "1"
       RENOX_TEST_S3_ENDPOINT: http://127.0.0.1:9000
@@ -55,24 +55,35 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      # The release of control/docker-compose.yml, from MinIO's own registry
-      # (Docker Hub refuses the pull: "pull access denied for minio/minio");
-      # a static KMS key turns on SSE-KMS (a services container cannot take
-      # MinIO's `server` argument).
-      - name: Start MinIO with a static KMS key
+      # MinIO publishes no pullable image any more (Docker Hub: "pull access
+      # denied for minio/minio"; quay.io: "unauthorized") and no binary of
+      # this release (dl.min.io answers 410), so the release of
+      # control/docker-compose.yml is built from its tagged commit with a
+      # checksum-pinned Go. A static KMS key turns on SSE-KMS.
+      - name: Build MinIO RELEASE.2025-04-22T22-12-26Z from source
         env:
-          MINIO_TAG: RELEASE.2025-04-22T22-12-26Z
+          GO_VERSION: 1.24.2
+          # sha256 of go1.24.2.linux-amd64.tar.gz (go.dev/dl).
+          GO_SHA256: 68097bd680839cbc9d464a0edce4f7c333975e27a90246890e9f1078c7e702ad
+          # The commit the tag RELEASE.2025-04-22T22-12-26Z points at.
+          MINIO_COMMIT: 0d7408fc9969caf07de6a8c3a84f9fbb10a6739e
         run: |
-          image=""
-          for registry in quay.io/minio/minio minio/minio; do
-            if docker pull "$registry:$MINIO_TAG"; then image="$registry:$MINIO_TAG"; break; fi
-          done
-          [ -n "$image" ] || { echo "no registry served minio $MINIO_TAG" >&2; exit 1; }
+          curl -fsSL -o "$RUNNER_TEMP/go.tgz" "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+          echo "${GO_SHA256}  $RUNNER_TEMP/go.tgz" | sha256sum -c -
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/go.tgz"
+          git init -q "$RUNNER_TEMP/minio-src"
+          git -C "$RUNNER_TEMP/minio-src" fetch -q --depth=1 https://github.com/minio/minio "$MINIO_COMMIT"
+          git -C "$RUNNER_TEMP/minio-src" checkout -q FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/minio-src" rev-parse HEAD)" = "$MINIO_COMMIT"
+          (cd "$RUNNER_TEMP/minio-src" && GOTOOLCHAIN=local CGO_ENABLED=0 "$RUNNER_TEMP/go/bin/go" build -trimpath -o "$RUNNER_TEMP/minio" .)
+      - name: Start MinIO with a static KMS key
+        run: |
           key=$(head -c 32 /dev/urandom | base64)
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER="$RENOX_TEST_S3_KEY" -e MINIO_ROOT_PASSWORD="$RENOX_TEST_S3_SECRET" \
-            -e MINIO_KMS_SECRET_KEY="$RENOX_TEST_S3_KMS_KEY:$key" \
-            "$image" server /data
+          mkdir -p "$RUNNER_TEMP/minio-data"
+          MINIO_ROOT_USER="$RENOX_TEST_S3_KEY" MINIO_ROOT_PASSWORD="$RENOX_TEST_S3_SECRET" \
+            MINIO_KMS_SECRET_KEY="$RENOX_TEST_S3_KMS_KEY:$key" \
+            nohup "$RUNNER_TEMP/minio" server "$RUNNER_TEMP/minio-data" --address 127.0.0.1:9000 > "$RUNNER_TEMP/minio.log" 2>&1 &
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:9000/minio/health/live && break; sleep 1; done
+          curl -fsS http://127.0.0.1:9000/minio/health/live || { cat "$RUNNER_TEMP/minio.log"; exit 1; }
       - run: bun install --frozen-lockfile
       - run: bun test bench/ops
