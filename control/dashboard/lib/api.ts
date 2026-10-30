@@ -191,7 +191,17 @@ export interface OpsTenant {
   moving_since: number | null;
   microvm_at: number | null;
   replication: OpsReplication[];
-  actions: { audit_id: string; at: number; action: "setTenantTier" | "moveTenant"; operator: string; reason: string; result: string }[];
+  actions: {
+    audit_id: string;
+    at: number;
+    action: "setTenantTier" | "moveTenant" | "impersonateTenant" | "endImpersonation";
+    operator: string;
+    reason: string;
+    result: string;
+    /** 0.4: an active or ended impersonation. */
+    impersonation_id?: string;
+    expires_at?: number;
+  }[];
 }
 
 export interface ApiFailure {
@@ -258,7 +268,17 @@ function failureOf(res: Response, text: string | null): ApiFailure {
 }
 
 /** The API client of one request: the signed-in user's token, the tenant's `fetch`. */
+/** A dashboard session signed in with a break-glass token (#310): every page shows it. */
+export interface ImpersonationBanner {
+  tenant_id: string;
+  impersonation_id: string;
+  until: string;
+}
+
 export class Api {
+  /** Set by the guard when the session is an impersonation. */
+  impersonation: ImpersonationBanner | null = null;
+
   constructor(
     private readonly fetch: Fetch,
     private readonly token: string,

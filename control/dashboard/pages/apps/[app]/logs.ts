@@ -75,7 +75,7 @@ export async function load(ctx: LoaderContext) {
   const f = filters(ctx.url);
   const query = new URLSearchParams({ level: f.level, source: f.source, window: f.window, q: f.q, ...(f.deployment === null ? {} : { deployment: f.deployment }) });
   const base = {
-    signed_in: true,
+    signed_in: true, impersonation: api.impersonation,
     api_host: new URL(apiBase(ctx.secrets)).host,
     app: name,
     section: "logs",

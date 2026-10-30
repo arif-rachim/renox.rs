@@ -9,7 +9,7 @@ import { shortHash } from "../../lib/view.ts";
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
   if (api instanceof Response) return api;
-  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, apps: [] as unknown[], tenant_id: null as string | null, problem: null as unknown, created: null, create_error: null };
+  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, apps: [] as unknown[], tenant_id: null as string | null, problem: null as unknown, created: null, create_error: null };
   const r = await api.listApps();
   if (!r.ok) return { ...base, problem: await problem(ctx, r) };
   return {

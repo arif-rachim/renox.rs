@@ -20,7 +20,7 @@ export async function load(ctx: LoaderContext) {
   if (api instanceof Response) return api;
   const name = appParam(ctx.params.app);
   if (name === null) return notFound();
-  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "database", ...quiet };
+  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "database", ...quiet };
   const r = await getBackups(api, name);
   if (!r.ok) return { ...base, problem: await problem(ctx, r), view: null };
   return { ...base, problem: null, view: databaseView(r.value, Date.now()) };

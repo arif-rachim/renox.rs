@@ -17,7 +17,7 @@ export async function load(ctx: LoaderContext) {
   if (name === null) return notFound();
   const now = Date.now();
   const base = {
-    signed_in: true,
+    signed_in: true, impersonation: api.impersonation,
     api_host: new URL(apiBase(ctx.secrets)).host,
     app: name,
     section: "overview",

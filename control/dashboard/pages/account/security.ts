@@ -63,7 +63,7 @@ function shown(s: MfaStatus) {
 
 async function page(ctx: LoaderContext | ActionContext, api: Api, view: View) {
   const r = await api.getMfa();
-  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, section: "security", ...view };
+  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, section: "security", ...view };
   if (!r.ok) return { ...base, status: null, problem: view.problem ?? (await problem(ctx, r)) };
   return { ...base, status: shown(r.value) };
 }

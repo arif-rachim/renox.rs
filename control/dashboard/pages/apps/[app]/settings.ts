@@ -22,7 +22,7 @@ export async function load(ctx: LoaderContext) {
   if (api instanceof Response) return api;
   const name = appParam(ctx.params.app);
   if (name === null) return notFound();
-  const base = { signed_in: true, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "settings" };
+  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "settings" };
   const app = await api.getApp(name);
   if (!app.ok) return { ...base, problem: await problem(ctx, app), tenant: null, erasure: null };
   const t = await api.getTenant(app.value.tenant_id);

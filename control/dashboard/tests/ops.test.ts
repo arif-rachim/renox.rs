@@ -123,9 +123,10 @@ describe("operator console (section 5)", () => {
         const res = await fetch(`${dev.base}/ops/tenants/t_hello`);
         expect(res.status).toBe(200);
         const html = (await res.text()).replaceAll(' dir="auto"', "");
-        for (const b of ["Show status", "Change tier", "Move to node", "Move to microVM"]) expect(html).toContain(`<button type="submit">${b}</button>`);
-        expect(html.match(/name="token"/gu)?.length).toBe(4);
-        expect(html.match(/name="reason"/gu)?.length).toBe(3);
+        for (const b of ["Show status", "Start break-glass", "Change tier", "Move to node", "Move to microVM"]) expect(html).toContain(`<button type="submit">${b}</button>`);
+        // One operator token field per action (#310 added break-glass).
+        expect(html.match(/name="token"/gu)?.length).toBe(5);
+        expect(html.match(/name="reason"/gu)?.length).toBe(4);
         expect(html).toContain("<td>paid (process own)</td>");
         expect(html).toContain("<td><code>t_hello</code></td><td>replicating</td><td>s3 (me-central-1)</td><td>0.4 s</td>");
         expect(html).toContain("(stale)");

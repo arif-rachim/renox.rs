@@ -47,7 +47,7 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
   expect(r.manifest.templates?.["pages/apps/[app]/logs"]?.fragments).toEqual({ log_lines: { target: "log-lines" } });
   expect(r.manifest.templates?.["pages/apps/[app]/deployments"]?.fragments).toEqual({ page: { target: "page" } });
   expect(r.manifest.permissions).toEqual({ network: ["api.renox.app"], secrets: ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL"] });
-  expect(readdirSync(join(r.dir, "migrations/app"))).toEqual(["001_sessions.sql", "002_log_followers.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_sessions.sql", "002_log_followers.sql", "003_impersonations.sql"]);
   expect(await check(app)).toEqual({ errors: [], findings: [] });
 });
 

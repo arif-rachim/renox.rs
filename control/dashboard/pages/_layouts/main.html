@@ -19,6 +19,7 @@
       <button type="submit" class="link">Sign out</button>
     </form>
   </header>
+  <p class="banner impersonation" role="alert" r-if="impersonation">Operator access to tenant <code>{{ impersonation.tenant_id }}</code> (break-glass <code>{{ impersonation.impersonation_id }}</code>) until {{ impersonation.until }}. Every request is audited as yours and the tenant's owner has been emailed.</p>
   <div class="frame">
     <slot name="nav" />
     <main>

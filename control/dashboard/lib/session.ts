@@ -67,6 +67,8 @@ export async function signIn(db: DbStatements, secrets: Secrets, sessionId: stri
 
 export async function signOut(db: DbStatements, sessionId: string): Promise<void> {
   await db.execute("delete from app__sessions where session_id = ?", [sessionId]);
+  // A break-glass sign-in ends with it (#310).
+  await db.execute("delete from app__impersonations where session_id = ?", [sessionId]);
 }
 
 /**
