@@ -17,6 +17,7 @@ import { ApiError, conflict, invalid, notFound } from "../errors.ts";
 import { pathParam, readBody } from "../http.ts";
 import { onTenantState } from "../routes/activation.ts";
 import { requestScope, tenantDb } from "../tenancy/scope.ts";
+import { newTenantRestrictions } from "../tenants/erasure.ts";
 
 type Row = Record<string, unknown>;
 
@@ -103,7 +104,8 @@ async function view(deps: Deps, db: Db, tenantId: string, now: number): Promise<
     signal: { over_quota: over, anomaly: (await db.query<Row>("select 1 from billing_reviews where tenant_id = $1 and state = 'open' and created_at > $2 limit 1", [tenantId, now - 86_400_000])).length > 0 },
     payment_method: b.payment_method === null ? null : JSON.parse(b.payment_method as string),
     profile: b.profile === null ? null : JSON.parse(b.profile as string),
-    restrictions: [],
+    // deploy-api.md 0.5 section 21 (#326): the new-tenant restrictions still in force.
+    restrictions: await newTenantRestrictions(db, tenantId, num((await db.query<Row>("select created_at from tenants where id = $1", [tenantId]))[0]?.created_at), now),
   };
 }
 

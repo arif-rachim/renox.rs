@@ -20,6 +20,7 @@ import { anomalous, closePeriod, DAY_MS, HOUR_MS, PLANS, planOf, tenantUsage, ty
 import type { Deps } from "../context.ts";
 import { num } from "../db/db.ts";
 import { ulid } from "../ids.ts";
+import { newTenantRestrictions } from "../tenants/erasure.ts";
 import { MONTH, tickTier } from "./routes.ts";
 
 type Row = Record<string, unknown>;
@@ -83,15 +84,17 @@ export async function anomalies(deps: Deps, tenantId: string, now: number): Prom
   return flagged;
 }
 
-/** Dimensions over the plan's quota in the current period. */
+/** Dimensions over the plan's quota in the current period; a new tenant's `reduced_quotas` halves them (section 21, #326). */
 async function overQuota(deps: Deps, row: Row, now: number): Promise<string[]> {
   const plan = planOf(row.plan as string) ?? (PLANS[0] as (typeof PLANS)[number]);
+  const created = (await deps.db.query<Row>("select created_at from tenants where id = $1", [row.tenant_id]))[0]?.created_at;
+  const reduced = (await newTenantRestrictions(deps.db, row.tenant_id as string, num(created), now)).includes("reduced_quotas");
   const u = (await tenantUsage(deps.db, num(row.period_start), now, row.tenant_id as string)).get(row.tenant_id as string);
   if (u === undefined) return [];
   const used: Record<string, number> = { requests: u.requests, cpu_ms: u.cpu_ms, egress_bytes: u.egress_bytes + u.fetch_sent_bytes };
   return Object.entries(used).filter(([k, v]) => {
     const q = plan.quotas[k as "requests" | "cpu_ms" | "egress_bytes"];
-    return q !== null && v > q;
+    return q !== null && v > (reduced ? q / 2 : q);
   }).map(([k]) => k);
 }
 
