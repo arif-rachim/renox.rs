@@ -1,4 +1,4 @@
-# Renox deploy API, contract version 0.3.1 (F6).
+# Renox deploy API, contract version 0.4 (F6).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renox deploy API
-  version: 0.3.0
+  version: 0.4.0
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -51,7 +51,11 @@ tags:
   - name: backups
     description: "Replication status, export, point-in-time restore, import (section 14, 0.3)"
   - name: ops
-    description: "Operator actions on tenants: tier, move (section 17, 0.3)"
+    description: "Operator actions on tenants: tier, move (section 17, 0.3); the node read (section 7) and break-glass impersonation (section 17, 0.4)"
+  - name: tenants
+    description: "The caller's own tenant and its erasure (section 3, 0.4)"
+  - name: account
+    description: "Sign-in, the device flow, second factors (section 18, 0.4)"
 
 x-renox-state-machines:
   deployment:
@@ -72,6 +76,13 @@ x-renox-state-machines:
       verified: [detached]
       detached: [verified, released]
       released: []
+  erasure:
+    initial: [pending]
+    transitions:
+      pending: [erasing]
+      erasing: [done, failed]
+      done: []
+      failed: [erasing]
 
 security:
   - tenantToken: []
@@ -1948,12 +1959,730 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "503": { $ref: "#/components/responses/TenantMoving" }
 
+  /v1/tenants/{tenant_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      operationId: getTenant
+      tags: [tenants]
+      summary: The caller's own tenant with its erasure state (deploy-api.md section 3, 0.4)
+      description: Another tenant's id is 404, like any resource of another tenant; the path repeats what the token says.
+      x-renox-scope: apps:read
+      security:
+        - tenantToken: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The tenant; `erasure` is null until a deletion is requested.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TenantDetail" }
+              examples:
+                active: { value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: active, created_at: 1793000000000, erasure: null } }
+                erasing: { value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: active, created_at: 1793000000000, erasure: { state: erasing, requested_at: 1793318000000, completed_at: null, failure: null } } }
+                done: { value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: suspended, created_at: 1793000000000, erasure: { state: done, requested_at: 1793318000000, completed_at: 1793320000000, failure: null } } }
+              x-renox-invalid-examples:
+                done-without-completion: { x-expect: completed_at, value: { tenant_id: t_hello, name: Hello Trading LLC, tier: free, state: suspended, created_at: 1793000000000, erasure: { state: done, requested_at: 1793318000000, completed_at: null, failure: null } } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteTenant
+      tags: [tenants]
+      summary: Erase the tenant (owner, session only; deploy-api.md section 3, 0.4)
+      description: >-
+        Starts the erasure state machine: routes removed, tokens revoked, the node drops the tenant,
+        the Litestream generations and the exports are deleted, then `done` with `completed_at`.
+        A second call while an erasure exists answers the same record.
+      x-renox-scope: tenant:delete
+      security:
+        - sessionCookie: []
+      x-renox-audit: deleteTenant (tenant, state reached, completed_at)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteTenantRequest" }
+            examples:
+              confirm: { value: { confirm: t_hello } }
+            x-renox-invalid-examples:
+              no-confirm: { value: {}, x-expect: confirm }
+              bad-confirm: { value: { confirm: "Hello Trading" }, x-expect: pattern }
+      responses:
+        "202":
+          description: Recorded; the erasure runs in the background.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erasure" }
+              examples:
+                pending: { value: { state: pending, requested_at: 1793318000000, completed_at: null, failure: null } }
+              x-renox-invalid-examples:
+                unknown-state: { x-expect: enum, value: { state: deleted, requested_at: 1793318000000, completed_at: null, failure: null } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: A restore, an import or a move of the tenant is in progress.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                restoring:
+                  value:
+                    error:
+                      code: RENOX_CONFLICT
+                      message: The request conflicts with the current state.
+                      request_id: 01JBQ3Z7MA0000000000000040
+                      details: [{ field: tenant, reason: restore in progress }]
+
+  /v1/ops/nodes/{node_id}:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    get:
+      operationId: getNode
+      tags: [ops]
+      summary: A node's health, capacity and last disk report (deploy-api.md section 7, 0.4)
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:read
+      x-renox-audit: getNode (operator, node; a read)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: From Postgres; `disk` is the last heartbeat's report or null.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeDetail" }
+              examples:
+                warn: { value: { node_id: node-dxb-01, region: me-central-1, worker_version: 0.4.0, healthy: true, last_heartbeat_at: 1793318410000, route_version: 42, cells: 17, max_cells: 400, disk: { level: warn, free_bytes: 12884901888, watermark: 85 } } }
+                old-worker: { value: { node_id: node-dxb-02, region: me-central-1, worker_version: 0.3.0, healthy: false, last_heartbeat_at: 1793318000000, route_version: 41, cells: 0, max_cells: 400, disk: null } }
+              x-renox-invalid-examples:
+                warn-without-watermark: { x-expect: watermark, value: { node_id: node-dxb-01, region: me-central-1, worker_version: 0.4.0, healthy: true, last_heartbeat_at: 1793318410000, route_version: 42, cells: 17, max_cells: 400, disk: { level: warn, free_bytes: 12884901888, watermark: null } } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/ops/tenants/{tenant_id}/impersonate:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      operationId: impersonateTenant
+      tags: [ops]
+      summary: Break-glass, a read-only tenant token for 60 minutes with a reason (deploy-api.md section 17, 0.4)
+      description: >-
+        The token is returned once and expires at `expires_at`. Audited at start and end; the tenant
+        owner is emailed at start and end; every request made with the token is audited as the operator's.
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:impersonate
+      x-renox-audit: impersonateTenant (operator, tenant, reason, impersonation_id, expires_at)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImpersonateRequest" }
+            examples:
+              support: { value: { reason: "ticket 2026-311: owner reports missing orders since 09:00" } }
+              logs-only: { value: { reason: "incident 2026-07: read the tenant's error logs", scopes: ["logs:read"] } }
+            x-renox-invalid-examples:
+              short-reason: { value: { reason: look }, x-expect: minLength }
+              write-scope: { value: { reason: "ticket 2026-311: fix the owner's data", scopes: ["apps:write"] }, x-expect: enum }
+      responses:
+        "201":
+          description: Started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImpersonationStarted" }
+              examples:
+                started:
+                  value:
+                    impersonation_id: imp_01JBQ40000000000IM
+                    tenant_id: t_hello
+                    operator: acct_01JBQ40000000000OP
+                    reason: "ticket 2026-311: owner reports missing orders since 09:00"
+                    scopes: ["apps:read", "logs:read", "secrets:read"]
+                    started_at: 1793318000000
+                    expires_at: 1793321600000
+                    ended_at: null
+                    token: renox_pat_abcdefghijklmnopqrstuvwxyz234567
+              x-renox-invalid-examples:
+                no-token:
+                  x-expect: token
+                  value:
+                    impersonation_id: imp_01JBQ40000000000IM
+                    tenant_id: t_hello
+                    operator: acct_01JBQ40000000000OP
+                    reason: "ticket 2026-311: owner reports missing orders since 09:00"
+                    scopes: ["apps:read"]
+                    started_at: 1793318000000
+                    expires_at: 1793321600000
+                    ended_at: null
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/ops/tenants/{tenant_id}/impersonate/{impersonation_id}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - name: impersonation_id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ImpersonationId" }
+    delete:
+      operationId: endImpersonation
+      tags: [ops]
+      summary: End a break-glass impersonation now; its token stops working (deploy-api.md section 17, 0.4)
+      security:
+        - operatorToken: []
+      x-renox-operator-scope: ops:impersonate
+      x-renox-audit: endImpersonation (operator or platform, tenant, impersonation_id, ended_by)
+      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
+      responses:
+        "200":
+          description: Ended (or already ended; the record is unchanged then).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Impersonation" }
+              examples:
+                ended:
+                  value:
+                    impersonation_id: imp_01JBQ40000000000IM
+                    tenant_id: t_hello
+                    operator: acct_01JBQ40000000000OP
+                    reason: "ticket 2026-311: owner reports missing orders since 09:00"
+                    scopes: ["apps:read", "logs:read", "secrets:read"]
+                    started_at: 1793318000000
+                    expires_at: 1793321600000
+                    ended_at: 1793319000000
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/account/login:
+    post:
+      operationId: login
+      tags: [account]
+      summary: Sign in with email and password; sets the session cookie (deploy-api.md section 18, 0.4)
+      security: []
+      x-renox-audit: login (user, session)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+            examples:
+              plain: { value: { email: owner@hello.ae, password: "correct horse battery staple" } }
+              tenant: { value: { email: owner@hello.ae, password: "correct horse battery staple", tenant_id: t_hello } }
+            x-renox-invalid-examples:
+              no-password: { value: { email: owner@hello.ae }, x-expect: password }
+      responses:
+        "200":
+          description: Signed in. `mfa` is the session state; `verify` and `enrol` hold the session at section 18's MFA operations.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              example: "__Host-renox_session=…; Path=/; Secure; HttpOnly; SameSite=Lax"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResult" }
+              examples:
+                complete: { value: { user_id: usr_01JBQ40000000000US, email: owner@hello.ae, email_verified: true, tenant_id: t_hello, role: owner, session_id: ses_01JBQ40000000000SE, expires_at: 1795910000000, csrf: 3q2b7c0d9e8f, mfa: null } }
+                verify: { value: { user_id: usr_01JBQ40000000000US, email: owner@hello.ae, email_verified: true, tenant_id: t_hello, role: owner, session_id: ses_01JBQ40000000000SF, expires_at: 1795910000000, csrf: 4a5b6c7d8e9f, mfa: verify } }
+              x-renox-invalid-examples:
+                unknown-state: { x-expect: enum, value: { user_id: usr_01JBQ40000000000US, email: owner@hello.ae, email_verified: true, tenant_id: t_hello, role: owner, session_id: ses_01JBQ40000000000SE, expires_at: 1795910000000, csrf: 3q2b7c0d9e8f, mfa: later } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/account/logout:
+    post:
+      operationId: logout
+      tags: [account]
+      summary: End this session (section 18)
+      security:
+        - sessionCookie: []
+      x-renox-audit: logout (user, session)
+      responses:
+        "204": { description: Signed out; the cookie is cleared. }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/account/device:
+    post:
+      operationId: startDeviceLogin
+      tags: [account]
+      summary: Start the `renox login` device flow (section 18)
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 64 }
+            examples:
+              laptop: { value: { name: "renox login on mbp" } }
+            x-renox-invalid-examples:
+              long-name: { value: { name: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }, x-expect: maxLength }
+      responses:
+        "201":
+          description: The device code (kept by the CLI) and the user code (shown to the person).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceStart" }
+              examples:
+                started: { value: { device_code: "dvc_abcdefghijklmnopqrstuvwxyz234567", user_code: "WDJB-MJHT", verification_uri: "https://dashboard.renox.app/device", expires_in: 600, interval: 5 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/account/device/token:
+    post:
+      operationId: pollDeviceLogin
+      tags: [account]
+      summary: Poll the device flow; 202 until a person approves, then the token once (section 18)
+      security: []
+      x-renox-audit: pollDeviceLogin (token, tenant, user on 201)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [device_code]
+              properties:
+                device_code: { type: string, minLength: 16, maxLength: 128 }
+            examples:
+              poll: { value: { device_code: "dvc_abcdefghijklmnopqrstuvwxyz234567" } }
+            x-renox-invalid-examples:
+              empty: { value: {}, x-expect: device_code }
+      responses:
+        "201":
+          description: Approved; the token is returned once and the code is used up.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceToken" }
+              examples:
+                token: { value: { tenant_id: t_hello, id: tok_01JBQ40000000000DV, name: renox login, token: renox_pat_abcdefghijklmnopqrstuvwxyz234567, scopes: [apps:read, apps:write, deploy, logs:read], created_at: 1793318000000, expires_at: 1795910000000 } }
+        "202":
+          description: Not approved yet; poll again after `interval` seconds.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, interval]
+                properties:
+                  status: { const: authorization_pending }
+                  interval: { type: integer, minimum: 1 }
+              examples:
+                pending: { value: { status: authorization_pending, interval: 5 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/account/device/approve:
+    post:
+      operationId: approveDeviceLogin
+      tags: [account]
+      summary: A signed-in person approves a device code for their current tenant (section 18; stepped up)
+      x-renox-scope: tokens:write
+      security:
+        - sessionCookie: []
+      x-renox-audit: approveDeviceLogin (device)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [user_code]
+              properties:
+                user_code: { type: string, pattern: "^[A-Za-z]{4}-?[A-Za-z]{4}$" }
+                scopes: { type: array, minItems: 1, maxItems: 50, uniqueItems: true, items: { $ref: "#/components/schemas/Scope" } }
+            examples:
+              approve: { value: { user_code: WDJB-MJHT } }
+              narrowed: { value: { user_code: WDJB-MJHT, scopes: ["deploy:hello", "logs:read"] } }
+            x-renox-invalid-examples:
+              bad-code: { value: { user_code: "1234" }, x-expect: pattern }
+      responses:
+        "200":
+          description: Approved; the CLI's next poll receives the token.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [approved]
+                properties:
+                  approved: { const: true }
+              examples:
+                ok: { value: { approved: true } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/StepUp" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/account/mfa:
+    get:
+      operationId: getMfa
+      tags: [account]
+      summary: The user's second factors and the session state (section 18; a session or a user token)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      responses:
+        "200":
+          description: Factors, recovery codes left, the requirement and grace period, the session state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MfaStatus" }
+              examples:
+                enrolled: { value: { totp: true, passkeys: 1, recovery_left: 9, enrolled: true, required: true, grace_until: null, session_state: null, verified_at: 1793318000000 } }
+                enrol: { value: { totp: false, passkeys: 0, recovery_left: 0, enrolled: false, required: true, grace_until: 1793000000000, session_state: enrol, verified_at: null } }
+                token: { value: { totp: true, passkeys: 0, recovery_left: 10, enrolled: true, required: true, grace_until: null, session_state: null, verified_at: null } }
+              x-renox-invalid-examples:
+                eleven-codes: { x-expect: maximum, value: { totp: true, passkeys: 0, recovery_left: 11, enrolled: true, required: true, grace_until: null, session_state: null, verified_at: null } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/account/mfa/totp:
+    post:
+      operationId: startTotp
+      tags: [account]
+      summary: Start a TOTP enrolment; answers the secret once (section 18)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      x-renox-audit: startTotp (user)
+      responses:
+        "201":
+          description: The secret and its otpauth URI; confirm with a code to finish.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [secret, otpauth_uri]
+                properties:
+                  secret: { type: string, pattern: "^[A-Z2-7]{16,64}$" }
+                  otpauth_uri: { type: string, pattern: "^otpauth://totp/" }
+              examples:
+                started: { value: { secret: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP, otpauth_uri: "otpauth://totp/Renox:owner%40hello.ae?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Renox" } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/StepUp" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/account/mfa/totp/confirm:
+    post:
+      operationId: confirmTotp
+      tags: [account]
+      summary: Confirm the TOTP enrolment with a current code (section 18)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      x-renox-audit: confirmTotp (user)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MfaCode" }
+            examples:
+              code: { value: { code: "492039" } }
+            x-renox-invalid-examples:
+              letters: { value: { code: abcdef }, x-expect: pattern }
+      responses:
+        "200":
+          description: TOTP is on. `recovery_codes` is the first set, once, or null when the user already has one.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [totp, recovery_codes]
+                properties:
+                  totp: { const: true }
+                  recovery_codes: { oneOf: [{ $ref: "#/components/schemas/RecoveryCodes" }, { type: "null" }] }
+              examples:
+                first: { value: { totp: true, recovery_codes: [a1b2c-d3e4f, g5h6j-k7m8n, p9q2r-s3t4u, v5w6x-y7z2a, b3c4d-e5f6g, h7j8k-m9n2p, q3r4s-t5u6v, w7x8y-z9a2b, c3d4e-f5g6h, j7k8m-n9p2q] } }
+                again: { value: { totp: true, recovery_codes: null } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/account/mfa/passkeys/options:
+    post:
+      operationId: passkeyOptions
+      tags: [account]
+      summary: WebAuthn registration options for a new passkey (section 18)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      responses:
+        "200":
+          description: The PublicKeyCredentialCreationOptions, with the challenge base64url-encoded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PasskeyOptions" }
+              examples:
+                options: { value: { challenge: Y2hhbGxlbmdlLTAxMjM0NTY3ODk, rp: { id: dashboard.renox.app, name: Renox }, user: { id: dXNyXzAxSkJRNDAwMDAwMDAwMDBVUw, name: owner@hello.ae, displayName: owner@hello.ae }, pubKeyCredParams: [{ type: public-key, alg: -7 }, { type: public-key, alg: -257 }], excludeCredentials: [], authenticatorSelection: { userVerification: preferred } } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/StepUp" }
+
+  /v1/account/mfa/passkeys:
+    post:
+      operationId: registerPasskey
+      tags: [account]
+      summary: Register the passkey the browser created (section 18)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      x-renox-audit: registerPasskey (user)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [client_data, attestation_object]
+              properties:
+                client_data: { type: string, minLength: 1, maxLength: 4096 }
+                attestation_object: { type: string, minLength: 1, maxLength: 16384 }
+                name: { type: string, maxLength: 60 }
+            examples:
+              key: { value: { client_data: eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0, attestation_object: o2NmbXRkbm9uZWdhdHRTdG10oA, name: YubiKey 5C } }
+            x-renox-invalid-examples:
+              no-attestation: { value: { client_data: eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0 }, x-expect: attestation_object }
+      responses:
+        "201":
+          description: Registered. `recovery_codes` as for confirmTotp.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [passkeys, recovery_codes]
+                properties:
+                  passkeys: { type: integer, minimum: 1 }
+                  recovery_codes: { oneOf: [{ $ref: "#/components/schemas/RecoveryCodes" }, { type: "null" }] }
+              examples:
+                registered: { value: { passkeys: 1, recovery_codes: null } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/account/mfa/challenge:
+    post:
+      operationId: mfaChallenge
+      tags: [account]
+      summary: WebAuthn assertion options for the user's passkeys (section 18)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      responses:
+        "200":
+          description: The PublicKeyCredentialRequestOptions.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [challenge, rpId, allowCredentials, userVerification]
+                properties:
+                  challenge: { type: string, pattern: "^[A-Za-z0-9_-]{16,128}$" }
+                  rpId: { type: string }
+                  allowCredentials:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [type, id]
+                      properties:
+                        type: { const: public-key }
+                        id: { type: string }
+                  userVerification: { enum: [preferred, required, discouraged] }
+              examples:
+                options: { value: { challenge: Y2hhbGxlbmdlLTAxMjM0NTY3ODk, rpId: dashboard.renox.app, allowCredentials: [{ type: public-key, id: Y3JlZC0x }], userVerification: preferred } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/account/mfa/verify:
+    post:
+      operationId: verifyMfa
+      tags: [account]
+      summary: Pass the second factor; clears `verify`, opens the 15-minute step-up window (section 18)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      x-renox-audit: verifyMfa (user, method)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MfaVerifyRequest" }
+            examples:
+              totp: { value: { method: totp, code: "492039" } }
+              recovery: { value: { method: recovery, code: a1b2c-d3e4f } }
+              passkey: { value: { method: passkey, credential_id: Y3JlZC0x, client_data: eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0, authenticator_data: SZYN5YgOjGh0NBcPZHZgW4, signature: MEUCIQDx } }
+            x-renox-invalid-examples:
+              sms: { value: { method: sms, code: "492039" }, x-expect: oneOf }
+      responses:
+        "200":
+          description: Verified now.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [verified_at]
+                properties:
+                  verified_at: { $ref: "#/components/schemas/UnixMs" }
+              examples:
+                ok: { value: { verified_at: 1793318000000 } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401":
+          description: The code, recovery code or assertion did not verify (or no credential).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                invalid:
+                  value:
+                    error:
+                      code: RENOX_UNAUTHENTICATED
+                      message: Authentication is required.
+                      request_id: 01JBQ3Z7MA0000000000000041
+                      details: [{ field: mfa, reason: invalid }]
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/account/mfa/recovery-codes:
+    post:
+      operationId: regenerateRecoveryCodes
+      tags: [account]
+      summary: A new set of ten recovery codes; the old set stops working (section 18; stepped up)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      x-renox-audit: regenerateRecoveryCodes (user)
+      responses:
+        "200":
+          description: The new set, shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [recovery_codes]
+                properties:
+                  recovery_codes: { $ref: "#/components/schemas/RecoveryCodes" }
+              examples:
+                codes: { value: { recovery_codes: [a1b2c-d3e4f, g5h6j-k7m8n, p9q2r-s3t4u, v5w6x-y7z2a, b3c4d-e5f6g, h7j8k-m9n2p, q3r4s-t5u6v, w7x8y-z9a2b, c3d4e-f5g6h, j7k8m-n9p2q] } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/StepUp" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/account/mfa/disable:
+    post:
+      operationId: disableMfa
+      tags: [account]
+      summary: Turn two-step verification off with the password and a current code (section 18)
+      security:
+        - sessionCookie: []
+        - tenantToken: []
+      x-renox-audit: disableMfa (user)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password, code]
+              properties:
+                password: { type: string, minLength: 1, maxLength: 256 }
+                code: { type: string, minLength: 6, maxLength: 16 }
+            examples:
+              off: { value: { password: "correct horse battery staple", code: "492039" } }
+            x-renox-invalid-examples:
+              no-code: { value: { password: "correct horse battery staple" }, x-expect: code }
+      responses:
+        "200":
+          description: Off. `session_state` is `enrol` when the user is still required to have a factor.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [enrolled, session_state]
+                properties:
+                  enrolled: { const: false }
+                  session_state: { enum: [enrol, null] }
+              examples:
+                off: { value: { enrolled: false, session_state: null } }
+                owner: { value: { enrolled: false, session_state: enrol } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/team/mfa-required:
+    post:
+      operationId: setTeamMfaRequired
+      tags: [account]
+      summary: Require a second factor of every member of the team (section 18; stepped up)
+      x-renox-scope: team:write
+      security:
+        - sessionCookie: []
+      x-renox-audit: setTeamMfaRequired (tenant, required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [required]
+              properties:
+                required: { type: boolean }
+            examples:
+              on: { value: { required: true } }
+            x-renox-invalid-examples:
+              string: { value: { required: "yes" }, x-expect: type }
+      responses:
+        "200":
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tenant_id, mfa_required]
+                properties:
+                  tenant_id: { $ref: "#/components/schemas/TenantId" }
+                  mfa_required: { type: boolean }
+              examples:
+                on: { value: { tenant_id: t_hello, mfa_required: true } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/StepUp" }
+
 components:
   securitySchemes:
     tenantToken:
       type: http
       scheme: bearer
       description: "`renox_pat_<32 base32>`; scoped (x-renox-scope on each operation), expiring, sha256 at rest."
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-renox_session
+      description: "A signed-in user's session (section 2), with `X-Renox-CSRF` on POST, PUT, PATCH, DELETE."
     nodeToken:
       type: http
       scheme: bearer
@@ -1961,7 +2690,7 @@ components:
     operatorToken:
       type: http
       scheme: bearer
-      description: "`renox_op_<32 base32>`: the bootstrap token, whose sha256 is configured in the API's environment and which holds every operator scope, or (0.3) a token an account flagged `operator` created with the `ops:write` scope (section 17)."
+      description: "`renox_op_<32 base32>`: the bootstrap token, whose sha256 is configured in the API's environment and which holds `ops:write` and `ops:read`, or (0.3) a token an account flagged `operator` created with `ops:write`, `ops:read` (0.3.1) or `ops:impersonate` (0.4; only when created with it explicitly, alone or with `ops:read`, at most 1 day; neither `ops:write` nor the bootstrap token grants it) (section 17)."
 
   parameters:
     App:
@@ -2013,8 +2742,8 @@ components:
     Tier: { enum: [free, paid] }
     Scope:
       type: string
-      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?|ops:write|ops:read)$"
-      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those. `ops:write` (0.3) and `ops:read` (0.3.1, granted by `ops:write`; section 17) only on tokens an operator account creates; `*` never includes them."
+      pattern: "^(\\*|(apps:read|apps:write|deploy|logs:read|secrets:read|secrets:write|domains:write|tokens:write)(:[a-z][a-z0-9-]{0,49})?|ops:write|ops:read|ops:impersonate)$"
+      description: "`<action>` for every app of the tenant, `<action>:<app>` for one app, `*` for all of those. `ops:write` (0.3) and `ops:read` (0.3.1, granted by `ops:write`; section 17) only on tokens an operator account creates; `*` never includes them. `ops:impersonate` (0.4) is the break-glass scope of section 17, granted by nothing else."
 
     Health:
       type: object
@@ -2161,6 +2890,10 @@ components:
         db_ms: { type: number, minimum: 0 }
         db_rows: { type: integer, minimum: 0 }
         render_fuel: { type: integer, minimum: 0 }
+        latency_p50_ms: { type: number, minimum: 0, description: "0.4: the median of the hour's request wall_ms; absent for hours rolled up before 0.4." }
+        latency_p95_ms: { type: number, minimum: 0, description: "0.4: the 95th percentile of the hour's request wall_ms." }
+        realtime_conn_seconds: { type: number, minimum: 0, description: "0.4: the sum of the meter 0.3 realtime connection seconds (meter.md)." }
+        realtime_messages: { type: integer, minimum: 0, description: "0.4: the sum of the meter 0.3 realtime messages (meter.md)." }
 
     QuotaAmounts:
       type: object
@@ -2641,10 +3374,12 @@ components:
       properties:
         audit_id: { type: string, pattern: "^aud_[0-9A-Za-z]{16,32}$" }
         at: { $ref: "#/components/schemas/UnixMs" }
-        action: { enum: [setTenantTier, moveTenant] }
+        action: { enum: [setTenantTier, moveTenant, impersonateTenant] }
         operator: { $ref: "#/components/schemas/OperatorId" }
         reason: { $ref: "#/components/schemas/OperatorReason" }
-        result: { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$", description: "The audit row's result: changed, unchanged, moved, restore_failed, hook_failed." }
+        result: { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$", description: "The audit row's result: changed, unchanged, moved, restore_failed, hook_failed; for impersonateTenant (0.4) active or ended." }
+        impersonation_id: { $ref: "#/components/schemas/ImpersonationId", description: "0.4: impersonateTenant only." }
+        expires_at: { $ref: "#/components/schemas/UnixMs", description: "0.4: impersonateTenant only, the end of the time box." }
 
     OpsTenant:
       type: object
@@ -2699,6 +3434,218 @@ components:
         route_version: { type: integer, minimum: 0 }
         audit_id: { type: string, pattern: "^aud_[0-9A-Za-z]{16,32}$" }
         hook_exit_code: { type: integer, minimum: 0, maximum: 255, description: "microvm moves only: the exit code of the node's [process] microvm_hook." }
+
+    TenantDetail:
+      type: object
+      additionalProperties: false
+      description: "0.4 (section 3): the caller's own tenant and its erasure record."
+      required: [tenant_id, name, tier, state, created_at, erasure]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        tier: { $ref: "#/components/schemas/Tier" }
+        state: { enum: [active, suspended] }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        erasure: { oneOf: [{ $ref: "#/components/schemas/Erasure" }, { type: "null" }] }
+
+    DeleteTenantRequest:
+      type: object
+      additionalProperties: false
+      required: [confirm]
+      properties:
+        confirm: { $ref: "#/components/schemas/TenantId", description: "Must equal the tenant id of the path (400 otherwise)." }
+
+    Erasure:
+      type: object
+      additionalProperties: false
+      description: "0.4 (section 3, the erasure state machine): `completed_at` is set exactly in `done`, `failure` names the failing step exactly in `failed`."
+      required: [state, requested_at, completed_at, failure]
+      properties:
+        state: { enum: [pending, erasing, done, failed] }
+        requested_at: { $ref: "#/components/schemas/UnixMs" }
+        completed_at: { type: [integer, "null"], minimum: 0 }
+        failure: { oneOf: [{ type: "null" }, { enum: [routes, tokens, node_drop, replica, exports, records] }] }
+      if: { properties: { state: { const: done } } }
+      then: { properties: { completed_at: { type: integer }, failure: { type: "null" } } }
+      else:
+        properties: { completed_at: { type: "null" } }
+        if: { properties: { state: { const: failed } } }
+        then: { properties: { failure: { type: string } } }
+        else: { properties: { failure: { type: "null" } } }
+
+    DiskReport:
+      type: object
+      additionalProperties: false
+      description: "0.4 (section 7): the node's data-directory level from its disk watermarks; `watermark` is the percent crossed, null at ok."
+      required: [level, free_bytes, watermark]
+      properties:
+        level: { enum: [ok, warn, critical] }
+        free_bytes: { type: integer, minimum: 0 }
+        watermark: { type: [integer, "null"], minimum: 1, maximum: 100 }
+      if: { properties: { level: { const: ok } } }
+      then: { properties: { watermark: { type: "null" } } }
+      else: { properties: { watermark: { type: integer } } }
+
+    NodeDetail:
+      type: object
+      additionalProperties: false
+      description: "0.4 (section 7, getNode): a node as Postgres knows it."
+      required: [node_id, region, worker_version, healthy, last_heartbeat_at, route_version, cells, max_cells, disk]
+      properties:
+        node_id: { $ref: "#/components/schemas/NodeId" }
+        region: { type: string, minLength: 1, maxLength: 64 }
+        worker_version: { type: string, maxLength: 64 }
+        healthy: { type: boolean }
+        last_heartbeat_at: { type: [integer, "null"], minimum: 0 }
+        route_version: { type: integer, minimum: 0 }
+        cells: { type: integer, minimum: 0 }
+        max_cells: { type: integer, minimum: 1 }
+        disk: { oneOf: [{ $ref: "#/components/schemas/DiskReport" }, { type: "null" }], description: "The last heartbeat's report; null when the node never sent one (a worker older than 0.4)." }
+
+    ImpersonationId: { type: string, pattern: "^imp_[0-9A-Za-z]{16,32}$" }
+
+    ImpersonationScope: { enum: ["apps:read", "logs:read", "secrets:read"] }
+
+    ImpersonateRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { $ref: "#/components/schemas/OperatorReason" }
+        scopes: { type: array, minItems: 1, maxItems: 3, uniqueItems: true, items: { $ref: "#/components/schemas/ImpersonationScope" }, description: "Default: all three. No write scope in 0.4 (Open 15)." }
+
+    Impersonation:
+      type: object
+      additionalProperties: false
+      description: "0.4 (section 17, break-glass): one impersonation; the token is only in the answer that starts it."
+      required: [impersonation_id, tenant_id, operator, reason, scopes, started_at, expires_at, ended_at]
+      properties:
+        impersonation_id: { $ref: "#/components/schemas/ImpersonationId" }
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        operator: { $ref: "#/components/schemas/OperatorId" }
+        reason: { $ref: "#/components/schemas/OperatorReason" }
+        scopes: { type: array, minItems: 1, maxItems: 3, items: { $ref: "#/components/schemas/ImpersonationScope" } }
+        started_at: { $ref: "#/components/schemas/UnixMs" }
+        expires_at: { $ref: "#/components/schemas/UnixMs", description: "started_at + 3,600,000 (the time box)." }
+        ended_at: { type: [integer, "null"], minimum: 0 }
+
+    ImpersonationStarted:
+      type: object
+      additionalProperties: false
+      required: [impersonation_id, tenant_id, operator, reason, scopes, started_at, expires_at, ended_at, token]
+      properties:
+        impersonation_id: { $ref: "#/components/schemas/ImpersonationId" }
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        operator: { $ref: "#/components/schemas/OperatorId" }
+        reason: { $ref: "#/components/schemas/OperatorReason" }
+        scopes: { type: array, minItems: 1, maxItems: 3, items: { $ref: "#/components/schemas/ImpersonationScope" } }
+        started_at: { $ref: "#/components/schemas/UnixMs" }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+        ended_at: { type: "null" }
+        token: { type: string, pattern: "^renox_pat_[a-z2-7]{32}$", description: "A tenant token bound to the impersonation, returned once; it stops working at expires_at or at endImpersonation." }
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, minLength: 3, maxLength: 254 }
+        password: { type: string, minLength: 1, maxLength: 256 }
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+
+    SessionState: { enum: [verify, enrol, null], description: "0.4 (section 18): null when the session is complete." }
+
+    LoginResult:
+      type: object
+      additionalProperties: false
+      required: [user_id, email, email_verified, tenant_id, role, session_id, expires_at, csrf, mfa]
+      properties:
+        user_id: { type: string, pattern: "^usr_[0-9A-Za-z]{16,32}$" }
+        email: { type: string }
+        email_verified: { type: boolean }
+        tenant_id: { oneOf: [{ $ref: "#/components/schemas/TenantId" }, { type: "null" }] }
+        role: { enum: [owner, admin, developer, viewer, null] }
+        session_id: { type: string, pattern: "^ses_[0-9A-Za-z]{16,32}$" }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+        csrf: { type: string, minLength: 8 }
+        mfa: { $ref: "#/components/schemas/SessionState" }
+
+    DeviceStart:
+      type: object
+      additionalProperties: false
+      required: [device_code, user_code, verification_uri, expires_in, interval]
+      properties:
+        device_code: { type: string, minLength: 16, maxLength: 128 }
+        user_code: { type: string, pattern: "^[A-Z]{4}-[A-Z]{4}$" }
+        verification_uri: { type: string, pattern: "^https?://" }
+        expires_in: { type: integer, minimum: 1 }
+        interval: { type: integer, minimum: 1 }
+
+    DeviceToken:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, id, name, token, scopes, created_at, expires_at]
+      properties:
+        tenant_id: { $ref: "#/components/schemas/TenantId" }
+        id: { $ref: "#/components/schemas/TokenId" }
+        name: { type: string }
+        token: { type: string, pattern: "^renox_pat_[a-z2-7]{32}$" }
+        scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+        created_at: { $ref: "#/components/schemas/UnixMs" }
+        expires_at: { $ref: "#/components/schemas/UnixMs" }
+
+    MfaStatus:
+      type: object
+      additionalProperties: false
+      required: [totp, passkeys, recovery_left, enrolled, required, grace_until, session_state, verified_at]
+      properties:
+        totp: { type: boolean }
+        passkeys: { type: integer, minimum: 0, description: "The number of registered passkeys." }
+        recovery_left: { type: integer, minimum: 0, maximum: 10 }
+        enrolled: { type: boolean }
+        required: { type: boolean }
+        grace_until: { type: [integer, "null"], minimum: 0 }
+        session_state: { $ref: "#/components/schemas/SessionState" }
+        verified_at: { type: [integer, "null"], minimum: 0, description: "The last verification of this session, or (0.4) of this token." }
+
+    MfaCode:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: { type: string, pattern: "^[0-9 ]{6,8}$" }
+
+    RecoveryCodes: { type: array, minItems: 10, maxItems: 10, items: { type: string, pattern: "^[a-z0-9]{5}-[a-z0-9]{5}$" } }
+
+    MfaVerifyRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [method, code]
+          properties:
+            method: { enum: [totp, recovery] }
+            code: { type: string, minLength: 6, maxLength: 16 }
+        - type: object
+          additionalProperties: false
+          required: [method, credential_id, client_data, authenticator_data, signature]
+          properties:
+            method: { const: passkey }
+            credential_id: { type: string, minLength: 1 }
+            client_data: { type: string, minLength: 1 }
+            authenticator_data: { type: string, minLength: 1 }
+            signature: { type: string, minLength: 1 }
+
+    PasskeyOptions:
+      type: object
+      additionalProperties: false
+      required: [challenge, rp, user, pubKeyCredParams, excludeCredentials, authenticatorSelection]
+      properties:
+        challenge: { type: string, pattern: "^[A-Za-z0-9_-]{16,128}$" }
+        rp: { type: object, additionalProperties: false, required: [id, name], properties: { id: { type: string }, name: { type: string } } }
+        user: { type: object, additionalProperties: false, required: [id, name, displayName], properties: { id: { type: string }, name: { type: string }, displayName: { type: string } } }
+        pubKeyCredParams: { type: array, items: { type: object, additionalProperties: false, required: [type, alg], properties: { type: { const: public-key }, alg: { type: integer } } } }
+        excludeCredentials: { type: array, items: { type: object, additionalProperties: false, required: [type, id], properties: { type: { const: public-key }, id: { type: string } } } }
+        authenticatorSelection: { type: object, additionalProperties: false, properties: { userVerification: { enum: [preferred, required, discouraged] } } }
 
   examples:
     AppNew:
@@ -2837,6 +3784,19 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           examples:
             scope: { value: { error: { code: RENOX_TOKEN_SCOPE, message: The token does not allow this action., request_id: 01JBQ3Z7MA0000000000000012 } } }
+    StepUp:
+      description: "A wrong scope, or (section 18) a stepped-up operation without a verification in the last 15 minutes."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            step-up:
+              value:
+                error:
+                  code: RENOX_TOKEN_SCOPE
+                  message: The token does not allow this action.
+                  request_id: 01JBQ3Z7MA0000000000000042
+                  details: [{ field: mfa, reason: step_up_required }]
     NotFound:
       description: No such resource in the caller's tenant. Another tenant's resources are also 404, never 403.
       content:

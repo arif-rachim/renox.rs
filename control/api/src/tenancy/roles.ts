@@ -107,6 +107,12 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   moveTenant: "operator",
   // deploy-api.md 0.3.1 section 17: the read of operator data (ops:read), implemented by #296.
   getOpsTenant: "operator",
+  // deploy-api.md 0.4 (#303): the node read, break-glass (#310, #311) and tenant erasure (#308).
+  getNode: "operator",
+  impersonateTenant: "operator",
+  endImpersonation: "operator",
+  getTenant: "apps:read",
+  deleteTenant: "tenant:delete",
   // Accounts (src/auth/accounts.ts).
   signup: "public",
   verifyEmail: "public",
@@ -124,6 +130,17 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   pollDeviceLogin: "public",
   approveDeviceLogin: "tokens:write",
   acceptInvitation: "account",
+  // Second factors (src/auth/mfa.ts, #293), in the contract from deploy-api.md 0.4 section 18.
+  getMfa: "account",
+  startTotp: "account",
+  confirmTotp: "account",
+  passkeyOptions: "account",
+  registerPasskey: "account",
+  mfaChallenge: "account",
+  verifyMfa: "account",
+  regenerateRecoveryCodes: "account",
+  disableMfa: "account",
+  setTeamMfaRequired: "team:write",
   // Team (src/tenancy/team.ts).
   listMembers: "team:read",
   inviteMember: "team:write",
