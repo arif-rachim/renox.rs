@@ -135,7 +135,7 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 | Card testing through tenant checkouts | Billing module: rate limit on payment attempts per IP and session, 3DS by default, CAPTCHA signal hook | Provider-side fraud tools | #123 | F7 |
 | Outbound spam through the `email` module | Per-tenant send rate and daily cap; SPF/DKIM per sending domain; suppression list; complaint feedback loop pauses the tenant | Shared sending domain only for transactional templates | #123 | F7 |
 | Bot signups | Email verification, disposable-domain blocklist, signup rate per IP, delayed quota growth for new tenants | Manual review for free tier anomalies | #123; `signup` friction and new-tenant `restrictions` (`deploy-api.md` 0.5 section 21) | F7 |
-| Crypto mining, proxying | CPU and egress quotas; anomaly detection on meters; suspend | Move to microVM | #85 | F7 |
+| Crypto mining, proxying | CPU and egress quotas; anomaly detection on meters; suspend | Move to microVM | `control/api/tests/billing.test.ts` (the tier pass to `suspended` with the owner's emails; the anomaly rule writes one review row and the signal), `control/billing/tests/tier.test.ts` (#325); the gateway's neutral page is not built (the route table has no `suspended` status) | F7 |
 
 ## Security process
 

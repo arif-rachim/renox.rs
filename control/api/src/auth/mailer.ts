@@ -24,7 +24,12 @@ export type MailKind =
   | "breakglass_started"
   | "breakglass_ended"
   // A registry module version an app uses was disabled (src/registry/routes.ts, #324).
-  | "module_disabled";
+  | "module_disabled"
+  // The tier machine's steps (src/billing/sweep.ts, #325).
+  | "tier_over_quota"
+  | "tier_grace"
+  | "tier_suspended"
+  | "tier_reinstated";
 
 export interface Mail {
   to: string;
