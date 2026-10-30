@@ -51,6 +51,16 @@ export interface RealtimeRoute {
   guard?: Guard;
 }
 
+/** Artifact 1.4: a `functions/webhooks/*.ts` module (ops.md 1.7.0 section 22); POST only. */
+export interface WebhookRoute {
+  kind: "webhook";
+  path: string;
+  module: string;
+  export: "POST";
+  provider?: string;
+  guard?: Guard;
+}
+
 /** Artifact 1.3: an App MCP tool (ops.md section 19); no path. */
 export interface ToolRoute {
   kind: "tool";
@@ -73,7 +83,7 @@ export interface JobRoute {
 }
 
 /** A route with a URL pattern. */
-export type Route = FunctionRoute | PageRoute | RealtimeRoute;
+export type Route = FunctionRoute | PageRoute | RealtimeRoute | WebhookRoute;
 
 /** Any route entry of the manifest: the URL routes, tools and jobs. */
 export type ArtifactRoute = Route | ToolRoute | JobRoute;
@@ -193,7 +203,7 @@ export function discoverFunctions(project: string): FunctionModule[] {
   const out: FunctionModule[] = [];
   const problems: { message: string; file: string; hint?: string }[] = [];
   // functions/ws/, functions/sse/ and functions/tools/ hold the 1.3 kinds (discoverRealtime, discoverTools).
-  const files = walk(base).filter((f) => !/^(ws|sse|tools)\//u.test(f));
+  const files = walk(base).filter((f) => !/^(ws|sse|tools|webhooks)\//u.test(f));
   // Paths (files and folders) that differ only in case are one path on macOS and Windows.
   const folded = new Map<string, string>();
   for (const rel of files) {
@@ -432,6 +442,7 @@ export function routesOf(functions: FunctionModule[], pages: PageModule[] = []):
 /** The methods a route answers: a page answers GET and HEAD, and POST with actions. */
 export function methodsOf(r: Route): Method[] {
   if (r.kind === "function") return [r.method];
+  if (r.kind === "webhook") return ["POST"];
   if (r.kind !== "page") return ["GET"];
   return r.actions?.length ? ["GET", "HEAD", "POST"] : ["GET", "HEAD"];
 }
@@ -570,4 +581,55 @@ export function discoverJobs(project: string): JobModule[] {
       const tz = exportedString(code, "tz");
       return { id: `jobs/${stem}`, source, name: stem, schedule: exportedString(code, "schedule"), ...(tz !== null ? { tz } : {}) };
     });
+}
+
+/** The providers of ops.md 1.7.0 section 22. */
+export const WEBHOOK_PROVIDERS = ["stripe", "checkout", "telr", "paytabs", "ngenius", "tabby", "tamara", "apple", "google", "generic"];
+
+/** A `functions/webhooks/*.ts` module (artifact 1.4). */
+export interface WebhookModule {
+  id: string;
+  source: string;
+  /** `/webhooks/<stem>`. */
+  pattern: string;
+  provider?: string;
+}
+
+/**
+ * The webhook modules (artifact 1.4, V28): one level under
+ * `functions/webhooks/`, each exporting `POST` only, with an optional
+ * `export const provider = "<provider>"`.
+ */
+export function discoverWebhooks(project: string): WebhookModule[] {
+  const out: WebhookModule[] = [];
+  const problems: string[] = [];
+  for (const rel of walk(join(project, "functions", "webhooks"))) {
+    const source = `functions/webhooks/${rel}`;
+    if (rel.includes("/") || !/^[a-z0-9][a-z0-9-]*\.(ts|js|mjs)$/u.test(rel)) {
+      problems.push(`${source}: a webhook is one file directly under functions/webhooks/, named like stripe.ts`);
+      continue;
+    }
+    const stem = rel.replace(/\.(ts|js|mjs)$/u, "");
+    const code = readFileSync(join(project, source), "utf8");
+    let exports: string[] = [];
+    try {
+      exports = transpiler.scan(code).exports;
+    } catch {
+      exports = ["POST"];
+    }
+    const methods = exports.filter((e) => /^(GET|HEAD|PUT|PATCH|DELETE|OPTIONS)$/u.test(e));
+    if (!exports.includes("POST") || methods.length > 0) {
+      problems.push(`${source}: a webhook route exports POST only`);
+      continue;
+    }
+    const provider = exportedString(code, "provider") ?? undefined;
+    if (provider !== undefined && !WEBHOOK_PROVIDERS.includes(provider)) {
+      problems.push(`${source}: provider "${provider}" is not one of ${WEBHOOK_PROVIDERS.join(", ")}`);
+      continue;
+    }
+    out.push({ id: `functions/webhooks/${stem}`, source, pattern: `/webhooks/${stem}`, ...(provider ? { provider } : {}) });
+  }
+  if (problems.length === 1) throw new RouteError(problems[0] as string);
+  if (problems.length > 1) throw new RouteError(`${problems.length} webhook route problems`, {}, problems);
+  return out;
 }

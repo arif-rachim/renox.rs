@@ -46,7 +46,8 @@ test("signature and token checks use a constant-time compare", () => {
     const text = readFileSync(join(src, f), "utf8")
       .replace(/^\s*verify\(password: string, hash: string\): Promise<boolean>;$/gmu, "")
       .replace(/^\s*\/\*\* Rejects with 401 `RENOX_WEBHOOK_SIGNATURE`.*\*\/\n\s*verify\(req: Request, .*$/gmu, "");
-    if (/\b(verify|signature|hmac)\b/iu.test(text) && f !== "crypto.ts") expect([f, text.includes("timingSafeEqual")]).toEqual([f, true]);
+    // fakes.ts (#323) only produces signatures for tests; it never checks one.
+    if (/\b(verify|signature|hmac)\b/iu.test(text) && f !== "crypto.ts" && f !== "fakes.ts") expect([f, text.includes("timingSafeEqual")]).toEqual([f, true]);
   }
   const pages = join(import.meta.dir, "../../crates/renox-cell/src/pages");
   const guard = readFileSync(join(pages, "mod.rs"), "utf8");

@@ -200,6 +200,9 @@ renox <command>
                                         scan for secrets; --security prints the effective headers per route; --json prints the report as JSON;
                                         --strict fails on a drifted template override
   migrate [--db <file>]                 run the migrations of the installed modules (lock order) and the app's on the dev database
+  publish [--dir <tree>] [--dry-run]    sign a module tree (module.sig) and upload it to the registry
+  approve <module> [--yes]              show the permission diff of an upgrade and approve it
+  jobs list [--state <s>] | run <name> [--module <m>] | retry <id>   the dev app's jobs (scheduled, queued, running, dead)
   test [pattern...] [--seed <file.sql>] run tests/*.test.ts on the worker with a temporary tenant file per test file (renox/test),
                                         and the policy test cases of policies/tests/*.json
   authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]
@@ -245,7 +248,7 @@ exports[`messages and exit codes build --out without a folder 1`] = `
 exports[`messages and exit codes dev with a bad port 1`] = `
 {
   "exit": 1,
-  "stderr": "usage: renox dev [--port <port>] [--worker <path>]",
+  "stderr": "usage: renox dev [--port <port>] [--worker <path>] [--jobs]",
 }
 `;
 
