@@ -35,6 +35,17 @@ config = { session_idle_hours = 24, session_absolute_days = 30, password_min_len
 approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
 
 [[module]]
+name = "billing"
+version = "1.0.0"
+source = "official"
+hash = "8d44f61fb8f5bbfe4a89a19e0810ea1877276f296777b58b3fe552e2099a1e89"
+isolation = "shared"
+mount = "/billing"
+dependencies = ["auth", "i18n"]
+config = { currency = "AED", success_url = "/billing/thanks", cancel_url = "/billing", base_path = "/billing" }
+approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = [], hooks = [] }
+
+[[module]]
 name = "email"
 version = "1.0.0"
 source = "official"

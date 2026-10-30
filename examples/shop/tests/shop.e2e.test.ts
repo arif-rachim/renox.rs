@@ -29,7 +29,7 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   // org (#242): after auth, its dependency; its pages under /org.
   expect(readdirSync(join(r.dir, "migrations/org")).sort()).toEqual(["001_init.sql", "002_orgs_locale.sql"]);
   // i18n (#244): first, auth and org depend on it; the shop's catalogs under code/i18n/.
-  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["audit", "i18n", "auth", "email", "notifications", "org", "twofa"]);
+  expect(r.manifest.modules?.map((m) => m.name)).toEqual(["audit", "i18n", "auth", "billing", "email", "notifications", "org", "twofa"]);
   expect(readdirSync(join(r.dir, "code/i18n")).sort()).toEqual(["ar.json", "en.json"]);
   expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : x.kind === "page" ? "PAGE" : x.kind.toUpperCase()} ${"path" in x ? x.path : x.name}`).sort()).toEqual([
     "GET /api/products",
@@ -56,6 +56,8 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
     "PAGE /auth/register",
     "PAGE /auth/reset",
     "PAGE /auth/reset/confirm",
+    "PAGE /billing",
+    "PAGE /billing/invoices",
     "PAGE /email",
     "PAGE /notifications",
     "PAGE /notifications/prefs",
@@ -74,6 +76,8 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
     "SSE /notifications/sse/notifications",
     "SSE /sse/orders",
     "TOOL invite_member",
+    "WEBHOOK /billing/webhooks/stripe",
+    "WEBHOOK /email/webhooks/feedback",
   ]);
   expect(r.manifest.templates?.["pages/products/index"]).toEqual({ kind: "page", fragments: { cart_badge: { target: "cart-badge" }, product_list: { target: "product-list" } } });
   expect(r.manifest.templates?.["pages/products/[id]"]?.fragments).toEqual({ cart_badge: { target: "cart-badge" }, product: { target: "product" } });

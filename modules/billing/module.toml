@@ -1,31 +1,78 @@
 [module]
 name = "billing"
 version = "1.0.0"
-description = "Plans, subscriptions, invoices and usage records for an app's own customers; Stripe Checkout sessions and verified webhooks"
+description = "Plans, subscriptions, one-off checkouts, invoices, refunds and usage for an app's own customers; a PSP adapter (Stripe UAE) and verified webhooks"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
 
 [config]
 currency = { type = "string", default = "AED", max_length = 3, description = "ISO 4217 currency of prices" }
 success_url = { type = "string", default = "/billing/thanks", max_length = 200, description = "Where Checkout returns after payment" }
 cancel_url = { type = "string", default = "/billing", max_length = 200, description = "Where Checkout returns when the customer cancels" }
+base_path = { type = "string", default = "/billing", max_length = 100, description = "Where the app mounts the module's pages" }
 
 [permissions]
 tables = "billing__*"
 network = ["api.stripe.com"]
 secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"]
 
+[imports]
+services = ["auth.loginUrl", "i18n.detectLocale"]
+
+[exports]
+views = ["billing__public_user_plans_v1"]
+
 [exports.services]
 createPlan = "Define a plan: ({ id, name, amount, interval }) -> plan; amount in minor units (fils), interval month or year"
 plans = "Every plan -> plans"
-checkout = "A Stripe Checkout session for a customer and a plan: (customer_id, plan_id) -> { url, session_id }"
-subscription = "A customer's subscription -> { plan_id, status, current_period_end } | null"
+createCheckout = "One checkout per order: ({ order_id, customer_id, plan_id } or { order_id, customer_id, amount, description }) -> { url, session_id, reused }"
+checkout = "A subscription checkout for a customer and a plan: (customer_id, plan_id) -> { url, session_id }"
+getSubscription = "A customer's subscription -> { plan_id, status, current_period_end } | null"
+subscription = "The same as getSubscription"
 recordUsage = "Record metered usage: (customer_id, metric, quantity) -> { id }"
 usage = "A customer's usage of a metric since a time: (customer_id, metric, since) -> total"
-invoices = "A customer's invoices, newest first -> invoices"
+listInvoices = "A customer's invoices, newest first -> invoices"
+invoices = "The same as listInvoices"
+refund = "Refund part of a paid invoice: (invoice_id, amount) -> { id, refunded }; never more than paid; needs billing.refund"
+
+[exports.events."billing.checkout_completed"]
+payload = { type = "object", required = ["customer_id", "order_id"], additionalProperties = false, properties = { customer_id = { type = "string" }, order_id = { type = "string" } } }
+description = "A checkout was paid (a one-off order or a subscription's first payment)"
+
+[exports.events."billing.payment_received"]
+payload = { type = "object", required = ["customer_id", "invoice_id", "amount"], additionalProperties = false, properties = { customer_id = { type = "string" }, invoice_id = { type = "string" }, amount = { type = "integer" } } }
+description = "Money arrived for an invoice (minor units)"
+
+[exports.events."billing.payment_failed"]
+payload = { type = "object", required = ["customer_id"], additionalProperties = false, properties = { customer_id = { type = "string" }, invoice_id = { type = "string" }, order_id = { type = "string" } } }
+description = "A payment failed; a subscription goes past_due (dunning reads this)"
+
+[exports.events."billing.invoice_issued"]
+payload = { type = "object", required = ["invoice_id", "customer_id", "amount"], additionalProperties = false, properties = { invoice_id = { type = "string" }, customer_id = { type = "string" }, amount = { type = "integer" } } }
+description = "The PSP issued an invoice (tax-gcc numbers its tax invoice from this)"
 
 [exports.events."billing.invoice_paid"]
 payload = { type = "object", required = ["invoice_id", "customer_id"], additionalProperties = false, properties = { invoice_id = { type = "string" }, customer_id = { type = "string" } } }
-description = "A Stripe invoice was paid (from the verified webhook)"
+description = "An invoice was paid (from the verified webhook)"
 
 [exports.events."billing.subscription_changed"]
 payload = { type = "object", required = ["customer_id", "status"], additionalProperties = false, properties = { customer_id = { type = "string" }, status = { type = "string" } } }
 description = "A customer's subscription started, renewed, went past due or was cancelled"
+
+[exports.events."billing.refunded"]
+payload = { type = "object", required = ["invoice_id", "customer_id", "amount"], additionalProperties = false, properties = { invoice_id = { type = "string" }, customer_id = { type = "string" }, amount = { type = "integer" } } }
+description = "Part or all of a paid invoice was refunded (minor units)"
+
+[exports.hooks."billing.fraud_signal"]
+args = { type = "object", required = ["customer_id", "order_id", "amount", "currency", "mode"], properties = { customer_id = { type = "string" }, order_id = { type = "string" }, amount = { type = "integer" }, currency = { type = "string" }, mode = { enum = ["payment", "subscription"] } } }
+description = "Before a checkout session is created: a filler that halts refuses it (card testing limits, #123)"
+
+[authz]
+actions = ["billing.manage", "billing.refund"]
+sensitive = ["billing.refund"]
+
+[authz.default_roles]
+admin = ["billing.manage", "billing.refund"]
+finance = ["billing.manage"]

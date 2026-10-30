@@ -43,7 +43,12 @@ The shop is the reference app for F5. Each piece sits in one file:
 | `r-can` on the refund button, with the order as resource | `pages/orders/index.html` |
 | The refund: the order from the database, then `ctx.authz.require` (a denial is answered 403 and its audit row committed), then `twofa.requireRecent`, then a notification | `pages/orders/index.ts` |
 | The live orders screen: checkout publishes the new order to `orders:<org>`, and `/orders/live` swaps it in over SSE | `functions/api/checkout.ts`, `functions/sse/orders.ts`, `pages/orders/live.html` |
-| Modules: 2fa (`/2fa`), audit, notifications (`/notifications`) next to auth, org, i18n | `renox.toml`, `renox.lock` |
+| Modules: 2fa (`/2fa`), audit, notifications (`/notifications`), email (`/email`, #328), billing (`/billing`, #329) next to auth, org, i18n | `renox.toml`, `renox.lock` |
+
+**Refunds and the billing module (F7, #329).**
+- The billing module is installed. It brings card payments through Stripe (`createCheckout`, one session per order), the verified webhook at `/billing/webhooks/stripe`, and `billing.refund`: a sensitive Cedar action for admins, which never refunds more than was paid.
+- The shop's checkout still records orders without a PSP (`functions/api/checkout.ts` builds the Stripe request but does not send it; B1's dependency set). So the refund below stays the shop's own: the authorisation, the second factor and the audit row, with no money moved.
+- The step that moves money is `billing.refund(invoice_id, amount)`. It applies once checkout calls `billing.createCheckout({ order_id, customer_id, amount, description })` and the order's invoice exists. That needs a Stripe test key (`BILLING_STRIPE_KEY`), an owner step.
 
 **The F5 done criterion**: a refund is denied for a user without the role or without the second factor. To see it in under five minutes:
 

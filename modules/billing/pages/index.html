@@ -1,0 +1,30 @@
+<r-layout use="billing">
+  <r-group slot="title"><r-t key="billing.title" /></r-group>
+  <h1><r-t key="billing.title" /></h1>
+  <section id="billing-plans">
+    <h2><r-t key="billing.plans.title" /></h2>
+    <ul>
+      <li r-for="p in plans">
+        <strong>{{ p.name }}</strong> {{ p.price }} <span r-if="p.interval == 'month'"><r-t key="billing.plans.per.month" /></span><span r-if="p.interval == 'year'"><r-t key="billing.plans.per.year" /></span>
+        <x-form action="subscribe" class="inline" r-if="!p.current"><input type="hidden" name="plan_id" :value="p.id"><button type="submit"><r-t key="billing.plans.subscribe" /></button></x-form>
+      </li>
+      <li r-empty="plans"><r-t key="billing.plans.none" /></li>
+    </ul>
+  </section>
+  <section id="billing-mine">
+    <h2><r-t key="billing.mine.title" /></h2>
+    <p r-if="subscription">{{ subscription.plan }} · <r-t key="billing.mine.status" />: {{ subscription.status }} · <r-t key="billing.mine.until" />: {{ subscription.until }}</p>
+    <p r-if="!subscription"><r-t key="billing.mine.none" /></p>
+  </section>
+  <section id="billing-invoices">
+    <h2><r-t key="billing.invoices.title" /></h2>
+    <table>
+      <thead><tr><th><r-t key="billing.col.invoice" /></th><th><r-t key="billing.col.amount" /></th><th><r-t key="billing.col.status" /></th><th><r-t key="billing.col.date" /></th></tr></thead>
+      <tbody>
+        <tr r-for="i in invoices"><td>{{ i.id }}</td><td>{{ i.amount }}</td><td>{{ i.status }}</td><td>{{ i.date }}</td></tr>
+        <tr r-empty="invoices"><td colspan="4"><r-t key="billing.invoices.none" /></td></tr>
+      </tbody>
+    </table>
+    <p r-can="billing.manage"><a href="invoices"><r-t key="billing.invoices.manage" /></a></p>
+  </section>
+</r-layout>

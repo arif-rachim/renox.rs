@@ -1,0 +1,13 @@
+<r-layout use="billing">
+  <r-group slot="title"><r-t key="billing.invoices.manage" /></r-group>
+  <h1><r-t key="billing.invoices.manage" /></h1>
+  <p class="notice" r-if="notice == 'refunded'"><r-t key="billing.refund.done" /></p>
+  <table id="billing-all-invoices">
+    <thead><tr><th><r-t key="billing.col.invoice" /></th><th><r-t key="billing.col.customer" /></th><th><r-t key="billing.col.amount" /></th><th><r-t key="billing.col.refunded" /></th><th><r-t key="billing.col.status" /></th><th><r-t key="billing.col.date" /></th><th></th></tr></thead>
+    <tbody>
+      <tr r-for="i in invoices"><td>{{ i.id }}</td><td>{{ i.customer }}</td><td>{{ i.amount }}</td><td>{{ i.refunded }}</td><td>{{ i.status }}</td><td>{{ i.date }}</td>
+        <td r-can="billing.refund"><x-form action="refund" r-if="i.refundable"><input type="hidden" name="invoice_id" :value="i.id"><label><r-t key="billing.refund.amount" /> <input name="amount" type="number" min="1" required></label><button type="submit"><r-t key="billing.refund.action" /></button></x-form></td></tr>
+      <tr r-empty="invoices"><td colspan="7"><r-t key="billing.invoices.none" /></td></tr>
+    </tbody>
+  </table>
+</r-layout>
