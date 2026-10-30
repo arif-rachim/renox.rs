@@ -23,7 +23,7 @@ export const sendVerification = (deps: Deps, to: string, token: string): Promise
     to,
     kind: "verify_email",
     subject: "Verify your Renox email address",
-    text: `Open this link within 24 hours to verify your address:\n\n${link(base(deps), "verify", token)}\n\nYou can deploy once the address is verified.`,
+    text: `Open this link within 24 hours to verify your address:\n\n${link(base(deps), "signup/verify", token)}\n\nYou can deploy once the address is verified.`,
   });
 
 export const sendSignupExists = (deps: Deps, to: string): Promise<void> =>

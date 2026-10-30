@@ -1,0 +1,22 @@
+<r-layout use="main">
+  <r-group slot="title">Sign up · Renox dashboard</r-group>
+  <section class="narrow">
+    <h1>Create your Renox account</h1>
+    <r-group r-if="sent">
+      <p class="notice">Check your email: we sent a link to <strong>{{ email }}</strong> to verify the address (it works for 24 hours). If the address already has an account, the email says so instead.</p>
+    </r-group>
+    <r-group r-if="!sent">
+      <div class="problem" role="alert" r-if="error"><p><strong>{{ error }}</strong></p></div>
+      <form method="post" action="/signup">
+        <x-csrf />
+        <label>Email <input type="email" name="email" :value="email" required autocomplete="email" maxlength="254"></label>
+        <label>Password <input type="password" name="password" required minlength="12" autocomplete="new-password"></label>
+        <label>Workspace id <input name="tenant_id" :value="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false"></label>
+        <label>Workspace name <input name="tenant_name" maxlength="128"></label>
+        <label><input type="checkbox" name="dpa" value="yes" required> I accept the <a href="/legal/dpa">data processing agreement</a> and the <a href="/legal/terms">terms</a>.</label>
+        <button type="submit">Create account</button>
+      </form>
+      <p class="muted">Already have an account? <a href="/signin">Sign in</a>. Your data is processed in the UAE; the agreement says how.</p>
+    </r-group>
+  </section>
+</r-layout>

@@ -1,0 +1,30 @@
+<r-layout use="main">
+  <r-group slot="title">New app · Renox dashboard</r-group>
+  <section id="page" r-fragment="page" class="narrow">
+    <r-group r-if="created">
+      <h1>{{ created.app }} is live</h1>
+      <p class="notice">Deployed from the {{ created.template }} template: <a :href="created.url">{{ created.url }}</a></p>
+      <h2>Work on it locally</h2>
+      <ol>
+        <li><code>bunx renox new {{ created.app }} --template {{ created.template }}</code></li>
+        <li><code>bunx renox dev</code></li>
+        <li><code>bunx renox deploy</code></li>
+      </ol>
+      <p><a href="/apps/{{ created.app }}">Open {{ created.app }}</a></p>
+    </r-group>
+    <r-group r-if="!created">
+      <h1>New app</h1>
+      <p class="problem" r-if="form_error">{{ form_error }}</p>
+      <x-problem :problem="action_problem" r-if="action_problem" />
+      <x-form action="create" hx-target="#page" hx-swap="outerHTML">
+        <label>Name <input name="name" :value="name" required maxlength="50" pattern="[a-z][a-z0-9-]*" spellcheck="false"></label>
+        <fieldset>
+          <legend>Template</legend>
+          <label r-for="t in templates"><input type="radio" name="template" :value="t.id" :checked="t.id == template"> <strong>{{ t.name }}</strong> <span class="muted">{{ t.about }}</span></label>
+        </fieldset>
+        <p class="muted">We create <code>&lt;name&gt;.renox.app</code> and deploy the template to it, then show the commands to work on it locally.</p>
+        <button type="submit">Create app</button>
+      </x-form>
+    </r-group>
+  </section>
+</r-layout>

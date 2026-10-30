@@ -1,0 +1,13 @@
+<r-layout use="main">
+  <r-group slot="title">Getting started · Renox dashboard</r-group>
+  <section class="narrow">
+    <h1>Getting started</h1>
+    <ol class="checklist">
+      <li r-for="s in steps" :class="{ done: s.done }">
+        <span r-if="s.done">✓</span><span r-if="!s.done">○</span>
+        <a :href="s.href" r-if="s.href">{{ s.text }}</a><span r-if="!s.href">{{ s.text }}</span>
+      </li>
+    </ol>
+    <p class="muted">This list goes away after your first deploy. The goal: sign-up to a live app in under 10 minutes.</p>
+  </section>
+</r-layout>
