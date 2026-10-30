@@ -80,6 +80,19 @@ The default policy (`policies/billing.cedar`):
 
 #330 adds the GCC providers behind the same interface.
 
+## Payment methods and adapters (#330)
+
+`config.methods` lists the methods offered, from `card`, `cod` and `bank`; the default is `card`. `createCheckout({ …, method })` refuses a method the app did not enable. `cod` and `bank` are for one-off payments only.
+
+| Method | Adapter | State | Go-live steps (owner) |
+| --- | --- | --- | --- |
+| Card, Stripe UAE | `lib/adapter.ts` `stripe` | Built and tested against recorded request shapes | Stripe account, keys, webhook endpoint (above) |
+| Cash on delivery | `src/adapters/offline.ts` | Built. States: `placed` → `out_for_delivery` → `delivered` (paid) or `refused` (unpaid), moved with `codUpdate`, which needs `billing.manage` | None; the courier's confirmation is the app's own call |
+| Bank transfer | `src/adapters/offline.ts` | Built. Each order gets a reference `RNX-XXXXXXXX`, shown with `bank_name`, `bank_beneficiary` and `bank_iban` on `<mount>/checkout/pending`. `<mount>/checkout/import` takes the statement as CSV, and `matchTransfer` pays an order only when the reference and the exact amount match. Anything else stays unmatched for a person to check | Fill the bank config; export statements as CSV with `date`, `amount` and `description` columns |
+| Checkout.com, Telr, PayTabs, N-Genius | — | **Not built** (#330 stays open): no adapter is written before it can be checked against the provider's sandbox | A merchant account, sandbox credentials, and the webhook secret `BILLING_WEBHOOK_<PROVIDER>_SECRET` per provider |
+| Apple Pay and Google Pay | — | **Not built**: they come as payment methods of the card PSPs above | Apple's domain verification file served from the app; Google Pay merchant id |
+| Tabby, Tamara (BNPL) | — | **Not built**, including the eligibility rules (amount range, currency) and the rejected path | Merchant account and sandbox with each |
+
 ## Owner steps
 
 - A Stripe account, and the live and test keys.

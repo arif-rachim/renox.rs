@@ -70,4 +70,21 @@ describe.skipIf(!worker)("billing in an app", () => {
     expect(a.status).toBe(200);
     expect(a.html).toContain('name="amount"');
   });
+
+  test("bank transfer (#330): the customer's pending page shows the reference; an admin's statement import pays it", async () => {
+    const nour = t.as("nour");
+    const r = await nour.request("POST", "/api/order?order=o-77");
+    expect(r.status).toBe(200);
+    const s = r.json<{ session_id: string; url: string }>();
+    expect(s.url).toBe("/billing/checkout/pending?order=o-77");
+    const page = await nour.page(s.url);
+    expect(page.status).toBe(200);
+    expect(page.html).toContain(s.session_id);
+    expect(page.html).toContain("AE070331234567890123456");
+    // Another customer does not see it.
+    expect((await t.as("rami").page(s.url)).status).toBe(404);
+    expect((await t.as("farah").action("/billing/checkout/import", "import", { statement: `date,amount,description\n2026-10-30,1250.50,TRF ${s.session_id}` })).status).toBe(200);
+    expect(t.db.query("select status from billing__checkouts where order_id = 'o-77'")).toEqual([{ status: "completed" }]);
+    expect((await t.as("rami").page("/billing/checkout/import")).status).toBe(403);
+  });
 });

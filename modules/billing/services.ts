@@ -15,3 +15,7 @@ export const usage = (ctx: Ctx, customerId: unknown, metric: unknown, since: unk
 export const listInvoices = (ctx: Ctx, customerId: unknown) => core.invoices(ctx, customerId);
 export const invoices = listInvoices;
 export const refund = (ctx: Ctx, invoiceId: unknown, amount: unknown) => core.refund(ctx, invoiceId, amount);
+/** Cash on delivery (#330): (order_id, out_for_delivery | delivered | refused); needs billing.manage. */
+export const codUpdate = (ctx: Ctx, orderId: unknown, state: unknown) => core.codUpdate(ctx, orderId, state);
+/** One bank statement row ({ booked_on, amount, description }) against the open transfers; needs billing.manage. */
+export const matchTransfer = (ctx: Ctx, row: { booked_on: string; amount: number; description: string }) => core.matchTransfer(ctx, row);

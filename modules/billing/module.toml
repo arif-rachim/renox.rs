@@ -12,6 +12,10 @@ currency = { type = "string", default = "AED", max_length = 3, description = "IS
 success_url = { type = "string", default = "/billing/thanks", max_length = 200, description = "Where Checkout returns after payment" }
 cancel_url = { type = "string", default = "/billing", max_length = 200, description = "Where Checkout returns when the customer cancels" }
 base_path = { type = "string", default = "/billing", max_length = 100, description = "Where the app mounts the module's pages" }
+methods = { type = "string", default = "card", max_length = 100, description = "Payment methods offered, comma-separated: card, cod, bank" }
+bank_name = { type = "string", default = "", max_length = 100, description = "Bank transfer: the receiving bank's name" }
+bank_beneficiary = { type = "string", default = "", max_length = 140, description = "Bank transfer: the account holder's name" }
+bank_iban = { type = "string", default = "", max_length = 34, description = "Bank transfer: the receiving IBAN" }
 
 [permissions]
 tables = "billing__*"
@@ -36,6 +40,8 @@ usage = "A customer's usage of a metric since a time: (customer_id, metric, sinc
 listInvoices = "A customer's invoices, newest first -> invoices"
 invoices = "The same as listInvoices"
 refund = "Refund part of a paid invoice: (invoice_id, amount) -> { id, refunded }; never more than paid; needs billing.refund"
+codUpdate = "Move a cash-on-delivery order: (order_id, out_for_delivery | delivered | refused); delivered is paid; needs billing.manage"
+matchTransfer = "One bank statement row ({ booked_on, amount, description }) against the open transfers by reference and amount; needs billing.manage"
 
 [exports.events."billing.checkout_completed"]
 payload = { type = "object", required = ["customer_id", "order_id"], additionalProperties = false, properties = { customer_id = { type = "string" }, order_id = { type = "string" } } }

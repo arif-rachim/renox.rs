@@ -57,6 +57,8 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
     "PAGE /auth/reset",
     "PAGE /auth/reset/confirm",
     "PAGE /billing",
+    "PAGE /billing/checkout/import",
+    "PAGE /billing/checkout/pending",
     "PAGE /billing/invoices",
     "PAGE /email",
     "PAGE /notifications",

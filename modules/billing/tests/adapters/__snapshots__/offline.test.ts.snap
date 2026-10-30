@@ -1,0 +1,21 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the statement reader: named columns in any order, quoted commas, decimal amounts; a bad row is a problem, not a guess 1`] = `
+{
+  "problems": [
+    "row 3: amount "-5.00" is not a positive decimal",
+  ],
+  "rows": [
+    {
+      "amount": 125050,
+      "booked_on": "2026-10-30",
+      "description": "TRF RNX-ABCDEFGH, Ahmed",
+    },
+    {
+      "amount": 1200,
+      "booked_on": "2026-10-31",
+      "description": "fee",
+    },
+  ],
+}
+`;

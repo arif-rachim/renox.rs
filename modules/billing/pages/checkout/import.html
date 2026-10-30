@@ -1,0 +1,13 @@
+<r-layout use="billing">
+  <r-group slot="title"><r-t key="billing.import.title" /></r-group>
+  <h1><r-t key="billing.import.title" /></h1>
+  <x-form action="import">
+    <label><r-t key="billing.import.paste" /><br><textarea name="statement" rows="12" cols="80" dir="ltr" required></textarea></label>
+    <button type="submit"><r-t key="billing.import.match" /></button>
+  </x-form>
+  <ul class="problem"><li r-for="p in problems">{{ p }}</li></ul>
+  <table id="billing-import-results" r-if="results">
+    <thead><tr><th><r-t key="billing.col.date" /></th><th><r-t key="billing.col.amount" /></th><th>Description</th><th><r-t key="billing.col.invoice" /></th><th><r-t key="billing.col.status" /></th></tr></thead>
+    <tbody><tr r-for="r in results"><td>{{ r.booked_on }}</td><td>{{ r.amount }}</td><td>{{ r.description }}</td><td>{{ r.order }}</td><td>{{ r.reason }}</td></tr></tbody>
+  </table>
+</r-layout>

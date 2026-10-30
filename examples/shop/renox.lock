@@ -38,11 +38,11 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 name = "billing"
 version = "1.0.0"
 source = "official"
-hash = "8d44f61fb8f5bbfe4a89a19e0810ea1877276f296777b58b3fe552e2099a1e89"
+hash = "0d3d3076563f39f16e56655aa3d74af4073edb476804a2a84773baf67da9a4d3"
 isolation = "shared"
 mount = "/billing"
 dependencies = ["auth", "i18n"]
-config = { currency = "AED", success_url = "/billing/thanks", cancel_url = "/billing", base_path = "/billing" }
+config = { currency = "AED", success_url = "/billing/thanks", cancel_url = "/billing", base_path = "/billing", methods = "card", bank_name = "", bank_beneficiary = "", bank_iban = "" }
 approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = [], hooks = [] }
 
 [[module]]

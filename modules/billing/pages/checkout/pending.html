@@ -1,0 +1,20 @@
+<r-layout use="billing">
+  <r-group slot="title"><r-t key="billing.pending.title" /></r-group>
+  <h1><r-t key="billing.pending.title" /></h1>
+  <p><r-t key="billing.col.invoice" />: <code>{{ order }}</code> · <r-t key="billing.col.amount" />: {{ amount }}</p>
+  <p class="notice" r-if="paid"><r-t key="billing.pending.paid" /></p>
+  <section id="billing-bank" r-if="bank">
+    <h2><r-t key="billing.pending.bank" /></h2>
+    <dl>
+      <dt><r-t key="billing.pending.reference" /></dt><dd><strong><code>{{ bank.reference }}</code></strong></dd>
+      <dt><r-t key="billing.pending.beneficiary" /></dt><dd>{{ bank.beneficiary }}</dd>
+      <dt><r-t key="billing.pending.bank_name" /></dt><dd>{{ bank.name }}</dd>
+      <dt>IBAN</dt><dd><code dir="ltr">{{ bank.iban }}</code></dd>
+    </dl>
+    <p><r-t key="billing.pending.quote" /></p>
+  </section>
+  <section id="billing-cod" r-if="cod">
+    <h2><r-t key="billing.pending.cod" /></h2>
+    <p><r-t key="billing.col.status" />: {{ cod.state }}</p>
+  </section>
+</r-layout>

@@ -4,6 +4,7 @@
 // provider stripe, duplicates answered before the handler).
 
 import { PspError, stripe, type PspAdapter, type PspEvent } from "./adapter.ts";
+import { COD_MOVES, transferReference, type StatementRow } from "../src/adapters/offline.ts";
 
 export interface Db {
   query<T>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -15,7 +16,7 @@ export interface BillingCtx {
   db: Db;
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
   secrets: Record<string, string | undefined>;
-  config: { currency?: string; success_url?: string; cancel_url?: string };
+  config: { currency?: string; success_url?: string; cancel_url?: string; base_path?: string; methods?: string; bank_name?: string; bank_beneficiary?: string; bank_iban?: string };
   events: { emit(name: string, payload: unknown): Promise<void> };
   /** `billing.fraud_signal` (this module's hook point). */
   hooks?: { run(name: string, args?: unknown): Promise<{ halt: boolean }> };
@@ -71,6 +72,17 @@ export interface CheckoutOptions {
   /** Without a plan: a one-off payment of `amount` (minor units) for `description`. */
   amount?: unknown;
   description?: unknown;
+  /** `card` (the PSP, the default), `cod` (cash on delivery) or `bank` (a transfer with a reference); one-off payments only for the last two. */
+  method?: unknown;
+}
+
+const METHODS = ["card", "cod", "bank"] as const;
+type Method = (typeof METHODS)[number];
+
+/** The methods the app enabled (`config.methods`, comma-separated; card when unset). */
+export function enabledMethods(ctx: BillingCtx): Method[] {
+  const raw = (ctx.config.methods ?? "card").split(",").map((m) => m.trim());
+  return METHODS.filter((m) => raw.includes(m));
 }
 
 /**
@@ -98,6 +110,9 @@ export async function createCheckout(ctx: BillingCtx, o: CheckoutOptions): Promi
     if (typeof o.description !== "string" || o.description.length === 0 || o.description.length > 200) throw new BillingError("a description", "INVALID");
     [mode, amount, description] = ["payment", o.amount, o.description];
   }
+  const method: Method = o.method === undefined ? "card" : (METHODS.find((m) => m === o.method) ?? ("" as Method));
+  if (!enabledMethods(ctx).includes(method)) throw new BillingError(`method: one of ${enabledMethods(ctx).join(", ")}`, "INVALID");
+  if (method !== "card" && mode !== "payment") throw new BillingError("cash on delivery and bank transfer are for one-off payments", "INVALID");
   const existing = await ctx.db.queryOne<{ session_id: string; url: string; status: string; amount: number; customer_id: string }>("select session_id, url, status, amount, customer_id from billing__checkouts where order_id = ?", [orderId]);
   if (existing !== null) {
     if (existing.customer_id !== customer || existing.amount !== amount) throw new BillingError("this order already has a checkout for another amount or customer", "CONFLICT");
@@ -106,6 +121,7 @@ export async function createCheckout(ctx: BillingCtx, o: CheckoutOptions): Promi
   }
   const signal = await ctx.hooks?.run("billing.fraud_signal", { customer_id: customer, order_id: orderId, amount, currency, mode });
   if (signal?.halt === true) throw new BillingError("the checkout was refused", "REFUSED");
+  if (method !== "card") return offlineCheckout(ctx, { orderId, customer, amount, currency, method });
   let s: { id: string; url: string };
   try {
     s = await pspOf(ctx).createSession({ order_id: orderId, customer_id: customer, mode, amount, currency, description, interval, success_url: ctx.config.success_url ?? "/billing/thanks", cancel_url: ctx.config.cancel_url ?? "/billing" });
@@ -125,6 +141,77 @@ export async function createCheckout(ctx: BillingCtx, o: CheckoutOptions): Promi
     );
   }
   return { url: s.url, session_id: s.id, reused: false };
+}
+
+/** Cash on delivery or a bank transfer (#330): the app's own pending page, no PSP. */
+async function offlineCheckout(ctx: BillingCtx, o: { orderId: string; customer: string; amount: number; currency: string; method: "cod" | "bank" }): Promise<{ url: string; session_id: string; reused: boolean }> {
+  const t = Date.now();
+  const reference = o.method === "bank" ? transferReference() : null;
+  const sessionId = reference ?? `cod_${o.orderId}`;
+  const url = `${(ctx.config.base_path ?? "/billing").replace(/\/+$/u, "")}/checkout/pending?order=${encodeURIComponent(o.orderId)}`;
+  await ctx.db.execute(
+    "insert into billing__checkouts (order_id, customer_id, mode, plan_id, amount, currency, session_id, url, status, created_at, updated_at, method, reference) values (?, ?, 'payment', null, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
+    [o.orderId, o.customer, o.amount, o.currency, sessionId, url, t, t, o.method, reference],
+  );
+  if (o.method === "cod") await ctx.db.execute("insert into billing__cod_orders (order_id, state, updated_at) values (?, 'placed', ?)", [o.orderId, t]);
+  return { url, session_id: sessionId, reused: false };
+}
+
+/** Paid outside a PSP: the checkout completed, its paid invoice, the events. */
+async function settleOffline(ctx: BillingCtx, orderId: string, customer: string, amount: number, currency: string): Promise<void> {
+  const t = Date.now();
+  await ctx.db.execute("update billing__checkouts set status = 'completed', updated_at = ? where order_id = ?", [t, orderId]);
+  await ctx.db.execute("insert into billing__invoices (id, customer_id, amount, currency, status, paid_at, created_at) values (?, ?, ?, ?, 'paid', ?, ?) on conflict (id) do nothing", [`order:${orderId}`, customer, amount, currency, t, t]);
+  await ctx.events.emit("billing.payment_received", { customer_id: customer, invoice_id: `order:${orderId}`, amount });
+  await ctx.events.emit("billing.checkout_completed", { customer_id: customer, order_id: orderId });
+}
+
+/** Moves a cash-on-delivery order (billing.manage): delivered is paid, refused ends it unpaid. */
+export async function codUpdate(ctx: BillingCtx, orderId: unknown, state: unknown): Promise<{ state: string }> {
+  await ctx.authz?.require("billing.manage");
+  if (typeof orderId !== "string" || !ORDER.test(orderId)) throw new BillingError("an order id", "INVALID");
+  const row = await ctx.db.queryOne<{ state: string; customer_id: string; amount: number; currency: string }>(
+    "select c.state, k.customer_id, k.amount, k.currency from billing__cod_orders c join billing__checkouts k on k.order_id = c.order_id where c.order_id = ?",
+    [orderId],
+  );
+  if (row === null) throw new BillingError("no such cash-on-delivery order", "NOT_FOUND");
+  if (typeof state !== "string" || !(COD_MOVES[row.state] ?? []).includes(state)) throw new BillingError(`from ${row.state}: ${(COD_MOVES[row.state] ?? []).join(" or ") || "no move"}`, "CONFLICT");
+  await ctx.db.execute("update billing__cod_orders set state = ?, updated_at = ? where order_id = ?", [state, Date.now(), orderId]);
+  if (state === "delivered") await settleOffline(ctx, orderId, row.customer_id, row.amount, row.currency);
+  if (state === "refused") {
+    await ctx.db.execute("update billing__checkouts set status = 'expired', updated_at = ? where order_id = ?", [Date.now(), orderId]);
+    await ctx.events.emit("billing.payment_failed", { customer_id: row.customer_id, order_id: orderId });
+  }
+  return { state };
+}
+
+/**
+ * One row of the bank statement (billing.manage): it pays the open bank
+ * transfer whose reference is in its description, when the amount is the
+ * same. Anything else is kept unmatched for a person to look at; nothing is
+ * guessed from a near amount or a name.
+ */
+export async function matchTransfer(ctx: BillingCtx, row: StatementRow): Promise<{ order_id: string | null; reason: "matched" | "no_reference" | "amount_differs" | "already_paid" }> {
+  await ctx.authz?.require("billing.manage");
+  const ref = /RNX-[0-9A-HJKMNP-TV-Z]{8}/iu.exec(row.description)?.[0]?.toUpperCase() ?? null;
+  const record = (orderId: string | null) =>
+    ctx.db.execute("insert into billing__transfers (id, booked_on, amount, description, order_id, imported_at) values (?, ?, ?, ?, ?, ?)", [newId("trf"), row.booked_on.slice(0, 40), row.amount, row.description, orderId, Date.now()]);
+  const k = ref === null ? null : await ctx.db.queryOne<{ order_id: string; customer_id: string; amount: number; currency: string; status: string }>("select order_id, customer_id, amount, currency, status from billing__checkouts where reference = ? and method = 'bank'", [ref]);
+  if (k === null) {
+    await record(null);
+    return { order_id: null, reason: "no_reference" };
+  }
+  if (k.status === "completed") {
+    await record(null);
+    return { order_id: k.order_id, reason: "already_paid" };
+  }
+  if (k.amount !== row.amount) {
+    await record(null);
+    return { order_id: k.order_id, reason: "amount_differs" };
+  }
+  await record(k.order_id);
+  await settleOffline(ctx, k.order_id, k.customer_id, k.amount, k.currency);
+  return { order_id: k.order_id, reason: "matched" };
 }
 
 /** A subscription checkout (the F67-ALL service): the order is the customer and the plan. */
