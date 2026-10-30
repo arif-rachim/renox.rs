@@ -209,6 +209,15 @@ jobs:
       # Caches ~/.cargo and target/. The key is the job, the rustc version
       # (rust-toolchain.toml), Cargo.lock and the Cargo.toml files.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # The v8 build script puts librusty_v8.a under target/debug/gn_out, which
+      # rust-cache does not keep. When a partial cache match makes cargo
+      # rebuild the v8 crate without rerunning its build script, the link
+      # fails; drop the build script's state so it copies the archive again.
+      - name: Rerun the v8 build script when its archive copy is gone
+        run: |
+          if [[ ! -d target/debug/gn_out ]]; then
+            rm -rf target/debug/build/v8-* target/debug/.fingerprint/v8-*
+          fi
       - run: make rust-check
       # #189: on a pull request, test only the changed crates and the
       # workspace packages that depend on them. The file list reaches the
