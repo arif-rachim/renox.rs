@@ -41,27 +41,48 @@ export async function until<T>(what: string, ms: number, f: () => Promise<T | nu
   }
 }
 
-/** The artifact: POST /api/hits inserts a row; GET answers { n, id, at } (count, newest id and time). */
-function artifact(dir: string, app: string): { hash: string; tar: Buffer } {
-  const migration = "create table app__hits (id integer primary key, at integer not null);\n";
-  const files: Record<string, string> = {
-    "manifest.json": JSON.stringify({
-      artifact: { version: 0 },
-      app: { name: app, timezone: "UTC" },
-      code: { format: "esm-dir", entry: { "functions/api/hits": "functions/api/hits.js" } },
-      routes: [
-        { kind: "function", method: "GET", path: "/api/hits", module: "functions/api/hits", export: "GET" },
-        { kind: "function", method: "POST", path: "/api/hits", module: "functions/api/hits", export: "POST" },
-      ],
-      permissions: { network: [], secrets: [] },
-    }),
-    "code/functions/api/hits.js": `export async function GET({ db }) {
+/** What a tenant deploys: the manifest's routes and the files under `code/` and `policies/`. */
+export interface AppSpec {
+  /** `artifact.version` of the manifest. */
+  version: number;
+  routes: unknown[];
+  /** Module id → source, as `code/<id>.js`; the manifest's `code.entry`. */
+  modules: Record<string, string>;
+  /** Extra files of the artifact (`policies/app/default.cedar`, …), path → text. */
+  files?: Record<string, string>;
+}
+
+/** The default app: POST /api/hits inserts a row; GET answers { n, id, at } (count, newest id and time). */
+export const HITS_APP: AppSpec = {
+  version: 0,
+  routes: [
+    { kind: "function", method: "GET", path: "/api/hits", module: "functions/api/hits", export: "GET" },
+    { kind: "function", method: "POST", path: "/api/hits", module: "functions/api/hits", export: "POST" },
+  ],
+  modules: {
+    "functions/api/hits": `export async function GET({ db }) {
   return Response.json(await db.queryOne("select count(*) as n, coalesce(max(id), 0) as id, coalesce(max(at), 0) as at from app__hits"));
 }
 export async function POST({ db }) {
   const r = await db.execute("insert into app__hits (at) values (?)", [Date.now()]);
   return Response.json({ id: Number(r.lastInsertRowid) });
 }\n`,
+  },
+};
+
+/** The artifact of `spec`, with the `app__hits` migration every stack tenant has. */
+function artifact(dir: string, app: string, spec: AppSpec): { hash: string; tar: Buffer } {
+  const migration = "create table app__hits (id integer primary key, at integer not null);\n";
+  const files: Record<string, string> = {
+    "manifest.json": JSON.stringify({
+      artifact: { version: spec.version },
+      app: { name: app, timezone: "UTC" },
+      code: { format: "esm-dir", entry: Object.fromEntries(Object.keys(spec.modules).map((id) => [id, `${id}.js`])) },
+      routes: spec.routes,
+      permissions: { network: [], secrets: [] },
+    }),
+    ...Object.fromEntries(Object.entries(spec.modules).map(([id, src]) => [`code/${id}.js`, src])),
+    ...spec.files,
     "migrations/app/001_hits.sql": migration,
     "migrations/checksums.json": JSON.stringify({ version: 0, files: { "app/001_hits.sql": sha256(migration) } }),
   };
@@ -70,7 +91,8 @@ export async function POST({ db }) {
     writeFileSync(join(dir, rel), text);
   }
   const hash = contentHash(new Map(Object.entries(files).map(([p, t]) => [p, new TextEncoder().encode(t)])));
-  const tar = spawnSync("tar", ["-cf", "-", "-C", dir, "manifest.json", "code", "migrations"], { maxBuffer: 1 << 26 });
+  const top = [...new Set(Object.keys(files).map((p) => p.split("/")[0] as string))];
+  const tar = spawnSync("tar", ["-cf", "-", "-C", dir, ...top], { maxBuffer: 1 << 26 });
   if (tar.status !== 0) throw new Error(`tar: ${tar.stderr}`);
   return { hash, tar: tar.stdout as Buffer };
 }
@@ -101,6 +123,15 @@ export interface StackOptions {
   idleTimeoutSecs?: number;
   /** S3 for the API's artifacts (storage-down); otherwise the API keeps them in memory. */
   s3?: { endpoint: string; accessKeyId: string; secretAccessKey: string; bucket?: string };
+  /** `[realtime] user_connections` (anonymous clients count per IP, and the stack's clients share 127.0.0.1). */
+  realtimeUserConnections?: number;
+  /**
+   * Keep every meter record the nodes send (`Stack.meterRecords`): their
+   * control URL points at a pass-through proxy that copies the bodies of
+   * `POST /v1/ingest/meters`. The control plane folds records into usage
+   * hours, so a per-record field is not readable from it afterwards.
+   */
+  recordMeters?: boolean;
 }
 
 export interface Hit {
@@ -116,7 +147,10 @@ export class Stack {
   readonly tenants: Tenant[] = [];
   apiPort = 0;
   nodePort = 0;
+  /** The meter records the nodes sent (`recordMeters` only). */
+  readonly meterRecords: Record<string, unknown>[] = [];
   private api: Bun.Subprocess | null = null;
+  private recorder: ReturnType<typeof Bun.serve> | null = null;
   /** tmpfs mounts of the nodes' data directories (root only), unmounted on stop. */
   private readonly mounts: string[] = [];
   private readonly masterKey = randomBytes(32).toString("base64");
@@ -135,6 +169,7 @@ export class Stack {
     s.apiPort = await freePort();
     s.nodePort = await freePort();
     await s.startApi();
+    if (opts.recordMeters) s.startRecorder();
     for (const [i, node] of ["node-chaos-1", "node-chaos-2"].entries()) {
       const dir = join(s.root, node);
       mkdirSync(dir, { recursive: true });
@@ -182,6 +217,36 @@ export class Stack {
     await until("the control API", 60_000, async () => ((await fetch(`${this.apiUrl}/v1/healthz`)).ok ? true : null));
   }
 
+  /** The pass-through proxy of `recordMeters` in front of the API's node listener. */
+  private startRecorder(): void {
+    const upstream = `http://127.0.0.1:${this.nodePort}`;
+    this.recorder = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      idleTimeout: 0,
+      fetch: async (req) => {
+        const url = new URL(req.url);
+        const body = req.method === "GET" || req.method === "HEAD" ? undefined : new Uint8Array(await req.arrayBuffer());
+        if (req.method === "POST" && url.pathname === "/v1/ingest/meters" && body !== undefined) {
+          try {
+            const batch = JSON.parse(new TextDecoder().decode(body)) as { records?: Record<string, unknown>[] };
+            this.meterRecords.push(...(batch.records ?? []));
+          } catch {
+            // Not JSON: the API answers it; nothing to keep.
+          }
+        }
+        const headers = new Headers(req.headers);
+        headers.delete("host");
+        return fetch(`${upstream}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: "manual" });
+      },
+    });
+  }
+
+  /** The URL the nodes' `[control] url` names: the API's node listener, or the recorder in front of it. */
+  private get controlUrl(): string {
+    return this.recorder === null ? `http://127.0.0.1:${this.nodePort}` : `http://127.0.0.1:${this.recorder.port}`;
+  }
+
   async stopApi(): Promise<void> {
     this.api?.kill();
     await this.api?.exited;
@@ -191,9 +256,10 @@ export class Stack {
   async startWorker(n: Node): Promise<void> {
     mkdirSync(n.dataDir, { recursive: true });
     const idle = this.opts.idleTimeoutSecs === undefined ? "" : `idle_timeout_secs = ${this.opts.idleTimeoutSecs}\n`;
+    const rt = this.opts.realtimeUserConnections === undefined ? "" : `[realtime]\nuser_connections = ${this.opts.realtimeUserConnections}\n`;
     writeFileSync(
       join(n.dir, "worker.toml"),
-      `mode = "controlled"\nlisten = "127.0.0.1:${n.port}"\nnode_id = "${n.node}"\ndata_dir = "${n.dataDir}"\nartifacts_dir = "artifacts"\nmeters_dir = "meters"\nlogs_dir = "logs"\nmeter_flush_ms = 200\n${idle}fetch_blocked_addresses = ["203.0.113.250"]\n[gateway]\nrate_limit_per_ip = 100000.0\nrate_limit_burst = 100000\nmax_connections_per_ip = 1000\n[control]\nurl = "http://127.0.0.1:${this.nodePort}"\nnode_token_file = "node.token"\nhealth_listen = "127.0.0.1:${n.health}"\nnode_listen = "127.0.0.1:${n.listen}"\n[sandbox]\nallow_unsandboxed = true\n[process]\nrun_dir = "run"\n[replication]\nenabled = true\nreplica = "file"\npath = "${join(this.root, "replica")}"\nsync_interval_ms = 1000\nstop_grace_ms = 3000\n`,
+      `mode = "controlled"\nlisten = "127.0.0.1:${n.port}"\nnode_id = "${n.node}"\ndata_dir = "${n.dataDir}"\nartifacts_dir = "artifacts"\nmeters_dir = "meters"\nlogs_dir = "logs"\nmeter_flush_ms = 200\n${idle}fetch_blocked_addresses = ["203.0.113.250"]\n[gateway]\nrate_limit_per_ip = 100000.0\nrate_limit_burst = 100000\nmax_connections_per_ip = 1000\n[control]\nurl = "${this.controlUrl}"\nnode_token_file = "node.token"\nhealth_listen = "127.0.0.1:${n.health}"\nnode_listen = "127.0.0.1:${n.listen}"\n[sandbox]\nallow_unsandboxed = true\n[process]\nrun_dir = "run"\n[replication]\nenabled = true\nreplica = "file"\npath = "${join(this.root, "replica")}"\nsync_interval_ms = 1000\nstop_grace_ms = 3000\n${rt}`,
     );
     n.proc = Bun.spawn([this.worker, "--config", join(n.dir, "worker.toml")], { cwd: n.dir, stdout: "ignore", stderr: Bun.file(join(n.dir, `worker-${Date.now()}.log`)) });
     await until(`${n.node} healthy`, 60_000, async () => ((await fetch(`http://127.0.0.1:${n.health}/healthz`)).ok ? true : null));
@@ -212,14 +278,14 @@ export class Stack {
     });
   }
 
-  /** A tenant with one active app (`<id>.renox.test`). */
-  async tenant(id: string): Promise<Tenant> {
+  /** A tenant with one active app (`<id>.renox.test`), the hits app unless `spec` says otherwise. */
+  async tenant(id: string, spec: AppSpec = HITS_APP): Promise<Tenant> {
     const created = (await (await this.op("POST", "/v1/admin/tenants", { tenant_id: id, name: id, tier: "free" })).json()) as { token: { token: string } };
     const token = created.token.token;
     const auth = { authorization: `Bearer ${token}` };
     const app = id;
     await fetch(`${this.apiUrl}/v1/apps`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: app }) });
-    const { hash, tar } = artifact(join(this.root, `artifact-${id}`), app);
+    const { hash, tar } = artifact(join(this.root, `artifact-${id}`), app, spec);
     const t: Tenant = { id, app, host: `${app}.${DOMAIN}`, token, hash, tar };
     await this.deploy(t);
     this.tenants.push(t);
@@ -261,7 +327,7 @@ export class Stack {
     if (made.status !== 201) throw new Error(`token ${id}: ${made.status} ${await made.text()}`);
     const tok = ((await made.json()) as { token: string }).token;
     await fetch(`${this.apiUrl}/v1/apps`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify({ name: id }) });
-    const { hash, tar } = artifact(join(this.root, `artifact-${id}`), id);
+    const { hash, tar } = artifact(join(this.root, `artifact-${id}`), id, HITS_APP);
     const t: Tenant = { id, app: id, host: `${id}.${DOMAIN}`, token: tok, hash, tar };
     await this.deploy(t);
     this.tenants.push(t);
@@ -384,6 +450,7 @@ export class Stack {
       spawnSync("pgrep", ["-f", `litestream replicate -config ${this.root}/`]).status === 1 ? true : null,
     ).catch(() => spawnSync("pkill", ["-KILL", "-f", `litestream replicate -config ${this.root}/`]));
     await this.stopApi();
+    this.recorder?.stop(true);
     for (const m of this.mounts) spawnSync("umount", ["-l", m]);
   }
 
