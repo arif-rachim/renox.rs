@@ -5,7 +5,7 @@ version = 1
 name = "audit"
 version = "1.0.0"
 source = "official"
-hash = "afdef92fc39942028de41aceca151ccd2470fac99fdc9b67b5122d490d1de7e8"
+hash = "af95c4f9be252e48ae6bc1ab43f824697758b2c2352c391774c08e3cb6c03057"
 isolation = "shared"
 mount = "/audit"
 dependencies = []
@@ -33,6 +33,17 @@ mount = "/auth"
 dependencies = ["i18n"]
 config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "", uaepass_client_id = "", uaepass_env = "staging", phone_login = true, passkeys = true, passkey_rp_id = "", passkey_origin = "" }
 approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
+
+[[module]]
+name = "email"
+version = "1.0.0"
+source = "official"
+hash = "be021a2ddc5d02fbfcc37c54de7e8540918ea223725947494c943e9d41da85e8"
+isolation = "shared"
+mount = "/email"
+dependencies = ["auth", "i18n"]
+config = { provider = "resend", from = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
+approved = { tables = "email__*", network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"], secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_mail"] }
 
 [[module]]
 name = "notifications"

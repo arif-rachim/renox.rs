@@ -23,6 +23,7 @@ notifications = { version = "^1.0.0", mount = "/notifications" }
 # F5 (#292; docs/11-authorization.md): orders are owned rows, a refund is a
 # sensitive action behind roles, an amount threshold and the second factor
 # (policies/app/shop.cedar), and its denials and grants are audited.
+email = { version = "^1.0.0" }
 [authz]
 actions = ["order.list", "order.read", "invoice.refund"]
 sensitive = ["invoice.refund"]
