@@ -34,6 +34,8 @@ Not built:
 
 #325's issue comment lists what each of these needs.
 
+The F7 unit-cost numbers are in `reports/2026-10-30-unit-cost-f7.md`: 0.696 ms of billed CPU per request (mean) on a pages and API mix, $0.13 per 1M requests, and 1.87 ms of worker-process CPU per request. The F5 to F7 meter fields stay at 0 until a load signs users in and uses realtime, storage, AI or PDF.
+
 ## Rollup columns
 
 From `meter.md` section 7:
