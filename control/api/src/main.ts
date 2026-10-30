@@ -14,6 +14,7 @@ import { openPostgres } from "./db/postgres.ts";
 import { openPglite } from "./db/pglite.ts";
 import { MemoryObjectStore, S3ObjectStore } from "./storage/object-store.ts";
 import type { Db } from "./db/db.ts";
+import { sweepErasures } from "./tenants/erasure.ts";
 import { routeService } from "./routes/service.ts";
 import { sweep } from "./workers/health.ts";
 import { NullMailer, OutboxDirMailer } from "./auth/mailer.ts";
@@ -52,6 +53,9 @@ await routeService(deps).publisher.listen();
 setInterval(() => void sweep(deps).catch((e: unknown) => log.error("sweep failed", { error: String(e) })), 5_000);
 // Custom domains: verification, DNS checks, certificates (src/domains/README.md).
 await startDomainJobs(deps);
+// Tenant erasures (#308): due steps retried every minute (each erasure's own retry is hourly).
+setInterval(() => void sweepErasures(deps).catch((e: unknown) => log.error("erasure sweep failed", { error: String(e) })), 60_000);
+if ((config.exportKmsKeyId ?? null) === null) log.warn("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (local mode only)");
 
 const server = Bun.serve({ port: config.port, fetch: publicApp.fetch, idleTimeout: 0 });
 const nodeServer = Bun.serve({ hostname: nodeAt.hostname, port: nodeAt.port, fetch: nodeApp.fetch, idleTimeout: 0 });

@@ -26,6 +26,8 @@ export interface Config {
   dashboardUrl: string;
   /** Directory where account emails are written as files (local development); null: no mail delivery. */
   mailOutboxDir: string | null;
+  /** `EXPORT_KMS_KEY_ID` (#308): exports are written with SSE-KMS and this key; unset: plain puts (local mode, logged at start). */
+  exportKmsKeyId?: string | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -57,5 +59,6 @@ export function loadConfig(env: Env = process.env): Config {
     masterKey: env.CONTROL_MASTER_KEY ?? null,
     dashboardUrl: env.CONTROL_DASHBOARD_URL ?? "https://dashboard.renox.app",
     mailOutboxDir: env.CONTROL_MAIL_OUTBOX_DIR ?? null,
+    exportKmsKeyId: env.EXPORT_KMS_KEY_ID ?? null,
   };
 }

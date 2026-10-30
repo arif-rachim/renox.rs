@@ -54,6 +54,44 @@ async function setup(): Promise<{ h: Harness; token: string; restores: unknown[]
 }
 
 describe("backups (deploy-api.md section 14)", () => {
+  test("#308: with EXPORT_KMS_KEY_ID the export is put with SSE-KMS and that key; without it, a plain put", async () => {
+    const { h, token } = await setup();
+    const kms = "arn:aws:kms:me-central-1:111122223333:key/0b2e1c4f-renox-export";
+    h.deps.config.exportKmsKeyId = kms;
+    const res = await h.request("POST", "/v1/apps/shop/backups/export", { token, json: {} });
+    expect(res.status).toBe(201);
+    const [key] = [...h.store.objects.keys()].filter((k) => k.startsWith("exports/t_bk/"));
+    expect(h.store.encryption.get(key as string)).toEqual({ "x-amz-server-side-encryption": "aws:kms", "x-amz-server-side-encryption-aws-kms-key-id": kms });
+    h.deps.config.exportKmsKeyId = null;
+    h.clock.now += 1_000;
+    expect((await h.request("POST", "/v1/apps/shop/backups/export", { token, json: {} })).status).toBe(201);
+    const plain = [...h.store.objects.keys()].filter((k) => k.startsWith("exports/t_bk/")).find((k) => k !== key);
+    expect(h.store.encryption.get(plain as string)).toEqual({});
+  });
+
+  test("#308: the S3 store signs the SSE-KMS headers into the put (SigV4, path style)", async () => {
+    const { signedPut } = await import("../src/storage/object-store.ts");
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ url: String(input), headers: init?.headers as Record<string, string> });
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    try {
+      const config = { endpoint: "http://127.0.0.1:9000", bucket: "renox-exports", region: "me-central-1", accessKeyId: "AKIDEXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY" };
+      const res = await signedPut(config, "exports/t_a/t_a/1.db", new TextEncoder().encode("x"), { "x-amz-server-side-encryption": "aws:kms", "x-amz-server-side-encryption-aws-kms-key-id": "k1" }, new Date(Date.UTC(2026, 9, 30, 12, 0, 0)));
+      expect(res.status).toBe(200);
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(seen[0]?.url).toBe("http://127.0.0.1:9000/renox-exports/exports/t_a/t_a/1.db");
+    const auth = seen[0]?.headers.authorization ?? "";
+    expect(auth).toStartWith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261030/me-central-1/s3/aws4_request, ");
+    expect(auth).toContain("SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-server-side-encryption;x-amz-server-side-encryption-aws-kms-key-id,");
+    expect(auth).not.toContain("wJalrXUtnFEMI");
+    expect(seen[0]?.headers["x-amz-server-side-encryption"]).toBe("aws:kms");
+  });
+
   test("export answers a signed URL; the object is not readable without the signature; the sha256 matches; audited", async () => {
     const { h, token } = await setup();
     const res = await h.request("POST", "/v1/apps/shop/backups/export", { token, json: { expires_in_seconds: 300 } });

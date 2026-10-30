@@ -157,6 +157,14 @@ Tokens have a fixed prefix so a leaked one can be found. Registering it with Git
 
 The endpoint is not built yet; it needs no change to the token format.
 
+## Tenant erasure (#308)
+
+`src/tenants/erasure.ts`: `GET /v1/tenants/{tenant_id}` (`getTenant`, the caller's own tenant with its `erasure`) and `DELETE /v1/tenants/{tenant_id}` (`deleteTenant`, the owner's session only, `{ confirm: "<tenant_id>" }`; deploy-api.md 0.4 section 3). The answer is 202 with the `pending` record; the steps run after the answer and every minute after that (`sweepErasures` in `main.ts`), each retried hourly until confirmed: `routes` (the tenant suspended, every route entry removed and published), `tokens` (revoked), `node_drop` (`nodeDropTenant` on every node with a listener), `exports` (objects and rows), `records` (apps, deployments, secrets, domains, client error groups, meters, permissions, reports). `done` sets `completed_at`, writes the platform audit row and emails the owner (`tenant_erased`); a step still failing 24 hours after the request makes it `failed` with that step and an `erasure_failed` alert row. What stays: the audit rows, the memberships and the tenant row (suspended) as the tombstone. 409 while the tenant is moving. Migration `0012_erasure.sql`.
+
+**Exports with SSE-KMS.** `EXPORT_KMS_KEY_ID` set: `exportBackup` writes the export with `x-amz-server-side-encryption: aws:kms` and that key id (a SigV4-signed put, `src/storage/object-store.ts` `signedPut`, since Bun's S3 client has no SSE options); unset (local mode): a plain put and a warning at start. The export bucket refuses any other put (`ops/terraform/bucket.tf`, #309).
+
+Not done yet (#308 stays open for them): deleting the database's Litestream generations in the replica store (the control plane holds no replica credentials; the node's drop stops the sidecar after the last frames), the dashboard settings page's delete action and state, the `bench/chaos/scenarios/erasure.ts` scenario (the chaos stack cannot run in the batch container, see #312).
+
 ## Tests
 
 `bun test` in this directory. The tests run on one in-process PGlite (started once per test run, emptied before each test). `tests/postgres.test.ts` also checks the production adapter against a real server when `CONTROL_TEST_DATABASE_URL` is set; the compose stack creates `renox_test` for it:
