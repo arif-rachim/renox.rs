@@ -1029,6 +1029,12 @@ impl TenantDb {
     }
 
     fn run_execute(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
+        // #311: at the disk's write watermark a tenant or module write is
+        // refused here as well (SQLite would answer SQLITE_FULL later).
+        if crate::limits::writes_refused() && !matches!(&*self.policy_override.borrow(), Some(None))
+        {
+            return Err(DbError::QuotaExceeded);
+        }
         self.measured(ctx, sql, || {
             let (rows, read, written) = self.on_writer(ctx, sql, params, false)?;
             let _ = rows;

@@ -139,6 +139,18 @@ impl renox_gateway::CellDispatcher for NodeDispatcher {
             Dispatch::Shared(d) => d.dispatch(ctx.clone(), req).await,
             Dispatch::Tiers(s) => s.dispatch(ctx.clone(), req).await,
         };
+        // #311: a statement found the file damaged mid-request (SQLITE_CORRUPT,
+        // SQLITE_NOTADB). The tenant's cells of that database are drained,
+        // the file goes to the quarantine-and-restore path of #103, and this
+        // request answers what the following ones answer while it runs.
+        if let Some(c) = res.extensions().get::<crate::manager::DbCorrupt>().cloned() {
+            let drained = self.manager.drain_database(&c.database);
+            tracing::error!(tenant_id = %ctx.tenant_id, database = %c.database, drained, "damaged tenant file: cells drained, restoring");
+            if let Some(r) = &self.replication {
+                r.recover_corrupt(&c.database);
+            }
+            return unavailable("RENOX_DB_UNAVAILABLE", "30", &ctx, &headers);
+        }
         // The request that found the damage failed opening the file (500):
         // it answers what the following ones answer while the restore runs.
         if res.status() == http::StatusCode::INTERNAL_SERVER_ERROR && restoring(&ctx).is_some() {

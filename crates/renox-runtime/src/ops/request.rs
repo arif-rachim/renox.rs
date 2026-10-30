@@ -57,6 +57,9 @@ pub(crate) struct RequestState {
     pub db_rows: u64,
     /// `logs_dropped` of the meter record.
     pub logs_dropped: u64,
+    /// A statement found the file damaged (`SQLITE_CORRUPT`, `SQLITE_NOTADB`;
+    /// #311): the cell answers 503 and restores the file.
+    pub db_corrupt: bool,
     /// `render_fuel` / `render_ms` of realtime `fragment` payloads the
     /// request published (ops.md 1.5.0 section 18).
     pub render_fuel: u64,
@@ -82,6 +85,7 @@ impl RequestState {
             db_ms: 0.0,
             db_rows: 0,
             logs_dropped: 0,
+            db_corrupt: false,
             render_fuel: 0,
             render_ms: 0.0,
             ended: false,

@@ -275,6 +275,10 @@ impl DiskMonitor {
         let after = self.inner.watermarks.level(pct, before);
         if after != before {
             self.inner.level.store(after as u8, Ordering::SeqCst);
+            // #311: the data layer refuses tenant writes at the same watermark.
+            renox_data::limits::refuse_writes(
+                after == Level::RefuseWrites && self.inner.enforcing.load(Ordering::SeqCst),
+            );
             self.inner.changes.fetch_add(1, Ordering::SeqCst);
             if after > before {
                 tracing::error!(

@@ -156,6 +156,8 @@ pub struct InvocationMeter {
     /// `render_fuel` / `render_ms`.
     pub render_fuel: u64,
     pub render_ms: f64,
+    /// A statement found the tenant file damaged (#311).
+    pub db_corrupt: bool,
 }
 
 impl InvocationMeter {
@@ -174,6 +176,7 @@ impl InvocationMeter {
             authz_evals: 0,
             render_fuel: 0,
             render_ms: 0.0,
+            db_corrupt: false,
         }
     }
 }
@@ -2653,6 +2656,7 @@ impl InFlight {
             authz_evals: self.used.authz_evals,
             render_fuel: self.used.render_fuel,
             render_ms: self.used.render_ms,
+            db_corrupt: self.used.db_corrupt,
         }
     }
 }
@@ -3055,6 +3059,7 @@ struct RequestEnd {
     authz_evals: u64,
     render_fuel: u64,
     render_ms: f64,
+    db_corrupt: bool,
     /// The principal the request ran as (`None` before the prelude).
     principal: Option<Arc<renox_authz::Principal>>,
     /// An open transaction was rolled back.
@@ -3129,6 +3134,7 @@ fn end_request(
         authz_evals: request.authz.evals,
         render_fuel: request.render_fuel,
         render_ms: request.render_ms,
+        db_corrupt: request.db_corrupt,
         principal: request.authz.principal.clone(),
         rolled_back_tx,
         response_sent_bytes,

@@ -235,6 +235,13 @@ pub type SyncObserver = Arc<dyn Fn(&[RouteEntry]) + Send + Sync>;
 
 /// What happens around a tenant file's life in this process (#255: the
 /// Litestream sidecar, `crate::replication`).
+/// A response whose request found its tenant file damaged (#311): the
+/// node dispatcher (`worker.rs`) answers 503 and starts the restore.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbCorrupt {
+    pub database: String,
+}
+
 pub trait DbLifecycle: Send + Sync + 'static {
     /// Before the file is opened, on the database thread (blocking is fine):
     /// restore a missing or corrupt file. An error refuses the open.
@@ -1363,6 +1370,23 @@ impl CellManager {
             }
             _ => dispatch.await,
         };
+        // #311: a statement found the file damaged. The node dispatcher
+        // answers 503 RENOX_DB_UNAVAILABLE, drains the database's cells and
+        // hands the file to the restore (worker.rs).
+        if out.meter.db_corrupt {
+            let database = self
+                .inner
+                .db_keys
+                .lock()
+                .expect("db keys lock")
+                .get(&cell.key)
+                .cloned()
+                .unwrap_or_else(|| cell.key.tenant_id.clone());
+            tracing::error!(tenant_id = %cell.key.tenant_id, %database, request_id = %ctx.request_id, "tenant file damaged mid-request");
+            out.response.extensions_mut().insert(DbCorrupt { database });
+            // The record says the request failed, whatever the handler answered.
+            out.meter.status = RuntimeStatus::Error;
+        }
         // Pages (ops.md section 14): render off the isolate thread; platform
         // errors on page routes and HTML 404s get the error pages
         // (errors.md section 1).

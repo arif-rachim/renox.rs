@@ -1071,6 +1071,11 @@ mod v8_ops {
             let mut r = request.borrow_mut();
             r.db_ms += measured.ms;
             r.db_rows += measured.rows;
+            if let Err(e) = &measured.value
+                && renox_data::integrity::is_corruption(e)
+            {
+                r.db_corrupt = true;
+            }
         }
         measured.value.map_err(|e| match (&e, module.as_deref()) {
             // ops.md 1.3.0: a module's refused statement names the module.
