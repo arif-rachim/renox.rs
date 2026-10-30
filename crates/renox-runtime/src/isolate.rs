@@ -88,6 +88,19 @@ pub struct IsolateSpec {
     /// Isolates of the deployment when it is hot, the spare not counted
     /// (#156; the cell sets it per tier). 0 and 1 mean one isolate, no pool.
     pub max_isolates: usize,
+    /// ops.md 1.7.0 section 21: the file store of `ctx.storage`. `None`
+    /// gives a deployment whose storage calls fail.
+    pub storage: Option<StorageSlot>,
+}
+
+/// The cell's file store, as an [`IsolateSpec`] carries it.
+#[derive(Clone)]
+pub struct StorageSlot(pub Arc<dyn crate::ops::storage::StorageHost>);
+
+impl std::fmt::Debug for StorageSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StorageSlot")
+    }
 }
 
 /// Per-request context from the cell.
@@ -158,6 +171,8 @@ pub struct InvocationMeter {
     pub render_ms: f64,
     /// A statement found the tenant file damaged (#311).
     pub db_corrupt: bool,
+    /// `meter.md` 0.4: the tenant's stored bytes after a put or delete.
+    pub storage_bytes: Option<u64>,
 }
 
 impl InvocationMeter {
@@ -177,6 +192,7 @@ impl InvocationMeter {
             render_fuel: 0,
             render_ms: 0.0,
             db_corrupt: false,
+            storage_bytes: None,
         }
     }
 }
@@ -2525,6 +2541,30 @@ async fn create_worker(
         state.put(crate::ops::modules::CrossEnv(Rc::new(PoolLink(
             ctx.link.clone(),
         ))));
+        // ops.md 1.7.0 section 21: the file store and each owner's allowed types.
+        let types = |v: Option<&serde_json::Value>| -> Vec<String> {
+            v.and_then(|s| s.get("allowed_types"))
+                .and_then(|t| t.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let mut allowed = BTreeMap::new();
+        allowed.insert(
+            crate::ops::modules::APP.to_string(),
+            types(ctx.artifact.manifest.storage.as_ref()),
+        );
+        for m in ctx.modules.modules() {
+            allowed.insert(m.name.clone(), types(m.storage.as_ref()));
+        }
+        state.put(Rc::new(crate::ops::storage::StorageEnv {
+            host: ctx.spec.storage.as_ref().map(|s| s.0.clone()),
+            tenant_id: ctx.spec.tenant_id.clone(),
+            allowed,
+        }));
     }
     let guards = Guards {
         watchdog,
@@ -2966,6 +3006,7 @@ impl InFlight {
             render_fuel: self.used.render_fuel,
             render_ms: self.used.render_ms,
             db_corrupt: self.used.db_corrupt,
+            storage_bytes: self.used.storage_bytes,
         }
     }
 }
@@ -3377,6 +3418,7 @@ struct RequestEnd {
     response_sent_bytes: u64,
     /// CPU of the request's calls into other isolates (ops.md 1.7.0 section 15.6).
     cross_cpu_ms: f64,
+    storage_bytes: Option<u64>,
 }
 
 /// How a request ended, for the rollback counters.
@@ -3454,6 +3496,7 @@ fn end_request(
         rolled_back_tx,
         response_sent_bytes,
         cross_cpu_ms: request.cross_cpu_ms,
+        storage_bytes: request.storage_bytes,
     }
 }
 

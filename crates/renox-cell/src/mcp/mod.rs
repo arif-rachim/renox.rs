@@ -386,6 +386,11 @@ fn record(
         authz_evals: Some(meter.authz_evals).filter(|n| *n > 0),
         realtime_conn_seconds: None,
         realtime_messages: None,
+        storage_bytes: None,
+        image_variants: None,
+        ai_tokens_in: None,
+        ai_tokens_out: None,
+        render_pdf_ms: None,
     });
 }
 

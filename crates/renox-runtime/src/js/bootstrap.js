@@ -52,6 +52,12 @@ import {
   op_span_service_begin,
   op_span_service_end,
   op_modules_call,
+  op_storage_put,
+  op_storage_get,
+  op_storage_read,
+  op_storage_delete,
+  op_storage_sign,
+  op_storage_list,
 } from "ext:core/ops";
 
 const {
@@ -81,6 +87,8 @@ const {
   ObjectGetPrototypeOf,
   ObjectPrototypeHasOwnProperty,
   ObjectPrototypeIsPrototypeOf,
+  Uint8ArrayPrototype,
+  NumberIsInteger,
   PromisePrototypeThen,
   PromiseReject,
   PromiseResolve,
@@ -228,6 +236,14 @@ class JobStateError extends RenoxError {
   }
 }
 
+// ops.md 1.7.0 section 21: every RENOX_STORAGE_* code.
+class StorageError extends RenoxError {
+  constructor(code, message, details) {
+    super(code, message, details);
+    this.name = "StorageError";
+  }
+}
+
 /** Ops reject with "CODE|json-details|message"; turn that into a RenoxError. */
 function toRenoxError(e) {
   const msg = typeof e?.message === "string" ? e.message : "";
@@ -258,6 +274,12 @@ function toRenoxError(e) {
       return new JobNotFoundError(message, details ?? undefined);
     case "RENOX_JOB_STATE":
       return new JobStateError(message, details ?? undefined);
+    case "RENOX_STORAGE_QUOTA":
+    case "RENOX_STORAGE_TYPE":
+    case "RENOX_STORAGE_TOO_LARGE":
+    case "RENOX_STORAGE_KEY":
+    case "RENOX_STORAGE_NOT_FOUND":
+      return new StorageError(code, message, details ?? undefined);
     default:
       return new RenoxError(code, message, details ?? undefined);
   }
@@ -956,6 +978,52 @@ function makeEvents(module) {
 }
 
 /** `ctx.jobs` of `module` (ops.md 1.6.0 section 20). */
+/** `ctx.storage` of `module` (ops.md 1.7.0 section 21): keys under `<module>/`. */
+function makeStorage(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  };
+  const checkKey = (key, what) => {
+    if (typeof key !== "string" || key.length === 0) throw new TypeError(`storage.${what}: key must be a string`);
+  };
+  return ObjectFreeze({
+    async put(key, bytes, options) {
+      checkKey(key, "put");
+      if (!ObjectPrototypeIsPrototypeOf(Uint8ArrayPrototype, bytes)) throw new TypeError("storage.put: bytes must be a Uint8Array");
+      const contentType = options?.contentType;
+      if (typeof contentType !== "string" || contentType.length === 0) throw new TypeError("storage.put: options.contentType is required");
+      return ObjectFreeze(await call(op_storage_put, key, bytes, contentType, options?.public === true, options?.sanitised === true, moduleArg(module)));
+    },
+    async get(key) {
+      checkKey(key, "get");
+      return ObjectFreeze(await call(op_storage_get, key, moduleArg(module)));
+    },
+    async read(key) {
+      checkKey(key, "read");
+      return await call(op_storage_read, key, moduleArg(module));
+    },
+    async delete(key) {
+      checkKey(key, "delete");
+      return await call(op_storage_delete, key, moduleArg(module));
+    },
+    async sign(key, ttlSeconds) {
+      checkKey(key, "sign");
+      if (typeof ttlSeconds !== "number" || !NumberIsInteger(ttlSeconds)) throw new TypeError("storage.sign: ttlSeconds must be an integer");
+      return ObjectFreeze(await call(op_storage_sign, key, ttlSeconds, moduleArg(module)));
+    },
+    async list(prefix, options = undefined) {
+      if (typeof prefix !== "string") throw new TypeError("storage.list: prefix must be a string");
+      const limit = options?.limit ?? 100;
+      const page = await call(op_storage_list, prefix, limit, options?.cursor ?? null, moduleArg(module));
+      return ObjectFreeze({ items: ObjectFreeze(ArrayPrototypeMap(page.items, (f) => ObjectFreeze(f))), next_cursor: page.next_cursor ?? null });
+    },
+  });
+}
+
 function makeJobs(module) {
   const call = async (op, ...args) => {
     try {
@@ -1294,6 +1362,7 @@ function moduleFields(m) {
     hooks: makeHooks(m),
     events: makeEvents(m),
     jobs: makeJobs(m),
+    storage: makeStorage(m),
     authz: makeAuthz(m),
     realtime: makeRealtime(m),
     password,

@@ -414,6 +414,23 @@ impl Worker {
         manager.set_authz_config(config.authz.to_config());
         manager.set_realtime_config(config.realtime.clone());
         manager.set_jobs_config(config.jobs.clone());
+        // #321: the platform bucket of tenant files, when configured.
+        if let Some(bucket) = &config.storage.bucket {
+            match crate::storage::S3Store::new(
+                config.storage.endpoint.clone(),
+                config
+                    .storage
+                    .region
+                    .clone()
+                    .unwrap_or_else(|| "us-east-1".into()),
+                bucket.clone(),
+            ) {
+                Ok(s3) => manager.set_file_store(std::sync::Arc::new(std::sync::Arc::new(s3))),
+                Err(e) => {
+                    tracing::error!(error = %e, "[storage] bucket configured but unusable; files stay local")
+                }
+            }
+        }
         // Litestream per tenant file (#255).
         let replication = config.replication.enabled.then(|| {
             let r = crate::replication::Replication::start(

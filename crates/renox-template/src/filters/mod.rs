@@ -329,3 +329,73 @@ pub fn url(value: &Value) -> Value {
     }
     Value::from(s)
 }
+
+/// Internal (`<x-image>`, ops.md 1.7.0 section 21; #321): the `src`,
+/// `srcset` (1x and 2x), `width` and `height` attributes of a stored image,
+/// from the file object the loader passes (`ctx.storage.get`: `key`,
+/// `width`, `height`, and `exp` / `sig` from `ctx.storage.sign` for a
+/// private file). `opts` is `[width or none, fit, focus, placeholder]`.
+/// A value without a `key` renders no attributes.
+pub fn image(
+    file: &Value,
+    width: Option<i64>,
+    fit: Option<String>,
+    focus: Option<String>,
+    placeholder: Option<bool>,
+) -> Value {
+    let get = |k: &str| {
+        file.get_attr(k)
+            .ok()
+            .filter(|v| !v.is_undefined() && !v.is_none())
+    };
+    let Some(key) = get("key").map(|v| v.to_string()) else {
+        return Value::from_safe_string(String::new());
+    };
+    // Keys are `^[a-z0-9][a-z0-9/_.-]{0,255}$` (ops.md section 21); refuse anything else.
+    if key.is_empty()
+        || !key.chars().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '/' | '_' | '.' | '-')
+        })
+    {
+        return Value::from_safe_string(String::new());
+    }
+    let num = |k: &str| {
+        get(k)
+            .and_then(|v| i64::try_from(v).ok())
+            .filter(|n| *n > 0)
+    };
+    let (fw, fh) = (num("width"), num("height"));
+    let w = width.filter(|n| *n > 0).or(fw).unwrap_or(400);
+    let mut extra = String::new();
+    for (name, v) in [("fit", fit), ("focus", focus)] {
+        if let Some(v) = v.filter(|v| matches!(v.as_str(), "cover" | "contain" | "center" | "face"))
+        {
+            extra.push_str(&format!("&amp;{name}={v}"));
+        }
+    }
+    if let (Some(exp), Some(sig)) = (get("exp"), get("sig")) {
+        let sig = sig.to_string();
+        let exp = exp.to_string();
+        if sig.chars().all(|c| c.is_ascii_hexdigit()) && exp.chars().all(|c| c.is_ascii_digit()) {
+            extra.push_str(&format!("&amp;exp={exp}&amp;sig={sig}"));
+        }
+    }
+    let url = |width: i64| format!("/_img/{key}?w={width}{extra}");
+    let mut out = format!(
+        " src=\"{}\" srcset=\"{} 1x, {} 2x\" width=\"{w}\"",
+        url(w),
+        url(w),
+        url(w * 2)
+    );
+    if let (Some(fw), Some(fh)) = (fw, fh) {
+        let h = ((fh as f64) * (w as f64) / (fw as f64)).round().max(1.0) as i64;
+        out.push_str(&format!(" height=\"{h}\""));
+    }
+    if placeholder == Some(true) {
+        out.push_str(&format!(
+            " style=\"background-size:cover;background-image:url({})\"",
+            url(16)
+        ));
+    }
+    Value::from_safe_string(out)
+}

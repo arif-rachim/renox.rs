@@ -423,6 +423,13 @@ pub struct Manifest {
     /// Artifact 1.3: the app's `renox.toml [realtime]` (`feeds`).
     #[serde(default)]
     pub realtime: Option<serde_json::Value>,
+    /// Artifact 1.4: the app's `renox.toml [storage]` (`allowed_types`,
+    /// `images.widths`; ops.md 1.7.0 section 21).
+    #[serde(default)]
+    pub storage: Option<serde_json::Value>,
+    /// Artifact 1.4: the app's `renox.toml [ai]` (`mode`; ops.md section 23).
+    #[serde(default)]
+    pub ai: Option<serde_json::Value>,
     /// Free-text note the schema allows at the top level; ignored (#147).
     #[serde(rename = "$comment", default)]
     pub comment: Option<String>,

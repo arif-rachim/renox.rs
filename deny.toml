@@ -66,6 +66,10 @@ allow = [
   # fluent-uri, referencing, jsonschema), used by renox-cell to validate
   # manifests against docs/contracts/schemas/manifest.schema.json (#30).
   "MIT-0",
+  # NCSA (University of Illinois, OSI approved, permissive): libfuzzer-sys,
+  # a `cfg(fuzzing)` dependency of rav1e, the AVIF encoder of the image
+  # pipeline (#321). Never compiled into the worker.
+  "NCSA",
   # MPL-2.0 is file-level copyleft: allowed for unmodified dependencies; a
   # patched MPL file must be published with its changes.
   "MPL-2.0",

@@ -209,6 +209,11 @@ struct Inner {
     authz: Mutex<crate::authz::AuthzConfig>,
     /// The worker's `[realtime]` caps (#281).
     realtime: Mutex<crate::config::RealtimeSection>,
+    /// The node's file store for `ctx.storage`, `/_img` and `/_files` (#321):
+    /// `<data_dir>/files` unless the worker config names a bucket.
+    files: Mutex<Arc<dyn crate::storage::ObjectStore>>,
+    /// The `/_img` transform rate of new cells: per second and burst (#321).
+    image_rate: Mutex<(f64, f64)>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -267,10 +272,13 @@ pub struct CellManager {
 
 impl CellManager {
     pub fn new(runtime: Runtime, meter: Meter, config: ManagerConfig) -> CellManager {
+        let files = Mutex::new(crate::storage::local_store(&config.data_dir));
         CellManager {
             inner: Arc::new(Inner {
                 runtime,
                 meter,
+                files,
+                image_rate: Mutex::new((crate::images::RATE_PER_SECOND, crate::images::RATE_BURST)),
                 config,
                 cells: Mutex::new(HashMap::new()),
                 dbs: Mutex::new(HashMap::new()),
@@ -784,6 +792,12 @@ impl CellManager {
                 TierName::Free => Limits::FREE,
                 TierName::Paid => Limits::PAID,
             };
+            let cell_storage = Arc::new(crate::storage::CellStorage::new(
+                self.inner.files.lock().expect("files lock").clone(),
+                &self.inner.config.platform_key,
+                &key.tenant_id,
+                crate::storage::limits_for(tier_name),
+            ));
             let spec = IsolateSpec {
                 tenant_id: key.tenant_id.clone(),
                 deployment_hash: key.deployment_hash.clone(),
@@ -792,6 +806,7 @@ impl CellManager {
                 secrets,
                 db: Some(db.clone()),
                 max_isolates: max_isolates(tier_name),
+                storage: Some(renox_runtime::StorageSlot(cell_storage.clone())),
             };
             let prepare_db = async {
                 db.ready().await.map_err(CellError::Db)?;
@@ -881,8 +896,38 @@ impl CellManager {
         *isolate.realtime_slot().write().expect("realtime slot") = Some(host.clone());
         // #305: `[realtime.feeds]` publish committed row changes through the hub.
         crate::cell::attach_feeds(&artifact_dir, &db, &host.hub).await;
+        // #321: `/_img` widths from `[storage.images]`, the cell's own store and rate.
+        let widths: Vec<u32> = isolate
+            .manifest()
+            .storage
+            .as_ref()
+            .and_then(|s| s.get("images"))
+            .and_then(|i| i.get("widths"))
+            .and_then(|w| w.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u32))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let files = crate::images::Files {
+            storage: Arc::new(crate::storage::CellStorage::new(
+                self.inner.files.lock().expect("files lock").clone(),
+                &self.inner.config.platform_key,
+                &key.tenant_id,
+                crate::storage::limits_for(tier_name),
+            )),
+            db: db.clone(),
+            tenant_id: key.tenant_id.clone(),
+            widths,
+            rate: {
+                let (per_second, burst) = *self.inner.image_rate.lock().expect("rate lock");
+                crate::images::Rate::new(per_second, burst)
+            },
+        };
         let mut cell = Cell::new(key.clone(), isolate, web);
         cell.realtime = Some(host);
+        cell.files = Some(files);
         let cell = Arc::new(cell);
         self.inner
             .created
@@ -1187,6 +1232,23 @@ impl CellManager {
         };
         let _guard = InFlightGuard(&cell);
         let (mut parts, body) = req.into_parts();
+        // #321: stored files and image variants, without the isolate.
+        if crate::images::handles(parts.uri.path())
+            && let Some(files) = &cell.files
+        {
+            let served = crate::images::serve(files, &parts, &ctx.request_id).await;
+            if let Some((route, stored)) = served.created {
+                self.record_image(
+                    &ctx,
+                    &route,
+                    stored,
+                    started_at,
+                    t0,
+                    served.response.body().len() as u64,
+                );
+            }
+            return served.response.map(Body::from);
+        }
         // #285: the App MCP endpoint and its metadata, on every app.
         if crate::mcp::handles(parts.uri.path()) {
             // The gateway has applied its body limit already.
@@ -1603,7 +1665,68 @@ impl CellManager {
             authz_evals: Some(m.authz_evals + render.authz_evals).filter(|n| *n > 0),
             realtime_conn_seconds: None,
             realtime_messages: None,
+            storage_bytes: m.storage_bytes,
+            image_variants: None,
+            ai_tokens_in: None,
+            ai_tokens_out: None,
+            render_pdf_ms: None,
         });
+    }
+
+    /// One `image` record (meter.md 0.4): a variant created on `/_img`. No
+    /// tenant code ran: `cpu_ms` 0, the transform is platform time.
+    fn record_image(
+        &self,
+        ctx: &RequestCtx,
+        route: &str,
+        stored: u64,
+        started_at: u64,
+        t0: Instant,
+        egress: u64,
+    ) {
+        self.inner.meter.record(MeterRecord {
+            request_id: ctx.request_id.clone(),
+            tenant_id: ctx.tenant_id.clone(),
+            deployment_hash: ctx.deployment_hash.clone(),
+            route: route.to_string(),
+            started_at,
+            cpu_ms: 0.0,
+            wall_ms: t0.elapsed().as_secs_f64() * 1000.0,
+            peak_heap_bytes: 0,
+            ingress_bytes: 0,
+            egress_bytes: egress,
+            fetch_sent_bytes: 0,
+            fetch_received_bytes: 0,
+            fetch_blocked: 0,
+            db_ms: 0.0,
+            db_rows: 0,
+            render_fuel: 0,
+            render_ms: None,
+            logs_dropped: 0,
+            http_status: 200,
+            status: MeterStatus::Ok,
+            kind: Some(renox_meter::MeterKind::Image),
+            authz_evals: None,
+            realtime_conn_seconds: None,
+            realtime_messages: None,
+            storage_bytes: Some(stored),
+            image_variants: Some(1),
+            ai_tokens_in: None,
+            ai_tokens_out: None,
+            render_pdf_ms: None,
+        });
+    }
+
+    /// The `/_img` transform rate of cells created afterwards (tests; the
+    /// default is the contract's 20 per second, a burst of 100).
+    pub fn set_image_rate(&self, per_second: f64, burst: f64) {
+        *self.inner.image_rate.lock().expect("rate lock") = (per_second, burst);
+    }
+
+    /// The node's file store (#321): a bucket from the worker config, or a
+    /// directory. Cells created afterwards use it.
+    pub fn set_file_store(&self, store: Arc<dyn crate::storage::ObjectStore>) {
+        *self.inner.files.lock().expect("files lock") = store;
     }
 
     /// The loader is slower than [`SHELL_DELAY`] and the page has a shell

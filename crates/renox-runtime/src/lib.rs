@@ -32,7 +32,7 @@ pub mod runtime;
 #[cfg(feature = "v8")]
 pub use isolate::{
     Dispatched, EventDelivered, EventEnvelope, EventOutcome, IsolateHandle, IsolateSpec, JobRun,
-    RequestCtx,
+    RequestCtx, StorageSlot,
 };
 #[cfg(feature = "v8")]
 pub use runtime::{LogLine, LogSink, Runtime, RuntimeConfig};

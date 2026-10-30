@@ -262,7 +262,8 @@ fn quota_makes_writes_fail_and_reads_continue() {
     let db = open(
         &dir,
         DbOptions {
-            max_page_count: 16,
+            // Room for the platform tables (outbox, authz, files) and a little more.
+            max_page_count: 32,
             ..DbOptions::default()
         },
     );

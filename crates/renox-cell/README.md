@@ -217,6 +217,27 @@ A module installed with `isolation = "isolate"` (D12; `docs/contracts/ops.md` 1.
 
 Tests: `tests/isolate_mode.rs`.
 
+## Storage and images (#321)
+
+`ctx.storage` (`docs/contracts/ops.md` 1.7.0 section 21) runs in Rust: `renox_runtime::ops::storage` checks the key (`<module>/…`), sniffs the type, checks `[storage] allowed_types`, the per-file limit and the quota (the sum of the platform table `renox__files`, written through the platform handle in the request's transaction), and hands the bytes to `src/storage.rs`. The store is `<data_dir>/files` (local mode, `renox dev`) or the bucket of `worker.toml [storage]` (`bucket`, `region`, `endpoint`; SigV4 with the credentials of the environment, like the replica purge). Objects are `tenants/<id>/files/<key>`; the isolate never holds a credential. Signed URLs are HMAC-SHA256 with a per-tenant key derived from the platform key (`storage:<tenant>`), over `/_files/<key>?exp=`.
+
+`/_files/<key>` and `/_img/<key>` (`src/images/`) are answered before route matching, never by the isolate. `/_img` rounds `w` to the nearest of `[storage.images] widths` (never above the original), picks AVIF, then WebP from `Accept` for `f=auto` (else the original's JPEG or PNG), and looks the variant `tenants/<id>/variants/<sha256>-w<w>-<fmt>` up first; a miss takes a token of the tenant's transform rate (20 per second, a burst of 100: 429 `RENOX_IMAGE_RATE`), is decoded, resized and encoded on the blocking pool (platform time), stored once, and metered as an `image` record (`IMG <w>w <fmt>`, `image_variants` 1, `storage_bytes`). Only pixels are re-encoded, so EXIF, XMP and GPS never reach a variant. `fit` and `focus` are validated and carried in the URL; without a target height they do not change the output (cropping needs one; `focus=face` falls back to `center` until a detector exists). Public variants are served `public, max-age=31536000, immutable` with an `ETag` and `Vary: Accept`; a private original needs the same signature as `/_files`.
+
+Crates: `image` 0.25 (already in the tree through `deno_canvas`) for decoding JPEG, PNG and WebP and encoding JPEG, PNG and lossless WebP; its `avif` feature (`ravif`, `rav1e`, pure Rust, speed 10, quality 70) for AVIF. libvips was not taken: a C dependency in the worker for a gain the measurements below do not need yet. `rav1e` builds at `opt-level = 3` in dev too.
+
+Transform times (`tests/images.rs`, debug build of the workspace with dependencies at `opt-level` 1, rav1e at 3, this machine, 2026-10-30), from a 4000 x 3000 JPEG:
+
+| Variant | Time |
+| --- | --- |
+| AVIF 400 w | 788 ms |
+| JPEG 400 w | 435 ms |
+| WebP 800 w (lossless) | 593 ms |
+| Cache hit | 0 ms |
+
+Most of each miss is decoding the 12-megapixel original. A release build is several times faster; B-series numbers for the release worker come with #106.
+
+Tests: `tests/storage.rs`, `tests/images.rs`; `<x-image>` in `crates/renox-template/tests/x_image.rs`.
+
 ## Authorization (#279)
 
 The cell enforces `docs/contracts/ops.md` 1.5.0 section 17 (`docs/11-authorization.md`, "Enforcement points"):

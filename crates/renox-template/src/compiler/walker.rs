@@ -858,6 +858,10 @@ impl<'c, 'p> Emitter<'c, 'p> {
                 self.emit_x_script(ctx, node, &children);
                 return;
             }
+            "x-image" => {
+                self.emit_x_image(ctx, node, &children);
+                return;
+            }
             _ if is_component_tag(tag) => {
                 self.emit_component(ctx, node, tag);
                 return;
@@ -956,6 +960,100 @@ impl<'c, 'p> Emitter<'c, 'p> {
         self.out.push_str(&csrf_input());
         self.emit_children(ctx, Some(node), children);
         self.out.push_str("</form>");
+    }
+
+    /// `<x-image :src="file" width="400" alt="...">` (ops.md 1.7.0 section
+    /// 21, #321): an `<img>` whose `src`, `srcset` (1x and 2x), `width` and
+    /// `height` come from the stored file object at render time (the
+    /// `__image` filter), with `loading="lazy"` and `decoding="async"`.
+    /// `fit`, `focus`, `placeholder="blur"` and `sizes` as `docs/08` lists.
+    fn emit_x_image(&mut self, ctx: &Ctx, node: &Handle, children: &[Handle]) {
+        self.check_directives(ctx, node, &["r-html"]);
+        if children.iter().any(|c| !is_blank_text(c)) {
+            self.error(ctx, node, None, "`<x-image>` takes no content");
+        }
+        let Some(raw) = attr(node, ":src") else {
+            self.error(
+                ctx,
+                node,
+                Some(":src"),
+                "`<x-image>` needs `:src` naming a stored file (`product.photo`)",
+            );
+            return;
+        };
+        let file = self.expr(ctx, node, ":src", &raw);
+        let width = match attr(node, "width").map(|w| w.trim().to_string()) {
+            None => "none".to_string(),
+            Some(w) if w.parse::<u32>().is_ok_and(|n| (1..=4096).contains(&n)) => w,
+            Some(w) => {
+                self.error(
+                    ctx,
+                    node,
+                    Some("width"),
+                    format!("`<x-image>` width is a number of pixels, got `{w}`"),
+                );
+                return;
+            }
+        };
+        let choice = |me: &mut Self, name: &str, allowed: &[&str]| -> String {
+            match attr(node, name).map(|v| v.trim().to_string()) {
+                None => "none".to_string(),
+                Some(v) if allowed.contains(&v.as_str()) => format!("\"{v}\""),
+                Some(v) => {
+                    me.error(
+                        ctx,
+                        node,
+                        Some(name),
+                        format!(
+                            "`<x-image>` {name} is one of {}, got `{v}`",
+                            allowed.join(", ")
+                        ),
+                    );
+                    "none".to_string()
+                }
+            }
+        };
+        let fit = choice(self, "fit", &["cover", "contain"]);
+        let focus = choice(self, "focus", &["center", "face"]);
+        let placeholder = match attr(node, "placeholder").as_deref().map(str::trim) {
+            None => "false",
+            Some("blur") => "true",
+            Some(v) => {
+                self.error(
+                    ctx,
+                    node,
+                    Some("placeholder"),
+                    format!("`<x-image>` placeholder is `blur`, got `{v}`"),
+                );
+                "false"
+            }
+        };
+        let list: Vec<(String, String)> = attr_list(node)
+            .into_iter()
+            .filter(|(n, _)| {
+                !matches!(
+                    n.as_str(),
+                    ":src"
+                        | "src"
+                        | "srcset"
+                        | ":srcset"
+                        | "width"
+                        | "height"
+                        | ":width"
+                        | ":height"
+                        | "fit"
+                        | "focus"
+                        | "placeholder"
+                        | "loading"
+                        | "decoding"
+                )
+            })
+            .collect();
+        self.out.push_str(&format!(
+            "<img{{{{ ({file}) | __image({width}, {fit}, {focus}, {placeholder}) }}}}"
+        ));
+        self.emit_attrs(ctx, node, "img", &list);
+        self.out.push_str(" loading=\"lazy\" decoding=\"async\">");
     }
 
     /// `<x-script src="...">`: a `<script>` with the per-request CSP nonce.

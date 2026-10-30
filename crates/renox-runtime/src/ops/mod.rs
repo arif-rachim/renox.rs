@@ -12,6 +12,7 @@ pub mod net_policy;
 pub mod password;
 pub mod realtime;
 pub mod secrets;
+pub mod storage;
 
 #[cfg(feature = "v8")]
 pub(crate) mod deadline;

@@ -74,6 +74,9 @@ pub struct ModuleInfo {
     /// the rest by `renox-authz`, built by the cell).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authz: Option<serde_json::Value>,
+    /// Artifact 1.4: the module's `[storage]` (`allowed_types`; ops.md 1.7.0 section 21).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<serde_json::Value>,
 }
 
 /// `authz.ownership` of an `authz` block (`ops.md` 1.5.0 section 17).

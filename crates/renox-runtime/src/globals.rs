@@ -30,6 +30,10 @@ use crate::ops::realtime::{
 use crate::ops::request::RequestTable;
 use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_response_write};
 use crate::ops::secrets::op_secrets_get_all;
+use crate::ops::storage::{
+    op_storage_delete, op_storage_get, op_storage_list, op_storage_put, op_storage_read,
+    op_storage_sign,
+};
 
 /// Our own time origin for the coarsened clock ops.
 struct CoarseClockStart(Instant);
@@ -118,6 +122,12 @@ deno_core::extension!(
         op_span_service_begin,
         op_span_service_end,
         op_modules_call,
+        op_storage_put,
+        op_storage_get,
+        op_storage_read,
+        op_storage_delete,
+        op_storage_sign,
+        op_storage_list,
         op_password_hash,
         op_password_verify,
         op_log,

@@ -96,6 +96,9 @@ pub struct WorkerConfig {
     /// `[jobs]` (#297).
     #[serde(default)]
     pub jobs: JobsSection,
+    /// `[storage]` (#321): where `ctx.storage` keeps files.
+    #[serde(default)]
+    pub storage: StorageSection,
     /// Traces over OTLP/HTTP and the sampling ratio (#295, `src/telemetry/`).
     #[serde(default)]
     pub telemetry: crate::telemetry::TelemetrySection,
@@ -140,6 +143,19 @@ impl AuthzSection {
 
 /// `[realtime]` (#281; `docs/contracts/ops.md` 1.5.0 section 18,
 /// "Limits"). The per-connection limits are the contract's and not keys.
+/// `[storage]`: the platform bucket of tenant files (`ops.md` 1.7.0 section
+/// 21). Without `bucket`, files are kept under `<data_dir>/files` (local
+/// mode, `renox dev`). Credentials come from the environment
+/// (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`), never from this file.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct StorageSection {
+    pub bucket: Option<String>,
+    pub region: Option<String>,
+    /// An S3-compatible endpoint (path-style), e.g. MinIO in the compose stack.
+    pub endpoint: Option<String>,
+}
+
 /// `[jobs]`: the scheduler of `job` routes (`ops.md` section 20).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]

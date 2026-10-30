@@ -227,6 +227,7 @@ mod tenant {
             secrets: Default::default(),
             db: None,
             max_isolates: 1,
+            storage: None,
         })
         .await
         .unwrap()
@@ -453,6 +454,7 @@ mod tenant {
                 secrets: Default::default(),
                 db: None,
                 max_isolates: 1,
+                storage: None,
             })
             .await
             .unwrap();

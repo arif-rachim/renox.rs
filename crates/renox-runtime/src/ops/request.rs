@@ -72,6 +72,9 @@ pub(crate) struct RequestState {
     pub tx_borrowed: bool,
     /// CPU the callees in other isolates used for this request (`op_modules_call`).
     pub cross_cpu_ms: f64,
+    /// ops.md 1.7.0 section 21: the tenant's stored bytes after this
+    /// request's last put or delete (`meter.md` 0.4, `storage_bytes`).
+    pub storage_bytes: Option<u64>,
     /// The principal, the route's guard inputs, `authz_evals` (ops.md
     /// 1.5.0 section 17; `ops/authz.rs`).
     pub authz: crate::ops::authz::RequestAuthz,
@@ -97,6 +100,7 @@ impl RequestState {
             ended: false,
             tx_borrowed: false,
             cross_cpu_ms: 0.0,
+            storage_bytes: None,
             authz: Default::default(),
         }
     }

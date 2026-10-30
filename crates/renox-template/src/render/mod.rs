@@ -642,6 +642,7 @@ fn base_env() -> Environment<'static> {
     env.add_filter("escape", f::escape);
     env.add_filter("__loop", loop_guard);
     env.add_filter("__url", filters::url);
+    env.add_filter("__image", filters::image);
     env.add_test("defined", t::is_defined);
     env.add_test("undefined", t::is_undefined);
     env.add_test("none", t::is_none);

@@ -407,6 +407,11 @@ pub(crate) async fn serve(
             authz_evals: Some(s.usage.authz_evals).filter(|n| *n > 0),
             realtime_conn_seconds: conn.map(|(secs, _)| (secs * 1000.0).round() / 1000.0),
             realtime_messages: conn.map(|(_, n)| n),
+            storage_bytes: None,
+            image_variants: None,
+            ai_tokens_in: None,
+            ai_tokens_out: None,
+            render_pdf_ms: None,
         });
     };
 

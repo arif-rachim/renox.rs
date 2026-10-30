@@ -375,6 +375,11 @@ async fn attempt_inner(d: &Delivery, cell: &Arc<Cell>, row: OutboxRow) -> Option
             authz_evals: (m.authz_evals > 0).then_some(m.authz_evals),
             realtime_conn_seconds: None,
             realtime_messages: None,
+            storage_bytes: None,
+            image_variants: None,
+            ai_tokens_in: None,
+            ai_tokens_out: None,
+            render_pdf_ms: None,
         });
     }
     let (id, target) = (row.id.clone(), row.target.clone());
