@@ -220,6 +220,9 @@ const NO_ID_CASES: Record<string, NoIdCase> = {
   // The token's attempt and the two verifyMfa attempts spend the verify bucket of A's address first.
   disableMfa: { json: () => ({ password: "wrong", code: "000000" }), session: 429, token: 401, why: "A's password and factors only" },
   setTeamMfaRequired: { json: () => ({ required: false }), session: 200, why: "the flag of A's own team" },
+  // deploy-api.md 0.5 section 19 (#324): the registry catalog is shared by design; a publisher is A's own.
+  createPublisher: { json: () => ({ name: "idor-pub", public_key: "A".repeat(43) }), token: 201, session: 409, why: "the token creates A's own publisher; the session's repeat of the same name is 409, which names no owner" },
+  listRegistryModules: { session: 200, why: "the public catalog: published versions only, never another tenant's installs" },
 };
 /** Runs after every other case: it ends all of A's sessions. */
 const LAST = ["revokeAllSessions"];

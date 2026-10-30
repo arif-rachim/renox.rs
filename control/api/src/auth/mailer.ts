@@ -22,7 +22,9 @@ export type MailKind =
   | "tenant_erased"
   // Break-glass impersonation started and ended (src/ops/breakglass.ts, #310).
   | "breakglass_started"
-  | "breakglass_ended";
+  | "breakglass_ended"
+  // A registry module version an app uses was disabled (src/registry/routes.ts, #324).
+  | "module_disabled";
 
 export interface Mail {
   to: string;
