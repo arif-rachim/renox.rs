@@ -312,8 +312,16 @@ pub async fn build(
             .collect::<Vec<_>>()
             .join("; ")
     };
+    let started = std::time::Instant::now();
     let schema = MergedSchema::build(&owners, schema_text.as_deref()).map_err(render)?;
     let set = PolicySet::load(&files, &schema).map_err(render)?;
+    // #306: the policy load is part of the first request's cost; measured
+    // in docs/14-benchmarks.md ("F5 first request").
+    tracing::debug!(
+        policies = files.len(),
+        load_ms = started.elapsed().as_secs_f64() * 1000.0,
+        "policy set loaded"
+    );
     Ok(Arc::new(AuthzState {
         engine: Arc::new(Engine::new(schema, set)),
         dev: config.dev,

@@ -452,8 +452,15 @@ async fn head_and_first_chunk_arrive_before_the_stream_ends() {
     assert!(r.header("content-length").is_none(), "{}", r.head);
     let first = r.arrival_of("first;").unwrap();
     let second = r.arrival_of("second;").unwrap();
+    // #306: this is the cell's first request, so `first` includes the cold
+    // start (isolate, policy load, prelude), which a loaded runner stretches
+    // past any fixed bound. What streaming means is the gap: the handler
+    // waits 600 ms between the chunks, so a body held back until the end
+    // would deliver both together; a streamed one delivers `first;` well
+    // before `second;`. The lower bound on `second` only grows with load.
     assert!(
-        first < Duration::from_millis(400) && second >= Duration::from_millis(550),
+        second.saturating_sub(first) >= Duration::from_millis(300)
+            && second >= Duration::from_millis(550),
         "first at {first:?}, second at {second:?}"
     );
     let rec = record(&config.meters_dir, &request_id(&r)).await;
@@ -579,9 +586,16 @@ async fn shell_bytes_arrive_before_a_slow_loader_finishes() {
         .expect("the shell tags");
     let header = r.arrival_of("<header class=\"site-header\">").unwrap();
     let data = r.arrival_of("saffron</li>").unwrap();
+    // #306: the loader sleeps 700 ms and the shell is flushed after the
+    // 50 ms shell delay, so the shell (and the layout's header) arrive about
+    // 650 ms before the loader's data; a page held back until the loader
+    // finished would deliver them together. The cold start of this first
+    // request is on both sides of the gap, so a loaded runner does not move
+    // it; the lower bound on `data` only grows with load.
     assert!(
-        shell < Duration::from_millis(500) && header < Duration::from_millis(500),
-        "shell at {shell:?}"
+        data.saturating_sub(shell) >= Duration::from_millis(300)
+            && data.saturating_sub(header) >= Duration::from_millis(300),
+        "shell at {shell:?}, header at {header:?}, data at {data:?}"
     );
     assert!(data >= Duration::from_millis(650), "data at {data:?}");
     assert!(r.complete);
@@ -725,4 +739,33 @@ async fn client_gone_mid_stream_still_writes_the_record() {
         "ended before the 1 s deadline: {rec}"
     );
     worker.shutdown().await;
+}
+
+/// #306: the first request of a cell against the second (warm), for the
+/// streamed function and the streamed page. Not an assertion: run with
+/// `cargo test -p renox-cell --test streaming first_request_cost -- --ignored --nocapture`
+/// (and `RUST_LOG=renox_cell=debug` for the `cell ready` and `policy set
+/// loaded` breakdown); the numbers are in docs/14-benchmarks.md, "F5 first
+/// request".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
+async fn first_request_cost() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    for (path, needle) in [
+        ("/slow", "first;"),
+        ("/p/slow", "<header class=\"site-header\">"),
+    ] {
+        let (worker, _) = start().await;
+        let cold = timed_get(worker.addr, path, "").await;
+        let warm = timed_get(worker.addr, path, "").await;
+        println!(
+            "{path}: first byte of interest cold {:?}, warm {:?}",
+            cold.arrival_of(needle).unwrap(),
+            warm.arrival_of(needle).unwrap()
+        );
+        worker.shutdown().await;
+    }
 }

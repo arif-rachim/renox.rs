@@ -116,6 +116,21 @@ The F0 gate condition (B1 on `shop` with its real dependencies ≤ 20 MB) was me
 
 Findings carried into F2: termination lands 10–13 ms late at p99 under host CPU saturation, not GC (contract wording #153, `node-small` re-run #158); a well-behaved tenant was charged 85 ms of CPU across two concurrent requests and recycled, the most important open finding (#155); one bad request ends every in-flight request of its deployment by design, which an isolate pool shrinks (#156); B4 p50 and B1 `shop` miss their targets by 2.3 ms and 1.1 MB (#157); B11 is half the target with one isolate per deployment and a co-located load generator (#156, #158); the worker binary reads Deno's snapshot sources from the cargo registry at start, so there is no release yet (#154).
 
+### F5 first request (#306, 2026-10-30)
+
+After F5-ALL the first request of a cell also loads the merged policy set (#276, #279), runs the principal and `guard` prelude (#279) and creates the cell's realtime hub (#281). Measured with `crates/renox-cell/tests/streaming.rs` `first_request_cost` (`--ignored --nocapture`, `RUST_LOG=renox_cell=debug`; the `cell ready` and `policy set loaded` lines) in a debug build on the 4 vCPU batch container, three runs, a fresh worker per route, the first request (cold) and the next one (warm). Not a benchmark of record (B4 is); it explains the two red tests of the F5-ALL merge commit (`f673ca8`, first chunk at 723 ms, shell at 864 ms).
+
+| Part of the first request | Measured |
+| --- | --- |
+| Cell creation (`create_ms`) | 27–38 ms, one run 256 ms |
+| of which: the tenant file's open and platform tables (`db_ms`) | 5–11 ms; 93 and 248 ms on the first cell of two processes (file system latency, not F5) |
+| of which: isolate (`isolate_ms`) and route module (`module_ms`) | 17–30 ms and 1–4 ms |
+| Policy set (`policy set loaded`, no policy files: the merged schema and an empty set) | 1.2–4.4 ms |
+| `/slow` first chunk, cold / warm | 55–287 ms / 2.4–2.9 ms |
+| `/p/slow` shell header, cold / warm | 82–92 ms / 52 ms (the 50 ms shell delay) |
+
+Before and after: the policy set is already built once per deployment (per cell, shared by the pool's isolates through the authz slot), the anonymous principal costs two cache ops (`op_authz_principal_cached`, `op_authz_principal_set`) when `auth` is not installed, and the hub is a struct without a task, so none of the three levers the issue lists has a measurable effect to remove (each under 5 ms against an isolate start of 17–30 ms). The red tests came from absolute bounds (400 ms, 500 ms) on a cold first request on a loaded runner, where file system latency alone reached 248 ms here. Fix: the two tests assert the gap between the first chunk (or the shell) and the slow part (at least 300 ms, nominally 600 and 650 ms) plus the lower bound on the slow part, which load only increases. Result: `cargo test -p renox-cell --test streaming` green 10 times in a row under `nice -n 19` with `cargo test -p renox-cell` running beside it.
+
 ## What F0 must prove
 
 F0 is only about B1, B4, B9, B17, and a first cut of B6 using Supabase Edge Runtime unmodified plus a minijinja prototype. If any fail threshold is crossed, see the kill criteria in `01-business.md` and `15-roadmap.md` before writing platform code.
