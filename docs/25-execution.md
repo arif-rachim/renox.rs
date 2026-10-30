@@ -8,7 +8,7 @@ Issue #87 (UAE entity and bank account) is yours, not a session; it is needed be
 
 Prompts of finished batches are kept as the record of what ran; the status line under each heading says what happened.
 
-## Where we are (2026-10-30, after F67-ALL)
+## Where we are (2026-10-30, after F67-B)
 
 | Phase | Done (PR) | Running | Next |
 | --- | --- | --- | --- |
@@ -18,10 +18,10 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 | F3 | Q #169, R #183, S #181, T #196 (#162 only), U0 #194, R2 #203, T2 #205, U #209 (#58, #60, #62), U2 #215, V #216 (#164 only), V2 #220 (#57 except its logs screen), T3 #221, V3 #245 (#128 except two criteria), W (checklists #99 13 of 17, #116 17 of 27; the rest moved to #101 and #117), X #250 (#128 rest) | — | #261 in F6-ALL (PR #270; its contract sentence closes with #273 in C5); U3 (#219) after the owner tags `worker-v0.2.0`; gate #61 after O3 (#57's two open criteria and the #99/#116 moves are operator steps for that gate). #267 landed in F4-X #271 |
 | F4 | F4-0 #247 (#225, #227), F4-ALL #262 (the 19 tasks; epics #63–#67 closed), F4-X #271 (#263–#268), P4 (checklists #101 9 of 10, #117 8 of 14; the rest moved to #102 and #119), the two P4 leftovers #274 (F6-B #300) and #275 (F5-ALL #301) | — | Gate #68 (needs the booking product repo; the F5 split it would have proposed is done, see "F5") |
 | F5 | C5 #299 (#272, #273), F5-ALL #301 (the 22 issues; #281 without the change feed, #293 without its dashboard parts; epics #69, #71, #72, #73 closed) | — | F67-ALL (one session: F56-B's nine issues first, then the twenty F7 tasks, #123 and the two F7 checklists); gate #74 after #307 and the B14 run on `node-small` (O3) |
-| F6 | F6-ALL #270 (ten of eleven; #256 needs a capable host; epic #75 closed), C5 #299 (#273), F6-B #300 (#274, #103, #296, #104; #121 without break-glass; #120 skipped by rule 6 and split), F56-ALL #314 (#303, #304, #305, #306, #309 closed; #295, #308, #310, #311 partly; #297 and #307 skipped for a contract, #312 for a host), F67-ALL #340 (#315, #297, #307, #308, #310, #311 closed; #295 all but the local collector run; checklists #105 and #122 updated; epic #78 closed) | — | #295's last item first in F67-B; gate #79 after #74 and #312 on a host. Epic #77 closes with #295; #76 stays open for #256 |
+| F6 | F6-ALL #270 (ten of eleven; #256 needs a capable host; epic #75 closed), C5 #299 (#273), F6-B #300 (#274, #103, #296, #104; #121 without break-glass; #120 skipped by rule 6 and split), F56-ALL #314 (#303, #304, #305, #306, #309 closed; #295, #308, #310, #311 partly; #297 and #307 skipped for a contract, #312 for a host), F67-ALL #340 (#315, #297, #307, #308, #310, #311 closed; #295 all but the local collector run; checklists #105 and #122 updated; epic #78 closed) | — | F67-B #344 (#295 closed; epic #77 closed) | — | Gate #79 after #74 and #312 on a host; #76 stays open for #256 |
 
-| F7 | F67-ALL #340 (#318–#323 and #327 closed; #324, #325, #326, #328, #329, #331, #332, #333, #334 and #123 partly; #330, #335, #336, #337 skipped; checklists #106 and #124 updated) | — | F67-B (the F7 remainder, see "F7"); gate #86 needs the first paying tenant and the products launched (owner) |
-Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), #222 and #223 (the contract and the `streamLogs` endpoint that #128 and the dashboard's Logs screen need), all placed in the batches below; and on 2026-10-30, from the "Skipped" and "Differences" sections of PR #301 and PR #300: #303 (deploy API 0.4: the account and MFA endpoints, tenant erasure, break-glass, `disk` on the heartbeat, `UsageHour` fields, `ops:read` tokens), #304 (the validator crash on pathless `tool` and `job` routes that makes the deploy e2e tests fail, plus `authz` as a reserved name), #305 (the change feed #281 could not build without `renox-data`), #306 (the two streaming tests red on `main` after F5-ALL), #307 (the dashboard parts of #293), #308 and #309 (the split of #120), #310 (the break-glass part of #121, `security.txt` on `api.renox.app`, `ops:read` tokens, the `acct_` operator id), #311 (two gaps of #103: `disk` on the heartbeat, `SQLITE_CORRUPT` mid-request), #312 (the `pubsub-drop` chaos steps #104 could not write before `renox-realtime` existed); and #315 (ops 1.6.0 with the `jobs` module's read path, deploy API 0.4.1 with `purge_replica` on `nodeDropTenant`), filed after F56-ALL skipped #297 for it; and #318–#337, the F7 split of 2026-10-30 (two contracts, three Rust tasks, five control-plane tasks, nine modules and the products), placed in F67-ALL below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
+| F7 | F67-ALL #340 (#318–#323 and #327 closed), F67-B #344 (#324, #326, #328, #329, #331, #333, #334, #335 closed; #325, #330, #332, #336, #123 partly; #337 skipped; checklists #106 and #124 updated; epic #84 closed) | — | C7 (#346, the contract the F7 remainder needs), then F67-C; #330 and #337 wait for the owner's PSP sandbox accounts; gate #86 needs the first paying tenant and the products launched (owner) |
+Issues created outside the batches since the F1 gate: #182 (timing-dependent tests), #184 (deploy API 0.1 contract), #186 and #189 (CI), #199 (control/api node endpoints), #201 (ops 1.1.1 after the isolate pool), #206 (ops 1.2.0 streamed body, the contract #161 needs), #207 (tenant `Set-Cookie` domain rule at the gateway, found by #114), #212 (macOS CPU clock accuracy, split from #139), #213 (docs after Y3 and Y4), #218 (D23 follow-ups: node-facing endpoints off the public edge), #219 (pin the CLI to a signed worker release), #222 and #223 (the contract and the `streamLogs` endpoint that #128 and the dashboard's Logs screen need), all placed in the batches below; and on 2026-10-30, from the "Skipped" and "Differences" sections of PR #301 and PR #300: #303 (deploy API 0.4: the account and MFA endpoints, tenant erasure, break-glass, `disk` on the heartbeat, `UsageHour` fields, `ops:read` tokens), #304 (the validator crash on pathless `tool` and `job` routes that makes the deploy e2e tests fail, plus `authz` as a reserved name), #305 (the change feed #281 could not build without `renox-data`), #306 (the two streaming tests red on `main` after F5-ALL), #307 (the dashboard parts of #293), #308 and #309 (the split of #120), #310 (the break-glass part of #121, `security.txt` on `api.renox.app`, `ops:read` tokens, the `acct_` operator id), #311 (two gaps of #103: `disk` on the heartbeat, `SQLITE_CORRUPT` mid-request), #312 (the `pubsub-drop` chaos steps #104 could not write before `renox-realtime` existed); and #315 (ops 1.6.0 with the `jobs` module's read path, deploy API 0.4.1 with `purge_replica` on `nodeDropTenant`), filed after F56-ALL skipped #297 for it; and #318–#337, the F7 split of 2026-10-30 (two contracts, three Rust tasks, five control-plane tasks, nine modules and the products), placed in F67-ALL below. And #346 (the F7-31 contract: the route table's `suspended` status, billing with the owner's token and the invoice PDF path, back-office access to app tables, the ops gaps), filed after F67-B, placed in C7 below. Owner prerequisites: two bench hosts for #158 (`node-small` and a load generator, SSH addresses in the issue), which is the critical path to gate F2, P, W and gate F3; the `worker-v0.2.0` tag from `main` (signed, both Linux targets) for #219; and a Mac for #212, which blocks no gate. Owner prerequisite: #158 needs two bench hosts (`node-small` and a load generator) reachable over SSH; see the issue.
 
 ## F0 (done: 2 sessions + gate)
 
@@ -525,6 +525,54 @@ Work on batch F67-B of arif-rachim/renox.rs: issues #295, #324, #325, #326, #328
 The partly done issues finish the "Open" list of their F67-ALL comment; the rest start from their issue. The order is topological over the Blocked-by lists (checked against the live tracker on 2026-10-30): #326 after #325; #329 after #328; #330 and #331 after #329; #333 after #329 and #331; #334 after #328 and #329; #335 after #329 and #332; #336 after #331, #333, #334, #335; #337 after #330, #331, #333, #334, #336; #123 after #325, #326, #328, #329; then the checklists #106 and #124 under the checklist special case (no code, no `Closes` line). #330 can build and unit-test its adapters against recorded provider responses but its live verification needs the owner's sandbox accounts; if a session cannot verify it, rule 13 applies and #337 goes with it. Owner steps: the PSP sandbox and production accounts, Resend or SES, Safe Browsing and OSV keys, the PSL submission, the DPA's legal review, and the code-owner reviews of `deny.toml` and `.github/`.
 
 After the merge: close epic #77 (with #295) and each F7 epic (#80 to #85) whose tasks are all closed, with a comment each.
+
+Status (2026-10-30): merged as PR #344 (`ea3695e`).
+- **Closed:** #295, #324, #326, #328, #329, #331, #333, #334, #335; epics #77 and #84.
+- **Partly done**, each with an issue comment listing what remains:
+  - #325: the gateway's suspension page, the dashboard billing page and the invoice PDF, all blocked by the contract.
+  - #330: COD and bank transfer done; the card PSP and BNPL adapters need the providers' sandboxes.
+  - #332: the shop's product images.
+  - #336: the dashboard's Arabic catalog and the RTL snapshots of every page.
+  - #123: the neutral page, Safe Browsing, CAPTCHA, ASN rates, and advisories on activation.
+- **Skipped:** #337 (blocked by #330).
+- **Checklists:** #106 and #124 updated.
+
+**Fixes outside the issues' Files**, worth knowing before the next batch:
+- `renox build` now builds a module's `functions/webhooks/` routes (before, no module webhook was ever routed).
+- The worker's loader accepts `sbom.cdx.json` (artifact 1.4).
+- `renox check` reports `i18n-missing-key`.
+- The billing sweep runs hourly from `control/api/src/main.ts`.
+
+**Contract gaps** the session met are collected in #346: the route table's `suspended` status, billing with the owner's token and the invoice PDF path, back-office access to app tables, and the `ctx.pdf` prefix, Svix/SNS and `ctx.render` gaps.
+
+### Batch C7 — after F67-B — the contract the F7 remainder needs (1 issue)
+
+```
+Work on batch C7 of arif-rachim/renox.rs: issue #346. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for type:contract issues. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Documentation, schemas, examples and the type-only SDK sync only: artifact 1.5, ops 1.8.0, deploy API 0.5.1. Read the comments of #325, #123, #335 and #328 first; they say what each implementation found.
+
+### Batch F67-C — after C7 — the F7 remainder that needs no PSP account (6 issues)
+
+```
+Work on batch F67-C of arif-rachim/renox.rs: issues #325, #332, #336, #123, #106, #124 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly, including the special case for checklist issues. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Each issue finishes the "Still open" list of its F67-B comment:
+- **#325:** the gateway's neutral page on the new `suspended` status, the dashboard's Usage and billing page with the owner's token, and the invoice PDF on the path #346 chooses.
+- **#332:** the shop's product images through the module, with B6 run before and after.
+- **#336:** the dashboard's pages to `<r-t>` keys with an Arabic catalog, and RTL snapshots of every module page.
+- **#123:** the neutral page end to end, and the OSV scan on activation with its dashboard warning. Safe Browsing, CAPTCHA and ASN rates need the owner's keys; without them they stay open with a note.
+- **#106 and #124:** checklists, under the checklist special case.
+
+The `admin` module's CRUD scaffolding (#335's comment) becomes a new task once #346 settles its form; it is not in this batch.
+
+**Owner steps:**
+- Sandbox accounts with Checkout.com, Telr, PayTabs, N-Genius, Tabby and Tamara. #330 and then #337 run once these exist.
+- The Safe Browsing key.
+- The DPA's legal review.
+- `RENOX_SELLER_TRN`.
 
 ### Gate F6 — after F56-B, #312 on a host, gate F5 and the B18 two-host run
 
