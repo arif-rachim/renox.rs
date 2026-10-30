@@ -1,0 +1,27 @@
+[module]
+name = "jobs"
+version = "1.0.0"
+description = "The app's scheduled and queued jobs: next and last runs, the queue, running runs, dead letters with the redacted last error; retry and cancel"
+
+[dependencies]
+auth = "^1.0"
+i18n = "^1.0"
+
+[config]
+base_path = { type = "string", default = "/jobs", max_length = 100, description = "Where the app mounts the module's pages" }
+
+[exports.services]
+list = "Jobs in one state, never the payload: (state: scheduled | queued | running | dead, { limit?, cursor? }) -> { items, next_cursor } (requires jobs.read)"
+retry = "Put a dead run back in the queue with its attempts reset (id) (requires jobs.manage; audited)"
+cancel = "Delete a queued or dead run (id) (requires jobs.manage; audited)"
+
+[imports]
+services = ["auth.loginUrl", "i18n.detectLocale"]
+
+[authz]
+actions = ["jobs.read", "jobs.manage"]
+sensitive = ["jobs.manage"]
+
+[authz.default_roles]
+admin = ["jobs.read", "jobs.manage"]
+operator = ["jobs.read"]

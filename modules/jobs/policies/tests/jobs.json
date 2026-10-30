@@ -1,0 +1,7 @@
+[
+  { "description": "an admin reads the jobs", "principal": { "type": "User", "id": "u_ada", "roles": ["admin"], "attrs": {} }, "action": "jobs.read", "expected": "allow" },
+  { "description": "an admin retries and cancels", "principal": { "type": "User", "id": "u_ada", "roles": ["admin"], "attrs": {} }, "action": "jobs.manage", "expected": "allow" },
+  { "description": "an operator reads", "principal": { "type": "User", "id": "u_otto", "roles": ["operator"], "attrs": {} }, "action": "jobs.read", "expected": "allow" },
+  { "description": "an operator cannot retry or cancel", "principal": { "type": "User", "id": "u_otto", "roles": ["operator"], "attrs": {} }, "action": "jobs.manage", "expected": "deny" },
+  { "description": "a user without a role sees nothing", "principal": { "type": "User", "id": "u_bob", "roles": [], "attrs": {} }, "action": "jobs.read", "expected": "deny" }
+]

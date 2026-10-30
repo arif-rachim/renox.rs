@@ -197,6 +197,14 @@ struct Inner {
     evicted: std::sync::atomic::AtomicU64,
     /// Outbox delivery settings for new cells (#229).
     outbox: Mutex<crate::outbox::OutboxConfig>,
+    /// `[jobs] enabled` (#297): whether cells run their scheduler.
+    jobs: std::sync::atomic::AtomicBool,
+    /// `[jobs] poll_ms` (development only; 0 = never).
+    jobs_poll_ms: std::sync::atomic::AtomicU64,
+    /// The active `(tenant, deployment)` pairs of the last route sync, so a
+    /// job wake-up never revives a superseded deployment; `None` before
+    /// the first sync (local mode).
+    active: Mutex<Option<HashSet<(String, String)>>>,
     /// The worker's `[authz]` (#279): dev mode and the principal cache TTL.
     authz: Mutex<crate::authz::AuthzConfig>,
     /// The worker's `[realtime]` caps (#281).
@@ -262,6 +270,9 @@ impl CellManager {
                 created: Default::default(),
                 evicted: Default::default(),
                 outbox: Mutex::new(crate::outbox::OutboxConfig::default()),
+                jobs: std::sync::atomic::AtomicBool::new(true),
+                jobs_poll_ms: std::sync::atomic::AtomicU64::new(0),
+                active: Mutex::new(None),
                 authz: Mutex::new(crate::authz::AuthzConfig::default()),
                 realtime: Mutex::new(crate::config::RealtimeSection::default()),
                 trim_scheduled: Default::default(),
@@ -330,6 +341,17 @@ impl CellManager {
 
     pub fn set_authz_config(&self, config: crate::authz::AuthzConfig) {
         *self.inner.authz.lock().expect("authz lock") = config;
+    }
+
+    /// `[jobs]` of the worker config (#297): `enabled = false` runs no
+    /// scheduler (queued runs are still delivered).
+    pub fn set_jobs_config(&self, config: crate::config::JobsSection) {
+        self.inner
+            .jobs
+            .store(config.enabled, std::sync::atomic::Ordering::Relaxed);
+        self.inner
+            .jobs_poll_ms
+            .store(config.poll_ms, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn set_outbox_config(&self, config: crate::outbox::OutboxConfig) {
@@ -626,6 +648,7 @@ impl CellManager {
             .filter(|e| e.status == RouteStatus::Active)
             .map(|e| (e.tenant_id.clone(), e.deployment_hash.clone()))
             .collect();
+        *self.inner.active.lock().expect("active lock") = Some(active.clone());
         {
             let cells = self.inner.cells.lock().expect("cells lock");
             for (key, slot) in cells.iter() {
@@ -860,6 +883,20 @@ impl CellManager {
             meter: self.inner.meter.clone(),
             config: *self.inner.outbox.lock().expect("outbox lock"),
             admit: Box::new(move |c| this.admit_delivery(c)),
+            jobs: if self.inner.jobs.load(std::sync::atomic::Ordering::Relaxed) {
+                cell.isolate.jobs()
+            } else {
+                Vec::new()
+            },
+            next_tick: cell.next_tick.clone(),
+            poll: match self
+                .inner
+                .jobs_poll_ms
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                0 => None,
+                ms => Some(Duration::from_millis(ms)),
+            },
         }));
         Ok(cell)
     }
@@ -983,6 +1020,12 @@ impl CellManager {
             "cell evicted"
         );
         cell.stop_outbox();
+        let next_tick = *cell.next_tick.lock().expect("next tick lock");
+        if !cell.is_draining()
+            && let Some(at) = next_tick
+        {
+            self.wake_for_jobs(cell.key.clone(), at);
+        }
         cell.isolate.terminate();
         let db_key = self
             .inner
@@ -997,6 +1040,43 @@ impl CellManager {
             .evicted
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.schedule_trim();
+    }
+
+    /// An evicted cell's jobs tick at `at` (Unix ms): bring the cell back
+    /// then so its scheduler writes the run (#297). Skipped when a cell
+    /// already exists or the deployment is no longer active.
+    fn wake_for_jobs(&self, key: CellKey, at: i64) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            let wait =
+                u64::try_from(at.saturating_sub(renox_runtime::ops::jobs::now_ms())).unwrap_or(0);
+            tokio::time::sleep(Duration::from_millis(wait)).await;
+            let still_active = this
+                .inner
+                .active
+                .lock()
+                .expect("active lock")
+                .as_ref()
+                .is_none_or(|a| a.contains(&(key.tenant_id.clone(), key.deployment_hash.clone())));
+            let live = this
+                .inner
+                .cells
+                .lock()
+                .expect("cells lock")
+                .contains_key(&key);
+            if !still_active || live {
+                return;
+            }
+            match this.admit(&key).await {
+                Ok(cell) => {
+                    tracing::info!(tenant_id = %key.tenant_id, deployment_hash = %key.deployment_hash, "cell woken for its jobs");
+                    drop(crate::cell::InFlightGuard(&cell));
+                }
+                Err(e) => {
+                    tracing::warn!(tenant_id = %key.tenant_id, error = %e, "job wake-up failed")
+                }
+            }
+        });
     }
 
     /// Allocator trims run since start.

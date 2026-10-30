@@ -38,6 +38,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `[sandbox]` | off | `enabled`, `mode` (`enforce` \| `audit`), `extra_syscalls`, `extra_read_paths`, `extra_connect_ports`, `allow_unsandboxed`: the seccomp allowlist and Landlock rules of "Sandbox". Required in controlled mode unless `allow_unsandboxed = true` |
 | `[authz]` | `false` / 60 | `dev` (`ctx.authz.explain` works and `RENOX_FORBIDDEN` names the deciding policy), `principal_ttl_secs` (how long a resolved principal is cached per session, 0 to 3,600): "Authorization" |
 
+| `[jobs]` | `true` / 0 | `enabled` (cells run the scheduler of their `job` routes; `renox dev` sets false unless `--jobs`), `poll_ms` (development only: also look for due outbox rows this often, for rows `renox jobs` writes from another connection; 0 never polls): "Jobs" |
 | `[telemetry]` | off / 0.1 / `renox-worker` | `otlp_endpoint` (OTLP/HTTP traces URL, `http(s)://…/v1/traces`; absent: no export), `sample_ratio` (share of root traces kept; a child follows its parent), `service_name`: "Telemetry" |
 
 Process logs are structured JSON on stderr (`tracing`, filtered by `RUST_LOG`, default `info`), with the current span and the span list, so a line inside a request carries `gateway.request`'s `request_id`, `tenant_id` and `trace_id` (#295). They name tenants, hashes, and request ids, never secret values or request content.
@@ -267,6 +268,19 @@ Each cell runs one delivery task (`src/outbox.rs`) for the durable events of `do
 - **Gauge.** `CellManager::outbox_stats(tenant)` returns the pending deliveries and dead letters of a tenant whose file is open on the node.
 
 Tests: `tests/outbox.rs`.
+
+## Jobs (#297)
+
+Scheduled and queued jobs (`docs/contracts/ops.md` 1.6.0 section 20) ride on the outbox above:
+
+- **Rows.** A run is a row of `renox__outbox` named `job:<name>` whose `target` and `module` are the job's module (`app` for the app's). The scheduler writes a scheduled run with payload `null`; `ctx.jobs.enqueue` writes a queued run with its payload, in the caller's transaction. `renox__outbox_meta` keeps the coalescing key `job_tick:<module>:<name>`, the next tick `job_next:…`, the last finish `job_last:…`, and `job_running:<id>` while a run is in flight. The SQL is `renox_runtime::ops::jobs`, shared with the ops.
+- **Scheduler** (`src/scheduler/`). One task per cell, started and stopped with the outbox task. Five-field cron expressions (numbers, `*`, lists, ranges, steps; day of month and day of week combine as in Vixie cron) in the job's `tz` (the system tzdb through `jiff`; UTC when absent). At a tick it writes one row, or moves the waiting row's tick when one exists. The next tick is persisted, so a cell that starts after an eviction or downtime writes one run for the latest missed tick. An evicted cell with jobs is woken by the manager at its next tick (`CellManager::wake_for_jobs`), unless its deployment is no longer active.
+- **No overlap.** A run holds an in-memory lease per tenant and job (one node owns a tenant); a row whose job is leased waits a second. The ack of a scheduled run keeps its row, due now, when the job ticked again during the run. At start, `job_running:*` markers are cleared: a row left running by a dead process is queued again with its attempts unchanged.
+- **Attempt.** Like an event delivery: its own IMMEDIATE transaction committed with the ack (`op_jobs_ack`), the tier's limits, the retry schedule and dead-letter of the outbox (`job_dead` in the tenant log; the dead scheduled row frees the coalescing key, so the next tick writes a new row). The principal is `Renox::System::"<module>"`.
+- **Meter.** One record per attempt: `kind: "job"`, route `JOB <module> <name>`, request id `<row id>_<attempt>`.
+- **Metrics.** `renox_worker_job_runs_total`, `renox_worker_job_failures_total`, `renox_worker_job_ticks_total`, `renox_worker_job_lag_seconds` (start of the last scheduled run minus its tick).
+
+Tests: `tests/jobs.rs`, `src/scheduler/mod.rs` (cron and zones, the lease), `renox-runtime` `src/ops/jobs.rs` (coalescing, listing, retry and cancel states).
 
 ## Not here yet
 

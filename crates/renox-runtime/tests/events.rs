@@ -290,6 +290,7 @@ fn envelope(id: &str, invoice: &str, attempt: u32) -> EventEnvelope {
         payload_json: format!(r#"{{"invoice_id":"{invoice}","amount":1}}"#),
         attempt,
         module: "email".into(),
+        job: None,
     }
 }
 

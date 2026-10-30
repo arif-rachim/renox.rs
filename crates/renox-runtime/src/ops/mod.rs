@@ -5,6 +5,7 @@ pub mod authz;
 pub mod db;
 pub mod events;
 pub mod fetch_connector;
+pub mod jobs;
 pub mod log;
 pub mod modules;
 pub mod net_policy;

@@ -93,6 +93,9 @@ pub struct WorkerConfig {
     /// Realtime connection caps (#281, `src/realtime/`).
     #[serde(default)]
     pub realtime: RealtimeSection,
+    /// `[jobs]` (#297).
+    #[serde(default)]
+    pub jobs: JobsSection,
     /// Traces over OTLP/HTTP and the sampling ratio (#295, `src/telemetry/`).
     #[serde(default)]
     pub telemetry: crate::telemetry::TelemetrySection,
@@ -137,6 +140,30 @@ impl AuthzSection {
 
 /// `[realtime]` (#281; `docs/contracts/ops.md` 1.5.0 section 18,
 /// "Limits"). The per-connection limits are the contract's and not keys.
+/// `[jobs]`: the scheduler of `job` routes (`ops.md` section 20).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct JobsSection {
+    /// Run the scheduler in every cell (`renox dev` sets false unless
+    /// `--jobs`). Queued runs (`ctx.jobs.enqueue`) are delivered either way.
+    pub enabled: bool,
+    /// Development only: also look for due outbox rows every `poll_ms`, so
+    /// rows the CLI writes into the dev tenant file from another connection
+    /// (`renox jobs run`, `retry`) are seen. 0 (the default) never polls:
+    /// in production only the cell writes the file and its commits wake the
+    /// worker (D14).
+    pub poll_ms: u64,
+}
+
+impl Default for JobsSection {
+    fn default() -> Self {
+        JobsSection {
+            enabled: true,
+            poll_ms: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct RealtimeSection {

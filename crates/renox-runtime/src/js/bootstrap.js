@@ -30,6 +30,11 @@ import {
   op_deadline_remaining_ms,
   op_events_ack,
   op_events_emit,
+  op_jobs_ack,
+  op_jobs_cancel,
+  op_jobs_enqueue,
+  op_jobs_list,
+  op_jobs_retry,
   op_password_hash,
   op_password_verify,
   op_realtime_close,
@@ -204,6 +209,21 @@ class RealtimeBackpressureError extends RenoxError {
   }
 }
 
+// ops.md 1.6.0 section 20: the typed errors of the jobs ops.
+class JobNotFoundError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_JOB_NOT_FOUND", message, details);
+    this.name = "JobNotFoundError";
+  }
+}
+
+class JobStateError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_JOB_STATE", message, details);
+    this.name = "JobStateError";
+  }
+}
+
 /** Ops reject with "CODE|json-details|message"; turn that into a RenoxError. */
 function toRenoxError(e) {
   const msg = typeof e?.message === "string" ? e.message : "";
@@ -230,6 +250,10 @@ function toRenoxError(e) {
       return new RealtimeBackpressureError(message, details ?? undefined);
     case "RENOX_MODULE_UNDECLARED":
       return new ModuleUndeclaredError(message, details ?? undefined);
+    case "RENOX_JOB_NOT_FOUND":
+      return new JobNotFoundError(message, details ?? undefined);
+    case "RENOX_JOB_STATE":
+      return new JobStateError(message, details ?? undefined);
     default:
       return new RenoxError(code, message, details ?? undefined);
   }
@@ -800,6 +824,19 @@ async function runInMemory(st, id, name, payload) {
   }
 }
 
+/** A JobContext (ops.md section 20): the module's ctx without the request, `db` the attempt's transaction, `job` the run. */
+function jobCtx(base, statementsOf, info) {
+  const c = { ...base, db: statementsOf, job: info };
+  delete c.req;
+  delete c.url;
+  delete c.params;
+  delete c.headers;
+  delete c.setLocale;
+  delete c.session;
+  delete c.fragment;
+  return ObjectFreeze(c);
+}
+
 /** An EventContext: the module's ctx without the request, `db` given. */
 function eventCtx(base, module, statementsOf, e) {
   const c = { ...base, db: statementsOf, event: ObjectFreeze({ id: e.id, name: e.name, attempt: e.attempt }) };
@@ -838,6 +875,58 @@ function makeEvents(module) {
       }
       if (!durable) await runInMemory(st, id, name, JSONParse(json));
       return id;
+    },
+  });
+}
+
+/** `ctx.jobs` of `module` (ops.md 1.6.0 section 20). */
+function makeJobs(module) {
+  const call = async (op, ...args) => {
+    try {
+      return await op(currentToken(), ...args);
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  };
+  const checkId = (id, what) => {
+    if (typeof id !== "string" || id.length === 0) throw new TypeError(`jobs.${what}: id must be a string`);
+  };
+  return ObjectFreeze({
+    async enqueue(name, payload, options = undefined) {
+      if (typeof name !== "string") throw new TypeError("jobs.enqueue: name must be a string");
+      let json;
+      try {
+        json = JSONStringify(payload);
+      } catch {
+        json = undefined;
+      }
+      if (typeof json !== "string" || payload === null || typeof payload !== "object" || ArrayIsArray(payload) || json.length > 64 * 1024) {
+        throw new RangeError("jobs.enqueue: the payload is a JSON object of at most 64 KiB");
+      }
+      const runAt = options?.runAt ?? null;
+      let at = null;
+      if (runAt !== null) {
+        at = typeof runAt === "number" ? runAt : typeof runAt?.getTime === "function" ? runAt.getTime() : NaN;
+        if (typeof at !== "number" || at !== at || at === Infinity || at === -Infinity) throw new TypeError("jobs.enqueue: runAt is a Date or Unix ms");
+      }
+      return await call(op_jobs_enqueue, name, json, at, moduleArg(module), txVar.get() ?? 0);
+    },
+    async list(state, options = undefined) {
+      if (typeof state !== "string") throw new TypeError("jobs.list: state must be a string");
+      const limit = options?.limit ?? 50;
+      if (typeof limit !== "number" || limit < 1 || limit > 100 || limit !== (limit | 0)) throw new RangeError("jobs.list: limit is 1 to 100");
+      const cursor = options?.cursor ?? null;
+      if (cursor !== null && typeof cursor !== "string") throw new TypeError("jobs.list: cursor must be a string or null");
+      const page = await call(op_jobs_list, state, limit, cursor, moduleArg(module));
+      return ObjectFreeze({ items: ObjectFreeze(ArrayPrototypeMap(page.items, (r) => ObjectFreeze(r))), next_cursor: page.next_cursor ?? null });
+    },
+    async retry(id) {
+      checkId(id, "retry");
+      await call(op_jobs_retry, id, moduleArg(module), txVar.get() ?? 0);
+    },
+    async cancel(id) {
+      checkId(id, "cancel");
+      await call(op_jobs_cancel, id, moduleArg(module), txVar.get() ?? 0);
     },
   });
 }
@@ -1128,6 +1217,7 @@ function moduleFields(m) {
     services: serviceProxies,
     hooks: makeHooks(m),
     events: makeEvents(m),
+    jobs: makeJobs(m),
     authz: makeAuthz(m),
     realtime: makeRealtime(m),
     password,
@@ -1708,7 +1798,8 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
  * that module, `db` its own IMMEDIATE transaction; when it resolves, the
  * delivery is acknowledged in that transaction and it commits. Never rejects.
  */
-function deliver(token, id, name, payloadJson, attempt, module) {
+function deliver(token, id, name, payloadJson, attempt, module, job) {
+  if (job !== null && job !== undefined) return deliverJob(token, id, payloadJson, attempt, module, job);
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(module);
@@ -1747,6 +1838,68 @@ function deliver(token, id, name, payloadJson, attempt, module) {
       return { kind: KIND_EVENT, result: "ok" };
     };
     return PromisePrototypeThen(run(), undefined, (err) => ({ ...describeThrow(err), kind: KIND_EVENT, result: "threw" }));
+  } finally {
+    core.setAsyncContext(previous);
+  }
+}
+
+/**
+ * Called by Rust for one attempt of a job run (ops.md 1.6.0 section 20,
+ * "Delivery path"): `job` is `{ name, tick, handler }`, `handler` the
+ * module's exported `run` (or its lazy descriptor), null when the active
+ * deployment has no such job. `run(ctx)` gets a JobContext with its own
+ * IMMEDIATE transaction and the System principal of its module; when it
+ * resolves, the run is acknowledged in that transaction and it commits.
+ * Never rejects.
+ */
+function deliverJob(token, id, payloadJson, attempt, module, job) {
+  const previous = requestVar.enter(token);
+  try {
+    moduleVar.enter(module);
+    const st = newRequestState({
+      deadline: requestDeadline,
+      // docs/11: jobs run as Renox::System::"<module>", never as a superuser.
+      principal: freezePrincipal({ id: module, kind: "system", roles: [], attrs: {} }),
+    });
+    stateVar.enter(st);
+    const go = async () => {
+      let fn = job.handler;
+      if (fn !== null && typeof fn === "object" && typeof fn.lazy === "string") {
+        let p = lazyModules.get(fn.lazy);
+        if (p === undefined) {
+          p = import(fn.lazy);
+          lazyModules.set(fn.lazy, p);
+        }
+        fn = (await p)[fn.export];
+      }
+      if (typeof fn !== "function") return { kind: KIND_EVENT, result: "no_handler" };
+      let tx;
+      try {
+        tx = await op_db_tx_begin(token, "immediate");
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      const tick = typeof job.tick === "number" ? job.tick : null;
+      const info = ObjectFreeze({ id, name: job.name, tick, attempt, payload: payloadJson === "null" ? null : ObjectFreeze(JSONParse(payloadJson)) });
+      const jctx = jobCtx(st.ctxOf(module), statements(tx, module), info);
+      try {
+        await within([[txVar, tx]], () => fn(jctx));
+        if (st.rolledBack.has(tx)) throw new ModuleServiceError(`${module} job ${job.name}: a callee failed`, { module, job: job.name, cause_code: null });
+        await op_jobs_ack(token, tx, id, module, job.name, tick);
+        await op_db_tx_commit(token, tx);
+      } catch (err) {
+        if (!st.rolledBack.has(tx)) {
+          try {
+            await op_db_tx_rollback(token, tx);
+          } catch {
+            // The request may have ended; Rust rolls back in that case.
+          }
+        }
+        throw err;
+      }
+      return { kind: KIND_EVENT, result: "ok" };
+    };
+    return PromisePrototypeThen(go(), undefined, (err) => ({ ...describeThrow(err), kind: KIND_EVENT, result: "threw" }));
   } finally {
     core.setAsyncContext(previous);
   }

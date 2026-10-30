@@ -51,7 +51,7 @@ Values are never inspected, so a secret stored under an innocent key stays: name
 | `record(event)` | `{ id }`. `event` is `{ action, actor: { kind, id, client? }, resource?: { type, id? }, result?, details?, request_id? }`. A malformed event throws |
 | `query(filter?)` | `{ events, next }`, newest first. The events are this module's rows merged with the platform's decisions from `renox__authz_audit_v1` (`kind: "authz"`, `result` `allow`/`deny`). Filter: `actor`, `action` (or a prefix ending in `.`), `since`, `until`, `platform` (default `true`), `limit` (1 to 200, default 50), `cursor` (the previous page's `next`). Requires `audit.read` |
 | `exportEvents(filter?, purpose?)` | Runs the hook `audit.export` once per page of 200 (`{ events, page, last, purpose }`); returns `{ events, pages }`. For F7's reports and the F6 erasure task (#120). Requires `audit.read` |
-| `prune()` | Deletes rows older than `retain_days`, never fewer than 30 days; returns `{ deleted }`. Until the jobs of #297 run it on a schedule, the app calls it |
+| `prune()` | Deletes rows older than `retain_days`, never fewer than 30 days; returns `{ deleted }`. The module's job `jobs/prune.ts` runs it every night at 02:30 UTC (#297), so the app no longer has to; the app may still call it |
 
 ## Who may read
 

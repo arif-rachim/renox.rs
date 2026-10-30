@@ -23,6 +23,7 @@ pub mod realtime;
 pub mod render;
 pub mod replication;
 pub mod sandbox;
+pub mod scheduler;
 pub mod spool;
 pub mod supervisor;
 pub mod tar_safe;

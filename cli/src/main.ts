@@ -17,6 +17,7 @@ import { run as secrets } from "./commands/secrets.ts";
 import { run as tokens } from "./commands/tokens.ts";
 import { CliError, EXIT, exitCodeOf, formatError } from "./errors.ts";
 import { run as mcp } from "./mcp/command.ts";
+import { run as jobs } from "./commands/jobs.ts";
 import { run as migrate } from "./commands/migrate.ts";
 import { run as test } from "./commands/test.ts";
 
@@ -32,6 +33,7 @@ const USAGE = `renox <command>
                                         scan for secrets; --security prints the effective headers per route; --json prints the report as JSON;
                                         --strict fails on a drifted template override
   migrate [--db <file>]                 run the migrations of the installed modules (lock order) and the app's on the dev database
+  jobs list [--state <s>] | run <name> [--module <m>] | retry <id>   the dev app's jobs (scheduled, queued, running, dead)
   test [pattern...] [--seed <file.sql>] run tests/*.test.ts on the worker with a temporary tenant file per test file (renox/test),
                                         and the policy test cases of policies/tests/*.json
   authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]
@@ -57,7 +59,7 @@ Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 int
 Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev (not verified: for a worker you built);
 RENOX_TOKEN and RENOX_API_URL override the credentials saved by login.`;
 
-const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, test, mcp, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), db: (a) => db(a) };
+const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, jobs, test, mcp, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), db: (a) => db(a) };
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;

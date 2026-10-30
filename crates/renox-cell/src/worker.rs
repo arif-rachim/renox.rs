@@ -401,6 +401,7 @@ impl Worker {
         );
         manager.set_authz_config(config.authz.to_config());
         manager.set_realtime_config(config.realtime.clone());
+        manager.set_jobs_config(config.jobs.clone());
         // Litestream per tenant file (#255).
         let replication = config.replication.enabled.then(|| {
             let r = crate::replication::Replication::start(

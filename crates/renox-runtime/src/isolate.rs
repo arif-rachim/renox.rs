@@ -521,17 +521,38 @@ pub struct EventEnvelope {
     pub attempt: u32,
     /// The handling module.
     pub module: String,
+    /// A job run (ops.md 1.6.0 section 20, "Delivery path"): the bootstrap
+    /// calls the module's exported `run` of the `job` route instead of an
+    /// `on` handler. `None` for an event.
+    pub job: Option<JobRun>,
+}
+
+/// What a job run adds to the delivery (the job envelope of section 20).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobRun {
+    /// The job's name (the file stem).
+    pub name: String,
+    /// The tick a scheduled run is for; `None` for a queued run.
+    pub tick: Option<i64>,
 }
 
 impl EventEnvelope {
-    /// The meter route: `EVENT <module> <name>` (`meter.md` 0.2).
+    /// The meter route: `EVENT <module> <name>` (`meter.md` 0.2), or
+    /// `JOB <module> <name>` for a job run (0.3).
     pub fn route(&self) -> String {
-        format!("EVENT {} {}", self.module, self.name)
+        match &self.job {
+            Some(j) => format!("JOB {} {}", self.module, j.name),
+            None => format!("EVENT {} {}", self.module, self.name),
+        }
     }
 
-    /// The meter request id: `<event id>_<module>_<attempt>`.
+    /// The meter request id: `<event id>_<module>_<attempt>`, or
+    /// `<row id>_<attempt>` for a job run.
     pub fn request_id(&self) -> String {
-        format!("{}_{}_{}", self.id, self.module, self.attempt)
+        match &self.job {
+            Some(_) => format!("{}_{}", self.id, self.attempt),
+            None => format!("{}_{}_{}", self.id, self.module, self.attempt),
+        }
     }
 }
 
@@ -934,6 +955,25 @@ impl IsolateHandle {
             .routes
             .iter()
             .filter_map(|r| r.tool.clone())
+            .collect()
+    }
+
+    /// The `job` routes of the deployment with their owning module (ops.md
+    /// section 20): what the cell's scheduler ticks.
+    pub fn jobs(&self) -> Vec<crate::ops::jobs::JobDef> {
+        self.inner
+            .artifact
+            .manifest
+            .routes
+            .iter()
+            .filter_map(|r| {
+                r.job.as_ref().map(|j| crate::ops::jobs::JobDef {
+                    module: route_owner(r),
+                    name: j.name.clone(),
+                    schedule: j.schedule.clone(),
+                    tz: j.tz.clone(),
+                })
+            })
             .collect()
     }
 
@@ -2170,6 +2210,23 @@ async fn create_worker(
                 .map(route_owner)
                 .collect(),
         }));
+        // ops.md 1.6.0 section 20: the job routes, for enqueue and list.
+        state.put(Rc::new(crate::ops::jobs::JobsEnv {
+            defs: ctx
+                .artifact
+                .manifest
+                .routes
+                .iter()
+                .filter_map(|r| {
+                    r.job.as_ref().map(|j| crate::ops::jobs::JobDef {
+                        module: route_owner(r),
+                        name: j.name.clone(),
+                        schedule: j.schedule.clone(),
+                        tz: j.tz.clone(),
+                    })
+                })
+                .collect(),
+        }));
         state.put(Rc::new(crate::ops::realtime::RealtimeEnv {
             slot: ctx.realtime.clone(),
             authz: ctx.authz.clone(),
@@ -3279,7 +3336,7 @@ fn start_dispatch(
     let args = {
         deno_core::scope!(scope, &mut worker.js_runtime);
         match (&job.event, &job.invoke) {
-            (Some(ev), _) => build_event_args(scope, token, ev),
+            (Some(ev), _) => build_event_args(scope, platform, &ctx.artifact.manifest, token, ev),
             (None, Some(inv)) => build_invoke_args(scope, platform, token, job.route, inv),
             (None, None) => build_args(scope, platform, token, &job),
         }
@@ -3570,9 +3627,14 @@ fn finish_invoke(
     }
 }
 
-/// `deliver(token, id, name, payloadJson, attempt, module)`.
+/// `deliver(token, id, name, payloadJson, attempt, module, job)`; `job` is
+/// `null` for an event, else `{ name, tick, handler }` with the `job`
+/// route's `run` (or its lazy descriptor), `handler` null when the active
+/// deployment has no such job (section 20, `no_handler`).
 fn build_event_args(
     scope: &mut v8::PinScope,
+    platform: &Platform,
+    manifest: &crate::manifest::Manifest,
     token: u32,
     ev: &EventEnvelope,
 ) -> Result<Vec<v8::Global<v8::Value>>, serde_v8::Error> {
@@ -3582,7 +3644,36 @@ fn build_event_args(
     let name = serde_v8::to_v8(scope, &ev.name)?;
     let payload = serde_v8::to_v8(scope, &ev.payload_json)?;
     let module = serde_v8::to_v8(scope, &ev.module)?;
-    Ok([token_v, id, name, payload, attempt, module]
+    let job: v8::Local<v8::Value> = match &ev.job {
+        None => v8::null(scope).into(),
+        Some(j) => {
+            let route = manifest.routes.iter().position(|r| {
+                r.job.as_ref().is_some_and(|d| d.name == j.name) && route_owner(r) == ev.module
+            });
+            let handler: v8::Local<v8::Value> = match route {
+                Some(route) => match (&platform.handlers[route], platform.lazy[route].as_ref()) {
+                    (_, Some(l)) => serde_v8::to_v8(
+                        scope,
+                        serde_json::json!({ "lazy": l.lazy, "module": l.module, "export": l.export, "action": null }),
+                    )?,
+                    (Some(h), None) => v8::Local::new(scope, h),
+                    (None, None) => v8::null(scope).into(),
+                },
+                None => v8::null(scope).into(),
+            };
+            let o = v8::Object::new(scope);
+            let k = serde_v8::to_v8(scope, "name")?;
+            let v = serde_v8::to_v8(scope, &j.name)?;
+            o.set(scope, k, v);
+            let k = serde_v8::to_v8(scope, "tick")?;
+            let v = serde_v8::to_v8(scope, j.tick.map(|t| t as f64))?;
+            o.set(scope, k, v);
+            let k = serde_v8::to_v8(scope, "handler")?;
+            o.set(scope, k, handler);
+            o.into()
+        }
+    };
+    Ok([token_v, id, name, payload, attempt, module, job]
         .into_iter()
         .map(|l| v8::Global::new(scope, l))
         .collect())

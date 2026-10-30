@@ -1,4 +1,4 @@
-// renox dev [--port 8787] [--worker <path>]: build, write a local route table and worker
+// renox dev [--port 8787] [--worker <path>] [--jobs]: build, write a local route table and worker
 // config under .renox/, start the prebuilt renox-worker, watch the project,
 // rebuild the changed module, point the route at the new hash, and SIGHUP
 // the worker so the next request goes to a fresh isolate (D19: hot reload
@@ -170,6 +170,8 @@ export interface DevOptions {
   log?: (line: string) => void;
   /** Overrides DEBOUNCE_MS (tests). */
   debounceMs?: number;
+  /** Run the job scheduler (`--jobs`, #297); queued runs are delivered either way. */
+  jobs?: boolean;
 }
 
 export async function startDev(opts: DevOptions): Promise<DevServer> {
@@ -224,6 +226,12 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       `meter_flush_ms = 1000`,
       `default_tier = "free"`,
       "",
+      // ops.md section 20 (#297): the scheduler runs only with --jobs; the
+      // poll sees the rows `renox jobs run` and `retry` write.
+      "[jobs]",
+      `enabled = ${opts.jobs === true}`,
+      "poll_ms = 500",
+      "",
     ].join("\n"),
   );
   const binary = opts.worker ?? workerPath();
@@ -234,7 +242,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         stdin: "ignore",
         stdout: "ignore",
         stderr: "pipe",
-        env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "warn" },
+        env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? (opts.jobs ? "warn,renox_cell::scheduler=info" : "warn") },
       });
     } catch (e) {
       throw new EnvironmentError(`cannot start renox-worker (${binary}): ${(e as Error).message}`, { hint: DOWNLOAD_HINT });
@@ -250,6 +258,10 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
           const line = buf.slice(0, i);
           buf = buf.slice(i + 1);
           if (/"level":"(WARN|ERROR)"/u.test(line)) log(`worker: ${line}`);
+          else if (opts.jobs) {
+            const tick = jobTick(line);
+            if (tick) log(tick);
+          }
         }
       }
     })();
@@ -559,12 +571,30 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   };
 }
 
+/** A scheduler line of the worker as `jobs: <module.name> tick <time>` (`renox dev --jobs`), else null. */
+export function jobTick(line: string): string | null {
+  let v: { fields?: Record<string, unknown> } & Record<string, unknown>;
+  try {
+    v = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  const f = { ...v, ...(v.fields ?? {}) } as Record<string, unknown>;
+  const message = f.message;
+  if (message !== "job tick" && message !== "missed job ticks coalesced into one run") return null;
+  const job = f.module === "app" ? String(f.job) : `${String(f.module)}.${String(f.job)}`;
+  const at = typeof f.tick === "number" ? new Date(f.tick).toISOString() : "";
+  return `jobs: ${job} ${message === "job tick" ? "tick" : "missed ticks, one run for"} ${at}`;
+}
+
 export async function run(args: string[]): Promise<number> {
   const p = args.indexOf("--port");
   const port = p >= 0 ? Number(args[p + 1]) : 8787;
   const w = args.indexOf("--worker");
   const external = w >= 0 ? args[w + 1] : undefined;
   const flags = ["--port", "--worker"];
+  const jobs = args.includes("--jobs");
+  args = args.filter((a) => a !== "--jobs");
   if (
     !Number.isInteger(port) ||
     port <= 0 ||
@@ -572,7 +602,7 @@ export async function run(args: string[]): Promise<number> {
     (w >= 0 && (!external || external.startsWith("-"))) ||
     args.some((a, i) => a.startsWith("-") && !flags.includes(a) && !flags.includes(args[i - 1] ?? ""))
   ) {
-    console.error("usage: renox dev [--port <port>] [--worker <path>]");
+    console.error("usage: renox dev [--port <port>] [--worker <path>] [--jobs]");
     return EXIT.USER;
   }
   // #129: an external worker runs only with a pinned hash or a verified
@@ -586,7 +616,7 @@ export async function run(args: string[]): Promise<number> {
   // Ctrl-C during the first build or the worker start: stop at once.
   const early = (): never => process.exit(EXIT.INTERRUPTED);
   process.once("SIGINT", early);
-  const dev = await startDev({ project: process.cwd(), port, ...(worker ? { worker } : {}) });
+  const dev = await startDev({ project: process.cwd(), port, jobs, ...(worker ? { worker } : {}) });
   process.off("SIGINT", early);
   const outcome = await Promise.race([
     new Promise<"interrupted">((r) => process.once("SIGINT", () => r("interrupted"))),

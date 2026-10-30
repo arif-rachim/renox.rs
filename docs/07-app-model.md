@@ -127,11 +127,15 @@ The `billing` module ships verified webhook handlers for Stripe, Checkout.com, T
 
 ```ts
 // jobs/nightly-report.ts
-export const schedule = "0 2 * * *";          // tenant-local timezone from renox.toml
-export default async function run({ db, events, log }) { /* ... */ }
+export const schedule = "0 2 * * *";          // minute hour day-of-month month day-of-week
+export const tz = "Asia/Dubai";                // optional IANA zone; UTC when absent
+export async function run(ctx) {               // a named export (ops.md section 20)
+  const { db, events, log, job } = ctx;        // job: { id, name, tick, attempt, payload }
+  /* ... */
+}
 ```
 
-Jobs run as the principal `System::"app"` with explicit permissions and are charged to the tenant quota.
+Jobs run as the principal `System::"app"` (a module's as `System::"<module>"`) with explicit permissions and are charged to the tenant quota. Each tick is one durable outbox row, run at least once and never twice at the same time; ticks missed while the tenant had no cell (an eviction, a restart, downtime) become one run for the latest of them. `ctx.jobs.enqueue(name, payload, { runAt })` queues a run of one of the caller's own jobs inside the current transaction. The `jobs` module shows the scheduled, queued, running and failed runs and retries or cancels them; `renox jobs` does the same for `renox dev`, which runs the scheduler only with `--jobs`.
 
 ## The `ctx` surface (SDK)
 

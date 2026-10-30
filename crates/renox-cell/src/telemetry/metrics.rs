@@ -273,6 +273,39 @@ impl Metrics {
                 esc(id)
             );
         }
+        // #297: the scheduler and job runs of this node.
+        {
+            use std::sync::atomic::Ordering::Relaxed;
+            for (name, kind, help, value) in [
+                (
+                    "renox_worker_job_runs_total",
+                    "counter",
+                    "Job attempts started.",
+                    crate::scheduler::RUNS.load(Relaxed) as f64,
+                ),
+                (
+                    "renox_worker_job_failures_total",
+                    "counter",
+                    "Job attempts that failed.",
+                    crate::scheduler::FAILURES.load(Relaxed) as f64,
+                ),
+                (
+                    "renox_worker_job_ticks_total",
+                    "counter",
+                    "Scheduled ticks written (rows added or coalesced).",
+                    crate::scheduler::TICKS.load(Relaxed) as f64,
+                ),
+                (
+                    "renox_worker_job_lag_seconds",
+                    "gauge",
+                    "Start of the last scheduled run minus its tick.",
+                    crate::scheduler::LAST_LAG_MS.load(Relaxed) as f64 / 1000.0,
+                ),
+            ] {
+                family(&mut out, name, kind, help);
+                let _ = writeln!(out, "{name} {value}");
+            }
+        }
         family(
             &mut out,
             "renox_worker_realtime_connections",

@@ -61,6 +61,9 @@ pub struct Cell {
     pub(crate) wake: Notify,
     /// The outbox delivery task (#229); dropped (stopped) at eviction.
     outbox: Mutex<Option<crate::outbox::OutboxWorker>>,
+    /// The scheduler's earliest next tick (#297): the manager wakes the
+    /// tenant at it after this cell is evicted.
+    pub(crate) next_tick: crate::scheduler::NextTick,
     /// The deployment's realtime hub (#281), also the runtime's
     /// `RealtimeHost`.
     pub(crate) realtime: Option<std::sync::Arc<crate::realtime::CellRealtime>>,
@@ -82,6 +85,7 @@ impl Cell {
             evicted: AtomicBool::new(false),
             wake: Notify::new(),
             outbox: Mutex::new(None),
+            next_tick: crate::scheduler::NextTick::default(),
         }
     }
 

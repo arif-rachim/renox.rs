@@ -19,6 +19,7 @@ use crate::ops::db::{
 use crate::ops::deadline::op_deadline_remaining_ms;
 use crate::ops::events::{op_events_ack, op_events_emit};
 use crate::ops::fetch::{op_fetch_body_close, op_fetch_body_read, op_renox_fetch};
+use crate::ops::jobs::{op_jobs_ack, op_jobs_cancel, op_jobs_enqueue, op_jobs_list, op_jobs_retry};
 use crate::ops::log::op_log;
 use crate::ops::password::{op_password_hash, op_password_verify};
 use crate::ops::realtime::{
@@ -108,6 +109,11 @@ deno_core::extension!(
         op_realtime_close,
         op_events_emit,
         op_events_ack,
+        op_jobs_enqueue,
+        op_jobs_ack,
+        op_jobs_list,
+        op_jobs_retry,
+        op_jobs_cancel,
         op_password_hash,
         op_password_verify,
         op_log,

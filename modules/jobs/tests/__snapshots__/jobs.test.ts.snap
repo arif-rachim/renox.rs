@@ -1,0 +1,17 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`jobs the page lists the scheduled jobs and the dead run, never its payload 1`] = `
+"<section id="jobs-dead">
+    <h2>Failed (dead letters)</h2>
+    <table>
+      <thead><tr><th>Job</th><th>Failed</th><th>Attempts</th><th>Last error</th><th></th></tr></thead>
+      <tbody>
+        <tr id="job-01JDEAD0000000000000000000"><td dir="auto">flaky</td><td><time datetime="2026-10-30T00:00:00Z" dir="auto">2026-10-30T00:00:00Z</time></td><td dir="auto">8</td><td><code dir="auto">threw</code></td>
+          <td>
+            <form method="post" action="?/retry" hx-post="?/retry"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="id" value="01JDEAD0000000000000000000"><button type="submit">Retry</button></form>
+            <form method="post" action="?/cancel" hx-post="?/cancel"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="id" value="01JDEAD0000000000000000000"><button type="submit">Cancel</button></form>
+          </td></tr>
+      </tbody>
+    </table>
+  </section>"
+`;
