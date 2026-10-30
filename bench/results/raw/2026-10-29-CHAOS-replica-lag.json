@@ -1,0 +1,49 @@
+{
+  "id": "CHAOS-replica-lag",
+  "scenario": "replica-lag",
+  "title": "Replica lagging",
+  "failureModes": [
+    "Replica lagging / Litestream behind"
+  ],
+  "description": "the tenant's Litestream sidecar stopped with SIGSTOP for 15 s during 10 writes per second, then SIGCONT",
+  "verdict": "PASS",
+  "result": "max lag 15.8 s (metric 15.8), recovered 0.1 s after SIGCONT, writes 141×200",
+  "target": "no tenant error; lag reported above 10 s while frozen; under 5 s again within 60 s",
+  "alerts": [
+    {
+      "rule": "RenoxReplicationLag",
+      "observed": "condition true (15.8 s)"
+    }
+  ],
+  "checks": [
+    {
+      "name": "the tenant sees nothing",
+      "ok": true,
+      "detail": "writes during and after the freeze: 141×200"
+    },
+    {
+      "name": "the lag passes the FO6 threshold",
+      "ok": true,
+      "detail": "getBackups lag_seconds up to 15.8 s"
+    },
+    {
+      "name": "the control plane's metric shows it",
+      "ok": true,
+      "detail": "renox_cp_replication_lag_max_seconds up to 15.8 (RenoxReplicationLag fires above 10)"
+    },
+    {
+      "name": "the lag recovers",
+      "ok": true,
+      "detail": "under 5 s 0.1 s after SIGCONT"
+    }
+  ],
+  "metrics": {
+    "freeze_s": 15,
+    "max_lag_s": 15.817,
+    "metric_lag_s": 15.817,
+    "recovered_after_s": 0.06798979699995834
+  },
+  "notes": [
+    "The control plane's lag metric is the nodes' last report, refreshed here by getBackups; the worker's own gauge comes with #295."
+  ]
+}

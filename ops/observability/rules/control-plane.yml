@@ -1,0 +1,20 @@
+# Control-plane alerts (#296).
+groups:
+  - name: renox-control-plane
+    rules:
+      - alert: RenoxControlPlaneDown
+        expr: up{job="renox-control-plane"} == 0 or renox_cp_up == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "The control plane's metrics endpoint does not answer (API or Postgres down)"
+          failure_mode: "Control plane unreachable from the worker"
+      - alert: RenoxTenantStuckMoving
+        expr: renox_cp_tenants_moving > 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} tenant(s) marked moving to a microVM for more than 15 minutes (requests answer 503)"
+          failure_mode: "Worker process crashes (a paid tenant's child process, #254)"

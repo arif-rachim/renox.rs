@@ -19,6 +19,46 @@
       </table>
     </r-group>
 
+    <h2>Status</h2>
+    <x-form action="status" hx-target="#page" hx-swap="outerHTML" class="row">
+      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit">Show status</button>
+    </x-form>
+    <r-group r-if="status">
+      <table class="list">
+        <tbody>
+          <tr><td>Name</td><td>{{ status.name }}</td></tr>
+          <tr><td>State</td><td>{{ status.state }}</td></tr>
+          <tr><td>Tier</td><td>{{ status.tier }} (process {{ status.process }})</td></tr>
+          <tr><td>Node</td><td><code>{{ status.node }}</code></td></tr>
+          <tr><td>Pinned to</td><td><code>{{ status.pinned }}</code></td></tr>
+          <tr><td>Moving to a microVM</td><td>{{ status.moving }}</td></tr>
+          <tr><td>Last microVM move</td><td>{{ status.microvm }}</td></tr>
+        </tbody>
+      </table>
+      <h3>Replication</h3>
+      <p class="muted" r-if="!status.replication">No node has reported this tenant's replication yet.</p>
+      <table class="list" r-if="status.replication">
+        <thead><tr><th>Database</th><th>State</th><th>Replica</th><th>Lag</th><th>Last sync</th><th>Reported</th></tr></thead>
+        <tbody>
+          <tr r-for="r in status.replication">
+            <td><code>{{ r.database }}</code></td><td>{{ r.state }}</td><td>{{ r.replica }}</td><td>{{ r.lag }}</td><td>{{ r.last_sync }}</td>
+            <td>{{ r.reported }}<span class="problem" r-if="r.stale"> (stale)</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Last actions</h3>
+      <p class="muted" r-if="!status.actions">No operator action on this tenant yet.</p>
+      <table class="list" r-if="status.actions">
+        <thead><tr><th>When (UTC)</th><th>Action</th><th>Result</th><th>Operator</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr r-for="a in status.actions">
+            <td>{{ a.at }}</td><td>{{ a.action }}</td><td>{{ a.result }}</td><td><code>{{ a.operator }}</code></td><td>{{ a.reason }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </r-group>
+
     <h2>Change tier</h2>
     <x-form action="tier" hx-target="#page" hx-swap="outerHTML" hx-confirm="Change the tier of {{ tenant }}? Its route entries are republished with the new process tier." class="row">
       <label>Tier <select name="tier"><option value="free">free (shared process)</option><option value="paid">paid (own process)</option></select></label>

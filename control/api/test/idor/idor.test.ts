@@ -93,6 +93,9 @@ export const EXTRA_ROUTES: Record<string, string> = {
   "POST /mcp": "callMcp",
   "GET /mcp": "mcpMethodNotAllowed",
   "DELETE /mcp": "mcpMethodNotAllowed",
+  // The control plane's Prometheus families (src/ops/metrics.ts, #296): the
+  // same operator credential and scope as getOpsTenant, no tenant id in it.
+  "GET /v1/ops/metrics": "getOpsTenant",
 };
 
 /** Callers that are not tenant principals: not part of this suite, with the reason. */

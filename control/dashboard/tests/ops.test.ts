@@ -88,19 +88,50 @@ describe("operator console (section 5)", () => {
     expect(await currentToken(statementsOf(d), d.secrets, d.sessionId, Date.now())).not.toBeNull();
   });
 
+  test("status panel (#296): getOpsTenant with the operator token, shown and not kept; refused input never reaches the API", async () => {
+    const d = await setup();
+    const before = d.calls.sent.length;
+    const bad = data(await actions.status(actionCtx(d, "/ops/tenants/t_hello", "status", { token: "renox_pat_" + "a".repeat(32) }, { params: T })));
+    expect(bad.form_error).not.toBeNull();
+    expect(d.calls.sent.length).toBe(before);
+
+    expect(data(await actions.tier(actionCtx(d, "/ops/tenants/t_hello", "tier", { tier: "paid", reason: REASON, token: OPERATOR_TOKEN }, { params: T }))).state).not.toBeNull();
+    const r = data(await actions.status(actionCtx(d, "/ops/tenants/t_hello", "status", { token: OPERATOR_TOKEN }, { params: T })));
+    expect(r.action_problem).toBeNull();
+    expect(r.status).toMatchObject({ tier: "paid", process: "own", state: "active", node: "node-1", pinned: "—", moving: "no", microvm: "—", replication: [] });
+    expect(r.status.actions).toHaveLength(1);
+    expect(r.status.actions[0]).toMatchObject({ action: "setTenantTier", result: "changed", reason: REASON, operator: "operator" });
+    const reads = d.calls.sent.filter((c) => c.method === "GET" && c.url.includes("/v1/ops/"));
+    expect(reads.map((c) => [new URL(c.url).pathname, c.authorization])).toEqual([["/v1/ops/tenants/t_hello", `Bearer ${OPERATOR_TOKEN}`]]);
+    expect(JSON.stringify(r)).not.toContain(OPERATOR_TOKEN);
+    // The API's refusal of a token it does not know.
+    const forged = data(await actions.status(actionCtx(d, "/ops/tenants/t_hello", "status", { token: "renox_op_" + "c".repeat(32) }, { params: T })));
+    expect(forged.action_problem).toMatchObject({ status: 401, signed_out: false });
+  });
+
   test.skipIf(!worker)(
-    "rendered by the worker: the three actions with a reason and a token field each",
+    "rendered by the worker: the status panel and the three actions with a reason and a token field each",
     async () => {
       const d = await setup();
       const page = data(await load(loaderCtx(d, "/ops/tenants/t_hello", { params: T })));
-      const dev = await devWithData({ "pages/ops/tenants/[tenant].ts": page });
+      expect(data(await actions.tier(actionCtx(d, "/ops/tenants/t_hello", "tier", { tier: "paid", reason: REASON, token: OPERATOR_TOKEN }, { params: T }))).state).not.toBeNull();
+      const status = data(await actions.status(actionCtx(d, "/ops/tenants/t_hello", "status", { token: OPERATOR_TOKEN }, { params: T }))).status;
+      // The status panel with a replication row as a node reports it (#296).
+      status.replication = [{ database: "t_hello", state: "replicating", replica: "s3 (me-central-1)", lag: "0.4 s", last_sync: "3s ago", reported: "5s ago", stale: true }];
+      const dev = await devWithData({ "pages/ops/tenants/[tenant].ts": { ...page, status } });
       try {
         const res = await fetch(`${dev.base}/ops/tenants/t_hello`);
         expect(res.status).toBe(200);
         const html = (await res.text()).replaceAll(' dir="auto"', "");
-        for (const b of ["Change tier", "Move to node", "Move to microVM"]) expect(html).toContain(`<button type="submit">${b}</button>`);
-        expect(html.match(/name="token"/gu)?.length).toBe(3);
+        for (const b of ["Show status", "Change tier", "Move to node", "Move to microVM"]) expect(html).toContain(`<button type="submit">${b}</button>`);
+        expect(html.match(/name="token"/gu)?.length).toBe(4);
         expect(html.match(/name="reason"/gu)?.length).toBe(3);
+        expect(html).toContain("<td>paid (process own)</td>");
+        expect(html).toContain("<td><code>t_hello</code></td><td>replicating</td><td>s3 (me-central-1)</td><td>0.4 s</td>");
+        expect(html).toContain("(stale)");
+        expect(html).toContain("<td>setTenantTier</td><td>changed</td>");
+        expect(html).not.toContain("No operator action on this tenant yet.");
+        expect(html).not.toContain(OPERATOR_TOKEN);
       } finally {
         await dev.stop();
       }

@@ -1,0 +1,391 @@
+{
+  "uid": "renox-tenant",
+  "title": "Renox \u00b7 Tenant",
+  "tags": [
+    "renox",
+    "tenant"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "utc",
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "renox-prometheus"
+        },
+        "query": {
+          "query": "label_values(renox_worker_requests_total, tenant_id)",
+          "refId": "V"
+        },
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Requests per second by status",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum by (status_class) (rate(renox_worker_requests_total{tenant_id=\"$tenant\"}[5m]))",
+          "legendFormat": "{{status_class}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Latency p50 / p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(renox_worker_request_duration_seconds_bucket{tenant_id=\"$tenant\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(renox_worker_request_duration_seconds_bucket{tenant_id=\"$tenant\"}[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "CPU seconds per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(rate(renox_worker_cpu_seconds_total{tenant_id=\"$tenant\"}[5m]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Heap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(renox_worker_heap_bytes{tenant_id=\"$tenant\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Cold starts (1 h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(increase(renox_worker_cold_starts_total{tenant_id=\"$tenant\"}[1h]))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Outbox pending / oldest age",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(renox_worker_outbox_pending{tenant_id=\"$tenant\"})",
+          "legendFormat": "pending"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "max(renox_worker_outbox_oldest_age_seconds{tenant_id=\"$tenant\"})",
+          "legendFormat": "oldest age (s)"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Dead letters (24 h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(increase(renox_worker_dead_letters_total{tenant_id=\"$tenant\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Realtime connections",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 16,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(renox_worker_realtime_connections{tenant_id=\"$tenant\"})"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Realtime messages per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(rate(renox_worker_realtime_messages_total{tenant_id=\"$tenant\"}[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Authorization decisions",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum by (decision) (rate(renox_worker_authz_decisions_total{tenant_id=\"$tenant\"}[5m]))",
+          "legendFormat": "{{decision}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Replication lag",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "max(renox_worker_replication_lag_seconds{tenant_id=\"$tenant\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Process restarts (24 h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "renox-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "renox-prometheus"
+          },
+          "expr": "sum(increase(renox_worker_process_restarts_total{tenant_id=\"$tenant\"}[24h]))"
+        }
+      ]
+    }
+  ]
+}

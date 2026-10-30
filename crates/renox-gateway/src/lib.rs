@@ -44,6 +44,7 @@ pub mod security;
 pub mod static_files;
 pub mod tls;
 pub mod upgrade;
+pub mod well_known;
 
 pub use client_events::{
     ClientEventLimits, ClientEventSink, ClientEventStats, ClientLogLine, DropReason,
@@ -151,6 +152,9 @@ pub struct GatewayConfig {
     pub protocol: ProtocolLimits,
     /// `/__renox/events` limits (`client_events.rs`).
     pub client_events: ClientEventLimits,
+    /// `/.well-known/security.txt` for the platform's own hosts
+    /// (`well_known.rs`, #121); `None` serves nothing.
+    pub security_txt: Option<Arc<well_known::SecurityTxt>>,
 }
 
 impl GatewayConfig {
@@ -162,6 +166,7 @@ impl GatewayConfig {
             limits: GatewayLimits::default(),
             protocol: ProtocolLimits::default(),
             client_events: ClientEventLimits::default(),
+            security_txt: None,
         }
     }
 }
@@ -575,6 +580,13 @@ async fn route<D: CellDispatcher>(
             return plain(StatusCode::BAD_REQUEST, "Bad request");
         }
     };
+    // The platform's own security.txt, whether or not the host is routed.
+    if req.uri().path() == well_known::SECURITY_TXT_PATH
+        && let Some(txt) = &inner.config.security_txt
+        && txt.serves(&host)
+    {
+        return txt.response(req.method());
+    }
     let Some(entry) = inner.routes.lookup(&host) else {
         counters.unknown_host.fetch_add(1, Ordering::Relaxed);
         return plain(StatusCode::NOT_FOUND, "Not found");

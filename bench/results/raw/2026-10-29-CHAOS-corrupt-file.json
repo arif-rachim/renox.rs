@@ -1,0 +1,46 @@
+{
+  "id": "CHAOS-corrupt-file",
+  "scenario": "corrupt-file",
+  "title": "Tenant file corrupted",
+  "failureModes": [
+    "SQLite file corrupted, WAL unreadable"
+  ],
+  "description": "5 rows written and replicated, the cell evicted (idle 2 s) and its sidecar stopped, then the tenant's app.db overwritten with 8 KiB of 0xAB (WAL and SHM removed)",
+  "verdict": "PASS",
+  "result": "first answer 503, restored in 0.1 s with 5 of 5 rows, 1 quarantine file(s)",
+  "target": "503 RENOX_DB_UNAVAILABLE, automatic restore, 200 with every replicated row, quarantine kept, neighbours unaffected",
+  "alerts": [
+    {
+      "rule": "RenoxTenantFileRestoring",
+      "observed": "reads renox_worker_db_unavailable (pending #295)"
+    }
+  ],
+  "checks": [
+    {
+      "name": "503 RENOX_DB_UNAVAILABLE first",
+      "ok": true,
+      "detail": "503 {\"error\":{\"code\":\"RENOX_DB_UNAVAILABLE\",\"request_id\":\"01M64K3K1DX0DR1HMR2Q1P9X7D\",\"message\":\"The service is temporarily "
+    },
+    {
+      "name": "restored automatically with its rows",
+      "ok": true,
+      "detail": "200 with n = 5 after 0.1 s"
+    },
+    {
+      "name": "the damaged file is kept",
+      "ok": true,
+      "detail": "app.db.corrupt-1793303104558"
+    },
+    {
+      "name": "no impact on a neighbour",
+      "ok": true,
+      "detail": "t-chaos-d on the same node: 1×200"
+    }
+  ],
+  "metrics": {
+    "restore_s": 0.12561305399999947,
+    "rows_written": 5,
+    "rows_restored": 5
+  },
+  "notes": []
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "targets": ["10.0.0.10:8781"],
+    "labels": { "node_id": "node-dxb-01", "region": "me-central-1" }
+  },
+  {
+    "targets": ["10.0.0.11:8781"],
+    "labels": { "node_id": "node-dxb-02", "region": "me-central-1" }
+  }
+]

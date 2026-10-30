@@ -1,0 +1,17 @@
+# Alertmanager routing for the Renox rules (#296). The receivers are
+# placeholders: the paging integration (pager, chat, email) is the owner's
+# and its credentials never go in this repository; replace `default` with
+# the real receivers on the monitoring host.
+route:
+  receiver: default
+  group_by: [alertname, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="page"']
+      receiver: default
+      repeat_interval: 1h
+
+receivers:
+  - name: default

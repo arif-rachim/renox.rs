@@ -1,0 +1,60 @@
+{
+  "id": "CHAOS-disk-full",
+  "scenario": "disk-full",
+  "title": "Disk full on a node",
+  "failureModes": [
+    "Disk full on node"
+  ],
+  "description": "each node's data directory on a 128 MiB loop-mounted ext4; the victim's filled to 92 %, then 96 %, then emptied (crate::disk polls every 5 s)",
+  "target": "92 %: a cold tenant 503 RENOX_UNAVAILABLE, warm reads and writes 200; 96 %: writes 503 RENOX_UNAVAILABLE, reads 200; other node unaffected; all 200 after freeing",
+  "alerts": [
+    {
+      "rule": "RenoxDiskWatermarkStop",
+      "observed": "reads renox_worker_disk_level (pending #295); the level is on /healthz"
+    }
+  ],
+  "notes": [],
+  "verdict": "PASS",
+  "result": "92 %: no new cell: cold t-chaos-d: 503 (92.0 % used); 92 %: warm tenant reads and writes: POST 200, GET 200; 96 %: writes refused: POST 503 (96.0 % used); 96 %: reads go on: GET 200; the other node is unaffected: t-chaos-b on node-chaos-1: POST 200; freed: everything again: POST 200, cold GET 200; warm reads at every level: GET once a second on t-chaos-a: 13×200",
+  "checks": [
+    {
+      "name": "92 %: no new cell",
+      "ok": true,
+      "detail": "cold t-chaos-d: 503 (92.0 % used)"
+    },
+    {
+      "name": "92 %: warm tenant reads and writes",
+      "ok": true,
+      "detail": "POST 200, GET 200"
+    },
+    {
+      "name": "96 %: writes refused",
+      "ok": true,
+      "detail": "POST 503 (96.0 % used)"
+    },
+    {
+      "name": "96 %: reads go on",
+      "ok": true,
+      "detail": "GET 200"
+    },
+    {
+      "name": "the other node is unaffected",
+      "ok": true,
+      "detail": "t-chaos-b on node-chaos-1: POST 200"
+    },
+    {
+      "name": "freed: everything again",
+      "ok": true,
+      "detail": "POST 200, cold GET 200"
+    },
+    {
+      "name": "warm reads at every level",
+      "ok": true,
+      "detail": "GET once a second on t-chaos-a: 13×200"
+    }
+  ],
+  "metrics": {
+    "used_pct_stop": 92.00150347679008,
+    "used_pct_refuse": 96.00826912234542
+  }
+}

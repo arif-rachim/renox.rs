@@ -1,0 +1,19 @@
+{
+  "id": "CHAOS-pubsub-drop",
+  "scenario": "pubsub-drop",
+  "title": "Realtime pub/sub link dropped",
+  "failureModes": [
+    "WebSocket message flood / oversized frame"
+  ],
+  "description": "realtime clients connected while the pub/sub link drops (F5)",
+  "target": "clients closed with the ops.md section 18 code and reconnect; other tenants unaffected",
+  "alerts": [],
+  "checks": [],
+  "metrics": {},
+  "notes": [
+    "docs/23 has no row for a lost pub/sub link yet; the realtime row named is the nearest, and F5 adds the row with the crate."
+  ],
+  "verdict": "SKIPPED",
+  "skipped": "renox-realtime does not exist yet (F5: #278, #281)",
+  "result": ""
+}

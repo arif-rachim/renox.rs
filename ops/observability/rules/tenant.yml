@@ -1,0 +1,48 @@
+# Tenant alerts (#296): the outbox, dead letters, errors, cold starts, a
+# damaged tenant file. Every expression reads a worker family of #295.
+groups:
+  - name: renox-tenant
+    rules:
+      - alert: RenoxOutboxOldestAge
+        expr: max by (instance, tenant_id) (renox_worker_outbox_oldest_age_seconds) > 600
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }}: the oldest pending outbox delivery is {{ $value | humanizeDuration }} old"
+          failure_mode: "Outbox or logs grow unbounded"
+      - alert: RenoxDeadLetters
+        expr: sum by (tenant_id) (increase(renox_worker_dead_letters_total[15m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }}: {{ $value | humanize }} new dead letters in 15 minutes"
+          failure_mode: "Event handler fails repeatedly"
+      - alert: RenoxTenantErrorRatio
+        expr: |
+          sum by (tenant_id) (rate(renox_worker_requests_total{status_class="5xx"}[5m]))
+            / sum by (tenant_id) (rate(renox_worker_requests_total[5m])) > 0.05
+          and sum by (tenant_id) (rate(renox_worker_requests_total[5m])) > 0.2
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }}: {{ $value | humanizePercentage }} of requests answer 5xx"
+          failure_mode: "Worker process crashes (a paid tenant's child process, #254)"
+      - alert: RenoxColdStartP95
+        # B4 target: p99 100 ms (docs/14-benchmarks.md); p95 over 100 ms across the node is a regression.
+        expr: histogram_quantile(0.95, sum by (instance, le) (rate(renox_worker_cold_start_duration_seconds_bucket[15m]))) > 0.1
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Node {{ $labels.instance }}: cold-start p95 is {{ $value | humanizeDuration }} (B4 target p99 100 ms)"
+          failure_mode: "Isolate evicted while a request arrives"
+      - alert: RenoxTenantFileRestoring
+        expr: renox_worker_db_unavailable > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Node {{ $labels.instance }}: {{ $value }} tenant file(s) damaged and being restored (503 RENOX_DB_UNAVAILABLE)"
+          failure_mode: "SQLite file corrupted, WAL unreadable"

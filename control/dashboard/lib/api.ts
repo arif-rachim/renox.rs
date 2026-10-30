@@ -141,6 +141,34 @@ export interface LogLine {
 }
 
 /** A call that did not give a value: the API's error, or why the API was not reached. */
+/** `OpsReplication` (deploy-api.md 0.3.1 section 17). */
+export interface OpsReplication {
+  database: string;
+  replication: "none" | "litestream";
+  state: "off" | "starting" | "replicating" | "stopped";
+  replica: { kind: "file" | "s3"; region?: string } | null;
+  last_sync_at: number | null;
+  lag_seconds: number | null;
+  reported_at: number;
+  stale: boolean;
+}
+
+/** `OpsTenant`: a tenant as the operator console shows it (`getOpsTenant`, 0.3.1; #296). */
+export interface OpsTenant {
+  tenant_id: string;
+  name: string;
+  tier: "free" | "paid";
+  state: "active" | "suspended";
+  process: "shared" | "own";
+  node_id: string | null;
+  pinned_node: string | null;
+  moving: boolean;
+  moving_since: number | null;
+  microvm_at: number | null;
+  replication: OpsReplication[];
+  actions: { audit_id: string; at: number; action: "setTenantTier" | "moveTenant"; operator: string; reason: string; result: string }[];
+}
+
 export interface ApiFailure {
   ok: false;
   /** HTTP status; 0 when the API was not reached. */
@@ -240,6 +268,11 @@ export class Api {
     } catch {
       return fail(r.value.res.status, "RENOX_INTERNAL", "the control API answer was not JSON");
     }
+  }
+
+  /** The operator read (needs an operator token as this client's token). */
+  getOpsTenant(tenant: string): Promise<Result<OpsTenant>> {
+    return this.json("GET", `/v1/ops/tenants/${encodeURIComponent(tenant)}`);
   }
 
   listApps(): Promise<Result<{ apps: App[] }>> {

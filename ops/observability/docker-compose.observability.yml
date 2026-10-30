@@ -1,0 +1,42 @@
+# Prometheus, Alertmanager and Grafana on a laptop, against a worker and a
+# control plane running on the host (#296; README.md, "Run it locally").
+#
+#   cp targets/nodes.example.json targets/nodes.json   # point it at your worker's health_listen
+#   printf '%s' "$RENOX_OPS_READ_TOKEN" > secrets/ops-read-token
+#   docker compose -f ops/observability/docker-compose.observability.yml up
+#
+# Grafana: http://localhost:3000 (anonymous viewer, dashboards read-only).
+name: renox-observability
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports: ["127.0.0.1:9090:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules:/etc/prometheus/rules:ro
+      - ./targets:/etc/prometheus/targets:ro
+      - ./secrets:/etc/prometheus/secrets:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    ports: ["127.0.0.1:9093:9093"]
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]

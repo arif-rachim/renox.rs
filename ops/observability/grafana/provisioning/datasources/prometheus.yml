@@ -1,0 +1,10 @@
+# The one data source every Renox dashboard names by uid (#296).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: renox-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
