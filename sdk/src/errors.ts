@@ -35,6 +35,15 @@ export const RENOX_ERROR_CODES = [
   // ops 1.6.0: the jobs module's ops (section 20).
   "RENOX_JOB_NOT_FOUND",
   "RENOX_JOB_STATE",
+  // ops 1.7.0: storage (section 21), AI (section 23), PDF (section 24).
+  "RENOX_STORAGE_QUOTA",
+  "RENOX_STORAGE_TYPE",
+  "RENOX_STORAGE_TOO_LARGE",
+  "RENOX_STORAGE_KEY",
+  "RENOX_STORAGE_NOT_FOUND",
+  "RENOX_AI_QUOTA",
+  "RENOX_AI_UNAVAILABLE",
+  "RENOX_PDF_LIMIT",
 ] as const;
 
 /** Codes the platform answers with when a request ends ("response" and "both"). */
@@ -56,6 +65,9 @@ export const RESPONSE_ERROR_CODES = [
   "RENOX_TOOL_INPUT",
   "RENOX_TOOL_SCOPE",
   "RENOX_TOOL_CONFIRM",
+  // ops 1.7.0: the image transform rate (section 21), a webhook signature (section 22).
+  "RENOX_IMAGE_RATE",
+  "RENOX_WEBHOOK_SIGNATURE",
 ] as const;
 
 export type DbErrorCode =
@@ -289,6 +301,42 @@ export class JobStateError extends RenoxError {
   declare readonly details: { readonly id: string; readonly state: JobState; readonly op: JobOp };
   constructor(message: string, details: { id: string; state: JobState; op: JobOp }) {
     super("RENOX_JOB_STATE", message, details);
+  }
+}
+
+// Storage, AI and PDF (ops.md sections 21, 23 and 24, 1.7.0)
+export type StorageErrorCode = "RENOX_STORAGE_QUOTA" | "RENOX_STORAGE_TYPE" | "RENOX_STORAGE_TOO_LARGE" | "RENOX_STORAGE_KEY" | "RENOX_STORAGE_NOT_FOUND";
+export type AiErrorCode = "RENOX_AI_QUOTA" | "RENOX_AI_UNAVAILABLE";
+
+/** One of the storage refusals (section 21). */
+export class StorageError extends RenoxError {
+  declare readonly code: StorageErrorCode;
+  constructor(code: StorageErrorCode, message: string, details?: Record<string, unknown>) {
+    super(code, message, details);
+  }
+}
+
+/** The tenant's monthly AI tokens are spent (section 23). */
+export class AiQuotaError extends RenoxError {
+  declare readonly code: "RENOX_AI_QUOTA";
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("RENOX_AI_QUOTA", message, details);
+  }
+}
+
+/** The model provider or the platform gateway failed (section 23). */
+export class AiUnavailableError extends RenoxError {
+  declare readonly code: "RENOX_AI_UNAVAILABLE";
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("RENOX_AI_UNAVAILABLE", message, details);
+  }
+}
+
+/** A PDF over 200 pages or 20 MB (section 24). */
+export class PdfLimitError extends RenoxError {
+  declare readonly code: "RENOX_PDF_LIMIT";
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("RENOX_PDF_LIMIT", message, details);
   }
 }
 

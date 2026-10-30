@@ -1,0 +1,17 @@
+{
+  "$comment": "valid (1.7.0): a Stripe event, first delivery (ops.md section 22)",
+  "op": "op_webhook_verify",
+  "args": [
+    "stripe",
+    null,
+    null,
+    "billing"
+  ],
+  "result": {
+    "provider": "stripe",
+    "event_id": "evt_1PqXyZ2eZvKYlo2C",
+    "received_at": 1793404800000,
+    "payload_json": "{\"type\":\"checkout.session.completed\"}",
+    "duplicate": false
+  }
+}

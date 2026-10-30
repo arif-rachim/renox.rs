@@ -1,0 +1,11 @@
+{
+  "$comment": "valid (1.7.0): a tax invoice to PDF (ops.md section 24)",
+  "op": "op_render_pdf",
+  "args": [
+    "partials/invoice",
+    "{\"number\":\"INV-1\"}",
+    "{\"page\":\"A4\",\"margin_mm\":15}",
+    "tax_gcc"
+  ],
+  "result": "JVBERi0xLjcK"
+}

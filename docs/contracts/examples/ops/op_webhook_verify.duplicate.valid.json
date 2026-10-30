@@ -1,0 +1,17 @@
+{
+  "$comment": "valid (1.7.0): the same id again; the handler answers 200 without going on",
+  "op": "op_webhook_verify",
+  "args": [
+    "stripe",
+    null,
+    null,
+    "billing"
+  ],
+  "result": {
+    "provider": "stripe",
+    "event_id": "evt_1PqXyZ2eZvKYlo2C",
+    "received_at": 1793404900000,
+    "payload_json": "{}",
+    "duplicate": true
+  }
+}

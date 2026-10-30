@@ -126,6 +126,33 @@
     },
     {
       "$ref": "#/$defs/job_dispatch"
+    },
+    {
+      "$ref": "#/$defs/call_op_storage_put"
+    },
+    {
+      "$ref": "#/$defs/call_op_storage_get"
+    },
+    {
+      "$ref": "#/$defs/call_op_storage_read"
+    },
+    {
+      "$ref": "#/$defs/call_op_storage_delete"
+    },
+    {
+      "$ref": "#/$defs/call_op_storage_sign"
+    },
+    {
+      "$ref": "#/$defs/call_op_storage_list"
+    },
+    {
+      "$ref": "#/$defs/call_op_webhook_verify"
+    },
+    {
+      "$ref": "#/$defs/call_op_ai_chat"
+    },
+    {
+      "$ref": "#/$defs/call_op_render_pdf"
     }
   ],
   "$defs": {
@@ -4005,6 +4032,737 @@
         },
         "result": {
           "type": "null"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "storageKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9/_.-]{0,255}$",
+      "not": {
+        "pattern": "(^|/)\\.\\.(/|$)"
+      },
+      "description": "ops.md section 21 (1.7.0): a file key under the caller's prefix."
+    },
+    "storedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "ops.md section 21 (1.7.0): a stored file, without its bytes.",
+      "required": [
+        "key",
+        "bytes",
+        "content_type",
+        "sha256",
+        "width",
+        "height",
+        "public",
+        "created_at"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/storageKey"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_type": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "public": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "storagePutOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "content_type"
+      ],
+      "properties": {
+        "content_type": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "public": {
+          "type": "boolean"
+        },
+        "sanitised": {
+          "type": "boolean"
+        }
+      }
+    },
+    "call_op_storage_put": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 21 (1.7.0): key, the bytes (base64 in examples), options, module.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_storage_put"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/storageKey"
+            },
+            {
+              "type": "string",
+              "contentEncoding": "base64"
+            },
+            {
+              "$ref": "#/$defs/storagePutOptions"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "result": {
+          "$ref": "#/$defs/storedFile"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_storage_get": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 21 (1.7.0): the metadata of a key.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_storage_get"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/storageKey"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "result": {
+          "$ref": "#/$defs/storedFile"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_storage_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 21 (1.7.0): the bytes of a key (base64 in examples).",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_storage_read"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/storageKey"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "result": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_storage_delete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 21 (1.7.0): whether the key existed.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_storage_delete"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/storageKey"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "result": {
+          "type": "boolean"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_storage_sign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 21 (1.7.0): a signed URL on the app's host, 60 s to 7 days.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_storage_sign"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/storageKey"
+            },
+            {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 604800
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "url",
+            "expires_at"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^/_files/[a-z0-9][a-z0-9/_.-]*\\?exp=[0-9]+&sig=[A-Za-z0-9_-]+$"
+            },
+            "expires_at": {
+              "type": "integer"
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_storage_list": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 21 (1.7.0): prefix, limit (1 to 1000), cursor, module.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_storage_list"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 512
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "items",
+            "next_cursor"
+          ],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/storedFile"
+              }
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "webhookProvider": {
+      "enum": [
+        "stripe",
+        "checkout",
+        "telr",
+        "paytabs",
+        "ngenius",
+        "tabby",
+        "tamara",
+        "apple",
+        "google",
+        "generic"
+      ],
+      "description": "ops.md section 22 (1.7.0)."
+    },
+    "call_op_webhook_verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 22 (1.7.0): provider, or for `generic` a secret name and a header; the raw body comes from the request state.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_webhook_verify"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/webhookProvider"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+            },
+            {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "event_id",
+            "received_at",
+            "payload_json",
+            "duplicate"
+          ],
+          "properties": {
+            "provider": {
+              "$ref": "#/$defs/webhookProvider"
+            },
+            "event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "received_at": {
+              "type": "integer"
+            },
+            "payload_json": {
+              "type": "string"
+            },
+            "duplicate": {
+              "type": "boolean"
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "aiRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "messages"
+      ],
+      "description": "ops.md section 23 (1.7.0): the Anthropic Messages shape.",
+      "properties": {
+        "model": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "system": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "role",
+              "content"
+            ],
+            "properties": {
+              "role": {
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "content": {}
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "description",
+              "input_schema"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "description": {
+                "type": "string"
+              },
+              "input_schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        }
+      }
+    },
+    "call_op_ai_chat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 23 (1.7.0): the request as JSON text, module.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_ai_chat"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "model",
+            "content",
+            "stop_reason",
+            "usage"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "content": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "text",
+                      "tool_use"
+                    ]
+                  }
+                }
+              }
+            },
+            "stop_reason": {
+              "type": "string"
+            },
+            "usage": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "input_tokens",
+                "output_tokens"
+              ],
+              "properties": {
+                "input_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "output_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "pdfOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "enum": [
+            "A4",
+            "Letter",
+            "A5"
+          ]
+        },
+        "orientation": {
+          "enum": [
+            "portrait",
+            "landscape"
+          ]
+        },
+        "margin_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50
+        }
+      }
+    },
+    "call_op_render_pdf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 24 (1.7.0): template id, data JSON, options JSON, module; the PDF bytes (base64 in examples).",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_render_pdf"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "result": {
+          "type": "string",
+          "contentEncoding": "base64"
         },
         "error": {
           "$ref": "#/$defs/error"

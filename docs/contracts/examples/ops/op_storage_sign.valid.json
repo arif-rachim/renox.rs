@@ -1,0 +1,13 @@
+{
+  "$comment": "valid (1.7.0): a link valid for one hour",
+  "op": "op_storage_sign",
+  "args": [
+    "app/receipts/r-1.png",
+    3600,
+    null
+  ],
+  "result": {
+    "url": "/_files/app/receipts/r-1.png?exp=1793408400&sig=Q2hhcmFjdGVycw",
+    "expires_at": 1793408400000
+  }
+}

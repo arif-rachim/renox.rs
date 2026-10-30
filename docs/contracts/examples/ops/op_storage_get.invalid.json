@@ -1,0 +1,18 @@
+{
+  "$comment": "invalid: an upper-case key [expect: pattern]",
+  "op": "op_storage_get",
+  "args": [
+    "App/R.png",
+    null
+  ],
+  "result": {
+    "key": "app/receipts/r-1.png",
+    "bytes": 2048,
+    "content_type": "image/png",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "width": 400,
+    "height": 300,
+    "public": false,
+    "created_at": 1793404800000
+  }
+}

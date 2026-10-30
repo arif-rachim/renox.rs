@@ -392,10 +392,19 @@ impl Controller {
             tick.tick().await;
             loop {
                 tick.tick().await;
+                // `sent_at` is required by control-messages.schema.json: without
+                // it the control plane refused every heartbeat with 400, so a
+                // node counted as healthy only until 30 s after it registered
+                // (found by the chaos run of batch F67-ALL).
+                let sent_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
                 let mut body = json!({
                     "type": "heartbeat",
                     "schema_version": 0,
                     "node_id": self.client.node_id(),
+                    "sent_at": sent_at,
                     "route_version": self.routes.version(),
                     "cells": self.manager.cell_count(),
                 });

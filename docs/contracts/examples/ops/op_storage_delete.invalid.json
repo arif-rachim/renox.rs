@@ -1,0 +1,9 @@
+{
+  "$comment": "invalid: the result is a boolean [expect: type]",
+  "op": "op_storage_delete",
+  "args": [
+    "storage/u/1.jpg",
+    "storage"
+  ],
+  "result": 5
+}

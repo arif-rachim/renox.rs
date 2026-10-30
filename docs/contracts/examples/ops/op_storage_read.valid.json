@@ -1,0 +1,9 @@
+{
+  "$comment": "valid (1.7.0): the bytes of a key",
+  "op": "op_storage_read",
+  "args": [
+    "app/receipts/r-1.png",
+    null
+  ],
+  "result": "iVBORw0KGgo="
+}

@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: two arguments, not three [expect: maxItems]",
+  "op": "op_storage_read",
+  "args": [
+    "app/receipts/r-1.png",
+    null,
+    "extra"
+  ],
+  "result": "iVBORw0KGgo="
+}
