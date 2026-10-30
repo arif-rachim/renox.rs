@@ -584,6 +584,8 @@ impl Worker {
                     &section.region,
                     section.max_cells,
                 );
+                // #311: the disk level on every heartbeat.
+                controller.set_disk(disk.clone());
                 // The node listener (deploy-api.md 0.3 section 15), on an
                 // address tenant fetch cannot reach (#218 rule).
                 if let Some(listen) = section.node_listen {

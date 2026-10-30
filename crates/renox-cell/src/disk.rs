@@ -17,9 +17,10 @@
 //! A level is left only when usage falls two points below its threshold,
 //! so a node near a threshold does not flap. The level goes to the
 //! operator through `/healthz` (`disk: <level> <pct>% used`, `Health`);
-//! the heartbeat has no field for it yet (`control-messages.schema.json`
-//! `heartbeat` is closed), so the control plane's placement reads it from
-//! there once the contract has one.
+//! and from deploy API 0.4 on the heartbeat (`disk: { level, free_bytes,
+//! watermark }`, `crate::control::heartbeat_disk`, #311): `stop_scheduling`
+//! and `refuse_writes` are both the contract's `critical`, with the
+//! watermark (90 or 95) saying which.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
@@ -180,6 +181,8 @@ struct Inner {
     enforcing: std::sync::atomic::AtomicBool,
     /// Last usage in hundredths of a percent.
     used_centi_pct: AtomicU64,
+    /// Bytes available at the last poll (the heartbeat's `free_bytes`, #311).
+    available: AtomicU64,
     /// Level changes since start (metrics, tests).
     changes: AtomicU64,
     health: Option<Arc<Health>>,
@@ -209,6 +212,7 @@ impl DiskMonitor {
                 level: AtomicU8::new(Level::Ok as u8),
                 enforcing: std::sync::atomic::AtomicBool::new(true),
                 used_centi_pct: AtomicU64::new(0),
+                available: AtomicU64::new(0),
                 changes: AtomicU64::new(0),
                 health,
                 on_pressure: Mutex::new(Vec::new()),
@@ -240,6 +244,11 @@ impl DiskMonitor {
         self.inner.used_centi_pct.load(Ordering::SeqCst) as f64 / 100.0
     }
 
+    /// Bytes available to the worker at the last poll.
+    pub fn available_bytes(&self) -> u64 {
+        self.inner.available.load(Ordering::SeqCst)
+    }
+
     /// Level changes since start.
     pub fn changes(&self) -> u64 {
         self.inner.changes.load(Ordering::SeqCst)
@@ -256,6 +265,9 @@ impl DiskMonitor {
             }
         };
         let pct = usage.used_pct();
+        self.inner
+            .available
+            .store(usage.available, Ordering::SeqCst);
         self.inner
             .used_centi_pct
             .store((pct * 100.0).round() as u64, Ordering::SeqCst);

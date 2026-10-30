@@ -1,6 +1,10 @@
 // Node endpoints (deploy-api.md sections 7-8): register, heartbeat, the
 // control-message stream (SSE), and the route snapshot.
 
+import { nodeDetail, recordDisk, type DiskReport } from "./repo.ts";
+import { accountRef, operatorOf, opsAuth } from "../ops/auth.ts";
+import { writeAudit } from "../audit.ts";
+import { notFound } from "../errors.ts";
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { nodeAuth, nodeId } from "../auth/middleware.ts";
@@ -34,6 +38,16 @@ async function message<T>(c: Context<Env>, def: string): Promise<T> {
 }
 
 export function registerWorkers(app: Hono<Env>, deps: Deps): void {
+  // deploy-api.md 0.4 section 7 (#311): a node with its last disk report,
+  // from Postgres only; audited as a read of operator data, like getOpsTenant.
+  app.get("/v1/ops/nodes/:node_id", operation(deps, "getNode"), opsAuth(deps, "ops:read"), async (c) => {
+    const node = c.req.param("node_id");
+    const detail = await nodeDetail(deps.db, node);
+    await writeAudit(deps.db, { at: deps.now(), tenantId: null, actor: accountRef(operatorOf(c)), action: "getNode", target: { node_id: node, operator: accountRef(operatorOf(c)) }, status: detail === null ? 404 : 200, requestId: c.get("requestId") });
+    if (detail === null) throw notFound();
+    return c.json(detail);
+  });
+
   const { db } = deps;
   const service = routeService(deps);
 
@@ -82,7 +96,7 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
 
   app.post("/v1/nodes/:node_id/heartbeat", operation(deps, "heartbeat"), nodeAuth(deps), async (c) => {
     const node = nodeId(c);
-    const body = await message<{ node_id: string; route_version: number; cells: number }>(c, "heartbeat");
+    const body = await message<{ node_id: string; route_version: number; cells: number; disk?: DiskReport }>(c, "heartbeat");
     if (body.node_id !== node) throw new ApiError("RENOX_TOKEN_SCOPE");
     const now = deps.now();
     const moved = await db.transaction(async (tx) => {
@@ -95,6 +109,8 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
         body.cells,
         node,
       ]);
+      // deploy-api.md 0.4 section 7 (#311): the last disk report, kept as sent.
+      if (body.disk !== undefined) await recordDisk(tx, node, body.disk, now);
       return before.healthy ? 0 : reassign(tx, now);
     });
     if (moved > 0) await service.publisher.publish();

@@ -23,6 +23,7 @@ Two sources. The **control plane** (`control/api/src/ops/metrics.ts`) answers to
 | `renox_cp_node_heartbeat_age_seconds` | gauge | `node_id` | control plane | exists |
 | `renox_cp_node_cells` | gauge | `node_id` | control plane | exists |
 | `renox_cp_node_max_cells` | gauge | `node_id` | control plane | exists |
+| `renox_cp_node_disk_level` | gauge | `node_id` | control plane (the heartbeat's `disk`, deploy API 0.4, #311: 0 ok, 1 warn, 2 critical) | exists (#311) |
 | `renox_cp_tenants` | gauge | `tier`, `state` | control plane | exists |
 | `renox_cp_tenants_moving` | gauge | | control plane | exists |
 | `renox_cp_replication_databases` | gauge | | control plane (nodes' last reports) | exists |
@@ -64,6 +65,7 @@ The worker families are served by `GET /metrics` on the worker's operator listen
 | --- | --- | --- | --- | --- |
 | `RenoxNodeUnhealthy` | page | `renox_cp_node_healthy` | Node dies | yes |
 | `RenoxNodeHeartbeatLate` | ticket | `renox_cp_node_heartbeat_age_seconds` | Node dies | yes |
+| `RenoxNodeDiskCritical` | page | `renox_cp_node_disk_level` | Disk full on node | yes (#311) |
 | `RenoxNodeNearlyFull` | ticket | `renox_cp_node_cells`, `renox_cp_node_max_cells` | Node dies | yes |
 | `RenoxDiskWatermarkWarn` | ticket | `renox_worker_disk_level` | Disk full on node | yes (#295) |
 | `RenoxDiskWatermarkStop` | page | `renox_worker_disk_level` | Disk full on node | yes (#295) |

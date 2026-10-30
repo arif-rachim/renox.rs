@@ -116,6 +116,22 @@ pub struct Controller {
     /// The node listener's URL announced at registration and the callback
     /// token it accepts (deploy-api.md 0.3 section 15).
     node_listener: std::sync::Mutex<Option<(String, Arc<node_listener::CallbackToken>)>>,
+    /// The data directory's disk level, sent on every heartbeat (deploy API
+    /// 0.4 section 7, #311).
+    disk: std::sync::Mutex<Option<crate::disk::DiskMonitor>>,
+}
+
+/// The heartbeat's `disk` (deploy API 0.4 section 7, `control-messages.schema.json`):
+/// the node's four levels as the contract's three, with the watermark crossed.
+pub fn heartbeat_disk(d: &crate::disk::DiskMonitor) -> serde_json::Value {
+    use crate::disk::Level;
+    let (level, watermark) = match d.level() {
+        Level::Ok => ("ok", serde_json::Value::Null),
+        Level::Warn => ("warn", 80.into()),
+        Level::StopScheduling => ("critical", 90.into()),
+        Level::RefuseWrites => ("critical", 95.into()),
+    };
+    json!({ "level": level, "free_bytes": d.available_bytes(), "watermark": watermark })
 }
 
 impl Controller {
@@ -141,7 +157,13 @@ impl Controller {
             others: std::sync::Mutex::new(None),
             tasks: std::sync::Mutex::new(Vec::new()),
             node_listener: std::sync::Mutex::new(None),
+            disk: std::sync::Mutex::new(None),
         })
+    }
+
+    /// Report this disk monitor's level on every heartbeat (#311).
+    pub fn set_disk(&self, disk: crate::disk::DiskMonitor) {
+        *self.disk.lock().expect("controller lock") = Some(disk);
     }
 
     /// Announce the node listener at `url` at every registration and keep
@@ -370,13 +392,17 @@ impl Controller {
             tick.tick().await;
             loop {
                 tick.tick().await;
-                let body = json!({
+                let mut body = json!({
                     "type": "heartbeat",
                     "schema_version": 0,
                     "node_id": self.client.node_id(),
                     "route_version": self.routes.version(),
                     "cells": self.manager.cell_count(),
                 });
+                let disk = self.disk.lock().expect("controller lock").clone();
+                if let (Some(d), Some(obj)) = (disk, body.as_object_mut()) {
+                    obj.insert("disk".into(), heartbeat_disk(&d));
+                }
                 match self
                     .client
                     .post_json(&self.client.node_path("/heartbeat"), &body)
@@ -437,6 +463,48 @@ fn event_data(event: &[u8]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// #311 (deploy API 0.4 section 7): the node's four disk levels are the
+    /// heartbeat's three, with the watermark crossed and the free bytes.
+    #[test]
+    fn the_heartbeat_disk_names_the_level_and_the_watermark() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let used = std::sync::Arc::new(AtomicU64::new(10));
+        let u = used.clone();
+        let d = crate::disk::DiskMonitor::with_probe(
+            std::path::Path::new("/data"),
+            crate::disk::Watermarks::default(),
+            None,
+            Box::new(move || {
+                let pct = u.load(Ordering::SeqCst);
+                Ok(crate::disk::Usage {
+                    total: 100_000,
+                    available: 100_000 - pct * 1000,
+                })
+            }),
+        );
+        let at = |pct: u64| {
+            used.store(pct, Ordering::SeqCst);
+            d.poll();
+            heartbeat_disk(&d)
+        };
+        assert_eq!(
+            at(10),
+            json!({ "level": "ok", "free_bytes": 90_000, "watermark": null })
+        );
+        assert_eq!(
+            at(82),
+            json!({ "level": "warn", "free_bytes": 18_000, "watermark": 80 })
+        );
+        assert_eq!(
+            at(91),
+            json!({ "level": "critical", "free_bytes": 9_000, "watermark": 90 })
+        );
+        assert_eq!(
+            at(96),
+            json!({ "level": "critical", "free_bytes": 4_000, "watermark": 95 })
+        );
+    }
+
     use super::*;
 
     #[test]
