@@ -214,6 +214,9 @@ struct Inner {
     files: Mutex<Arc<dyn crate::storage::ObjectStore>>,
     /// The `/_img` transform rate of new cells: per second and burst (#321).
     image_rate: Mutex<(f64, f64)>,
+    /// The platform's AI gateway for `ctx.ai` in gateway mode (#322):
+    /// the control plane in controlled mode, none in local mode.
+    ai: Mutex<Option<renox_runtime::ops::ai::AiSlot>>,
     /// A trim is scheduled after the current burst of evictions (#144).
     trim_scheduled: std::sync::atomic::AtomicBool,
     /// Allocator trims run since start (operator metrics, tests).
@@ -279,6 +282,7 @@ impl CellManager {
                 meter,
                 files,
                 image_rate: Mutex::new((crate::images::RATE_PER_SECOND, crate::images::RATE_BURST)),
+                ai: Mutex::new(None),
                 config,
                 cells: Mutex::new(HashMap::new()),
                 dbs: Mutex::new(HashMap::new()),
@@ -807,6 +811,8 @@ impl CellManager {
                 db: Some(db.clone()),
                 max_isolates: max_isolates(tier_name),
                 storage: Some(renox_runtime::StorageSlot(cell_storage.clone())),
+                ai: self.inner.ai.lock().expect("ai lock").clone(),
+                templates: crate::render::pdf_templates(&artifact_dir),
             };
             let prepare_db = async {
                 db.ready().await.map_err(CellError::Db)?;
@@ -1667,9 +1673,9 @@ impl CellManager {
             realtime_messages: None,
             storage_bytes: m.storage_bytes,
             image_variants: None,
-            ai_tokens_in: None,
-            ai_tokens_out: None,
-            render_pdf_ms: None,
+            ai_tokens_in: Some(m.ai_tokens_in).filter(|n| *n > 0),
+            ai_tokens_out: Some(m.ai_tokens_out).filter(|n| *n > 0),
+            render_pdf_ms: Some(m.render_pdf_ms).filter(|ms| *ms > 0.0),
         });
     }
 
@@ -1715,6 +1721,11 @@ impl CellManager {
             ai_tokens_out: None,
             render_pdf_ms: None,
         });
+    }
+
+    /// The AI gateway of cells created afterwards (#322; `control::AiForward`).
+    pub fn set_ai_gateway(&self, gateway: Arc<dyn renox_runtime::ops::ai::AiGateway>) {
+        *self.inner.ai.lock().expect("ai lock") = Some(renox_runtime::ops::ai::AiSlot(gateway));
     }
 
     /// The `/_img` transform rate of cells created afterwards (tests; the

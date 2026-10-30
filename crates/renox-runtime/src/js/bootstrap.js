@@ -58,11 +58,18 @@ import {
   op_storage_delete,
   op_storage_sign,
   op_storage_list,
+  op_webhook_verify,
+  op_ai_env,
+  op_ai_gateway,
+  op_ai_meter,
+  op_render_pdf,
 } from "ext:core/ops";
 
 const {
   ArrayIsArray,
   ArrayPrototypeFind,
+  ArrayPrototypeFilter,
+  ArrayPrototypeEvery,
   ArrayPrototypeIncludes,
   ArrayPrototypeJoin,
   ArrayPrototypeSort,
@@ -87,6 +94,7 @@ const {
   ObjectGetPrototypeOf,
   ObjectPrototypeHasOwnProperty,
   ObjectPrototypeIsPrototypeOf,
+  SymbolFor,
   Uint8ArrayPrototype,
   NumberIsInteger,
   PromisePrototypeThen,
@@ -236,6 +244,28 @@ class JobStateError extends RenoxError {
   }
 }
 
+// ops.md 1.7.0 section 23.
+class AiQuotaError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_AI_QUOTA", message, details);
+    this.name = "AiQuotaError";
+  }
+}
+class AiUnavailableError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_AI_UNAVAILABLE", message, details);
+    this.name = "AiUnavailableError";
+  }
+}
+
+// ops.md 1.7.0 section 24.
+class PdfLimitError extends RenoxError {
+  constructor(message, details) {
+    super("RENOX_PDF_LIMIT", message, details);
+    this.name = "PdfLimitError";
+  }
+}
+
 // ops.md 1.7.0 section 21: every RENOX_STORAGE_* code.
 class StorageError extends RenoxError {
   constructor(code, message, details) {
@@ -274,6 +304,12 @@ function toRenoxError(e) {
       return new JobNotFoundError(message, details ?? undefined);
     case "RENOX_JOB_STATE":
       return new JobStateError(message, details ?? undefined);
+    case "RENOX_PDF_LIMIT":
+      return new PdfLimitError(message, details ?? undefined);
+    case "RENOX_AI_QUOTA":
+      return new AiQuotaError(message, details ?? undefined);
+    case "RENOX_AI_UNAVAILABLE":
+      return new AiUnavailableError(message, details ?? undefined);
     case "RENOX_STORAGE_QUOTA":
     case "RENOX_STORAGE_TYPE":
     case "RENOX_STORAGE_TOO_LARGE":
@@ -978,6 +1014,160 @@ function makeEvents(module) {
 }
 
 /** `ctx.jobs` of `module` (ops.md 1.6.0 section 20). */
+/**
+ * `ctx.ai` of `module` (ops.md 1.7.0 section 23): one Messages call, or a
+ * loop while the model asks for local tools (`run`), which execute here
+ * with the caller's ctx under the request's limits. Direct mode fetches
+ * the provider through the module's allowlist with the app's own key;
+ * gateway mode goes through the cell. Nothing of the conversation is logged.
+ */
+function makeAi(module) {
+  return ObjectFreeze({
+    async chat(request) {
+      if (request === null || typeof request !== "object" || !ArrayIsArray(request.messages) || request.messages.length === 0) {
+        throw new TypeError("ai.chat: messages is a non-empty array");
+      }
+      const env = op_ai_env();
+      const maxTokens = request.maxTokens ?? 1024;
+      if (typeof maxTokens !== "number" || !NumberIsInteger(maxTokens) || maxTokens < 1 || maxTokens > env.max_tokens) {
+        throw new RangeError(`ai.chat: maxTokens is 1 to ${env.max_tokens}`);
+      }
+      const tools = ArrayIsArray(request.tools) ? request.tools : [];
+      const byName = new SafeMap();
+      for (const t of new SafeArrayIterator(tools)) byName.set(t.name, t);
+      const wire = ArrayPrototypeMap(tools, (t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+      const messages = [...request.messages];
+      let tokensIn = 0;
+      let tokensOut = 0;
+      for (let round = 0; round <= env.max_rounds; round++) {
+        const body = { model: request.model ?? "default", messages, max_tokens: maxTokens };
+        if (typeof request.system === "string") body.system = request.system;
+        if (wire.length > 0) body.tools = wire;
+        const res = env.mode === "direct" ? await aiDirect(module, env, body) : await aiGateway(body);
+        const used = res.usage ?? {};
+        tokensIn += used.input_tokens ?? 0;
+        tokensOut += used.output_tokens ?? 0;
+        op_ai_meter(currentToken(), used.input_tokens ?? 0, used.output_tokens ?? 0);
+        const content = ArrayIsArray(res.content) ? res.content : [];
+        const uses = ArrayPrototypeFilter(content, (c) => c?.type === "tool_use");
+        const local = uses.length > 0 && ArrayPrototypeEvery(uses, (u) => typeof byName.get(u.name)?.run === "function");
+        if (res.stop_reason !== "tool_use" || !local) {
+          return ObjectFreeze({ id: res.id ?? "", model: res.model ?? body.model, content: ObjectFreeze(content), stop_reason: res.stop_reason ?? "end_turn", usage: ObjectFreeze({ input_tokens: tokensIn, output_tokens: tokensOut }) });
+        }
+        ArrayPrototypePush(messages, { role: "assistant", content });
+        const results = [];
+        for (const u of new SafeArrayIterator(uses)) {
+          const out = await byName.get(u.name).run(u.input);
+          ArrayPrototypePush(results, { type: "tool_result", tool_use_id: u.id, content: typeof out === "string" ? out : (JSONStringify(out ?? null, dataReplacer) ?? "null") });
+        }
+        ArrayPrototypePush(messages, { role: "user", content: results });
+      }
+      throw new AiUnavailableError(`ai.chat: more than ${env.max_rounds} tool rounds`);
+    },
+  });
+}
+
+/** `ctx.pdf` (ops.md 1.7.0 section 24): a template of the deployment, rendered and converted in Rust. */
+const pdf = ObjectFreeze({
+  async render(template, data, options = undefined) {
+    if (typeof template !== "string" || template.length === 0) throw new TypeError("pdf.render: template is a template id");
+    const json = JSONStringify(data ?? {}, dataReplacer);
+    try {
+      return await op_render_pdf(currentToken(), template, json ?? "{}", JSONStringify(options ?? {}));
+    } catch (e) {
+      throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+    }
+  },
+});
+
+/** Direct mode: the Anthropic Messages API with the app's own key, through `fetch`. */
+async function aiDirect(module, env, body) {
+  const key = (module === "app" ? secrets : moduleSecrets.get(module) ?? {})[env.key_name ?? ""];
+  if (typeof key !== "string") throw new AiUnavailableError("ai.chat: direct mode needs the key secret", { reason: "no_key" });
+  const wire = { ...body, model: body.model === "default" ? "claude-opus-5-5" : body.model };
+  let res;
+  try {
+    res = await moduleFetch(module, `${env.base}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSONStringify(wire),
+    });
+  } catch (e) {
+    if (e?.code === "RENOX_FETCH_BLOCKED") throw e;
+    throw new AiUnavailableError("ai.chat: the provider did not answer", { reason: "fetch" });
+  }
+  if (!res.ok) {
+    try {
+      await res.body?.cancel();
+    } catch {
+      // Gone.
+    }
+    throw new AiUnavailableError(`ai.chat: the provider answered ${res.status}`, { status: res.status });
+  }
+  return await res.json();
+}
+
+/** Gateway mode: the platform's gateway through the cell; the key stays there. */
+async function aiGateway(body) {
+  try {
+    return JSONParse(await op_ai_gateway(currentToken(), JSONStringify(body)));
+  } catch (e) {
+    throw e instanceof TypeError ? e : toRenoxError(e);
+  }
+}
+
+// ops.md 1.7.0 section 22: a duplicate delivery ends the handler with 200.
+const WEBHOOK_DUPLICATE = SymbolFor("renox.webhook.duplicate");
+
+/** `ctx.webhook` of a webhook route: `verify(req, { provider } | { secret, header })`. */
+function makeWebhook(module, req) {
+  const own = moduleSecrets.get(module) ?? (module === "app" ? secrets : undefined) ?? {};
+  return ObjectFreeze({
+    async verify(r, options) {
+      const provider = typeof options?.provider === "string" ? options.provider : options?.secret !== undefined ? "generic" : null;
+      if (provider === null) throw new TypeError("webhook.verify: options.provider, or options.secret and options.header");
+      const source = r ?? req;
+      const bytes = new Uint8Array(await source.clone().arrayBuffer());
+      const hs = [];
+      for (const [k, v] of source.headers) ArrayPrototypePush(hs, [k, v]);
+      const secret = provider === "generic" ? options.secret : own[`WEBHOOK_${StringPrototypeToUpperCase(provider)}_SECRET`];
+      let out;
+      try {
+        out = await op_webhook_verify(currentToken(), provider, typeof secret === "string" ? secret : null, options?.header ?? null, bytes, hs);
+      } catch (e) {
+        throw toRenoxError(e);
+      }
+      let payload = null;
+      try {
+        payload = JSONParse(out.payload_json);
+      } catch {
+        payload = out.payload_json;
+      }
+      const event = ObjectFreeze({ provider: out.provider, event_id: out.event_id, received_at: out.received_at, payload, duplicate: out.duplicate });
+      // The provider stops retrying; the handler does not run on.
+      if (out.duplicate) throw { [WEBHOOK_DUPLICATE]: true, event };
+      return event;
+    },
+  });
+}
+
+/** A webhook handler's throw: a duplicate is 200, a bad signature 401, the unverified bucket 429. */
+function webhookOutcome(e) {
+  if (e !== null && typeof e === "object" && e[WEBHOOK_DUPLICATE] === true) return ResponseJson({ duplicate: true });
+  const code = e?.code;
+  if (code === "RENOX_WEBHOOK_SIGNATURE") {
+    return ResponseJson({ error: { code, message: "The webhook signature is not valid." } }, 401);
+  }
+  if (code === "RENOX_RATE_LIMITED") {
+    return ResponseJson({ error: { code, message: "Too many requests." } }, 429, { "retry-after": "1" });
+  }
+  throw e;
+}
+
+function ResponseJson(body, status = 200, headers = {}) {
+  return new (responseMod().Response)(JSONStringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+}
+
 /** `ctx.storage` of `module` (ops.md 1.7.0 section 21): keys under `<module>/`. */
 function makeStorage(module) {
   const call = async (op, ...args) => {
@@ -1363,6 +1553,8 @@ function moduleFields(m) {
     events: makeEvents(m),
     jobs: makeJobs(m),
     storage: makeStorage(m),
+    ai: makeAi(m),
+    pdf,
     authz: makeAuthz(m),
     realtime: makeRealtime(m),
     password,
@@ -1673,7 +1865,7 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
  * template }`; for an action, `action` is the action function and
  * `handler` the page's `load` (or null).
  */
-function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app", realtime = null) {
+function dispatch(handler, token, method, url, headers, body, params, wantBody, page, action, owner = "app", realtime = null, webhook = null) {
   if (realtime !== null) return dispatchRealtime(handler, token, url, headers, body, params, owner, realtime);
   const previous = requestVar.enter(token);
   try {
@@ -1683,9 +1875,9 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
       (pre) => {
         if (pre.forbidden !== undefined) return pre.forbidden;
         if (handler !== null && typeof handler === "object" && typeof handler.lazy === "string") {
-          return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner, pre.principal);
+          return dispatchLazy(handler, token, method, url, headers, body, params, wantBody, page, owner, pre.principal, webhook);
         }
-        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, pre.principal);
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, pre.principal, webhook);
       },
       describeThrow,
     );
@@ -1695,7 +1887,7 @@ function dispatch(handler, token, method, url, headers, body, params, wantBody, 
 }
 
 /** The handler, once the principal is known and the guard passed. */
-function run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal) {
+function run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal, webhook = null) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1721,6 +1913,8 @@ function run(handler, token, method, url, headers, body, params, wantBody, page,
         principal,
         deadline,
       };
+      // ops.md 1.7.0 section 22: `ctx.webhook` on a webhook route.
+      if (webhook !== null) base.webhook = makeWebhook(owner, req);
       const st = newRequestState(base);
       stateVar.enter(st);
       if (page !== null) {
@@ -1735,6 +1929,7 @@ function run(handler, token, method, url, headers, body, params, wantBody, page,
       const ctx = st.ctxOf(owner);
       // A guarded page without `load`: the template gets `{}`.
       p = PromiseResolve(handler === null ? {} : handler(ctx));
+      if (webhook !== null) p = PromisePrototypeThen(p, undefined, webhookOutcome);
     } catch (e) {
       p = PromiseReject(e);
     }
@@ -1943,7 +2138,7 @@ function lazyFailed(desc, err) {
  * evaluation. Then the handler and the action are looked up (step 5) and
  * the request goes on as for an eager route.
  */
-function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner, principal) {
+function dispatchLazy(desc, token, method, url, headers, body, params, wantBody, page, owner, principal, webhook = null) {
   const previous = requestVar.enter(token);
   try {
     moduleVar.enter(owner);
@@ -1966,7 +2161,7 @@ function dispatchLazy(desc, token, method, url, headers, body, params, wantBody,
           action = actions !== null && typeof actions === "object" ? actions[desc.action] : undefined;
           if (typeof action !== "function") return lazyFailed(desc, new TypeError(`action ${desc.action} of ${desc.module} is missing or not a function`));
         }
-        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal);
+        return run(handler, token, method, url, headers, body, params, wantBody, page, action, owner, principal, webhook);
       },
       (e) => lazyFailed(desc, e),
     );

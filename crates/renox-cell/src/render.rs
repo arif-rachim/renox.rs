@@ -290,6 +290,17 @@ impl PageRenderer {
             })
     }
 
+    /// Any template of the deployment, whole, with `data_json` (#322:
+    /// `ctx.pdf` renders invoices and reports from pages or partials).
+    pub fn render_document(&self, id: &str, data_json: &str) -> Result<String, String> {
+        let data: Value = serde_json::from_str(data_json).map_err(|e| e.to_string())?;
+        let cx = self.context(None);
+        self.renderer
+            .render(RenderTarget::Page(id), data, &cx, &RenderLimits::DEFAULT)
+            .map(|o| o.html)
+            .map_err(|e| e.to_string())
+    }
+
     /// Answers `r-can` from the deployment's policies (#280).
     pub fn with_authz(mut self, slot: renox_runtime::ops::authz::AuthzSlot) -> PageRenderer {
         self.authz = Some(slot);
@@ -935,6 +946,26 @@ pub fn platform_error(response: &Response<Bytes>) -> Option<(u16, String, String
 
 /// A shared renderer.
 pub type SharedPages = Arc<PageRenderer>;
+
+/// `ctx.pdf`'s renderer for one deployment (#322; ops.md 1.7.0 section 24):
+/// its templates, rendered like pages, then converted by the runtime.
+struct PdfTemplates(PageRenderer);
+
+impl renox_runtime::ops::pdf::TemplateHost for PdfTemplates {
+    fn render(&self, template: &str, data_json: &str) -> Result<String, String> {
+        self.0.render_document(template, data_json)
+    }
+}
+
+/// The template slot of an artifact with templates; `None` without.
+pub fn pdf_templates(artifact_dir: &Path) -> Option<renox_runtime::ops::pdf::TemplateSlot> {
+    let raw = std::fs::read(artifact_dir.join("manifest.json")).ok()?;
+    let manifest: Manifest = serde_json::from_slice(&raw).ok()?;
+    let renderer = PageRenderer::load(artifact_dir, &manifest, "", None).ok()??;
+    Some(renox_runtime::ops::pdf::TemplateSlot(std::sync::Arc::new(
+        PdfTemplates(renderer),
+    )))
+}
 
 #[cfg(test)]
 mod tests {

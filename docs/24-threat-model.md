@@ -123,9 +123,9 @@ Columns: **Threat** · **Primary control** · **Secondary control** · **Proof**
 
 | Threat | Primary control | Secondary control | Proof | Phase |
 | --- | --- | --- | --- | --- |
-| Prompt injection through tenant content reaching `ctx.ai` or app MCP tools | Tool outputs treated as data; mutating tools require confirmation tokens; per-tool permissions in the manifest | Audit of every tool call | `20-ai-agents-mcp.md`; #62 | F3/F7 |
+| Prompt injection through tenant content reaching `ctx.ai` or app MCP tools | Tool outputs treated as data; mutating tools require confirmation tokens; per-tool permissions in the manifest | Audit of every tool call | `20-ai-agents-mcp.md`; #62; `ctx.ai` local tools run under the caller's ctx and limits, the conversation is never logged: `crates/renox-runtime/tests/ai.rs` (#322) | F3/F7 |
 | Agent deploys malicious code with a leaked token | Same as E (scoped, expiring tokens; confirmation for mutations) | Notification on deploy from a new client | #113 | F3 |
-| AI gateway secret or quota abuse | Provider keys held by the platform, never by the isolate; metered per tenant | Allowlisted providers | `ctx.ai` tests (#85); `aiChat`, the quota, cache and key rules (`deploy-api.md` 0.5 section 23), #327 | F7 |
+| AI gateway secret or quota abuse | Provider keys held by the platform, never by the isolate; metered per tenant | Allowlisted providers | `crates/renox-runtime/tests/ai.rs` (#322: gateway mode never calls a provider from the isolate, the key of direct mode never in a log line, `RENOX_AI_QUOTA`); `aiChat`, the quota, cache and key rules (`deploy-api.md` 0.5 section 23), #327 | F7 |
 
 ## Abuse of the platform (not a boundary, but a threat)
 

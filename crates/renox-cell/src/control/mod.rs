@@ -470,6 +470,53 @@ fn event_data(event: &[u8]) -> Option<String> {
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
+/// `ctx.ai` in gateway mode (#322; deploy-api.md 0.5 section 23): the
+/// request goes to the control plane's `POST /v1/ai/chat` with the node
+/// token; the provider keys never reach the node.
+pub struct AiForward {
+    pub client: ControlClient,
+}
+
+impl renox_runtime::ops::ai::AiGateway for AiForward {
+    fn chat(
+        &self,
+        body: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<String, renox_runtime::ops::ai::GatewayError>>
+                + Send,
+        >,
+    > {
+        use renox_runtime::ops::ai::GatewayError;
+        let client = self.client.clone();
+        Box::pin(async move {
+            let answer = client
+                .send(
+                    ::http::Method::POST,
+                    "/v1/ai/chat",
+                    Some(body.into_bytes()),
+                    &[],
+                    std::time::Duration::from_secs(60),
+                )
+                .await
+                .map_err(|e| GatewayError::Unavailable(e.to_string()))?;
+            let status = answer.status.as_u16();
+            let bytes = answer
+                .bytes(4 * 1024 * 1024)
+                .await
+                .map_err(|e| GatewayError::Unavailable(e.to_string()))?;
+            match status {
+                200 => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+                429 => Err(GatewayError::Quota),
+                400 => Err(GatewayError::Invalid(
+                    "the gateway refused the request".into(),
+                )),
+                s => Err(GatewayError::Unavailable(format!("gateway answered {s}"))),
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// #311 (deploy API 0.4 section 7): the node's four disk levels are the

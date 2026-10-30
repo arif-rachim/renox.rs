@@ -54,6 +54,17 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "logg
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+# ops.md 1.7.0 section 22: webhook signatures (HMAC-SHA256, constant-time compare).
+hmac = "0.12"
+subtle = "2.6"
+# ops.md 1.7.0 section 24: HTML to PDF with Arabic shaping and bidi
+# (README, "PDF"). typst lays out and shapes (rustybuzz); html5ever reads
+# the rendered template.
+typst = "0.15.1"
+typst-pdf = "0.15.1"
+typst-layout = "0.15.1"
+html5ever = "0.39.0"
+markup5ever_rcdom = "0.39.0"
 tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros", "io-util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 url = "2"

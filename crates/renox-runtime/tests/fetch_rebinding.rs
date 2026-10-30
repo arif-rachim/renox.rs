@@ -228,6 +228,8 @@ mod tenant {
             db: None,
             max_isolates: 1,
             storage: None,
+            ai: None,
+            templates: None,
         })
         .await
         .unwrap()
@@ -455,6 +457,8 @@ mod tenant {
                 db: None,
                 max_isolates: 1,
                 storage: None,
+                ai: None,
+                templates: None,
             })
             .await
             .unwrap();

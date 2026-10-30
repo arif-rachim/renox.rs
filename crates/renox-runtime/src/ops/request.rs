@@ -75,6 +75,11 @@ pub(crate) struct RequestState {
     /// ops.md 1.7.0 section 21: the tenant's stored bytes after this
     /// request's last put or delete (`meter.md` 0.4, `storage_bytes`).
     pub storage_bytes: Option<u64>,
+    /// ops.md 1.7.0 section 23: tokens of the request's `ai.chat` calls.
+    pub ai_tokens_in: u64,
+    pub ai_tokens_out: u64,
+    /// ops.md 1.7.0 section 24: time of the request's PDF conversions.
+    pub render_pdf_ms: f64,
     /// The principal, the route's guard inputs, `authz_evals` (ops.md
     /// 1.5.0 section 17; `ops/authz.rs`).
     pub authz: crate::ops::authz::RequestAuthz,
@@ -101,6 +106,9 @@ impl RequestState {
             tx_borrowed: false,
             cross_cpu_ms: 0.0,
             storage_bytes: None,
+            ai_tokens_in: 0,
+            ai_tokens_out: 0,
+            render_pdf_ms: 0.0,
             authz: Default::default(),
         }
     }

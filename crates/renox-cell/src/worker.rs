@@ -414,6 +414,12 @@ impl Worker {
         manager.set_authz_config(config.authz.to_config());
         manager.set_realtime_config(config.realtime.clone());
         manager.set_jobs_config(config.jobs.clone());
+        // #322: `ctx.ai` in gateway mode forwards to the control plane.
+        if let Some(client) = &control {
+            manager.set_ai_gateway(std::sync::Arc::new(crate::control::AiForward {
+                client: client.clone(),
+            }));
+        }
         // #321: the platform bucket of tenant files, when configured.
         if let Some(bucket) = &config.storage.bucket {
             match crate::storage::S3Store::new(

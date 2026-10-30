@@ -91,6 +91,11 @@ pub struct IsolateSpec {
     /// ops.md 1.7.0 section 21: the file store of `ctx.storage`. `None`
     /// gives a deployment whose storage calls fail.
     pub storage: Option<StorageSlot>,
+    /// ops.md 1.7.0 section 23: the platform's AI gateway (controlled mode).
+    /// `None`: gateway-mode calls answer `RENOX_AI_UNAVAILABLE`.
+    pub ai: Option<crate::ops::ai::AiSlot>,
+    /// ops.md 1.7.0 section 24: the cell's renderer for `ctx.pdf`.
+    pub templates: Option<crate::ops::pdf::TemplateSlot>,
 }
 
 /// The cell's file store, as an [`IsolateSpec`] carries it.
@@ -173,6 +178,10 @@ pub struct InvocationMeter {
     pub db_corrupt: bool,
     /// `meter.md` 0.4: the tenant's stored bytes after a put or delete.
     pub storage_bytes: Option<u64>,
+    /// `meter.md` 0.4: `ai.chat` tokens and PDF time.
+    pub ai_tokens_in: u64,
+    pub ai_tokens_out: u64,
+    pub render_pdf_ms: f64,
 }
 
 impl InvocationMeter {
@@ -193,6 +202,9 @@ impl InvocationMeter {
             render_ms: 0.0,
             db_corrupt: false,
             storage_bytes: None,
+            ai_tokens_in: 0,
+            ai_tokens_out: 0,
+            render_pdf_ms: 0.0,
         }
     }
 }
@@ -2215,6 +2227,15 @@ impl ThreadContext {
     }
 }
 
+/// The direct AI provider's base URL; tests point it at a local stand-in.
+fn ai_base() -> String {
+    #[cfg(feature = "test-hooks")]
+    if let Ok(b) = std::env::var("RENOX_TEST_AI_BASE") {
+        return b;
+    }
+    crate::ops::ai::ANTHROPIC_BASE.to_string()
+}
+
 /// The owner of a code entry id: `modules/<name>/…` is module `name`, else the app.
 fn entry_owner(id: &str) -> &str {
     id.strip_prefix("modules/")
@@ -2274,6 +2295,8 @@ struct Platform {
     /// Per route: the module that owns it (`app` or an installed module;
     /// `artifact.md` section 3, "Route merge").
     owners: Vec<String>,
+    /// Per route: a `webhook` route's provider (artifact 1.4; ops.md 1.7.0 section 22).
+    webhooks: Vec<Option<String>>,
     /// Per route: a tool route's Cedar action (#285), empty otherwise.
     tool_actions: Vec<String>,
     /// Per route: `Some` when its module is evaluated on first use (ops.md
@@ -2560,6 +2583,26 @@ async fn create_worker(
         for m in ctx.modules.modules() {
             allowed.insert(m.name.clone(), types(m.storage.as_ref()));
         }
+        let (mode, key_name) = crate::ops::ai::mode_of(
+            ctx.artifact.manifest.ai.as_ref(),
+            &ctx.artifact.manifest.permissions.secrets,
+        );
+        state.put(Rc::new(crate::ops::ai::AiEnv {
+            mode,
+            key_name,
+            base: ai_base(),
+            app: ctx.artifact.manifest.app.name.clone(),
+            tenant_id: ctx.spec.tenant_id.clone(),
+            gateway: ctx.spec.ai.as_ref().map(|s| s.0.clone()),
+        }));
+        state.put(Rc::new(crate::ops::pdf::PdfEnv {
+            templates: ctx.spec.templates.as_ref().map(|s| s.0.clone()),
+        }));
+        state.put(Rc::new(crate::ops::webhook::WebhookEnv {
+            tenant_id: ctx.spec.tenant_id.clone(),
+            per_second: crate::ops::webhook::UNVERIFIED_PER_SECOND,
+            burst: crate::ops::webhook::UNVERIFIED_BURST,
+        }));
         state.put(Rc::new(crate::ops::storage::StorageEnv {
             host: ctx.spec.storage.as_ref().map(|s| s.0.clone()),
             tenant_id: ctx.spec.tenant_id.clone(),
@@ -2843,6 +2886,7 @@ async fn create_worker(
                 })
                 .collect(),
             owners,
+            webhooks: manifest.routes.iter().map(|r| r.webhook.clone()).collect(),
             lazy,
         },
         guards,
@@ -3007,6 +3051,9 @@ impl InFlight {
             render_ms: self.used.render_ms,
             db_corrupt: self.used.db_corrupt,
             storage_bytes: self.used.storage_bytes,
+            ai_tokens_in: self.used.ai_tokens_in,
+            ai_tokens_out: self.used.ai_tokens_out,
+            render_pdf_ms: self.used.render_pdf_ms,
         }
     }
 }
@@ -3419,6 +3466,9 @@ struct RequestEnd {
     /// CPU of the request's calls into other isolates (ops.md 1.7.0 section 15.6).
     cross_cpu_ms: f64,
     storage_bytes: Option<u64>,
+    ai_tokens_in: u64,
+    ai_tokens_out: u64,
+    render_pdf_ms: f64,
 }
 
 /// How a request ended, for the rollback counters.
@@ -3497,6 +3547,9 @@ fn end_request(
         response_sent_bytes,
         cross_cpu_ms: request.cross_cpu_ms,
         storage_bytes: request.storage_bytes,
+        ai_tokens_in: request.ai_tokens_in,
+        ai_tokens_out: request.ai_tokens_out,
+        render_pdf_ms: request.render_pdf_ms,
     }
 }
 
@@ -3874,8 +3927,13 @@ fn build_args(
         None => v8::null(scope).into(),
     };
     let owner: v8::Local<v8::Value> = serde_v8::to_v8(scope, &platform.owners[job.route])?;
+    let webhook: v8::Local<v8::Value> = match &platform.webhooks[job.route] {
+        Some(p) => serde_v8::to_v8(scope, p)?,
+        None => v8::null(scope).into(),
+    };
     Ok([
         handler, token_v, method, url, headers, body, params, want, page, action, owner, realtime,
+        webhook,
     ]
     .into_iter()
     .map(|l| v8::Global::new(scope, l))
