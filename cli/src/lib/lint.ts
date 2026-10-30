@@ -10,6 +10,9 @@
 // template literals (with nested `${}`), which is what the rules need. The
 // global-state rule adds brace scopes on top (see lintGlobalState).
 
+import { existsSync as exists, readdirSync as listDir, readFileSync as readText, statSync as stat } from "node:fs";
+import { join as joinPath } from "node:path";
+
 export interface Finding {
   file: string;
   line: number;
@@ -29,7 +32,9 @@ export interface Finding {
     | "policy-invalid"
     | "missing-guard"
     | "unscoped-owned-table"
-    | "undeclared-action";
+    | "undeclared-action"
+    // #336: a translation key missing in a declared locale.
+    | "i18n-missing-key";
   severity: "error" | "warning";
   message: string;
 }
@@ -746,5 +751,59 @@ export function lintMissingGuard(src: string, file: string, policyActions: Reado
 export function policyActions(cedar: string): Set<string> {
   const out = new Set<string>();
   for (const m of cedar.matchAll(/Action::"([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)"/gu)) out.add(m[1] as string);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// #336: catalog completeness. The locales of a tree are its `i18n/<locale>.json`
+// files; every key of one must be in all of them, and every `<r-t key>` of the
+// tree's templates must be in each (a key with a `{` placeholder argument counts
+// by its name). A tree without catalogs declares no locale and is not checked.
+
+
+/** Every leaf key of a catalog, dotted (`a.b.c`); `_meta` (a catalog's review status) is not text and is left out. */
+export function catalogKeys(v: unknown, prefix = ""): string[] {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return prefix === "" ? [] : [prefix];
+  return Object.entries(v as Record<string, unknown>)
+    .filter(([k]) => !(prefix === "" && k === "_meta"))
+    .flatMap(([k, x]) => catalogKeys(x, prefix === "" ? k : `${prefix}.${k}`));
+}
+
+function templates(dir: string, rel = ""): string[] {
+  if (!exists(dir)) return [];
+  return listDir(dir).flatMap((n) => {
+    const full = joinPath(dir, n);
+    if (n === "node_modules" || n === ".renox" || n === "tests") return [];
+    return stat(full).isDirectory() ? templates(full, `${rel}${n}/`) : n.endsWith(".html") ? [`${rel}${n}`] : [];
+  });
+}
+
+/** Missing keys of a tree (`root`: an app or a module directory; `label`: how findings name it). */
+export function lintCatalogs(root: string, label = ""): Finding[] {
+  const i18n = joinPath(root, "i18n");
+  if (!exists(i18n)) return [];
+  const locales = listDir(i18n).filter((n) => /^[a-z]{2,3}(-[A-Za-z0-9]+)*\.json$/u.test(n)).map((n) => n.replace(/\.json$/u, "")).sort();
+  if (locales.length === 0) return [];
+  const keys = new Map(locales.map((l) => [l, new Set(catalogKeys(JSON.parse(readText(joinPath(i18n, `${l}.json`), "utf8"))))]));
+  const all = new Set([...keys.values()].flatMap((k) => [...k]));
+  const out: Finding[] = [];
+  const at = (file: string) => (label === "" ? file : `${label}/${file}`);
+  for (const l of locales) {
+    for (const k of [...all].sort()) {
+      if (!(keys.get(l) as Set<string>).has(k)) out.push({ file: at(`i18n/${l}.json`), line: 1, column: 1, rule: "i18n-missing-key", severity: "error", message: `"${k}" is in another locale's catalog but not in ${l}` });
+    }
+  }
+  for (const t of templates(root)) {
+    const src = readText(joinPath(root, t), "utf8");
+    for (const m of src.matchAll(/<r-t\s+key="([a-z0-9_.-]+)"/gu)) {
+      const k = m[1] as string;
+      for (const l of locales) {
+        if (!(keys.get(l) as Set<string>).has(k)) {
+          const line = src.slice(0, m.index).split("\n").length;
+          out.push({ file: at(t), line, column: 1, rule: "i18n-missing-key", severity: "error", message: `<r-t key="${k}"> has no ${l} translation` });
+        }
+      }
+    }
+  }
   return out;
 }
