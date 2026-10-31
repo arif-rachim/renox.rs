@@ -30,6 +30,8 @@ export type MailKind =
   | "tier_grace"
   | "tier_suspended"
   | "tier_reinstated"
+  // An off-session charge of an invoice failed (src/billing/collect.ts, #350).
+  | "invoice_payment_failed"
   // An abuse takedown (src/abuse/takedown.ts, #123).
   | "abuse_takedown";
 

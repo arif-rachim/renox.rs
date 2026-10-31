@@ -16,47 +16,131 @@ import { num, type Db } from "../db/db.ts";
 import { ApiError, conflict, invalid, notFound } from "../errors.ts";
 import { pathParam, readBody } from "../http.ts";
 import { onTenantState } from "../routes/activation.ts";
-import { requestScope, tenantDb } from "../tenancy/scope.ts";
+import { crossTenant, requestScope, tenantDb } from "../tenancy/scope.ts";
 import { newTenantRestrictions } from "../tenants/erasure.ts";
+import { collectDue, markInvoicePaid } from "./collect.ts";
 
 type Row = Record<string, unknown>;
 
 /** The PSP as this API uses it (Stripe UAE first). Tests replace it. */
 export interface Psp {
-  createSetup(tenantId: string): Promise<{ setup_id: string; client_secret: string; publishable_key: string }>;
+  /** The tenant's customer at the PSP, created once (#350): a saved card is attached to it, so it can be charged again. */
+  ensureCustomer(tenantId: string, info: { email: string | null; name: string | null }): Promise<string>;
+  createSetup(tenantId: string, customer: string): Promise<{ setup_id: string; client_secret: string; publishable_key: string }>;
   /** The confirmed setup's payment method, or null when it is not confirmed. */
   confirmSetup(setupId: string): Promise<{ id: string; brand: string; last4: string; exp_month: number; exp_year: number } | null>;
+  /** Makes the card the customer's default and detaches the one it replaces; best effort. */
+  setDefault(customer: string, paymentMethod: string, previous: string | null): Promise<void>;
+  /** An off-session charge of an invoice (#350). `unavailable`: the PSP was not reached, nothing was attempted. */
+  charge(c: ChargeRequest): Promise<ChargeResult>;
+  /** The tenant named in a PaymentIntent's metadata, or null (#351). */
+  paymentIntentTenant(paymentIntent: string): Promise<string | null>;
   webhookSecret(): string | null;
 }
 
+export interface ChargeRequest {
+  tenantId: string;
+  invoiceId: string;
+  customer: string;
+  paymentMethod: string;
+  /** The invoice total in fils. */
+  amount: number;
+  attempt: number;
+}
+
+export type ChargeResult =
+  | { status: "succeeded" | "pending"; payment_intent: string }
+  | { status: "failed"; payment_intent: string | null; code: string }
+  | { status: "unavailable" };
+
+const STRIPE = "https://api.stripe.com/v1";
+
+/** One Stripe REST call with the platform's key; null when Stripe is not reached. */
+async function stripeApi(path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<{ status: number; body: Record<string, any> } | null> {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new ApiError("RENOX_UNAVAILABLE");
+  const headers: Record<string, string> = { authorization: `Bearer ${key}` };
+  if (form !== undefined) headers["content-type"] = "application/x-www-form-urlencoded";
+  if (idempotencyKey !== undefined) headers["idempotency-key"] = idempotencyKey;
+  const res = await fetch(`${STRIPE}/${path}`, { method: form === undefined ? "GET" : "POST", headers, body: form === undefined ? undefined : new URLSearchParams(form), signal: AbortSignal.timeout(15_000) }).catch(() => null);
+  if (res === null) return null;
+  return { status: res.status, body: ((await res.json().catch(() => ({}))) ?? {}) as Record<string, any> };
+}
+
+/** Cards only, confirmed without a redirect: an account with dynamic payment methods asks for a return_url otherwise. */
+const CARDS_ONLY = { "automatic_payment_methods[enabled]": "true", "automatic_payment_methods[allow_redirects]": "never" };
+
 /** Stripe over its REST API with the platform's secret key (`STRIPE_SECRET_KEY`). */
 export const stripePsp: Psp = {
-  async createSetup(tenantId) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new ApiError("RENOX_UNAVAILABLE");
-    const res = await fetch("https://api.stripe.com/v1/setup_intents", {
-      method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ "metadata[tenant_id]": tenantId, usage: "off_session" }),
-    }).catch(() => null);
-    if (res === null || !res.ok) throw new ApiError("RENOX_UNAVAILABLE");
-    const j = (await res.json()) as { id: string; client_secret: string };
+  async ensureCustomer(tenantId, info) {
+    const form: Record<string, string> = { "metadata[tenant_id]": tenantId, description: `Renox tenant ${tenantId}` };
+    if (info.email !== null) form.email = info.email;
+    if (info.name !== null) form.name = info.name;
+    // A retried call with the same fields is the same Customer (Stripe refuses one key with other fields).
+    const fields = createHmac("sha256", "renox-customer").update(JSON.stringify(form)).digest("hex").slice(0, 16);
+    const r = await stripeApi("customers", form, `customer:${tenantId}:${fields}`);
+    if (r === null || r.status !== 200 || typeof r.body.id !== "string") throw new ApiError("RENOX_UNAVAILABLE");
+    return r.body.id;
+  },
+  async createSetup(tenantId, customer) {
+    const r = await stripeApi("setup_intents", { "metadata[tenant_id]": tenantId, customer, usage: "off_session", ...CARDS_ONLY });
+    if (r === null || r.status !== 200) throw new ApiError("RENOX_UNAVAILABLE");
+    const j = r.body as { id: string; client_secret: string };
     return { setup_id: j.id, client_secret: j.client_secret, publishable_key: process.env.STRIPE_PUBLISHABLE_KEY ?? "" };
   },
   async confirmSetup(setupId) {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new ApiError("RENOX_UNAVAILABLE");
-    const res = await fetch(`https://api.stripe.com/v1/setup_intents/${encodeURIComponent(setupId)}?expand[]=payment_method`, { headers: { authorization: `Bearer ${key}` } }).catch(() => null);
-    if (res === null || !res.ok) throw new ApiError("RENOX_UNAVAILABLE");
-    const j = (await res.json()) as { status: string; payment_method?: { id: string; card?: { brand: string; last4: string; exp_month: number; exp_year: number } } };
+    const r = await stripeApi(`setup_intents/${encodeURIComponent(setupId)}?expand[]=payment_method`);
+    if (r === null || r.status !== 200) throw new ApiError("RENOX_UNAVAILABLE");
+    const j = r.body as { status: string; payment_method?: { id: string; card?: { brand: string; last4: string; exp_month: number; exp_year: number } } };
     if (j.status !== "succeeded" || !j.payment_method?.card) return null;
     const c = j.payment_method.card;
     return { id: j.payment_method.id, brand: c.brand, last4: c.last4, exp_month: c.exp_month, exp_year: c.exp_year };
+  },
+  async setDefault(customer, paymentMethod, previous) {
+    await stripeApi(`customers/${encodeURIComponent(customer)}`, { "invoice_settings[default_payment_method]": paymentMethod }).catch(() => null);
+    if (previous !== null && previous !== paymentMethod) await stripeApi(`payment_methods/${encodeURIComponent(previous)}/detach`, {}).catch(() => null);
+  },
+  async charge(c) {
+    const r = await stripeApi(
+      "payment_intents",
+      {
+        amount: String(c.amount),
+        currency: "aed",
+        customer: c.customer,
+        payment_method: c.paymentMethod,
+        off_session: "true",
+        confirm: "true",
+        description: `Renox invoice ${c.invoiceId}`,
+        "metadata[tenant_id]": c.tenantId,
+        "metadata[invoice_id]": c.invoiceId,
+        ...CARDS_ONLY,
+      },
+      // One PaymentIntent per attempt, however often the call is retried.
+      `invoice:${c.invoiceId}:${c.attempt}`,
+    );
+    if (r === null || r.status >= 500 || r.status === 429) return { status: "unavailable" };
+    if (r.status === 200) {
+      const id = String(r.body.id);
+      if (r.body.status === "succeeded") return { status: "succeeded", payment_intent: id };
+      if (r.body.status === "processing") return { status: "pending", payment_intent: id };
+      return { status: "failed", payment_intent: id, code: String(r.body.status) };
+    }
+    // 402: declined or authentication_required, with the PaymentIntent in the error.
+    const e = (r.body.error ?? {}) as { code?: string; decline_code?: string; payment_intent?: { id?: string } };
+    return { status: "failed", payment_intent: typeof e.payment_intent?.id === "string" ? e.payment_intent.id : null, code: e.decline_code ?? e.code ?? `http_${r.status}` };
+  },
+  async paymentIntentTenant(paymentIntent) {
+    const r = await stripeApi(`payment_intents/${encodeURIComponent(paymentIntent)}`);
+    const t = r?.status === 200 ? r.body.metadata?.tenant_id : undefined;
+    return typeof t === "string" ? t : null;
   },
   webhookSecret: () => process.env.STRIPE_WEBHOOK_SECRET ?? null,
 };
 
 let psp: Psp = stripePsp;
+
+/** The PSP in use (the collection of collect.ts). */
+export const currentPsp = (): Psp => psp;
 
 /** Tests: a PSP stand-in. */
 export function setPsp(p: Psp): void {
@@ -152,6 +236,19 @@ export function stripeVerified(secret: string, header: string, raw: Uint8Array, 
   return sigs.some((s) => s.length === want.length && timingSafeEqual(Buffer.from(s), want));
 }
 
+/**
+ * The tenant of a dispute (#351). Stripe's dispute object carries no metadata
+ * of ours: its PaymentIntent is the invoice charge of collect.ts, found on the
+ * invoice row, else read back from the PaymentIntent's own metadata.
+ */
+async function disputedTenant(db: Db, o: { payment_intent?: string; metadata?: Record<string, string> }): Promise<string | undefined> {
+  if (typeof o.metadata?.tenant_id === "string") return o.metadata.tenant_id;
+  if (typeof o.payment_intent !== "string") return undefined;
+  const r = (await db.query<Row>("select tenant_id from invoices where payment_intent = $1 limit 1", [o.payment_intent]))[0];
+  if (typeof r?.tenant_id === "string") return r.tenant_id;
+  return (await psp.paymentIntentTenant(o.payment_intent).catch(() => null)) ?? undefined;
+}
+
 export function registerBilling(app: Hono<Env>, deps: Deps): void {
   app.get("/v1/billing/plans", operation(deps, "listPlans"), async (c) => c.json({ currency: "AED", vat_rate: VAT_RATE, plans: PLANS }));
 
@@ -202,8 +299,16 @@ export function registerBilling(app: Hono<Env>, deps: Deps): void {
     own(c, db);
     const b = await body(c);
     if (b.provider !== "stripe") throw invalid("provider", "must be stripe");
-    const s = await psp.createSetup(db.tenantId);
-    await billingRow(db, db.tenantId, deps.now());
+    const row = await billingRow(db, db.tenantId, deps.now());
+    // The tenant's Stripe Customer (#350), created on its first setup: the card is attached to it.
+    let customer = typeof row.stripe_customer === "string" ? row.stripe_customer : null;
+    if (customer === null) {
+      const owner = (await db.query<Row>("select u.email from memberships m join users u on u.id = m.user_id where m.tenant_id = $1 and m.role = 'owner' limit 1", [db.tenantId]))[0]?.email;
+      const profile = row.profile === null ? null : (JSON.parse(row.profile as string) as { legal_name?: string });
+      customer = await psp.ensureCustomer(db.tenantId, { email: typeof owner === "string" ? owner : null, name: profile?.legal_name ?? null });
+      await db.query("update tenant_billing set stripe_customer = $2 where tenant_id = $1", [db.tenantId, customer]);
+    }
+    const s = await psp.createSetup(db.tenantId, customer);
     await db.query("update tenant_billing set setup_id = $2 where tenant_id = $1", [db.tenantId, s.setup_id]);
     c.set("auditTarget", { tenant_id: db.tenantId, provider: "stripe" });
     return c.json({ provider: "stripe", ...s }, 201);
@@ -218,8 +323,13 @@ export function registerBilling(app: Hono<Env>, deps: Deps): void {
     if (typeof b.setup_id !== "string" || b.setup_id !== row.setup_id) throw notFound();
     const pm = await psp.confirmSetup(b.setup_id);
     if (pm === null) throw conflict("setup_id", "not confirmed by the PSP");
-    const method = { ...pm, provider: "stripe", added_at: deps.now() };
+    const now = deps.now();
+    const method = { ...pm, provider: "stripe", added_at: now };
     await db.query("update tenant_billing set payment_method = $2, setup_id = null where tenant_id = $1", [db.tenantId, JSON.stringify(method)]);
+    const previous = row.payment_method === null ? null : ((JSON.parse(row.payment_method as string) as { id?: string }).id ?? null);
+    if (typeof row.stripe_customer === "string") await psp.setDefault(row.stripe_customer, pm.id, previous);
+    // The new card pays the open invoices at once (#350); a paid one reinstates the tier down to the route table.
+    await collectDue({ ...deps, db: crossTenant(deps.db, "a new card pays the tenant's open invoices; reinstating the tier publishes its route entries") }, db.tenantId, now, true);
     c.set("auditTarget", { tenant_id: db.tenantId, provider: "stripe", payment_method: pm.id });
     return c.json(method, 201);
   });
@@ -253,7 +363,7 @@ export function registerBilling(app: Hono<Env>, deps: Deps): void {
     const secret = psp.webhookSecret();
     const raw = await readBody(c, 256 * 1024);
     if (secret === null || !stripeVerified(secret, c.req.header("stripe-signature") ?? "", raw, deps.now())) throw new ApiError("RENOX_UNAUTHENTICATED");
-    let ev: { id?: string; type?: string; data?: { object?: { metadata?: Record<string, string> } } };
+    let ev: { id?: string; type?: string; data?: { object?: { id?: string; payment_intent?: string; metadata?: Record<string, string>; last_payment_error?: { code?: string; decline_code?: string } } } };
     try {
       ev = JSON.parse(new TextDecoder().decode(raw));
     } catch {
@@ -263,23 +373,21 @@ export function registerBilling(app: Hono<Env>, deps: Deps): void {
     const now = deps.now();
     const fresh = await deps.db.query("insert into billing_events (provider, event_id, received_at) values ('stripe', $1, $2) on conflict do nothing returning event_id", [ev.id, now]);
     if (fresh.length === 0) return c.json({ received: true, duplicate: true });
-    const tenantId = ev.data?.object?.metadata?.tenant_id;
+    const tenantId = ev.type === "charge.dispute.created" ? await disputedTenant(deps.db, ev.data?.object ?? {}) : ev.data?.object?.metadata?.tenant_id;
     if (typeof tenantId === "string") {
       const known = await deps.db.query("select 1 from tenants where id = $1", [tenantId]);
       if (known.length > 0) {
         if (ev.type === "charge.dispute.created") await setTierState(deps, deps.db, tenantId, "suspended", now);
+        const invoiceId = ev.data?.object?.metadata?.invoice_id;
         if (ev.type === "invoice.paid") {
-          const invoiceId = ev.data?.object?.metadata?.invoice_id;
-          if (typeof invoiceId === "string") {
-            const r = (await deps.db.query<Row>("select body from invoices where tenant_id = $1 and id = $2", [tenantId, invoiceId]))[0];
-            if (r !== undefined) {
-              const inv = { ...JSON.parse(r.body as string), status: "paid", paid_at: now };
-              await deps.db.query("update invoices set status = 'paid', paid_at = $3, body = $4 where tenant_id = $1 and id = $2", [tenantId, invoiceId, now, JSON.stringify(inv)]);
-            }
-          }
+          if (typeof invoiceId === "string") await markInvoicePaid(deps, tenantId, invoiceId, now);
           const row = await billingRow(deps.db, tenantId, now);
           await setTierState(deps, deps.db, tenantId, reinstate(row.state as TierState), now);
         }
+        // The off-session charge of an invoice (#350): the same result as the synchronous answer, once.
+        if (ev.type === "payment_intent.succeeded" && typeof invoiceId === "string") await markInvoicePaid(deps, tenantId, invoiceId, now, ev.data?.object?.id ?? null);
+        if (ev.type === "payment_intent.payment_failed" && typeof invoiceId === "string")
+          await deps.db.query("update invoices set decline_code = $3 where tenant_id = $1 and id = $2 and status = 'open'", [tenantId, invoiceId, ev.data?.object?.last_payment_error?.decline_code ?? ev.data?.object?.last_payment_error?.code ?? "declined"]);
       }
     }
     c.set("auditTarget", { provider: "stripe", event_id: ev.id, type: ev.type, tenant: tenantId ?? "" });

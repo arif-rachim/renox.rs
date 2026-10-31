@@ -72,6 +72,10 @@ description = "A customer's subscription started, renewed, went past due or was 
 payload = { type = "object", required = ["invoice_id", "customer_id", "amount"], additionalProperties = false, properties = { invoice_id = { type = "string" }, customer_id = { type = "string" }, amount = { type = "integer" } } }
 description = "Part or all of a paid invoice was refunded (minor units)"
 
+[exports.events."billing.disputed"]
+payload = { type = "object", required = ["invoice_id", "customer_id", "amount", "reason"], additionalProperties = false, properties = { invoice_id = { type = "string" }, customer_id = { type = "string" }, amount = { type = "integer" }, reason = { type = "string" } } }
+description = "A customer disputed a paid invoice or order with their bank (a chargeback; minor units, Stripe's reason)"
+
 [exports.hooks."billing.fraud_signal"]
 args = { type = "object", required = ["customer_id", "order_id", "amount", "currency", "mode"], properties = { customer_id = { type = "string" }, order_id = { type = "string" }, amount = { type = "integer" }, currency = { type = "string" }, mode = { enum = ["payment", "subscription"] } } }
 description = "Before a checkout session is created: a filler that halts refuses it (card testing limits, #123)"

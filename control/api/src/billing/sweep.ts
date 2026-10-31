@@ -13,6 +13,8 @@
 //   under an advisory lock; the seller TRN is `RENOX_SELLER_TRN` (no TRN, no
 //   tax invoice: the close waits and logs). A pending downgrade takes effect
 //   with the new period.
+// - Collect (#350, collect.ts): the invoice just issued is charged to the
+//   saved card, and an open one past its retry day is charged again.
 // Card testing, disputes and payments arrive through the webhook instead.
 
 import { anomalous, closePeriod, DAY_MS, HOUR_MS, PLANS, planOf, tenantUsage, type TierState } from "@renox/billing";
@@ -21,6 +23,7 @@ import type { Deps } from "../context.ts";
 import { num } from "../db/db.ts";
 import { ulid } from "../ids.ts";
 import { newTenantRestrictions } from "../tenants/erasure.ts";
+import { collectDue } from "./collect.ts";
 import { MONTH, tickTier } from "./routes.ts";
 
 type Row = Record<string, unknown>;
@@ -155,6 +158,7 @@ export async function sweepBilling(deps: Deps, now = deps.now()): Promise<{ tena
     const tenantId = row.tenant_id as string;
     const invoice = await closeDue(deps, tenantId, now);
     if (invoice !== null) invoices.push(invoice);
+    await collectDue(deps, tenantId, now);
     const flagged = await anomalies(deps, tenantId, now);
     reviews += flagged.length;
     const fresh = (await deps.db.query<Row>("select * from tenant_billing where tenant_id = $1", [tenantId]))[0] as Row;

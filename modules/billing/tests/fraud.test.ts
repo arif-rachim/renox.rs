@@ -12,7 +12,7 @@ import { LIMITS } from "../src/fraud/limits.ts";
 
 function ctx() {
   const db = new Database(":memory:");
-  for (const f of ["001_init.sql", "002_checkout_refunds.sql", "003_offline_methods.sql", "004_attempts.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
+  for (const f of ["001_init.sql", "002_checkout_refunds.sql", "003_offline_methods.sql", "004_attempts.sql", "005_disputes.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
   const sent: string[] = [];
   const c: core.BillingCtx = {
     db: {

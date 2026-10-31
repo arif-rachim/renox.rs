@@ -9,7 +9,7 @@ import * as core from "../lib/core.ts";
 
 function ctx(fetchFn: core.BillingCtx["fetch"]) {
   const db = new Database(":memory:");
-  for (const f of ["001_init.sql", "002_checkout_refunds.sql", "003_offline_methods.sql", "004_attempts.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
+  for (const f of ["001_init.sql", "002_checkout_refunds.sql", "003_offline_methods.sql", "004_attempts.sql", "005_disputes.sql"]) db.exec(readFileSync(join(import.meta.dir, "../migrations", f), "utf8"));
   const emitted: [string, unknown][] = [];
   const c: core.BillingCtx = {
     db: {
@@ -148,4 +148,22 @@ test("webhook paths (docs/23 payment failure paths): an issued invoice, a failed
   ]);
   // The public view other modules read a user's plan through.
   expect(await c.db.query("select user_id, plan_id, status from billing__public_user_plans_v1")).toEqual([{ user_id: "cust_1", plan_id: "pro", status: "past_due" }]);
+});
+
+test("a dispute recorded from a Stripe sandbox (#351): found through its payment intent, kept on the order, billing.disputed emitted; an unknown payment intent is ignored", async () => {
+  const dispute = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/stripe-dispute.json"), "utf8")) as { data: { object: { payment_intent: string; amount: number; reason: string; metadata: object } } };
+  // Stripe puts none of our metadata on the dispute: the payment intent is the only link.
+  expect(dispute.data.object.metadata).toEqual({});
+  const { c, emitted } = ctx(recording().fetchFn);
+  const paid = structuredClone(FIX.one_off_completed) as { data: { object: { payment_intent: string } } };
+  paid.data.object.payment_intent = dispute.data.object.payment_intent;
+  expect(await core.applyEvent(c, paid)).toBe("completed");
+  expect(await core.applyEvent(c, dispute)).toBe("disputed");
+  expect(emitted.filter(([n]) => n === "billing.disputed").map(([, p]) => p)).toEqual([{ invoice_id: "order:order-1001", customer_id: "cust_2", amount: dispute.data.object.amount, reason: "fraudulent" }]);
+  const row = await c.db.queryOne<{ disputed_at: number | null; dispute_reason: string }>("select disputed_at, dispute_reason from billing__invoices where id = ?", ["order:order-1001"]);
+  expect(row?.disputed_at).toBeGreaterThan(0);
+  expect(row?.dispute_reason).toBe("fraudulent");
+  const other = structuredClone(dispute);
+  other.data.object.payment_intent = "pi_not_ours";
+  expect(await core.applyEvent(c, { ...other, id: "evt_other" })).toBe("ignored");
 });
