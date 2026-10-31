@@ -1,0 +1,17 @@
+{
+  "$comment": "valid (1.8.0): an SNS notification, SignatureVersion 2, no secret; the event id is MessageId (ops.md section 22)",
+  "op": "op_webhook_verify",
+  "args": [
+    "sns",
+    null,
+    null,
+    null
+  ],
+  "result": {
+    "provider": "sns",
+    "event_id": "165545c9-2a5c-472c-8df2-7ff2be2b3b1b",
+    "received_at": 1793404800000,
+    "payload_json": "{\"Type\":\"Notification\",\"MessageId\":\"165545c9-2a5c-472c-8df2-7ff2be2b3b1b\"}",
+    "duplicate": false
+  }
+}

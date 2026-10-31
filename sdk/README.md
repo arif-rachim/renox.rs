@@ -153,7 +153,7 @@ Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a
 
 | Phase | `ctx` fields and exports |
 | --- | --- |
-| F2 | `render`, `webhook`, `kv`; streamed `fetch` request bodies; the page export `guard`; `cors` and `frame` options |
+| F2 | `kv`; streamed `fetch` request bodies; the page export `guard`; `cors` and `frame` options |
 | F4 | query builders (`renox/kysely`, `renox/drizzle`, #237); `auth` and session data come from the `auth` module as services, not ctx fields |
 | F5 | `ws` and `sse` exports' typed helpers (#284); `authz`, `realtime` and `db.scoped()` are typed above |
 | F6 | `schedule` export for jobs; `datasource(name)` (F6–F7) |

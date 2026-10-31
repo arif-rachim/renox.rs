@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renox deploy API
-  version: 0.5.0
+  version: 0.5.1
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -3078,6 +3078,7 @@ paths:
       x-renox-scope: billing
       security:
         - sessionCookie: []
+        - tenantToken: []
       x-renox-audit: none (read)
       x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
       responses:
@@ -3102,6 +3103,7 @@ paths:
       x-renox-scope: billing
       security:
         - sessionCookie: []
+        - tenantToken: []
       x-renox-audit: changePlan (tenant, from, to, effective_at)
       x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
       requestBody:
@@ -3142,6 +3144,7 @@ paths:
       x-renox-scope: billing
       security:
         - sessionCookie: []
+        - tenantToken: []
       x-renox-audit: setBillingProfile (tenant; the fields changed, never their values)
       x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
       requestBody:
@@ -3176,6 +3179,7 @@ paths:
       x-renox-scope: billing
       security:
         - sessionCookie: []
+        - tenantToken: []
       x-renox-audit: startPaymentMethodSetup (tenant, provider)
       x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_RATE_LIMITED, RENOX_UNAVAILABLE]
       requestBody:
@@ -3224,6 +3228,7 @@ paths:
       x-renox-scope: billing
       security:
         - sessionCookie: []
+        - tenantToken: []
       x-renox-audit: confirmPaymentMethod (tenant, provider, payment method id)
       x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
       requestBody:
@@ -3264,6 +3269,7 @@ paths:
       x-renox-scope: billing
       security:
         - sessionCookie: []
+        - tenantToken: []
       x-renox-audit: none (read)
       x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
       responses:
@@ -3290,10 +3296,11 @@ paths:
     get:
       operationId: getInvoice
       tags: [billing]
-      summary: One invoice as JSON, or as the tax invoice PDF with `Accept application/pdf` (section 20)
+      summary: One invoice as JSON, or (0.5.1) the bilingual tax invoice as HTML with `Accept text/html`; the PDF is the dashboard's (section 20)
       x-renox-scope: billing
       security:
         - sessionCookie: []
+        - tenantToken: []
       x-renox-audit: none (read)
       x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
       responses:
@@ -3304,10 +3311,10 @@ paths:
               schema: { $ref: "#/components/schemas/Invoice" }
               examples:
                 october: { $ref: "#/components/examples/InvoiceOctober" }
-            application/pdf:
-              schema: { type: string, format: binary }
+            text/html:
+              schema: { type: string }
               examples:
-                october: { value: "<PDF tax invoice INV-2026-000123, English and Arabic>" }
+                october: { value: "<!doctype html><html lang=\"en\"><body><h1>Tax Invoice</h1><div dir=\"rtl\" lang=\"ar\"><h2>فاتورة ضريبية</h2></div><p>INV-2026-000123</p>…</body></html>" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
         "404": { $ref: "#/components/responses/NotFound" }

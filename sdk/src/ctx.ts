@@ -66,6 +66,11 @@ export interface Ctx {
   readonly ai: Ai;
   /** Templates to PDF in Rust (section 24, 1.7.0). */
   readonly pdf: Pdf;
+  /**
+   * Renders `template` (a page or partial of the caller; for a module, relative to its own tree)
+   * with `data` to an HTML string, as a fragment: no layout (section 25, 1.8.0).
+   */
+  render(template: string, data: Readonly<Record<string, unknown>>): Promise<string>;
   // Reserved (ops.md section 8): see README.md.
 }
 
@@ -445,7 +450,7 @@ export interface Storage {
 // Webhooks (section 22, 1.7.0)
 // ---------------------------------------------------------------------------
 
-export type WebhookProvider = "stripe" | "checkout" | "telr" | "paytabs" | "ngenius" | "tabby" | "tamara" | "apple" | "google" | "generic";
+export type WebhookProvider = "stripe" | "checkout" | "telr" | "paytabs" | "ngenius" | "tabby" | "tamara" | "svix" | "sns" | "apple" | "google" | "generic";
 export interface WebhookEvent {
   readonly provider: WebhookProvider;
   readonly event_id: string;
@@ -507,6 +512,6 @@ export interface PdfOptions {
   readonly marginMm?: number;
 }
 export interface Pdf {
-  /** Renders `template` (a page or partial of the caller) with `data` and converts it to PDF in Rust. */
+  /** Renders `template` (a page or partial of the caller; for a module, relative to its own tree, 1.8.0) with `data` and converts it to PDF in Rust. */
   render(template: string, data: Readonly<Record<string, unknown>>, options?: PdfOptions): Promise<Uint8Array>;
 }

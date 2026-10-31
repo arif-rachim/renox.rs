@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "reports"
+version = "1.0.0"
+source = "path:modules/reports"
+hash = "0b5e19ff3fa15e80caa3a8732ffaf6ce7e4735686dee8d169a8cc1528d1d79c5"
+isolation = "shared"
+mount = "/reports"
+dependencies = []
+config = {}
+approved = { network = [], secrets = [], slots = [], hooks = [], app_access = "read", app_tables = ["app__orders"] }

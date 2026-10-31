@@ -1,0 +1,10 @@
+{
+  "$comment": "valid (1.8.0): a module renders its own partial to a string; the op adds modules/email/ (ops.md section 25)",
+  "op": "op_render_template",
+  "args": [
+    "partials/receipt",
+    "{\"order\":\"1001\",\"total\":\"AED 125.00\"}",
+    "email"
+  ],
+  "result": "<section class=\"receipt\"><h2>Order 1001</h2><p>AED 125.00</p></section>"
+}

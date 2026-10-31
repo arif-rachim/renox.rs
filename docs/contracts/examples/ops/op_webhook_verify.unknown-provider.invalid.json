@@ -1,0 +1,10 @@
+{
+  "$comment": "invalid: svx is not a provider of section 22 [expect: oneOf]",
+  "op": "op_webhook_verify",
+  "args": [
+    "svx",
+    null,
+    null,
+    null
+  ]
+}
