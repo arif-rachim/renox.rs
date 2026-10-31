@@ -93,8 +93,8 @@ function fakeDb(d: Dash): Ctx["db"] {
   return db;
 }
 
-function base(d: Dash, method: string, path: string, params: Ctx["params"]): Ctx {
-  const req = new Request(`${DASH}${path}`, { method });
+function base(d: Dash, method: string, path: string, params: Ctx["params"], headers: Record<string, string> = {}): Ctx {
+  const req = new Request(`${DASH}${path}`, { method, headers });
   return {
     req,
     url: new URL(req.url),
@@ -146,14 +146,15 @@ function base(d: Dash, method: string, path: string, params: Ctx["params"]): Ctx
   };
 }
 
-export function loaderCtx(d: Dash, path: string, opts: { params?: Ctx["params"]; fragment?: string | null } = {}): LoaderContext {
-  return { ...base(d, "GET", path, opts.params ?? {}), fragment: opts.fragment ?? null, session: { id: d.sessionId }, setLocale: noop };
+/** `headers`: the request's own, such as the `renox_lang` cookie of lib/locale.ts (#336). */
+export function loaderCtx(d: Dash, path: string, opts: { params?: Ctx["params"]; fragment?: string | null; headers?: Record<string, string> } = {}): LoaderContext {
+  return { ...base(d, "GET", path, opts.params ?? {}, opts.headers), fragment: opts.fragment ?? null, session: { id: d.sessionId }, setLocale: noop };
 }
 
-export function actionCtx(d: Dash, path: string, action: string, fields: Record<string, string>, opts: { params?: Ctx["params"] } = {}): ActionContext {
+export function actionCtx(d: Dash, path: string, action: string, fields: Record<string, string>, opts: { params?: Ctx["params"]; headers?: Record<string, string> } = {}): ActionContext {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.set(k, v);
-  const c = base(d, "POST", `${path}?/${action}`, opts.params ?? {});
+  const c = base(d, "POST", `${path}?/${action}`, opts.params ?? {}, opts.headers);
   return { ...c, db: statements(d.sqlite), action, form, fragment: "page", session: { id: d.sessionId }, setLocale: noop };
 }
 

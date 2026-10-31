@@ -8,6 +8,7 @@ import type { LoaderContext } from "renox";
 
 import { apiBase } from "../../../lib/api.ts";
 import { clientErrorActions, eventRow, FINGERPRINT, groupRow, SPARK, STATUSES } from "../../../lib/client-errors.ts";
+import { trOf } from "../../../lib/i18n.ts";
 import { appParam, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { round } from "../../../lib/view.ts";
 
@@ -48,9 +49,9 @@ export async function load(ctx: LoaderContext) {
   let detailProblem = null;
   if (one !== null) {
     if (!one.ok) detailProblem = await problem(ctx, one);
-    else detail = { group: groupRow(one.value.group, name, now), events: one.value.events.map((e) => eventRow(e, name, now)) };
+    else detail = { group: groupRow(one.value.group, name, now, trOf(ctx)), events: one.value.events.map((e) => eventRow(e, name, now, trOf(ctx))) };
   }
-  return { ...base, quota, problem: null, groups: list.value.groups.map((g) => groupRow(g, name, now)), detail, detail_problem: detailProblem };
+  return { ...base, quota, problem: null, groups: list.value.groups.map((g) => groupRow(g, name, now, trOf(ctx))), detail, detail_problem: detailProblem };
 }
 
 export const actions = { status: clientErrorActions.status };

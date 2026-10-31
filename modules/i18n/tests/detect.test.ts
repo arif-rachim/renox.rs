@@ -3,13 +3,15 @@
 // only offered locales count.
 import { expect, test } from "bun:test";
 
-import { dirOf, digitsOf, match, negotiate, options, pick, splitTag, tagOf } from "../lib/detect.ts";
+import { calendarOf, dirOf, digitsOf, match, negotiate, options, pick, splitTag, tagOf } from "../lib/detect.ts";
 
 const o = options({ locales: "en,ar", default_locale: "en", digits: "latn" });
 
 test("options: the offered locales and the default; bad entries are dropped", () => {
-  expect(o).toEqual({ locales: ["en", "ar"], fallback: "en", digits: "latn" });
-  expect(options({ locales: "ar, en ,x!,", default_locale: "fr" })).toEqual({ locales: ["ar", "en"], fallback: "ar", digits: "latn" });
+  expect(o).toEqual({ locales: ["en", "ar"], fallback: "en", digits: "latn", calendar: "gregory" });
+  expect(options({ locales: "ar, en ,x!,", default_locale: "fr" })).toEqual({ locales: ["ar", "en"], fallback: "ar", digits: "latn", calendar: "gregory" });
+  expect(options({ calendar: "islamic-umalqura" }).calendar).toBe("islamic-umalqura");
+  expect(options({ calendar: "persian" }).calendar).toBe("gregory");
   expect(options({ locales: "", default_locale: "en" }).locales).toEqual(["en"]);
 });
 
@@ -61,9 +63,30 @@ test("direction and digits (#266): latn, arab, and auto following the stored cho
 });
 
 test("tags with a -u- extension: matched by their language, nu read out", () => {
-  expect(splitTag("ar-AE-u-nu-arab")).toEqual({ base: "ar-AE", nu: "arab" });
-  expect(splitTag("ar-u-ca-islamic-nu-latn")).toEqual({ base: "ar", nu: "latn" });
-  expect(splitTag("ar")).toEqual({ base: "ar", nu: null });
+  expect(splitTag("ar-AE-u-nu-arab")).toEqual({ base: "ar-AE", nu: "arab", ca: null });
+  expect(splitTag("ar-u-ca-islamic-nu-latn")).toEqual({ base: "ar", nu: "latn", ca: "islamic" });
+  expect(splitTag("ar-u-ca-islamic-umalqura-nu-arab")).toEqual({ base: "ar", nu: "arab", ca: "islamic-umalqura" });
+  expect(splitTag("ar-u-ca-islamic-umalqura")).toEqual({ base: "ar", nu: null, ca: "islamic-umalqura" });
+  // Only the calendars of ops.md 1.4.0.
+  expect(splitTag("ar-u-ca-chinese").ca).toBeNull();
+  expect(splitTag("ar")).toEqual({ base: "ar", nu: null, ca: null });
   expect(match("ar-u-nu-arab", o.locales)).toBe("ar");
   expect(pick({ query: "ar-AE-u-nu-arab" }, o)).toEqual({ locale: "ar", source: "query" });
+});
+
+test("calendar (#336): gregory, islamic-umalqura, and auto following the stored choice; the canonical tag", () => {
+  const hijri = options({ locales: "en,ar", calendar: "islamic-umalqura" });
+  const auto = options({ locales: "en,ar", calendar: "auto" });
+  expect(calendarOf("ar", o)).toBe("gregory");
+  expect(calendarOf("ar", o, "islamic-umalqura")).toBe("gregory"); // gregory ignores the stored choice
+  expect(calendarOf("ar", hijri)).toBe("islamic-umalqura");
+  expect(calendarOf("en", hijri)).toBe("gregory"); // Arabic pages only, like the digits
+  expect(calendarOf("ar", auto)).toBe("gregory");
+  expect(calendarOf("ar", auto, "islamic-umalqura")).toBe("islamic-umalqura");
+  // ca before nu, as setLocale requires (ops.md 1.4.0).
+  expect(tagOf("ar", "arab", "islamic-umalqura")).toBe("ar-u-ca-islamic-umalqura-nu-arab");
+  expect(tagOf("ar", "latn", "islamic-umalqura")).toBe("ar-u-ca-islamic-umalqura");
+  expect(tagOf("ar", "arab", "gregory")).toBe("ar-u-nu-arab");
+  expect(tagOf("en", "latn")).toBe("en");
+  expect(match("ar-u-ca-islamic-umalqura-nu-arab", o.locales)).toBe("ar");
 });

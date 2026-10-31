@@ -5,18 +5,18 @@ version = 1
 name = "i18n"
 version = "1.0.0"
 source = "official"
-hash = "f6fe9ee37f9f3fd57c801c212f697ffe07b7d97dbb1b325679e7ea089083cf2f"
+hash = "1e4c98b08224e2c45f0820026151de3512e8db3dd33478b79d2e4f4e5ee0827d"
 isolation = "shared"
 mount = "/i18n"
 dependencies = []
-config = { locales = "en,ar", default_locale = "en", digits = "latn" }
+config = { locales = "en,ar", default_locale = "en", digits = "latn", calendar = "gregory" }
 approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "b2c8a9af1f1137ab2af7353664fe7ef15aa37c70365daed48075496b22b8aa0c"
+hash = "2fd4f664a098ebb85f922788d0f53f46f3380384e540fdfd74d15a2ff24783cd"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]

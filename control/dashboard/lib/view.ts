@@ -3,17 +3,18 @@
 // strings and numbers.
 
 import type { Deployment, DeploymentState, UsageHour } from "./api.ts";
+import { EN, type Tr } from "./i18n.ts";
 
 export const shortHash = (hash: string | null): string => (hash === null ? "—" : hash.slice(0, 7));
 
-/** "12s ago", "3m ago", "5h ago", "2d ago". */
-export function ago(ts: number | null, now: number): string {
+/** "12s ago", "3m ago", "5h ago", "2d ago"; in Arabic with its plural forms ("منذ 3 دقائق"). */
+export function ago(ts: number | null, now: number, tr: Tr = EN): string {
   if (ts === null) return "—";
   const s = Math.max(0, Math.round((now - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86_400)}d ago`;
+  if (s < 60) return tr("dash.ago.seconds", { n: s });
+  if (s < 3600) return tr("dash.ago.minutes", { n: Math.floor(s / 60) });
+  if (s < 86_400) return tr("dash.ago.hours", { n: Math.floor(s / 3600) });
+  return tr("dash.ago.days", { n: Math.floor(s / 86_400) });
 }
 
 /** "2026-10-29 12:01:33.120" in UTC. */
@@ -26,16 +27,10 @@ export function bytes(n: number): string {
   return `${(n / 1024 ** 3).toFixed(2)} GB`;
 }
 
-export const STATE_LABEL: Record<DeploymentState, string> = {
-  uploaded: "uploaded",
-  validated: "validated",
-  rejected: "✗ rejected",
-  activating: "activating…",
-  active: "● live",
-  superseded: "superseded",
-  suspended: "suspended",
-  pruned: "pruned",
-};
+const STATES: readonly DeploymentState[] = ["uploaded", "validated", "rejected", "activating", "active", "superseded", "suspended", "pruned"];
+
+/** A deployment state as the tables show it ("● live"); an unknown state as is. */
+export const stateLabel = (state: DeploymentState, tr: Tr = EN): string => (STATES.includes(state) ? tr(`dash.state.${state}`) : state);
 
 /** One row of a deployment table, with the actions its state allows. */
 export interface DeploymentRow {
@@ -52,20 +47,20 @@ export interface DeploymentRow {
   error: string | null;
 }
 
-export function deploymentRows(list: Deployment[], now: number): DeploymentRow[] {
+export function deploymentRows(list: Deployment[], now: number, tr: Tr = EN): DeploymentRow[] {
   const hasEarlier = list.some((d) => d.state === "superseded");
   return list.map((d) => ({
     hash: d.hash,
     short: shortHash(d.hash),
     state: d.state,
-    label: STATE_LABEL[d.state] ?? d.state,
-    when: ago(d.created_at, now),
+    label: stateLabel(d.state, tr),
+    when: ago(d.created_at, now, tr),
     size: bytes(d.size_bytes),
     can_activate: d.state === "validated" || d.state === "superseded",
     can_rollback: d.state === "active" && hasEarlier,
     error:
       d.state === "rejected"
-        ? `${d.violations?.length ?? 0} violation(s)`
+        ? tr("dash.deployments.violation_count", { n: d.violations?.length ?? 0 })
         : d.last_error === null
           ? null
           : `${d.last_error.stage}: ${d.last_error.reason}`.slice(0, 200),
@@ -87,7 +82,7 @@ export const CHART = { width: 720, height: 120, gap: 2 } as const;
  * Bars for `hours` over the `slots` hours ending at `to` (hours without
  * records are absent from the API's answer: they are zero-height bars).
  */
-export function hourlyBars(hours: UsageHour[], to: number, slots: number, value: (h: UsageHour) => number, unit: string): Bar[] {
+export function hourlyBars(hours: UsageHour[], to: number, slots: number, value: (h: UsageHour) => number, unit: string, tr: Tr = EN): Bar[] {
   const end = Math.floor(to / 3_600_000) * 3_600_000;
   const byHour = new Map(hours.map((h) => [h.hour_start, h]));
   const values: { start: number; v: number }[] = [];
@@ -105,7 +100,7 @@ export function hourlyBars(hours: UsageHour[], to: number, slots: number, value:
       y: Math.round((CHART.height - height) * 10) / 10,
       width: Math.max(1, Math.round((width - CHART.gap) * 10) / 10),
       height,
-      label: `${clock(x.start).slice(0, 13)}:00 UTC: ${round(x.v)} ${unit}`,
+      label: tr("dash.usage.bar", { hour: clock(x.start).slice(0, 13), value: round(x.v), unit }),
     };
   });
 }

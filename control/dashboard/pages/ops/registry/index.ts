@@ -12,6 +12,7 @@ import type { ActionContext, LoaderContext } from "renox";
 import { Api, apiBase, type Result } from "../../../lib/api.ts";
 import { signedIn } from "../../../lib/guard.ts";
 import { forbidden, OPS_TOKEN, opsEnabled, opsProblem, REASON_MAX, REASON_MIN } from "../../../lib/ops.ts";
+import { EN, trOf, type Tr } from "../../../lib/i18n.ts";
 import { clock } from "../../../lib/view.ts";
 
 const HASH = /^[0-9a-f]{64}$/u;
@@ -25,11 +26,11 @@ export async function load(ctx: LoaderContext) {
 }
 
 /** Why the form is refused before the API, or null. The token is never part of the message. */
-export function moderationProblem(token: string, hash: string, reason: string): string | null {
-  if (!OPS_TOKEN.test(token)) return "Paste your operator token (renox_op_ followed by 32 letters and digits).";
-  if (!HASH.test(hash)) return "A tree hash is 64 lower-case hex digits (the version's `hash`).";
+export function moderationProblem(token: string, hash: string, reason: string, tr: Tr = EN): string | null {
+  if (!OPS_TOKEN.test(token)) return tr("dash.ops.err_token");
+  if (!HASH.test(hash)) return tr("dash.ops.err_hash");
   const n = [...reason].length;
-  if (n < REASON_MIN || n > REASON_MAX) return `A reason of ${REASON_MIN} to ${REASON_MAX} characters is required; owners are told it and it is kept in the audit row.`;
+  if (n < REASON_MIN || n > REASON_MAX) return tr("dash.ops.err_reason_owners", { min: REASON_MIN, max: REASON_MAX });
   return null;
 }
 
@@ -40,18 +41,19 @@ async function moderate(ctx: ActionContext, enabled: boolean) {
   const token = String(ctx.form.get("token") ?? "").trim();
   const hash = String(ctx.form.get("hash") ?? "").trim();
   const reason = String(ctx.form.get("reason") ?? "").trim();
-  const why = moderationProblem(token, hash, reason);
+  const tr = trOf(ctx);
+  const why = moderationProblem(token, hash, reason, tr);
   if (why !== null) return { ...quiet, form_error: why };
   const r: Result<{ hash: string; disabled_at: number | null; tenants_notified: number }> = await new Api(ctx.fetch, token, apiBase(ctx.secrets)).json("POST", "/v1/registry/disable", { hash, reason, enabled });
-  if (!r.ok) return { ...quiet, action_problem: opsProblem(r) };
+  if (!r.ok) return { ...quiet, action_problem: opsProblem(r, tr) };
   return {
     ...quiet,
     result: {
       hash: r.value.hash,
       notice:
         r.value.disabled_at === null
-          ? "Enabled again: downloads work and the installations are no longer marked."
-          : `Disabled at ${clock(r.value.disabled_at)}. ${r.value.tenants_notified} tenant owner(s) were emailed; their Modules page shows the banner.`,
+          ? tr("dash.ops.enabled_again")
+          : tr("dash.ops.disabled_notice", { at: clock(r.value.disabled_at), n: r.value.tenants_notified }),
     },
   };
 }

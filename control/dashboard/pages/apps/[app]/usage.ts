@@ -7,6 +7,7 @@ import type { LoaderContext } from "renox";
 
 import { apiBase, type UsageHour } from "../../../lib/api.ts";
 import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { trOf } from "../../../lib/i18n.ts";
 import { bytes, CHART, clock, hourlyBars, percent, round } from "../../../lib/view.ts";
 
 const HOUR = 3_600_000;
@@ -37,10 +38,11 @@ export async function load(ctx: LoaderContext) {
   const u = r.value;
   const last = to - HOUR;
   const q = u.quota;
+  const tr = trOf(ctx);
   return {
     ...base,
     problem: null,
-    period: `${clock(from).slice(0, 16)} to ${clock(to).slice(0, 16)} UTC`,
+    period: tr("dash.usage.period", { from: clock(from).slice(0, 16), to: clock(to).slice(0, 16) }),
     totals: {
       requests: round(u.total.requests),
       cpu: `${round(u.total.cpu_ms)} ms`,
@@ -51,18 +53,18 @@ export async function load(ctx: LoaderContext) {
       fuel: round(u.total.render_fuel),
     },
     charts: [
-      { title: "Requests per hour", bars: hourlyBars(u.hours, last, slots, (h) => h.requests, "requests") },
-      { title: "CPU ms per hour", bars: hourlyBars(u.hours, last, slots, (h) => h.cpu_ms, "ms CPU") },
-      { title: "Egress per hour (KB)", bars: hourlyBars(u.hours, last, slots, (h) => h.egress_bytes / 1024, "KB") },
-      { title: "Average latency per hour (ms)", bars: hourlyBars(u.hours, last, slots, meanLatencyMs, "ms per request") },
+      { title: tr("dash.usage.chart_requests"), bars: hourlyBars(u.hours, last, slots, (h) => h.requests, tr("dash.usage.unit_requests"), tr) },
+      { title: tr("dash.usage.chart_cpu"), bars: hourlyBars(u.hours, last, slots, (h) => h.cpu_ms, tr("dash.usage.unit_cpu"), tr) },
+      { title: tr("dash.usage.chart_egress"), bars: hourlyBars(u.hours, last, slots, (h) => h.egress_bytes / 1024, tr("dash.usage.unit_kb"), tr) },
+      { title: tr("dash.usage.chart_latency"), bars: hourlyBars(u.hours, last, slots, meanLatencyMs, tr("dash.usage.unit_latency"), tr) },
     ],
     quota: {
       tier: q.tier,
-      period: `${clock(q.period_start).slice(0, 10)} to ${clock(q.period_end).slice(0, 10)}`,
+      period: tr("dash.usage.quota_period", { from: clock(q.period_start).slice(0, 10), to: clock(q.period_end).slice(0, 10) }),
       rows: [
-        { name: "Requests", used: round(q.used.requests), limit: round(q.limits.requests), pct: percent(q.used.requests, q.limits.requests), over: q.over.includes("requests") },
-        { name: "CPU", used: `${round(q.used.cpu_ms)} ms`, limit: `${round(q.limits.cpu_ms)} ms`, pct: percent(q.used.cpu_ms, q.limits.cpu_ms), over: q.over.includes("cpu_ms") },
-        { name: "Egress", used: bytes(q.used.egress_bytes), limit: bytes(q.limits.egress_bytes), pct: percent(q.used.egress_bytes, q.limits.egress_bytes), over: q.over.includes("egress_bytes") },
+        { name: tr("dash.overview.requests"), used: round(q.used.requests), limit: round(q.limits.requests), pct: percent(q.used.requests, q.limits.requests), over: q.over.includes("requests") },
+        { name: tr("dash.usage.cpu"), used: `${round(q.used.cpu_ms)} ms`, limit: `${round(q.limits.cpu_ms)} ms`, pct: percent(q.used.cpu_ms, q.limits.cpu_ms), over: q.over.includes("cpu_ms") },
+        { name: tr("dash.overview.egress"), used: bytes(q.used.egress_bytes), limit: bytes(q.limits.egress_bytes), pct: percent(q.used.egress_bytes, q.limits.egress_bytes), over: q.over.includes("egress_bytes") },
       ],
     },
   };

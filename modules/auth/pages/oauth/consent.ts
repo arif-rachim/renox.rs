@@ -30,7 +30,8 @@ async function check(ctx: Page, fromForm: boolean) {
   return { s, r };
 }
 
-const describe = (scope: string): string => (scope === "tools:*" ? "every tool of this app, as you" : `the tool ${scope.slice("tools:".length)}, as you`);
+/** A scope as the page words it (#336: from the catalog, `auth.consent.scope_all` or `scope_tool`). */
+const describe = (scope: string): { all: boolean; tool: string } => ({ all: scope === "tools:*", tool: scope.slice("tools:".length) });
 
 export const load = localized(async (ctx: Page) => {
   const c = await check(ctx, false);
@@ -42,7 +43,7 @@ export const load = localized(async (ctx: Page) => {
     user: c.s.user,
     client_name: c.r.client.client_name,
     redirect_host: new URL(c.r.redirect_uri).host,
-    scopes: c.r.scopes.map((s) => ({ scope: s, text: describe(s) })),
+    scopes: c.r.scopes.map((s) => ({ scope: s, ...describe(s) })),
     fields: FIELDS.filter((f) => q.get(f) !== null).map((f) => ({ name: f, value: q.get(f) as string })),
   };
 });

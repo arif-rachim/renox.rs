@@ -1,0 +1,175 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: dashboard en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin</title>
+</head>
+<body class="renox-admin">
+  <nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">Dashboard</a>
+    <a href="users">Users</a>
+    <a href="audit">Audit trail</a>
+    <a href="/jobs" class="renox-admin-link">Jobs</a>
+  </nav>
+  <main>
+  
+  <h1 dir="auto">Admin</h1>
+  <section class="renox-admin-cards">
+    <article id="admin-card-users"><h2>Users</h2><p dir="auto">1</p><a href="users">Open</a></article>
+    
+  </section>
+  
+</main>
+
+
+</body></html>"
+`;
+
+exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: dashboard ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin</title>
+</head>
+<body class="renox-admin">
+  <nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">لوحة التحكم</a>
+    <a href="users">المستخدمون</a>
+    <a href="audit">سجل التدقيق</a>
+    <a href="/jobs" class="renox-admin-link">المهام</a>
+  </nav>
+  <main>
+  
+  <h1 dir="auto">Admin</h1>
+  <section class="renox-admin-cards">
+    <article id="admin-card-users"><h2>المستخدمون</h2><p dir="auto">1</p><a href="users">فتح</a></article>
+    
+  </section>
+  
+</main>
+
+
+</body></html>"
+`;
+
+exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: users en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Users</title>
+</head>
+<body class="renox-admin">
+  <nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">Dashboard</a>
+    <a href="users">Users</a>
+    <a href="audit">Audit trail</a>
+    <a href="/jobs" class="renox-admin-link">Jobs</a>
+  </nav>
+  <main>
+  
+  <h1>Users</h1>
+  
+  
+  
+  <form method="get"><label>Search <input name="q" value="" maxlength="100" dir="auto"></label><button type="submit">Search</button></form>
+  <table id="admin-users">
+    <thead><tr><th>Email</th><th>Name</th><th>Role</th><th></th></tr></thead>
+    <tbody>
+      <tr><td dir="auto">rtl@example.com</td><td dir="auto">rtl</td><td><span>admin</span></td>
+        <td>
+          
+          
+        </td></tr>
+    </tbody>
+  </table>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: users ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>المستخدمون</title>
+</head>
+<body class="renox-admin">
+  <nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">لوحة التحكم</a>
+    <a href="users">المستخدمون</a>
+    <a href="audit">سجل التدقيق</a>
+    <a href="/jobs" class="renox-admin-link">المهام</a>
+  </nav>
+  <main>
+  
+  <h1>المستخدمون</h1>
+  
+  
+  
+  <form method="get"><label>بحث <input name="q" value="" maxlength="100" dir="auto"></label><button type="submit">بحث</button></form>
+  <table id="admin-users">
+    <thead><tr><th>البريد الإلكتروني</th><th>الاسم</th><th>الدور</th><th></th></tr></thead>
+    <tbody>
+      <tr><td dir="auto">rtl@example.com</td><td dir="auto">rtl</td><td><span>admin</span></td>
+        <td>
+          
+          
+        </td></tr>
+    </tbody>
+  </table>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: audit en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit trail</title>
+</head>
+<body class="renox-admin">
+  <nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">Dashboard</a>
+    <a href="users">Users</a>
+    <a href="audit">Audit trail</a>
+    <a href="/jobs" class="renox-admin-link">Jobs</a>
+  </nav>
+  <main>
+  
+  <h1>Audit trail</h1>
+  <p class="problem">Reading the audit trail needs the auditor role.</p>
+  
+</main>
+
+
+</body></html>"
+`;
+
+exports[`admin in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: audit ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>سجل التدقيق</title>
+</head>
+<body class="renox-admin">
+  <nav class="renox-admin-sidebar" aria-label="Admin">
+    <a href="./">لوحة التحكم</a>
+    <a href="users">المستخدمون</a>
+    <a href="audit">سجل التدقيق</a>
+    <a href="/jobs" class="renox-admin-link">المهام</a>
+  </nav>
+  <main>
+  
+  <h1>سجل التدقيق</h1>
+  <p class="problem">قراءة سجل التدقيق تتطلب دور المدقق.</p>
+  
+</main>
+
+
+</body></html>"
+`;

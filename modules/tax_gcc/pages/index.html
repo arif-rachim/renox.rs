@@ -9,14 +9,14 @@
   <h2><r-t key="tax.return" /></h2>
   <table id="tax-return">
     <thead><tr><th><r-t key="tax.col.box" /></th><th><r-t key="tax.col.amount" /></th><th><r-t key="tax.col.vat" /></th></tr></thead>
-    <tbody><tr r-for="b in boxes"><td>{{ b.box }}</td><td>{{ b.amount }}</td><td>{{ b.vat }}</td></tr></tbody>
+    <tbody><tr r-for="b in boxes"><td>{{ b.box }}</td><td>{{ b.amount | number(2) }}</td><td>{{ b.vat | number(2) }}</td></tr></tbody>
   </table>
   <x-form action="csv"><input type="hidden" name="from" :value="from"><input type="hidden" name="to" :value="to"><button type="submit"><r-t key="tax.csv" /></button></x-form>
   <h2><r-t key="tax.documents" /></h2>
   <table id="tax-documents">
     <thead><tr><th><r-t key="tax.col.number" /></th><th><r-t key="tax.col.net" /></th><th><r-t key="tax.col.vat" /></th><th><r-t key="tax.col.date" /></th></tr></thead>
     <tbody>
-      <tr r-for="d in documents"><td><a href="invoices/{{ d.number }}">{{ d.number }}</a></td><td>{{ d.net }}</td><td>{{ d.vat }}</td><td>{{ d.date }}</td></tr>
+      <tr r-for="d in documents"><td><a href="invoices/{{ d.number }}">{{ d.number }}</a></td><td>{{ d.net | number(2) }}</td><td>{{ d.vat | number(2) }}</td><td>{{ d.issued_at | date('short') }}</td></tr>
       <tr r-empty="documents"><td colspan="4"><r-t key="tax.none" /></td></tr>
     </tbody>
   </table>

@@ -3,10 +3,8 @@
 // signed-in customer's hold; a service with a deposit goes to its checkout,
 // the others are confirmed at once.
 import * as core from "../lib/core.ts";
-import { guarded, type Page } from "../lib/page.ts";
+import { aed, guarded, type Page } from "../lib/page.ts";
 import { wired } from "../lib/wire.ts";
-
-const time = (ms: number, offset: number) => new Date(ms + offset * 60_000).toISOString().slice(11, 16);
 
 export const load = guarded(async (ctx: Page) => {
   const services = await ctx.db.query<{ id: string; name: string; minutes: number; deposit_fils: number }>("select id, name, minutes, deposit_fils from booking__services order by name");
@@ -15,10 +13,10 @@ export const load = guarded(async (ctx: Page) => {
   const slots = service === null || !services.some((s) => s.id === service) ? [] : await core.slots(ctx, service, day);
   const staff = new Map((await ctx.db.query<{ id: string; name: string }>("select id, name from booking__staff")).map((s) => [s.id, s.name]));
   return {
-    services: services.map((s) => ({ id: s.id, name: s.name, minutes: s.minutes, deposit: s.deposit_fils > 0 ? `AED ${(s.deposit_fils / 100).toFixed(2)}` : null, current: s.id === service })),
+    services: services.map((s) => ({ id: s.id, name: s.name, minutes: s.minutes, deposit: s.deposit_fils > 0 ? aed(s.deposit_fils) : null, current: s.id === service })),
     service,
     day,
-    slots: slots.map((s) => ({ start: String(s.start), staff: s.staff, staff_name: staff.get(s.staff) ?? s.staff, time: time(s.start, ctx.utcOffsetMinutes ?? 240) })),
+    slots: slots.map((s) => ({ start: String(s.start), staff: s.staff, staff_name: staff.get(s.staff) ?? s.staff, at: s.start })),
     error: null as string | null,
   };
 });

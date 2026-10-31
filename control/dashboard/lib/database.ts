@@ -6,6 +6,7 @@
 // bytes. The Tables and Query panels of the wireframe are F7 (`admin`).
 
 import type { Api, Result } from "./api.ts";
+import { EN, type Tr } from "./i18n.ts";
 import { ago, bytes, clock, percent, round } from "./view.ts";
 
 /** `getBackups` (deploy-api.yaml). */
@@ -87,11 +88,17 @@ export interface DatabaseView {
   last_failover: string | null;
 }
 
-export function databaseView(b: Backups, now: number): DatabaseView {
+export function databaseView(b: Backups, now: number, tr: Tr = EN): DatabaseView {
   const generations = [...b.generations]
     .sort((x, y) => y.end - x.end)
     .map((g) => ({ id: g.id, from: clock(g.start).slice(0, 19), to: clock(g.end).slice(0, 19), min: localValue(g.start), max: localValue(g.end) }));
-  const sync = b.replication === "none" ? null : `${b.lag_seconds === null ? "lag unknown" : `lag ${round(b.lag_seconds)} s`}, ${b.last_sync_at === null ? "never synced" : `synced ${ago(b.last_sync_at, now)}`}`;
+  const sync =
+    b.replication === "none"
+      ? null
+      : tr("dash.database.sync", {
+          lag: b.lag_seconds === null ? tr("dash.database.lag_unknown") : tr("dash.database.lag", { s: round(b.lag_seconds) }),
+          synced: b.last_sync_at === null ? tr("dash.database.never_synced") : tr("dash.database.synced", { ago: ago(b.last_sync_at, now, tr) }),
+        });
   const f = b.last_failover;
   return {
     database: b.database,
@@ -99,13 +106,18 @@ export function databaseView(b: Backups, now: number): DatabaseView {
     quota: bytes(b.db.quota_bytes),
     pct: percent(b.db.size_bytes, b.db.quota_bytes),
     wal: bytes(b.db.wal_bytes),
-    replication: b.replication === "none" ? "No replica (backups are off on this node)" : `Litestream to ${b.replica?.kind ?? "?"} (${b.replica?.region ?? "?"}): ${b.state}`,
+    replication: b.replication === "none" ? tr("dash.database.no_replica") : tr("dash.database.litestream", { kind: b.replica?.kind ?? "?", region: b.replica?.region ?? "?", state: b.state }),
     replicating: b.replication !== "none" && b.state === "replicating",
     sync,
     stale: b.stale,
-    retention: b.retention_hours > 0 ? `${b.retention_hours} h` : "—",
+    retention: b.retention_hours > 0 ? tr("dash.database.hours", { h: b.retention_hours }) : "—",
     generations,
     latest: generations[0]?.max ?? null,
-    last_failover: f === null ? null : `${ago(f.at, now)}: moved from ${f.from_node} to ${f.to_node}${f.generation === null ? "" : ` (generation ${f.generation})`}`,
+    last_failover:
+      f === null
+        ? null
+        : f.generation === null
+          ? tr("dash.database.failover", { ago: ago(f.at, now, tr), from: f.from_node, to: f.to_node })
+          : tr("dash.database.failover_generation", { ago: ago(f.at, now, tr), from: f.from_node, to: f.to_node, generation: f.generation }),
   };
 }

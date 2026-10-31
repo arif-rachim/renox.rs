@@ -15,6 +15,7 @@
 import type { Fetch, Secrets } from "renox";
 
 import { Api, apiBase, type ApiFailure, type Result } from "./api.ts";
+import { EN, type Tr } from "./i18n.ts";
 import { round } from "./view.ts";
 
 export const OPS_SECRET = "OPS_CONSOLE";
@@ -46,11 +47,11 @@ export interface ActionResult {
 export type Action = { kind: "tier"; tier: "free" | "paid" } | { kind: "node"; node_id: string } | { kind: "microvm" };
 
 /** Why the form is refused before the API, or null. The token is never part of the message. */
-export function formProblem(token: string, reason: string, action: Action | null): string | null {
-  if (!OPS_TOKEN.test(token)) return "Paste your operator token (renox_op_ followed by 32 letters and digits).";
+export function formProblem(token: string, reason: string, action: Action | null, tr: Tr = EN): string | null {
+  if (!OPS_TOKEN.test(token)) return tr("dash.ops.err_token");
   const n = [...reason].length;
-  if (n < REASON_MIN || n > REASON_MAX) return `A reason of ${REASON_MIN} to ${REASON_MAX} characters is required; it is kept in the audit row.`;
-  if (action === null) return "Choose a tier, a node, or the microVM.";
+  if (n < REASON_MIN || n > REASON_MAX) return tr("dash.ops.err_reason", { min: REASON_MIN, max: REASON_MAX });
+  if (action === null) return tr("dash.ops.err_action");
   return null;
 }
 
@@ -64,14 +65,14 @@ export function run(fetch: Fetch, secrets: Secrets, token: string, tenant: strin
 }
 
 /** What the page shows for a refused action (the dashboard sign-in is not touched: the token was the operator's). */
-export function opsProblem(f: ApiFailure): { code: string; message: string; status: number; request_id: string | null; signed_out: false; details: string[] } {
+export function opsProblem(f: ApiFailure, tr: Tr = EN): { code: string; message: string; status: number; request_id: string | null; signed_out: false; details: string[] } {
   const message =
     f.status === 0
-      ? `The control API could not be reached (${f.code}).`
+      ? tr("dash.problem.unreachable_short", { code: f.code })
       : f.status === 401
-        ? "The control API refused this operator token (unknown, expired or revoked)."
+        ? tr("dash.ops.refused")
         : f.status === 403
-          ? "This token does not hold ops:write: only an account flagged operator can create one."
+          ? tr("dash.ops.no_write")
           : f.message;
   const details = f.details.flatMap((d) => {
     const o = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
@@ -90,17 +91,17 @@ export interface StateView {
   notice: string;
 }
 
-export function stateView(r: ActionResult): StateView {
+export function stateView(r: ActionResult, tr: Tr = EN): StateView {
   const what =
     r.action === "setTenantTier"
       ? r.changed
-        ? `Tier set to ${r.tier}; the route entries now say process ${r.process}.`
-        : `The tier was already ${r.tier}; nothing was published.`
+        ? tr("dash.ops.tier_set", { tier: r.tier, process: r.process })
+        : tr("dash.ops.tier_same", { tier: r.tier })
       : r.hook_exit_code !== undefined
         ? r.hook_exit_code === 0
-          ? "Moved to a microVM."
-          : `The microVM hook exited ${r.hook_exit_code}; the tenant stays on ${r.node_id}.`
-        : `Moved to ${r.node_id} (restored there before the route changed).`;
+          ? tr("dash.ops.moved_microvm")
+          : tr("dash.ops.hook_failed", { code: r.hook_exit_code, node: r.node_id })
+        : tr("dash.ops.moved_node", { node: r.node_id });
   return {
     tier: r.tier,
     process: r.process,

@@ -3,15 +3,24 @@
 // locale choice of lib/locale.ts; and pages rendered in Arabic by the worker
 // (`renox dev`, as the other render tests do: templates are compiled and
 // rendered only by `renox-worker`), with `<html lang="ar" dir="rtl">` and no
-// English message of the template's keys left.
+// English message of the template's keys left. The strings built in
+// TypeScript (lib/i18n.ts): a notice, a form error, a problem message,
+// `ago()` with the Arabic plural forms, and the deployment state labels.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { Deployment } from "../lib/api.ts";
 import type { LoaderContext } from "renox";
 
+import { createApp_, scopedToken, tenant } from "../../api/tests/helpers.ts";
+import { problem } from "../lib/guard.ts";
+import { EN, format, pluralCategory, translator } from "../lib/i18n.ts";
 import { acceptLocale, applyLocale, chooseLocale, cookieLocale } from "../lib/locale.ts";
-import { devWithData } from "./helpers.ts";
+import { ago, deploymentRows, stateLabel } from "../lib/view.ts";
+import { actions as secretsActions } from "../pages/apps/[app]/secrets.ts";
+import { actions as signinActions } from "../pages/signin.ts";
+import { actionCtx, dash, devWithData } from "./helpers.ts";
 
 const worker = process.env.RENOX_WORKER_PATH;
 const APP = join(import.meta.dir, "..");
@@ -60,7 +69,8 @@ test("en.json and ar.json have the same keys; every Arabic message is Arabic", (
   const notArabic = [...ar].filter(([, v]) => v.trim() === "" || !ARABIC.test(v)).map(([k]) => k);
   expect(notArabic).toEqual([]);
   // The same arguments on both sides.
-  const args = (s: string) => [...s.matchAll(/\{([a-z_]+)\}/gu)].map((m) => m[1]).sort();
+  // `{name}` and the number of a `{n, plural, …}` (#336: Arabic plural forms where English has one).
+  const args = (s: string) => [...new Set([...s.matchAll(/\{([a-z_]+)(?:\}|,)/gu)].map((m) => m[1]))].sort();
   const mismatched = [...en].filter(([k, v]) => JSON.stringify(args(v)) !== JSON.stringify(args(ar.get(k) ?? ""))).map(([k]) => k);
   expect(mismatched).toEqual([]);
   // Every key a template uses has a message.
@@ -108,6 +118,74 @@ test("the locale: ?lang=, then the cookie, then Accept-Language, then English", 
   expect(c.set).toEqual([["en", "ltr"]]);
 });
 
+test("messages built in TypeScript: the ICU subset and the Arabic plural categories", () => {
+  // CLDR: ar has zero, one, two, few (3-10), many (11-99), other (100-102, ...).
+  expect([0, 1, 2, 3, 10, 11, 99, 100, 102, 103].map((n) => pluralCategory(n, "ar"))).toEqual(["zero", "one", "two", "few", "few", "many", "many", "other", "other", "few"]);
+  expect([0, 1, 2].map((n) => pluralCategory(n, "en"))).toEqual(["other", "one", "other"]);
+  const m = "{n, plural, =0 {none} one {# item} other {# items}} for {who}";
+  expect(format(m, { n: 0, who: "Amal" }, "en")).toBe("none for Amal");
+  expect(format(m, { n: 1, who: "Amal" }, "en")).toBe("1 item for Amal");
+  expect(format(m, { n: 7, who: "Amal" }, "en")).toBe("7 items for Amal");
+  // A missing argument stays visible; a key missing everywhere renders the key.
+  expect(format("{a} and {b}", { a: 1 }, "en")).toBe("1 and {b}");
+  expect(EN("dash.no.such.key")).toBe("dash.no.such.key");
+});
+
+test("ago() and the state labels in Arabic, English unchanged", () => {
+  const AR = translator("ar");
+  const now = Date.parse("2026-10-31T12:00:00Z");
+  const before = (s: number) => now - s * 1000;
+  expect([before(12), before(180), before(5 * 3600), before(2 * 86_400)].map((t) => ago(t, now))).toEqual(["12s ago", "3m ago", "5h ago", "2d ago"]);
+  expect(ago(before(0), now, AR)).toBe("الآن");
+  expect(ago(before(1), now, AR)).toBe("منذ ثانية");
+  expect(ago(before(60), now, AR)).toBe("منذ دقيقة");
+  expect(ago(before(180), now, AR)).toBe("منذ 3 دقائق");
+  expect(ago(before(2 * 3600), now, AR)).toBe("منذ ساعتين");
+  expect(ago(before(11 * 86_400), now, AR)).toBe("منذ 11 يومًا");
+  expect(ago(null, now, AR)).toBe("—");
+  expect(stateLabel("active")).toBe("● live");
+  expect(stateLabel("active", AR)).toBe("● يعمل");
+  expect(stateLabel("rejected", AR)).toBe("✗ مرفوض");
+  const d = (state: Deployment["state"], violations: number): Deployment =>
+    ({ hash: "c".repeat(64), state, created_at: before(240), size_bytes: 2048, violations: Array.from({ length: violations }, () => ({ rule: "V1", reason: "x" })), last_error: null }) as unknown as Deployment;
+  expect(deploymentRows([d("rejected", 3)], now)[0]).toMatchObject({ label: "✗ rejected", when: "4m ago", error: "3 violation(s)" });
+  expect(deploymentRows([d("rejected", 3)], now, AR)[0]).toMatchObject({ label: "✗ مرفوض", when: "منذ 4 دقائق", error: "3 مخالفات" });
+  expect(deploymentRows([d("rejected", 1)], now, AR)[0]?.error).toBe("مخالفة واحدة");
+});
+
+test("problem() in the request's locale: an unreachable API and a refused role", async () => {
+  const ctx = (headers: Record<string, string>) => {
+    const req = new Request("https://dashboard.renox.test/apps", { headers });
+    return { req, url: new URL(req.url), headers: req.headers, secrets: {}, session: { id: "s" }, db: {} } as unknown as LoaderContext;
+  };
+  const failure = (status: number) => ({ ok: false as const, status, code: status === 0 ? "RENOX_UPSTREAM" : "RENOX_FORBIDDEN", message: "apps:write", requestId: null, details: [] });
+  const AR = { cookie: "renox_lang=ar" };
+  expect((await problem(ctx({}), failure(403))).message).toBe("Your token or role does not allow this (apps:write).");
+  expect((await problem(ctx(AR), failure(403))).message).toBe("لا يسمح رمزك أو دورك بذلك (apps:write).");
+  expect((await problem(ctx({ "accept-language": "ar-AE" }), failure(0))).message).toBe("تعذّر الوصول إلى واجهة التحكم البرمجية على api.renox.app (RENOX_UPSTREAM).");
+});
+
+test("a notice, a form error and a problem message of an action, in Arabic", async () => {
+  const d = await dash();
+  const owner = await tenant(d.h, "t_hello");
+  await createApp_(d.h, owner, "hello");
+  expect(await signinActions.default(actionCtx(d, "/signin", "default", { token: owner, next: "/apps" }))).toBeInstanceOf(Response);
+  const AR = { params: { app: "hello" }, headers: { cookie: "renox_lang=ar" } };
+  const VALUE = "sk_test_value_never_shown_0123456789";
+  const set = (await secretsActions.set(actionCtx(d, "/apps/hello/secrets", "set", { name: "STRIPE_KEY", value: VALUE }, AR))) as { notice: string };
+  expect(set.notice).toBe("حُفظ STRIPE_KEY (المجموعة v1). ويُستخدم بدءًا من النشر أو التراجع التالي.");
+  const bad = (await secretsActions.set(actionCtx(d, "/apps/hello/secrets", "set", { name: "lower", value: VALUE }, AR))) as { form_error: string };
+  expect(bad.form_error).toBe("يتكون اسم السر من أحرف لاتينية كبيرة وأرقام و_، ويبدأ بحرف (64 على الأكثر).");
+  // English without the cookie, as before.
+  expect(((await secretsActions.remove(actionCtx(d, "/apps/hello/secrets", "remove", { name: "STRIPE_KEY" }, { params: { app: "hello" } }))) as { notice: string }).notice).toContain("STRIPE_KEY deleted (set v2)");
+  // A token that can only read: the API's 403, worded in Arabic.
+  const reader = await scopedToken(d.h, "t_hello", ["apps:read", "secrets:read"]);
+  expect(await signinActions.default(actionCtx(d, "/signin", "default", { token: reader, next: "/apps" }))).toBeInstanceOf(Response);
+  const refused = (await secretsActions.set(actionCtx(d, "/apps/hello/secrets", "set", { name: "KEY", value: VALUE }, AR))) as { action_problem: { status: number; message: string } };
+  expect(refused.action_problem.status).toBe(403);
+  expect(refused.action_problem.message).toStartWith("لا يسمح رمزك أو دورك بذلك (");
+}, 30_000);
+
 test.skipIf(!worker)(
   "the worker renders the dashboard in Arabic: lang, dir, and no English left",
   async () => {
@@ -118,14 +196,19 @@ test.skipIf(!worker)(
       app: "shop",
       section: "deployments",
       problem: null,
-      notice: null,
       action_problem: null,
       detail: null,
       detail_problem: null,
-      deployments: [
-        { hash: "a".repeat(64), short: "aaaaaaaaaaaa", when: "2026-10-31 09:00", state: "active", label: "active", size: "12 KB", error: null, can_activate: false, can_rollback: true },
-        { hash: "b".repeat(64), short: "bbbbbbbbbbbb", when: "2026-10-30 09:00", state: "superseded", label: "superseded", size: "12 KB", error: null, can_activate: true, can_rollback: false },
-      ],
+      // The rows as the loader builds them for an Arabic request (lib/view.ts).
+      deployments: deploymentRows(
+        [
+          { hash: "a".repeat(64), state: "active", created_at: Date.now() - 3 * 3_600_000, size_bytes: 12_288, violations: [], last_error: null },
+          { hash: "b".repeat(64), state: "superseded", created_at: Date.now() - 2 * 86_400_000, size_bytes: 12_288, violations: [], last_error: null },
+        ] as unknown as Deployment[],
+        Date.now(),
+        translator("ar"),
+      ).map((r) => ({ ...r, short: r.hash.slice(0, 12) })),
+      notice: translator("ar")("dash.deploy.rolled_back", { short: "aaaaaaa" }),
     };
     const dev = await devWithData({ "pages/apps/[app]/deployments.ts": deployments });
     const AR = { cookie: "renox_lang=ar" };
@@ -165,6 +248,14 @@ test.skipIf(!worker)(
       const dep = (await get("/apps/shop/deployments", AR)).html;
       expect(dep).toContain('title="اجعل bbbbbbbbbbbb النشر الفعّال"');
       expect(dep).toContain("تسجيل الخروج");
+      // The state labels, ago() and the notice built in TypeScript.
+      expect(dep).toContain("● يعمل");
+      expect(dep).toContain("مستبدل");
+      expect(dep).toContain("منذ 3 ساعات");
+      expect(dep).toContain("منذ يومين");
+      expect(dep).toContain("تم التراجع: aaaaaaa يعمل من جديد.");
+      expect(dep).not.toContain("● live");
+      expect(dep).not.toContain(" ago<");
     } finally {
       await dev.stop();
     }

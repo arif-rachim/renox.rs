@@ -6,7 +6,7 @@
 
 import type { DbStatements } from "renox";
 
-import { type Candidates, digitsOf, dirOf, match, options, pick, type Source, splitTag, tagOf } from "./lib/detect.ts";
+import { type Calendar, calendarOf, type Candidates, digitsOf, dirOf, match, options, pick, type Source, splitTag, tagOf } from "./lib/detect.ts";
 
 interface I18nCtx {
   db: DbStatements;
@@ -23,12 +23,14 @@ export interface Who {
 }
 
 export interface Detected {
-  /** The tag for `ctx.setLocale`: the language, with `-u-nu-arab` for Eastern Arabic digits (ops.md 1.4.0). */
+  /** The tag for `ctx.setLocale`: the language, with `-u-ca-…` for a Hijri calendar and `-nu-arab` for Eastern Arabic digits (ops.md 1.4.0). */
   locale: string;
   /** The offered locale without the extension (`ar`). */
   language: string;
   dir: "ltr" | "rtl";
   digits: "latn" | "arab";
+  /** `gregory`, or the Hijri calendar the page shows dates in next to the Gregorian ones (#336). */
+  calendar: Calendar;
   source: Source;
   /** One link per offered locale: this page with `?lang=<locale>`. */
   alternates: { locale: string; href: string; current: boolean }[];
@@ -46,17 +48,18 @@ const subjects = (ctx: I18nCtx, who?: Who): { user: string | null; session: stri
 interface Pref {
   locale: string;
   digits: "latn" | "arab" | null;
+  calendar: Calendar | null;
 }
 
 async function stored(ctx: I18nCtx, subject: string | null): Promise<Pref | null> {
   if (subject === null) return null;
-  return ctx.db.queryOne<Pref>("select locale, digits from i18n__prefs where subject = ?", [subject]);
+  return ctx.db.queryOne<Pref>("select locale, digits, calendar from i18n__prefs where subject = ?", [subject]);
 }
 
-async function store(ctx: I18nCtx, subject: string, locale: string, digits: "latn" | "arab" | null): Promise<void> {
+async function store(ctx: I18nCtx, subject: string, locale: string, digits: "latn" | "arab" | null, calendar: Calendar | null): Promise<void> {
   await ctx.db.execute(
-    "insert into i18n__prefs (subject, locale, digits, updated_at) values (?, ?, ?, ?) on conflict (subject) do update set locale = excluded.locale, digits = excluded.digits, updated_at = excluded.updated_at",
-    [subject, locale, digits, now()],
+    "insert into i18n__prefs (subject, locale, digits, calendar, updated_at) values (?, ?, ?, ?, ?) on conflict (subject) do update set locale = excluded.locale, digits = excluded.digits, calendar = excluded.calendar, updated_at = excluded.updated_at",
+    [subject, locale, digits, calendar, now()],
   );
 }
 
@@ -88,14 +91,17 @@ export async function detectLocale(ctx: I18nCtx, who?: Who): Promise<Detected> {
   };
   const hook = await ctx.hooks.run("i18n.detect", { candidates: c, ...(typeof who?.user_id === "string" ? { user_id: who.user_id } : {}) });
   const { locale, source } = pick(c, o);
-  // The digits asked for with the choice that won (`?lang=ar-u-nu-arab`, or the stored row).
-  const asked = source === "query" ? splitTag(query ?? "").nu : source === "user" ? (user?.digits ?? null) : source === "session" ? (session?.digits ?? null) : null;
+  // The digits and calendar asked for with the choice that won (`?lang=ar-u-ca-islamic-umalqura-nu-arab`, or the stored row).
+  const row = source === "user" ? user : source === "session" ? session : null;
+  const asked = source === "query" ? splitTag(query ?? "").nu : (row?.digits ?? null);
+  const askedCa = source === "query" ? splitTag(query ?? "").ca : (row?.calendar ?? null);
   if (source === "query") {
     const subject = s.user ?? s.session;
-    if (subject !== null) await store(ctx, subject, locale, asked);
+    if (subject !== null) await store(ctx, subject, locale, asked, askedCa);
   }
   const digits = digitsOf(locale, o, asked);
-  const out: Detected = { locale: tagOf(locale, digits), language: locale, dir: dirOf(locale), digits, source, alternates: alternates(ctx, o.locales, locale) };
+  const calendar = calendarOf(locale, o, askedCa);
+  const out: Detected = { locale: tagOf(locale, digits, calendar), language: locale, dir: dirOf(locale), digits, calendar, source, alternates: alternates(ctx, o.locales, locale) };
   if (hook.halt) out.halt = hook.response;
   return out;
 }
@@ -103,7 +109,7 @@ export async function detectLocale(ctx: I18nCtx, who?: Who): Promise<Detected> {
 /** The same as detectLocale (the name of the issue, #244). */
 export const locale = detectLocale;
 
-/** Store `locale` (with its `-u-nu-` digits, if any) for the user (`user_id`) or, without one, for the page session. */
+/** Store `locale` (with its `-u-ca-` calendar and `-nu-` digits, if any) for the user (`user_id`) or, without one, for the page session. */
 export async function setLocale(ctx: I18nCtx, wanted: string, who?: Who): Promise<{ locale: string; dir: "ltr" | "rtl" } | { error: string }> {
   const o = options(ctx.config);
   const m = match(wanted, o.locales);
@@ -111,7 +117,7 @@ export async function setLocale(ctx: I18nCtx, wanted: string, who?: Who): Promis
   const s = subjects(ctx, who);
   const subject = s.user ?? s.session;
   if (subject === null) return { error: "no user and no page session to store it for" };
-  const asked = splitTag(wanted).nu;
-  await store(ctx, subject, m, asked);
-  return { locale: tagOf(m, digitsOf(m, o, asked)), dir: dirOf(m) };
+  const { nu, ca } = splitTag(wanted);
+  await store(ctx, subject, m, nu, ca);
+  return { locale: tagOf(m, digitsOf(m, o, nu), calendarOf(m, o, ca)), dir: dirOf(m) };
 }

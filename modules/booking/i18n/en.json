@@ -11,6 +11,13 @@
     "cancelled": "Cancelled.",
     "cancel": "Cancel",
     "none": "Nothing booked.",
-    "calendar": "Calendar"
+    "calendar": "Calendar",
+    "status": {
+      "held": "held",
+      "confirmed": "confirmed",
+      "cancelled": "cancelled"
+    },
+    "previous_day": "Previous day",
+    "next_day": "Next day"
   }
 }

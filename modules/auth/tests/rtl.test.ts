@@ -3,10 +3,14 @@
 // `?lang=ar` render `<html lang="ar" dir="rtl">` and the Arabic catalog,
 // snapshotted; the choice is stored (per page session signed out, per
 // user signed in), so the next page stays Arabic without `?lang=`.
+// #336: then every page of the module in `en` (ltr) and `ar` (rtl),
+// snapshotted, with no English message of its keys left.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
+import { bothDirections, stableIds } from "../../i18n/tests/rtl.ts";
 import { app, snapshot, type TestApp } from "../../../sdk/src/test.ts";
+import { challengeOf } from "../lib/agents.ts";
 
 const MODULE = join(import.meta.dir, "..");
 const worker = process.env.RENOX_TEST_SPEC ?? process.env.RENOX_WORKER_PATH;
@@ -57,5 +61,42 @@ describe.skipIf(!worker)("auth in Arabic", () => {
     const latn = await t.as("digits-latn").page("/auth/login?lang=ar-u-nu-latn");
     expect(latn.html).toContain('<html lang="ar" dir="rtl">');
     snapshot(stable(latn.html), { role: "login ar latn" });
+  });
+});
+
+/** The per-request values of the auth pages: WebAuthn challenges and user handles, agent client ids. */
+const stableAuth = (html: string): string =>
+  stableIds(stable(html))
+    .replace(/(&quot;|")(challenge|id|user_id)(&quot;|"):(&quot;|")[A-Za-z0-9_-]{8,}(&quot;|")/gu, "$1$2$3:$4<random>$5")
+    .replace(/(client_id(?:=|" value="))[A-Za-z0-9_-]+/gu, "$1<client>");
+
+describe.skipIf(!worker)("every auth page in both directions (#336)", () => {
+  test("en (ltr) and ar (rtl), snapshotted, no English left", async () => {
+    const visitor = t.as("rtl-visitor");
+    const user = t.as("rtl-user");
+    await user.action("/auth/register", "default", { email: "rtl@example.com", password: "correct horse battery", display_name: "Rtl" });
+    expect((await user.action("/auth/login", "default", { email: "rtl@example.com", password: "correct horse battery" })).status).toBe(303);
+    const reg = await t.request("POST", "/auth/oauth/register", { body: { client_name: "Test Agent", redirect_uris: ["https://agent.example/callback"] } });
+    const clientId = reg.json<{ client_id: string }>().client_id;
+    const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: "https://agent.example/callback", state: "s1", code_challenge: await challengeOf("v".repeat(43)), code_challenge_method: "S256", scope: "tools:*" });
+    const consent = (await user.request("GET", `/auth/oauth/authorize?${q}`)).headers.get("location") as string;
+    expect(consent).toStartWith("/auth/oauth/consent?");
+    await bothDirections(
+      MODULE,
+      [
+        { name: "page login", path: "/auth/login", as: visitor, template: "pages/login.html", arabic: "<h1>تسجيل الدخول</h1>" },
+        { name: "page register", path: "/auth/register", as: visitor, template: "pages/register.html" },
+        { name: "page magic", path: "/auth/magic", as: visitor, template: "pages/magic/index.html" },
+        { name: "page reset", path: "/auth/reset", as: visitor, template: "pages/reset/index.html" },
+        { name: "page reset confirm", path: "/auth/reset/confirm?token=t0k3n", as: visitor, template: "pages/reset/confirm.html" },
+        { name: "page phone", path: "/auth/phone", as: visitor, template: "pages/phone/index.html" },
+        { name: "page phone verify", path: "/auth/phone/verify?phone=%2B971501234567", as: visitor, template: "pages/phone/verify.html" },
+        { name: "page passkey login", path: "/auth/passkeys/login", as: visitor, template: "pages/passkeys/login.html" },
+        { name: "page account", path: "/auth/account", as: user, template: "pages/account.html" },
+        { name: "page passkey register", path: "/auth/passkeys/register", as: user, template: "pages/passkeys/register.html" },
+        { name: "page consent", path: consent, as: user, template: "pages/oauth/consent.html", arabic: "كل أدوات هذا التطبيق، باسمك" },
+      ],
+      stableAuth,
+    );
   });
 });

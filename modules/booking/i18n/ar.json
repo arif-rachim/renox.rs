@@ -11,6 +11,13 @@
     "cancelled": "تم الإلغاء.",
     "cancel": "إلغاء",
     "none": "لا توجد حجوزات.",
-    "calendar": "التقويم"
+    "calendar": "التقويم",
+    "status": {
+      "held": "محجوز مؤقتًا",
+      "confirmed": "مؤكد",
+      "cancelled": "ملغى"
+    },
+    "previous_day": "اليوم السابق",
+    "next_day": "اليوم التالي"
   }
 }

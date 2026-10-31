@@ -6,6 +6,7 @@ import type { LoaderContext } from "renox";
 
 import { apiBase } from "../lib/api.ts";
 import { signedIn } from "../lib/guard.ts";
+import { trOf } from "../lib/i18n.ts";
 
 const home = (): Response => new Response(null, { status: 303, headers: { location: "/apps" } });
 
@@ -21,14 +22,15 @@ export async function load(ctx: LoaderContext) {
     if (!t.ok || (t.value.first_deploy_at ?? null) !== null) return home();
   }
   const has = first !== undefined;
+  const tr = trOf(ctx);
   return {
     signed_in: true,
     impersonation: api.impersonation,
     api_host: new URL(apiBase(ctx.secrets)).host,
     steps: [
-      { done: true, text: "Verify your email address", href: null },
-      { done: has, text: "Create your first app from a template", href: has ? null : "/apps/new" },
-      { done: false, text: has ? `Deploy ${first.name} (renox deploy, or the template's own deploy)` : "Deploy it", href: has ? `/apps/${first.name}/deployments` : null },
+      { done: true, text: tr("dash.home.step_verify"), href: null },
+      { done: has, text: tr("dash.home.step_create"), href: has ? null : "/apps/new" },
+      { done: false, text: has ? tr("dash.home.step_deploy_app", { app: first.name }) : tr("dash.home.step_deploy"), href: has ? `/apps/${first.name}/deployments` : null },
     ],
   };
 }

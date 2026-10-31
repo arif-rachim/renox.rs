@@ -16,29 +16,30 @@ import { Api, apiBase, type OpsTenant } from "../../../lib/api.ts";
 import { notFound, signedIn } from "../../../lib/guard.ts";
 import { endImpersonation, forbidden, formProblem, IMPERSONATION_ID, impersonate, NODE_ID, OPS_TOKEN, opsEnabled, opsProblem, REASON_MAX, REASON_MIN, run, stateView, TENANT_ID, type Action } from "../../../lib/ops.ts";
 import { signIn, signOut } from "../../../lib/session.ts";
+import { EN, trOf, type Tr } from "../../../lib/i18n.ts";
 import { ago, clock, round } from "../../../lib/view.ts";
 
 const tenantParam = (raw: string | string[] | undefined): string | null => (typeof raw === "string" && TENANT_ID.test(raw) ? raw : null);
 const quiet = { form_error: null, action_problem: null, state: null, status: null, notice: null as string | null };
 
 /** The status panel: finished strings for the template (no function calls there). */
-export function statusView(t: OpsTenant, now: number) {
+export function statusView(t: OpsTenant, now: number, tr: Tr = EN) {
   return {
     name: t.name,
     tier: t.tier,
     state: t.state,
     process: t.process,
-    node: t.node_id ?? "none (no route entry)",
+    node: t.node_id ?? tr("dash.ops.node_none"),
     pinned: t.pinned_node ?? "—",
-    moving: t.moving ? `yes, since ${clock(t.moving_since ?? now)} (requests answer 503)` : "no",
+    moving: t.moving ? tr("dash.ops.moving_since", { at: clock(t.moving_since ?? now) }) : tr("dash.ops.no"),
     microvm: t.microvm_at === null ? "—" : clock(t.microvm_at),
     replication: t.replication.map((r) => ({
       database: r.database,
-      state: r.replication === "none" ? "not replicated" : r.state,
+      state: r.replication === "none" ? tr("dash.ops.not_replicated") : r.state,
       replica: r.replica === null ? "—" : r.replica.region === undefined ? r.replica.kind : `${r.replica.kind} (${r.replica.region})`,
-      lag: r.lag_seconds === null ? "—" : `${round(r.lag_seconds)} s`,
-      last_sync: ago(r.last_sync_at, now),
-      reported: ago(r.reported_at, now),
+      lag: r.lag_seconds === null ? "—" : tr("dash.ops.seconds", { s: round(r.lag_seconds) }),
+      last_sync: ago(r.last_sync_at, now, tr),
+      reported: ago(r.reported_at, now, tr),
       stale: r.stale,
     })),
     actions: t.actions.map((a) => ({
@@ -72,11 +73,12 @@ async function act(ctx: ActionContext, action: Action | null) {
   if (tenant === null) return notFound();
   const token = String(ctx.form.get("token") ?? "").trim();
   const reason = String(ctx.form.get("reason") ?? "").trim();
-  const why = formProblem(token, reason, action);
+  const tr = trOf(ctx);
+  const why = formProblem(token, reason, action, tr);
   if (why !== null || action === null) return { ...quiet, form_error: why };
   const r = await run(ctx.fetch, ctx.secrets, token, tenant, reason, action);
-  if (!r.ok) return { ...quiet, action_problem: opsProblem(r) };
-  return { ...quiet, state: stateView(r.value) };
+  if (!r.ok) return { ...quiet, action_problem: opsProblem(r, tr) };
+  return { ...quiet, state: stateView(r.value, tr) };
 }
 
 export const actions = {
@@ -99,12 +101,13 @@ export const actions = {
     if (tenant === null) return notFound();
     const token = String(ctx.form.get("token") ?? "").trim();
     const reason = String(ctx.form.get("reason") ?? "").trim();
-    const why = formProblem(token, reason, { kind: "microvm" });
+    const tr = trOf(ctx);
+    const why = formProblem(token, reason, { kind: "microvm" }, tr);
     if (why !== null) return { ...quiet, form_error: why };
     const r = await impersonate(ctx.fetch, ctx.secrets, token, tenant, reason);
-    if (!r.ok) return { ...quiet, action_problem: opsProblem(r) };
+    if (!r.ok) return { ...quiet, action_problem: opsProblem(r, tr) };
     const imp = r.value;
-    if (typeof imp.token !== "string") return { ...quiet, form_error: "The control API answered no token." };
+    if (typeof imp.token !== "string") return { ...quiet, form_error: tr("dash.ops.no_token") };
     await signIn(ctx.db, ctx.secrets, ctx.session.id, imp.token, Date.now());
     await ctx.db.execute(
       "insert into app__impersonations (session_id, impersonation_id, tenant_id, expires_at) values (?, ?, ?, ?) on conflict (session_id) do update set impersonation_id = excluded.impersonation_id, tenant_id = excluded.tenant_id, expires_at = excluded.expires_at",
@@ -120,16 +123,17 @@ export const actions = {
     if (tenant === null) return notFound();
     const token = String(ctx.form.get("token") ?? "").trim();
     const id = String(ctx.form.get("impersonation_id") ?? "").trim();
-    if (!OPS_TOKEN.test(token)) return { ...quiet, form_error: "Paste your operator token (renox_op_ followed by 32 letters and digits)." };
-    if (!IMPERSONATION_ID.test(id)) return { ...quiet, form_error: "No such impersonation." };
+    const tr = trOf(ctx);
+    if (!OPS_TOKEN.test(token)) return { ...quiet, form_error: tr("dash.ops.err_token") };
+    if (!IMPERSONATION_ID.test(id)) return { ...quiet, form_error: tr("dash.ops.no_impersonation") };
     const r = await endImpersonation(ctx.fetch, ctx.secrets, token, tenant, id);
-    if (!r.ok) return { ...quiet, action_problem: opsProblem(r) };
+    if (!r.ok) return { ...quiet, action_problem: opsProblem(r, tr) };
     // This session's own break-glass ends with it.
     if (api.impersonation?.impersonation_id === id) {
       await signOut(ctx.db, ctx.session.id);
       return new Response(null, { status: 303, headers: { location: "/signin", "cache-control": "no-store" } });
     }
-    return { ...quiet, notice: `Impersonation ${id} ended.` };
+    return { ...quiet, notice: tr("dash.ops.impersonation_ended", { id }) };
   },
   async status(ctx: ActionContext) {
     if (!opsEnabled(ctx.secrets)) return forbidden();
@@ -138,9 +142,10 @@ export const actions = {
     const tenant = tenantParam(ctx.params.tenant);
     if (tenant === null) return notFound();
     const token = String(ctx.form.get("token") ?? "").trim();
-    if (!OPS_TOKEN.test(token)) return { ...quiet, form_error: "Paste your operator token (renox_op_ followed by 32 letters and digits)." };
+    const tr = trOf(ctx);
+    if (!OPS_TOKEN.test(token)) return { ...quiet, form_error: tr("dash.ops.err_token") };
     const r = await new Api(ctx.fetch, token, apiBase(ctx.secrets)).getOpsTenant(tenant);
-    if (!r.ok) return { ...quiet, action_problem: opsProblem(r) };
-    return { ...quiet, status: statusView(r.value, Date.now()) };
+    if (!r.ok) return { ...quiet, action_problem: opsProblem(r, tr) };
+    return { ...quiet, status: statusView(r.value, Date.now(), tr) };
   },
 };

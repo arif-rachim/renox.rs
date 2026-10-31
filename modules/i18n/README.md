@@ -20,6 +20,7 @@ i18n = { version = "^1.0", config = { locales = "en,ar", default_locale = "en" }
 | `locales` | `en,ar` | The locales the app offers, comma separated |
 | `default_locale` | `en` | Used when nothing else decides |
 | `digits` | `latn` | Digits on Arabic pages: `latn`, `arab` (Eastern Arabic), or `auto`, which follows the stored choice (below) |
+| `calendar` | `gregory` | Calendar on Arabic pages: `gregory`, `islamic-umalqura` (Hijri), or `auto`, which follows the stored choice ("Hijri dates", below) |
 
 `auth` and `org` depend on i18n. Installing either installs nothing implicitly, so add i18n first.
 
@@ -34,7 +35,7 @@ i18n = { version = "^1.0", config = { locales = "en,ar", default_locale = "en" }
 5. `Accept-Language`, by quality.
 6. `default_locale`.
 
-A candidate counts only when it is offered (`ar-AE` matches `ar`). The result is `{ locale, dir, digits, source, alternates }`. `alternates` has one link per offered locale: this page with `?lang=`.
+A candidate counts only when it is offered (`ar-AE` matches `ar`). The result is `{ locale, dir, digits, calendar, source, alternates }`. `alternates` has one link per offered locale: this page with `?lang=`.
 
 i18n never sets the page locale itself (`ops.md` 1.3.0 section 14, "Locale"). The loader does:
 
@@ -86,6 +87,10 @@ Each module ships `i18n/<locale>.json`. Nested objects are flattened to dotted k
 
 The Arabic terms the modules share are in [GLOSSARY.md](GLOSSARY.md).
 
+## RTL snapshots (#336)
+
+Every page of every official module is rendered in `en` (`<html lang="en" dir="ltr">`) and `ar` (`<html lang="ar" dir="rtl">`) by the module's `tests/rtl.test.ts`, and both are snapshotted under `tests/__snapshots__/`. The shared helper `tests/rtl.ts` (`bothDirections`) also fails a page whose Arabic render still shows the English message of one of its keys (from its template or the module's layouts), or a key rendered as itself.
+
 ## RTL baseline
 
 `public/i18n.css` uses logical properties (`margin-inline`, `padding-inline`, `text-align: start`). It keeps numbers, phone numbers, emails and codes left to right inside Arabic text, and places htmx indicators after their control. Modules cannot serve public files yet (artifact 1.1), so copy it into the app's `public/`. The shop's own fixes are in `examples/shop/public/app.css`.
@@ -100,6 +105,16 @@ An Arabic page gets Eastern Arabic digits (`١٢٣٫٤٥`, `١٬٢٣٤٫٥٠ د.
 
 The loader passes the returned `locale` to `ctx.setLocale` unchanged. `<html lang>` then carries the full tag, and catalogs are looked up by the language (`ar`). Only `nu-arab` is rendered. `arabext` (Persian digits) is accepted by the contract but renders Latin digits until the renderer supports it.
 
+## Hijri dates
+
+`calendar` builds the `ca` key of the same `-u-` extension: `?lang=ar-u-ca-islamic-umalqura` (with `auto`) stores `calendar = 'islamic-umalqura'` with the choice, and the page tag becomes `ar-u-ca-islamic-umalqura`, or `ar-u-ca-islamic-umalqura-nu-arab` with Eastern Arabic digits (`ca` before `nu`, as `ops.md` 1.4.0 requires). English pages stay Gregorian. `detectLocale` returns it as `calendar`.
+
+The renderer's `date` filter formats the Gregorian calendar only, so a page that shows a Hijri date formats it in its loader with `Intl.DateTimeFormat(tag)` and shows it next to the Gregorian one: the booking pages and the tax invoice do (`lib/hijri.ts` of each).
+
+## Mirrored icons
+
+An icon that points (an arrow, a chevron) carries `class="i18n-mirror"`; `public/i18n.css` flips it on `dir="rtl"` pages. The booking calendar's day arrows use it.
+
 ## Tables
 
-`i18n__prefs`: `subject` (`user:<id>` or `session:<page session id>`), `locale`, `digits` (`arab`, `latn` or null, migration 002), `updated_at`.
+`i18n__prefs`: `subject` (`user:<id>` or `session:<page session id>`), `locale`, `digits` (`arab`, `latn` or null, migration 002), `calendar` (a calendar of `ops.md` 1.4.0 or null, migration 003), `updated_at`.

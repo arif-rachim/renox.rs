@@ -8,7 +8,8 @@
 import type { ActionContext } from "renox";
 
 import type { ClientErrorEvent, ClientErrorFrame, ClientErrorGroup, ClientErrorStatus } from "./api.ts";
-import { appParam, problem, signedIn } from "./guard.ts";
+import { appParam, problem, refusal, signedIn } from "./guard.ts";
+import { EN, trOf, type Tr } from "./i18n.ts";
 import { ago, clock, round, shortHash } from "./view.ts";
 
 export const STATUSES = ["open", "resolved", "ignored"] as const;
@@ -42,7 +43,7 @@ export function frameText(f: ClientErrorFrame): { text: string; mapped: boolean;
   return { text: o === null ? raw : `${o.file}:${o.line}:${o.column}`, mapped: o !== null, raw, function: f.function ?? "(anonymous)" };
 }
 
-export function groupRow(g: ClientErrorGroup, app: string, now: number) {
+export function groupRow(g: ClientErrorGroup, app: string, now: number, tr: Tr = EN) {
   return {
     fingerprint: g.fingerprint,
     kind: g.kind,
@@ -50,7 +51,7 @@ export function groupRow(g: ClientErrorGroup, app: string, now: number) {
     status: g.status,
     count: round(g.count),
     first: `${clock(g.first_seen)} UTC`,
-    last: ago(g.last_seen, now),
+    last: ago(g.last_seen, now, tr),
     regressed: g.regressed,
     url: `/apps/${app}/client-errors?fp=${g.fingerprint}`,
     top: g.top_frame === null ? null : frameText(g.top_frame),
@@ -62,9 +63,9 @@ export function groupRow(g: ClientErrorGroup, app: string, now: number) {
   };
 }
 
-export function eventRow(e: ClientErrorEvent, app: string, now: number) {
+export function eventRow(e: ClientErrorEvent, app: string, now: number, tr: Tr = EN) {
   return {
-    when: `${clock(e.ts)} UTC (${ago(e.ts, now)})`,
+    when: tr("dash.common.utc_ago", { at: clock(e.ts), ago: ago(e.ts, now, tr) }),
     message: e.message,
     url: e.url,
     browser: e.ua,
@@ -76,7 +77,7 @@ export function eventRow(e: ClientErrorEvent, app: string, now: number) {
   };
 }
 
-const bad = (code: string, message: string, status: number) => ({ notice: null, action_problem: { code, message, status, request_id: null, signed_out: false, details: [] } });
+const bad = (ctx: ActionContext, code: string, key: string, status: number) => ({ notice: null, action_problem: refusal(ctx, code, key, status) });
 
 export const clientErrorActions = {
   /** POST ?/status with `fingerprint` and `status` (`apps:write`; the API audits it). */
@@ -86,10 +87,10 @@ export const clientErrorActions = {
     const app = appParam(ctx.params.app);
     const fingerprint = String(ctx.form.get("fingerprint") ?? "");
     const status = String(ctx.form.get("status") ?? "");
-    if (app === null) return bad("RENOX_NOT_FOUND", "No such app.", 404);
-    if (!FINGERPRINT.test(fingerprint) || !(STATUSES as readonly string[]).includes(status)) return bad("RENOX_VALIDATION", "No error group was chosen.", 400);
+    if (app === null) return bad(ctx, "RENOX_NOT_FOUND", "dash.problem.no_app", 404);
+    if (!FINGERPRINT.test(fingerprint) || !(STATUSES as readonly string[]).includes(status)) return bad(ctx, "RENOX_VALIDATION", "dash.errors.no_group", 400);
     const r = await api.setClientErrorStatus(app, fingerprint, status as ClientErrorStatus);
     if (!r.ok) return { notice: null, action_problem: await problem(ctx, r) };
-    return { notice: status === "open" ? "Reopened." : status === "resolved" ? "Marked as resolved. It reopens if it happens again on a newer deployment." : "Ignored.", action_problem: null };
+    return { notice: trOf(ctx)(status === "open" ? "dash.errors.reopened" : status === "resolved" ? "dash.errors.resolved_notice" : "dash.errors.ignored"), action_problem: null };
   },
 };

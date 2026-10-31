@@ -8,6 +8,7 @@ import type { ActionContext, LoaderContext } from "renox";
 
 import { apiBase } from "../../../lib/api.ts";
 import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { trOf } from "../../../lib/i18n.ts";
 import { ago } from "../../../lib/view.ts";
 
 /** deploy-api.yaml `SecretName`. */
@@ -26,7 +27,7 @@ export async function load(ctx: LoaderContext) {
     ...base,
     problem: null,
     version: r.value.version,
-    secrets: r.value.secrets.map((s) => ({ name: s.name, updated: ago(s.updated_at, now) })),
+    secrets: r.value.secrets.map((s) => ({ name: s.name, updated: ago(s.updated_at, now, trOf(ctx)) })),
   };
 }
 
@@ -41,12 +42,13 @@ export const actions = {
     const name = String(ctx.form.get("name") ?? "").trim();
     const raw = ctx.form.get("value");
     const value = typeof raw === "string" ? raw : "";
-    if (!SECRET_NAME.test(name)) return formError("A secret name is upper-case letters, digits and _, starting with a letter (at most 64).");
+    const tr = trOf(ctx);
+    if (!SECRET_NAME.test(name)) return formError(tr("dash.secrets.err_name"));
     // ops.md section 3: at least 8 characters and 8 bytes, at most 64 KiB.
-    if (value.length < 8 || new TextEncoder().encode(value).length < 8 || value.length > 65_536) return formError("A value is 8 characters to 64 KiB.");
+    if (value.length < 8 || new TextEncoder().encode(value).length < 8 || value.length > 65_536) return formError(tr("dash.secrets.err_value"));
     const r = await api.putSecret(app, name, value);
     if (!r.ok) return { notice: null, form_error: null, action_problem: await problem(ctx, r) };
-    return { notice: `${name} saved (set v${r.value.version}). It is used from the next deploy or rollback.`, form_error: null, action_problem: null };
+    return { notice: tr("dash.secrets.saved", { name, version: r.value.version }), form_error: null, action_problem: null };
   },
 
   async remove(ctx: ActionContext) {
@@ -55,9 +57,9 @@ export const actions = {
     const app = appParam(ctx.params.app);
     if (app === null) return notFound();
     const name = String(ctx.form.get("name") ?? "");
-    if (!SECRET_NAME.test(name)) return formError("No such secret.");
+    if (!SECRET_NAME.test(name)) return formError(trOf(ctx)("dash.secrets.err_none"));
     const r = await api.deleteSecret(app, name);
     if (!r.ok) return { notice: null, form_error: null, action_problem: await problem(ctx, r) };
-    return { notice: `${name} deleted (set v${r.value.version}). Deployments that declare it stop getting it from the next deploy or rollback.`, form_error: null, action_problem: null };
+    return { notice: trOf(ctx)("dash.secrets.deleted", { name, version: r.value.version }), form_error: null, action_problem: null };
   },
 };

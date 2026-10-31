@@ -7,7 +7,8 @@ import type { LoaderContext } from "renox";
 import { apiBase } from "../../../lib/api.ts";
 import { deployActions } from "../../../lib/deploy-actions.ts";
 import { appParam, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
-import { ago, bytes, clock, deploymentRows, STATE_LABEL } from "../../../lib/view.ts";
+import { trOf } from "../../../lib/i18n.ts";
+import { ago, bytes, clock, deploymentRows, stateLabel } from "../../../lib/view.ts";
 
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
@@ -16,6 +17,7 @@ export async function load(ctx: LoaderContext) {
   if (name === null) return notFound();
   const selected = hashParam(ctx.url.searchParams.get("hash"));
   const now = Date.now();
+  const tr = trOf(ctx);
   const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "deployments", notice: null, action_problem: null };
   const [list, one, adv] = await Promise.all([
     api.listDeployments(name, 50),
@@ -31,12 +33,12 @@ export async function load(ctx: LoaderContext) {
       const d = one.value;
       detail = {
         hash: d.hash,
-        state: STATE_LABEL[d.state] ?? d.state,
-        uploaded: `${clock(d.created_at)} UTC (${ago(d.created_at, now)})`,
-        activated: d.activated_at === null ? "never" : `${clock(d.activated_at)} UTC`,
+        state: stateLabel(d.state, tr),
+        uploaded: tr("dash.common.utc_ago", { at: clock(d.created_at), ago: ago(d.created_at, now, tr) }),
+        activated: d.activated_at === null ? tr("dash.deployments.never") : `${clock(d.activated_at)} UTC`,
         size: bytes(d.size_bytes),
-        network: d.permissions.network.join(", ") || "none",
-        secrets: d.permissions.secrets.join(", ") || "none",
+        network: d.permissions.network.join(", ") || tr("dash.common.none"),
+        secrets: d.permissions.secrets.join(", ") || tr("dash.common.none"),
         secrets_version: d.secrets_version === null ? "—" : `v${d.secrets_version}`,
         violations: (d.violations ?? []).map((v) => `${v.rule}${v.path === undefined ? "" : ` ${v.path}`}: ${v.reason}`),
         // #123: the SBOM's advisories, a warning that never blocks; a failed lookup shows none.
@@ -50,7 +52,7 @@ export async function load(ctx: LoaderContext) {
       };
     }
   }
-  return { ...base, problem: null, deployments: deploymentRows(list.value.deployments, now), detail, detail_problem: detailProblem };
+  return { ...base, problem: null, deployments: deploymentRows(list.value.deployments, now, tr), detail, detail_problem: detailProblem };
 }
 
 export const actions = { activate: deployActions.activate, rollback: deployActions.rollback };

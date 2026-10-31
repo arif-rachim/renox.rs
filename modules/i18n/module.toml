@@ -7,12 +7,13 @@ description = "Locale detection (?lang, user, organisation, Accept-Language), st
 locales = { type = "string", default = "en,ar", max_length = 256, description = "The locales the app offers, comma separated, the first is not special" }
 default_locale = { type = "string", default = "en", max_length = 35, description = "The locale when nothing else decides" }
 digits = { type = "enum", values = ["latn", "arab", "auto"], default = "latn", description = "Digits on Arabic pages: latn, arab (Eastern Arabic), or auto (the stored choice, e.g. ?lang=ar-u-nu-arab)" }
+calendar = { type = "enum", values = ["gregory", "islamic-umalqura", "auto"], default = "gregory", description = "Calendar on Arabic pages: gregory, islamic-umalqura (Hijri shown next to Gregorian dates), or auto (the stored choice, e.g. ?lang=ar-u-ca-islamic-umalqura)" }
 
 [permissions]
 tables = "i18n__*"
 
 [exports.services]
-detectLocale = "The page locale: ({ user_id?, org_locale? }) -> { locale (full tag, e.g. ar-u-nu-arab), language, dir, digits, source, alternates }; pass locale and dir to ctx.setLocale"
+detectLocale = "The page locale: ({ user_id?, org_locale? }) -> { locale (full tag, e.g. ar-u-nu-arab), language, dir, digits, calendar, source, alternates }; pass locale and dir to ctx.setLocale"
 locale = "The same as detectLocale"
 setLocale = "Store a locale: (locale, { user_id? }) -> { locale, dir } or { error }; per user when user_id is given, else per page session"
 
