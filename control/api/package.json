@@ -16,6 +16,6 @@
     "hono": "4.13.14"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.12"
+    "@electric-sql/pglite": "0.5.13"
   }
 }
