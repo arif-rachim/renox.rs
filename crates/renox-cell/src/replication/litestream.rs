@@ -91,6 +91,13 @@ pub fn config_yaml(r: &ReplicationSection, file: &Path, database: &str) -> Strin
 }
 
 /// Writes the config of `database` under `<run_dir>/litestream/`.
+///
+/// A running sidecar, `litestream generations` (the status endpoint) and
+/// `litestream restore` all read this file while other callers write it.
+/// A plain truncate-and-write lets a reader see an empty file (Litestream
+/// then exits with "no databases specified in configuration"), so the file
+/// is left alone when it already holds the same text and is otherwise
+/// replaced through a rename, which readers see as old or new, never empty.
 pub fn write_config(
     run_dir: &Path,
     r: &ReplicationSection,
@@ -100,7 +107,21 @@ pub fn write_config(
     let dir = run_dir.join("litestream");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{database}.yml"));
-    std::fs::write(&path, config_yaml(r, file, database))?;
+    let yaml = config_yaml(r, file, database);
+    if std::fs::read_to_string(&path).is_ok_and(|current| current == yaml) {
+        return Ok(path);
+    }
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = dir.join(format!(
+        ".{database}.yml.{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::write(&tmp, &yaml)?;
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(path)
 }
 
@@ -276,6 +297,39 @@ mod tests {
         assert_eq!(g[0].id, "00000000000000ff");
         assert_eq!(g[1].start_ms, 1_793_271_600_000);
         assert!(parse_generations("no replicas\n").is_empty());
+    }
+
+    #[test]
+    fn write_config_replaces_atomically_and_skips_unchanged() {
+        let run = std::env::temp_dir().join(format!("rnx-lscfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&run);
+        let mut r = ReplicationSection {
+            enabled: true,
+            path: Some("/r".into()),
+            ..Default::default()
+        };
+        let file = Path::new("/d/t_a/app.db");
+        let p = write_config(&run, &r, file, "t_a").unwrap();
+        let first = std::fs::metadata(&p).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        // Same text: the file a running sidecar may be reading is untouched.
+        write_config(&run, &r, file, "t_a").unwrap();
+        assert_eq!(std::fs::metadata(&p).unwrap().modified().unwrap(), first);
+        // New text: replaced, and no temporary file left behind.
+        r.sync_interval_ms = 200;
+        write_config(&run, &r, file, "t_a").unwrap();
+        assert!(
+            std::fs::read_to_string(&p)
+                .unwrap()
+                .contains("sync-interval: 200ms")
+        );
+        let names: Vec<_> = std::fs::read_dir(run.join("litestream"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["t_a.yml".to_string()]);
+        let _ = std::fs::remove_dir_all(&run);
     }
 
     #[test]
