@@ -16,6 +16,11 @@ updates:
       - dependency-name: "deno_*"
       - dependency-name: "v8"
       - dependency-name: "eszip"
+      # markup5ever_rcdom has no release past 0.39 yet, and html5ever 0.40
+      # changed TreeSink so the 0.39 RcDom no longer implements it (#316).
+      # Lift this when markup5ever_rcdom follows.
+      - dependency-name: "html5ever"
+        versions: [">= 0.40"]
   - package-ecosystem: bun
     directory: /
     schedule:

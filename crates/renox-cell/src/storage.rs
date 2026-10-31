@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bytes::Bytes;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use renox_runtime::ops::storage::{HostFuture, StorageHost, StorageLimits};
 use sha2::Sha256;
 

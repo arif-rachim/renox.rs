@@ -40,15 +40,29 @@ impl HickoryResolver {
     pub fn system() -> std::io::Result<HickoryResolver> {
         let (config, opts) = hickory_resolver::system_conf::read_system_conf()
             .map_err(|e| std::io::Error::other(e.to_string()))?;
-        Ok(Self::with(config, opts))
+        Self::with(config, opts)
     }
 
     /// One nameserver over UDP (and TCP for truncated answers).
-    pub fn nameserver(addr: SocketAddr) -> HickoryResolver {
-        use hickory_resolver::config::{NameServerConfigGroup, ResolverConfig};
-        let group = NameServerConfigGroup::from_ips_clear(&[addr.ip()], addr.port(), true);
+    pub fn nameserver(addr: SocketAddr) -> std::io::Result<HickoryResolver> {
+        use hickory_resolver::config::{
+            ConnectionConfig, NameServerConfig, ProtocolConfig, ResolverConfig,
+        };
+        let connection = |protocol| {
+            let mut c = ConnectionConfig::new(protocol);
+            c.port = addr.port();
+            c
+        };
+        let server = NameServerConfig::new(
+            addr.ip(),
+            true,
+            vec![
+                connection(ProtocolConfig::Udp),
+                connection(ProtocolConfig::Tcp),
+            ],
+        );
         Self::with(
-            ResolverConfig::from_parts(None, vec![], group),
+            ResolverConfig::from_parts(None, vec![], vec![server]),
             Default::default(),
         )
     }
@@ -56,21 +70,18 @@ impl HickoryResolver {
     fn with(
         config: hickory_resolver::config::ResolverConfig,
         mut opts: hickory_resolver::config::ResolverOpts,
-    ) -> HickoryResolver {
+    ) -> std::io::Result<HickoryResolver> {
         use hickory_resolver::config::{LookupIpStrategy, ResolveHosts};
         opts.use_hosts_file = ResolveHosts::Never;
         opts.ip_strategy = LookupIpStrategy::Ipv4AndIpv6;
         // Each hop resolves exactly once and connects to what it checked; a
         // cache would only add a second source of truth.
         opts.cache_size = 0;
-        HickoryResolver(
-            hickory_resolver::TokioResolver::builder_with_config(
-                config,
-                hickory_resolver::name_server::TokioConnectionProvider::default(),
-            )
+        hickory_resolver::TokioResolver::builder_with_config(config, Default::default())
             .with_options(opts)
-            .build(),
-        )
+            .build()
+            .map(HickoryResolver)
+            .map_err(|e| std::io::Error::other(e.to_string()))
     }
 }
 

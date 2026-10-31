@@ -229,7 +229,7 @@ pub async fn start_tls(names: &[&str]) -> (TestServer, rustls::pki_types::Certif
             .unwrap();
     let cert = rustls::pki_types::CertificateDer::from(ck.cert.der().to_vec());
     let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
-        ck.key_pair.serialize_der(),
+        ck.signing_key.serialize_der(),
     ));
     let config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
