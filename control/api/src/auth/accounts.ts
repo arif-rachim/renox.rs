@@ -25,7 +25,7 @@ import { accountAuth, sessionUser, tenantAuth } from "./middleware.ts";
 import { Buckets, RULES, type BucketRule } from "./buckets.ts";
 import { clientIp } from "./ip.ts";
 import { checkPassword, hashPassword, verifyPassword } from "./password.ts";
-import { disposable } from "../signup/friction.ts";
+import { asnOf, captcha, disposable, SIGNUP_ASN, SIGNUP_IP } from "../signup/friction.ts";
 import {
   cookie,
   createSession,
@@ -217,10 +217,18 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
     // deploy-api.md 0.5 section 21 (#326): the DPA, when the client sends it, is accepted.
     if (body.dpa_accepted !== undefined && body.dpa_accepted !== true) throw invalid("dpa_accepted", "must be true");
     if (body.captcha_token !== undefined && (typeof body.captcha_token !== "string" || body.captcha_token.length === 0 || body.captcha_token.length > 4096)) throw invalid("captcha_token", "a non-empty string");
+    // Section 21 (#123): 3 per IP per hour, 20 per ASN per day, then the CAPTCHA with the provider.
+    const ip = clientIp(c);
+    const asn = asnOf(ip);
     limit(deps, [
-      [RULES.mailIp, `mail-ip:${clientIp(c) ?? "unknown"}`],
+      [RULES.mailIp, `mail-ip:${ip ?? "unknown"}`],
       [RULES.mailEmail, `mail-email:${email}`],
+      [SIGNUP_IP, `signup-ip:${ip ?? "unknown"}`],
+      ...(asn === null ? [] : [[SIGNUP_ASN, `signup-asn:${asn}`] as [BucketRule, string]]),
     ]);
+    const human = await captcha(body.captcha_token, ip, process.env, (m) => deps.log.warn(m));
+    if (human === "missing") throw invalid("captcha_token", "required");
+    if (human === "rejected") throw invalid("captcha_token", "rejected");
     const hash = await hashPassword(password);
     const now = deps.now();
     const outcome = await db.transaction(async (tx) => {

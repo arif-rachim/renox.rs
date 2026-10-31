@@ -7,7 +7,9 @@ import { nodeAuth, tenantAuth } from "../auth/middleware.ts";
 import { crossTenant, tenantDb } from "../tenancy/scope.ts";
 import { requireApp } from "../apps/repo.ts";
 import { assertTransition } from "../contract.ts";
-import { ApiError, notFound } from "../errors.ts";
+import { ApiError, conflict, notFound } from "../errors.ts";
+import { num } from "../db/db.ts";
+import { newTenantRestrictions } from "../tenants/erasure.ts";
 import { jsonBody, pathParam } from "../http.ts";
 import { actorOf, type Deps, type Env } from "../context.ts";
 import { deleteCertificate, loadCertificate } from "./certs.ts";
@@ -23,6 +25,10 @@ export function registerDomains(app: Hono<Env>, deps: Deps): void {
     const { hostname } = await jsonBody<{ hostname: string }>(c, "AddDomainRequest");
     checkCustomHostname(hostname, deps.config.platformDomain);
     c.set("auditTarget", { hostname });
+    // deploy-api.md 0.5 section 21 (#123): a new tenant has no custom domain
+    // until a payment method is confirmed or 7 days pass without a flag.
+    const created = (await t.query<{ created_at: unknown }>("select created_at from tenants where id = $1", [tenant]))[0]?.created_at;
+    if ((await newTenantRestrictions(t, tenant, num(created), deps.now())).includes("no_custom_domain")) throw conflict("tenant", "no_custom_domain");
     const row = await claimHostname(t, appName, hostname, deps.now());
     const [view] = await domainViews(t, tenant, [row]);
     return c.json(view, 201);

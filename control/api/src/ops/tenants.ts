@@ -9,6 +9,7 @@
 // docs/24-threat-model.md section E, "Operator console abuse".
 
 import { activeImpersonations } from "./breakglass.ts";
+import { safeBrowsingOf } from "../safe-browsing/check.ts";
 import type { Context, Hono } from "hono";
 import { operation, writeAudit } from "../audit.ts";
 import { clientIp } from "../auth/ip.ts";
@@ -161,6 +162,11 @@ export function registerOps(app: Hono<Env>, deps: Deps): void {
         })),
         ...(await lastActions(deps.db, tenantId)),
       ].slice(0, 5),
+      // 0.5 section 22 (#123): the last Safe Browsing check of each checked hostname, and the open tickets' ids.
+      safe_browsing: await safeBrowsingOf(deps, tenantId),
+      abuse_tickets: (
+        await deps.db.query<{ id: string }>("select id from abuse_tickets where tenant_id = $1 and state in ('open', 'reviewing') order by reported_at limit 20", [tenantId])
+      ).map((r) => r.id),
     };
     await auditRead(200);
     return c.json(body);

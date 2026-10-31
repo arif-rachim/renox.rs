@@ -129,6 +129,8 @@ async function seed(h: Harness, name: "a" | "b"): Promise<Tenant> {
   const email = `${name}@idor.test`;
   const app = `${name}-app`;
   const session = await signup(h, email, tenant);
+  // Past its first 7 days: a new free tenant has no custom domain (deploy-api.md 0.5 section 21).
+  await h.db.query("update tenants set created_at = created_at - $2 where id = $1", [tenant, 8 * 86_400_000]);
   const created = await json(await h.request("POST", "/v1/tokens", { session, json: { name: "idor", scopes: ["*"], expires_in_days: 30 } }));
   const token = created.token as string;
   expect((await h.request("POST", "/v1/apps", { token, json: { name: app } })).status).toBe(201);

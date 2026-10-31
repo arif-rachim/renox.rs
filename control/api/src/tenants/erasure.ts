@@ -29,6 +29,7 @@ import { routeService } from "../routes/service.ts";
 import { requestScope, tenantDb } from "../tenancy/scope.ts";
 import { nodeCall, nodeTarget } from "../workers/failover.ts";
 import { logIngest } from "../ingest/logs.ts";
+import { flagged } from "../signup/friction.ts";
 
 export type ErasureState = "pending" | "erasing" | "done" | "failed";
 
@@ -234,12 +235,17 @@ async function busyReason(db: Db, tenantId: string): Promise<string | null> {
 
 /**
  * deploy-api.md 0.5 section 21: a new free tenant has reduced quotas and no
- * custom domain until a payment method is confirmed, or 7 days pass.
+ * custom domain until a payment method is confirmed, or 7 days pass
+ * without an abuse flag or an anomaly (src/signup/friction.ts).
  */
 export async function newTenantRestrictions(db: Db, tenantId: string, createdAt: number, now: number): Promise<string[]> {
-  if (now - createdAt >= 7 * 86_400_000) return [];
+  // Only a free tenant starts restricted (section 21); an operator's paid tier has none.
+  const tier = (await db.query<{ tier: string }>("select tier from tenants where id = $1", [tenantId]))[0]?.tier;
+  if (tier !== undefined && tier !== "free") return [];
   const pm = await db.query<Record<string, unknown>>("select payment_method from tenant_billing where tenant_id = $1", [tenantId]);
   if (pm[0]?.payment_method !== undefined && pm[0]?.payment_method !== null) return [];
+  // #123: 7 days lift them only without an abuse flag or an anomaly in the last 7 days.
+  if (now - createdAt >= 7 * 86_400_000 && !(await flagged(db, tenantId, now))) return [];
   return ["reduced_quotas", "no_custom_domain"];
 }
 

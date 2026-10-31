@@ -21,6 +21,9 @@ import { sweep } from "./workers/health.ts";
 import { NullMailer, OutboxDirMailer } from "./auth/mailer.ts";
 import { startDomainJobs } from "./domains/jobs.ts";
 import { sweepBilling } from "./billing/sweep.ts";
+import { sweepAbuse } from "./abuse/takedown.ts";
+import { sweepSafeBrowsing } from "./safe-browsing/check.ts";
+import { rescanActive } from "./deployments/advisories.ts";
 
 const log = createLogger();
 const config = loadConfig();
@@ -61,6 +64,12 @@ setInterval(() => void endExpiredImpersonations(deps).catch((e: unknown) => log.
 setInterval(() => void sweepErasures(deps).catch((e: unknown) => log.error("erasure sweep failed", { error: String(e) })), Math.min(60_000, config.erasureRetryMs ?? 60_000));
 // Platform billing (#325): the tier signal, the owner's emails, the anomaly reviews and the monthly close, hourly.
 setInterval(() => void sweepBilling(deps).catch((e: unknown) => log.error("billing sweep failed", { error: String(e) })), 3_600_000);
+// Abuse (#123): the takedown SLA alert and the reporters' 90 days, every minute;
+// Safe Browsing (hostnames unchecked for a day) and the OSV re-scan of active deployments, hourly.
+setInterval(() => void sweepAbuse(deps).catch((e: unknown) => log.error("abuse sweep failed", { error: String(e) })), 60_000);
+setInterval(() => void sweepSafeBrowsing(deps).catch((e: unknown) => log.error("safe browsing sweep failed", { error: String(e) })), 3_600_000);
+setInterval(() => void rescanActive(deps).catch((e: unknown) => log.error("advisory re-scan failed", { error: String(e) })), 3_600_000);
+if (!process.env.RENOX_SAFE_BROWSING_KEY) log.warn("RENOX_SAFE_BROWSING_KEY is not set: hostnames are not checked with Safe Browsing");
 if ((config.exportKmsKeyId ?? null) === null) log.warn("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (local mode only)");
 
 const server = Bun.serve({ port: config.port, fetch: publicApp.fetch, idleTimeout: 0 });

@@ -40,6 +40,8 @@ interface Tenant {
 async function owner(h: Harness, id: string, app: string): Promise<Tenant> {
   const email = `owner@${id}.test`;
   const session = await signup(h, email, id);
+  // Past its first 7 days: a new free tenant has no custom domain (deploy-api.md 0.5 section 21).
+  await h.db.query("update tenants set created_at = created_at - $2 where id = $1", [id, 8 * 86_400_000]);
   const res = await h.request("POST", "/v1/tokens", { session, json: { name: "t", scopes: ["*"], expires_in_days: 365 } });
   const token = ((await res.json()) as { token: string }).token;
   await createApp_(h, token, app);

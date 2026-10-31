@@ -12,7 +12,7 @@ import { check } from "../contract.ts";
 import { ApiError, conflict, invalid } from "../errors.ts";
 import { pathParam } from "../http.ts";
 import { extractSourcemaps, extractUpload, gzipOf } from "./extract.ts";
-import { scan } from "./advisories.ts";
+import { SBOM_DOC_MAX, scan } from "./advisories.ts";
 import { bundleViolations } from "./validate-bundle.ts";
 import { actorOf, type Deps, type Env } from "../context.ts";
 import { num, type Db } from "../db/db.ts";
@@ -109,12 +109,14 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
     // asked outside the transaction; a failure stores no items, never a block.
     if (ok && orphaned !== null) {
       const sbom = (files as Map<string, Uint8Array>).get("sbom.cdx.json");
-      const items = sbom === undefined ? [] : await scan(new TextDecoder().decode(sbom));
+      const doc = sbom === undefined ? null : new TextDecoder().decode(sbom);
+      const items = doc === null ? [] : await scan(doc);
       await db.transaction(async (tx) => {
         await tx.query(
-          `insert into deployment_advisories (tenant_id, app, hash, sbom, items, checked_at) values ($1, $2, $3, $4, $5::jsonb, $6)
-           on conflict (tenant_id, app, hash) do update set sbom = excluded.sbom, items = excluded.items, checked_at = excluded.checked_at`,
-          [tenant, name, claimed, sbom !== undefined, JSON.stringify(items), deps.now()],
+          `insert into deployment_advisories (tenant_id, app, hash, sbom, items, checked_at, sbom_doc) values ($1, $2, $3, $4, $5::jsonb, $6, $7)
+           on conflict (tenant_id, app, hash) do update set sbom = excluded.sbom, items = excluded.items, checked_at = excluded.checked_at, sbom_doc = excluded.sbom_doc`,
+          // The document is kept for the daily re-scan of active deployments (rescanActive).
+          [tenant, name, claimed, sbom !== undefined, JSON.stringify(items), deps.now(), doc !== null && (sbom?.length ?? 0) <= SBOM_DOC_MAX ? doc : null],
         );
       });
     }
