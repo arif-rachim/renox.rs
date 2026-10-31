@@ -29,7 +29,7 @@ jobs:
       # sha256 of tofu_1.8.8_linux_amd64.zip (tofu_1.8.8_SHA256SUMS of the release).
       TOFU_SHA256: 9e889633bc177b1d266552658020fe8ceb839445fcac82aaa7622952fd9c81bb
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install OpenTofu (pinned, checksum verified before unzip)
         run: |
           zip="$RUNNER_TEMP/tofu.zip"
@@ -51,7 +51,7 @@ jobs:
       RENOX_TEST_S3_SECRET: renox-ci-minio-secret
       RENOX_TEST_S3_KMS_KEY: renox-ci-key
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
