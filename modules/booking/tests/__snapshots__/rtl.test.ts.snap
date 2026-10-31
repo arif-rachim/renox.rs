@@ -1,0 +1,222 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: services en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book an appointment</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>Book an appointment</h1>
+  <ul id="booking-services">
+    <li dir="auto"><a href="?service=color&amp;day=<date>" dir="auto">Colour</a> · 60 min<span dir="auto"> · deposit AED 25.05</span></li><li dir="auto"><a href="?service=cut&amp;day=<date>" dir="auto">Haircut</a> · 30 min</li>
+  </ul>
+  
+  <p><a href="mine">My bookings</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: services ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>احجز موعدًا</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>احجز موعدًا</h1>
+  <ul id="booking-services">
+    <li dir="auto"><a href="?service=color&amp;day=<date>" dir="auto">Colour</a> · 60 دقيقة<span dir="auto"> · عربون 25.05 د.إ.</span></li><li dir="auto"><a href="?service=cut&amp;day=<date>" dir="auto">Haircut</a> · 30 دقيقة</li>
+  </ul>
+  
+  <p><a href="mine">حجوزاتي</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: slots en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book an appointment</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>Book an appointment</h1>
+  <ul id="booking-services">
+    <li dir="auto"><a href="?service=color&amp;day=<date>" dir="auto">Colour</a> · 60 min<span dir="auto"> · deposit AED 25.05</span></li><li dir="auto"><a href="?service=cut&amp;day=<date>" dir="auto">Haircut</a> · 30 min</li>
+  </ul>
+  <section id="booking-slots">
+    <form method="get"><input type="hidden" name="service" value="cut"><label>Day <input type="date" name="day" value="<date>"></label><button type="submit">Show</button></form>
+    <ul>
+      <li><form method="post" action="?/hold" hx-post="?/hold" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="service" value="cut"><input type="hidden" name="staff" value="sara"><input type="hidden" name="start" value="<time>"><button type="submit" dir="auto">09:30 · Sara</button></form></li>
+    </ul>
+  </section>
+  <p><a href="mine">My bookings</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: slots ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>احجز موعدًا</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>احجز موعدًا</h1>
+  <ul id="booking-services">
+    <li dir="auto"><a href="?service=color&amp;day=<date>" dir="auto">Colour</a> · 60 دقيقة<span dir="auto"> · عربون 25.05 د.إ.</span></li><li dir="auto"><a href="?service=cut&amp;day=<date>" dir="auto">Haircut</a> · 30 دقيقة</li>
+  </ul>
+  <section id="booking-slots">
+    <form method="get"><input type="hidden" name="service" value="cut"><label>اليوم <input type="date" name="day" value="<date>"></label><button type="submit">عرض</button></form>
+    <ul>
+      <li><form method="post" action="?/hold" hx-post="?/hold" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="service" value="cut"><input type="hidden" name="staff" value="sara"><input type="hidden" name="start" value="<time>"><button type="submit" dir="auto">09:30 · Sara</button></form></li>
+    </ul>
+  </section>
+  <p><a href="mine">حجوزاتي</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: mine en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My bookings</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>My bookings</h1>
+  
+  <ul id="booking-mine">
+    <li dir="auto">Haircut · <time dir="auto"><date> 09:00</time> · held <form method="post" action="?/cancel" hx-post="?/cancel" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="id" value="<id>"><button type="submit">Cancel</button></form></li>
+  </ul>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: mine ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>حجوزاتي</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>حجوزاتي</h1>
+  
+  <ul id="booking-mine">
+    <li dir="auto">Haircut · <time dir="auto"><date> 09:00</time> · محجوز مؤقتًا <form method="post" action="?/cancel" hx-post="?/cancel" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="id" value="<id>"><button type="submit">إلغاء</button></form></li>
+  </ul>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: calendar en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calendar</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1 dir="auto">Calendar · Sara · <time datetime="<date>" dir="auto"><date></time></h1>
+  <nav class="booking-days">
+    <a href="?day=<date>" rel="prev"><span class="i18n-mirror" aria-hidden="true">←</span> Previous day</a>
+    <a href="?day=<date>" rel="next">Next day <span class="i18n-mirror" aria-hidden="true">→</span></a>
+  </nav>
+  <ul id="booking-calendar" hx-ext="sse" sse-connect="sse/calendar" hx-trigger="sse:change" hx-get="" hx-select="#booking-calendar" hx-swap="outerHTML">
+    <li dir="auto">09:00 · Haircut · held</li>
+  </ul>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: calendar ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>التقويم</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1 dir="auto">التقويم · Sara · <time datetime="<date>" dir="auto"><date></time></h1>
+  <nav class="booking-days">
+    <a href="?day=<date>" rel="prev"><span class="i18n-mirror" aria-hidden="true">←</span> اليوم السابق</a>
+    <a href="?day=<date>" rel="next">اليوم التالي <span class="i18n-mirror" aria-hidden="true">→</span></a>
+  </nav>
+  <ul id="booking-calendar" hx-ext="sse" sse-connect="sse/calendar" hx-trigger="sse:change" hx-get="" hx-select="#booking-calendar" hx-swap="outerHTML">
+    <li dir="auto">09:00 · Haircut · محجوز مؤقتًا</li>
+  </ul>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions money: AED with its fils, the symbol after the amount in Arabic, Eastern Arabic digits with nu-arab: role: services ar-u-nu-arab 1`] = `
+"<!DOCTYPE html><html lang="ar-u-nu-arab" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>احجز موعدًا</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>احجز موعدًا</h1>
+  <ul id="booking-services">
+    <li dir="auto"><a href="?service=color&amp;day=<date>" dir="auto">Colour</a> · 60 دقيقة<span dir="auto"> · عربون ٢٥٫٠٥ د.إ.</span></li><li dir="auto"><a href="?service=cut&amp;day=<date>" dir="auto">Haircut</a> · 30 دقيقة</li>
+  </ul>
+  
+  <p><a href="mine">حجوزاتي</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`booking in both directions dates: DD/MM/YYYY in English, the CLDR Arabic short date, the digits of the tag, the Hijri date with ca-islamic-umalqura: role: mine ar-u-ca-islamic-umalqura-nu-arab 1`] = `
+"<!DOCTYPE html><html lang="ar-u-ca-islamic-umalqura-nu-arab" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>حجوزاتي</title>
+</head>
+<body class="renox-booking">
+  <main>
+  
+  <h1>حجوزاتي</h1>
+  
+  <ul id="booking-mine">
+    <li dir="auto">Haircut · <time dir="auto"><date> ٠٩:٠٠</time><span class="booking-hijri" dir="auto"> (٣ رمضان ١٤٥١ هـ)</span> · محجوز مؤقتًا <form method="post" action="?/cancel" hx-post="?/cancel" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="id" value="<id>"><button type="submit">إلغاء</button></form></li>
+  </ul>
+</main>
+
+
+</body></html>"
+`;

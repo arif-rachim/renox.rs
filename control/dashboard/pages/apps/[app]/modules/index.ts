@@ -15,6 +15,7 @@ import type { ActionContext, LoaderContext } from "renox";
 
 import { apiBase, type AppModule, type ModulePermissions, type RegistryVersion } from "../../../../lib/api.ts";
 import { appParam, notFound, problem, signedIn } from "../../../../lib/guard.ts";
+import { EN, trOf, type Tr } from "../../../../lib/i18n.ts";
 import { ago } from "../../../../lib/view.ts";
 
 /** deploy-api.yaml `PublisherName`, `ModuleName`, `ModuleVersion`. */
@@ -50,7 +51,7 @@ function newer(a: string, b: string): boolean {
 }
 
 /** Finished rows for the template (it calls no functions). */
-export function installedView(items: AppModule[], registry: RegistryVersion[], now: number) {
+export function installedView(items: AppModule[], registry: RegistryVersion[], now: number, tr: Tr = EN) {
   return items.map((m) => {
     const latest = registry.find((r) => sourceOf(r) === m.source);
     const upgrade = latest !== undefined && newer(latest.version, m.version) ? latest.version : null;
@@ -62,9 +63,9 @@ export function installedView(items: AppModule[], registry: RegistryVersion[], n
       module: name,
       version: m.version,
       approved: permissionLines(m.approved),
-      approved_at: ago(m.approved_at, now),
+      approved_at: ago(m.approved_at, now, tr),
       upgrade,
-      status: m.disabled !== null ? `disabled by Renox: ${m.disabled.reason}` : upgrade !== null ? `${upgrade} available` : "up to date",
+      status: m.disabled !== null ? tr("dash.modules.status_disabled", { reason: m.disabled.reason }) : upgrade !== null ? tr("dash.modules.status_upgrade", { version: upgrade }) : tr("dash.modules.status_current"),
       disabled: m.disabled !== null,
     };
   });
@@ -96,7 +97,7 @@ export async function load(ctx: LoaderContext) {
   // The upgrade check reads the whole registry, not the search result.
   const all = q === "" ? registry : await api.listRegistry();
   const latest = all.ok ? all.value.items : [];
-  const rows = installedView(installed.value.items, latest, Date.now());
+  const rows = installedView(installed.value.items, latest, Date.now(), trOf(ctx));
   return {
     ...base,
     problem: registry.ok ? null : await problem(ctx, registry),
@@ -121,10 +122,10 @@ export const actions = {
     const app = appParam(ctx.params.app);
     if (app === null) return notFound();
     const t = target(ctx);
-    if (t === null) return { ...quiet, form_error: "No such module version." };
+    if (t === null) return { ...quiet, form_error: trOf(ctx)("dash.modules.err_version") };
     const v = await api.getModuleVersion(t.publisher, t.name, t.version);
     if (!v.ok) return { ...quiet, action_problem: await problem(ctx, v) };
-    if (v.value.disabled !== null) return { ...quiet, form_error: `${t.name} ${t.version} was disabled by Renox: ${v.value.disabled.reason}` };
+    if (v.value.disabled !== null) return { ...quiet, form_error: trOf(ctx)("dash.modules.err_disabled", { name: t.name, version: t.version, reason: v.value.disabled.reason }) };
     const installed = await api.listAppModules(app);
     if (!installed.ok) return { ...quiet, action_problem: await problem(ctx, installed) };
     const current = installed.value.items.find((m) => m.source === sourceOf(t));
@@ -168,16 +169,16 @@ export const actions = {
     if (app === null) return notFound();
     const t = target(ctx);
     const hash = String(ctx.form.get("hash") ?? "");
-    if (t === null || !HASH.test(hash)) return { ...quiet, form_error: "No such module version." };
+    if (t === null || !HASH.test(hash)) return { ...quiet, form_error: trOf(ctx)("dash.modules.err_version") };
     const v = await api.getModuleVersion(t.publisher, t.name, t.version);
     if (!v.ok) return { ...quiet, action_problem: await problem(ctx, v) };
     // What is approved is what was reviewed: the same tree, its own request.
-    if (v.value.hash !== hash) return { ...quiet, form_error: "This version is not the one you reviewed. Review it again." };
+    if (v.value.hash !== hash) return { ...quiet, form_error: trOf(ctx)("dash.modules.err_changed") };
     const r = await api.installModule(app, { source: sourceOf(t), version: t.version, hash, approved: v.value.permissions });
     if (!r.ok) return { ...quiet, action_problem: await problem(ctx, r) };
     return {
       ...quiet,
-      notice: `${t.name} ${t.version} approved for ${app}. Add it to renox.toml as ${sourceOf(t)} and run renox deploy; the lock records this approval.`,
+      notice: trOf(ctx)("dash.modules.approved_notice", { name: t.name, version: t.version, app, source: sourceOf(t) }),
     };
   },
 };

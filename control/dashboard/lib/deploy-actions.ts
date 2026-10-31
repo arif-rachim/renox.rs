@@ -6,7 +6,8 @@
 // section 6), so the page shows the outcome, not a pending state.
 import type { ActionContext } from "renox";
 
-import { appParam, hashParam, problem, signedIn } from "./guard.ts";
+import { appParam, hashParam, problem, refusal, signedIn } from "./guard.ts";
+import { trOf } from "./i18n.ts";
 import { shortHash } from "./view.ts";
 
 export const deployActions = {
@@ -15,19 +16,19 @@ export const deployActions = {
     if (api instanceof Response) return api;
     const app = appParam(ctx.params.app);
     const hash = hashParam(ctx.form.get("hash"));
-    if (app === null || hash === null) return { notice: null, action_problem: { code: "RENOX_VALIDATION", message: "No deployment was chosen.", status: 400, request_id: null, signed_out: false, details: [] } };
+    if (app === null || hash === null) return { notice: null, action_problem: refusal(ctx, "RENOX_VALIDATION", "dash.problem.no_deployment", 400) };
     const r = await api.activate(app, hash);
     if (!r.ok) return { notice: null, action_problem: await problem(ctx, r) };
-    return { notice: `${shortHash(r.value.hash)} is live.`, action_problem: null };
+    return { notice: trOf(ctx)("dash.deploy.is_live", { short: shortHash(r.value.hash) }), action_problem: null };
   },
 
   async rollback(ctx: ActionContext) {
     const api = await signedIn(ctx);
     if (api instanceof Response) return api;
     const app = appParam(ctx.params.app);
-    if (app === null) return { notice: null, action_problem: { code: "RENOX_NOT_FOUND", message: "No such app.", status: 404, request_id: null, signed_out: false, details: [] } };
+    if (app === null) return { notice: null, action_problem: refusal(ctx, "RENOX_NOT_FOUND", "dash.problem.no_app", 404) };
     const r = await api.rollback(app);
     if (!r.ok) return { notice: null, action_problem: await problem(ctx, r) };
-    return { notice: `Rolled back: ${shortHash(r.value.hash)} is live again.`, action_problem: null };
+    return { notice: trOf(ctx)("dash.deploy.rolled_back", { short: shortHash(r.value.hash) }), action_problem: null };
   },
 };

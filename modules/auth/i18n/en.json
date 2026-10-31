@@ -60,7 +60,9 @@
       "asks": "This agent asks to act in this app for",
       "returns_to": "After you answer you return to",
       "allow": "Allow",
-      "deny": "Deny"
+      "deny": "Deny",
+      "scope_all": "every tool of this app, as you",
+      "scope_tool": "the tool {tool}, as you"
     },
     "phone": {
       "title": "Sign in with your phone",

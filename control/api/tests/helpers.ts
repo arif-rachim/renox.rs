@@ -233,8 +233,14 @@ export async function login(h: Harness, email: string, password = PASSWORD, extr
 }
 
 /** Signs up through the API (a new tenant when `tenantId` is given), verifies the address unless told not to, and signs in. */
+let signups = 0;
+
 export async function signup(h: Harness, email: string, tenantId?: string, verify = true): Promise<Session> {
-  const res = await h.request("POST", "/v1/account/signup", { json: { email, password: PASSWORD, ...(tenantId === undefined ? {} : { tenant_id: tenantId }) } });
+  // Each sign-up from an address of its own (198.18.0.0/15): the per-IP cap of
+  // deploy-api.md 0.5 section 21 (3 an hour) is tested in signup.test.ts.
+  const n = signups++;
+  const ip = `198.${18 + ((n >> 16) & 1)}.${(n >> 8) & 255}.${n & 255}`;
+  const res = await h.request("POST", "/v1/account/signup", { ip, json: { email, password: PASSWORD, ...(tenantId === undefined ? {} : { tenant_id: tenantId }) } });
   if (res.status !== 202) throw new Error(`signup ${email}: ${res.status} ${await res.text()}`);
   if (verify) {
     const v = await h.request("POST", "/v1/account/verify", { json: { token: mailToken(h, email, "verify_email") } });

@@ -1,8 +1,12 @@
 <r-layout use="booking">
   <r-group slot="title"><r-t key="booking.calendar" /></r-group>
-  <h1><r-t key="booking.calendar" /> · {{ staff }} · {{ day }}</h1>
+  <h1><r-t key="booking.calendar" /> · {{ staff }} · <time :datetime="day">{{ day | date('short') }}</time><span r-if="day_hijri" class="booking-hijri"> ({{ day_hijri }})</span></h1>
+  <nav class="booking-days">
+    <a href="?day={{ previous }}" rel="prev"><span class="i18n-mirror" aria-hidden="true">←</span> <r-t key="booking.previous_day" /></a>
+    <a href="?day={{ next }}" rel="next"><r-t key="booking.next_day" /> <span class="i18n-mirror" aria-hidden="true">→</span></a>
+  </nav>
   <ul id="booking-calendar" hx-ext="sse" sse-connect="sse/calendar" hx-trigger="sse:change" hx-get="" hx-select="#booking-calendar" hx-swap="outerHTML">
-    <li r-for="b in bookings">{{ b.time }} · {{ b.service }} · {{ b.status }}</li>
+    <li r-for="b in bookings">{{ b.at | date('time') }} · {{ b.service }} · {{ b.status_key | t }}</li>
     <li r-empty="bookings"><r-t key="booking.none" /></li>
   </ul>
 </r-layout>

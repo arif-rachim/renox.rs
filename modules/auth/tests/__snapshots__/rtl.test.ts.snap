@@ -177,3 +177,687 @@ exports[`auth in Arabic in both digit sets (#266): ar-u-nu-arab carries Eastern 
 
 </body></html>"
 `;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page login en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Sign in</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>Email <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <ul class="methods">
+    <li><a href="phone?next=%2F">Sign in with your phone</a></li>
+    <li><a href="passkeys/login?next=%2F">Sign in with a passkey</a></li>
+  </ul>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">Continue with Google</a></li>
+  </ul>
+  <p><a href="register">Create an account</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page login ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تسجيل الدخول</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>تسجيل الدخول</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>البريد الإلكتروني <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>كلمة المرور <input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit">تسجيل الدخول</button>
+  </form>
+  <ul class="methods">
+    <li><a href="phone?next=%2F">تسجيل الدخول برقم الهاتف</a></li>
+    <li><a href="passkeys/login?next=%2F">تسجيل الدخول بمفتاح المرور</a></li>
+  </ul>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">المتابعة باستخدام Google</a></li>
+  </ul>
+  <p><a href="register">إنشاء حساب</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page register en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create an account</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Create an account</h1>
+  
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>Name <input type="text" name="display_name" autocomplete="name" value="" dir="auto"></label>
+    <label>Email <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>Password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Create account</button>
+  </form>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">Continue with Google</a></li>
+  </ul>
+  <p><a href="login">Sign in instead</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page register ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إنشاء حساب</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>إنشاء حساب</h1>
+  
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>الاسم <input type="text" name="display_name" autocomplete="name" value="" dir="auto"></label>
+    <label>البريد الإلكتروني <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <label>كلمة المرور <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">إنشاء الحساب</button>
+  </form>
+  <ul class="providers">
+    <li><a href="oauth/google/start?next=%2F">المتابعة باستخدام Google</a></li>
+  </ul>
+  <p><a href="login">تسجيل الدخول بدلاً من ذلك</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page magic en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in with a link</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Sign in with a link</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Email <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <button type="submit">Send me a link</button>
+  </form>
+  <p><a href="login">Sign in with a password</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page magic ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تسجيل الدخول برابط</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>تسجيل الدخول برابط</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>البريد الإلكتروني <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <button type="submit">أرسل لي رابطاً</button>
+  </form>
+  <p><a href="login">تسجيل الدخول بكلمة المرور</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page reset en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reset your password</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Reset your password</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Email <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <button type="submit">Send me a reset link</button>
+  </form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page reset ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إعادة تعيين كلمة المرور</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>إعادة تعيين كلمة المرور</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>البريد الإلكتروني <input type="email" name="email" autocomplete="username" value="" required dir="auto"></label>
+    <button type="submit">أرسل لي رابط إعادة التعيين</button>
+  </form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page reset confirm en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Choose a new password</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Choose a new password</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="token" value="t0k3n">
+    <label>New password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Set password</button>
+  </form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page reset confirm ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>اختر كلمة مرور جديدة</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>اختر كلمة مرور جديدة</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="token" value="t0k3n">
+    <label>كلمة المرور الجديدة <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">تعيين كلمة المرور</button>
+  </form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page phone en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in with your phone</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Sign in with your phone</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>Mobile number <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" placeholder="+971 50 123 4567" value="" required></label>
+    <button type="submit">Send code</button>
+  </form>
+  <p><a href="../login">Other ways to sign in</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page phone ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تسجيل الدخول برقم الهاتف</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>تسجيل الدخول برقم الهاتف</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <label>رقم الجوال <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" placeholder="+971 50 123 4567" value="" required></label>
+    <button type="submit">إرسال الرمز</button>
+  </form>
+  <p><a href="../login">طرق أخرى لتسجيل الدخول</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page phone verify en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enter your code</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Enter your code</h1>
+  <p class="notice">If this number has an account, a code is on its way.</p>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="phone" value="+971501234567">
+    <input type="hidden" name="next" value="/">
+    <p dir="ltr">+971501234567</p>
+    <label>Code <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" dir="ltr" required></label>
+    <button type="submit">Verify</button>
+  </form>
+  <p><a href="../phone">Use another number or ask for a new code</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page phone verify ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>أدخل الرمز</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>أدخل الرمز</h1>
+  <p class="notice">إذا كان لهذا الرقم حساب، فالرمز في طريقه إليك.</p>
+  
+  <form method="post" action="?/default" hx-post="?/default"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="phone" value="+971501234567">
+    <input type="hidden" name="next" value="/">
+    <p dir="ltr">+971501234567</p>
+    <label>الرمز <input type="text" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" dir="ltr" required></label>
+    <button type="submit">تحقق</button>
+  </form>
+  <p><a href="../phone">استخدم رقمًا آخر أو اطلب رمزًا جديدًا</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page passkey login en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in with a passkey</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Sign in with a passkey</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default" id="passkey-form" data-options="{&quot;challenge&quot;:&quot;<random>&quot;,&quot;rpId&quot;:&quot;shop.example&quot;,&quot;userVerification&quot;:&quot;preferred&quot;,&quot;timeout&quot;:300000}"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <input type="hidden" name="credential_id">
+    <input type="hidden" name="client_data">
+    <input type="hidden" name="authenticator_data">
+    <input type="hidden" name="signature">
+    <button type="button" id="passkey-go">Use a passkey</button>
+  </form>
+  <p><a href="../login">Other ways to sign in</a></p>
+  <script nonce="<nonce>">
+    (() => {
+      const form = document.getElementById("passkey-form");
+      const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+      const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      document.getElementById("passkey-go").addEventListener("click", async () => {
+        const o = JSON.parse(form.dataset.options);
+        const cred = await navigator.credentials.get({ publicKey: { ...o, challenge: b64(o.challenge) } });
+        form.credential_id.value = cred.id;
+        form.client_data.value = enc(cred.response.clientDataJSON);
+        form.authenticator_data.value = enc(cred.response.authenticatorData);
+        form.signature.value = enc(cred.response.signature);
+        form.submit();
+      });
+    })();
+  </script>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page passkey login ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تسجيل الدخول بمفتاح المرور</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>تسجيل الدخول بمفتاح المرور</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default" id="passkey-form" data-options="{&quot;challenge&quot;:&quot;<random>&quot;,&quot;rpId&quot;:&quot;shop.example&quot;,&quot;userVerification&quot;:&quot;preferred&quot;,&quot;timeout&quot;:300000}"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/">
+    <input type="hidden" name="credential_id">
+    <input type="hidden" name="client_data">
+    <input type="hidden" name="authenticator_data">
+    <input type="hidden" name="signature">
+    <button type="button" id="passkey-go">استخدم مفتاح المرور</button>
+  </form>
+  <p><a href="../login">طرق أخرى لتسجيل الدخول</a></p>
+  <script nonce="<nonce>">
+    (() => {
+      const form = document.getElementById("passkey-form");
+      const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+      const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      document.getElementById("passkey-go").addEventListener("click", async () => {
+        const o = JSON.parse(form.dataset.options);
+        const cred = await navigator.credentials.get({ publicKey: { ...o, challenge: b64(o.challenge) } });
+        form.credential_id.value = cred.id;
+        form.client_data.value = enc(cred.response.clientDataJSON);
+        form.authenticator_data.value = enc(cred.response.authenticatorData);
+        form.signature.value = enc(cred.response.signature);
+        form.submit();
+      });
+    })();
+  </script>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page account en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your account</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1 dir="auto">Rtl</h1>
+  <p id="email" dir="auto">rtl@example.com</p>
+  
+  
+  <h2>Password</h2>
+  <form method="post" action="?/password" hx-post="?/password"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>New password <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">Change password</button>
+  </form>
+  <h2>Sessions</h2>
+  <ul id="sessions">
+    <li dir="auto">
+      Other · since <time>
+      <strong>(this browser)</strong>
+      
+    </li>
+  </ul>
+  
+    <h2>Phone</h2>
+    
+    <form method="post" action="?/phone_send" hx-post="?/phone_send"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Mobile number <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" required></label>
+      <button type="submit">Send code</button>
+    </form>
+    
+  
+  
+    <h2>Passkeys</h2>
+    <ul id="passkeys">
+      <li>No passkey yet.</li>
+    </ul>
+    <p><a href="passkeys/register">Add a passkey</a></p>
+  
+  
+  <h2>Connected agents</h2>
+  <ul id="agents">
+    <li>No agent is connected.</li>
+  </ul>
+  <form method="post" action="?/everywhere" hx-post="?/everywhere"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out everywhere</button></form>
+  <form method="post" action="?/logout" hx-post="?/logout"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Sign out</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page account ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>حسابك</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1 dir="auto">Rtl</h1>
+  <p id="email" dir="auto">rtl@example.com</p>
+  
+  
+  <h2>كلمة المرور</h2>
+  <form method="post" action="?/password" hx-post="?/password"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>كلمة المرور الحالية <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>كلمة المرور الجديدة <input type="password" name="password" autocomplete="new-password" required></label>
+    <button type="submit">تغيير كلمة المرور</button>
+  </form>
+  <h2>الجلسات</h2>
+  <ul id="sessions">
+    <li dir="auto">
+      Other · منذ <time>
+      <strong>(هذا المتصفح)</strong>
+      
+    </li>
+  </ul>
+  
+    <h2>الهاتف</h2>
+    
+    <form method="post" action="?/phone_send" hx-post="?/phone_send"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>رقم الجوال <input type="tel" name="phone" autocomplete="tel" inputmode="tel" dir="ltr" required></label>
+      <button type="submit">إرسال الرمز</button>
+    </form>
+    
+  
+  
+    <h2>مفاتيح المرور</h2>
+    <ul id="passkeys">
+      <li>لا يوجد مفتاح مرور بعد.</li>
+    </ul>
+    <p><a href="passkeys/register">إضافة مفتاح مرور</a></p>
+  
+  
+  <h2>الوكلاء المتصلون</h2>
+  <ul id="agents">
+    <li>لا يوجد وكيل متصل.</li>
+  </ul>
+  <form method="post" action="?/everywhere" hx-post="?/everywhere"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج من كل الأجهزة</button></form>
+  <form method="post" action="?/logout" hx-post="?/logout"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تسجيل الخروج</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page passkey register en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Add a passkey</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>Add a passkey</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default" id="passkey-form" data-options="{&quot;challenge&quot;:&quot;<random>&quot;,&quot;rp&quot;:{&quot;id&quot;:&quot;shop.example&quot;,&quot;name&quot;:&quot;shop.example&quot;},&quot;user&quot;:{&quot;id&quot;:&quot;<random>&quot;,&quot;name&quot;:&quot;rtl@example.com&quot;,&quot;displayName&quot;:&quot;Rtl&quot;},&quot;pubKeyCredParams&quot;:[{&quot;type&quot;:&quot;public-key&quot;,&quot;alg&quot;:-7},{&quot;type&quot;:&quot;public-key&quot;,&quot;alg&quot;:-257}],&quot;authenticatorSelection&quot;:{&quot;residentKey&quot;:&quot;required&quot;,&quot;userVerification&quot;:&quot;preferred&quot;},&quot;excludeCredentials&quot;:[],&quot;timeout&quot;:300000}"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Name <input type="text" name="name" maxlength="60" placeholder="Laptop"></label>
+    <input type="hidden" name="client_data">
+    <input type="hidden" name="attestation_object">
+    <button type="button" id="passkey-go">Create the passkey</button>
+  </form>
+  <p><a href="../account">Back to your account</a></p>
+  <script nonce="<nonce>">
+    (() => {
+      const form = document.getElementById("passkey-form");
+      const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+      const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      document.getElementById("passkey-go").addEventListener("click", async () => {
+        const o = JSON.parse(form.dataset.options);
+        const publicKey = { ...o, challenge: b64(o.challenge), user: { ...o.user, id: b64(o.user.id) }, excludeCredentials: o.excludeCredentials.map((c) => ({ ...c, id: b64(c.id) })) };
+        const cred = await navigator.credentials.create({ publicKey });
+        form.client_data.value = enc(cred.response.clientDataJSON);
+        form.attestation_object.value = enc(cred.response.attestationObject);
+        form.submit();
+      });
+    })();
+  </script>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page passkey register ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إضافة مفتاح مرور</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  <h1>إضافة مفتاح مرور</h1>
+  
+  <form method="post" action="?/default" hx-post="?/default" id="passkey-form" data-options="{&quot;challenge&quot;:&quot;<random>&quot;,&quot;rp&quot;:{&quot;id&quot;:&quot;shop.example&quot;,&quot;name&quot;:&quot;shop.example&quot;},&quot;user&quot;:{&quot;id&quot;:&quot;<random>&quot;,&quot;name&quot;:&quot;rtl@example.com&quot;,&quot;displayName&quot;:&quot;Rtl&quot;},&quot;pubKeyCredParams&quot;:[{&quot;type&quot;:&quot;public-key&quot;,&quot;alg&quot;:-7},{&quot;type&quot;:&quot;public-key&quot;,&quot;alg&quot;:-257}],&quot;authenticatorSelection&quot;:{&quot;residentKey&quot;:&quot;required&quot;,&quot;userVerification&quot;:&quot;preferred&quot;},&quot;excludeCredentials&quot;:[],&quot;timeout&quot;:300000}"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>الاسم <input type="text" name="name" maxlength="60" placeholder="Laptop"></label>
+    <input type="hidden" name="client_data">
+    <input type="hidden" name="attestation_object">
+    <button type="button" id="passkey-go">إنشاء مفتاح المرور</button>
+  </form>
+  <p><a href="../account">العودة إلى حسابك</a></p>
+  <script nonce="<nonce>">
+    (() => {
+      const form = document.getElementById("passkey-form");
+      const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+      const enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+      document.getElementById("passkey-go").addEventListener("click", async () => {
+        const o = JSON.parse(form.dataset.options);
+        const publicKey = { ...o, challenge: b64(o.challenge), user: { ...o.user, id: b64(o.user.id) }, excludeCredentials: o.excludeCredentials.map((c) => ({ ...c, id: b64(c.id) })) };
+        const cred = await navigator.credentials.create({ publicKey });
+        form.client_data.value = enc(cred.response.clientDataJSON);
+        form.attestation_object.value = enc(cred.response.attestationObject);
+        form.submit();
+      });
+    })();
+  </script>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page consent en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect an agent</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  
+    <h1 id="client" dir="auto">Test Agent</h1>
+    <p>This agent asks to act in this app for <strong dir="auto">rtl@example.com</strong>.</p>
+    <p id="redirect" dir="auto">After you answer you return to agent.example</p>
+    <ul id="scopes">
+      <li><code dir="auto">tools:*</code>: every tool of this app, as you</li>
+    </ul>
+    <form method="post" action="?/allow" hx-post="?/allow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="client_id" value="<client>"><input type="hidden" name="redirect_uri" value="https://agent.example/callback"><input type="hidden" name="state" value="s1"><input type="hidden" name="code_challenge" value="7w_YNF9DSfIdPf_pRjSq646_kPr-2-o9NAl16JGghdM"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="scope" value="tools:*"><input type="hidden" name="response_type" value="code">
+      <button type="submit" id="allow">Allow</button>
+    </form>
+    <form method="post" action="?/deny" hx-post="?/deny"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="client_id" value="<client>"><input type="hidden" name="redirect_uri" value="https://agent.example/callback"><input type="hidden" name="state" value="s1"><input type="hidden" name="code_challenge" value="7w_YNF9DSfIdPf_pRjSq646_kPr-2-o9NAl16JGghdM"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="scope" value="tools:*"><input type="hidden" name="response_type" value="code">
+      <button type="submit" id="deny">Deny</button>
+    </form>
+  
+</main>
+
+
+</body></html>"
+`;
+
+exports[`every auth page in both directions (#336) en (ltr) and ar (rtl), snapshotted, no English left: role: page consent ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ربط وكيل</title>
+</head>
+<body class="renox-auth">
+  <main>
+  
+  
+    <h1 id="client" dir="auto">Test Agent</h1>
+    <p>يطلب هذا الوكيل التصرف في هذا التطبيق نيابةً عن <strong dir="auto">rtl@example.com</strong>.</p>
+    <p id="redirect" dir="auto">بعد ردّك تعود إلى agent.example</p>
+    <ul id="scopes">
+      <li><code dir="auto">tools:*</code>: كل أدوات هذا التطبيق، باسمك</li>
+    </ul>
+    <form method="post" action="?/allow" hx-post="?/allow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="client_id" value="<client>"><input type="hidden" name="redirect_uri" value="https://agent.example/callback"><input type="hidden" name="state" value="s1"><input type="hidden" name="code_challenge" value="7w_YNF9DSfIdPf_pRjSq646_kPr-2-o9NAl16JGghdM"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="scope" value="tools:*"><input type="hidden" name="response_type" value="code">
+      <button type="submit" id="allow">السماح</button>
+    </form>
+    <form method="post" action="?/deny" hx-post="?/deny"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="client_id" value="<client>"><input type="hidden" name="redirect_uri" value="https://agent.example/callback"><input type="hidden" name="state" value="s1"><input type="hidden" name="code_challenge" value="7w_YNF9DSfIdPf_pRjSq646_kPr-2-o9NAl16JGghdM"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="scope" value="tools:*"><input type="hidden" name="response_type" value="code">
+      <button type="submit" id="deny">الرفض</button>
+    </form>
+  
+</main>
+
+
+</body></html>"
+`;

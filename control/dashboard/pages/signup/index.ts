@@ -8,6 +8,7 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { apiBase, signupAccount } from "../../lib/api.ts";
+import { trOf } from "../../lib/i18n.ts";
 import { applyLocale } from "../../lib/locale.ts";
 
 /** deploy-api.yaml `TenantId`. */
@@ -32,14 +33,15 @@ export const actions = {
     const password = field("password");
     const tenantId = field("tenant_id").trim();
     const back = { sent: false, email, tenant_id: tenantId };
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email) || email.length > 254) return { ...back, error: "Enter your email address." };
-    if (password.length < 12 || password.length > 1024) return { ...back, error: "A password is at least 12 characters." };
-    if (!TENANT_ID.test(tenantId)) return { ...back, error: "A workspace id is lower-case letters, digits, - and _, starting with a letter or digit (at most 63)." };
-    if (form.get("dpa") !== "yes") return { ...back, error: "Accept the data processing agreement and the terms to create an account." };
+    const tr = trOf(ctx);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email) || email.length > 254) return { ...back, error: tr("dash.signup.err_email") };
+    if (password.length < 12 || password.length > 1024) return { ...back, error: tr("dash.signup.err_password") };
+    if (!TENANT_ID.test(tenantId)) return { ...back, error: tr("dash.signup.err_workspace") };
+    if (form.get("dpa") !== "yes") return { ...back, error: tr("dash.signup.err_accept") };
     const r = await signupAccount(fetch, secrets, { email, password, tenant_id: tenantId, tenant_name: field("tenant_name").trim() || tenantId, dpa_accepted: true });
     if (!r.ok) {
-      const reason = r.details.flatMap((d) => (typeof d === "object" && d !== null && typeof (d as { reason?: unknown }).reason === "string" ? [(d as { field?: string; reason: string }).field === "email" && (d as { reason: string }).reason === "disposable" ? "Use an address that is not a disposable mailbox." : `${(d as { field?: string }).field ?? "request"}: ${(d as { reason: string }).reason}`] : []))[0];
-      const error = r.status === 409 ? "That workspace id is taken; choose another." : r.status === 429 ? "Too many sign-ups from here; try again later." : (reason ?? r.message);
+      const reason = r.details.flatMap((d) => (typeof d === "object" && d !== null && typeof (d as { reason?: unknown }).reason === "string" ? [(d as { field?: string; reason: string }).field === "email" && (d as { reason: string }).reason === "disposable" ? tr("dash.signup.err_disposable") : `${(d as { field?: string }).field ?? "request"}: ${(d as { reason: string }).reason}`] : []))[0];
+      const error = r.status === 409 ? tr("dash.signup.err_taken") : r.status === 429 ? tr("dash.signup.err_too_many") : (reason ?? r.message);
       return { ...back, error };
     }
     return { sent: true, error: null, email, tenant_id: "" };

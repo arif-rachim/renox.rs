@@ -2,6 +2,9 @@
 // public report becomes a ticket for the hostname's tenant; an operator
 // moves it through the `abuse` table; `taken_down` suspends the tenant's
 // routes (the same path as suspendTenant) and `restored` brings them back.
+// A report is checked with Safe Browsing; unsafe with phishing or malware
+// takes the tenant down at once (src/safe-browsing/check.ts). Phishing and
+// malware tickets carry the 4-hour takedown SLA (src/abuse/takedown.ts).
 
 import type { Hono } from "hono";
 
@@ -11,8 +14,11 @@ import { num } from "../db/db.ts";
 import { ApiError, conflict, invalid, notFound } from "../errors.ts";
 import { readBody } from "../http.ts";
 import { ulid } from "../ids.ts";
+import { clientIp } from "../auth/ip.ts";
 import { opsAuth } from "../ops/auth.ts";
-import { onTenantState } from "../routes/activation.ts";
+import { checkHostnames, takedownCategory } from "../safe-browsing/check.ts";
+import { captcha } from "../signup/friction.ts";
+import { mailOwner, setTenantState, slaDue, takeDownAtOnce } from "./takedown.ts";
 
 export const ABUSE_TRANSITIONS: Record<string, string[]> = {
   open: ["reviewing", "taken_down", "dismissed"],
@@ -55,8 +61,9 @@ export function registerAbuse(app: Hono<Env>, deps: Deps): void {
       throw invalid("body", "must be JSON");
     }
     const now = deps.now();
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-    if (limited(ip, now)) throw new ApiError("RENOX_RATE_LIMITED");
+    // The socket address (src/auth/ip.ts): a forwarded-for header is never trusted.
+    const ip = clientIp(c);
+    if (limited(ip ?? "unknown", now)) throw new ApiError("RENOX_RATE_LIMITED");
     let url: URL;
     try {
       url = new URL(String(b.url));
@@ -68,14 +75,30 @@ export function registerAbuse(app: Hono<Env>, deps: Deps): void {
     const description = typeof b.description === "string" ? b.description.trim() : "";
     if (description.length < 10 || description.length > 4000) throw invalid("description", "10 to 4000 characters");
     if (typeof b.captcha_token !== "string" || b.captcha_token.length === 0) throw invalid("captcha_token", "required");
+    const human = await captcha(b.captcha_token, ip, process.env, (m) => deps.log.warn(m));
+    if (human === "missing") throw invalid("captcha_token", "required");
+    if (human === "rejected") throw invalid("captcha_token", "rejected");
     const hostname = url.hostname.toLowerCase();
     const owner = (await deps.db.query<{ tenant_id: string }>("select tenant_id from route_entries where hostname = $1 limit 1", [hostname]))[0]?.tenant_id ?? null;
     const id = `abt_${ulid(now)}`;
     await deps.db.query(
-      "insert into abuse_tickets (id, hostname, tenant_id, category, description, reporter_email, state, reported_at, updated_at) values ($1, $2, $3, $4, $5, $6, 'open', $7, $7)",
-      [id, hostname, owner, b.category, description, typeof b.reporter_email === "string" ? b.reporter_email : null, now],
+      "insert into abuse_tickets (id, hostname, tenant_id, category, description, reporter_email, state, reported_at, updated_at, sla_due_at) values ($1, $2, $3, $4, $5, $6, 'open', $7, $7, $8)",
+      [id, hostname, owner, b.category, description, typeof b.reporter_email === "string" ? b.reporter_email.slice(0, 320) : null, now, slaDue(String(b.category), now)],
     );
     c.set("auditTarget", { ticket: id, hostname, category: String(b.category) });
+    // The `open` row of the abuse machine: the hostname is checked with Safe
+    // Browsing; unsafe, and reported as phishing or malware, it is taken down
+    // at once. A failed check leaves the ticket open for the operator.
+    if (owner !== null) {
+      try {
+        const check = (await checkHostnames(deps, [{ hostname, tenant_id: owner }], now, process.env.RENOX_SAFE_BROWSING_KEY ?? "", false)).get(hostname);
+        if (check !== undefined) await deps.db.query("update abuse_tickets set safe_browsing = $2 where id = $1 and state = 'open'", [id, check.verdict]);
+        const sb = check?.verdict === "unsafe" ? takedownCategory(check.threats) : null;
+        if (sb !== null && (b.category === "phishing" || b.category === "malware")) await takeDownAtOnce(deps, { hostname, tenantId: owner, category: sb, threats: check?.threats ?? [], now, ticketId: id });
+      } catch (e) {
+        deps.log.error("safe browsing check of a report failed", { ticket: id, error: String(e) });
+      }
+    }
     return c.json({ ticket_id: id }, 202);
   });
 
@@ -105,13 +128,11 @@ export function registerAbuse(app: Hono<Env>, deps: Deps): void {
     const now = deps.now();
     const tenant = t.tenant_id as string | null;
     if (tenant !== null && (to === "taken_down" || to === "restored")) {
-      const state = to === "taken_down" ? "suspended" : "active";
-      await deps.db.transaction(async (tx) => {
-        await tx.query("update tenants set state = $1 where id = $2", [state, tenant]);
-        await onTenantState(deps, tx, tenant, state, now);
-      });
+      await setTenantState(deps, tenant, to === "taken_down" ? "suspended" : "active", now);
     }
     await deps.db.query("update abuse_tickets set state = $2, reason = $3, updated_at = $4 where id = $1", [id, to, reason, now]);
+    // Section 22, `taken_down`: the owner is emailed with the reason.
+    if (tenant !== null && to === "taken_down") await mailOwner(deps, tenant, String(t.hostname), reason);
     c.set("auditTarget", { ticket: id, from: String(t.state), to, reason });
     return c.json(ticketJson((await deps.db.query<Row>("select * from abuse_tickets where id = $1", [id]))[0] as Row));
   });

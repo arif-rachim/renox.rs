@@ -17,6 +17,7 @@ import type { ActionContext, LoaderContext } from "renox";
 
 import { apiBase, type Api, type ApiFailure, type MfaStatus, needsStepUp, type Result } from "../../lib/api.ts";
 import { problem, type Problem, signedIn } from "../../lib/guard.ts";
+import { trOf } from "../../lib/i18n.ts";
 import { clock } from "../../lib/view.ts";
 
 /** The actions a verification may retry. */
@@ -43,7 +44,7 @@ const codeRefused = (f: ApiFailure): boolean =>
   f.status === 401 && f.details.some((d) => typeof d === "object" && d !== null && (d as { field?: unknown }).field === "mfa");
 
 async function failure(ctx: LoaderContext | ActionContext, f: ApiFailure): Promise<Problem> {
-  if (codeRefused(f)) return { code: f.code, message: "That code (or password) was not accepted.", status: f.status, request_id: f.requestId, signed_out: false, details: [] };
+  if (codeRefused(f)) return { code: f.code, message: trOf(ctx)("dash.security.code_refused"), status: f.status, request_id: f.requestId, signed_out: false, details: [] };
   return problem(ctx, f);
 }
 
@@ -91,7 +92,7 @@ const field = (ctx: ActionContext, name: string): string => {
 async function run(ctx: ActionContext, api: Api, action: Retry) {
   switch (action) {
     case "recovery":
-      return after(ctx, api, await api.regenerateRecoveryCodes(), "recovery", (v) => ({ recovery_codes: v.recovery_codes, notice: "New recovery codes. The old ones no longer work." }));
+      return after(ctx, api, await api.regenerateRecoveryCodes(), "recovery", (v) => ({ recovery_codes: v.recovery_codes, notice: trOf(ctx)("dash.security.new_codes") }));
     case "totp_start":
       return after(ctx, api, await api.startTotp(), "totp_start", (v) => ({ totp_setup: { secret: v.secret, uri: v.otpauth_uri } }));
     case "passkey_options":
@@ -114,34 +115,34 @@ export const actions = {
 
   totp_confirm: withApi(async (ctx, api) => {
     const code = field(ctx, "code").replace(/\s/gu, "");
-    if (!/^\d{6}$/u.test(code)) return page(ctx, api, { ...empty(), notice: "Enter the 6-digit code from your authenticator app." });
-    return after(ctx, api, await api.confirmTotp(code), null, (v) => ({ recovery_codes: v.recovery_codes, notice: "Authenticator app added. Keep these recovery codes somewhere safe." }));
+    if (!/^\d{6}$/u.test(code)) return page(ctx, api, { ...empty(), notice: trOf(ctx)("dash.security.enter_totp") });
+    return after(ctx, api, await api.confirmTotp(code), null, (v) => ({ recovery_codes: v.recovery_codes, notice: trOf(ctx)("dash.security.totp_added") }));
   }),
 
   passkey_register: withApi(async (ctx, api) => {
     const client_data = field(ctx, "client_data");
     const attestation_object = field(ctx, "attestation_object");
     const name = field(ctx, "name").slice(0, 60);
-    if (client_data === "" || attestation_object === "") return page(ctx, api, { ...empty(), notice: "Your browser did not return a passkey." });
+    if (client_data === "" || attestation_object === "") return page(ctx, api, { ...empty(), notice: trOf(ctx)("dash.security.no_passkey") });
     return after(ctx, api, await api.registerPasskey({ client_data, attestation_object, ...(name === "" ? {} : { name }) }), null, (v) => ({
       recovery_codes: v.recovery_codes ?? null,
-      notice: "Passkey added.",
+      notice: trOf(ctx)("dash.security.passkey_added"),
     }));
   }),
 
   verify: withApi(async (ctx, api) => {
     const code = field(ctx, "code");
     const then = field(ctx, "then") as Retry;
-    if (!CODE.test(code)) return page(ctx, api, { ...empty(), step_up: RETRY.includes(then) ? then : null, notice: "Enter a code from your authenticator app or a recovery code." });
+    if (!CODE.test(code)) return page(ctx, api, { ...empty(), step_up: RETRY.includes(then) ? then : null, notice: trOf(ctx)("dash.common.enter_code") });
     const method = /^\d{6}$/u.test(code.replace(/\s/gu, "")) ? "totp" : "recovery";
     const r = await api.verifyMfa({ method, code: method === "totp" ? code.replace(/\s/gu, "") : code });
     if (!r.ok) return page(ctx, api, { ...empty(), step_up: RETRY.includes(then) ? then : null, problem: await failure(ctx, r) });
-    return RETRY.includes(then) ? run(ctx, api, then) : page(ctx, api, { ...empty(), notice: "Verified." });
+    return RETRY.includes(then) ? run(ctx, api, then) : page(ctx, api, { ...empty(), notice: trOf(ctx)("dash.common.verified") });
   }),
 
   disable: withApi(async (ctx, api) => {
     const password = ctx.form.get("password");
     const code = field(ctx, "code");
-    return after(ctx, api, await api.disableMfa(typeof password === "string" ? password : "", code), null, () => ({ notice: "Second factors removed from your account." }));
+    return after(ctx, api, await api.disableMfa(typeof password === "string" ? password : "", code), null, () => ({ notice: trOf(ctx)("dash.security.removed") }));
   }),
 };

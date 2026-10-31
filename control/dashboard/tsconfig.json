@@ -1,5 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // lib/i18n.ts reads the catalogs (i18n/*.json) for the messages built in TypeScript (#336).
+    "resolveJsonModule": true
+  },
   "include": ["**/*.ts"],
   "exclude": ["node_modules", ".renox"]
 }

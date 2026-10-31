@@ -7,6 +7,7 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { Api, apiBase, type ApiFailure } from "./api.ts";
+import { trOf } from "./i18n.ts";
 import { applyLocale } from "./locale.ts";
 import { currentToken, SessionKeyMissing, signOut } from "./session.ts";
 
@@ -36,7 +37,7 @@ export async function signedIn(ctx: Context): Promise<Api | Response> {
   try {
     token = await currentToken(ctx.db, ctx.secrets, ctx.session.id, Date.now());
   } catch (e) {
-    if (e instanceof SessionKeyMissing) return text(503, `The dashboard is not configured: ${e.message}.`);
+    if (e instanceof SessionKeyMissing) return text(503, trOf(ctx)("dash.problem.not_configured", { reason: e.message }));
     throw e;
   }
   if (token === null) return toSignIn(ctx.url);
@@ -68,16 +69,18 @@ export interface Problem {
   details: string[];
 }
 
+/** The page's message for a failure, in the request's locale; the API's own message is shown as it came. */
 export async function problem(ctx: Context, f: ApiFailure): Promise<Problem> {
   const signedOut = f.status === 401;
   if (signedOut) await signOut(ctx.db, ctx.session.id);
+  const tr = trOf(ctx);
   const message =
     f.status === 0
-      ? `The control API at ${new URL(apiBase(ctx.secrets)).host} could not be reached (${f.code}).`
+      ? tr("dash.problem.unreachable", { host: new URL(apiBase(ctx.secrets)).host, code: f.code })
       : signedOut
-        ? "Your token was refused (expired or revoked). Sign in again."
+        ? tr("dash.problem.token_refused")
         : f.status === 403
-          ? `Your token or role does not allow this (${f.message}).`
+          ? tr("dash.problem.forbidden", { message: f.message })
           : f.message;
   const details = f.details.flatMap((d) => {
     if (typeof d !== "object" || d === null) return [];
@@ -100,3 +103,6 @@ export function hashParam(raw: unknown): string | null {
 }
 
 export const notFound = (): Response => text(404, "Not found");
+
+/** A refusal before the API is called (no deployment chosen, no such app), as a page shows it. */
+export const refusal = (ctx: Context, code: string, key: string, status: number): Problem => ({ code, message: trOf(ctx)(key), status, request_id: null, signed_out: false, details: [] });

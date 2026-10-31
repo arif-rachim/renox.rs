@@ -8,14 +8,11 @@ import type { LoaderContext } from "renox";
 
 import { apiBase } from "../../../lib/api.ts";
 import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { trOf } from "../../../lib/i18n.ts";
 import { clock } from "../../../lib/view.ts";
 
-const STATES = {
-  pending: "Requested: it starts within the hour.",
-  erasing: "In progress: routes, tokens, the node's copy, the replica, exports and records are being deleted.",
-  done: "Done: the tenant's data is gone from the node, the replica store and the exports.",
-  failed: "A step still failed after 24 hours; an operator has been alerted.",
-} as const;
+/** The erasure's states, as catalog keys (`dash.settings.erasure_<state>`). */
+const STATES = ["pending", "erasing", "done", "failed"] as const;
 
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
@@ -37,7 +34,7 @@ export async function load(ctx: LoaderContext) {
         ? null
         : {
             state: e.state,
-            text: STATES[e.state],
+            text: STATES.includes(e.state) ? trOf(ctx)(`dash.settings.erasure_${e.state}`) : e.state,
             requested: clock(e.requested_at),
             completed: e.completed_at === null ? null : clock(e.completed_at),
             replica_purged: e.replica_purged_at === null || e.replica_purged_at === undefined ? null : clock(e.replica_purged_at),

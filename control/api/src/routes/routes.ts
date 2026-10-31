@@ -8,6 +8,7 @@ import { jsonBody, pathParam } from "../http.ts";
 import { actorOf, type Deps, type Env } from "../context.ts";
 import { addTenantStateHook } from "../tenants/routes.ts";
 import { activate, onTenantState, rollback } from "./activation.ts";
+import { checkTenant } from "../safe-browsing/check.ts";
 import { routeService } from "./service.ts";
 
 export function registerRoutes(app: Hono<Env>, deps: Deps): void {
@@ -17,7 +18,10 @@ export function registerRoutes(app: Hono<Env>, deps: Deps): void {
     const db = tenantDb(deps, c);
     const name = (await requireApp(db, db.tenantId, pathParam(c, "app", "AppName"))).name;
     const { hash } = await jsonBody<{ hash: string }>(c, "ActivateRequest");
-    return c.json(deploymentView(await activate(deps, db, name, hash, actor(c))));
+    const row = await activate(deps, db, name, hash, actor(c));
+    // #123 (deploy-api.md 0.5 section 22): the tenant's hostnames are checked with Safe Browsing on activation, off the request path.
+    void checkTenant(deps, db.tenantId);
+    return c.json(deploymentView(row));
   });
 
   app.post("/v1/apps/:app/rollback", operation(deps, "rollbackDeployment"), tenantAuth(deps, "deploy"), async (c) => {

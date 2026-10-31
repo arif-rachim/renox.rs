@@ -1,0 +1,63 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`storage in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: files en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Files</title>
+</head>
+<body class="renox-files">
+  <main>
+  
+  <h1>Files</h1>
+  
+  
+  
+  <p id="storage-quota" dir="auto">Used: 0.0 MB<span dir="auto"> / 1.0 MB</span></p>
+  <form method="post" action="?/upload" hx-post="?/upload" enctype="multipart/form-data" hx-encoding="multipart/form-data" class="x-upload"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>File <input type="file" name="file" accept="image/*,application/pdf,text/plain,text/csv" required data-max-bytes="10485760"></label>
+    <label><input type="checkbox" name="public" value="1"> Public link</label>
+    <button type="submit">Upload</button>
+    <progress class="htmx-indicator" max="100"></progress>
+    <small class="muted" dir="auto">Largest file, bytes: 10485760</small>
+  </form>
+  <ul id="storage-files">
+    <li>No files yet.</li>
+  </ul>
+  <p>Admins can open another owner&#39;s folder with ?owner=.</p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`storage in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: files ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>الملفات</title>
+</head>
+<body class="renox-files">
+  <main>
+  
+  <h1>الملفات</h1>
+  
+  
+  
+  <p id="storage-quota" dir="auto">المستخدم: 0.0 MB<span dir="auto"> / 1.0 MB</span></p>
+  <form method="post" action="?/upload" hx-post="?/upload" enctype="multipart/form-data" hx-encoding="multipart/form-data" class="x-upload"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>الملف <input type="file" name="file" accept="image/*,application/pdf,text/plain,text/csv" required data-max-bytes="10485760"></label>
+    <label><input type="checkbox" name="public" value="1"> رابط عام</label>
+    <button type="submit">رفع</button>
+    <progress class="htmx-indicator" max="100"></progress>
+    <small class="muted" dir="auto">أكبر حجم للملف بالبايت: 10485760</small>
+  </form>
+  <ul id="storage-files">
+    <li>لا توجد ملفات بعد.</li>
+  </ul>
+  <p>يمكن للمشرفين فتح مجلد مالك آخر باستخدام ?owner=.</p>
+</main>
+
+
+</body></html>"
+`;

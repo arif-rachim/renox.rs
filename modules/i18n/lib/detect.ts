@@ -11,15 +11,29 @@
 // `<locale>-u-nu-arab` when the config says `arab`, or says `auto` and the
 // stored choice asked for Arabic digits. The renderer's number, money and
 // date filters then write Eastern Arabic digits.
+//
+// Calendar (#336, the `ca` extension of the same rule): an Arabic page gets
+// `-u-ca-islamic-umalqura` when the config says `islamic-umalqura`, or says
+// `auto` and the stored choice asked for a Hijri calendar. The renderer's
+// `date` filter stays Gregorian (it formats `gregory` only, ops.md 1.4.0);
+// a page shows the Hijri date next to it from the tag (README, "Hijri").
 
 export interface Options {
   locales: string[];
   fallback: string;
   digits: Digits;
+  calendar: CalendarOption;
 }
 
 /** The `digits` config: always Latin, always Arabic-Indic, or the stored choice. */
 export type Digits = "latn" | "arab" | "auto";
+
+/** The calendars of `setLocale`'s `ca` key (ops.md 1.4.0, CLDR `calendar.xml`). */
+export const CALENDARS = ["gregory", "islamic", "islamic-civil", "islamic-tbla", "islamic-umalqura", "persian"] as const;
+export type Calendar = (typeof CALENDARS)[number];
+
+/** The `calendar` config: always Gregorian, always Umm al-Qura on Arabic pages, or the stored choice. */
+export type CalendarOption = "gregory" | "islamic-umalqura" | "auto";
 
 export type Source = "query" | "user" | "session" | "org" | "accept_language" | "default";
 
@@ -43,16 +57,24 @@ export function options(config: Readonly<Record<string, unknown>>): Options {
   if (locales.length === 0) locales.push("en");
   const want = typeof config.default_locale === "string" ? config.default_locale : "en";
   const fallback = match(want, locales) ?? (locales[0] as string);
-  return { locales, fallback, digits: config.digits === "arab" || config.digits === "auto" ? config.digits : "latn" };
+  return {
+    locales,
+    fallback,
+    digits: config.digits === "arab" || config.digits === "auto" ? config.digits : "latn",
+    calendar: config.calendar === "islamic-umalqura" || config.calendar === "auto" ? config.calendar : "gregory",
+  };
 }
 
-/** A tag split into its language part and the `nu` value of its `-u-` extension (if any). */
-export function splitTag(tag: string): { base: string; nu: "latn" | "arab" | null } {
+/** A tag split into its language part and the `nu` and `ca` values of its `-u-` extension (if any). */
+export function splitTag(tag: string): { base: string; nu: "latn" | "arab" | null; ca: Calendar | null } {
   const t = tag.trim();
   const i = t.toLowerCase().indexOf("-u-");
-  if (i < 0) return { base: t, nu: null };
-  const nu = /(?:^|-)nu-(latn|arab)(?:-|$)/u.exec(t.slice(i + 3).toLowerCase())?.[1] as "latn" | "arab" | undefined;
-  return { base: t.slice(0, i), nu: nu ?? null };
+  if (i < 0) return { base: t, nu: null, ca: null };
+  const ext = t.slice(i + 3).toLowerCase();
+  const nu = /(?:^|-)nu-(latn|arab)(?:-|$)/u.exec(ext)?.[1] as "latn" | "arab" | undefined;
+  // `ca-<calendar>` up to the next key (`-nu-`) or the end; only the calendars of ops.md count.
+  const ca = /(?:^|-)ca-([a-z]+(?:-(?!nu-)[a-z]+)*)/u.exec(ext)?.[1];
+  return { base: t.slice(0, i), nu: nu ?? null, ca: (CALENDARS as readonly string[]).includes(ca ?? "") ? (ca as Calendar) : null };
 }
 
 /** `tag` when offered, else an offered locale with its language (`ar-AE` -> `ar`), else null. */
@@ -107,5 +129,19 @@ export function digitsOf(locale: string, o: Options, stored: "latn" | "arab" | n
   return o.digits;
 }
 
-/** The tag the page sets: the locale, with `-u-nu-arab` for Eastern Arabic digits. */
-export const tagOf = (locale: string, digits: "latn" | "arab"): string => (digits === "arab" ? `${locale}-u-nu-arab` : locale);
+/** The calendar of a page in `locale`: Gregorian except on Arabic pages, where the config (or, with `auto`, the stored choice) decides. */
+export function calendarOf(locale: string, o: Options, stored: Calendar | null = null): Calendar {
+  if (primary(locale) !== "ar") return "gregory";
+  if (o.calendar === "auto") return stored ?? "gregory";
+  return o.calendar;
+}
+
+/**
+ * The tag the page sets: the locale, with `-u-ca-<calendar>` for a calendar
+ * other than Gregorian and `-nu-arab` for Eastern Arabic digits, in the
+ * canonical order of ops.md 1.4.0 (`ar-u-ca-islamic-umalqura-nu-arab`).
+ */
+export function tagOf(locale: string, digits: "latn" | "arab", calendar: Calendar = "gregory"): string {
+  const ext = [...(calendar === "gregory" ? [] : [`ca-${calendar}`]), ...(digits === "arab" ? ["nu-arab"] : [])];
+  return ext.length === 0 ? locale : `${locale}-u-${ext.join("-")}`;
+}

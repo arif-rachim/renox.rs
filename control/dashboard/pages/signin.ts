@@ -5,6 +5,7 @@ import { redirect, type ActionContext, type LoaderContext } from "renox";
 
 import { Api, apiBase } from "../lib/api.ts";
 import { nextPath } from "../lib/guard.ts";
+import { trOf } from "../lib/i18n.ts";
 import { applyLocale } from "../lib/locale.ts";
 import { KEY_SECRET, signIn, TOKEN_PATTERN } from "../lib/session.ts";
 
@@ -27,16 +28,17 @@ export const actions = {
     const raw = form.get("token");
     const token = typeof raw === "string" ? raw.trim() : "";
     const next = nextPath(String(form.get("next") ?? url.searchParams.get("next") ?? ""));
-    if (!TOKEN_PATTERN.test(token)) return { next, error: "That is not a Renox token: it starts with renox_pat_ followed by 32 letters and digits." };
-    if ((secrets[KEY_SECRET]?.length ?? 0) < 32) return { next, error: `The dashboard is not configured: set the ${KEY_SECRET} secret.` };
+    const tr = trOf(ctx);
+    if (!TOKEN_PATTERN.test(token)) return { next, error: tr("dash.signin.not_token") };
+    if ((secrets[KEY_SECRET]?.length ?? 0) < 32) return { next, error: tr("dash.signin.set_secret", { secret: KEY_SECRET }) };
     const check = await new Api(fetch, token, apiBase(secrets)).listApps();
     if (!check.ok) {
       const error =
         check.status === 401
-          ? "The control API refused this token (unknown, expired or revoked)."
+          ? tr("dash.signin.refused")
           : check.status === 403
-            ? "This token cannot list apps: it needs the apps:read scope."
-            : `The control API could not be reached (${check.code}).`;
+            ? tr("dash.signin.no_scope")
+            : tr("dash.problem.unreachable_short", { code: check.code });
       return { next, error };
     }
     await signIn(db, secrets, session.id, token, Date.now());

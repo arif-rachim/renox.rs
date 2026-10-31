@@ -1,0 +1,135 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`notifications in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: list en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notifications</title>
+</head>
+<body class="renox-notifications">
+  <main>
+  
+  <div hx-ext="sse" sse-connect="/notifications/sse/notifications">
+    <h1>Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">1</span></h1>
+    
+    <p><a href="/notifications/prefs">Preferences</a></p>
+    <form method="post" action="?/all" hx-post="?/all"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Mark all read</button></form>
+    <ul id="notif-list" sse-swap="notif-item" hx-swap="afterbegin">
+      <li class="renox-notif-item" id="notif-<id>">
+        <a href="/orders/42"><strong dir="auto">Order #42 shipped</strong></a>
+        <p dir="auto">On its way</p>
+        <form method="post" action="?/read" hx-post="?/read"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="id" value="<id>"><button type="submit">Mark read</button></form>
+      </li>
+    </ul>
+  </div>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`notifications in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: list ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>الإشعارات</title>
+</head>
+<body class="renox-notifications">
+  <main>
+  
+  <div hx-ext="sse" sse-connect="/notifications/sse/notifications">
+    <h1>الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">1</span></h1>
+    
+    <p><a href="/notifications/prefs">التفضيلات</a></p>
+    <form method="post" action="?/all" hx-post="?/all"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">تعليم الكل كمقروء</button></form>
+    <ul id="notif-list" sse-swap="notif-item" hx-swap="afterbegin">
+      <li class="renox-notif-item" id="notif-<id>">
+        <a href="/orders/42"><strong dir="auto">Order #42 shipped</strong></a>
+        <p dir="auto">On its way</p>
+        <form method="post" action="?/read" hx-post="?/read"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="id" value="<id>"><button type="submit">تعليم كمقروء</button></form>
+      </li>
+    </ul>
+  </div>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`notifications in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: prefs en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notification preferences</title>
+</head>
+<body class="renox-notifications">
+  <main>
+  
+  <h1>Notification preferences</h1>
+  
+  <ul id="prefs">
+    <li>
+      <code dir="auto">orders</code> · in the app ·
+      on
+      <form method="post" action="?/set" hx-post="?/set"><input type="hidden" name="_csrf" value="<csrf>">
+        <input type="hidden" name="category" value="orders">
+        <input type="hidden" name="channel" value="inapp">
+        <input type="hidden" name="enabled" value="0">
+        <button type="submit">Turn off</button>
+      </form>
+    </li><li>
+      <code dir="auto">orders</code> · WhatsApp ·
+      on
+      <form method="post" action="?/set" hx-post="?/set"><input type="hidden" name="_csrf" value="<csrf>">
+        <input type="hidden" name="category" value="orders">
+        <input type="hidden" name="channel" value="whatsapp">
+        <input type="hidden" name="enabled" value="0">
+        <button type="submit">Turn off</button>
+      </form>
+    </li>
+  </ul>
+  <p><a href="/notifications">Back to notifications</a></p>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`notifications in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: prefs ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تفضيلات الإشعارات</title>
+</head>
+<body class="renox-notifications">
+  <main>
+  
+  <h1>تفضيلات الإشعارات</h1>
+  
+  <ul id="prefs">
+    <li>
+      <code dir="auto">orders</code> · داخل التطبيق ·
+      مفعّل
+      <form method="post" action="?/set" hx-post="?/set"><input type="hidden" name="_csrf" value="<csrf>">
+        <input type="hidden" name="category" value="orders">
+        <input type="hidden" name="channel" value="inapp">
+        <input type="hidden" name="enabled" value="0">
+        <button type="submit">إيقاف</button>
+      </form>
+    </li><li>
+      <code dir="auto">orders</code> · واتساب ·
+      مفعّل
+      <form method="post" action="?/set" hx-post="?/set"><input type="hidden" name="_csrf" value="<csrf>">
+        <input type="hidden" name="category" value="orders">
+        <input type="hidden" name="channel" value="whatsapp">
+        <input type="hidden" name="enabled" value="0">
+        <button type="submit">إيقاف</button>
+      </form>
+    </li>
+  </ul>
+  <p><a href="/notifications">العودة إلى الإشعارات</a></p>
+</main>
+
+
+</body></html>"
+`;

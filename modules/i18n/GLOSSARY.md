@@ -35,4 +35,4 @@ A catalog changes a term here first, then in every catalog that uses it. `renox 
 | VAT | ضريبة القيمة المضافة | |
 | Zero-rated | بنسبة صفر | |
 
-**Amounts.** Amounts are written as `AED 123.45` in English and `123.45 درهم` in Arabic, with the `money` filter. Fils are never shown alone. Dates use `DD/MM/YYYY` in both languages through the `date` filter. Arabic-Indic digits (`nu = arab`) are the app's choice (README, "Arabic digits").
+**Amounts.** Amounts are written as `AED 123.45` in English and `123.45 درهم` in Arabic, with the `money` filter. Fils are never shown alone. Dates use the `date` filter: `DD/MM/YYYY` in English (`date('short')`), and the CLDR Arabic short date `d‏/M‏/y` (no leading zeros, a right-to-left mark after the day and the month) in Arabic. Arabic-Indic digits (`nu = arab`) and the Hijri date next to the Gregorian one (`ca = islamic-umalqura`) are the app's choice (README, "Arabic digits", "Hijri dates"). Amounts are AED with fils as two decimals (`money`, or `number(2)` under an "AED" heading).

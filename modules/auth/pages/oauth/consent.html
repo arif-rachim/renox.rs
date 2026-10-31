@@ -9,7 +9,7 @@
     <p><r-t key="auth.consent.asks" /> <strong>{{ user.email }}</strong>.</p>
     <p id="redirect"><r-t key="auth.consent.returns_to" /> {{ redirect_host }}</p>
     <ul id="scopes">
-      <li r-for="s in scopes"><code>{{ s.scope }}</code>: {{ s.text }}</li>
+      <li r-for="s in scopes"><code>{{ s.scope }}</code>: <r-group r-if="s.all"><r-t key="auth.consent.scope_all" /></r-group><r-group r-else><r-t key="auth.consent.scope_tool" :tool="s.tool" /></r-group></li>
     </ul>
     <x-form action="allow">
       <input r-for="f in fields" type="hidden" :name="f.name" :value="f.value">

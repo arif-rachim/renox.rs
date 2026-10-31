@@ -4,6 +4,7 @@ import type { ActionContext, LoaderContext } from "renox";
 
 import { apiBase } from "../../lib/api.ts";
 import { problem, signedIn } from "../../lib/guard.ts";
+import { trOf } from "../../lib/i18n.ts";
 import { shortHash } from "../../lib/view.ts";
 
 export async function load(ctx: LoaderContext) {
@@ -12,13 +13,14 @@ export async function load(ctx: LoaderContext) {
   const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, apps: [] as unknown[], tenant_id: null as string | null, problem: null as unknown, created: null, create_error: null };
   const r = await api.listApps();
   if (!r.ok) return { ...base, problem: await problem(ctx, r) };
+  const tr = trOf(ctx);
   return {
     ...base,
     tenant_id: r.value.apps[0]?.tenant_id ?? null,
     apps: r.value.apps.map((a) => ({
       name: a.name,
       live: a.active_deployment !== null,
-      status: a.active_deployment === null ? "○ no live deployment" : "● live",
+      status: tr(a.active_deployment === null ? "dash.state.no_live" : "dash.state.active"),
       version: shortHash(a.active_deployment),
       hostnames: a.hostnames.join(", "),
       url: a.hostnames[0] === undefined ? null : `https://${a.hostnames[0]}/`,
@@ -31,7 +33,7 @@ export const actions = {
     const api = await signedIn(ctx);
     if (api instanceof Response) return api;
     const name = String(ctx.form.get("name") ?? "").trim();
-    if (!/^[a-z][a-z0-9-]{0,49}$/u.test(name)) return { created: null, create_error: "A name is 1 to 50 lower-case letters, digits and dashes, starting with a letter." };
+    if (!/^[a-z][a-z0-9-]{0,49}$/u.test(name)) return { created: null, create_error: trOf(ctx)("dash.apps.err_name") };
     const r = await api.createApp(name);
     if (!r.ok) {
       const p = await problem(ctx, r);

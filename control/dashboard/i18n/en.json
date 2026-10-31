@@ -44,7 +44,11 @@
       "status": "Status",
       "tier": "Tier",
       "verify": "Verify",
-      "version": "Version"
+      "version": "Version",
+      "none": "none",
+      "enter_code": "Enter a code from your authenticator app or a recovery code.",
+      "verified": "Verified.",
+      "utc_ago": "{at} UTC ({ago})"
     },
     "not_found": {
       "title": "Not found",
@@ -55,7 +59,11 @@
     },
     "home": {
       "title": "Getting started",
-      "hint": "This list goes away after your first deploy. The goal: sign-up to a live app in under 10 minutes."
+      "hint": "This list goes away after your first deploy. The goal: sign-up to a live app in under 10 minutes.",
+      "step_verify": "Verify your email address",
+      "step_create": "Create your first app from a template",
+      "step_deploy_app": "Deploy {app} (renox deploy, or the template's own deploy)",
+      "step_deploy": "Deploy it"
     },
     "signin": {
       "intro": "Paste a Renox token for your tenant. Create one with",
@@ -63,7 +71,11 @@
       "calls": "The dashboard calls the control API at",
       "stored": "with this token, with your scopes and role. It is stored encrypted for this browser session and never shown again; signing out deletes it.",
       "not_configured": "The dashboard is not configured: the DASHBOARD_KEY secret is not set.",
-      "token": "Token"
+      "token": "Token",
+      "not_token": "That is not a Renox token: it starts with renox_pat_ followed by 32 letters and digits.",
+      "set_secret": "The dashboard is not configured: set the {secret} secret.",
+      "refused": "The control API refused this token (unknown, expired or revoked).",
+      "no_scope": "This token cannot list apps: it needs the apps:read scope."
     },
     "signup": {
       "title": "Sign up",
@@ -78,7 +90,14 @@
       "terms_link": "terms",
       "submit": "Create account",
       "have_account": "Already have an account?",
-      "agreement_note": "The agreement says where and how your data is processed."
+      "agreement_note": "The agreement says where and how your data is processed.",
+      "err_email": "Enter your email address.",
+      "err_password": "A password is at least 12 characters.",
+      "err_workspace": "A workspace id is lower-case letters, digits, - and _, starting with a letter or digit (at most 63).",
+      "err_accept": "Accept the data processing agreement and the terms to create an account.",
+      "err_disposable": "Use an address that is not a disposable mailbox.",
+      "err_taken": "That workspace id is taken; choose another.",
+      "err_too_many": "Too many sign-ups from here; try again later."
     },
     "verify": {
       "title": "Verify your address",
@@ -88,7 +107,10 @@
       "next": "Next: sign in with the CLI",
       "then": ", then",
       "sign_in_here": "sign in here",
-      "next_after": "with the token it creates, and create your first app."
+      "next_after": "with the token it creates, and create your first app.",
+      "err_incomplete": "This link is not complete. Open the link from the email again.",
+      "err_used": "This link was already used or has expired. Sign in and ask for a new one.",
+      "err_attempts": "Too many attempts; try again later."
     },
     "dpa": {
       "title": "Data processing agreement",
@@ -127,7 +149,9 @@
       "promote": "Promote",
       "promote_title": "Make {short} the live deployment",
       "rollback": "Rollback",
-      "rollback_title": "Make the previous deployment live again"
+      "rollback_title": "Make the previous deployment live again",
+      "is_live": "{short} is live.",
+      "rolled_back": "Rolled back: {short} is live again."
     },
     "logs": {
       "bundled": "bundled:",
@@ -154,7 +178,8 @@
       "created": "Created",
       "deploy_with": "Deploy it with",
       "from_folder": "from the project folder.",
-      "create": "Create app"
+      "create": "Create app",
+      "err_name": "A name is 1 to 50 lower-case letters, digits and dashes, starting with a letter."
     },
     "new": {
       "is_live": "is live",
@@ -163,7 +188,15 @@
       "locally": "Work on it locally",
       "template": "Template",
       "we_create": "We create",
-      "we_create_after": "and deploy the template to it, then show the commands to work on it locally."
+      "we_create_after": "and deploy the template to it, then show the commands to work on it locally.",
+      "about_shop": "Products, a cart and checkout, server-rendered pages",
+      "about_hello": "One function: GET /api/hello",
+      "about_booking": "Services, staff and slots (coming with the booking module)",
+      "about_invoices": "FTA tax invoices (coming with the tax module)",
+      "err_template": "Choose a template.",
+      "err_unavailable": "This template is not available yet; choose another.",
+      "err_taken": "That name is taken; choose another.",
+      "err_busy": "No server can take the app right now; try again in a minute."
     },
     "overview": {
       "deployed": "deployed",
@@ -196,7 +229,9 @@
       "violations": "Violations",
       "advisories": "Known vulnerabilities in bundled packages",
       "advisories_note": "A warning from the deployment's SBOM (OSV); nothing is blocked. Update the package and deploy again.",
-      "fixed_in": "fixed in"
+      "fixed_in": "fixed in",
+      "violation_count": "{n} violation(s)",
+      "never": "never"
     },
     "settings": {
       "tenant": "Tenant",
@@ -211,7 +246,11 @@
       "delete_explain": "Deleting the tenant removes every app, deployment, secret, domain, log line and meter row, the database on the node and every generation in the replica store, and the exports. It cannot be undone: a point-in-time restore is impossible from then on.",
       "delete_owner": "Only the owner can do it, from a signed-in API session (not with a token, so not from this dashboard):",
       "with": "with",
-      "progress": "Its progress then shows here."
+      "progress": "Its progress then shows here.",
+      "erasure_pending": "Requested: it starts within the hour.",
+      "erasure_erasing": "In progress: routes, tokens, the node's copy, the replica, exports and records are being deleted.",
+      "erasure_done": "Done: the tenant's data is gone from the node, the replica store and the exports.",
+      "erasure_failed": "A step still failed after 24 hours; an operator has been alerted."
     },
     "secrets": {
       "updated": "Updated",
@@ -220,7 +259,12 @@
       "set": "Secret set",
       "encrypted": "Values are encrypted at rest, injected per deployment, and never shown again.",
       "add": "Add or replace a secret",
-      "value": "Value"
+      "value": "Value",
+      "err_name": "A secret name is upper-case letters, digits and _, starting with a letter (at most 64).",
+      "err_value": "A value is 8 characters to 64 KiB.",
+      "err_none": "No such secret.",
+      "saved": "{name} saved (set v{version}). It is used from the next deploy or rollback.",
+      "deleted": "{name} deleted (set v{version}). Deployments that declare it stop getting it from the next deploy or rollback."
     },
     "usage": {
       "wall": "wall",
@@ -231,7 +275,19 @@
       "latency_note": "Latency is the mean per request of each hour; percentiles (p50, p95) and realtime connections appear when the usage API carries them.",
       "monthly_quota": "Monthly quota",
       "over_quota": "over quota",
-      "signal_only": "In F3 the quota is a signal only: nothing is throttled or suspended when it is exceeded."
+      "signal_only": "In F3 the quota is a signal only: nothing is throttled or suspended when it is exceeded.",
+      "period": "{from} to {to} UTC",
+      "quota_period": "{from} to {to}",
+      "chart_requests": "Requests per hour",
+      "chart_cpu": "CPU ms per hour",
+      "chart_egress": "Egress per hour (KB)",
+      "chart_latency": "Average latency per hour (ms)",
+      "unit_requests": "requests",
+      "unit_cpu": "ms CPU",
+      "unit_kb": "KB",
+      "unit_latency": "ms per request",
+      "bar": "{hour}:00 UTC: {value} {unit}",
+      "cpu": "CPU"
     },
     "errors": {
       "intro": "Errors that happened in visitors' browsers, grouped by kind, top frame and message.",
@@ -257,7 +313,11 @@
       "request": "request",
       "server_lines": "server log lines",
       "browser": "browser:",
-      "no_stack": "No stack was reported."
+      "no_stack": "No stack was reported.",
+      "no_group": "No error group was chosen.",
+      "reopened": "Reopened.",
+      "resolved_notice": "Marked as resolved. It reopens if it happens again on a newer deployment.",
+      "ignored": "Ignored."
     },
     "database": {
       "stale": "the node did not answer; this is the last status seen",
@@ -276,7 +336,21 @@
       "export_note": "A consistent snapshot of the whole file. The link is signed and expires within 15 minutes; your browser downloads it directly. Column masking comes later.",
       "download": "Download",
       "expires": "expires",
-      "prepare": "Prepare .db download"
+      "prepare": "Prepare .db download",
+      "err_time": "Pick a restore time (UTC).",
+      "err_name": "The new app's name is lower-case letters, digits and -, starting with a letter (at most 50).",
+      "err_same": "The restore goes into a new app; pick another name.",
+      "restored": "Restored {app} as of {at} UTC into {name} (deployment {state}).",
+      "lag_unknown": "lag unknown",
+      "lag": "lag {s} s",
+      "never_synced": "never synced",
+      "synced": "synced {ago}",
+      "sync": "{lag}, {synced}",
+      "no_replica": "No replica (backups are off on this node)",
+      "litestream": "Litestream to {kind} ({region}): {state}",
+      "hours": "{h} h",
+      "failover": "{ago}: moved from {from} to {to}",
+      "failover_generation": "{ago}: moved from {from} to {to} (generation {generation})"
     },
     "modules": {
       "title": "Modules",
@@ -314,7 +388,14 @@
       "signed": "signed",
       "mode": "{mode} mode",
       "install": "Install",
-      "no_match": "No module matches."
+      "no_match": "No module matches.",
+      "err_version": "No such module version.",
+      "err_disabled": "{name} {version} was disabled by Renox: {reason}",
+      "err_changed": "This version is not the one you reviewed. Review it again.",
+      "approved_notice": "{name} {version} approved for {app}. Add it to renox.toml as {source} and run renox deploy; the lock records this approval.",
+      "status_disabled": "disabled by Renox: {reason}",
+      "status_upgrade": "{version} available",
+      "status_current": "up to date"
     },
     "billing": {
       "title": "Usage and billing",
@@ -344,7 +425,13 @@
       "no_invoices": "No invoices yet.",
       "number": "Number",
       "issued": "Issued",
-      "total": "Total"
+      "total": "Total",
+      "choose_plan": "Choose a plan.",
+      "plan_pending": "The change to {plan} applies at the end of this period.",
+      "plan_now": "Your plan is now {plan}.",
+      "card_unfinished": "The card form did not finish.",
+      "card_saved": "Card {brand} •••• {last4} saved.",
+      "code_refused": "That code was not accepted."
     },
     "security": {
       "title": "Security",
@@ -374,7 +461,14 @@
       "new_recovery": "New recovery codes",
       "remove_h": "Remove second factors",
       "confirm_remove": "Remove every second factor from your account?",
-      "remove": "Remove"
+      "remove": "Remove",
+      "code_refused": "That code (or password) was not accepted.",
+      "new_codes": "New recovery codes. The old ones no longer work.",
+      "enter_totp": "Enter the 6-digit code from your authenticator app.",
+      "totp_added": "Authenticator app added. Keep these recovery codes somewhere safe.",
+      "no_passkey": "Your browser did not return a passkey.",
+      "passkey_added": "Passkey added.",
+      "removed": "Second factors removed from your account."
     },
     "ops": {
       "operator": "Operator",
@@ -432,7 +526,55 @@
       "move_microvm_h": "Move to a microVM",
       "microvm_note": "The tenant answers 503 while the node's hook runs. In F6 the hook is a stub that exits 75, and the tenant stays where it is.",
       "confirm_microvm": "Move {tenant} to a microVM? Its requests answer 503 while the hook runs.",
-      "move_microvm": "Move to microVM"
+      "move_microvm": "Move to microVM",
+      "err_token": "Paste your operator token (renox_op_ followed by 32 letters and digits).",
+      "err_reason": "A reason of {min} to {max} characters is required; it is kept in the audit row.",
+      "err_reason_owners": "A reason of {min} to {max} characters is required; owners are told it and it is kept in the audit row.",
+      "err_action": "Choose a tier, a node, or the microVM.",
+      "err_hash": "A tree hash is 64 lower-case hex digits (the version's `hash`).",
+      "refused": "The control API refused this operator token (unknown, expired or revoked).",
+      "no_write": "This token does not hold ops:write: only an account flagged operator can create one.",
+      "tier_set": "Tier set to {tier}; the route entries now say process {process}.",
+      "tier_same": "The tier was already {tier}; nothing was published.",
+      "moved_microvm": "Moved to a microVM.",
+      "hook_failed": "The microVM hook exited {code}; the tenant stays on {node}.",
+      "moved_node": "Moved to {node} (restored there before the route changed).",
+      "enabled_again": "Enabled again: downloads work and the installations are no longer marked.",
+      "disabled_notice": "Disabled at {at}. {n} tenant owner(s) were emailed; their Modules page shows the banner.",
+      "no_token": "The control API answered no token.",
+      "no_impersonation": "No such impersonation.",
+      "impersonation_ended": "Impersonation {id} ended.",
+      "node_none": "none (no route entry)",
+      "moving_since": "yes, since {at} (requests answer 503)",
+      "no": "no",
+      "not_replicated": "not replicated",
+      "seconds": "{s} s"
+    },
+    "ago": {
+      "seconds": "{n}s ago",
+      "minutes": "{n}m ago",
+      "hours": "{n}h ago",
+      "days": "{n}d ago"
+    },
+    "state": {
+      "uploaded": "uploaded",
+      "validated": "validated",
+      "rejected": "✗ rejected",
+      "activating": "activating…",
+      "active": "● live",
+      "superseded": "superseded",
+      "suspended": "suspended",
+      "pruned": "pruned",
+      "no_live": "○ no live deployment"
+    },
+    "problem": {
+      "unreachable": "The control API at {host} could not be reached ({code}).",
+      "unreachable_short": "The control API could not be reached ({code}).",
+      "token_refused": "Your token was refused (expired or revoked). Sign in again.",
+      "forbidden": "Your token or role does not allow this ({message}).",
+      "not_configured": "The dashboard is not configured: {reason}.",
+      "no_deployment": "No deployment was chosen.",
+      "no_app": "No such app."
     }
   }
 }

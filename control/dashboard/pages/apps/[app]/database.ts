@@ -10,6 +10,7 @@ import type { ActionContext, LoaderContext } from "renox";
 import { apiBase } from "../../../lib/api.ts";
 import { databaseView, exportBackup, getBackups, parseLocal, restoreBackup } from "../../../lib/database.ts";
 import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { trOf } from "../../../lib/i18n.ts";
 import { bytes, clock } from "../../../lib/view.ts";
 
 const APP_NAME = /^[a-z][a-z0-9-]{0,49}$/u;
@@ -23,7 +24,7 @@ export async function load(ctx: LoaderContext) {
   const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "database", ...quiet };
   const r = await getBackups(api, name);
   if (!r.ok) return { ...base, problem: await problem(ctx, r), view: null };
-  return { ...base, problem: null, view: databaseView(r.value, Date.now()) };
+  return { ...base, problem: null, view: databaseView(r.value, Date.now(), trOf(ctx)) };
 }
 
 const formError = (message: string) => ({ ...quiet, form_error: message });
@@ -50,15 +51,16 @@ export const actions = {
     if (app === null) return notFound();
     const at = parseLocal(String(ctx.form.get("at") ?? ""));
     const target = String(ctx.form.get("name") ?? "").trim();
-    if (at === null) return formError("Pick a restore time (UTC).");
-    if (!APP_NAME.test(target)) return formError("The new app's name is lower-case letters, digits and -, starting with a letter (at most 50).");
-    if (target === app) return formError("The restore goes into a new app; pick another name.");
+    const tr = trOf(ctx);
+    if (at === null) return formError(tr("dash.database.err_time"));
+    if (!APP_NAME.test(target)) return formError(tr("dash.database.err_name"));
+    if (target === app) return formError(tr("dash.database.err_same"));
     const r = await restoreBackup(api, app, at, target);
     if (!r.ok) return { ...quiet, action_problem: await problem(ctx, r) };
     const n = r.value.app.name;
     return {
       ...quiet,
-      notice: `Restored ${app} as of ${clock(r.value.restored_to ?? at).slice(0, 19)} UTC into ${n} (deployment ${r.value.deployment.state}).`,
+      notice: tr("dash.database.restored", { app, at: clock(r.value.restored_to ?? at).slice(0, 19), name: n, state: r.value.deployment.state }),
       restored: { name: n, href: `/apps/${n}` },
     };
   },

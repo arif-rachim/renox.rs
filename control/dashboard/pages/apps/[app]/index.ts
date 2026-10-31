@@ -6,6 +6,7 @@ import type { LoaderContext } from "renox";
 import { apiBase } from "../../../lib/api.ts";
 import { deployActions } from "../../../lib/deploy-actions.ts";
 import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { trOf } from "../../../lib/i18n.ts";
 import { ago, bytes, clock, deploymentRows, round, shortHash } from "../../../lib/view.ts";
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -31,19 +32,20 @@ export async function load(ctx: LoaderContext) {
     api.logs(name, { since: now - DAY_MS }),
   ]);
   if (!app.ok) return { ...base, problem: await problem(ctx, app), info: null, deployments: [], usage: null, logs: [], logs_problem: null, deployments_problem: null };
+  const tr = trOf(ctx);
   const live = deployments.ok ? deployments.value.deployments.find((d) => d.state === "active") : undefined;
   return {
     ...base,
     problem: null,
     info: {
       live: app.value.active_deployment !== null,
-      status: app.value.active_deployment === null ? "○ no live deployment" : "● live",
+      status: tr(app.value.active_deployment === null ? "dash.state.no_live" : "dash.state.active"),
       version: shortHash(app.value.active_deployment),
-      deployed: live?.activated_at == null ? "—" : ago(live.activated_at, now),
+      deployed: live?.activated_at == null ? "—" : ago(live.activated_at, now, tr),
       hostnames: app.value.hostnames,
       url: app.value.hostnames[0] === undefined ? null : `https://${app.value.hostnames[0]}/`,
     },
-    deployments: deployments.ok ? deploymentRows(deployments.value.deployments, now) : [],
+    deployments: deployments.ok ? deploymentRows(deployments.value.deployments, now, tr) : [],
     deployments_problem: deployments.ok ? null : await problem(ctx, deployments),
     usage: usage.ok
       ? {

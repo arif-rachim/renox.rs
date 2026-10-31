@@ -16,18 +16,18 @@ approved = { tables = "audit__*", network = [], secrets = [], slots = [], hooks 
 name = "i18n"
 version = "1.0.0"
 source = "official"
-hash = "f6fe9ee37f9f3fd57c801c212f697ffe07b7d97dbb1b325679e7ea089083cf2f"
+hash = "1e4c98b08224e2c45f0820026151de3512e8db3dd33478b79d2e4f4e5ee0827d"
 isolation = "shared"
 mount = "/i18n"
 dependencies = []
-config = { locales = "en,ar", default_locale = "en", digits = "latn" }
+config = { locales = "en,ar", default_locale = "en", digits = "latn", calendar = "gregory" }
 approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "b2c8a9af1f1137ab2af7353664fe7ef15aa37c70365daed48075496b22b8aa0c"
+hash = "2fd4f664a098ebb85f922788d0f53f46f3380384e540fdfd74d15a2ff24783cd"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -38,7 +38,7 @@ approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googl
 name = "admin"
 version = "1.0.0"
 source = "official"
-hash = "1ddee17c128cd429013bbb9e7af3f2db0faaa19a708be780b30d46d7503aa1f7"
+hash = "9efa4220677750186c5f2e70846746ce477f9da045046f37aaa28df77bf8c5db"
 isolation = "shared"
 mount = "/admin"
 dependencies = ["audit", "auth", "i18n"]
@@ -49,7 +49,7 @@ approved = { tables = "admin__*", network = [], secrets = [], slots = [], hooks 
 name = "billing"
 version = "1.0.0"
 source = "official"
-hash = "d36954f49623b6cb5ec3b6a10d6af59905aa99c46bb43b2a20d1f23890077228"
+hash = "7c5e21d2e9590de144d69c4e3a12604b47f8b297c51940213e6d18df2e3aecf2"
 isolation = "shared"
 mount = "/billing"
 dependencies = ["auth", "i18n"]
@@ -60,7 +60,7 @@ approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BI
 name = "email"
 version = "1.0.0"
 source = "official"
-hash = "3b8e20852a1a1f62e8cfde8428b82326693cad2706538df60791ab62de6da4a2"
+hash = "07d6a86d006d88473c5330c619d86a087ba4ea5f29d0b8ccb4394ea7ea3abe57"
 isolation = "shared"
 mount = "/email"
 dependencies = ["auth", "i18n"]
@@ -71,7 +71,7 @@ approved = { tables = "email__*", network = ["api.resend.com", "email.me-central
 name = "notifications"
 version = "1.0.0"
 source = "official"
-hash = "8e8b897fe7f22a1acddc238bf4a006b5ec68901982e33b509dfcbe4c5bc968b1"
+hash = "4f4d321b357767a71860bd0bd37ad9bd8208c67658301db348b4505bd948237e"
 isolation = "shared"
 mount = "/notifications"
 dependencies = ["auth", "i18n"]
@@ -82,7 +82,7 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "12afd12fee90a0b53735386ab9b824fcbcc4d6906c299881a0d93be8c898b427"
+hash = "e7380b5984b26dcf1252367b17630fee31fb44cd53cda6c5e899d1878652549b"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
@@ -93,7 +93,7 @@ approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header
 name = "storage"
 version = "1.0.0"
 source = "official"
-hash = "2c0ade115a50cc771a0d873723a6a7776c41b93c3f9aae5cd6078e0ef23b3d0f"
+hash = "6276df7e14a8b49082f795df1d32a4cb520c8db9754a66cdf1562ea3af2e9281"
 isolation = "shared"
 mount = "/files"
 dependencies = ["auth", "i18n"]
@@ -104,7 +104,7 @@ approved = { network = [], secrets = [], slots = ["admin.sidebar"], hooks = [] }
 name = "tax_gcc"
 version = "1.0.0"
 source = "official"
-hash = "82df8733efdf234b149d332f059d0b5657b682e6f5ca744b3fdb575424c19ca3"
+hash = "d246a8f4f548c4af1201e31a243bbe990fe4b4220365c090f260df9762b3e9a1"
 isolation = "shared"
 mount = "/tax"
 dependencies = ["auth", "i18n"]
@@ -115,7 +115,7 @@ approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hook
 name = "reports"
 version = "1.0.0"
 source = "official"
-hash = "f11a48f52878004a2ed99fdebb89d8e3f537b859bfdd301c0212536a9327f4a3"
+hash = "ff1db1530bd04699df641f5b555f0cbc648bbf148a35ea46f3cbf7d8c4fcdca4"
 isolation = "shared"
 mount = "/reports"
 dependencies = ["auth", "email", "i18n", "tax_gcc"]
@@ -126,7 +126,7 @@ approved = { tables = "reports__*", network = [], secrets = [], slots = [], hook
 name = "twofa"
 version = "1.0.0"
 source = "official"
-hash = "03211c05d272cb752087ecad64f806d5209eb5899d1a5891154d193fea18b675"
+hash = "8b3321162eb21283ea2307bc6ef68d3967a9f75da5ac87d57592cc8bf45dbc39"
 isolation = "shared"
 mount = "/2fa"
 dependencies = ["auth", "i18n"]

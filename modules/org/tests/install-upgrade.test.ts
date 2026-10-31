@@ -33,7 +33,7 @@ describe.skipIf(!worker)("install and upgrade", () => {
     expect(v1.check.errors).toEqual([]);
     expect(v1.migrate?.modules.map((m) => [m.module, m.applied])).toEqual([
       ["audit", ["001_events.sql"]],
-      ["i18n", ["001_prefs.sql", "002_prefs_digits.sql"]],
+      ["i18n", ["001_prefs.sql", "002_prefs_digits.sql", "003_prefs_calendar.sql"]],
       ["auth", ["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql", "004_phone_passkeys_uaepass.sql", "005_login_tickets.sql"]],
       ["notifications", ["001_init.sql"]],
       ["org", ["001_init.sql", "002_orgs_locale.sql"]],

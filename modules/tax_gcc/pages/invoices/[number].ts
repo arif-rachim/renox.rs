@@ -2,14 +2,19 @@
 // (the same template the PDF is rendered from); POST ?/pdf: the PDF through
 // ctx.pdf (ops.md 1.7.0 section 24). tax.manage.
 import * as core from "../../lib/core.ts";
-import { day, guarded, type Page } from "../../lib/page.ts";
+import { amount, guarded, hijri, localeOf, type Page } from "../../lib/page.ts";
 
 type PdfPage = Page & { params: { number?: string }; pdf: { render(template: string, data: Record<string, unknown>, o?: { page?: string }): Promise<Uint8Array> } };
 
 /** The deployment's id of this page's template (a module's templates are under modules/<name>/). */
 export const TEMPLATE = "modules/tax_gcc/pages/invoices/[number]";
 
-/** The template's data: every amount formatted, both languages' labels. */
+/**
+ * The template's data: amounts in AED (the template formats them with
+ * `number(2)`: fils as two decimals, the page's digits), the issue date for
+ * the `date` filter (DD/MM/YYYY) and, when the page's tag asks for a Hijri
+ * calendar, the Hijri date next to it (#336); both languages' labels.
+ */
 export async function documentData(ctx: core.TaxCtx, number: unknown) {
   const doc = await core.invoice(ctx, number);
   if (doc === null) return null;
@@ -17,12 +22,13 @@ export async function documentData(ctx: core.TaxCtx, number: unknown) {
     number: doc.number,
     title_en: doc.title.en,
     title_ar: doc.title.ar,
-    date: day(doc.issued_at),
+    issued_at: doc.issued_at,
+    hijri: hijri(doc.issued_at, localeOf(ctx), (ctx as { utcOffsetMinutes?: number }).utcOffsetMinutes ?? 240),
     against: doc.against ?? null,
     seller: doc.seller,
     buyer: doc.buyer,
-    lines: doc.lines.map((l: core.DocLine) => ({ description: l.description, quantity: l.quantity, net: core.aed(l.net_fils), rate: l.rate, vat: core.aed(l.vat_fils) })),
-    totals: { standard: core.aed(doc.totals.standard), zero: core.aed(doc.totals.zero), exempt: core.aed(doc.totals.exempt), vat: core.aed(doc.totals.vat), total: core.aed(doc.totals.total) },
+    lines: doc.lines.map((l: core.DocLine) => ({ description: l.description, quantity: l.quantity, net: amount(l.net_fils), rate: l.rate, vat: amount(l.vat_fils) })),
+    totals: { standard: amount(doc.totals.standard), zero: amount(doc.totals.zero), exempt: amount(doc.totals.exempt), vat: amount(doc.totals.vat), total: amount(doc.totals.total) },
   };
 }
 

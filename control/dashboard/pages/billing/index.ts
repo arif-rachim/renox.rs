@@ -14,6 +14,7 @@ import type { ActionContext, LoaderContext } from "renox";
 
 import { apiBase, type Api, type ApiFailure, type Billing, type Invoice, needsStepUp, type PaymentSetup, type Plan, type Result } from "../../lib/api.ts";
 import { problem, type Problem, signedIn } from "../../lib/guard.ts";
+import { trOf } from "../../lib/i18n.ts";
 import { clock } from "../../lib/view.ts";
 
 const RETRY = ["plan", "card_setup", "card_confirm"] as const;
@@ -88,6 +89,7 @@ async function run(ctx: ActionContext, api: Api, action: Retry, arg: string) {
   const tenant = await tenantOf(api);
   if (!tenant.ok || tenant.value === null) return page(ctx, api, empty());
   const t = tenant.value;
+  const tr = trOf(ctx);
   const after = async <T>(r: Result<T>, ok: (v: T) => Partial<View>) => {
     if (!r.ok) {
       if (needsStepUp(r)) return page(ctx, api, { ...empty(), step_up: { then: action, plan: action === "plan" ? arg : action === "card_confirm" ? arg : null } });
@@ -97,13 +99,13 @@ async function run(ctx: ActionContext, api: Api, action: Retry, arg: string) {
   };
   switch (action) {
     case "plan":
-      if (!PLAN.test(arg)) return page(ctx, api, { ...empty(), notice: "Choose a plan." });
-      return after(await api.changePlan(t, arg), (v) => ({ notice: v.pending_plan !== null ? `The change to ${v.pending_plan} applies at the end of this period.` : `Your plan is now ${v.plan}.` }));
+      if (!PLAN.test(arg)) return page(ctx, api, { ...empty(), notice: tr("dash.billing.choose_plan") });
+      return after(await api.changePlan(t, arg), (v) => ({ notice: v.pending_plan !== null ? tr("dash.billing.plan_pending", { plan: v.pending_plan }) : tr("dash.billing.plan_now", { plan: v.plan }) }));
     case "card_setup":
       return after(await api.startPaymentMethodSetup(t), (v) => ({ setup: v }));
     case "card_confirm":
-      if (!SETUP.test(arg)) return page(ctx, api, { ...empty(), notice: "The card form did not finish." });
-      return after(await api.confirmPaymentMethod(t, arg), (v) => ({ notice: `Card ${v.brand} •••• ${v.last4} saved.` }));
+      if (!SETUP.test(arg)) return page(ctx, api, { ...empty(), notice: tr("dash.billing.card_unfinished") });
+      return after(await api.confirmPaymentMethod(t, arg), (v) => ({ notice: tr("dash.billing.card_saved", { brand: v.brand, last4: v.last4 }) }));
   }
 }
 
@@ -125,13 +127,13 @@ export const actions = {
     const then = field(ctx, "then") as Retry;
     const arg = field(ctx, "arg");
     const again = RETRY.includes(then) ? { then, plan: arg === "" ? null : arg } : null;
-    if (!CODE.test(code)) return page(ctx, api, { ...empty(), step_up: again, notice: "Enter a code from your authenticator app or a recovery code." });
+    if (!CODE.test(code)) return page(ctx, api, { ...empty(), step_up: again, notice: trOf(ctx)("dash.common.enter_code") });
     const method = /^\d{6}$/u.test(code.replace(/\s/gu, "")) ? "totp" : "recovery";
     const r = await api.verifyMfa({ method, code: method === "totp" ? code.replace(/\s/gu, "") : code });
     if (!r.ok) {
-      const p = codeRefused(r) ? { code: r.code, message: "That code was not accepted.", status: r.status, request_id: r.requestId, signed_out: false, details: [] } : await problem(ctx, r);
+      const p = codeRefused(r) ? { code: r.code, message: trOf(ctx)("dash.billing.code_refused"), status: r.status, request_id: r.requestId, signed_out: false, details: [] } : await problem(ctx, r);
       return page(ctx, api, { ...empty(), step_up: again, problem: p });
     }
-    return RETRY.includes(then) ? run(ctx, api, then, arg) : page(ctx, api, { ...empty(), notice: "Verified." });
+    return RETRY.includes(then) ? run(ctx, api, then, arg) : page(ctx, api, { ...empty(), notice: trOf(ctx)("dash.common.verified") });
   }),
 };

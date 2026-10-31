@@ -114,7 +114,8 @@ describe("add", () => {
   test("a hostname claimed by another tenant: 409 without the owner", async () => {
     const e = await setup();
     expect((await add(e)).status).toBe(201);
-    const other = await tenant(e.h, "t_other");
+    // Paid: a new free tenant has no custom domain (deploy-api.md 0.5 section 21).
+    const other = await tenant(e.h, "t_other", "paid");
     await createApp_(e.h, other, "other");
     const res = await e.h.request("POST", "/v1/apps/other/domains", { token: other, json: { hostname: HOST } });
     expect(res.status).toBe(409);
@@ -307,7 +308,8 @@ describe("remove", () => {
     const res = await e.h.request("DELETE", `/v1/apps/hello/domains/${HOST}`, { token: e.token });
     expect(((await res.json()) as { state: string }).state).toBe("released");
     expect((await e.h.request("GET", `/v1/apps/hello/domains/${HOST}`, { token: e.token })).status).toBe(404);
-    const other = await tenant(e.h, "t_other");
+    // Paid: a new free tenant has no custom domain (deploy-api.md 0.5 section 21).
+    const other = await tenant(e.h, "t_other", "paid");
     await createApp_(e.h, other, "other");
     expect((await e.h.request("POST", "/v1/apps/other/domains", { token: other, json: { hostname: HOST } })).status).toBe(201);
   });

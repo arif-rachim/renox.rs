@@ -91,4 +91,25 @@ describe.skipIf(!worker)("i18n", () => {
     expect(await t.service("i18n").setLocale("ar-u-nu-arab", { user_id: t.db.query<{ id: string }>("select id from auth__public_users_v1 where email = 'd@example.com'")[0]?.id })).toEqual({ locale: "ar-u-nu-arab", dir: "rtl" });
     expect(number((await u.page("/")).html)).toBe("١٢٣٫٤٥");
   });
+
+  test("calendar = auto (#336): ?lang= with -u-ca-islamic-umalqura is stored and set on the page in canonical order", async () => {
+    const calendar = (h: string) => /<p id="calendar"[^>]*>([^<]*)</u.exec(h)?.[1];
+    const v = t.as("hijri");
+    const a = (await v.page("/?lang=ar-u-ca-islamic-umalqura-nu-arab")).html;
+    expect(a).toContain('<html lang="ar-u-ca-islamic-umalqura-nu-arab" dir="rtl">');
+    expect(calendar(a)).toBe("islamic-umalqura");
+    // The renderer's date filter stays Gregorian with Eastern Arabic digits.
+    expect(/<p id="date"[^>]*>([^<]*)</u.exec(a)?.[1]).toMatch(/يناير/u);
+    // Stored for the page session: the next page keeps it.
+    expect((await v.page("/")).html).toContain('<html lang="ar-u-ca-islamic-umalqura-nu-arab" dir="rtl">');
+    // A calendar alone, Latin digits.
+    expect((await t.as("hijri-latn").page("/?lang=ar-u-ca-islamic-umalqura")).html).toContain('<html lang="ar-u-ca-islamic-umalqura" dir="rtl">');
+    // English pages stay Gregorian; plain ar too.
+    const en = (await t.as("hijri-en").page("/?lang=en-u-ca-islamic-umalqura")).html;
+    expect(en).toContain('<html lang="en" dir="ltr">');
+    expect(calendar(en)).toBe("gregory");
+    expect(calendar((await t.as("plain-ar").page("/?lang=ar")).html)).toBe("gregory");
+    expect(await t.service("i18n").setLocale("ar-u-ca-islamic-umalqura", { user_id: "u_cal" })).toEqual({ locale: "ar-u-ca-islamic-umalqura", dir: "rtl" });
+    expect(t.db.query("select calendar from i18n__prefs where subject = 'user:u_cal'")).toEqual([{ calendar: "islamic-umalqura" }]);
+  });
 });

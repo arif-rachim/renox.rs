@@ -5,6 +5,7 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { verifyAccount } from "../../lib/api.ts";
+import { trOf } from "../../lib/i18n.ts";
 import { applyLocale } from "../../lib/locale.ts";
 
 const TOKEN = /^[a-z2-7]{32}$/u;
@@ -21,9 +22,10 @@ export const actions = {
     const { fetch, form, secrets } = ctx;
     const raw = form.get("token");
     const token = typeof raw === "string" ? raw.trim() : "";
-    if (!TOKEN.test(token)) return { verified: false, tenant_id: null, error: "This link is not complete. Open the link from the email again." };
+    const tr = trOf(ctx);
+    if (!TOKEN.test(token)) return { verified: false, tenant_id: null, error: tr("dash.verify.err_incomplete") };
     const r = await verifyAccount(fetch, secrets, token);
-    if (!r.ok) return { verified: false, tenant_id: null, error: r.status === 404 ? "This link was already used or has expired. Sign in and ask for a new one." : r.status === 429 ? "Too many attempts; try again later." : r.message };
+    if (!r.ok) return { verified: false, tenant_id: null, error: r.status === 404 ? tr("dash.verify.err_used") : r.status === 429 ? tr("dash.verify.err_attempts") : r.message };
     return { verified: true, tenant_id: r.value.tenant_id ?? null, error: null };
   },
 };

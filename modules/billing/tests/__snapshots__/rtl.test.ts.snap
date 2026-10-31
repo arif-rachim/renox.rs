@@ -1,0 +1,229 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: plans en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Billing</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>Billing</h1>
+  <section id="billing-plans">
+    <h2>Plans</h2>
+    <ul>
+      <li dir="auto">
+        <strong dir="auto">Pro</strong> AED 299.00 <span>per month</span>
+        <form method="post" action="?/subscribe" hx-post="?/subscribe" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="plan_id" value="pro"><button type="submit">Subscribe</button></form>
+      </li>
+    </ul>
+  </section>
+  <section id="billing-mine">
+    <h2>Your subscription</h2>
+    
+    <p>You have no subscription.</p>
+  </section>
+  <section id="billing-invoices">
+    <h2>Invoices</h2>
+    <table>
+      <thead><tr><th>Invoice</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody>
+        <tr><td colspan="4">No invoices.</td></tr>
+      </tbody>
+    </table>
+    
+  </section>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: plans ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>الفوترة</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>الفوترة</h1>
+  <section id="billing-plans">
+    <h2>الخطط</h2>
+    <ul>
+      <li dir="auto">
+        <strong dir="auto">Pro</strong> AED 299.00 <span>شهريًا</span>
+        <form method="post" action="?/subscribe" hx-post="?/subscribe" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="plan_id" value="pro"><button type="submit">اشترك</button></form>
+      </li>
+    </ul>
+  </section>
+  <section id="billing-mine">
+    <h2>اشتراكك</h2>
+    
+    <p>ليس لديك اشتراك.</p>
+  </section>
+  <section id="billing-invoices">
+    <h2>الفواتير</h2>
+    <table>
+      <thead><tr><th>الفاتورة</th><th>المبلغ</th><th>الحالة</th><th>التاريخ</th></tr></thead>
+      <tbody>
+        <tr><td colspan="4">لا توجد فواتير.</td></tr>
+      </tbody>
+    </table>
+    
+  </section>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: pending en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your order</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>Your order</h1>
+  <p dir="auto">Invoice: <code dir="auto">o-rtl</code> · Amount: AED 1250.50</p>
+  
+  <section id="billing-bank">
+    <h2>Pay by bank transfer</h2>
+    <dl>
+      <dt>Reference to quote</dt><dd><strong><code dir="auto"><reference></code></strong></dd>
+      <dt>Beneficiary</dt><dd dir="auto">Example Shop LLC</dd>
+      <dt>Bank</dt><dd dir="auto">Example Bank</dd>
+      <dt>IBAN</dt><dd><code dir="ltr">AE070331234567890123456</code></dd>
+    </dl>
+    <p>Quote the reference exactly in the transfer&#39;s description; the order is confirmed when the transfer reaches the account.</p>
+  </section>
+  
+</main>
+
+
+</body></html>"
+`;
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: pending ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>طلبك</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>طلبك</h1>
+  <p dir="auto">الفاتورة: <code dir="auto">o-rtl</code> · المبلغ: AED 1250.50</p>
+  
+  <section id="billing-bank">
+    <h2>الدفع بالتحويل البنكي</h2>
+    <dl>
+      <dt>المرجع المطلوب ذكره</dt><dd><strong><code dir="auto"><reference></code></strong></dd>
+      <dt>المستفيد</dt><dd dir="auto">Example Shop LLC</dd>
+      <dt>البنك</dt><dd dir="auto">Example Bank</dd>
+      <dt>IBAN</dt><dd><code dir="ltr">AE070331234567890123456</code></dd>
+    </dl>
+    <p>اذكر المرجع كما هو في وصف التحويل؛ يتأكد الطلب عند وصول التحويل إلى الحساب.</p>
+  </section>
+  
+</main>
+
+
+</body></html>"
+`;
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: invoices en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>All invoices</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>All invoices</h1>
+  
+  <table id="billing-all-invoices">
+    <thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Refunded</th><th>Status</th><th>Date</th><th></th></tr></thead>
+    <tbody>
+      <tr><td colspan="7">No invoices.</td></tr>
+    </tbody>
+  </table>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: invoices ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>كل الفواتير</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>كل الفواتير</h1>
+  
+  <table id="billing-all-invoices">
+    <thead><tr><th>الفاتورة</th><th>العميل</th><th>المبلغ</th><th>المسترد</th><th>الحالة</th><th>التاريخ</th><th></th></tr></thead>
+    <tbody>
+      <tr><td colspan="7">لا توجد فواتير.</td></tr>
+    </tbody>
+  </table>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: import en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bank statement import</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>Bank statement import</h1>
+  <form method="post" action="?/import" hx-post="?/import"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Paste the statement (CSV with date, amount, description)<br><textarea name="statement" rows="12" cols="80" dir="ltr" required></textarea></label>
+    <button type="submit">Match transfers</button>
+  </form>
+  <ul class="problem"></ul>
+  
+</main>
+
+
+</body></html>"
+`;
+
+exports[`billing in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: import ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>استيراد كشف الحساب</title>
+</head>
+<body class="renox-billing">
+  <main>
+  
+  <h1>استيراد كشف الحساب</h1>
+  <form method="post" action="?/import" hx-post="?/import"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>الصق كشف الحساب (CSV بالأعمدة date و amount و description)<br><textarea name="statement" rows="12" cols="80" dir="ltr" required></textarea></label>
+    <button type="submit">مطابقة التحويلات</button>
+  </form>
+  <ul class="problem"></ul>
+  
+</main>
+
+
+</body></html>"
+`;

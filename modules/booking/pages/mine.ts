@@ -1,7 +1,7 @@
 // GET <mount>/mine: the signed-in customer's own bookings (no one else's).
 // POST ?/cancel (id): cancels one of them.
 import * as core from "../lib/core.ts";
-import { guarded, type Page } from "../lib/page.ts";
+import { guarded, hijri, localeOf, type Page } from "../lib/page.ts";
 
 async function view(ctx: Page, notice: string | null) {
   const me = (ctx.principal as { id: string }).id;
@@ -10,7 +10,8 @@ async function view(ctx: Page, notice: string | null) {
     [me],
   );
   const off = ctx.utcOffsetMinutes ?? 240;
-  return { bookings: rows.map((r) => ({ id: r.id, service: r.service, when: new Date(r.start_at + off * 60_000).toISOString().replace("T", " ").slice(0, 16), status: r.status })), notice };
+  // The date and time by the renderer's filters (DD/MM/YYYY, the page's digits); the Hijri date when the page asks for it.
+  return { bookings: rows.map((r) => ({ id: r.id, service: r.service, at: r.start_at, hijri: hijri(r.start_at, localeOf(ctx), off), status: r.status, status_key: `booking.status.${r.status}` })), notice };
 }
 
 export const load = guarded((ctx: Page) => view(ctx, null));

@@ -1,0 +1,207 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: org en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your organisations</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1>Your organisations</h1>
+  
+  <ul id="orgs">
+    <li>
+      <strong dir="auto">Acme Trading</strong> · owner
+      <em>(active)</em>
+    </li>
+  </ul>
+  <h2>Create an organisation</h2>
+  <form method="post" action="?/create" hx-post="?/create"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>Name <input name="name" value="" maxlength="100" required dir="auto"></label>
+    <label>Address (optional) <input name="slug" maxlength="50" pattern="[a-z0-9-]+" dir="ltr"></label>
+    <button type="submit">Create</button>
+  </form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: org ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>مؤسساتك</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1>مؤسساتك</h1>
+  
+  <ul id="orgs">
+    <li>
+      <strong dir="auto">Acme Trading</strong> · مالك
+      <em>(النشطة)</em>
+    </li>
+  </ul>
+  <h2>إنشاء مؤسسة</h2>
+  <form method="post" action="?/create" hx-post="?/create"><input type="hidden" name="_csrf" value="<csrf>">
+    <label>الاسم <input name="name" value="" maxlength="100" required dir="auto"></label>
+    <label>العنوان (اختياري) <input name="slug" maxlength="50" pattern="[a-z0-9-]+" dir="ltr"></label>
+    <button type="submit">إنشاء</button>
+  </form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: members en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · Members</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">Your role: owner</p>
+  
+  
+  <h2>Members</h2>
+  <ul id="members">
+    <li dir="auto">
+      olive &lt;olive@example.com&gt; · owner
+      <strong>(you)</strong>
+      
+    </li>
+  </ul>
+  
+    <h2>Invitations</h2>
+    <ul id="invites">
+      <li dir="auto">
+        ann@example.com · admin
+        <form method="post" action="?/revoke" hx-post="?/revoke"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="invite" value="<id>"><button type="submit">Withdraw</button></form>
+      </li>
+    </ul>
+    <form method="post" action="?/invite" hx-post="?/invite"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Email <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" aria-label="Role">
+        <option value="member">member</option>
+        <option value="admin">admin</option>
+        <option value="owner">owner</option>
+      </select>
+      <button type="submit">Invite</button>
+    </form>
+    <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Default language
+        <select name="locale">
+          <option value="" selected>None (each member&#39;s own)</option>
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar">العربية</option>
+        </select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Leave Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: members ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme Trading · الأعضاء</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1 dir="auto">Acme Trading</h1>
+  <p id="role">دورك: مالك</p>
+  
+  
+  <h2>الأعضاء</h2>
+  <ul id="members">
+    <li dir="auto">
+      olive &lt;olive@example.com&gt; · مالك
+      <strong>(أنت)</strong>
+      
+    </li>
+  </ul>
+  
+    <h2>الدعوات</h2>
+    <ul id="invites">
+      <li dir="auto">
+        ann@example.com · مشرف
+        <form method="post" action="?/revoke" hx-post="?/revoke"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="invite" value="<id>"><button type="submit">سحب</button></form>
+      </li>
+    </ul>
+    <form method="post" action="?/invite" hx-post="?/invite"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>البريد الإلكتروني <input type="email" name="email" required dir="ltr"></label>
+      <select name="role" aria-label="الدور">
+        <option value="member">عضو</option>
+        <option value="admin">مشرف</option>
+        <option value="owner">مالك</option>
+      </select>
+      <button type="submit">دعوة</button>
+    </form>
+    <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اللغة الافتراضية
+        <select name="locale">
+          <option value="" selected>بدون (لغة كل عضو)</option>
+          <option value="en" lang="en">English</option>
+          <option value="ar" lang="ar">العربية</option>
+        </select>
+      </label>
+      <button type="submit">حفظ</button>
+    </form>
+  
+  <form method="post" action="?/leave" hx-post="?/leave"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">مغادرة Acme Trading</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: accept en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Join Acme Trading</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1>Join Acme Trading</h1>
+  <p>You are invited as admin.</p>
+  <form method="post" action="?/accept" hx-post="?/accept"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Accept the invitation</button></form>
+</main>
+
+
+</body></html>"
+`;
+
+exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted, no English left: role: accept ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>الانضمام إلى Acme Trading</title>
+</head>
+<body class="renox-org">
+  <main>
+  
+  <h1>الانضمام إلى Acme Trading</h1>
+  <p>أنت مدعو بصفة مشرف.</p>
+  <form method="post" action="?/accept" hx-post="?/accept"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">قبول الدعوة</button></form>
+</main>
+
+
+</body></html>"
+`;

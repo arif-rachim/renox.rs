@@ -1,0 +1,23 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`gcc in both directions the areas page in en (ltr) and ar (rtl), snapshotted: role: areas en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script><meta charset="utf-8"><title>Areas</title></head>
+<body>
+  <ul id="gcc-area-list" class="gcc-areas">
+    <li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Hills Estate" dir="auto">Dubai Hills Estate · <span lang="ar" dir="rtl">دبي هيلز استيت</span></button></li><li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Investments Park" dir="auto">Dubai Investments Park · <span lang="ar" dir="rtl">مجمع دبي للاستثمار</span></button></li><li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Marina" dir="auto">Dubai Marina · <span lang="ar" dir="rtl">دبي مارينا</span></button></li><li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Silicon Oasis" dir="auto">Dubai Silicon Oasis · <span lang="ar" dir="rtl">واحة دبي للسيليكون</span></button></li>
+  </ul>
+
+
+</body></html>"
+`;
+
+exports[`gcc in both directions the areas page in en (ltr) and ar (rtl), snapshotted: role: areas ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script><meta charset="utf-8"><title>Areas</title></head>
+<body>
+  <ul id="gcc-area-list" class="gcc-areas">
+    <li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Hills Estate" dir="auto">Dubai Hills Estate · <span lang="ar" dir="rtl">دبي هيلز استيت</span></button></li><li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Investments Park" dir="auto">Dubai Investments Park · <span lang="ar" dir="rtl">مجمع دبي للاستثمار</span></button></li><li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Marina" dir="auto">Dubai Marina · <span lang="ar" dir="rtl">دبي مارينا</span></button></li><li data-emirate="AE-DU"><button type="button" class="gcc-area" value="Dubai Silicon Oasis" dir="auto">Dubai Silicon Oasis · <span lang="ar" dir="rtl">واحة دبي للسيليكون</span></button></li>
+  </ul>
+
+
+</body></html>"
+`;

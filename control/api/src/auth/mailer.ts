@@ -29,7 +29,9 @@ export type MailKind =
   | "tier_over_quota"
   | "tier_grace"
   | "tier_suspended"
-  | "tier_reinstated";
+  | "tier_reinstated"
+  // An abuse takedown (src/abuse/takedown.ts, #123).
+  | "abuse_takedown";
 
 export interface Mail {
   to: string;
