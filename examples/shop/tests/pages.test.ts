@@ -6,9 +6,13 @@ import { expect, test } from "bun:test";
 
 import type { ActionContext, Db, LoaderContext } from "renox";
 
-import { actions, load as detail } from "../pages/products/[id].ts";
-import { load as list } from "../pages/products/index.ts";
+import "./fake-modules.ts";
 import { ctx, fakeDb, shopDb } from "./fake-ctx.ts";
+
+// Imported once `renox:modules` is registered (fake-modules.ts): the suite run
+// from the repository root has no shop bunfig preload.
+const { actions, load: detail } = await import("../pages/products/[id].ts");
+const { load: list } = await import("../pages/products/index.ts");
 
 const BASE = "https://shop.renox.test";
 const SESSION = { id: "AAAAAAAAAAAAAAAAAAAAAA" };

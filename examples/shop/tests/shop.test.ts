@@ -3,12 +3,16 @@
 // shop.e2e.test.ts.
 import { expect, test } from "bun:test";
 
-import { POST as cart } from "../functions/api/cart.ts";
-import { POST as checkout } from "../functions/api/checkout.ts";
-import { POST as seed } from "../functions/api/dev/seed.ts";
-import { GET as detail } from "../functions/api/products/[id].ts";
-import { GET as list } from "../functions/api/products/index.ts";
+import "./fake-modules.ts";
 import { ctx, shopDb } from "./fake-ctx.ts";
+
+// Imported once `renox:modules` is registered (fake-modules.ts): the suite run
+// from the repository root has no shop bunfig preload.
+const { POST: cart } = await import("../functions/api/cart.ts");
+const { POST: checkout } = await import("../functions/api/checkout.ts");
+const { POST: seed } = await import("../functions/api/dev/seed.ts");
+const { GET: detail } = await import("../functions/api/products/[id].ts");
+const { GET: list } = await import("../functions/api/products/index.ts");
 
 const BASE = "https://shop.renox.test";
 

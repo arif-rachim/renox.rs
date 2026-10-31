@@ -6,7 +6,7 @@
 
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -27,19 +27,41 @@ function nextVersion(): string {
 
 const source = (from: string, tree: string): string => `path:${relative(from, tree)}`;
 
+/** Every module's directory by its manifest name (`twofa` lives in modules/2fa). */
+function moduleDirs(): Map<string, string> {
+  const root = join(MODULE, "..");
+  const out = new Map<string, string>();
+  for (const d of readdirSync(root)) {
+    const toml = join(root, d, "module.toml");
+    if (!existsSync(toml)) continue;
+    const name = /^name\s*=\s*"([^"]+)"/mu.exec(readFileSync(toml, "utf8"))?.[1];
+    if (name !== undefined) out.set(name, join(root, d));
+  }
+  return out;
+}
+
+/** The migration files of a tree, in the order they run. */
+const migrationsOf = (dir: string): string[] => (existsSync(join(dir, "migrations")) ? readdirSync(join(dir, "migrations")).filter((f) => f.endsWith(".sql")).sort() : []);
+
+/**
+ * Each module applied all its own migrations in order, the app's ran last,
+ * and `before` lists modules that must run before `after` (the dependency
+ * order). The shop's module list itself is not pinned: it grows with the shop.
+ */
+function expectMigrationOrder(modules: { module: string; applied: string[] }[], deps: [string, string][]): void {
+  const dirs = moduleDirs();
+  const names = modules.map((m) => m.module);
+  expect(names.at(-1)).toBe("app");
+  expect(new Set(names).size).toBe(names.length);
+  for (const m of modules) expect([m.module, m.applied]).toEqual([m.module, migrationsOf(m.module === "app" ? SHOP : (dirs.get(m.module) as string))]);
+  for (const [before, after] of deps) expect(names.indexOf(before), `${before} before ${after}`).toBeLessThan(names.indexOf(after));
+}
+
 describe.skipIf(!worker)("install and upgrade", () => {
   test("into the shop with auth: 1.0.0, then 1.1.0; auth's migrations first, no drift, the view stays _v1", async () => {
     const v1 = await installModule("org", source(SHOP, MODULE), { project: SHOP });
     expect(v1.check.errors).toEqual([]);
-    expect(v1.migrate?.modules.map((m) => [m.module, m.applied])).toEqual([
-      ["audit", ["001_events.sql"]],
-      ["i18n", ["001_prefs.sql", "002_prefs_digits.sql", "003_prefs_calendar.sql"]],
-      ["auth", ["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql", "004_phone_passkeys_uaepass.sql", "005_login_tickets.sql"]],
-      ["notifications", ["001_init.sql"]],
-      ["org", ["001_init.sql", "002_orgs_locale.sql"]],
-      ["twofa", ["001_init.sql"]],
-      ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql", "004_refunds.sql", "005_product_images.sql"]],
-    ]);
+    expectMigrationOrder(v1.migrate?.modules ?? [], [["audit", "auth"], ["i18n", "auth"], ["auth", "org"]]);
     const v2 = await v1.upgrade(source(SHOP, nextVersion()));
     expect(v2.check.errors).toEqual([]);
     expect(v2.check.findings.filter((f) => f.rule === "override-drift")).toEqual([]);

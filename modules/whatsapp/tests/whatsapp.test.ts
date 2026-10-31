@@ -144,7 +144,8 @@ describe.skipIf(!worker)("whatsapp", () => {
     expect(refused).toBeInstanceOf(ServiceError);
     expect((refused as ServiceError).message).toContain("at most 20 messages a minute");
     expect(await wa().chatLink("+971 50 123 4567", "Order #42")).toEqual({ url: "https://wa.me/971501234567?text=Order%20%2342" });
-  });
+    // Up to 21 sends through the worker, one after another: more than the 5 s default on a loaded runner.
+  }, 30_000);
 
   test("no token or secret in the logs or the file", async () => {
     await Bun.sleep(1500); // the outbox has tried the sends by now

@@ -27,7 +27,7 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "2fd4f664a098ebb85f922788d0f53f46f3380384e540fdfd74d15a2ff24783cd"
+hash = "c1e27ffd32139ce805796b8fbef205e3927e6c997fb4ffee2b1da85475fc74a4"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -82,7 +82,7 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "e7380b5984b26dcf1252367b17630fee31fb44cd53cda6c5e899d1878652549b"
+hash = "ecce40cfdc9e9792aa5b8960a9b4b1dfbb140da571ec369cbbc000d54578b7fe"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
