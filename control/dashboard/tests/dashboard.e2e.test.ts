@@ -41,6 +41,8 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
     "PAGE /apps/:app/settings",
     "PAGE /apps/:app/usage",
     "PAGE /apps/new",
+    "PAGE /billing",
+    "PAGE /billing/invoices/:id",
     "PAGE /legal/dpa",
     "PAGE /legal/terms",
     "PAGE /ops/registry",

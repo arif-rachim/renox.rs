@@ -28,7 +28,7 @@ test("report, take down (routes gone), a refused transition, restore (routes bac
   await registeredNode(h, "node-1");
   expect((await h.request("POST", "/v1/apps/hello/activate", { token, json: { hash: contentHash(files) } })).status).toBe(200);
   const host = (await h.db.query<{ hostname: string }>("select hostname from route_entries where tenant_id = 't_phish' limit 1"))[0]?.hostname as string;
-  const routes = async () => (await h.db.query<{ n: number }>("select count(*)::int as n from route_entries where tenant_id = 't_phish'"))[0]?.n;
+  const routes = async () => (await h.db.query<{ n: number }>("select count(*)::int as n from route_entries where tenant_id = 't_phish' and status = 'active'"))[0]?.n;
   expect((await h.request("POST", "/v1/abuse", { json: { url: `https://${host}/login`, category: "phishing", description: "x", captcha_token: "t" } })).status).toBe(400);
   const r = await h.request("POST", "/v1/abuse", { json: { url: `https://${host}/login`, category: "phishing", description: "Imitates a bank login page", captcha_token: "t", reporter_email: "r@x.ae" } });
   expect(r.status).toBe(202);

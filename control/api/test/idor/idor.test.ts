@@ -17,6 +17,7 @@ import { contentHash } from "@renox/artifact-validate";
 import spec from "../../../../docs/contracts/schemas/deploy-api.yaml";
 import type { RouteModule } from "../../src/app.ts";
 import { MFA_ROUTE_PERMISSIONS } from "../../src/auth/mfa.ts";
+import { OWNER_TOKEN_ACTIONS } from "../../src/auth/middleware.ts";
 import { isTokenPermission, ROUTE_PERMISSIONS, type Permission } from "../../src/tenancy/roles.ts";
 
 /** The permission of an operation: the table of roles.ts, or the MFA operations' own (#293). */
@@ -327,7 +328,8 @@ describe("IDOR: tenant A with tenant B's ids", () => {
           const path = fill(r.path, values);
           const init = body === undefined ? {} : { json: body };
           await call(`${opId} (${label}, session)`, r.method, path, { ...init, session: a.session }, 404);
-          const tokenWant = perm === "account" ? 401 : isTokenPermission(perm) ? 404 : 403;
+          // 0.5.1: the billing operations take the owner's own token, so B's ids are 404 for it too.
+          const tokenWant = perm === "account" ? 401 : isTokenPermission(perm) || OWNER_TOKEN_ACTIONS.has(opId) ? 404 : 403;
           await call(`${opId} (${label}, token)`, r.method, path, { ...init, token: a.token }, tokenWant);
         }
         covered++;

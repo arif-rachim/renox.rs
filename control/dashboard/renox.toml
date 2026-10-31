@@ -10,3 +10,11 @@ timezone = "Asia/Dubai"
 [permissions]
 network = ["api.renox.app"]
 secrets = ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL"]
+
+# #325: the card form of /billing is Stripe's own (public/billing.js): its
+# script, its frames, and its API calls from the browser. Card numbers never
+# reach the dashboard.
+[security.csp]
+script_src = ["https://js.stripe.com"]
+frame_src = ["https://js.stripe.com", "https://hooks.stripe.com"]
+connect_src = ["https://api.stripe.com"]

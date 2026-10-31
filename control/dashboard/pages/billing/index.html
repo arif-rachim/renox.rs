@@ -1,0 +1,75 @@
+<r-layout use="main">
+  <r-group slot="title">Usage and billing · Renox dashboard</r-group>
+  <section id="page" r-fragment="page">
+    <h1>Usage and billing</h1>
+    <x-problem :problem="problem" r-if="problem" />
+    <p class="notice" r-if="notice">{{ notice }}</p>
+    <p class="muted" r-if="no_tenant">Billing starts with your first app. <a href="/apps/new">Create one</a>.</p>
+    <p class="muted" r-if="owner_only">Billing is managed by the tenant's owner. Ask them to sign in to the dashboard with their own token.</p>
+
+    <div id="step-up" r-if="step_up">
+      <h2>Confirm it is you</h2>
+      <p>Payment changes need a code from your authenticator app or a recovery code.</p>
+      <x-form action="verify" hx-target="#page" hx-swap="outerHTML" class="row">
+        <input type="hidden" name="then" :value="step_up.then">
+        <input type="hidden" name="arg" :value="step_up.plan" r-if="step_up.plan">
+        <label>Code <input name="code" required autocomplete="one-time-code" inputmode="text" maxlength="24" spellcheck="false"></label>
+        <button type="submit">Verify</button>
+      </x-form>
+    </div>
+
+    <r-group r-if="billing">
+      <table class="list">
+        <tbody>
+          <tr><th>Plan</th><td>{{ billing.plan }}<span class="muted" r-if="billing.pending_plan"> (changes to {{ billing.pending_plan }} at the end of the period)</span></td></tr>
+          <tr><th>State</th><td>{{ billing.state }}</td></tr>
+          <tr><th>Period</th><td>{{ billing.period }}</td></tr>
+          <tr><th>Estimate</th><td>{{ billing.estimate.subtotal }} + VAT {{ billing.estimate.vat }} = <strong>{{ billing.estimate.total }} {{ billing.estimate.currency }}</strong></td></tr>
+          <tr><th>Card</th><td r-if="billing.card">{{ billing.card }}</td><td r-else class="muted">none</td></tr>
+        </tbody>
+      </table>
+      <p class="problem" r-if="billing.over_quota">Over the plan's quota: {{ billing.over_quota }}</p>
+      <p class="muted" r-if="billing.anomaly">Unusual usage in the last 24 hours is being reviewed.</p>
+
+      <h2>Plans</h2>
+      <table class="list">
+        <thead><tr><th>Plan</th><th>AED per month</th><th></th></tr></thead>
+        <tbody>
+          <tr r-for="p in billing.plans">
+            <td>{{ p.name }}</td>
+            <td>{{ p.price }}</td>
+            <td r-if="p.current" class="muted">current</td>
+            <td r-else>
+              <x-form action="plan" hx-target="#page" hx-swap="outerHTML" class="inline">
+                <input type="hidden" name="plan" :value="p.id">
+                <button type="submit">Switch</button>
+              </x-form>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted">A paid plan needs a card. Prices are in AED and exclude 5 % VAT; a downgrade applies at the end of the period.</p>
+
+      <h2>Card</h2>
+      <x-form action="card_setup" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="!setup"><button type="submit">Add or replace the card</button></x-form>
+      <div id="card-setup" r-if="setup" :data-key="setup.publishable_key" :data-secret="setup.client_secret">
+        <p>Card details go to Stripe directly; Renox never sees the number.</p>
+        <div id="card-element"></div>
+        <x-form action="card_confirm" hx-target="#page" hx-swap="outerHTML" id="card-form">
+          <input type="hidden" name="setup_id" :value="setup.setup_id">
+          <button type="submit">Save the card</button>
+        </x-form>
+        <x-script src="/billing.js"></x-script>
+      </div>
+
+      <h2>Invoices</h2>
+      <p class="muted" r-if="!has_invoices">No invoices yet.</p>
+      <table class="list" r-if="has_invoices">
+        <thead><tr><th>Number</th><th>Issued</th><th>Total</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <tr r-for="i in invoices"><td>{{ i.id }}</td><td>{{ i.issued }}</td><td>{{ i.total }}</td><td>{{ i.status }}</td><td><a :href="i.pdf">PDF</a></td></tr>
+        </tbody>
+      </table>
+    </r-group>
+  </section>
+</r-layout>

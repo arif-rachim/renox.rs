@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head><meta charset="utf-8"><title>{{ id }}</title>
+<style>
+  body { font-family: "Noto Sans", sans-serif; font-size: 11pt; color: #111; }
+  .ar { font-family: "Noto Naskh Arabic", serif; text-align: right; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12pt; }
+  th, td { border-bottom: 1px solid #ccc; padding: 4pt; text-align: left; }
+  td.n { text-align: right; }
+</style></head>
+<body>
+  <h1>Tax Invoice</h1>
+  <h2 class="ar" lang="ar" dir="rtl">فاتورة ضريبية</h2>
+  <p><strong>{{ id }}</strong> · {{ issued }} · {{ period_text }}</p>
+  <p>Renox · TRN {{ seller_trn }}</p>
+  <p class="ar" lang="ar" dir="rtl">المورد: Renox · الرقم الضريبي {{ seller_trn }}</p>
+  <p>{{ buyer_name }}<r-group r-if="buyer_trn"> · TRN {{ buyer_trn }}</r-group></p>
+  <p>{{ buyer_address }}</p>
+  <table>
+    <thead><tr><th>Item / البند</th><th>Qty / الكمية</th><th>Amount (AED) / المبلغ</th></tr></thead>
+    <tbody>
+      <tr r-for="l in lines"><td>{{ l.description }}</td><td class="n">{{ l.quantity }}</td><td class="n">{{ l.amount }}</td></tr>
+    </tbody>
+  </table>
+  <p>Subtotal / المجموع الفرعي: {{ subtotal }} AED</p>
+  <p>VAT 5 % / ضريبة القيمة المضافة: {{ vat }} AED</p>
+  <p><strong>Total / الإجمالي: {{ total }} AED</strong></p>
+</body>
+</html>

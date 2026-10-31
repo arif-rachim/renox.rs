@@ -58,6 +58,7 @@ mod tests {
                 deployment_hash: hash.repeat(64),
                 status: RouteStatus::Active,
                 updated_at: 0,
+                display_name: None,
                 version: None,
             })
             .unwrap();

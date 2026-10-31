@@ -185,7 +185,7 @@ pub fn default_page_html(status: u16, message: &str, request_id: &str) -> String
 }
 
 /// Whether `Accept` ranks `text/html` above `application/json`.
-fn prefers_html(headers: &HeaderMap) -> bool {
+pub(crate) fn prefers_html(headers: &HeaderMap) -> bool {
     let mut html = 0.0f32;
     let mut json = 0.0f32;
     for value in headers.get_all(header::ACCEPT) {

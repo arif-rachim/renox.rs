@@ -12,6 +12,7 @@
   <header class="top">
     <a class="brand" href="/apps"><strong>Renox</strong></a>
     <a href="/apps" r-if="signed_in">Apps</a>
+    <a href="/billing" r-if="signed_in">Billing</a>
     <span class="spacer"></span>
     <span class="muted" r-if="signed_in">API {{ api_host }}</span>
     <form method="post" action="/signout" class="inline" r-if="signed_in">

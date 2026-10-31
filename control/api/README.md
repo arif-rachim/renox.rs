@@ -97,7 +97,7 @@ The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table
 | `apps:delete` | yes | yes | — | — |
 | `tenant:delete` | yes | — | — | — |
 
-`deploy` covers upload, sourcemaps, activate and rollback; `secrets:read` lists names only. A developer's `tokens:write` lists and revokes their own tokens; owners and admins see all of the tenant's. Deploying needs a verified email address.
+`deploy` covers upload, sourcemaps, activate and rollback; `secrets:read` lists names only. `billing` (deploy-api.md 0.5.1, "Owner token rule") is the owner's session or a token the owner created; a member's, bootstrap, impersonation or app-scoped token is 403, and with a token the payment-method operations and a change to a paid plan need a second factor in the last 15 minutes. A developer's `tokens:write` lists and revokes their own tokens; owners and admins see all of the tenant's. Deploying needs a verified email address.
 
 ### Account endpoints
 

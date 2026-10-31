@@ -11,7 +11,7 @@ export interface RouteEntry {
   tenant_id: string;
   app: string;
   deployment_hash: string;
-  status: "active" | "draining";
+  status: "active" | "draining" | "suspended";
   updated_at: number;
   version: number;
   tier: "free" | "paid";
@@ -21,6 +21,8 @@ export interface RouteEntry {
   database?: string;
   /** 0.3: `own` for the paid tier (a child process of its own on the node, #254); absent means `shared`. */
   process?: "own";
+  /** 0.5.1: the tenant's name on the suspension page; `suspended` entries only. */
+  display_name?: string;
 }
 
 /** The process tier of a tier (deploy-api.md section 17): paid runs in a process of its own. */
@@ -63,12 +65,12 @@ export async function upsertEntry(tx: Db, e: Omit<RouteEntry, "version">): Promi
   const { process: _process, ...rest } = e;
   const entry: RouteEntry = { ...rest, version: await nextVersion(tx), ...(processOf(e.tier) === "own" ? { process: "own" as const } : {}) };
   await tx.query(
-    `insert into route_entries (hostname, deployment_hash, tenant_id, app, status, updated_at, version, tier, node_id, secrets_version, database)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `insert into route_entries (hostname, deployment_hash, tenant_id, app, status, updated_at, version, tier, node_id, secrets_version, database, display_name)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      on conflict (hostname, deployment_hash) do update set tenant_id = excluded.tenant_id, app = excluded.app, status = excluded.status,
        updated_at = excluded.updated_at, version = excluded.version, tier = excluded.tier, node_id = excluded.node_id,
-       secrets_version = excluded.secrets_version, database = excluded.database`,
-    [entry.hostname, entry.deployment_hash, entry.tenant_id, entry.app, entry.status, entry.updated_at, entry.version, entry.tier, entry.node_id, entry.secrets_version, entry.database ?? null],
+       secrets_version = excluded.secrets_version, database = excluded.database, display_name = excluded.display_name`,
+    [entry.hostname, entry.deployment_hash, entry.tenant_id, entry.app, entry.status, entry.updated_at, entry.version, entry.tier, entry.node_id, entry.secrets_version, entry.database ?? null, entry.status === "suspended" ? (entry.display_name ?? null) : null],
   );
   await tx.query("insert into route_changes (version, kind, hostname, deployment_hash, entry, at) values ($1, 'upsert', $2, $3, $4::text::jsonb, $5)", [
     entry.version,
@@ -108,6 +110,7 @@ function toEntry(r: Record<string, unknown>): RouteEntry {
     secrets_version: num(r.secrets_version),
     ...(typeof r.database === "string" ? { database: r.database } : {}),
     ...(r.tier === "paid" ? { process: "own" as const } : {}),
+    ...(typeof r.display_name === "string" ? { display_name: r.display_name } : {}),
   };
 }
 
