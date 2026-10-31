@@ -197,7 +197,10 @@ describe("DNS pointing", () => {
     await tick(e.h.deps);
     expect((await get(e)).dns).toBe("not_pointing");
     // Inside the renewal window, but the hostname does not point at us: no order.
-    e.h.clock.now += 61 * 86_400_000;
+    // The stub certificate's not_after comes from openssl's real clock, not
+    // the harness's, so the window is taken from the stored certificate.
+    const [cert] = await e.h.db.query<{ not_after: unknown }>("select not_after from certificates where hostname = $1", [HOST]);
+    e.h.clock.now = Math.max(e.h.clock.now, Number(cert?.not_after) - RENEW_BEFORE_MS + 86_400_000);
     await tick(e.h.deps);
     expect(e.issuer.orders).toEqual([HOST]);
     // Apex style: only edge addresses.
