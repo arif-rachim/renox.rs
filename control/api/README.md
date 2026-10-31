@@ -188,6 +188,10 @@ deploy API 0.5 section 19, `src/registry/routes.ts`, migration `0017_registry.sq
 - **Audit and the dashboard.** Every call writes an audit row. The dashboard shows installs on the Modules page (`control/dashboard/pages/apps/[app]/modules`) and moderation on `/ops/registry`.
 - **Tests.** `tests/registry.test.ts` and `control/dashboard/tests/modules.test.ts`.
 
+## Advisories (#123)
+
+When an upload is validated, the API reads its `sbom.cdx.json`. It asks OSV (`api.osv.dev`: `querybatch`, then `vulns/{id}` for the first 50) for the npm components and stores the answer in `deployment_advisories`. `getAdvisories` returns those rows (`deploy-api.md` 0.5 section 11.2). They are warnings only: OSV being down stores no items and never rejects the upload, and no deployment state depends on them. The daily re-scan of active deployments is not built yet.
+
 ## Tests
 
 `bun test` in this directory. The tests run on one in-process PGlite (started once per test run, emptied before each test). `tests/postgres.test.ts` also checks the production adapter against a real server when `CONTROL_TEST_DATABASE_URL` is set; the compose stack creates `renox_test` for it:

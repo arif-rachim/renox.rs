@@ -128,3 +128,23 @@ test("reduced_quotas: a new free tenant is over quota at half of Free's requests
     ["t_young", "over_quota"],
   ]);
 });
+
+test("a bot sign-up script from one address creates no more than the per-IP burst (#123 acceptance 4)", async () => {
+  const h = await harness();
+  const statuses: number[] = [];
+  for (let i = 0; i < 50; i++) {
+    const r = await h.request("POST", "/v1/account/signup", { ip: "198.51.100.7", json: { email: `bot${i}@example.ae`, password: "correct horse battery staple", tenant_id: `t-bot-${i}`, dpa_accepted: true } });
+    statuses.push(r.status);
+  }
+  const created = statuses.filter((s) => s < 300).length;
+  expect(created).toBe(5);
+  expect(statuses.slice(5).every((s) => s === 429)).toBe(true);
+  expect((await h.db.query<{ n: number }>("select count(*)::int as n from tenants where id like 't-bot-%'"))[0]?.n).toBe(5);
+  // Another address is not held back by the bot's bucket.
+  expect((await h.request("POST", "/v1/account/signup", { ip: "198.51.100.8", json: { email: "owner@example.ae", password: "correct horse battery staple", tenant_id: "t-real", dpa_accepted: true } })).status).toBeLessThan(300);
+  // A minute later the bot gets one more, not a new burst.
+  h.clock.now += 60_000;
+  const next = [];
+  for (let i = 50; i < 53; i++) next.push((await h.request("POST", "/v1/account/signup", { ip: "198.51.100.7", json: { email: `bot${i}@example.ae`, password: "correct horse battery staple", tenant_id: `t-bot-${i}`, dpa_accepted: true } })).status);
+  expect(next.filter((s) => s < 300)).toHaveLength(1);
+});

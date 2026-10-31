@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 
+import { setOsvFetch } from "../../api/src/deployments/advisories.ts";
 import { helloArtifact, upload } from "../../api/tests/artifacts.ts";
 import { assertScoped, createApp_, registeredNode, scopedToken, tenant } from "../../api/tests/helpers.ts";
 import { load as appsLoad, actions as appsActions } from "../pages/apps/index.ts";
@@ -178,7 +179,28 @@ describe("deployments (3.3, 3.4): promote and rollback", () => {
 
     // Detail.
     const detail = data(await deploymentsLoad(loaderCtx(d, `/apps/hello/deployments?hash=${a}`, { params: HELLO }))).detail as Record<string, unknown>;
-    expect(detail).toMatchObject({ hash: a, state: "● live", network: "none", violations: [], last_error: null });
+    expect(detail).toMatchObject({ hash: a, state: "● live", network: "none", violations: [], last_error: null, advisories: [] });
+  });
+
+  test("a deployment whose SBOM has a known-vulnerable package shows the advisory with package and version (#123)", async () => {
+    const { d, owner } = await signedIn();
+    setOsvFetch(async (url) =>
+      url.endsWith("/querybatch")
+        ? Response.json({ results: [{ vulns: [{ id: "GHSA-35jh-r3h4-6jhm" }] }] })
+        : Response.json({ summary: "Command Injection in lodash", database_specific: { severity: "HIGH" }, affected: [{ package: { name: "lodash", ecosystem: "npm" }, ranges: [{ events: [{ fixed: "4.17.21" }] }] }] }),
+    );
+    try {
+      const files = helloArtifact((m, f) => {
+        (m.artifact as Record<string, unknown>).version = 1;
+        f.set("sbom.cdx.json", new TextEncoder().encode(JSON.stringify({ bomFormat: "CycloneDX", specVersion: "1.5", components: [{ type: "library", name: "lodash", version: "4.17.20", purl: "pkg:npm/lodash@4.17.20" }] })));
+      });
+      expect((await upload(d.h, owner, "hello", files)).status).toBe(201);
+      const hash = contentHash(files);
+      const detail = data(await deploymentsLoad(loaderCtx(d, `/apps/hello/deployments?hash=${hash}`, { params: HELLO }))).detail as Record<string, unknown>;
+      expect(detail.advisories).toEqual([{ id: "GHSA-35jh-r3h4-6jhm", package: "lodash@4.17.20", severity: "high", summary: "Command Injection in lodash", fixed_in: "4.17.21" }]);
+    } finally {
+      setOsvFetch((u, i) => fetch(u, i));
+    }
   });
 
   test("a token without deploy cannot promote; the page says so", async () => {

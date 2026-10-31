@@ -382,6 +382,14 @@ export interface ImpersonationBanner {
   until: string;
 }
 
+/** getAdvisories (deploy-api.md 0.5 section 11.2). */
+export interface Advisories {
+  hash: string;
+  sbom: boolean;
+  checked_at: number | null;
+  items: { id: string; package: string; version: string; severity: "low" | "moderate" | "high" | "critical" | "unknown"; summary: string; fixed_in: string | null }[];
+}
+
 export class Api {
   /** Set by the guard when the session is an impersonation. */
   impersonation: ImpersonationBanner | null = null;
@@ -456,6 +464,11 @@ export class Api {
 
   getDeployment(app: string, hash: string): Promise<Result<Deployment>> {
     return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/deployments/${encodeURIComponent(hash)}`);
+  }
+
+  /** `getAdvisories` (deploy-api.md 0.5 section 11.2, #123): OSV advisories of the deployment's SBOM; a warning only. */
+  getAdvisories(app: string, hash: string): Promise<Result<Advisories>> {
+    return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/deployments/${encodeURIComponent(hash)}/advisories`);
   }
 
   activate(app: string, hash: string): Promise<Result<Deployment>> {
