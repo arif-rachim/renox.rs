@@ -24,7 +24,7 @@ export interface Session {
 /** A provider event, normalised. `kind` is what the module applies. */
 export interface PspEvent {
   id: string;
-  kind: "checkout_completed" | "payment_received" | "payment_failed" | "invoice_issued" | "subscription_cancelled" | "refunded" | "ignored";
+  kind: "checkout_completed" | "payment_received" | "payment_failed" | "invoice_issued" | "subscription_cancelled" | "refunded" | "disputed" | "ignored";
   order_id?: string;
   customer_id?: string;
   invoice_id?: string;
@@ -34,6 +34,8 @@ export interface PspEvent {
   psp_customer?: string;
   psp_subscription?: string;
   period_end?: number;
+  /** A dispute's reason (Stripe's `fraudulent`, `product_not_received`, …). */
+  reason?: string;
 }
 
 export interface PspAdapter {
@@ -127,6 +129,9 @@ export function stripe(fetchFn: FetchFn, key: string): PspAdapter {
           return { ...base, kind: "payment_failed", invoice_id: typeof o.id === "string" && e.type === "invoice.payment_failed" ? o.id : undefined, order_id: meta.order_id, psp_customer: o.customer ?? undefined };
         case "customer.subscription.deleted":
           return { ...base, kind: "subscription_cancelled", psp_customer: o.customer ?? undefined };
+        case "charge.dispute.created":
+          // The dispute object carries no metadata of ours: the payment intent finds the invoice.
+          return { ...base, kind: "disputed", payment_intent: typeof o.payment_intent === "string" ? o.payment_intent : undefined, amount: Number(o.amount ?? 0), currency: String(o.currency ?? "aed").toUpperCase(), reason: typeof o.reason === "string" ? o.reason : "general" };
         case "charge.refunded":
           return { ...base, kind: "refunded", payment_intent: typeof o.payment_intent === "string" ? o.payment_intent : undefined, amount: Number(o.amount_refunded ?? 0) };
         default:

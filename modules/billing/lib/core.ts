@@ -328,6 +328,15 @@ async function apply(ctx: BillingCtx, e: PspEvent): Promise<string> {
       await ctx.events.emit("billing.payment_failed", { customer_id: customer, ...(e.invoice_id === undefined ? {} : { invoice_id: e.invoice_id }), ...(e.order_id === undefined ? {} : { order_id: e.order_id }) });
       await ctx.events.emit("billing.subscription_changed", { customer_id: customer, status: "past_due" });
       return "past_due";
+    case "disputed": {
+      // A chargeback (#351): the paid invoice or one-off order of its payment intent.
+      if (typeof e.payment_intent !== "string") return "ignored";
+      const inv = await ctx.db.queryOne<{ id: string; customer_id: string }>("select id, customer_id from billing__invoices where payment_intent = ?", [e.payment_intent]);
+      if (inv === null) return "ignored";
+      await ctx.db.execute("update billing__invoices set disputed_at = coalesce(disputed_at, ?), dispute_reason = ? where id = ?", [t, e.reason ?? "general", inv.id]);
+      await ctx.events.emit("billing.disputed", { invoice_id: inv.id, customer_id: inv.customer_id, amount: e.amount ?? 0, reason: e.reason ?? "general" });
+      return "disputed";
+    }
     case "subscription_cancelled":
       if (customer === null) return "ignored";
       await ctx.db.execute("update billing__subscriptions set status = 'cancelled', updated_at = ? where customer_id = ?", [t, customer]);

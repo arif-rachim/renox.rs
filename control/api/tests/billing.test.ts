@@ -1,7 +1,7 @@
 // Platform billing (#325; deploy-api.md 0.5 section 20): plans, the
 // session-only `billing` permission, the setup-intent flow without card
 // data, a paid plan needs a payment method, Stripe webhooks verified and
-// de-duplicated, a dispute suspends the tenant down to the route table,
+// de-duplicated, a dispute (found through its PaymentIntent, #351) suspends the tenant down to the route table,
 // payment reinstates it, and the tier machine's grace and suspension.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
@@ -14,6 +14,7 @@ import { sweepBilling } from "../src/billing/sweep.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
 import { totp } from "../../../sdk/src/totp.ts";
 import { addMember, assertScoped, harness, registeredNode, signup, type Harness, type Session } from "./helpers.ts";
+import recordedDispute from "./fixtures/stripe/charge.dispute.created.json";
 
 afterEach(assertScoped);
 
@@ -33,8 +34,9 @@ beforeAll(() =>
     async charge(c) {
       return { status: "succeeded", payment_intent: `pi_${c.invoiceId}_${c.attempt}` };
     },
-    async paymentIntentTenant() {
-      return null;
+    async paymentIntentTenant(pi) {
+      // The PaymentIntent's own metadata, read back from the PSP (#351).
+      return pi === "pi_known_to_stripe_only" ? T : null;
     },
     webhookSecret: () => SECRET,
   }),
@@ -98,7 +100,10 @@ describe("billing (section 20)", () => {
     expect((await h.request("POST", "/v1/apps/hello/activate", { token, json: { hash: contentHash(files) } })).status).toBe(200);
     const routes = async () => (await h.db.query<{ n: number }>("select count(*)::int as n from route_entries where tenant_id = $1 and status = 'active'", [T]))[0]?.n;
     expect(await routes()).toBeGreaterThan(0);
-    const dispute = { id: "evt_dispute_1", type: "charge.dispute.created", data: { object: { metadata: { tenant_id: T } } } };
+    // A dispute recorded from a Stripe sandbox (#351): no metadata of ours, only the PaymentIntent of the invoice charge.
+    const dispute = structuredClone(recordedDispute);
+    expect(dispute.data.object.metadata).toEqual({});
+    await h.db.query("insert into invoices (id, tenant_id, period_start, period_end, status, body, issued_at, payment_intent) values ($1, $2, 0, 1, 'paid', '{}', 0, $3)", ["INV-2026-000009", T, dispute.data.object.payment_intent]);
     expect((await webhook(h, dispute, { secret: "wrong" })).status).toBe(401);
     expect((await webhook(h, dispute, { t: Math.floor(h.clock.now / 1000) - 3600 })).status).toBe(401);
     expect((await webhook(h, dispute)).status).toBe(200);
@@ -109,6 +114,20 @@ describe("billing (section 20)", () => {
     expect((await webhook(h, paid)).status).toBe(200);
     expect((await h.db.query<{ state: string }>("select state from tenants where id = $1", [T]))[0]?.state).toBe("active");
     expect(await routes()).toBeGreaterThan(0);
+  });
+
+  test("a dispute whose PaymentIntent is on no invoice row: the tenant is read from the PaymentIntent at the PSP; an unknown one changes nothing (#351)", async () => {
+    const { h } = await setup();
+    const other = structuredClone(recordedDispute);
+    other.id = "evt_dispute_unknown";
+    other.data.object.payment_intent = "pi_nobody";
+    expect((await webhook(h, other)).status).toBe(200);
+    expect((await h.db.query<{ state: string }>("select state from tenants where id = $1", [T]))[0]?.state).toBe("active");
+    const known = structuredClone(recordedDispute);
+    known.id = "evt_dispute_psp";
+    known.data.object.payment_intent = "pi_known_to_stripe_only";
+    expect((await webhook(h, known)).status).toBe(200);
+    expect((await h.db.query<{ state: string }>("select state from tenants where id = $1", [T]))[0]?.state).toBe("suspended");
   });
 
   test("the tier machine: free over quota -> over_quota -> grace -> suspended", async () => {

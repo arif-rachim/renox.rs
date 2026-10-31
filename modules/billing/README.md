@@ -29,6 +29,7 @@ In the Stripe dashboard, point a webhook endpoint at `https://<app host>/billing
 - `payment_intent.payment_failed`
 - `customer.subscription.deleted`
 - `charge.refunded`
+- `charge.dispute.created`
 
 ## Services
 
@@ -52,6 +53,7 @@ Errors are `BillingError` with a code: `INVALID`, `NOT_FOUND`, `NOT_CONFIGURED`,
 | `billing.payment_failed` | event | A payment failed; the subscription is now `past_due`. Dunning emails are the app's handler of this event (through `email.send`) |
 | `billing.invoice_issued` | event | The PSP issued an invoice; tax-gcc numbers its tax invoice from this (#331) |
 | `billing.invoice_paid`, `billing.subscription_changed`, `billing.refunded` | events | Self-explanatory |
+| `billing.disputed` | event | A customer disputed a payment with their bank (`charge.dispute.created`): the invoice or one-off order of its payment intent, the amount and Stripe's reason. The invoice row keeps `disputed_at`; the evidence is answered in the Stripe dashboard |
 | `billing.fraud_signal` | hook point | Receives `{ customer_id, order_id, amount, currency, mode }` before a checkout session is created. A halt refuses the checkout; the card-testing limits are #123 |
 
 The public view `billing__public_user_plans_v1` (`user_id`, `plan_id`, `status`, `current_period_end`) is what other modules read a user's plan through.

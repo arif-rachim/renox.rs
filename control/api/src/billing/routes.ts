@@ -236,6 +236,19 @@ export function stripeVerified(secret: string, header: string, raw: Uint8Array, 
   return sigs.some((s) => s.length === want.length && timingSafeEqual(Buffer.from(s), want));
 }
 
+/**
+ * The tenant of a dispute (#351). Stripe's dispute object carries no metadata
+ * of ours: its PaymentIntent is the invoice charge of collect.ts, found on the
+ * invoice row, else read back from the PaymentIntent's own metadata.
+ */
+async function disputedTenant(db: Db, o: { payment_intent?: string; metadata?: Record<string, string> }): Promise<string | undefined> {
+  if (typeof o.metadata?.tenant_id === "string") return o.metadata.tenant_id;
+  if (typeof o.payment_intent !== "string") return undefined;
+  const r = (await db.query<Row>("select tenant_id from invoices where payment_intent = $1 limit 1", [o.payment_intent]))[0];
+  if (typeof r?.tenant_id === "string") return r.tenant_id;
+  return (await psp.paymentIntentTenant(o.payment_intent).catch(() => null)) ?? undefined;
+}
+
 export function registerBilling(app: Hono<Env>, deps: Deps): void {
   app.get("/v1/billing/plans", operation(deps, "listPlans"), async (c) => c.json({ currency: "AED", vat_rate: VAT_RATE, plans: PLANS }));
 
@@ -350,7 +363,7 @@ export function registerBilling(app: Hono<Env>, deps: Deps): void {
     const secret = psp.webhookSecret();
     const raw = await readBody(c, 256 * 1024);
     if (secret === null || !stripeVerified(secret, c.req.header("stripe-signature") ?? "", raw, deps.now())) throw new ApiError("RENOX_UNAUTHENTICATED");
-    let ev: { id?: string; type?: string; data?: { object?: { id?: string; metadata?: Record<string, string>; last_payment_error?: { code?: string; decline_code?: string } } } };
+    let ev: { id?: string; type?: string; data?: { object?: { id?: string; payment_intent?: string; metadata?: Record<string, string>; last_payment_error?: { code?: string; decline_code?: string } } } };
     try {
       ev = JSON.parse(new TextDecoder().decode(raw));
     } catch {
@@ -360,7 +373,7 @@ export function registerBilling(app: Hono<Env>, deps: Deps): void {
     const now = deps.now();
     const fresh = await deps.db.query("insert into billing_events (provider, event_id, received_at) values ('stripe', $1, $2) on conflict do nothing returning event_id", [ev.id, now]);
     if (fresh.length === 0) return c.json({ received: true, duplicate: true });
-    const tenantId = ev.data?.object?.metadata?.tenant_id;
+    const tenantId = ev.type === "charge.dispute.created" ? await disputedTenant(deps.db, ev.data?.object ?? {}) : ev.data?.object?.metadata?.tenant_id;
     if (typeof tenantId === "string") {
       const known = await deps.db.query("select 1 from tenants where id = $1", [tenantId]);
       if (known.length > 0) {
