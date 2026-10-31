@@ -181,7 +181,8 @@ export async function devWithData(stubs: Record<string, unknown>): Promise<{ bas
       file,
       `${source.replace("export async function load(", "async function liveLoad(")}\n` +
         `// Test stub (tests/helpers.ts, devWithData): the loader's data, captured in process.\n` +
-        `void liveLoad;\nexport async function load() {\n  return JSON.parse(${JSON.stringify(JSON.stringify(data))});\n}\n`,
+        // #336: the stub keeps the page's language when the request carries the cookie of lib/locale.ts.
+        `void liveLoad;\nexport async function load(ctx) {\n  if (/(?:^|;\\s*)renox_lang=ar(?:;|$)/u.test(ctx.headers.get("cookie") ?? "")) ctx.setLocale("ar", "rtl");\n  return JSON.parse(${JSON.stringify(JSON.stringify(data))});\n}\n`,
     );
   }
   const port = 20000 + Math.floor(Math.random() * 20000);

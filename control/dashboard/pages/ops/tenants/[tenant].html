@@ -1,100 +1,100 @@
 <r-layout use="main">
-  <r-group slot="title">Operator · {{ tenant }} · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.ops.operator" /> · {{ tenant }} · <r-t key="dash.brand" /></r-group>
   <section id="page" r-fragment="page">
-    <h1>Tenant <code>{{ tenant }}</code></h1>
-    <p class="muted">Operator console. Every action needs your operator token (it is used for this one request and never kept) and a reason of {{ reason_min }} to {{ reason_max }} characters, which goes into the audit row with your account.</p>
+    <h1><r-t key="dash.ops.tenant" /> <code>{{ tenant }}</code></h1>
+    <p class="muted"><r-t key="dash.ops.tenant_intro" /> {{ reason_min }} <r-t key="dash.ops.to" /> {{ reason_max }} <r-t key="dash.ops.characters_audit" /></p>
     <p class="problem" r-if="form_error">{{ form_error }}</p>
     <x-problem :problem="action_problem" r-if="action_problem" />
     <r-group r-if="state">
       <p class="notice">{{ state.notice }}</p>
       <table class="list">
         <tbody>
-          <tr><td>Tier</td><td>{{ state.tier }}</td></tr>
-          <tr><td>Process</td><td>{{ state.process }}</td></tr>
-          <tr><td>Node</td><td><code>{{ state.node }}</code></td></tr>
-          <tr><td>Route version</td><td>{{ state.route_version }}</td></tr>
-          <tr r-if="state.hook"><td>Hook exit code</td><td>{{ state.hook }}</td></tr>
-          <tr><td>Audit row</td><td><code>{{ state.audit_id }}</code></td></tr>
+          <tr><td><r-t key="dash.common.tier" /></td><td>{{ state.tier }}</td></tr>
+          <tr><td><r-t key="dash.ops.process" /></td><td>{{ state.process }}</td></tr>
+          <tr><td><r-t key="dash.ops.node" /></td><td><code>{{ state.node }}</code></td></tr>
+          <tr><td><r-t key="dash.ops.route_version" /></td><td>{{ state.route_version }}</td></tr>
+          <tr r-if="state.hook"><td><r-t key="dash.ops.hook_exit" /></td><td>{{ state.hook }}</td></tr>
+          <tr><td><r-t key="dash.ops.audit_row" /></td><td><code>{{ state.audit_id }}</code></td></tr>
         </tbody>
       </table>
     </r-group>
 
     <p class="notice" r-if="notice">{{ notice }}</p>
-    <h2>Status</h2>
+    <h2><r-t key="dash.common.status" /></h2>
     <x-form action="status" hx-target="#page" hx-swap="outerHTML" class="row">
-      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
-      <button type="submit">Show status</button>
+      <label><r-t key="dash.ops.token" /> <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit"><r-t key="dash.ops.show_status" /></button>
     </x-form>
     <r-group r-if="status">
       <table class="list">
         <tbody>
-          <tr><td>Name</td><td>{{ status.name }}</td></tr>
-          <tr><td>State</td><td>{{ status.state }}</td></tr>
-          <tr><td>Tier</td><td>{{ status.tier }} (process {{ status.process }})</td></tr>
-          <tr><td>Node</td><td><code>{{ status.node }}</code></td></tr>
-          <tr><td>Pinned to</td><td><code>{{ status.pinned }}</code></td></tr>
-          <tr><td>Moving to a microVM</td><td>{{ status.moving }}</td></tr>
-          <tr><td>Last microVM move</td><td>{{ status.microvm }}</td></tr>
+          <tr><td><r-t key="dash.common.name" /></td><td>{{ status.name }}</td></tr>
+          <tr><td><r-t key="dash.common.state" /></td><td>{{ status.state }}</td></tr>
+          <tr><td><r-t key="dash.common.tier" /></td><td>{{ status.tier }} (<r-t key="dash.ops.process_lc" /> {{ status.process }})</td></tr>
+          <tr><td><r-t key="dash.ops.node" /></td><td><code>{{ status.node }}</code></td></tr>
+          <tr><td><r-t key="dash.ops.pinned" /></td><td><code>{{ status.pinned }}</code></td></tr>
+          <tr><td><r-t key="dash.ops.moving" /></td><td>{{ status.moving }}</td></tr>
+          <tr><td><r-t key="dash.ops.last_microvm" /></td><td>{{ status.microvm }}</td></tr>
         </tbody>
       </table>
-      <h3>Replication</h3>
-      <p class="muted" r-if="!status.replication">No node has reported this tenant's replication yet.</p>
+      <h3><r-t key="dash.ops.replication" /></h3>
+      <p class="muted" r-if="!status.replication"><r-t key="dash.ops.no_replication" /></p>
       <table class="list" r-if="status.replication">
-        <thead><tr><th>Database</th><th>State</th><th>Replica</th><th>Lag</th><th>Last sync</th><th>Reported</th></tr></thead>
+        <thead><tr><th><r-t key="dash.nav.database" /></th><th><r-t key="dash.common.state" /></th><th><r-t key="dash.ops.replica" /></th><th><r-t key="dash.ops.lag" /></th><th><r-t key="dash.ops.last_sync" /></th><th><r-t key="dash.ops.reported" /></th></tr></thead>
         <tbody>
           <tr r-for="r in status.replication">
             <td><code>{{ r.database }}</code></td><td>{{ r.state }}</td><td>{{ r.replica }}</td><td>{{ r.lag }}</td><td>{{ r.last_sync }}</td>
-            <td>{{ r.reported }}<span class="problem" r-if="r.stale"> (stale)</span></td>
+            <td>{{ r.reported }}<span class="problem" r-if="r.stale"> (<r-t key="dash.ops.stale" />)</span></td>
           </tr>
         </tbody>
       </table>
-      <h3>Last actions</h3>
-      <p class="muted" r-if="!status.actions">No operator action on this tenant yet.</p>
+      <h3><r-t key="dash.ops.last_actions" /></h3>
+      <p class="muted" r-if="!status.actions"><r-t key="dash.ops.no_actions" /></p>
       <table class="list" r-if="status.actions">
-        <thead><tr><th>When (UTC)</th><th>Action</th><th>Result</th><th>Operator</th><th>Reason</th><th></th></tr></thead>
+        <thead><tr><th><r-t key="dash.ops.when_utc" /></th><th><r-t key="dash.ops.action" /></th><th><r-t key="dash.ops.result" /></th><th><r-t key="dash.ops.operator" /></th><th><r-t key="dash.ops.reason" /></th><th></th></tr></thead>
         <tbody>
           <tr r-for="a in status.actions">
-            <td>{{ a.at }}</td><td>{{ a.action }}</td><td>{{ a.result }}<r-group r-if="a.expires"> until {{ a.expires }}</r-group></td><td><code>{{ a.operator }}</code></td><td>{{ a.reason }}</td>
+            <td>{{ a.at }}</td><td>{{ a.action }}</td><td>{{ a.result }}<r-group r-if="a.expires"> <r-t key="dash.ops.until" /> {{ a.expires }}</r-group></td><td><code>{{ a.operator }}</code></td><td>{{ a.reason }}</td>
             <td><x-form action="end" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="a.active_impersonation">
               <input type="hidden" name="impersonation_id" :value="a.active_impersonation">
-              <input type="password" name="token" required placeholder="Operator token" autocomplete="off" spellcheck="false">
-              <button type="submit">End</button>
+              <input type="password" name="token" required :placeholder="'dash.ops.token' | t" autocomplete="off" spellcheck="false">
+              <button type="submit"><r-t key="dash.ops.end" /></button>
             </x-form></td>
           </tr>
         </tbody>
       </table>
     </r-group>
 
-    <h2>Break-glass: read this tenant's data</h2>
-    <p class="muted">For 60 minutes, read only (apps, logs, secret names). This dashboard session signs in as the impersonation, every request is audited as yours with the reason, and the tenant's owner is emailed at the start and the end. It needs a token created with <code>ops:impersonate</code> (<code>ops/security/access-review.md</code>).</p>
-    <x-form action="impersonate" hx-target="#page" hx-swap="outerHTML" hx-confirm="Read {{ tenant }}'s data for 60 minutes? Its owner is emailed now." class="row">
-      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
-      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
-      <button type="submit">Start break-glass</button>
+    <h2><r-t key="dash.ops.break_glass_h" /></h2>
+    <p class="muted"><r-t key="dash.ops.break_glass_note" /> <code>ops:impersonate</code> (<code>ops/security/access-review.md</code>).</p>
+    <x-form action="impersonate" hx-target="#page" hx-swap="outerHTML" :hx-confirm="'dash.ops.confirm_impersonate' | t({'tenant': tenant})" class="row">
+      <label><r-t key="dash.ops.reason" /> <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label><r-t key="dash.ops.token" /> <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit"><r-t key="dash.ops.start_break_glass" /></button>
     </x-form>
 
-    <h2>Change tier</h2>
-    <x-form action="tier" hx-target="#page" hx-swap="outerHTML" hx-confirm="Change the tier of {{ tenant }}? Its route entries are republished with the new process tier." class="row">
-      <label>Tier <select name="tier"><option value="free">free (shared process)</option><option value="paid">paid (own process)</option></select></label>
-      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
-      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
-      <button type="submit">Change tier</button>
+    <h2><r-t key="dash.ops.change_tier" /></h2>
+    <x-form action="tier" hx-target="#page" hx-swap="outerHTML" :hx-confirm="'dash.ops.confirm_tier' | t({'tenant': tenant})" class="row">
+      <label><r-t key="dash.common.tier" /> <select name="tier"><option value="free">{{ 'dash.ops.tier_free' | t }}</option><option value="paid">{{ 'dash.ops.tier_paid' | t }}</option></select></label>
+      <label><r-t key="dash.ops.reason" /> <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label><r-t key="dash.ops.token" /> <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit"><r-t key="dash.ops.change_tier" /></button>
     </x-form>
 
-    <h2>Move to another node</h2>
-    <x-form action="node" hx-target="#page" hx-swap="outerHTML" hx-confirm="Move {{ tenant }}? Its file is restored on the node first, then its routes change and the old node drains it." class="row">
-      <label>Node <input name="node_id" required maxlength="63" pattern="[a-z0-9][a-z0-9_.\-]*" autocomplete="off" spellcheck="false"></label>
-      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
-      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
-      <button type="submit">Move to node</button>
+    <h2><r-t key="dash.ops.move_node_h" /></h2>
+    <x-form action="node" hx-target="#page" hx-swap="outerHTML" :hx-confirm="'dash.ops.confirm_node' | t({'tenant': tenant})" class="row">
+      <label><r-t key="dash.ops.node" /> <input name="node_id" required maxlength="63" pattern="[a-z0-9][a-z0-9_.\-]*" autocomplete="off" spellcheck="false"></label>
+      <label><r-t key="dash.ops.reason" /> <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label><r-t key="dash.ops.token" /> <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit"><r-t key="dash.ops.move_node" /></button>
     </x-form>
 
-    <h2>Move to a microVM</h2>
-    <p class="muted">The tenant answers 503 while the node's hook runs. In F6 the hook is a stub that exits 75, and the tenant stays where it is.</p>
-    <x-form action="microvm" hx-target="#page" hx-swap="outerHTML" hx-confirm="Move {{ tenant }} to a microVM? Its requests answer 503 while the hook runs." class="row">
-      <label>Reason <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
-      <label>Operator token <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
-      <button type="submit">Move to microVM</button>
+    <h2><r-t key="dash.ops.move_microvm_h" /></h2>
+    <p class="muted"><r-t key="dash.ops.microvm_note" /></p>
+    <x-form action="microvm" hx-target="#page" hx-swap="outerHTML" :hx-confirm="'dash.ops.confirm_microvm' | t({'tenant': tenant})" class="row">
+      <label><r-t key="dash.ops.reason" /> <input name="reason" required :minlength="reason_min" :maxlength="reason_max" autocomplete="off"></label>
+      <label><r-t key="dash.ops.token" /> <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit"><r-t key="dash.ops.move_microvm" /></button>
     </x-form>
   </section>
 </r-layout>

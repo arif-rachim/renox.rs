@@ -7,6 +7,7 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { Api, apiBase, type ApiFailure } from "./api.ts";
+import { applyLocale } from "./locale.ts";
 import { currentToken, SessionKeyMissing, signOut } from "./session.ts";
 
 type Context = LoaderContext | ActionContext;
@@ -23,8 +24,14 @@ export function nextPath(raw: string | null | undefined): string {
 const toSignIn = (url: URL): Response =>
   new Response(null, { status: 303, headers: { location: `/signin?next=${encodeURIComponent(nextPath(url.pathname + url.search))}` } });
 
-/** The API client of the signed-in user, or the `Response` to send instead (sign in, or not configured). */
+/**
+ * The API client of the signed-in user, or the `Response` to send instead
+ * (sign in, not configured, or the redirect that stores a `?lang=` choice).
+ * It sets the page's locale first (lib/locale.ts, #336).
+ */
 export async function signedIn(ctx: Context): Promise<Api | Response> {
+  const lang = applyLocale(ctx);
+  if (lang !== null) return lang;
   let token: string | null;
   try {
     token = await currentToken(ctx.db, ctx.secrets, ctx.session.id, Date.now());

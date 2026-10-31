@@ -1,37 +1,37 @@
 <r-layout use="main">
-  <r-group slot="title">Database · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.nav.database" /> · {{ app }} · <r-t key="dash.brand" /></r-group>
   <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
   <section id="page" r-fragment="page">
-    <h1>Database</h1>
+    <h1><r-t key="dash.nav.database" /></h1>
     <x-problem :problem="problem" r-if="problem" />
-    <p class="notice" r-if="notice">{{ notice }} <a r-if="restored" :href="restored.href">Open {{ restored.name }}</a></p>
+    <p class="notice" r-if="notice">{{ notice }} <a r-if="restored" :href="restored.href"><r-t key="dash.common.open" /> {{ restored.name }}</a></p>
     <p class="problem" r-if="form_error">{{ form_error }}</p>
     <x-problem :problem="action_problem" r-if="action_problem" />
     <r-group r-if="view">
-      <p><code>{{ view.database }}</code> · {{ view.size }} of {{ view.quota }} <meter min="0" max="100" :value="view.pct">{{ view.pct }}%</meter> {{ view.pct }}% · WAL {{ view.wal }}</p>
-      <p :class="{ bad: !view.replicating }">{{ view.replication }}<r-group r-if="view.sync"> · {{ view.sync }}</r-group><r-group r-if="view.stale"> · the node did not answer; this is the last status seen</r-group></p>
-      <p class="muted" r-if="view.last_failover">Last failover {{ view.last_failover }}</p>
+      <p><code>{{ view.database }}</code> · {{ view.size }} <r-t key="dash.common.of" /> {{ view.quota }} <meter min="0" max="100" :value="view.pct">{{ view.pct }}%</meter> {{ view.pct }}% · WAL {{ view.wal }}</p>
+      <p :class="{ bad: !view.replicating }">{{ view.replication }}<r-group r-if="view.sync"> · {{ view.sync }}</r-group><r-group r-if="view.stale"> · <r-t key="dash.database.stale" /></r-group></p>
+      <p class="muted" r-if="view.last_failover"><r-t key="dash.database.last_failover" /> {{ view.last_failover }}</p>
 
-      <h2>Backups</h2>
-      <p class="muted">Retention {{ view.retention }}. A restore creates a new app with this app's active deployment and the database as of the chosen time; this app is not changed.</p>
+      <h2><r-t key="dash.database.backups" /></h2>
+      <p class="muted"><r-t key="dash.database.retention" /> {{ view.retention }}. <r-t key="dash.database.restore_note" /></p>
       <table class="list">
-        <thead><tr><th>Generation</th><th>From (UTC)</th><th>To (UTC)</th></tr></thead>
+        <thead><tr><th><r-t key="dash.database.generation" /></th><th><r-t key="dash.database.from" /></th><th><r-t key="dash.database.to" /></th></tr></thead>
         <tbody>
           <tr r-for="g in view.generations"><td><code>{{ g.id }}</code></td><td>{{ g.from }}</td><td>{{ g.to }}</td></tr>
-          <tr r-empty="view.generations"><td colspan="3">No restore points yet.</td></tr>
+          <tr r-empty="view.generations"><td colspan="3"><r-t key="dash.database.no_points" /></td></tr>
         </tbody>
       </table>
-      <x-form action="restore" hx-target="#page" hx-swap="outerHTML" hx-confirm="Restore {{ app }} into a new app? The new app gets its own database and hostname." class="row" r-if="view.latest">
-        <label>Restore point (UTC) <input type="datetime-local" name="at" step="1" required :value="view.latest"></label>
-        <label>New app <input name="name" required maxlength="50" pattern="[a-z][a-z0-9-]*" autocomplete="off" spellcheck="false"></label>
-        <button type="submit">Restore to new app</button>
+      <x-form action="restore" hx-target="#page" hx-swap="outerHTML" :hx-confirm="'dash.database.confirm_restore' | t({'app': app})" class="row" r-if="view.latest">
+        <label><r-t key="dash.database.restore_point" /> <input type="datetime-local" name="at" step="1" required :value="view.latest"></label>
+        <label><r-t key="dash.apps.new" /> <input name="name" required maxlength="50" pattern="[a-z][a-z0-9-]*" autocomplete="off" spellcheck="false"></label>
+        <button type="submit"><r-t key="dash.database.restore" /></button>
       </x-form>
 
-      <h2>Export</h2>
-      <p class="muted">A consistent snapshot of the whole file. The link is signed and expires within 15 minutes; your browser downloads it directly. Column masking comes later.</p>
-      <p r-if="download"><a :href="download.url" :download="download.file" rel="noreferrer">Download {{ download.file }}</a> · {{ download.size }} · sha256 <code>{{ download.sha256 }}</code> · expires {{ download.expires }}</p>
+      <h2><r-t key="dash.database.export" /></h2>
+      <p class="muted"><r-t key="dash.database.export_note" /></p>
+      <p r-if="download"><a :href="download.url" :download="download.file" rel="noreferrer"><r-t key="dash.database.download" /> {{ download.file }}</a> · {{ download.size }} · sha256 <code>{{ download.sha256 }}</code> · <r-t key="dash.database.expires" /> {{ download.expires }}</p>
       <x-form action="export" hx-target="#page" hx-swap="outerHTML" class="inline">
-        <button type="submit">Prepare .db download</button>
+        <button type="submit"><r-t key="dash.database.prepare" /></button>
       </x-form>
     </r-group>
   </section>

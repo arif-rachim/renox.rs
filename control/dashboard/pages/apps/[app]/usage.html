@@ -1,34 +1,34 @@
 <r-layout use="main">
-  <r-group slot="title">Usage · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.nav.usage" /> · {{ app }} · <r-t key="dash.brand" /></r-group>
   <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
   <section id="page">
     <div class="title-row">
-      <h1>Usage</h1>
+      <h1><r-t key="dash.nav.usage" /></h1>
       <span class="tabs"><a r-for="r in ranges" href="?range={{ r }}" :class="{ current: r == range }">{{ r }}</a></span>
     </div>
     <x-problem :problem="problem" r-if="problem" />
     <r-group r-if="totals">
       <p class="muted">{{ period }}</p>
-      <p>Requests {{ totals.requests }} · CPU {{ totals.cpu }} · wall {{ totals.wall }} · egress {{ totals.egress }} · fetch sent {{ totals.fetch }} · database {{ totals.db }} · render fuel {{ totals.fuel }}</p>
+      <p><r-t key="dash.overview.requests" /> {{ totals.requests }} · CPU {{ totals.cpu }} · <r-t key="dash.usage.wall" /> {{ totals.wall }} · <r-t key="dash.usage.egress" /> {{ totals.egress }} · <r-t key="dash.usage.fetch" /> {{ totals.fetch }} · <r-t key="dash.usage.database" /> {{ totals.db }} · <r-t key="dash.usage.fuel" /> {{ totals.fuel }}</p>
       <figure class="chart" r-for="c in charts">
         <figcaption>{{ c.title }}</figcaption>
         <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" :aria-label="c.title" preserveAspectRatio="none">
           <rect r-for="b in c.bars" :x="b.x" :y="b.y" :width="b.width" :height="b.height"><title>{{ b.label }}</title></rect>
         </svg>
       </figure>
-      <p class="muted">Latency is the mean per request of each hour; percentiles (p50, p95) and realtime connections appear when the usage API carries them.</p>
-      <h2>Monthly quota ({{ quota.tier }}, {{ quota.period }})</h2>
+      <p class="muted"><r-t key="dash.usage.latency_note" /></p>
+      <h2><r-t key="dash.usage.monthly_quota" /> ({{ quota.tier }}, {{ quota.period }})</h2>
       <table class="list">
         <tbody>
           <tr r-for="row in quota.rows" :class="{ bad: row.over }">
             <td>{{ row.name }}</td>
-            <td>{{ row.used }} of {{ row.limit }}</td>
+            <td>{{ row.used }} <r-t key="dash.common.of" /> {{ row.limit }}</td>
             <td><meter min="0" max="100" :value="row.pct">{{ row.pct }}%</meter> {{ row.pct }}%</td>
-            <td><r-group r-if="row.over">over quota</r-group></td>
+            <td><r-group r-if="row.over"><r-t key="dash.usage.over_quota" /></r-group></td>
           </tr>
         </tbody>
       </table>
-      <p class="muted">In F3 the quota is a signal only: nothing is throttled or suspended when it is exceeded.</p>
+      <p class="muted"><r-t key="dash.usage.signal_only" /></p>
     </r-group>
   </section>
 </r-layout>

@@ -1,13 +1,13 @@
 <r-layout use="main">
-  <r-group slot="title">Apps · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.nav.apps" /> · <r-t key="dash.brand" /></r-group>
   <section id="page" r-fragment="page">
     <div class="title-row">
-      <h1>Apps</h1>
-      <span class="muted" r-if="tenant_id">tenant {{ tenant_id }}</span>
+      <h1><r-t key="dash.nav.apps" /></h1>
+      <span class="muted" r-if="tenant_id"><r-t key="dash.apps.tenant" /> {{ tenant_id }}</span>
     </div>
     <x-problem :problem="problem" r-if="problem" />
     <table class="list" r-if="!problem">
-      <thead><tr><th>App</th><th>Status</th><th>Version</th><th>Hostnames</th></tr></thead>
+      <thead><tr><th><r-t key="dash.apps.app" /></th><th><r-t key="dash.common.status" /></th><th><r-t key="dash.common.version" /></th><th><r-t key="dash.apps.hostnames" /></th></tr></thead>
       <tbody>
         <tr r-for="a in apps">
           <td><a href="/apps/{{ a.name }}">{{ a.name }}</a></td>
@@ -15,15 +15,15 @@
           <td><code>{{ a.version }}</code></td>
           <td><a :href="a.url" r-if="a.url">{{ a.hostnames }}</a></td>
         </tr>
-        <tr r-empty="apps"><td colspan="4">No apps yet. Create one below, or run <code>renox deploy</code> in a project.</td></tr>
+        <tr r-empty="apps"><td colspan="4"><r-t key="dash.apps.empty" /> <code>renox deploy</code> <r-t key="dash.apps.empty_after" /></td></tr>
       </tbody>
     </table>
-    <h2>New app</h2>
-    <p class="notice" r-if="created">Created {{ created }}. Deploy it with <code>renox deploy</code> from the project folder.</p>
+    <h2><r-t key="dash.apps.new" /></h2>
+    <p class="notice" r-if="created"><r-t key="dash.apps.created" /> {{ created }}. <r-t key="dash.apps.deploy_with" /> <code>renox deploy</code> <r-t key="dash.apps.from_folder" /></p>
     <p class="problem" r-if="create_error">{{ create_error }}</p>
     <x-form action="create" hx-target="#page" hx-swap="outerHTML" class="row">
-      <label>Name <input name="name" required maxlength="50" pattern="[a-z][a-z0-9-]*" autocomplete="off"></label>
-      <button type="submit">Create app</button>
+      <label><r-t key="dash.common.name" /> <input name="name" required maxlength="50" pattern="[a-z][a-z0-9-]*" autocomplete="off"></label>
+      <button type="submit"><r-t key="dash.apps.create" /></button>
     </x-form>
   </section>
 </r-layout>

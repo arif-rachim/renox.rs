@@ -8,16 +8,22 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { apiBase, signupAccount } from "../../lib/api.ts";
+import { applyLocale } from "../../lib/locale.ts";
 
 /** deploy-api.yaml `TenantId`. */
 export const TENANT_ID = /^[a-z0-9][a-z0-9_-]{0,62}$/u;
 
-export function load({ secrets }: LoaderContext) {
+export function load(ctx: LoaderContext) {
+  const lang = applyLocale(ctx);
+  if (lang !== null) return lang;
+  const { secrets } = ctx;
   return { api_host: new URL(apiBase(secrets)).host, sent: false, error: null as string | null, email: "", tenant_id: "" };
 }
 
 export const actions = {
-  async default({ fetch, form, secrets }: ActionContext) {
+  async default(ctx: ActionContext) {
+    applyLocale(ctx);
+    const { fetch, form, secrets } = ctx;
     const field = (k: string) => {
       const v = form.get(k);
       return typeof v === "string" ? v : "";

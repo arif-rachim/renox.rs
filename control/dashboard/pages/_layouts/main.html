@@ -1,26 +1,27 @@
 <!doctype html>
-<html lang="en" dir="ltr">
+<html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
-  <title><slot name="title">Renox dashboard</slot></title>
+  <title><slot name="title">{{ 'dash.brand' | t }}</slot></title>
   <link rel="stylesheet" href="/app.css">
   <script src="/htmx-2.0.4.min.js" defer></script>
 </head>
 <body>
   <header class="top">
     <a class="brand" href="/apps"><strong>Renox</strong></a>
-    <a href="/apps" r-if="signed_in">Apps</a>
-    <a href="/billing" r-if="signed_in">Billing</a>
+    <a href="/apps" r-if="signed_in"><r-t key="dash.nav.apps" /></a>
+    <a href="/billing" r-if="signed_in"><r-t key="dash.nav.billing" /></a>
     <span class="spacer"></span>
+    <nav class="lang" :aria-label="'dash.nav.language' | t"><a href="?lang=en" lang="en">English</a> <a href="?lang=ar" lang="ar">العربية</a></nav>
     <span class="muted" r-if="signed_in">API {{ api_host }}</span>
     <form method="post" action="/signout" class="inline" r-if="signed_in">
       <x-csrf />
-      <button type="submit" class="link">Sign out</button>
+      <button type="submit" class="link"><r-t key="dash.nav.sign_out" /></button>
     </form>
   </header>
-  <p class="banner impersonation" role="alert" r-if="impersonation">Operator access to tenant <code>{{ impersonation.tenant_id }}</code> (break-glass <code>{{ impersonation.impersonation_id }}</code>) until {{ impersonation.until }}. Every request is audited as yours and the tenant's owner has been emailed.</p>
+  <p class="banner impersonation" role="alert" r-if="impersonation"><r-t key="dash.banner.access" /> <code>{{ impersonation.tenant_id }}</code> (<r-t key="dash.banner.break_glass" /> <code>{{ impersonation.impersonation_id }}</code>) <r-t key="dash.banner.until" /> {{ impersonation.until }}. <r-t key="dash.banner.audited" /></p>
   <div class="frame">
     <slot name="nav" />
     <main>

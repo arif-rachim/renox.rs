@@ -1,17 +1,17 @@
 <r-layout use="main">
-  <r-group slot="title">Verify your address · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.verify.title" /> · <r-t key="dash.brand" /></r-group>
   <section class="narrow">
-    <h1>Verify your address</h1>
+    <h1><r-t key="dash.verify.title" /></h1>
     <r-group r-if="verified">
-      <p class="notice">Your address is verified<span r-if="tenant_id"> and the workspace <code>{{ tenant_id }}</code> is ready</span>.</p>
-      <p>Next: sign in with the CLI (<code>bunx renox login</code>), then <a href="/signin">sign in here</a> with the token it creates, and create your first app.</p>
+      <p class="notice"><r-t key="dash.verify.done" /><span r-if="tenant_id"> <r-t key="dash.verify.workspace" /> <code>{{ tenant_id }}</code> <r-t key="dash.verify.ready" /></span>.</p>
+      <p><r-t key="dash.verify.next" /> (<code>bunx renox login</code>)<r-t key="dash.verify.then" /> <a href="/signin"><r-t key="dash.verify.sign_in_here" /></a> <r-t key="dash.verify.next_after" /></p>
     </r-group>
     <r-group r-if="!verified">
       <div class="problem" role="alert" r-if="error"><p><strong>{{ error }}</strong></p></div>
       <form method="post" action="/signup/verify" id="verify">
         <x-csrf />
         <input type="hidden" name="token" id="verify-token">
-        <button type="submit">Verify</button>
+        <button type="submit"><r-t key="dash.common.verify" /></button>
       </form>
       <script>
         // The token is in the fragment (#token=…): copy it into the form and submit once.

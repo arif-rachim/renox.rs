@@ -5,15 +5,20 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { verifyAccount } from "../../lib/api.ts";
+import { applyLocale } from "../../lib/locale.ts";
 
 const TOKEN = /^[a-z2-7]{32}$/u;
 
-export function load(_ctx: LoaderContext) {
+export function load(ctx: LoaderContext) {
+  const lang = applyLocale(ctx);
+  if (lang !== null) return lang;
   return { verified: false, tenant_id: null as string | null, error: null as string | null };
 }
 
 export const actions = {
-  async default({ fetch, form, secrets }: ActionContext) {
+  async default(ctx: ActionContext) {
+    applyLocale(ctx);
+    const { fetch, form, secrets } = ctx;
     const raw = form.get("token");
     const token = typeof raw === "string" ? raw.trim() : "";
     if (!TOKEN.test(token)) return { verified: false, tenant_id: null, error: "This link is not complete. Open the link from the email again." };

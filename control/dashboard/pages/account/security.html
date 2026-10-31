@@ -1,73 +1,73 @@
 <r-layout use="main">
-  <r-group slot="title">Security · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.security.title" /> · <r-t key="dash.brand" /></r-group>
   <section id="page" r-fragment="page">
-    <h1>Account security</h1>
+    <h1><r-t key="dash.security.heading" /></h1>
     <x-problem :problem="problem" r-if="problem" />
     <p class="notice" r-if="notice">{{ notice }}</p>
     <r-group r-if="status">
       <table class="list">
         <tbody>
-          <tr><th>Authenticator app</th><td r-if="status.totp">On</td><td r-else>Off</td></tr>
-          <tr><th>Passkeys</th><td>{{ status.passkeys }}</td></tr>
-          <tr><th>Recovery codes left</th><td>{{ status.recovery_left }}</td></tr>
-          <tr><th>Verified with this sign-in</th><td r-if="status.verified">{{ status.verified }}</td><td r-else class="muted">not in the last 15 minutes</td></tr>
+          <tr><th><r-t key="dash.security.authenticator" /></th><td r-if="status.totp"><r-t key="dash.security.on" /></td><td r-else><r-t key="dash.security.off" /></td></tr>
+          <tr><th><r-t key="dash.security.passkeys" /></th><td>{{ status.passkeys }}</td></tr>
+          <tr><th><r-t key="dash.security.recovery_left" /></th><td>{{ status.recovery_left }}</td></tr>
+          <tr><th><r-t key="dash.security.verified" /></th><td r-if="status.verified">{{ status.verified }}</td><td r-else class="muted"><r-t key="dash.security.not_recently" /></td></tr>
         </tbody>
       </table>
-      <p class="problem" r-if="status.grace_until">Your team requires a second factor: add one before {{ status.grace_until }}.</p>
-      <p class="muted" r-if="status.required">A second factor is required for your account.</p>
-      <p class="muted">Whether your team requires a second factor is set by an owner from a signed-in API session (<code>POST /v1/team/mfa-required</code>); the dashboard's token cannot change it.</p>
+      <p class="problem" r-if="status.grace_until"><r-t key="dash.security.grace" /> {{ status.grace_until }}.</p>
+      <p class="muted" r-if="status.required"><r-t key="dash.security.required" /></p>
+      <p class="muted"><r-t key="dash.security.team_rule" /> (<code>POST /v1/team/mfa-required</code>)<r-t key="dash.security.team_rule_after" /></p>
 
       <div id="step-up" r-if="step_up">
-        <h2>Confirm it is you</h2>
-        <p>Enter a code from your authenticator app or a recovery code to continue.</p>
+        <h2><r-t key="dash.common.confirm_you" /></h2>
+        <p><r-t key="dash.security.step_up" /></p>
         <x-form action="verify" hx-target="#page" hx-swap="outerHTML" class="row">
           <input type="hidden" name="then" :value="step_up">
-          <label>Code <input name="code" required autocomplete="one-time-code" inputmode="text" maxlength="24" spellcheck="false"></label>
-          <button type="submit">Verify</button>
+          <label><r-t key="dash.common.code" /> <input name="code" required autocomplete="one-time-code" inputmode="text" maxlength="24" spellcheck="false"></label>
+          <button type="submit"><r-t key="dash.common.verify" /></button>
         </x-form>
       </div>
 
       <div id="recovery-codes" r-if="recovery_codes">
-        <h2>Recovery codes</h2>
-        <p>Each code works once. They are shown only now.</p>
+        <h2><r-t key="dash.security.recovery_codes" /></h2>
+        <p><r-t key="dash.security.recovery_note" /></p>
         <ul class="codes"><li r-for="c in recovery_codes"><code>{{ c }}</code></li></ul>
       </div>
 
       <div id="totp-setup" r-if="totp_setup">
-        <h2>Add an authenticator app</h2>
-        <p>Add this key to your app (or open the link on your phone), then enter the code it shows.</p>
+        <h2><r-t key="dash.security.add_authenticator" /></h2>
+        <p><r-t key="dash.security.totp_note" /></p>
         <p><code>{{ totp_setup.secret }}</code></p>
-        <p><a :href="totp_setup.uri">Open in the authenticator app</a></p>
+        <p><a :href="totp_setup.uri"><r-t key="dash.security.open_app" /></a></p>
         <x-form action="totp_confirm" hx-target="#page" hx-swap="outerHTML" class="row">
-          <label>Code <input name="code" required pattern="[0-9 ]{6,7}" inputmode="numeric" autocomplete="one-time-code"></label>
-          <button type="submit">Confirm</button>
+          <label><r-t key="dash.common.code" /> <input name="code" required pattern="[0-9 ]{6,7}" inputmode="numeric" autocomplete="one-time-code"></label>
+          <button type="submit"><r-t key="dash.common.confirm" /></button>
         </x-form>
       </div>
 
       <div id="passkey-setup" r-if="passkey_options" :data-options="passkey_options">
-        <h2>Add a passkey</h2>
+        <h2><r-t key="dash.security.add_passkey" /></h2>
         <x-form action="passkey_register" hx-target="#page" hx-swap="outerHTML" class="row" id="passkey-form">
           <input type="hidden" name="client_data">
           <input type="hidden" name="attestation_object">
-          <label>Name <input name="name" maxlength="60" placeholder="Laptop"></label>
-          <button type="submit">Create the passkey</button>
+          <label><r-t key="dash.common.name" /> <input name="name" maxlength="60" :placeholder="'dash.security.passkey_placeholder' | t"></label>
+          <button type="submit"><r-t key="dash.security.create_passkey" /></button>
         </x-form>
         <x-script src="/passkey.js"></x-script>
       </div>
 
-      <h2>Add a factor</h2>
+      <h2><r-t key="dash.security.add_factor" /></h2>
       <div class="row">
-        <x-form action="totp_start" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="!status.totp"><button type="submit">Authenticator app</button></x-form>
-        <x-form action="passkey_options" hx-target="#page" hx-swap="outerHTML" class="inline"><button type="submit">Passkey</button></x-form>
-        <x-form action="recovery" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="status.enrolled"><button type="submit">New recovery codes</button></x-form>
+        <x-form action="totp_start" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="!status.totp"><button type="submit"><r-t key="dash.security.authenticator" /></button></x-form>
+        <x-form action="passkey_options" hx-target="#page" hx-swap="outerHTML" class="inline"><button type="submit"><r-t key="dash.security.passkey" /></button></x-form>
+        <x-form action="recovery" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="status.enrolled"><button type="submit"><r-t key="dash.security.new_recovery" /></button></x-form>
       </div>
 
       <r-group r-if="status.enrolled">
-        <h2>Remove second factors</h2>
-        <x-form action="disable" hx-target="#page" hx-swap="outerHTML" class="row" hx-confirm="Remove every second factor from your account?">
-          <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
-          <label>Code <input name="code" required autocomplete="one-time-code" maxlength="24"></label>
-          <button type="submit">Remove</button>
+        <h2><r-t key="dash.security.remove_h" /></h2>
+        <x-form action="disable" hx-target="#page" hx-swap="outerHTML" class="row" :hx-confirm="'dash.security.confirm_remove' | t">
+          <label><r-t key="dash.common.password" /> <input type="password" name="password" required autocomplete="current-password"></label>
+          <label><r-t key="dash.common.code" /> <input name="code" required autocomplete="one-time-code" maxlength="24"></label>
+          <button type="submit"><r-t key="dash.security.remove" /></button>
         </x-form>
       </r-group>
     </r-group>

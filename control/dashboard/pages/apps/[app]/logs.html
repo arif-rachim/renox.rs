@@ -1,21 +1,21 @@
 <r-layout use="main">
-  <r-group slot="title">Logs · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.nav.logs" /> · {{ app }} · <r-t key="dash.brand" /></r-group>
   <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
   <section id="page">
-    <h1>Logs</h1>
+    <h1><r-t key="dash.nav.logs" /></h1>
     <form class="filters" method="get" action="/apps/{{ app }}/logs">
-      <label>Level <select name="level"><option r-for="v in levels" :value="v" :selected="v == filters.level">{{ v }}</option></select></label>
-      <label>Source <select name="source">
-        <option value="all" :selected="filters.source == 'all'">all</option>
-        <option value="server" :selected="filters.source == 'server'">server</option>
-        <option value="client" :selected="filters.source == 'client'">client</option>
+      <label><r-t key="dash.logs.level" /> <select name="level"><option r-for="v in levels" :value="v" :selected="v == filters.level">{{ v }}</option></select></label>
+      <label><r-t key="dash.logs.source" /> <select name="source">
+        <option value="all" :selected="filters.source == 'all'">{{ 'dash.logs.source_all' | t }}</option>
+        <option value="server" :selected="filters.source == 'server'">{{ 'dash.logs.source_server' | t }}</option>
+        <option value="client" :selected="filters.source == 'client'">{{ 'dash.logs.source_client' | t }}</option>
       </select></label>
-      <label>Window <select name="window"><option r-for="v in windows" :value="v" :selected="v == filters.window">{{ v }}</option></select></label>
-      <input type="search" name="q" :value="filters.q" placeholder="Search message or request id" autocomplete="off">
+      <label><r-t key="dash.logs.window" /> <select name="window"><option r-for="v in windows" :value="v" :selected="v == filters.window">{{ v }}</option></select></label>
+      <input type="search" name="q" :value="filters.q" :placeholder="'dash.logs.search' | t" autocomplete="off">
       <input type="hidden" name="deployment" :value="filters.deployment" r-if="filters.deployment">
-      <button type="submit">Apply</button>
-      <a class="button" :href="pause_url" r-if="filters.live">Live ● pause</a>
-      <a class="button" :href="live_url" r-else>Live ○</a>
+      <button type="submit"><r-t key="dash.logs.apply" /></button>
+      <a class="button" :href="pause_url" r-if="filters.live"><r-t key="dash.logs.live" /> ● <r-t key="dash.logs.pause" /></a>
+      <a class="button" :href="live_url" r-else><r-t key="dash.logs.live" /> ○</a>
     </form>
     <r-group r-if="filters.live">
       <div id="log-live" :data-sse="sse_url" hidden></div>
@@ -31,9 +31,9 @@
             <td class="level">{{ l.level }}</td>
             <td><code>{{ l.request_id }}</code></td>
             <td class="muted">{{ l.source }} · {{ l.deployment }} · {{ l.module }}</td>
-            <td class="msg">{{ l.message }}<br r-if="l.fields"><small class="muted" r-if="l.fields">{{ l.fields }}</small><r-group r-if="l.frames"><br><small r-for="f in l.frames" class="frame"><code>{{ f.fn }}</code> <code>{{ f.at }}</code><r-group r-if="f.bundled"> <span class="muted">(bundled: {{ f.bundled }})</span></r-group><br></small></r-group><br r-if="l.group_url"><a r-if="l.group_url" :href="l.group_url">Error group</a></td>
+            <td class="msg">{{ l.message }}<br r-if="l.fields"><small class="muted" r-if="l.fields">{{ l.fields }}</small><r-group r-if="l.frames"><br><small r-for="f in l.frames" class="frame"><code>{{ f.fn }}</code> <code>{{ f.at }}</code><r-group r-if="f.bundled"> <span class="muted">(<r-t key="dash.logs.bundled" /> {{ f.bundled }})</span></r-group><br></small></r-group><br r-if="l.group_url"><a r-if="l.group_url" :href="l.group_url"><r-t key="dash.logs.error_group" /></a></td>
           </tr>
-          <tr r-empty="lines"><td class="muted">No log lines match.</td></tr>
+          <tr r-empty="lines"><td class="muted"><r-t key="dash.logs.empty" /></td></tr>
         </tbody>
       </table>
     </div>
