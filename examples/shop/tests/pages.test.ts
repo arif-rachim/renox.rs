@@ -54,8 +54,13 @@ test("B7: the search fragment runs one query for at most 20 products", async () 
 
 test("detail: product data, 404 Response for an unknown or malformed id", async () => {
   const sqlite = shopDb();
-  const ok = (await detail(loaderCtx(sqlite, "/products/42", null, { id: "42" }).c)) as { product: { id: number; price: number } };
+  const ok = (await detail(loaderCtx(sqlite, "/products/42", null, { id: "42" }).c)) as { product: { id: number; price: number; photo: unknown } };
   expect(ok.product.id).toBe(42);
+  // No stored image before the seed's upload; then the key and dimensions <x-image> takes (#332).
+  expect(ok.product.photo).toBeNull();
+  sqlite.exec("update app__products set image = 'storage/products/coffee.png', image_width = 400, image_height = 400 where id = 42");
+  const shown = (await detail(loaderCtx(sqlite, "/products/42", null, { id: "42" }).c)) as { product: { photo: unknown } };
+  expect(shown.product.photo).toEqual({ key: "storage/products/coffee.png", width: 400, height: 400 });
   for (const id of ["4242", "0", "x", "1e3"]) {
     const r = await detail(loaderCtx(sqlite, `/products/${id}`, null, { id }).c);
     expect(r).toBeInstanceOf(Response);

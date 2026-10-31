@@ -74,7 +74,9 @@ To try it by hand with `renox dev`, set `TWOFA_KEY` in `.env` (any 16 characters
 
 ## Data
 
-`migrations/004_refunds.sql`: `app__refunds`, one per refunded order (#292). `migrations/001_init.sql`: `app__products` (id, name, description, price_fils, stock, category, image path) and `app__cart_items` (cart_id, product_id → products, quantity 1–99, created_at), with indexes on category, name, and cart. `seeds/products.sql` is generated: 100 products, 20 per category, four sizes each.
+`migrations/004_refunds.sql`: `app__refunds`, one per refunded order (#292). `migrations/001_init.sql`: `app__products` (id, name, description, price_fils, stock, category, image) and `app__cart_items` (cart_id, product_id → products, quantity 1–99, created_at), with indexes on category, name, and cart. `seeds/products.sql` is generated: 100 products, 20 per category, four sizes each.
+
+Product images (#332) go through the `storage` module. `POST /api/dev/seed` stores one 400 × 400 PNG per category with `storage.upload("products", "<category>.png", …, { public: true })`; `lib/placeholder-png.ts` draws it in the isolate. It writes the stored key (`storage/products/<category>.png`) and the platform's width and height onto each product (`migrations/005_product_images.sql`: `image_width`, `image_height`). The detail page shows the image with `<x-image>`, which serves it from `/_img` with `srcset`. It needs no storage call per render. The list page keeps text cards, so B6 is unchanged (`bench/results/2026-10-31-B6-shop-product-images.md`).
 
 ## Run
 

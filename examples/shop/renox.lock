@@ -27,7 +27,7 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "7dc7d3e743795277c53f5edc75a6f8bc325cb9a4c71c6abb30a176c592344b12"
+hash = "b2c8a9af1f1137ab2af7353664fe7ef15aa37c70365daed48075496b22b8aa0c"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -82,7 +82,7 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "6b1e232c758e62ac3b25aa71bb767b1482eecda337da7b2716738073ab3c399e"
+hash = "12afd12fee90a0b53735386ab9b824fcbcc4d6906c299881a0d93be8c898b427"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
@@ -93,7 +93,7 @@ approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header
 name = "storage"
 version = "1.0.0"
 source = "official"
-hash = "baa2c197f152391f010fe48b6df9ebdcc70424f13a7482c9c10917e8a4abcf0c"
+hash = "2c0ade115a50cc771a0d873723a6a7776c41b93c3f9aae5cd6078e0ef23b3d0f"
 isolation = "shared"
 mount = "/files"
 dependencies = ["auth", "i18n"]

@@ -16,7 +16,7 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "7dc7d3e743795277c53f5edc75a6f8bc325cb9a4c71c6abb30a176c592344b12"
+hash = "b2c8a9af1f1137ab2af7353664fe7ef15aa37c70365daed48075496b22b8aa0c"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]

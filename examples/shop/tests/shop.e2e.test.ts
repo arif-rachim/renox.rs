@@ -23,7 +23,7 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   const out = mkdtempSync(join(tmpdir(), "renox-shop-build-"));
   const r = await buildArtifact(app, out);
   expect(hashDir(r.dir)).toBe(r.hash);
-  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql", "003_orders_org.sql", "004_refunds.sql"]);
+  expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_init.sql", "002_orders.sql", "003_orders_org.sql", "004_refunds.sql", "005_product_images.sql"]);
   // auth (#241): its migrations before the app's, its pages under /auth.
   expect(readdirSync(join(r.dir, "migrations/auth")).sort()).toEqual(["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql", "004_phone_passkeys_uaepass.sql", "005_login_tickets.sql"]);
   // org (#242): after auth, its dependency; its pages under /org.
@@ -168,6 +168,20 @@ test.skipIf(!worker)(
     // Detail.
     const detail = (await t.page("/products/42")).html;
     expect(detail).toContain(`>${one.name}</h1>`);
+    // The product image through the storage module (#332): the seed stored
+    // one PNG per category and the platform read its dimensions; <x-image>
+    // points at the image pipeline with srcset and both dimensions.
+    const cat = t.db.query<{ category: string; image: string; image_width: number; image_height: number }>("select category, image, image_width, image_height from app__products where id = 42")[0];
+    expect(cat?.image).toBe(`storage/products/${cat?.category}.png`);
+    expect([cat?.image_width, cat?.image_height]).toEqual([400, 400]);
+    const img = `/_img/storage/products/${cat?.category}.png`;
+    expect(detail).toContain(`<img src="${img}?w=400" srcset="${img}?w=400 1x, ${img}?w=800 2x" width="400" height="400" alt="${one.name}" class="photo" loading="lazy" decoding="async">`);
+    const served = await get(`${img}?w=400`, { accept: "image/webp" });
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("image/webp");
+    // A second seed stores nothing again; the list page (B6) has no images.
+    expect((await post("/api/dev/seed")).json()).toEqual({ products: 100 });
+    expect(html).not.toContain("<img");
     // The form carries the token masked for this response (BREACH, #111),
     // never the cookie's bytes; the masked value is what a browser posts.
     const rendered = /name="_csrf" value="([^"]+)"/u.exec(detail)?.[1] ?? "";

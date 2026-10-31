@@ -15,14 +15,17 @@ export function positiveInt(v: string | string[] | null | undefined): number | n
 }
 
 export interface Product {
-  [column: string]: string | number;
+  [column: string]: string | number | null;
   id: number;
   name: string;
   description: string;
   price_fils: number;
   stock: number;
   category: string;
+  /** The stored file's key (`storage/products/<category>.png`, #332) once seeded. */
   image: string;
+  image_width: number | null;
+  image_height: number | null;
 }
 
 export const PRODUCT_COLUMNS = "id, name, description, price_fils, stock, category, image";
