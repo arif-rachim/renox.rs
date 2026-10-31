@@ -12,9 +12,10 @@ import { check } from "../contract.ts";
 import { ApiError, conflict, invalid } from "../errors.ts";
 import { pathParam } from "../http.ts";
 import { extractSourcemaps, extractUpload, gzipOf } from "./extract.ts";
+import { scan } from "./advisories.ts";
 import { bundleViolations } from "./validate-bundle.ts";
 import { actorOf, type Deps, type Env } from "../context.ts";
-import type { Db } from "../db/db.ts";
+import { num, type Db } from "../db/db.ts";
 import {
   artifactKey,
   deploymentView,
@@ -104,6 +105,20 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
     });
     for (const key of orphaned ?? []) await store.delete(key).catch(() => {});
 
+    // #123 (section 11.2): the SBOM's advisories, a warning only. OSV is
+    // asked outside the transaction; a failure stores no items, never a block.
+    if (ok && orphaned !== null) {
+      const sbom = (files as Map<string, Uint8Array>).get("sbom.cdx.json");
+      const items = sbom === undefined ? [] : await scan(new TextDecoder().decode(sbom));
+      await db.transaction(async (tx) => {
+        await tx.query(
+          `insert into deployment_advisories (tenant_id, app, hash, sbom, items, checked_at) values ($1, $2, $3, $4, $5::jsonb, $6)
+           on conflict (tenant_id, app, hash) do update set sbom = excluded.sbom, items = excluded.items, checked_at = excluded.checked_at`,
+          [tenant, name, claimed, sbom !== undefined, JSON.stringify(items), deps.now()],
+        );
+      });
+    }
+
     const row = await requireDeployment(db, tenant, name, claimed);
     if (orphaned === null) return c.json(deploymentView(row), 200);
     if (!ok) {
@@ -134,6 +149,21 @@ export function registerDeployments(app: Hono<Env>, deps: Deps): void {
     const name = (await requireApp(db, tenant, pathParam(c, "app", "AppName"))).name;
     const row = await requireDeployment(db, tenant, name, pathParam(c, "hash", "Sha256"));
     return c.json(deploymentView(row));
+  });
+
+  app.get("/v1/apps/:app/deployments/:hash/advisories", operation(deps, "getAdvisories"), tenantAuth(deps, "apps:read"), async (c) => {
+    const db = tenantDb(deps, c);
+    const name = (await requireApp(db, db.tenantId, pathParam(c, "app", "AppName"))).name;
+    const hash = pathParam(c, "hash", "Sha256");
+    await requireDeployment(db, db.tenantId, name, hash);
+    const row = (
+      await db.transaction((tx) =>
+        tx.query<{ sbom: boolean; items: unknown; checked_at: unknown }>("select sbom, items, checked_at from deployment_advisories where tenant_id = $1 and app = $2 and hash = $3", [db.tenantId, name, hash]),
+      )
+    )[0];
+    if (row === undefined) return c.json({ hash, sbom: false, checked_at: null, items: [] });
+    const items = typeof row.items === "string" ? JSON.parse(row.items) : row.items;
+    return c.json({ hash, sbom: row.sbom, checked_at: num(row.checked_at), items });
   });
 
   app.put("/v1/apps/:app/deployments/:hash/sourcemaps", operation(deps, "putSourcemaps"), tenantAuth(deps, "deploy"), async (c) => {

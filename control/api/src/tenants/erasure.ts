@@ -97,7 +97,7 @@ async function step(deps: Deps, db: Db, tenantId: string, s: Step, now: number):
     case "routes": {
       await db.transaction(async (tx) => {
         await tx.query("update tenants set state = 'suspended' where id = $1", [tenantId]);
-        await onTenantState(deps, tx, tenantId, "suspended", now);
+        await onTenantState(deps, tx, tenantId, "suspended", now, { neutralPage: false });
       });
       await routeService(deps).publisher.publish();
       return true;

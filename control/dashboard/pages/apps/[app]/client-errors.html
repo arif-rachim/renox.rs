@@ -1,27 +1,27 @@
 <r-layout use="main">
-  <r-group slot="title">Browser errors · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.nav.client_errors" /> · {{ app }} · <r-t key="dash.brand" /></r-group>
   <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
   <section id="page" r-fragment="page">
     <div class="title-row">
-      <h1>Browser errors</h1>
+      <h1><r-t key="dash.nav.client_errors" /></h1>
       <span class="tabs"><a r-for="s in statuses" href="?status={{ s }}" :class="{ current: s == status }">{{ s }}</a></span>
     </div>
-    <p class="muted">Errors that happened in visitors' browsers, grouped by kind, top frame and message. <a href="/apps/{{ app }}/logs?source=client&window=24h">All client log lines</a></p>
+    <p class="muted"><r-t key="dash.errors.intro" /> <a href="/apps/{{ app }}/logs?source=client&window=24h"><r-t key="dash.errors.all_client_lines" /></a></p>
     <p class="notice" r-if="notice">{{ notice }}</p>
     <x-problem :problem="action_problem" r-if="action_problem" />
     <x-problem :problem="problem" r-if="problem" />
-    <p class="problem" r-if="quota && quota.warning">This app's tenant has used {{ quota.used }} of {{ quota.cap }} browser events allowed today. Past the cap the gateway drops further events.</p>
+    <p class="problem" r-if="quota && quota.warning"><r-t key="dash.errors.quota_used" /> {{ quota.used }} <r-t key="dash.common.of" /> {{ quota.cap }} <r-t key="dash.errors.quota_after" /></p>
     <r-group r-if="!problem">
       <table class="list">
-        <thead><tr><th>Error</th><th>Where</th><th>Count</th><th>Last seen</th><th>By deployment</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th><r-t key="dash.errors.error" /></th><th><r-t key="dash.errors.where" /></th><th><r-t key="dash.errors.count" /></th><th><r-t key="dash.errors.last_seen" /></th><th><r-t key="dash.errors.by_deployment" /></th><th><r-t key="dash.common.status" /></th><th><r-t key="dash.common.actions" /></th></tr></thead>
         <tbody>
           <tr r-for="g in groups" :class="{ bad: g.regressed }">
-            <td><a :href="g.url"><code>{{ g.kind }}</code> {{ g.message }}</a><br r-if="g.regressed"><strong r-if="g.regressed">Regression: it came back after being resolved.</strong></td>
-            <td><code r-if="g.top">{{ g.top.text }}</code><small class="muted" r-if="g.top && !g.top.mapped"> (no sourcemap)</small></td>
+            <td><a :href="g.url"><code>{{ g.kind }}</code> {{ g.message }}</a><br r-if="g.regressed"><strong r-if="g.regressed"><r-t key="dash.errors.regression" /></strong></td>
+            <td><code r-if="g.top">{{ g.top.text }}</code><small class="muted" r-if="g.top && !g.top.mapped"> (<r-t key="dash.errors.no_sourcemap" />)</small></td>
             <td>{{ g.count }}</td>
             <td>{{ g.last }}</td>
             <td>
-              <svg viewBox="0 0 {{ spark.width }} {{ spark.height }}" role="img" aria-label="Events per deployment" preserveAspectRatio="none" width="{{ spark.width }}" height="{{ spark.height }}">
+              <svg viewBox="0 0 {{ spark.width }} {{ spark.height }}" role="img" :aria-label="'dash.errors.spark_label' | t" preserveAspectRatio="none" width="{{ spark.width }}" height="{{ spark.height }}">
                 <rect r-for="b in g.spark" :x="b.x" :y="b.y" :width="b.width" :height="b.height" fill="#4a7bb7"><title>{{ b.label }}</title></rect>
               </svg>
             </td>
@@ -29,34 +29,34 @@
             <td>
               <x-form action="status" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="g.can_resolve">
                 <input type="hidden" name="fingerprint" :value="g.fingerprint"><input type="hidden" name="status" value="resolved">
-                <button type="submit">Resolve</button>
+                <button type="submit"><r-t key="dash.errors.resolve" /></button>
               </x-form>
               <x-form action="status" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="g.can_ignore">
                 <input type="hidden" name="fingerprint" :value="g.fingerprint"><input type="hidden" name="status" value="ignored">
-                <button type="submit">Ignore</button>
+                <button type="submit"><r-t key="dash.errors.ignore" /></button>
               </x-form>
               <x-form action="status" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="g.can_reopen">
                 <input type="hidden" name="fingerprint" :value="g.fingerprint"><input type="hidden" name="status" value="open">
-                <button type="submit">Reopen</button>
+                <button type="submit"><r-t key="dash.errors.reopen" /></button>
               </x-form>
             </td>
           </tr>
-          <tr r-empty="groups"><td colspan="7">No browser errors in this view.</td></tr>
+          <tr r-empty="groups"><td colspan="7"><r-t key="dash.errors.empty" /></td></tr>
         </tbody>
       </table>
     </r-group>
     <x-problem :problem="detail_problem" r-if="detail_problem" />
     <section r-if="detail">
       <h2><code>{{ detail.group.kind }}</code> {{ detail.group.message }}</h2>
-      <p class="muted">First seen {{ detail.group.first }} · {{ detail.group.count }} events · {{ detail.group.status }} · fingerprint <code>{{ detail.group.fingerprint }}</code></p>
-      <p class="muted"><span r-for="d in detail.group.deployments">deployment <code>{{ d.hash }}</code>: {{ d.count }}; </span></p>
+      <p class="muted"><r-t key="dash.errors.first_seen" /> {{ detail.group.first }} · {{ detail.group.count }} <r-t key="dash.errors.events" /> · {{ detail.group.status }} · <r-t key="dash.errors.fingerprint" /> <code>{{ detail.group.fingerprint }}</code></p>
+      <p class="muted"><span r-for="d in detail.group.deployments"><r-t key="dash.common.deployment" /> <code>{{ d.hash }}</code>: {{ d.count }}; </span></p>
       <article r-for="e in detail.events">
         <h3>{{ e.when }}</h3>
         <p>{{ e.message }}</p>
-        <p class="muted">Page {{ e.url }} · {{ e.browser }} · deployment <code>{{ e.deployment }}</code> · request <code>{{ e.request_id }}</code> <a :href="e.request_url" r-if="e.request_url">server log lines</a></p>
+        <p class="muted"><r-t key="dash.errors.page" /> {{ e.url }} · {{ e.browser }} · <r-t key="dash.common.deployment" /> <code>{{ e.deployment }}</code> · <r-t key="dash.errors.request" /> <code>{{ e.request_id }}</code> <a :href="e.request_url" r-if="e.request_url"><r-t key="dash.errors.server_lines" /></a></p>
         <ol class="frames">
-          <li r-for="f in e.frames"><code>{{ f.function }}</code> <code>{{ f.text }}</code><small class="muted" r-if="f.mapped"> (browser: {{ f.raw }})</small></li>
-          <li r-empty="e.frames" class="muted">No stack was reported.</li>
+          <li r-for="f in e.frames"><code>{{ f.function }}</code> <code>{{ f.text }}</code><small class="muted" r-if="f.mapped"> (<r-t key="dash.errors.browser" /> {{ f.raw }})</small></li>
+          <li r-empty="e.frames" class="muted"><r-t key="dash.errors.no_stack" /></li>
         </ol>
       </article>
     </section>

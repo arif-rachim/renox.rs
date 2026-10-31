@@ -1,5 +1,5 @@
 <r-layout use="main">
-  <h1>Something went wrong ({{ status }})</h1>
+  <h1><r-t key="dash.error.title" /> ({{ status }})</h1>
   <p>{{ message }}</p>
-  <p class="muted"><small>{{ code }} · request id {{ request_id }}</small></p>
+  <p class="muted"><small>{{ code }} · <r-t key="dash.common.request_id" /> {{ request_id }}</small></p>
 </r-layout>

@@ -64,7 +64,7 @@ async function membership(deps: Deps, tenantId: string, userId: string): Promise
 }
 
 /** A tenant principal from a `renox_pat_` token, or 401. */
-async function fromToken(deps: Deps, c: Context<Env>, value: string): Promise<{ principal: Principal & { kind: "tenant"; via: "token" }; verified: boolean }> {
+async function fromToken(deps: Deps, c: Context<Env>, value: string): Promise<{ principal: Principal & { kind: "tenant"; via: "token" }; verified: boolean; impersonated: boolean }> {
   const rows = await deps.db.query<{ id: string; tenant_id: string; scopes: string[]; expires_at: unknown; revoked_at: unknown; user_id: string | null }>(
     "select id, tenant_id, scopes, expires_at, revoked_at, user_id from tokens where token_sha256 = $1",
     [sha256hex(value)],
@@ -88,8 +88,17 @@ async function fromToken(deps: Deps, c: Context<Env>, value: string): Promise<{ 
   return {
     principal: { kind: "tenant", via: "token", tenantId: token.tenant_id, tokenId: token.id, scopes: token.scopes, userId: token.user_id, role },
     verified,
+    impersonated: imp !== null,
   };
 }
+
+/**
+ * deploy-api.md 0.5.1 section 20, "Owner token rule" (#325): the billing operations accept a token the
+ * owner created; the payment-method operations need a recent second factor with that token.
+ */
+export const OWNER_TOKEN_ACTIONS = new Set(["getBilling", "changePlan", "setBillingProfile", "startPaymentMethodSetup", "confirmPaymentMethod", "listInvoices", "getInvoice"]);
+const OWNER_TOKEN_STEP_UP = new Set(["startPaymentMethodSetup", "confirmPaymentMethod"]);
+
 
 /**
  * The session of the cookie, with CSRF checked on mutating requests; null when there is no live session.
@@ -124,7 +133,15 @@ export function tenantAuth(deps: Deps, permission: Permission): MiddlewareHandle
       const p = t.principal;
       c.set("principal", p);
       limitToken(deps, c, p.tokenId);
-      if (!isTokenPermission(permission) || !allows(p.scopes, permission, c.req.param("app"))) throw forbidden();
+      const action = c.get("action") ?? "";
+      if (permission === "billing" && OWNER_TOKEN_ACTIONS.has(action)) {
+        // A member's token, a token without a user (bootstrap), an impersonation, or an app-scoped token: 403.
+        const appScoped = p.scopes.length > 0 && p.scopes.every((s) => s !== "*" && s.includes(":"));
+        if (p.userId === null || p.role !== "owner" || t.impersonated || appScoped) throw forbidden("token", "billing needs the owner's own token");
+        // `changePlan` is stepped up only towards a paid plan; the body is read from a clone, the route reads it again.
+        const paid = action === "changePlan" && (await c.req.raw.clone().json().then((b: { plan?: unknown }) => b?.plan !== "free", () => false));
+        if ((OWNER_TOKEN_STEP_UP.has(action) || paid) && (await needsStepUp(deps.db, p.userId, `token:${p.tokenId}`, deps.now()))) throw forbidden("mfa", "step_up_required");
+      } else if (!isTokenPermission(permission) || !allows(p.scopes, permission, c.req.param("app"))) throw forbidden();
       if (p.role !== null && !roleAllows(p.role, permission)) throw forbidden("role", p.role);
       await deps.db.query("update tokens set last_used_at = $1, last_used_ip = $2 where id = $3", [deps.now(), clientIp(c), p.tokenId]);
     } else {

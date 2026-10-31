@@ -1,22 +1,22 @@
 <r-layout use="main">
-  <r-group slot="title">{{ app }} · Renox dashboard</r-group>
+  <r-group slot="title">{{ app }} · <r-t key="dash.brand" /></r-group>
   <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
   <section id="page" r-fragment="page">
     <x-problem :problem="problem" r-if="problem" />
     <r-group r-if="info">
       <div class="title-row">
         <h1>{{ app }}</h1>
-        <a class="button" :href="info.url" r-if="info.url">Open ↗</a>
+        <a class="button" :href="info.url" r-if="info.url"><r-t key="dash.common.open" /> ↗</a>
       </div>
-      <p><span :class="{ ok: info.live }">{{ info.status }}</span> · v <code>{{ info.version }}</code> · deployed {{ info.deployed }}<r-group r-for="h in info.hostnames"> · {{ h }}</r-group></p>
+      <p><span :class="{ ok: info.live }">{{ info.status }}</span> · v <code>{{ info.version }}</code> · <r-t key="dash.overview.deployed" /> {{ info.deployed }}<r-group r-for="h in info.hostnames"> · {{ h }}</r-group></p>
       <p class="notice" r-if="notice">{{ notice }}</p>
       <x-problem :problem="action_problem" r-if="action_problem" />
-      <h2>Last 24 hours</h2>
-      <p r-if="usage">Requests {{ usage.requests }} · CPU {{ usage.cpu }} · Egress {{ usage.egress }}<span class="problem-inline" r-if="usage.over"> · over quota: {{ usage.over }}</span> · <a href="/apps/{{ app }}/usage">Usage</a></p>
-      <p class="muted" r-else>Usage is not available.</p>
+      <h2><r-t key="dash.overview.last_24h" /></h2>
+      <p r-if="usage"><r-t key="dash.overview.requests" /> {{ usage.requests }} · CPU {{ usage.cpu }} · <r-t key="dash.overview.egress" /> {{ usage.egress }}<span class="problem-inline" r-if="usage.over"> · <r-t key="dash.overview.over_quota" /> {{ usage.over }}</span> · <a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
+      <p class="muted" r-else><r-t key="dash.overview.no_usage" /></p>
       <div class="cols">
         <div>
-          <h2>Recent deployments</h2>
+          <h2><r-t key="dash.overview.recent_deployments" /></h2>
           <x-problem :problem="deployments_problem" r-if="deployments_problem" />
           <table class="list">
             <tbody>
@@ -26,19 +26,19 @@
                 <td :class="{ ok: d.state == 'active', bad: d.state == 'rejected' }">{{ d.label }}</td>
                 <td><x-deployment-actions :d="d" /></td>
               </tr>
-              <tr r-empty="deployments"><td>No deployments yet.</td></tr>
+              <tr r-empty="deployments"><td><r-t key="dash.overview.no_deployments" /></td></tr>
             </tbody>
           </table>
-          <p><a href="/apps/{{ app }}/deployments">All deployments</a></p>
+          <p><a href="/apps/{{ app }}/deployments"><r-t key="dash.overview.all_deployments" /></a></p>
         </div>
         <div>
-          <h2>Recent logs</h2>
+          <h2><r-t key="dash.overview.recent_logs" /></h2>
           <x-problem :problem="logs_problem" r-if="logs_problem" />
           <ul class="logs">
             <li r-for="l in logs"><span class="muted">{{ l.when }}</span> <span class="level">{{ l.level }}</span> {{ l.message }}</li>
-            <li class="muted" r-empty="logs">No log lines in the last 24 hours.</li>
+            <li class="muted" r-empty="logs"><r-t key="dash.overview.no_logs" /></li>
           </ul>
-          <p><a href="/apps/{{ app }}/logs">All logs</a></p>
+          <p><a href="/apps/{{ app }}/logs"><r-t key="dash.overview.all_logs" /></a></p>
         </div>
       </div>
     </r-group>

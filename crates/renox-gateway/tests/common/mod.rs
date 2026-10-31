@@ -69,6 +69,7 @@ pub fn entry(host: &str, tenant: &str, hash: &str, status: RouteStatus) -> Route
         deployment_hash: hash.to_owned(),
         status,
         updated_at: 1_793_318_400_000,
+        display_name: None,
         version: None,
     }
 }

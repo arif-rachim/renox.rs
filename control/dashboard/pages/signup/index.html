@@ -1,22 +1,22 @@
 <r-layout use="main">
-  <r-group slot="title">Sign up · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.signup.title" /> · <r-t key="dash.brand" /></r-group>
   <section class="narrow">
-    <h1>Create your Renox account</h1>
+    <h1><r-t key="dash.signup.heading" /></h1>
     <r-group r-if="sent">
-      <p class="notice">Check your email: we sent a link to <strong>{{ email }}</strong> to verify the address (it works for 24 hours). If the address already has an account, the email says so instead.</p>
+      <p class="notice"><r-t key="dash.signup.sent" /> <strong>{{ email }}</strong> <r-t key="dash.signup.sent_after" /></p>
     </r-group>
     <r-group r-if="!sent">
       <div class="problem" role="alert" r-if="error"><p><strong>{{ error }}</strong></p></div>
       <form method="post" action="/signup">
         <x-csrf />
-        <label>Email <input type="email" name="email" :value="email" required autocomplete="email" maxlength="254"></label>
-        <label>Password <input type="password" name="password" required minlength="12" autocomplete="new-password"></label>
-        <label>Workspace id <input name="tenant_id" :value="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false"></label>
-        <label>Workspace name <input name="tenant_name" maxlength="128"></label>
-        <label><input type="checkbox" name="dpa" value="yes" required> I accept the <a href="/legal/dpa">data processing agreement</a> and the <a href="/legal/terms">terms</a>.</label>
-        <button type="submit">Create account</button>
+        <label><r-t key="dash.common.email" /> <input type="email" name="email" :value="email" required autocomplete="email" maxlength="254"></label>
+        <label><r-t key="dash.common.password" /> <input type="password" name="password" required minlength="12" autocomplete="new-password"></label>
+        <label><r-t key="dash.signup.workspace_id" /> <input name="tenant_id" :value="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false"></label>
+        <label><r-t key="dash.signup.workspace_name" /> <input name="tenant_name" maxlength="128"></label>
+        <label><input type="checkbox" name="dpa" value="yes" required> <r-t key="dash.signup.accept" /> <a href="/legal/dpa"><r-t key="dash.signup.dpa_link" /></a> <r-t key="dash.signup.and" /> <a href="/legal/terms"><r-t key="dash.signup.terms_link" /></a>.</label>
+        <button type="submit"><r-t key="dash.signup.submit" /></button>
       </form>
-      <p class="muted">Already have an account? <a href="/signin">Sign in</a>. The agreement says where and how your data is processed.</p>
+      <p class="muted"><r-t key="dash.signup.have_account" /> <a href="/signin"><r-t key="dash.common.sign_in" /></a>. <r-t key="dash.signup.agreement_note" /></p>
     </r-group>
   </section>
 </r-layout>

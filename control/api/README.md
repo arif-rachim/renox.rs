@@ -97,7 +97,7 @@ The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table
 | `apps:delete` | yes | yes | — | — |
 | `tenant:delete` | yes | — | — | — |
 
-`deploy` covers upload, sourcemaps, activate and rollback; `secrets:read` lists names only. A developer's `tokens:write` lists and revokes their own tokens; owners and admins see all of the tenant's. Deploying needs a verified email address.
+`deploy` covers upload, sourcemaps, activate and rollback; `secrets:read` lists names only. `billing` (deploy-api.md 0.5.1, "Owner token rule") is the owner's session or a token the owner created; a member's, bootstrap, impersonation or app-scoped token is 403, and with a token the payment-method operations and a change to a paid plan need a second factor in the last 15 minutes. A developer's `tokens:write` lists and revokes their own tokens; owners and admins see all of the tenant's. Deploying needs a verified email address.
 
 ### Account endpoints
 
@@ -187,6 +187,10 @@ deploy API 0.5 section 19, `src/registry/routes.ts`, migration `0017_registry.sq
 - **Disable.** `POST /v1/registry/disable` takes an operator token (`opsAuth`), a hash and a reason of 10 to 500 characters. It marks every installation of that tree and emails each tenant owner (`module_disabled`). `enabled: true` undoes it.
 - **Audit and the dashboard.** Every call writes an audit row. The dashboard shows installs on the Modules page (`control/dashboard/pages/apps/[app]/modules`) and moderation on `/ops/registry`.
 - **Tests.** `tests/registry.test.ts` and `control/dashboard/tests/modules.test.ts`.
+
+## Advisories (#123)
+
+When an upload is validated, the API reads its `sbom.cdx.json`. It asks OSV (`api.osv.dev`: `querybatch`, then `vulns/{id}` for the first 50) for the npm components and stores the answer in `deployment_advisories`. `getAdvisories` returns those rows (`deploy-api.md` 0.5 section 11.2). They are warnings only: OSV being down stores no items and never rejects the upload, and no deployment state depends on them. The daily re-scan of active deployments is not built yet.
 
 ## Tests
 

@@ -38,7 +38,7 @@ describe.skipIf(!worker)("install and upgrade", () => {
       ["notifications", ["001_init.sql"]],
       ["org", ["001_init.sql", "002_orgs_locale.sql"]],
       ["twofa", ["001_init.sql"]],
-      ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql", "004_refunds.sql"]],
+      ["app", ["001_init.sql", "002_orders.sql", "003_orders_org.sql", "004_refunds.sql", "005_product_images.sql"]],
     ]);
     const v2 = await v1.upgrade(source(SHOP, nextVersion()));
     expect(v2.check.errors).toEqual([]);

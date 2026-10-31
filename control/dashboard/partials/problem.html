@@ -4,6 +4,6 @@
   <ul r-if="problem.details">
     <li r-for="d in problem.details">{{ d }}</li>
   </ul>
-  <p class="muted"><small>{{ problem.code }}<r-group r-if="problem.request_id"> · request id {{ problem.request_id }}</r-group></small></p>
-  <p r-if="problem.signed_out"><a href="/signin">Sign in again</a></p>
+  <p class="muted"><small>{{ problem.code }}<r-group r-if="problem.request_id"> · <r-t key="dash.common.request_id" /> {{ problem.request_id }}</r-group></small></p>
+  <p r-if="problem.signed_out"><a href="/signin"><r-t key="dash.common.sign_in_again" /></a></p>
 </div>

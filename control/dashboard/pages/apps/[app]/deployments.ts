@@ -17,7 +17,11 @@ export async function load(ctx: LoaderContext) {
   const selected = hashParam(ctx.url.searchParams.get("hash"));
   const now = Date.now();
   const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "deployments", notice: null, action_problem: null };
-  const [list, one] = await Promise.all([api.listDeployments(name, 50), selected === null ? null : api.getDeployment(name, selected)]);
+  const [list, one, adv] = await Promise.all([
+    api.listDeployments(name, 50),
+    selected === null ? null : api.getDeployment(name, selected),
+    selected === null ? null : api.getAdvisories(name, selected),
+  ]);
   if (!list.ok) return { ...base, problem: await problem(ctx, list), deployments: [], detail: null, detail_problem: null };
   let detail = null;
   let detailProblem = null;
@@ -35,6 +39,8 @@ export async function load(ctx: LoaderContext) {
         secrets: d.permissions.secrets.join(", ") || "none",
         secrets_version: d.secrets_version === null ? "—" : `v${d.secrets_version}`,
         violations: (d.violations ?? []).map((v) => `${v.rule}${v.path === undefined ? "" : ` ${v.path}`}: ${v.reason}`),
+        // #123: the SBOM's advisories, a warning that never blocks; a failed lookup shows none.
+        advisories: adv?.ok === true ? adv.value.items.map((a) => ({ id: a.id, package: `${a.package}@${a.version}`, severity: a.severity, summary: a.summary, fixed_in: a.fixed_in })) : [],
         last_error:
           d.last_error === null
             ? null

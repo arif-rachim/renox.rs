@@ -12,6 +12,13 @@ const productId = (raw: string | string[] | undefined): number | null => {
   return Number.isSafeInteger(n) ? n : null;
 };
 
+/**
+ * The stored image (#332) as `<x-image>` takes it: the key and the
+ * dimensions kept on the row, so the page needs no storage call. Null
+ * before the seed has stored it.
+ */
+const photoOf = (p: Product) => (p.image_width && p.image_height && p.image.startsWith("storage/") ? { key: p.image, width: p.image_width, height: p.image_height } : null);
+
 const notFound = (): Response => new Response("Product not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
 
 /** The page's locale (i18n, #244) from the user's and the organisation's choice, set; the header's data. */
@@ -27,11 +34,11 @@ export async function load({ db, params, session, url, setLocale }: LoaderContex
   const { user, switcher, locale } = await header({ url, setLocale });
   const id = productId(params.id);
   if (id === null) return notFound();
-  const p = await db.queryOne<Product>("select id, name, description, price_fils, stock from app__products where id = ?", [id]);
+  const p = await db.queryOne<Product>("select id, name, description, price_fils, stock, image, image_width, image_height from app__products where id = ?", [id]);
   if (!p) return notFound();
   const cart = await db.queryOne<{ n: number }>("select coalesce(sum(quantity), 0) as n from app__cart_items where cart_id = ?", [session.id]);
   return {
-    product: { id: p.id, name: p.name, description: p.description, price: p.price_fils / 100, stock: p.stock },
+    product: { id: p.id, name: p.name, description: p.description, price: p.price_fils / 100, stock: p.stock, photo: photoOf(p) },
     cart_count: cart?.n ?? 0,
     added: null,
     error: null,

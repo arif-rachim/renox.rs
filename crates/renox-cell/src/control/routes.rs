@@ -57,6 +57,9 @@ pub struct ControlEntry {
     /// the tenant's own (`tenant_id`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<String>,
+    /// 0.5.1 (#346): the tenant's name on a `suspended` entry's page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 fn tier_name<S: serde::Serializer>(t: &TierName, s: S) -> Result<S::Ok, S::Error> {
@@ -262,6 +265,7 @@ impl RouteState {
                 deployment_hash: e.deployment_hash.clone(),
                 status: e.status,
                 updated_at: e.updated_at,
+                display_name: e.display_name.clone(),
                 version: Some(e.version),
             })
             .collect()
@@ -366,6 +370,7 @@ mod tests {
             secrets_version: 3,
             process: ProcessKind::Shared,
             database: None,
+            display_name: None,
         }
     }
 
@@ -388,6 +393,27 @@ mod tests {
         assert_eq!(meta.app.as_deref(), Some("hello"));
         assert_eq!(meta.secrets_version, 3);
         assert_eq!(s.lookup("t_other", &"a".repeat(64)).tier, TierName::Free);
+    }
+
+    /// #325 (deploy-api.md 0.5.1 section 5): a suspended entry from the
+    /// control plane reaches the gateway with its name, and never a cell.
+    #[test]
+    fn a_suspended_entry_reaches_the_gateway_with_its_name() {
+        let gw = Arc::new(RouteTable::new());
+        let s = RouteState::new("node-1", gw.clone());
+        let json = serde_json::json!({
+            "version": 2,
+            "entries": [{
+                "hostname": "a.renox.app", "tenant_id": "t_hello", "app": "hello",
+                "deployment_hash": "a".repeat(64), "status": "suspended", "updated_at": 1,
+                "version": 2, "tier": "free", "node_id": "node-1", "secrets_version": 0,
+                "display_name": "Hello Shop"
+            }]
+        });
+        s.apply_snapshot(serde_json::from_value(json).unwrap());
+        assert!(gw.lookup("a.renox.app").is_none());
+        let e = gw.suspended("a.renox.app").unwrap();
+        assert_eq!(e.display_name.as_deref(), Some("Hello Shop"));
     }
 
     #[test]
@@ -477,6 +503,7 @@ mod convergence {
                 secrets_version: 0,
                 process: ProcessKind::Shared,
                 database: None,
+                display_name: None,
             }
         }
 

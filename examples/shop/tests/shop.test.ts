@@ -82,6 +82,13 @@ test("checkout needs a user (auth, #241); signed in it builds a Stripe PaymentIn
 test("the seed endpoint is dev only and idempotent", async () => {
   const db = shopDb(false);
   expect((await seed(ctx(db, "POST", `${BASE}/api/dev/seed`))).status).toBe(404);
+  const g = globalThis as { __shopTestUploads?: unknown[] };
+  g.__shopTestUploads = [];
   expect(await (await seed(ctx(db, "POST", "http://shop.localhost/api/dev/seed"))).json()).toEqual({ products: 100 });
+  // One image per category through the storage module (#332), public PNGs; each product points at its category's.
+  expect(g.__shopTestUploads).toEqual(["coffee", "dates", "perfume", "spices", "sweets"].map((c) => ({ owner: "products", name: `${c}.png`, bytes: 160496, contentType: "image/png", public: true })));
+  expect(db.query("select distinct image, image_width, image_height from app__products where category = 'dates'").all()).toEqual([{ image: "storage/products/dates.png", image_width: 400, image_height: 400 }]);
+  // The second seed stores nothing again.
   expect(await (await seed(ctx(db, "POST", "http://shop.localhost/api/dev/seed"))).json()).toEqual({ products: 100 });
+  expect(g.__shopTestUploads).toHaveLength(5);
 });

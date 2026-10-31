@@ -96,8 +96,9 @@ describe("the first app", () => {
 });
 
 test("the legal pages carry the versions sign-up records", () => {
-  expect(readFileSync(join(import.meta.dir, "../pages/legal/dpa.html"), "utf8")).toContain(`Version ${DPA_VERSION}.`);
-  expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`Version ${TERMS_VERSION}.`);
+  // #336: the text is in i18n/; the template passes the version to it ("Version {version}.").
+  expect(readFileSync(join(import.meta.dir, "../pages/legal/dpa.html"), "utf8")).toContain(`<r-t key="dash.dpa.version" version="${DPA_VERSION}" />`);
+  expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`<r-t key="dash.terms.version" version="${TERMS_VERSION}" />`);
 });
 
 // The templates rendered by the worker (`renox dev`).

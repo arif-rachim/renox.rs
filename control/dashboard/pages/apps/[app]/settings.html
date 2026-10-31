@@ -1,36 +1,36 @@
 <r-layout use="main">
-  <r-group slot="title">Settings · {{ app }} · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.nav.settings" /> · {{ app }} · <r-t key="dash.brand" /></r-group>
   <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
   <section id="page">
-    <h1>Settings</h1>
+    <h1><r-t key="dash.nav.settings" /></h1>
     <x-problem :problem="problem" r-if="problem" />
     <r-group r-if="tenant">
-      <h2>Tenant</h2>
+      <h2><r-t key="dash.settings.tenant" /></h2>
       <table class="list">
         <tbody>
-          <tr><th>Id</th><td><code>{{ tenant.id }}</code></td></tr>
-          <tr><th>Name</th><td>{{ tenant.name }}</td></tr>
-          <tr><th>Tier</th><td>{{ tenant.tier }}</td></tr>
-          <tr><th>State</th><td>{{ tenant.state }}</td></tr>
-          <tr><th>Created</th><td>{{ tenant.created }}</td></tr>
+          <tr><th><r-t key="dash.settings.id" /></th><td><code>{{ tenant.id }}</code></td></tr>
+          <tr><th><r-t key="dash.common.name" /></th><td>{{ tenant.name }}</td></tr>
+          <tr><th><r-t key="dash.common.tier" /></th><td>{{ tenant.tier }}</td></tr>
+          <tr><th><r-t key="dash.common.state" /></th><td>{{ tenant.state }}</td></tr>
+          <tr><th><r-t key="dash.settings.created" /></th><td>{{ tenant.created }}</td></tr>
         </tbody>
       </table>
 
-      <h2>Delete the tenant</h2>
+      <h2><r-t key="dash.settings.delete_h" /></h2>
       <div id="erasure" r-if="erasure">
         <p :class="erasure.state">{{ erasure.text }}</p>
         <table class="list">
           <tbody>
-            <tr><th>Requested</th><td>{{ erasure.requested }}</td></tr>
-            <tr><th>Replica purged</th><td r-if="erasure.replica_purged">{{ erasure.replica_purged }}</td><td r-else class="muted">not yet</td></tr>
-            <tr><th>Erasure completed at</th><td r-if="erasure.completed">{{ erasure.completed }}</td><td r-else class="muted">not yet</td></tr>
-            <tr r-if="erasure.failure"><th>Failed step</th><td><code>{{ erasure.failure }}</code></td></tr>
+            <tr><th><r-t key="dash.settings.requested" /></th><td>{{ erasure.requested }}</td></tr>
+            <tr><th><r-t key="dash.settings.replica_purged" /></th><td r-if="erasure.replica_purged">{{ erasure.replica_purged }}</td><td r-else class="muted"><r-t key="dash.settings.not_yet" /></td></tr>
+            <tr><th><r-t key="dash.settings.completed" /></th><td r-if="erasure.completed">{{ erasure.completed }}</td><td r-else class="muted"><r-t key="dash.settings.not_yet" /></td></tr>
+            <tr r-if="erasure.failure"><th><r-t key="dash.settings.failed_step" /></th><td><code>{{ erasure.failure }}</code></td></tr>
           </tbody>
         </table>
       </div>
       <r-group r-else>
-        <p>Deleting the tenant removes every app, deployment, secret, domain, log line and meter row, the database on the node and every generation in the replica store, and the exports. It cannot be undone: a point-in-time restore is impossible from then on.</p>
-        <p class="muted">Only the owner can do it, from a signed-in API session (not with a token, so not from this dashboard): <code>DELETE /v1/tenants/{{ tenant.id }}</code> with <code>{"confirm": "{{ tenant.id }}"}</code>. Its progress then shows here.</p>
+        <p><r-t key="dash.settings.delete_explain" /></p>
+        <p class="muted"><r-t key="dash.settings.delete_owner" /> <code>DELETE /v1/tenants/{{ tenant.id }}</code> <r-t key="dash.settings.with" /> <code>{"confirm": "{{ tenant.id }}"}</code>. <r-t key="dash.settings.progress" /></p>
       </r-group>
     </r-group>
   </section>

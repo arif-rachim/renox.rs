@@ -29,6 +29,9 @@ pub enum RouteStatus {
     /// A superseded deployment that finishes its in-flight requests and is
     /// then evicted. Kept in the table, never chosen for a new request.
     Draining,
+    /// The tenant is suspended (`artifact.md` 1.5): the hostname is answered
+    /// with the neutral suspension page, never routed to a cell.
+    Suspended,
 }
 
 /// One route table entry (`artifact.md` section 5).
@@ -41,6 +44,10 @@ pub struct RouteEntry {
     pub status: RouteStatus,
     /// Unix time in milliseconds.
     pub updated_at: u64,
+    /// The tenant's name on the suspension page (`artifact.md` 1.5);
+    /// suspended entries only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// The control plane's route version that last wrote this entry
     /// (`docs/contracts/deploy-api.md` section 8, #97). `None` in a local
     /// route table file, which stays `artifact.md` version 0 and never
@@ -72,6 +79,10 @@ pub enum RouteTableError {
     InvalidField { field: &'static str, value: String },
     /// V13: more than one `active` entry for a hostname.
     DuplicateActive(String),
+    /// V13 (1.5): a hostname has both a `suspended` and an `active` entry.
+    SuspendedAndActive(String),
+    /// V13 (1.5): `display_name` on an entry that is not `suspended`.
+    DisplayNameNotSuspended(String),
     /// V13: `(hostname, deployment_hash)` appears twice.
     DuplicateEntry {
         hostname: String,
@@ -88,6 +99,13 @@ impl fmt::Display for RouteTableError {
                 write!(f, "V13: invalid {field} {value:?}")
             }
             Self::DuplicateActive(h) => write!(f, "V13: more than one active entry for {h}"),
+            Self::SuspendedAndActive(h) => write!(f, "V13: {h} is both suspended and active"),
+            Self::DisplayNameNotSuspended(h) => {
+                write!(
+                    f,
+                    "V13: display_name on an entry of {h} that is not suspended"
+                )
+            }
             Self::DuplicateEntry {
                 hostname,
                 deployment_hash,
@@ -109,6 +127,12 @@ impl HostRoutes {
         self.entries
             .iter()
             .find(|e| e.status == RouteStatus::Active)
+    }
+
+    fn suspended(&self) -> Option<&RouteEntry> {
+        self.entries
+            .iter()
+            .find(|e| e.status == RouteStatus::Suspended)
     }
 }
 
@@ -173,6 +197,12 @@ impl RouteTable {
             if entry.status == RouteStatus::Active && host.active().is_some() {
                 return Err(RouteTableError::DuplicateActive(entry.hostname));
             }
+            let (a, b) = (entry.status, host.active().is_some());
+            if (a == RouteStatus::Active && host.suspended().is_some())
+                || (a == RouteStatus::Suspended && b)
+            {
+                return Err(RouteTableError::SuspendedAndActive(entry.hostname));
+            }
             host.entries.push(entry);
         }
         self.map.store(Arc::new(map));
@@ -207,6 +237,18 @@ impl RouteTable {
                 for e in &mut host.entries {
                     if e.status == RouteStatus::Active && e.deployment_hash != entry.deployment_hash
                     {
+                        e.status = RouteStatus::Draining;
+                    }
+                }
+                // A reinstated hostname: its suspension ends with the switch.
+                host.entries.retain(|e| {
+                    e.status != RouteStatus::Suspended || e.deployment_hash == entry.deployment_hash
+                });
+            }
+            if entry.status == RouteStatus::Suspended {
+                // In-flight requests finish; no new one reaches the cell.
+                for e in &mut host.entries {
+                    if e.status == RouteStatus::Active {
                         e.status = RouteStatus::Draining;
                     }
                 }
@@ -264,6 +306,12 @@ impl RouteTable {
         self.map.load().get(host)?.active().cloned()
     }
 
+    /// The `suspended` entry of `host`, if the hostname is suspended
+    /// (`artifact.md` 1.5): answered with the neutral page, never routed.
+    pub fn suspended(&self, host: &str) -> Option<RouteEntry> {
+        self.map.load().get(host)?.suspended().cloned()
+    }
+
     /// Every entry of `host`, active and draining.
     pub fn entries(&self, host: &str) -> Vec<RouteEntry> {
         self.map
@@ -285,6 +333,20 @@ impl RouteTable {
 }
 
 fn validate_entry(entry: &RouteEntry) -> Result<(), RouteTableError> {
+    if let Some(name) = &entry.display_name {
+        if entry.status != RouteStatus::Suspended {
+            return Err(RouteTableError::DisplayNameNotSuspended(
+                entry.hostname.clone(),
+            ));
+        }
+        let n = name.chars().count();
+        if n == 0 || n > 128 {
+            return Err(RouteTableError::InvalidField {
+                field: "display_name",
+                value: name.clone(),
+            });
+        }
+    }
     if !is_valid_table_hostname(&entry.hostname) {
         return Err(RouteTableError::InvalidField {
             field: "hostname",
@@ -387,6 +449,7 @@ mod tests {
             deployment_hash: hash.to_string().repeat(64),
             status,
             updated_at: 0,
+            display_name: None,
             version,
         }
     }

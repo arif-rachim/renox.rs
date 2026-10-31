@@ -21,7 +21,7 @@ storage = { version = "^1.0", mount = "/files", config = { quota_mb = 200 } }
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `max_upload_bytes` | 10 MiB | Largest file an upload accepts. The tier's limit still applies, and so does the gateway's body limit for page actions (1 MiB) |
-| `allow_svg` | false | Accept SVG. A sanitised copy is stored: scripts, `on*` handlers, `foreignObject`, `iframe`, `javascript:` links and external `url()` are removed |
+| `allow_svg` | false | Accept SVG. A sanitised copy is stored: scripts, `on*` handlers, `foreignObject`, `iframe`, `javascript:` links and external `url()` are removed, with or without a namespace prefix, until nothing changes; a file with anything dangerous left is refused (`SVG`) |
 | `quota_mb` | 0 | Megabytes per owner. 0 means no per-owner quota; the tier's tenant quota still applies |
 | `base_path` | `/files` | Where the file browser is mounted |
 
@@ -52,13 +52,16 @@ With `storage.manage`, which the default policy grants to `admin`, `?owner=` ope
 ## Not built
 
 - **`<x-upload>` as a partial.** A module's partials are not available as components in its own pages under that name, and `<x-form>` needs a fixed action. The page carries the form inline.
-- **The shop's product images.** The module is installed on the shop, but its product images still come from `public/`. Moving them changes the product pages' source and needs B6 measured before and after.
 - **`[storage] allowed_types` on the artifact entry.** `renox build` does not yet copy a module's list onto its entry (CLI), so the platform defaults apply to modules.
 - **`storage__files` and `storage__variants`.** The platform's `renox__files` and its content-addressed variants hold this data (#321), so the module needs no tables.
 
+## Used by
+
+`examples/shop` stores its product images through `upload` and shows them with `<x-image>` (its README; B6 before and after in `bench/results/2026-10-31-B6-shop-product-images.md`).
+
 ## Tests
 
-- `bun test` runs `tests/storage.test.ts`: folders and names, the sanitiser on hostile SVGs, links, listing.
+- `bun test` runs `tests/storage.test.ts` (folders and names, the sanitiser, links, listing) and `tests/hostile-svg.test.ts` (34 hostile SVGs: namespaced and split script tags, handlers after a slash or a quote, unquoted and encoded `javascript:` links, external `use`, `image` and `url()`, `@import`, entities; each comes out clean or is refused).
 - With `RENOX_WORKER_PATH`, `tests/app.test.ts` runs on the worker:
   - a stored PNG through `<x-image>`, with its dimensions and `srcset`;
   - a multipart upload through the page;

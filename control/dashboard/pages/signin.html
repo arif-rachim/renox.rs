@@ -1,17 +1,17 @@
 <r-layout use="main">
-  <r-group slot="title">Sign in · Renox dashboard</r-group>
+  <r-group slot="title"><r-t key="dash.common.sign_in" /> · <r-t key="dash.brand" /></r-group>
   <section class="narrow">
-    <h1>Sign in</h1>
-    <p>Paste a Renox token for your tenant. Create one with <code>renox login</code>, or for the dashboard only:</p>
+    <h1><r-t key="dash.common.sign_in" /></h1>
+    <p><r-t key="dash.signin.intro" /> <code>renox login</code><r-t key="dash.signin.intro_dashboard" /></p>
     <pre>renox tokens create dashboard --scope apps:read --scope apps:write --scope deploy --scope logs:read --scope secrets:read --scope secrets:write --expires-days 7</pre>
-    <p class="muted">The dashboard calls the control API at <strong>{{ api_host }}</strong> with this token, with your scopes and role. It is stored encrypted for this browser session and never shown again; signing out deletes it.</p>
+    <p class="muted"><r-t key="dash.signin.calls" /> <strong>{{ api_host }}</strong> <r-t key="dash.signin.stored" /></p>
     <div class="problem" role="alert" r-if="error"><p><strong>{{ error }}</strong></p></div>
-    <p class="problem" r-if="!configured">The dashboard is not configured: the DASHBOARD_KEY secret is not set.</p>
+    <p class="problem" r-if="!configured"><r-t key="dash.signin.not_configured" /></p>
     <form method="post" action="/signin">
       <x-csrf />
       <input type="hidden" name="next" :value="next">
-      <label>Token <input type="password" name="token" autocomplete="off" spellcheck="false" required pattern="renox_pat_[a-z2-7]{32}"></label>
-      <button type="submit">Sign in</button>
+      <label><r-t key="dash.signin.token" /> <input type="password" name="token" autocomplete="off" spellcheck="false" required pattern="renox_pat_[a-z2-7]{32}"></label>
+      <button type="submit"><r-t key="dash.common.sign_in" /></button>
     </form>
   </section>
 </r-layout>

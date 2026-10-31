@@ -5,9 +5,13 @@ import { redirect, type ActionContext, type LoaderContext } from "renox";
 
 import { Api, apiBase } from "../lib/api.ts";
 import { nextPath } from "../lib/guard.ts";
+import { applyLocale } from "../lib/locale.ts";
 import { KEY_SECRET, signIn, TOKEN_PATTERN } from "../lib/session.ts";
 
-export function load({ url, secrets }: LoaderContext) {
+export function load(ctx: LoaderContext) {
+  const lang = applyLocale(ctx);
+  if (lang !== null) return lang;
+  const { url, secrets } = ctx;
   return {
     next: nextPath(url.searchParams.get("next")),
     api_host: new URL(apiBase(secrets)).host,
@@ -17,7 +21,9 @@ export function load({ url, secrets }: LoaderContext) {
 }
 
 export const actions = {
-  async default({ db, fetch, form, secrets, session, url }: ActionContext) {
+  async default(ctx: ActionContext) {
+    applyLocale(ctx);
+    const { db, fetch, form, secrets, session, url } = ctx;
     const raw = form.get("token");
     const token = typeof raw === "string" ? raw.trim() : "";
     const next = nextPath(String(form.get("next") ?? url.searchParams.get("next") ?? ""));

@@ -6,7 +6,7 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { aed, fils, nextState, PLANS, planOf, reinstate, tenantUsage, vatOf, VAT_RATE, type TierState } from "@renox/billing";
+import { aed, fils, invoiceHtml, nextState, PLANS, planOf, reinstate, tenantUsage, vatOf, VAT_RATE, type TierState } from "@renox/billing";
 import type { Context, Hono } from "hono";
 
 import { operation } from "../audit.ts";
@@ -236,7 +236,16 @@ export function registerBilling(app: Hono<Env>, deps: Deps): void {
     own(c, db);
     const r = (await db.query<Row>("select body from invoices where tenant_id = $1 and id = $2", [db.tenantId, c.req.param("invoice_id")]))[0];
     if (r === undefined) throw notFound();
-    return c.json(JSON.parse(r.body as string));
+    const inv = JSON.parse(r.body as string);
+    // 0.5.1: `Accept: text/html` answers the bilingual tax invoice; the dashboard turns it into a PDF with ctx.pdf.
+    const accept = c.req.header("accept") ?? "";
+    if (/text\/html/iu.test(accept) && !/^\s*application\/json/iu.test(accept)) {
+      const p = (await db.query<Row>("select profile from tenant_billing where tenant_id = $1", [db.tenantId]))[0]?.profile;
+      const buyer = typeof p === "string" ? (JSON.parse(p) as { legal_name?: string; address?: string }) : {};
+      c.header("cache-control", "no-store");
+      return c.html(invoiceHtml(inv, { legal_name: buyer.legal_name ?? "", address: buyer.address ?? "" }));
+    }
+    return c.json(inv);
   });
 
   app.post("/v1/billing/webhooks/:provider", operation(deps, "billingWebhook"), async (c) => {

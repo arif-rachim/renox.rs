@@ -1,0 +1,75 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="dash.billing.title" /> · <r-t key="dash.brand" /></r-group>
+  <section id="page" r-fragment="page">
+    <h1><r-t key="dash.billing.title" /></h1>
+    <x-problem :problem="problem" r-if="problem" />
+    <p class="notice" r-if="notice">{{ notice }}</p>
+    <p class="muted" r-if="no_tenant"><r-t key="dash.billing.no_tenant" /> <a href="/apps/new"><r-t key="dash.billing.create_one" /></a>.</p>
+    <p class="muted" r-if="owner_only"><r-t key="dash.billing.owner_only" /></p>
+
+    <div id="step-up" r-if="step_up">
+      <h2><r-t key="dash.common.confirm_you" /></h2>
+      <p><r-t key="dash.billing.step_up" /></p>
+      <x-form action="verify" hx-target="#page" hx-swap="outerHTML" class="row">
+        <input type="hidden" name="then" :value="step_up.then">
+        <input type="hidden" name="arg" :value="step_up.plan" r-if="step_up.plan">
+        <label><r-t key="dash.common.code" /> <input name="code" required autocomplete="one-time-code" inputmode="text" maxlength="24" spellcheck="false"></label>
+        <button type="submit"><r-t key="dash.common.verify" /></button>
+      </x-form>
+    </div>
+
+    <r-group r-if="billing">
+      <table class="list">
+        <tbody>
+          <tr><th><r-t key="dash.billing.plan" /></th><td>{{ billing.plan }}<span class="muted" r-if="billing.pending_plan"> (<r-t key="dash.billing.changes_to" /> {{ billing.pending_plan }} <r-t key="dash.billing.end_of_period" />)</span></td></tr>
+          <tr><th><r-t key="dash.common.state" /></th><td>{{ billing.state }}</td></tr>
+          <tr><th><r-t key="dash.billing.period" /></th><td>{{ billing.period }}</td></tr>
+          <tr><th><r-t key="dash.billing.estimate" /></th><td>{{ billing.estimate.subtotal }} + <r-t key="dash.billing.vat" /> {{ billing.estimate.vat }} = <strong>{{ billing.estimate.total }} {{ billing.estimate.currency }}</strong></td></tr>
+          <tr><th><r-t key="dash.billing.card" /></th><td r-if="billing.card">{{ billing.card }}</td><td r-else class="muted"><r-t key="dash.billing.no_card" /></td></tr>
+        </tbody>
+      </table>
+      <p class="problem" r-if="billing.over_quota"><r-t key="dash.billing.over_quota" /> {{ billing.over_quota }}</p>
+      <p class="muted" r-if="billing.anomaly"><r-t key="dash.billing.anomaly" /></p>
+
+      <h2><r-t key="dash.billing.plans" /></h2>
+      <table class="list">
+        <thead><tr><th><r-t key="dash.billing.plan" /></th><th><r-t key="dash.billing.per_month" /></th><th></th></tr></thead>
+        <tbody>
+          <tr r-for="p in billing.plans">
+            <td>{{ p.name }}</td>
+            <td>{{ p.price }}</td>
+            <td r-if="p.current" class="muted"><r-t key="dash.billing.current" /></td>
+            <td r-else>
+              <x-form action="plan" hx-target="#page" hx-swap="outerHTML" class="inline">
+                <input type="hidden" name="plan" :value="p.id">
+                <button type="submit"><r-t key="dash.billing.switch" /></button>
+              </x-form>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted"><r-t key="dash.billing.plans_note" /></p>
+
+      <h2><r-t key="dash.billing.card" /></h2>
+      <x-form action="card_setup" hx-target="#page" hx-swap="outerHTML" class="inline" r-if="!setup"><button type="submit"><r-t key="dash.billing.add_card" /></button></x-form>
+      <div id="card-setup" r-if="setup" :data-key="setup.publishable_key" :data-secret="setup.client_secret">
+        <p><r-t key="dash.billing.card_note" /></p>
+        <div id="card-element"></div>
+        <x-form action="card_confirm" hx-target="#page" hx-swap="outerHTML" id="card-form">
+          <input type="hidden" name="setup_id" :value="setup.setup_id">
+          <button type="submit"><r-t key="dash.billing.save_card" /></button>
+        </x-form>
+        <x-script src="/billing.js"></x-script>
+      </div>
+
+      <h2><r-t key="dash.billing.invoices" /></h2>
+      <p class="muted" r-if="!has_invoices"><r-t key="dash.billing.no_invoices" /></p>
+      <table class="list" r-if="has_invoices">
+        <thead><tr><th><r-t key="dash.billing.number" /></th><th><r-t key="dash.billing.issued" /></th><th><r-t key="dash.billing.total" /></th><th><r-t key="dash.common.status" /></th><th></th></tr></thead>
+        <tbody>
+          <tr r-for="i in invoices"><td>{{ i.id }}</td><td>{{ i.issued }}</td><td>{{ i.total }}</td><td>{{ i.status }}</td><td><a :href="i.pdf">PDF</a></td></tr>
+        </tbody>
+      </table>
+    </r-group>
+  </section>
+</r-layout>

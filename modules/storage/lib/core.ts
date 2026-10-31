@@ -42,23 +42,42 @@ export function keyOf(owner: unknown, name: unknown): string {
   return `storage/${owner}/${n}`;
 }
 
+const DROPPED = ["script", "foreignObject", "iframe", "object", "embed", "audio", "video", "animate", "set", "animateTransform", "animateMotion", "handler", "listener"];
+/** An element name with an optional namespace prefix (`svg:script`). */
+const el = (tag: string) => `(?:[\\w.-]+:)?${tag}`;
+/** What must not survive: a dropped element, an `on*` attribute, a script URL. */
+const LEFT = new RegExp(`<\\/?\\s*${el(`(?:${DROPPED.join("|")})`)}\\b|[\\s/"']on[a-z]+\\s*=|(?:java|vb)script\\s*:|data\\s*:\\s*text\\/html`, "iu");
+
+function pass(s: string): string {
+  let out = s.replace(/<!DOCTYPE[\s\S]*?>/giu, "").replace(/<!ENTITY[\s\S]*?>/giu, "");
+  for (const tag of DROPPED) {
+    out = out.replace(new RegExp(`<${el(tag)}\\b[\\s\\S]*?<\\/\\s*${el(tag)}\\s*>`, "giu"), "").replace(new RegExp(`<\\/?\\s*${el(tag)}\\b[^>]*>`, "giu"), "");
+  }
+  out = out.replace(/([\s/"'])(?:[\w.-]+:)?on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/giu, "$1");
+  out = out.replace(/\s+(?:[\w.-]+:)?href\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/giu, (m, _q, a, b, c) => ((a ?? b ?? c ?? "").trim().startsWith("#") ? m : ""));
+  out = out.replace(/url\(\s*(['"]?)(?!#)[^)]*\1\s*\)/giu, "none");
+  out = out.replace(/<style\b[\s\S]*?<\/style\s*>/giu, (m) => m.replace(/@import[^;]+;?/giu, "").replace(/expression\s*\(/giu, "("));
+  return out;
+}
+
 /**
  * A conservative SVG sanitiser: drops script, foreignObject, iframe, object,
- * embed, audio, video, animate and set elements, every `on*` attribute, and
- * every href or url() that is not a fragment (`#id`). Null for a non-SVG.
+ * embed, audio, video, animate and set elements (with or without a
+ * namespace prefix), every `on*` attribute, and every href or url() that is
+ * not a fragment (`#id`). It repeats until nothing changes, so a removal
+ * cannot join two halves into a new tag. Null for a non-SVG, and null (the
+ * file refused) when anything dangerous is still left.
  */
 export function sanitizeSvg(text: string): string | null {
-  const s = text.replace(/^﻿/u, "").trim();
+  const s = text.replace(/^\uFEFF/u, "").trim();
   if (!/^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/iu.test(s)) return null;
-  let out = s.replace(/<!DOCTYPE[\s\S]*?>/giu, "").replace(/<!ENTITY[\s\S]*?>/giu, "");
-  for (const tag of ["script", "foreignObject", "iframe", "object", "embed", "audio", "video", "animate", "set", "animateTransform", "animateMotion", "handler"]) {
-    out = out.replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}\\s*>`, "giu"), "").replace(new RegExp(`<${tag}\\b[^>]*\\/?>`, "giu"), "");
+  let out = s;
+  for (let i = 0; i < 10; i++) {
+    const next = pass(out);
+    if (next === out) return LEFT.test(out) ? null : out;
+    out = next;
   }
-  out = out.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/giu, "");
-  out = out.replace(/\s+(?:xlink:)?href\s*=\s*("([^"]*)"|'([^']*)')/giu, (m, _q, a, b) => ((a ?? b ?? "").trim().startsWith("#") ? m : ""));
-  out = out.replace(/url\(\s*(['"]?)(?!#)[^)]*\1\s*\)/giu, "none");
-  out = out.replace(/<style\b[\s\S]*?<\/style\s*>/giu, (m) => m.replace(/@import[^;]+;/giu, "").replace(/expression\s*\(/giu, "("));
-  return out;
+  return null;
 }
 
 export async function upload(ctx: StorageCtx, owner: unknown, name: unknown, bytes: unknown, contentType: unknown, opts: { public?: boolean } = {}): Promise<StoredFile> {

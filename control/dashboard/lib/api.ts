@@ -320,12 +320,74 @@ function failureOf(res: Response, text: string | null): ApiFailure {
   return fail(res.status, "RENOX_INTERNAL", `the control API answered ${res.status}`);
 }
 
+/** `getBilling` (deploy-api.md 0.5.1 section 20): the owner's own token may read it. */
+export interface Billing {
+  tenant_id: string;
+  plan: string;
+  pending_plan: string | null;
+  state: string;
+  state_since: number;
+  period: { start: number; end: number };
+  usage: Record<string, number>;
+  estimate: { subtotal: string; vat: string; total: string; currency: "AED" };
+  signal: { over_quota: string[]; anomaly: boolean };
+  payment_method: { id: string; brand: string; last4: string; exp_month: number; exp_year: number } | null;
+  profile: { legal_name: string; email: string; address: string; country: string; trn?: string } | null;
+  restrictions?: string[];
+}
+
+export interface Plan {
+  id: string;
+  name?: string;
+  price_month: string;
+}
+
+export interface InvoiceLine {
+  description: string;
+  quantity: string;
+  unit_price: string;
+  amount: string;
+}
+
+/** An invoice (`getInvoice` as JSON). */
+export interface Invoice {
+  id: string;
+  tenant_id: string;
+  period: { start: number; end: number };
+  lines: InvoiceLine[];
+  subtotal: string;
+  vat: string;
+  total: string;
+  currency: "AED";
+  status: string;
+  seller_trn: string;
+  buyer_trn: string | null;
+  issued_at: number;
+  paid_at: number | null;
+}
+
+/** `startPaymentMethodSetup`: what the browser needs for Stripe's setup form; never card data. */
+export interface PaymentSetup {
+  provider: "stripe";
+  setup_id: string;
+  client_secret: string;
+  publishable_key: string;
+}
+
 /** The API client of one request: the signed-in user's token, the tenant's `fetch`. */
 /** A dashboard session signed in with a break-glass token (#310): every page shows it. */
 export interface ImpersonationBanner {
   tenant_id: string;
   impersonation_id: string;
   until: string;
+}
+
+/** getAdvisories (deploy-api.md 0.5 section 11.2). */
+export interface Advisories {
+  hash: string;
+  sbom: boolean;
+  checked_at: number | null;
+  items: { id: string; package: string; version: string; severity: "low" | "moderate" | "high" | "critical" | "unknown"; summary: string; fixed_in: string | null }[];
 }
 
 export class Api {
@@ -404,6 +466,11 @@ export class Api {
     return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/deployments/${encodeURIComponent(hash)}`);
   }
 
+  /** `getAdvisories` (deploy-api.md 0.5 section 11.2, #123): OSV advisories of the deployment's SBOM; a warning only. */
+  getAdvisories(app: string, hash: string): Promise<Result<Advisories>> {
+    return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/deployments/${encodeURIComponent(hash)}/advisories`);
+  }
+
   activate(app: string, hash: string): Promise<Result<Deployment>> {
     return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/activate`, { hash });
   }
@@ -475,6 +542,37 @@ export class Api {
    * rather than holding a `follow=true` stream open, which the tenant
    * wall-clock limit would end.
    */
+  // Billing (deploy-api.md 0.5.1 section 20, "Owner token rule"): the owner's own token; the
+  // payment-method calls and a paid plan need a recent second factor with it (step_up_required).
+
+  listPlans(): Promise<Result<{ currency: "AED"; plans: Plan[] }>> {
+    return this.json("GET", "/v1/billing/plans");
+  }
+
+  getBilling(tenant: string): Promise<Result<Billing>> {
+    return this.json("GET", `/v1/tenants/${encodeURIComponent(tenant)}/billing`);
+  }
+
+  changePlan(tenant: string, plan: string): Promise<Result<Billing>> {
+    return this.json("POST", `/v1/tenants/${encodeURIComponent(tenant)}/billing/plan`, { plan });
+  }
+
+  startPaymentMethodSetup(tenant: string): Promise<Result<PaymentSetup>> {
+    return this.json("POST", `/v1/tenants/${encodeURIComponent(tenant)}/billing/payment-methods/setup`, { provider: "stripe" });
+  }
+
+  confirmPaymentMethod(tenant: string, setupId: string): Promise<Result<NonNullable<Billing["payment_method"]>>> {
+    return this.json("POST", `/v1/tenants/${encodeURIComponent(tenant)}/billing/payment-methods`, { setup_id: setupId });
+  }
+
+  listInvoices(tenant: string): Promise<Result<{ items: Invoice[] }>> {
+    return this.json("GET", `/v1/tenants/${encodeURIComponent(tenant)}/invoices`);
+  }
+
+  getInvoice(tenant: string, id: string): Promise<Result<Invoice>> {
+    return this.json("GET", `/v1/tenants/${encodeURIComponent(tenant)}/invoices/${encodeURIComponent(id)}`);
+  }
+
   // Second factors (deploy-api.md 0.4 section 18): the API accepts the
   // user's own token on these, with a step-up window of the token's own.
 

@@ -56,3 +56,8 @@ button.link { border: 0; background: none; padding: 0; }
 /* #310: a break-glass sign-in. */
 .banner.impersonation { margin: 0; padding: 0.6rem 1rem; background: #7a1f1f; color: #fff; font-weight: 600; }
 .banner.impersonation code { color: #fff; }
+
+/* #336: the language links, and code that stays left to right on Arabic pages. */
+.top .lang { display: flex; gap: .5rem; }
+code, pre { direction: ltr; unicode-bidi: isolate; }
+pre { text-align: start; }

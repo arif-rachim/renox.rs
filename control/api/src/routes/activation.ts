@@ -135,14 +135,25 @@ export async function rollback(deps: Deps, db: TenantDb, app: string, hash: stri
   return requireDeployment(db, tenantId, app, target);
 }
 
-/** Tenant suspension (deploy-api.md section 5): active <-> suspended and the routes removed or restored. */
-export async function onTenantState(deps: Deps, tx: Db, tenantId: string, state: "active" | "suspended", now: number): Promise<void> {
+/**
+ * Tenant suspension (deploy-api.md 0.5.1 section 5): active <-> suspended. A suspended tenant's active
+ * entries become `suspended` entries with the tenant's name (the gateway's neutral page, #325); its
+ * draining entries are removed (every entry with `neutralPage: false`, for erasure). Reinstating points the hostnames at the deployments again.
+ */
+export async function onTenantState(deps: Deps, tx: Db, tenantId: string, state: "active" | "suspended", now: number, opts: { neutralPage?: boolean } = {}): Promise<void> {
   const by: Actor = { actor: "operator", requestId: "tenant-state", now };
   await lockRoutes(tx);
   if (state === "suspended") {
     const active = await tx.query<{ app: string; hash: string }>("select app, hash from deployments where tenant_id = $1 and state = 'active'", [tenantId]);
     for (const a of active) await transition(tx, { tenant_id: tenantId, app: a.app, hash: a.hash }, "active", "suspended", by);
-    for (const e of await entriesWhere(tx, "tenant_id = $1", [tenantId])) await removeEntry(tx, e.hostname, e.deployment_hash, now);
+    const [t] = await tx.query<{ name: string }>("select name from tenants where id = $1", [tenantId]);
+    for (const e of await entriesWhere(tx, "tenant_id = $1", [tenantId])) {
+      if (e.status !== "active" || opts.neutralPage === false) await removeEntry(tx, e.hostname, e.deployment_hash, now);
+      else {
+        const { version: _v, ...rest } = e;
+        await upsertEntry(tx, { ...rest, status: "suspended", updated_at: now, ...(t?.name ? { display_name: t.name } : {}) });
+      }
+    }
     return;
   }
   const { tier } = await tenantInfo(tx, tenantId);
@@ -156,4 +167,7 @@ export async function onTenantState(deps: Deps, tx: Db, tenantId: string, state:
     await transition(tx, d, "suspended", "active", by);
     if (node !== null) await pointAt(tx, deps, d, s.hash, null, node, tier, Number(s.secrets_version ?? 0), now);
   }
+  // Without a healthy node the neutral page stays rather than an unknown host.
+  if (node === null) return;
+  for (const e of await entriesWhere(tx, "tenant_id = $1 and status = 'suspended'", [tenantId])) await removeEntry(tx, e.hostname, e.deployment_hash, now);
 }

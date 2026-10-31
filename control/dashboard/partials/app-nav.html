@@ -1,12 +1,12 @@
 <r-props app="string" section="string" />
-<nav class="side" aria-label="App">
+<nav class="side" :aria-label="'dash.nav.app' | t">
   <p class="side-title"><a href="/apps/{{ app }}">{{ app }}</a></p>
-  <a href="/apps/{{ app }}" :class="{ current: section == 'overview' }">Overview</a>
-  <a href="/apps/{{ app }}/deployments" :class="{ current: section == 'deployments' }">Deployments</a>
-  <a href="/apps/{{ app }}/logs" :class="{ current: section == 'logs' }">Logs</a>
-  <a href="/apps/{{ app }}/client-errors" :class="{ current: section == 'client-errors' }">Browser errors</a>
-  <a href="/apps/{{ app }}/usage" :class="{ current: section == 'usage' }">Usage</a>
-  <a href="/apps/{{ app }}/secrets" :class="{ current: section == 'secrets' }">Secrets</a>
-  <a href="/apps/{{ app }}/database" :class="{ current: section == 'database' }">Database</a>
-  <a href="/apps/{{ app }}/settings" :class="{ current: section == 'settings' }">Settings</a>
+  <a href="/apps/{{ app }}" :class="{ current: section == 'overview' }"><r-t key="dash.nav.overview" /></a>
+  <a href="/apps/{{ app }}/deployments" :class="{ current: section == 'deployments' }"><r-t key="dash.nav.deployments" /></a>
+  <a href="/apps/{{ app }}/logs" :class="{ current: section == 'logs' }"><r-t key="dash.nav.logs" /></a>
+  <a href="/apps/{{ app }}/client-errors" :class="{ current: section == 'client-errors' }"><r-t key="dash.nav.client_errors" /></a>
+  <a href="/apps/{{ app }}/usage" :class="{ current: section == 'usage' }"><r-t key="dash.nav.usage" /></a>
+  <a href="/apps/{{ app }}/secrets" :class="{ current: section == 'secrets' }"><r-t key="dash.nav.secrets" /></a>
+  <a href="/apps/{{ app }}/database" :class="{ current: section == 'database' }"><r-t key="dash.nav.database" /></a>
+  <a href="/apps/{{ app }}/settings" :class="{ current: section == 'settings' }"><r-t key="dash.nav.settings" /></a>
 </nav>

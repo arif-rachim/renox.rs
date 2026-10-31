@@ -42,6 +42,7 @@ pub mod request_id;
 pub mod route_table;
 pub mod security;
 pub mod static_files;
+pub mod suspended;
 pub mod tls;
 pub mod upgrade;
 pub mod well_known;
@@ -602,6 +603,10 @@ async fn route<D: CellDispatcher>(
         return txt.response(req.method());
     }
     let Some(entry) = inner.routes.lookup(&host) else {
+        // #325: a suspended hostname gets the neutral page, never a cell.
+        if let Some(s) = inner.routes.suspended(&host) {
+            return suspended::response(s.display_name.as_deref(), request_id, req.headers());
+        }
         counters.unknown_host.fetch_add(1, Ordering::Relaxed);
         return plain(StatusCode::NOT_FOUND, "Not found");
     };

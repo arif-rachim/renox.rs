@@ -3,5 +3,5 @@
   <td class="level">{{ l.level }}</td>
   <td><code>{{ l.request_id }}</code></td>
   <td class="muted">{{ l.source }} · {{ l.deployment }} · {{ l.module }}</td>
-  <td class="msg">{{ l.message }}<br r-if="l.fields"><small class="muted" r-if="l.fields">{{ l.fields }}</small><r-group r-if="l.frames"><br><small r-for="f in l.frames" class="frame"><code>{{ f.fn }}</code> <code>{{ f.at }}</code><r-group r-if="f.bundled"> <span class="muted">(bundled: {{ f.bundled }})</span></r-group><br></small></r-group><br r-if="l.group_url"><a r-if="l.group_url" :href="l.group_url">Error group</a></td>
+  <td class="msg">{{ l.message }}<br r-if="l.fields"><small class="muted" r-if="l.fields">{{ l.fields }}</small><r-group r-if="l.frames"><br><small r-for="f in l.frames" class="frame"><code>{{ f.fn }}</code> <code>{{ f.at }}</code><r-group r-if="f.bundled"> <span class="muted">(<r-t key="dash.logs.bundled" /> {{ f.bundled }})</span></r-group><br></small></r-group><br r-if="l.group_url"><a r-if="l.group_url" :href="l.group_url"><r-t key="dash.logs.error_group" /></a></td>
 </tr>

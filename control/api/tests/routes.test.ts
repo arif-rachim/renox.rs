@@ -309,12 +309,14 @@ describe("assignment", () => {
 });
 
 describe("suspension", () => {
-  test("suspending removes the tenant's routes; reinstating restores them", async () => {
+  test("suspending turns the tenant's routes into suspended entries with its name (0.5.1); reinstating restores them", async () => {
     const { h, token, node, a } = await setup();
     await activateReq(h, token, a);
     expect((await h.request("POST", "/v1/admin/tenants/t_hello/suspend", { token: OPERATOR_TOKEN })).status).toBe(200);
     expect((await stateOf(h, token, a)).state).toBe("suspended");
-    expect((await snapshotOf(h, node)).entries).toEqual([]);
+    const held = checkMessage<RouteSnapshot>("route_snapshot", await snapshotOf(h, node)).entries;
+    expect(held.map((e) => [e.deployment_hash, e.status])).toEqual([[a, "suspended"]]);
+    expect(typeof held[0]?.display_name).toBe("string");
     expect((await activateReq(h, token, a)).status).toBe(409);
     expect((await h.request("POST", "/v1/admin/tenants/t_hello/reinstate", { token: OPERATOR_TOKEN })).status).toBe(200);
     expect((await stateOf(h, token, a)).state).toBe("active");

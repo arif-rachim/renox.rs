@@ -8,10 +8,12 @@ import { createHmac } from "node:crypto";
 
 import { contentHash } from "@renox/artifact-validate";
 
+import { createTenantToken } from "../src/auth/tokens.ts";
 import { MONTH, setPsp, stripePsp, tickTier } from "../src/billing/routes.ts";
 import { sweepBilling } from "../src/billing/sweep.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { assertScoped, harness, registeredNode, signup, type Harness, type Session } from "./helpers.ts";
+import { totp } from "../../../sdk/src/totp.ts";
+import { addMember, assertScoped, harness, registeredNode, signup, type Harness, type Session } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -84,7 +86,7 @@ describe("billing (section 20)", () => {
     expect((await upload(h, token, "hello", files)).status).toBe(201);
     await registeredNode(h, "node-1");
     expect((await h.request("POST", "/v1/apps/hello/activate", { token, json: { hash: contentHash(files) } })).status).toBe(200);
-    const routes = async () => (await h.db.query<{ n: number }>("select count(*)::int as n from route_entries where tenant_id = $1", [T]))[0]?.n;
+    const routes = async () => (await h.db.query<{ n: number }>("select count(*)::int as n from route_entries where tenant_id = $1 and status = 'active'", [T]))[0]?.n;
     expect(await routes()).toBeGreaterThan(0);
     const dispute = { id: "evt_dispute_1", type: "charge.dispute.created", data: { object: { metadata: { tenant_id: T } } } };
     expect((await webhook(h, dispute, { secret: "wrong" })).status).toBe(401);
@@ -180,5 +182,79 @@ describe("billing (section 20)", () => {
     h.clock.now = now;
     const b = (await (await h.request("GET", `/v1/tenants/${T}/billing`, { session })).json()) as { signal: { anomaly: boolean } };
     expect(b.signal.anomaly).toBe(true);
+  });
+});
+
+// deploy-api.md 0.5.1 section 20, "Owner token rule" (#325, #346). docs/24-threat-model.md E,
+// "Teammate with too much power": billing stays the owner's, now also through the owner's own token
+// (the dashboard signs in with it, D23); every other token is 403.
+describe("billing with the owner's token (0.5.1)", () => {
+  const userId = async (h: Harness, email: string) => ((await h.db.query<{ id: string }>("select id from users where email = $1", [email]))[0] as { id: string }).id;
+  const token = async (h: Harness, scopes: string[], user: string | null) => (await createTenantToken(h.db, T, "dash", scopes, 30, h.clock.now, user)).token;
+
+  test("the owner's token reads billing; a member's, a bootstrap and an app-scoped token are 403", async () => {
+    const { h } = await setup();
+    const owner = await userId(h, "owner@bill.ae");
+    const ok = await h.request("GET", `/v1/tenants/${T}/billing`, { token: await token(h, ["*"], owner) });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ tenant_id: T, plan: "free" });
+    await signup(h, "admin@bill.ae", "t_bill_admin");
+    const admin = await addMember(h, T, "admin@bill.ae", "admin");
+    for (const t of [await token(h, ["*"], admin), await token(h, ["*"], null), await token(h, ["deploy:hello"], owner)]) {
+      const r = await h.request("GET", `/v1/tenants/${T}/billing`, { token: t });
+      expect(r.status).toBe(403);
+      expect(((await r.json()) as { error: { code: string } }).error.code).toBe("RENOX_TOKEN_SCOPE");
+    }
+    // Another tenant's id with the owner's token is still 404 (the IDOR row).
+    expect((await h.request("GET", "/v1/tenants/t_other/billing", { token: await token(h, ["*"], owner) })).status).toBe(404);
+  });
+
+  test("payment-method setup and a paid plan with a token need a recent second factor with that token", async () => {
+    const { h, session } = await setup();
+    const owner = await userId(h, "owner@bill.ae");
+    const start = (await (await h.request("POST", "/v1/account/mfa/totp", { session, json: {} })).json()) as { secret: string };
+    expect((await h.request("POST", "/v1/account/mfa/totp/confirm", { session, json: { code: await totp(start.secret, h.clock.now / 1000) } })).status).toBe(200);
+    const t = await token(h, ["*"], owner);
+    const setupReq = () => h.request("POST", `/v1/tenants/${T}/billing/payment-methods/setup`, { token: t, json: { provider: "stripe" } });
+    const refused = await setupReq();
+    expect(refused.status).toBe(403);
+    expect(JSON.stringify(await refused.json())).toContain("step_up_required");
+    // The reads are not stepped up.
+    expect((await h.request("GET", `/v1/tenants/${T}/invoices`, { token: t })).status).toBe(200);
+    h.clock.now += 31_000;
+    expect((await h.request("POST", "/v1/account/mfa/verify", { token: t, json: { method: "totp", code: await totp(start.secret, h.clock.now / 1000) } })).status).toBe(200);
+    expect((await setupReq()).status).toBe(201);
+    expect((await h.request("POST", `/v1/tenants/${T}/billing/payment-methods`, { token: t, json: { setup_id: "seti_1Q2w3E4r5T6y7U8i" } })).status).toBe(201);
+    expect((await h.request("POST", `/v1/tenants/${T}/billing/plan`, { token: t, json: { plan: "starter" } })).status).toBe(200);
+    // Past the 15-minute window a paid plan is refused again; free is not stepped up.
+    h.clock.now += 16 * 60_000;
+    expect((await h.request("POST", `/v1/tenants/${T}/billing/plan`, { token: t, json: { plan: "pro" } })).status).toBe(403);
+    expect((await h.request("POST", `/v1/tenants/${T}/billing/plan`, { token: t, json: { plan: "free" } })).status).toBe(200);
+  });
+
+  test("getInvoice answers the bilingual HTML with Accept: text/html, JSON otherwise", async () => {
+    const { h, session } = await setup();
+    const owner = await userId(h, "owner@bill.ae");
+    expect((await h.request("GET", `/v1/tenants/${T}/billing`, { session })).status).toBe(200);
+    const start = h.clock.now - MONTH - 1000;
+    await h.db.query("update tenant_billing set plan = 'starter', period_start = $2, state_since = $2, profile = $3 where tenant_id = $1", [T, start, JSON.stringify({ legal_name: "Bill <LLC>", email: "a@bill.ae", address: "Dubai", country: "AE" })]);
+    const saved = process.env.RENOX_SELLER_TRN;
+    process.env.RENOX_SELLER_TRN = "100000000000001";
+    try {
+      const [id] = (await sweepBilling(h.deps, h.clock.now)).invoices;
+      const t = await token(h, ["*"], owner);
+      const html = await h.request("GET", `/v1/tenants/${T}/invoices/${id}`, { token: t, headers: { accept: "text/html" } });
+      expect(html.status).toBe(200);
+      expect(html.headers.get("content-type")).toContain("text/html");
+      const page = await html.text();
+      expect(page).toContain("Tax Invoice");
+      expect(page).toContain("فاتورة ضريبية");
+      expect(page).toContain("Bill &lt;LLC&gt;");
+      const json = await h.request("GET", `/v1/tenants/${T}/invoices/${id}`, { token: t });
+      expect(await json.json()).toMatchObject({ id, seller_trn: "100000000000001" });
+    } finally {
+      if (saved === undefined) delete process.env.RENOX_SELLER_TRN;
+      else process.env.RENOX_SELLER_TRN = saved;
+    }
   });
 });
