@@ -20,11 +20,21 @@ afterEach(assertScoped);
 const SECRET = "whsec_test_0123456789";
 beforeAll(() =>
   setPsp({
+    async ensureCustomer() {
+      return "cus_Q2w3E4r5T6y7U8";
+    },
     async createSetup() {
       return { setup_id: "seti_1Q2w3E4r5T6y7U8i", client_secret: "seti_1Q2w3E4r5T6y7U8i_secret_abcdefgh", publishable_key: "pk_test_51Abcdefgh" };
     },
     async confirmSetup(id) {
       return id === "seti_1Q2w3E4r5T6y7U8i" ? { id: "pm_1Q2w3E4r5T6y7U8i", brand: "visa", last4: "4242", exp_month: 12, exp_year: 2029 } : null;
+    },
+    async setDefault() {},
+    async charge(c) {
+      return { status: "succeeded", payment_intent: `pi_${c.invoiceId}_${c.attempt}` };
+    },
+    async paymentIntentTenant() {
+      return null;
     },
     webhookSecret: () => SECRET,
   }),

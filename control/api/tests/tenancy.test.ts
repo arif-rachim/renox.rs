@@ -84,6 +84,7 @@ describe("crossTenant call sites", () => {
     expect(sites.sort()).toEqual([
       "auth/accounts.ts: a pending device code belongs to no tenant until a user approves it",
       "auth/notify.ts: a user's own email address",
+      "billing/routes.ts: a new card pays the tenant's open invoices; reinstating the tier publishes its route entries",
       "deployments/repo.ts: an artifact object is shared by every app that uploaded the same hash",
       "domains/ownership.ts: a certificate belongs to a hostname, whichever tenant held it",
       "domains/ownership.ts: a certificate belongs to a hostname, whichever tenant held it",

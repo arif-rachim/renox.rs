@@ -1,0 +1,147 @@
+{
+  "id": "evt_3UWeYqILczmTGCld0Oupdpfp",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1793461877,
+  "data": {
+    "object": {
+      "id": "pi_3UWeYqILczmTGCld06CPK3yq",
+      "object": "payment_intent",
+      "allowed_payment_method_types": null,
+      "amount": 8295,
+      "amount_capturable": 0,
+      "amount_details": {
+        "tip": {}
+      },
+      "amount_received": 0,
+      "application": null,
+      "application_fee_amount": null,
+      "automatic_payment_methods": {
+        "allow_redirects": "never",
+        "enabled": true
+      },
+      "canceled_at": null,
+      "cancellation_reason": null,
+      "capture_method": "automatic_async",
+      "client_secret": "pi_3UWeYqILczmTGCld06CPK3yq_secret_V34kzyXq6l7s3SkeMJThJeE6g",
+      "confirmation_method": "automatic",
+      "created": 1793461876,
+      "currency": "aed",
+      "customer": "cus_VXk2IAFvTG6hFd",
+      "customer_account": null,
+      "description": "Renox invoice INV-SMOKE-mvwkw1qo-2",
+      "excluded_payment_method_types": null,
+      "last_payment_error": {
+        "advice_code": "try_again_later",
+        "charge": "ch_3UWeYqILczmTGCld0lJqG1sW",
+        "code": "card_declined",
+        "decline_code": "generic_decline",
+        "doc_url": "https://stripe.com/docs/error-codes/card-declined",
+        "message": "Your card was declined.",
+        "network_decline_code": "01",
+        "payment_method": {
+          "id": "pm_1UWeYoILczmTGCldmKhg60g4",
+          "object": "payment_method",
+          "allow_redisplay": "unspecified",
+          "billing_details": {
+            "address": {
+              "city": null,
+              "country": null,
+              "line1": null,
+              "line2": null,
+              "postal_code": null,
+              "state": null
+            },
+            "email": null,
+            "name": null,
+            "phone": null,
+            "tax_id": null
+          },
+          "card": {
+            "brand": "visa",
+            "checks": {
+              "address_line1_check": null,
+              "address_postal_code_check": null,
+              "cvc_check": "pass"
+            },
+            "country": "US",
+            "display_brand": "visa",
+            "exp_month": 10,
+            "exp_year": 2027,
+            "fingerprint": "xdcIDaN0gyU6J64Z",
+            "funding": "credit",
+            "generated_from": null,
+            "last4": "0341",
+            "networks": {
+              "available": [
+                "visa"
+              ],
+              "preferred": null
+            },
+            "regulated_status": "unregulated",
+            "three_d_secure_usage": {
+              "supported": true
+            },
+            "wallet": null
+          },
+          "created": 1793461874,
+          "customer": "cus_VXk2IAFvTG6hFd",
+          "customer_account": null,
+          "livemode": false,
+          "metadata": {},
+          "shared_payment_granted_token": null,
+          "type": "card"
+        },
+        "payment_method_type": "card",
+        "type": "card_error"
+      },
+      "latest_charge": "ch_3UWeYqILczmTGCld0lJqG1sW",
+      "livemode": false,
+      "managed_payments": {
+        "enabled": false
+      },
+      "metadata": {
+        "invoice_id": "INV-SMOKE-mvwkw1qo-2",
+        "tenant_id": "t_smoke_mvwkw1qo"
+      },
+      "next_action": null,
+      "on_behalf_of": null,
+      "payment_method": null,
+      "payment_method_configuration_details": {
+        "id": "pmc_1UT9v2ILczmTGCldSuEdzjp5",
+        "parent": null
+      },
+      "payment_method_options": {
+        "card": {
+          "installments": null,
+          "mandate_options": null,
+          "network": null,
+          "request_three_d_secure": "automatic"
+        },
+        "link": {
+          "persistent_token": null
+        }
+      },
+      "payment_method_types": [
+        "card",
+        "link"
+      ],
+      "payment_record": null,
+      "processing": null,
+      "receipt_email": null,
+      "review": null,
+      "setup_future_usage": null,
+      "shared_payment_granted_token": null,
+      "shipping": null,
+      "source": null,
+      "statement_descriptor": null,
+      "statement_descriptor_suffix": null,
+      "status": "requires_payment_method",
+      "transfer_data": null,
+      "transfer_group": null
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 0,
+  "type": "payment_intent.payment_failed"
+}
