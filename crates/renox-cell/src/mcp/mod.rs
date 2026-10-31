@@ -30,7 +30,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use http::{HeaderValue, Response, StatusCode, header};
 use renox_gateway::RequestCtx;
 use renox_meter::{MeterKind, MeterRecord};

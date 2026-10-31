@@ -53,7 +53,8 @@ async fn rebinding_connects_only_to_the_checked_address() {
         vec![vec![public()], vec![ip("127.0.0.2")]],
     )]))
     .await;
-    let mut config = FetchConfig::with_resolver(Arc::new(HickoryResolver::nameserver(stub.addr)));
+    let mut config =
+        FetchConfig::with_resolver(Arc::new(HickoryResolver::nameserver(stub.addr).unwrap()));
     config
         .connect_override
         .insert(SocketAddr::new(public(), port), server.addr);
@@ -107,7 +108,8 @@ async fn nat64_mapped_private_address_is_blocked() {
         ),
     ]))
     .await;
-    let config = FetchConfig::with_resolver(Arc::new(HickoryResolver::nameserver(stub.addr)));
+    let config =
+        FetchConfig::with_resolver(Arc::new(HickoryResolver::nameserver(stub.addr).unwrap()));
     let allow = Allowlist::parse(&["nat64.test", "nat64-local.test"]).unwrap();
     for host in ["nat64.test", "nat64-local.test"] {
         let target = allow
@@ -140,9 +142,9 @@ async fn self_signed_certificate_fails_tls() {
         .unwrap();
     let addrs = vec![SocketAddr::new(public(), port)];
 
-    let mut config = FetchConfig::with_resolver(Arc::new(HickoryResolver::nameserver(
-        "127.0.0.1:9".parse().unwrap(),
-    )));
+    let mut config = FetchConfig::with_resolver(Arc::new(
+        HickoryResolver::nameserver("127.0.0.1:9".parse().unwrap()).unwrap(),
+    ));
     config
         .connect_override
         .insert(SocketAddr::new(public(), port), server.addr);
@@ -263,7 +265,7 @@ mod tenant {
         )]))
         .await;
         let mut config =
-            FetchConfig::with_resolver(Arc::new(HickoryResolver::nameserver(stub.addr)));
+            FetchConfig::with_resolver(Arc::new(HickoryResolver::nameserver(stub.addr).unwrap()));
         config
             .connect_override
             .insert(SocketAddr::new(public(), port), server.addr);

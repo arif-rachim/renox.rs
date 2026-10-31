@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 

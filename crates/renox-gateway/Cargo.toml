@@ -11,12 +11,12 @@ arc-swap = "1.9.3"
 # Client events: the contract schema (#126).
 jsonschema = { version = "0.60", default-features = false }
 # The client script's ETag (#126).
-sha2 = "0.10"
+sha2 = "0.11"
 # `Sec-WebSocket-Accept` (RFC 6455; src/upgrade.rs, #281).
-sha1 = "0.10"
+sha1 = "0.11"
 # CSP nonces (#47).
-base64 = "0.22"
-getrandom = "0.3"
+base64 = "0.23"
+getrandom = "0.4"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "http2", "tokio"] }
 # Response compression (src/compress.rs, #159).
 brotli = "9.1.1"

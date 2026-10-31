@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use renox_data::{AuthorizerPolicy, DbOptions, TenantDb, Value};
 use renox_runtime::ops::db::DbHandle;
 use renox_runtime::{IsolateHandle, Runtime, RuntimeConfig};
