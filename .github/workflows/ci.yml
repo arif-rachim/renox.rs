@@ -41,6 +41,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       rust_files: ${{ steps.filter.outputs.rust_files }}
+      macos: ${{ steps.filter.outputs.macos }}
       ts: ${{ steps.filter.outputs.ts }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
@@ -67,6 +68,17 @@ jobs:
               - 'ops/**'
               # The rust job builds the renox-worker the ts job tests with
               # (#186), so a change to the jobs runs it too.
+              - '.github/workflows/ci.yml'
+            # The `macos` job: renox-runtime and what it links. macOS runners
+            # are 10x the price of Linux, so the filter is narrower than the
+            # `rust` job's (#212, #139).
+            macos:
+              - 'crates/renox-runtime/**'
+              - 'crates/renox-data/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+              - 'ops/v8-*'
               - '.github/workflows/ci.yml'
             ts:
               - '*.ts'
@@ -277,6 +289,69 @@ jobs:
           # main keeps its worker for the TypeScript-only PRs that follow.
           retention-days: ${{ github.event_name == 'push' && 30 || 3 }}
       # Hit rate for B20 (bench/scenarios/B20/run.sh reads job timings only).
+      - run: sccache --show-stats
+
+  # The per-request CPU limit on macOS, where `renox dev` runs the prebuilt
+  # worker. `limits/cpu.rs` reads the isolate thread's CPU through its Mach
+  # port there instead of pthread_getcpuclockid (#139), and the watchdog
+  # cross-checks that reading against the wall clock because
+  # `thread_info(THREAD_BASIC_INFO)` lags for a thread running on another
+  # core (#212, `docs/24-threat-model.md` B, "CPU, memory, wall-clock
+  # exhaustion"). The rest of the workspace is tested on Linux only.
+  # `macos-15` (aarch64) is the current ARM runner; macos-14 was retired
+  # on 2026-11-02 (actions/runner-images#13518).
+  macos:
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.macos == 'true' }}
+    runs-on: macos-15
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      # ops/v8-archive.sh checks with sha256sum, which macOS lacks.
+      - name: sha256sum
+        run: |
+          if ! command -v sha256sum >/dev/null; then
+            mkdir -p "$RUNNER_TEMP/bin"
+            printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' > "$RUNNER_TEMP/bin/sha256sum"
+            chmod +x "$RUNNER_TEMP/bin/sha256sum"
+            echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Fetch and verify the rusty_v8 archive
+        run: |
+          archive=$(ops/v8-archive.sh fetch aarch64-apple-darwin "$RUNNER_TEMP/rusty_v8")
+          echo "RUSTY_V8_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Rerun the v8 build script when its archive copy is gone
+        run: |
+          if [[ ! -d target/debug/gn_out ]]; then
+            rm -rf target/debug/build/v8-* target/debug/.fingerprint/v8-*
+          fi
+      # The CPU clock and watchdog units run without V8 (fast).
+      - name: Thread clock and watchdog units
+        run: cargo test --locked -p renox-runtime --no-default-features --lib limits::cpu
+      # The acceptance test for #212: the loop is terminated at 50 ms ± 5 ms
+      # of CPU, three consecutive runs. The CPU-sensitive tests in limits.rs
+      # and termination.rs share a `tokio::sync::Mutex` that serialises them,
+      # and `-- cpu` filters to those (the heap test reads /proc).
+      - name: CPU-limit tests (three runs)
+        run: |
+          for i in 1 2 3; do
+            echo "::group::macOS CPU-limit run $i"
+            cargo test --locked -p renox-runtime --test limits --test termination -- cpu
+            echo "::endgroup::"
+          done
+      # The per-request CPU accounting (#155): one slow handler cannot steal
+      # CPU from faster concurrent requests.
+      - name: Per-request CPU accounting
+        run: cargo test --locked -p renox-runtime --test cpu_accounting
       - run: sccache --show-stats
 
   # Runs on a TypeScript change and on a Rust change: the CLI template, shop
