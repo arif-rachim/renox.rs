@@ -259,9 +259,18 @@ jobs:
       # The worker the ts job runs the CLI template, shop build and dev e2e
       # tests with (#186): built from this commit, without the test-hooks
       # feature that `cargo test` turns on in renox-runtime.
+      #
+      # Packaged (#356): an unpackaged build reads the Deno extensions' sources
+      # from ~/.cargo/registry when it builds its snapshot at startup, and the
+      # ts job's runner has no registry, so every worker test failed there
+      # with exit code 101. The same two steps as release-worker.yml, in the
+      # debug profile.
       - name: Build renox-worker for the ts job
         run: |
-          cargo build --locked -p renox-cell --bin renox-worker
+          RENOX_PACKAGED_DIR="$RUNNER_TEMP/packaged" cargo test --locked \
+            -p renox-runtime --test packaged -- --ignored --exact write_packaged_sources
+          RENOX_PACKAGED_DIR="$RUNNER_TEMP/packaged" cargo build --locked -p renox-cell --bin renox-worker \
+            --features renox-runtime/packaged
           mkdir -p "$RUNNER_TEMP/worker"
           cp target/debug/renox-worker "$RUNNER_TEMP/worker/"
       # ops/scripts/bootstrap-node.sh in an ubuntu:24.04 container booted with
@@ -271,7 +280,7 @@ jobs:
         run: ops/scripts/bootstrap-node.test.sh "$RUNNER_TEMP/worker/renox-worker"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: renox-worker-ci
+          name: renox-worker-ci-packaged
           path: ${{ runner.temp }}/worker/renox-worker
           if-no-files-found: error
           # main keeps its worker for the TypeScript-only PRs that follow.
@@ -304,7 +313,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.rust.result == 'success'
         with:
-          name: renox-worker-ci
+          name: renox-worker-ci-packaged
           path: ${{ runner.temp }}/worker
       - run: make ts-check
       - name: Worker for the tests
@@ -323,7 +332,7 @@ jobs:
               --jq '.workflow_runs[] | select(.head_repository.id == .repository.id) | "\(.id) \(.head_sha)"')
             while read -r id sha; do
               [[ -n "$id" ]] || continue
-              if gh run download "$id" --repo "$GITHUB_REPOSITORY" -n renox-worker-ci -D "$dir" 2>/dev/null; then
+              if gh run download "$id" --repo "$GITHUB_REPOSITORY" -n renox-worker-ci-packaged -D "$dir" 2>/dev/null; then
                 source="built by run $id on main from $sha"
                 break
               fi
@@ -340,9 +349,14 @@ jobs:
       # The pass/skip/fail counts go to the run summary: the worker tests
       # count as run there, not skipped (#186).
       - name: make ts-test
+        # pipefail (#356): without it the step answered tee's status, so a
+        # failing test never failed the job.
+        shell: bash -eo pipefail {0}
         run: |
-          make ts-test 2>&1 | tee "$RUNNER_TEMP/ts-test.log"
+          status=0
+          make ts-test 2>&1 | tee "$RUNNER_TEMP/ts-test.log" || status=$?
           { echo '```'; grep -E '^ *[0-9]+ (pass|skip|todo|fail)$|^Ran [0-9]+ tests' "$RUNNER_TEMP/ts-test.log" || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
       - name: Benchmark harness smoke test
         run: bench/run.sh B0 --runs 1
 
