@@ -15,12 +15,25 @@
 //! smallest remaining CPU among the requests in flight (the per-request
 //! limit with none in flight), so no run of JavaScript can take any request
 //! over its limit unseen.
+//!
+//! macOS (#212): `thread_info(THREAD_BASIC_INFO)` lags for a thread that has
+//! been running on another core, by up to one scheduler quantum, so firing on
+//! the thread CPU alone lands 3-11 ms past the ± 5 ms bound. Within a slice
+//! the isolate thread holds V8 and runs JavaScript, so wall time elapsed is
+//! a tight upper bound on CPU used and does not lag. Three places cross-check
+//! the thread CPU reading against the wall clock on macOS: the watchdog fires
+//! on the larger of the two, `end_slice` returns the larger, and
+//! [`CpuWatch::now_ns`] bounds its return value from below by
+//! `slice_start + wall_delta` while inside a slice, so [`CpuLedger`] charges
+//! the request what it actually used even when the raw clock still lags.
+//! Linux's `CLOCK_THREAD_CPUTIME_ID` is current for a running thread, so the
+//! wall-clock side is a no-op there.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How often the watchdog samples the running slice.
 pub const WATCHDOG_INTERVAL: Duration = Duration::from_millis(1);
@@ -30,9 +43,11 @@ const IDLE: u64 = u64::MAX;
 /// The CPU clock of one thread, readable from any thread. Linux:
 /// `CLOCK_THREAD_CPUTIME_ID` of that thread (`pthread_getcpuclockid`).
 /// macOS (#139): the thread's Mach port and `thread_info(THREAD_BASIC_INFO)`,
-/// `user_time + system_time`, at microsecond resolution. Not released: on
-/// the macOS CI runner the CPU limit landed 3-11 ms late (wall ≈ CPU), which
-/// points at this clock lagging for a running thread.
+/// `user_time + system_time`, at microsecond resolution. The macOS reading
+/// lags by about one scheduler quantum for a thread running on another core,
+/// so the watchdog and `end_slice` cross-check it with the wall clock (#212):
+/// within a slice the thread holds the V8 isolate and runs JavaScript, so
+/// wall elapsed is a tight upper bound on CPU used.
 #[derive(Debug, Clone)]
 pub struct ThreadCpuClock {
     clock: imp::Clock,
@@ -172,13 +187,21 @@ mod imp {
 /// State shared by the isolate thread and its watchdog.
 pub struct CpuWatch {
     clock: ThreadCpuClock,
+    /// Reference point of [`CpuWatch::wall_ns`]. Fixed at construction;
+    /// `Instant` is monotonic and cannot run backwards on either OS.
+    wall_origin: Instant,
     /// Thread CPU time (ns) when the current slice started, or `IDLE`.
     slice_start_ns: AtomicU64,
+    /// Wall time (ns since [`CpuWatch::wall_origin`]) when the current slice
+    /// started. On macOS the watchdog compares against this too: within a
+    /// slice the thread runs JavaScript, so wall is a tight upper bound on
+    /// CPU and fires on time when `thread_info` lags (#212).
+    wall_start_ns: AtomicU64,
     /// CPU (ns) the current run may use before the watchdog fires.
     budget_ns: AtomicU64,
-    /// Seqlock over (`slice_start_ns`, `budget_ns`): odd while the isolate
-    /// thread rewrites the pair, so the watchdog never pairs a new start
-    /// with an old budget.
+    /// Seqlock over (`slice_start_ns`, `wall_start_ns`, `budget_ns`): odd
+    /// while the isolate thread rewrites the triple, so the watchdog never
+    /// pairs a new start with an old budget.
     seq: AtomicU64,
     fired: AtomicBool,
     stop: AtomicBool,
@@ -189,9 +212,34 @@ impl CpuWatch {
         self.clock.clone()
     }
 
-    /// Thread CPU time now, in nanoseconds.
+    /// Thread CPU time now, in nanoseconds. On macOS the reading can lag the
+    /// real CPU for a thread that has been running on another core by about
+    /// one scheduler quantum, so inside a slice the value is bounded from
+    /// below by the wall-time-based estimate `slice_start + (wall_now -
+    /// wall_slice_start)`: within a slice the isolate thread holds V8 and
+    /// runs JavaScript, so wall is a tight upper bound on CPU used and does
+    /// not lag (#212). Outside a slice (or on Linux) the raw clock is
+    /// returned.
     pub fn now_ns(&self) -> u64 {
-        self.clock.now().map(|d| d.as_nanos() as u64).unwrap_or(0)
+        let cpu = self.clock.now().map(|d| d.as_nanos() as u64).unwrap_or(0);
+        #[cfg(target_os = "macos")]
+        {
+            let slice_start = self.slice_start_ns.load(Ordering::SeqCst);
+            if slice_start != IDLE {
+                let wall_start = self.wall_start_ns.load(Ordering::SeqCst);
+                if wall_start != IDLE {
+                    let wall_based =
+                        slice_start.saturating_add(self.wall_ns().saturating_sub(wall_start));
+                    return cpu.max(wall_based);
+                }
+            }
+        }
+        cpu
+    }
+
+    /// Monotonic wall time now, in nanoseconds since [`Self::wall_origin`].
+    pub fn wall_ns(&self) -> u64 {
+        self.wall_origin.elapsed().as_nanos() as u64
     }
 
     /// Did the watchdog terminate execution?
@@ -200,23 +248,52 @@ impl CpuWatch {
     }
 
     /// Restart the measured run at `start_ns` (thread CPU) with `budget`:
-    /// the running context changed. Only the isolate thread calls it.
+    /// the running context changed. Only the isolate thread calls it. The
+    /// wall-time anchor is read inside, so the two clocks come from the
+    /// same instant.
     pub fn rebase(&self, start_ns: u64, budget: Duration) {
+        let wall_start = if start_ns == IDLE {
+            IDLE
+        } else {
+            self.wall_ns()
+        };
         self.seq.fetch_add(1, Ordering::SeqCst);
         self.budget_ns.store(clamp_ns(budget), Ordering::SeqCst);
+        self.wall_start_ns.store(wall_start, Ordering::SeqCst);
         self.slice_start_ns.store(start_ns, Ordering::SeqCst);
         self.seq.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// A consistent (start, budget) pair, or `None` while it is rewritten.
-    fn sample(&self) -> Option<(u64, u64)> {
+    /// A consistent (cpu_start, wall_start, budget) triple, or `None` while
+    /// it is rewritten.
+    fn sample(&self) -> Option<(u64, u64, u64)> {
         let g = self.seq.load(Ordering::SeqCst);
         if g % 2 == 1 {
             return None;
         }
         let start = self.slice_start_ns.load(Ordering::SeqCst);
+        let wall = self.wall_start_ns.load(Ordering::SeqCst);
         let budget = self.budget_ns.load(Ordering::SeqCst);
-        (self.seq.load(Ordering::SeqCst) == g).then_some((start, budget))
+        (self.seq.load(Ordering::SeqCst) == g).then_some((start, wall, budget))
+    }
+
+    /// What the watchdog treats as the CPU used by the current run. On
+    /// macOS `thread_info(THREAD_BASIC_INFO)` lags for a thread running on
+    /// another core, so firing on `cpu_delta` alone lands past the ± 5 ms
+    /// bound of `docs/contracts/ops.md` section 10 (#212). Within a slice
+    /// the isolate thread holds V8 and runs JavaScript, so `wall_delta` is
+    /// a tight upper bound on CPU used and does not lag. Elsewhere
+    /// `cpu_delta` is accurate on its own.
+    #[cfg(target_os = "macos")]
+    #[inline]
+    fn effective_used(cpu_delta: u64, wall_delta: u64) -> u64 {
+        cpu_delta.max(wall_delta)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[inline]
+    fn effective_used(cpu_delta: u64, _wall_delta: u64) -> u64 {
+        cpu_delta
     }
 }
 
@@ -238,7 +315,9 @@ impl Watchdog {
     pub fn start(on_fire: Box<dyn Fn() + Send + 'static>) -> std::io::Result<Watchdog> {
         let watch = Arc::new(CpuWatch {
             clock: ThreadCpuClock::current()?,
+            wall_origin: Instant::now(),
             slice_start_ns: AtomicU64::new(IDLE),
+            wall_start_ns: AtomicU64::new(IDLE),
             budget_ns: AtomicU64::new(u64::MAX),
             seq: AtomicU64::new(0),
             fired: AtomicBool::new(false),
@@ -249,17 +328,19 @@ impl Watchdog {
             .name("renox-cpu-watchdog".into())
             .spawn(move || {
                 while !w.stop.load(Ordering::SeqCst) {
-                    let Some((start, budget)) = w.sample() else {
+                    let Some((cpu_start, wall_start, budget)) = w.sample() else {
                         thread::yield_now();
                         continue;
                     };
-                    if start == IDLE {
+                    if cpu_start == IDLE {
                         // Nothing is running: sleep until a slice is armed.
                         thread::park();
                         continue;
                     }
-                    if let Some(now) = w.clock.now() {
-                        let used = (now.as_nanos() as u64).saturating_sub(start);
+                    if let Some(cpu_now) = w.clock.now() {
+                        let cpu_delta = (cpu_now.as_nanos() as u64).saturating_sub(cpu_start);
+                        let wall_delta = w.wall_ns().saturating_sub(wall_start);
+                        let used = CpuWatch::effective_used(cpu_delta, wall_delta);
                         if used > budget && !w.fired.swap(true, Ordering::SeqCst) {
                             on_fire();
                         }
@@ -288,10 +369,24 @@ impl Watchdog {
         start
     }
 
-    /// End the slice; returns the CPU used since `start`.
+    /// End the slice; returns the CPU used since `start`. On macOS the
+    /// `thread_info` reading can lag the real CPU for a thread that has
+    /// been running continuously (#212), so the return value is the larger
+    /// of the thread CPU delta and the wall-time delta since the slice
+    /// started: within a slice the thread holds the V8 isolate and runs
+    /// JavaScript, so wall is a tight upper bound on CPU used.
     pub fn end_slice(&self, start: u64) -> Duration {
+        let cpu_now = self.watch.now_ns();
+        let wall_now = self.watch.wall_ns();
+        let wall_start = self.watch.wall_start_ns.load(Ordering::SeqCst);
         self.watch.rebase(IDLE, Duration::MAX);
-        Duration::from_nanos(self.watch.now_ns().saturating_sub(start))
+        let cpu_delta = cpu_now.saturating_sub(start);
+        let wall_delta = if wall_start == IDLE {
+            cpu_delta
+        } else {
+            wall_now.saturating_sub(wall_start)
+        };
+        Duration::from_nanos(CpuWatch::effective_used(cpu_delta, wall_delta))
     }
 }
 
@@ -569,13 +664,18 @@ mod tests {
         assert_eq!(total, 12);
     }
 
-    /// The seqlock never hands the watchdog a torn (start, budget) pair.
+    /// The seqlock never hands the watchdog a torn triple. Only the
+    /// (start, budget) pair comes from the caller (as `(i, i)`); the
+    /// watch reads its own wall clock inside `rebase`, so wall_start is
+    /// not asserted here.
     #[test]
     fn rebase_is_seen_whole() {
-        // No watchdog thread: the test samples the pair itself.
+        // No watchdog thread: the test samples the triple itself.
         let watch = Arc::new(CpuWatch {
             clock: ThreadCpuClock::current().unwrap(),
+            wall_origin: Instant::now(),
             slice_start_ns: AtomicU64::new(IDLE),
+            wall_start_ns: AtomicU64::new(IDLE),
             budget_ns: AtomicU64::new(u64::MAX),
             seq: AtomicU64::new(0),
             fired: AtomicBool::new(false),
@@ -586,7 +686,7 @@ mod tests {
             let (watch, seen) = (watch.clone(), seen.clone());
             thread::spawn(move || {
                 while seen.load(Ordering::SeqCst) < 10_000 {
-                    if let Some((start, budget)) = watch.sample() {
+                    if let Some((start, _wall, budget)) = watch.sample() {
                         assert!(start == budget || start == IDLE, "torn pair");
                         seen.fetch_add(1, Ordering::SeqCst);
                     }
@@ -594,7 +694,7 @@ mod tests {
                 }
             })
         };
-        // Rewrite the pair until the reader has sampled it 10,000 times.
+        // Rewrite the triple until the reader has sampled it 10,000 times.
         let t = std::time::Instant::now();
         let mut i = 1u64;
         while !reader.is_finished() && t.elapsed() < Duration::from_secs(10) {

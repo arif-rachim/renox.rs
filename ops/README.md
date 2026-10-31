@@ -50,7 +50,7 @@ Current entries, all `v150.4.0`, one per target the worker release builds or wil
 | `librusty_v8_simdutf_release_aarch64-apple-darwin.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
 | `librusty_v8_simdutf_release_x86_64-apple-darwin.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
 
-A second-network check is still owed for all four. The macOS archives are verified by `ops/v8-archive.sh` but not yet used by a release: `release-worker.yml` builds the two Linux targets until the macOS CPU-clock issue is fixed (#139).
+A second-network check is still owed for all four. `release-worker.yml` builds all four targets since #212 landed the macOS CPU-clock wall-time cross-check: within a slice the isolate thread holds V8 and runs JavaScript, so wall is a tight upper bound on CPU and does not lag like `thread_info(THREAD_BASIC_INFO)`.
 
 ## Worker nodes
 
