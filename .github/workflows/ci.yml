@@ -298,10 +298,12 @@ jobs:
   # `thread_info(THREAD_BASIC_INFO)` lags for a thread running on another
   # core (#212, `docs/24-threat-model.md` B, "CPU, memory, wall-clock
   # exhaustion"). The rest of the workspace is tested on Linux only.
+  # `macos-15` (aarch64) is the current ARM runner; macos-14 was retired
+  # on 2026-11-02 (actions/runner-images#13518).
   macos:
     needs: lint
     if: ${{ !cancelled() && needs.lint.outputs.macos == 'true' }}
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       RUSTC_WRAPPER: sccache
