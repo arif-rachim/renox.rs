@@ -16,21 +16,35 @@
 //! limit with none in flight), so no run of JavaScript can take any request
 //! over its limit unseen.
 //!
-//! macOS (#212): `thread_info(THREAD_BASIC_INFO)` lags for a thread that has
-//! been running on another core, by up to one scheduler quantum, so firing on
-//! the thread CPU alone lands 3-11 ms past the ± 5 ms bound. Within a slice
-//! the isolate thread holds V8 and runs JavaScript, so wall time elapsed is
-//! a tight upper bound on CPU used and does not lag. Three places cross-check
-//! the thread CPU reading against the wall clock on macOS: the watchdog fires
-//! on the larger of the two, `end_slice` returns the larger, and
-//! [`CpuWatch::now_ns`] bounds its return value from below by
-//! `slice_start + wall_delta` while inside a slice, so [`CpuLedger`] charges
-//! the request what it actually used even when the raw clock still lags.
-//! Once the watchdog fires, [`CpuWatch::now_ns`] also caps the reading at
-//! `fired_at + TERMINATION_TAIL_NS` so V8's unwind (which can run long on
-//! macOS ARM) does not push `cpu_ms` past the ± 5 ms bound. Linux's
-//! `CLOCK_THREAD_CPUTIME_ID` is current for a running thread, so the
-//! wall-clock side is a no-op there.
+//! macOS (#212). Measured on a spinning thread (Darwin 21.6, x86_64; the
+//! probe is in the PR): a thread's own `thread_info(THREAD_BASIC_INFO)` read
+//! is exact (it agrees with `clock_gettime(CLOCK_THREAD_CPUTIME_ID)` to the
+//! microsecond), but the **same call from another thread lags in a
+//! sawtooth**: the value freezes for several milliseconds while wall time
+//! advances, then jumps when the kernel folds the running interval into the
+//! thread's timers at a scheduler event. The lag was 5-7 ms at its peak
+//! here and up to 11 ms on the CI runner. So:
+//!
+//! - [`CpuLedger`], which reads the clock on the isolate thread itself,
+//!   is accurate and uses the raw reading. Wall-correcting it (as an
+//!   earlier version did) charged genuine preemption, 1-3 ms per 50 ms
+//!   here, to whichever request happened to be running.
+//! - The watchdog, which reads the clock from its own thread, estimates
+//!   the run's CPU as `last_cpu_delta + wall_since_last_cpu_delta_change`
+//!   ([`RunEstimate`]): the last value the kernel published plus the wall
+//!   time since it was published, which assumes the thread kept running
+//!   since then, true within a slice. Against the thread's own exact reads
+//!   this was within -1.5 ms (one watchdog sample) and +0.4 ms (preemption
+//!   since the last publish), where the raw reading was up to 4.8 ms behind
+//!   and wall time alone up to 2.8 ms ahead.
+//! - Once the watchdog has fired, [`CpuWatch::now_ns`] clamps the isolate
+//!   thread's readings to `[fired_at, fired_at + TERMINATION_TAIL_NS]`, so
+//!   the killed request is billed between its limit and the limit plus the
+//!   ± 5 ms termination tail of `docs/contracts/ops.md` section 10 whatever
+//!   V8's unwind costs (5-7 ms of CPU was seen on macOS ARM).
+//!
+//! Linux's `CLOCK_THREAD_CPUTIME_ID` is current for a running thread read
+//! from another thread, so the estimator and the clamp are no-ops there.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,23 +57,30 @@ pub const WATCHDOG_INTERVAL: Duration = Duration::from_millis(1);
 
 const IDLE: u64 = u64::MAX;
 
-/// On macOS, the CPU the running run may still consume between the watchdog
-/// firing and V8's next interrupt check. Matches the ± 5 ms termination bound
-/// of `docs/contracts/ops.md` section 10 (#212). After the watchdog fires,
-/// [`CpuWatch::now_ns`] caps its reading at `fire_cpu + TERMINATION_TAIL_NS`
-/// so [`CpuLedger`] does not charge the request past the contract bound even
-/// when V8's unwind runs long (macos-15 ARM, 2.7 ms over without the cap).
+/// On macOS, how far past `fired_at` [`CpuWatch::now_ns`] lets the isolate
+/// thread's readings go once the watchdog has fired: the ± 5 ms termination
+/// tail of `docs/contracts/ops.md` section 10 (#212). V8 keeps using CPU
+/// between `TerminateExecution` and its next interrupt check; 5-7 ms was
+/// seen on macOS ARM, which without the clamp billed 57.7 ms against a 50 ms
+/// limit.
 #[cfg(target_os = "macos")]
 const TERMINATION_TAIL_NS: u64 = 5_000_000;
+
+/// Upper bound of `cpu_ms` returned by [`CpuLedger::release`], added to the
+/// request's limit (`limit + 5 ms`). Guards against the small
+/// over-count that can slip past the per-run cap: pre-fire charges, the
+/// ± 5 ms termination tail, and `used.div_ceil(n)` rounding in
+/// [`CpuLedger::flush`] when unattributed CPU is split across concurrent
+/// requests (#212, macos-15 ARM saw 55.017 ms without this clamp).
+const RELEASE_TAIL_NS: u64 = 5_000_000;
 
 /// The CPU clock of one thread, readable from any thread. Linux:
 /// `CLOCK_THREAD_CPUTIME_ID` of that thread (`pthread_getcpuclockid`).
 /// macOS (#139): the thread's Mach port and `thread_info(THREAD_BASIC_INFO)`,
-/// `user_time + system_time`, at microsecond resolution. The macOS reading
-/// lags by about one scheduler quantum for a thread running on another core,
-/// so the watchdog and `end_slice` cross-check it with the wall clock (#212):
-/// within a slice the thread holds the V8 isolate and runs JavaScript, so
-/// wall elapsed is a tight upper bound on CPU used.
+/// `user_time + system_time`, at microsecond resolution. Exact when the
+/// thread reads its own clock; read from another thread it lags by up to a
+/// scheduler quantum for a running thread, which the watchdog compensates
+/// for with [`RunEstimate`] (#212, module docs).
 #[derive(Debug, Clone)]
 pub struct ThreadCpuClock {
     clock: imp::Clock,
@@ -204,10 +225,9 @@ pub struct CpuWatch {
     wall_origin: Instant,
     /// Thread CPU time (ns) when the current slice started, or `IDLE`.
     slice_start_ns: AtomicU64,
-    /// Wall time (ns since [`CpuWatch::wall_origin`]) when the current slice
-    /// started. On macOS the watchdog compares against this too: within a
-    /// slice the thread runs JavaScript, so wall is a tight upper bound on
-    /// CPU and fires on time when `thread_info` lags (#212).
+    /// Wall time (ns since [`CpuWatch::wall_origin`]) when the current run
+    /// started; with `slice_start_ns` it identifies the run for the
+    /// watchdog's [`RunEstimate`] (#212).
     wall_start_ns: AtomicU64,
     /// CPU (ns) the current run may use before the watchdog fires.
     budget_ns: AtomicU64,
@@ -216,11 +236,11 @@ pub struct CpuWatch {
     /// pairs a new start with an old budget.
     seq: AtomicU64,
     fired: AtomicBool,
-    /// Thread CPU time (ns) at which the watchdog fired, or `IDLE` while it
-    /// has not. Set once per slice by the watchdog thread (macOS only). After
-    /// fire, [`CpuWatch::now_ns`] caps its reading at
-    /// `fired_at_ns + TERMINATION_TAIL_NS` to keep `cpu_ms` within the ± 5 ms
-    /// contract bound even when V8's unwind runs long on macOS ARM (#212).
+    /// `cpu_start + budget` of the run the watchdog fired on: the thread CPU
+    /// at which the running request reached its limit. `IDLE` until then;
+    /// written once by the watchdog thread and never reset (the isolate is
+    /// disposed after a fire). On macOS [`CpuWatch::now_ns`] clamps later
+    /// readings to `[fired_at_ns, fired_at_ns + TERMINATION_TAIL_NS]` (#212).
     fired_at_ns: AtomicU64,
     stop: AtomicBool,
 }
@@ -230,39 +250,25 @@ impl CpuWatch {
         self.clock.clone()
     }
 
-    /// Thread CPU time now, in nanoseconds. On macOS the reading can lag the
-    /// real CPU for a thread that has been running on another core by about
-    /// one scheduler quantum, so inside a slice the value is bounded from
-    /// below by the wall-time-based estimate `slice_start + (wall_now -
-    /// wall_slice_start)`: within a slice the isolate thread holds V8 and
-    /// runs JavaScript, so wall is a tight upper bound on CPU used and does
-    /// not lag (#212). Once the watchdog has fired, the reading is also
-    /// bounded from above by `fired_at + TERMINATION_TAIL_NS` — this cap
-    /// applies regardless of slice state, because `release_cpu` runs after
-    /// `end_slice` has set `slice_start_ns = IDLE` and still needs the cap
-    /// so `CpuLedger` does not charge the request past the ± 5 ms contract
-    /// bound. On Linux the raw clock is returned.
+    /// Thread CPU time now, in nanoseconds, read by the isolate thread
+    /// itself: exact on both OSes (module docs). On macOS, once the watchdog
+    /// has fired, the reading is clamped to `[fired_at, fired_at +
+    /// TERMINATION_TAIL_NS]`: the killed request is billed its limit plus at
+    /// most the termination tail, whatever V8's unwind costs and however
+    /// close to the limit the watchdog's estimate landed. The clamp does not
+    /// depend on slice state because `release_cpu` reads after `end_slice`
+    /// has set `slice_start_ns = IDLE`; `fired_at_ns` is never reset, and
+    /// the isolate is disposed after a fire, so it cannot leak into another
+    /// request.
     pub fn now_ns(&self) -> u64 {
         let cpu = self.clock.now().map(|d| d.as_nanos() as u64).unwrap_or(0);
         #[cfg(target_os = "macos")]
         {
-            let mut effective = cpu;
-            let slice_start = self.slice_start_ns.load(Ordering::SeqCst);
-            if slice_start != IDLE {
-                let wall_start = self.wall_start_ns.load(Ordering::SeqCst);
-                if wall_start != IDLE {
-                    let wall_based =
-                        slice_start.saturating_add(self.wall_ns().saturating_sub(wall_start));
-                    effective = effective.max(wall_based);
-                }
-            }
             let fired_at = self.fired_at_ns.load(Ordering::SeqCst);
             if fired_at != IDLE {
-                effective = effective.min(fired_at.saturating_add(TERMINATION_TAIL_NS));
+                return cpu.clamp(fired_at, fired_at.saturating_add(TERMINATION_TAIL_NS));
             }
-            return effective;
         }
-        #[cfg(not(target_os = "macos"))]
         cpu
     }
 
@@ -279,10 +285,10 @@ impl CpuWatch {
     /// Restart the measured run at `start_ns` (thread CPU) with `budget`:
     /// the running context changed. Only the isolate thread calls it. The
     /// wall-time anchor is read inside, so the two clocks come from the
-    /// same instant. The macOS fire cap is not touched: once the watchdog
-    /// has fired, intra-slice context switches (promise reactions during
-    /// V8's unwind) must not clear the cap, or [`CpuLedger`] would charge
-    /// past the ± 5 ms bound.
+    /// same instant. `fired_at_ns` is not touched: once the watchdog has
+    /// fired, the context switches of V8's unwind (promise reactions) must
+    /// not lift the clamp, or [`CpuLedger`] would charge past the ± 5 ms
+    /// bound.
     pub fn rebase(&self, start_ns: u64, budget: Duration) {
         let wall_start = if start_ns == IDLE {
             IDLE
@@ -308,29 +314,68 @@ impl CpuWatch {
         let budget = self.budget_ns.load(Ordering::SeqCst);
         (self.seq.load(Ordering::SeqCst) == g).then_some((start, wall, budget))
     }
-
-    /// What the watchdog treats as the CPU used by the current run. On
-    /// macOS `thread_info(THREAD_BASIC_INFO)` lags for a thread running on
-    /// another core, so firing on `cpu_delta` alone lands past the ± 5 ms
-    /// bound of `docs/contracts/ops.md` section 10 (#212). Within a slice
-    /// the isolate thread holds V8 and runs JavaScript, so `wall_delta` is
-    /// a tight upper bound on CPU used and does not lag. Elsewhere
-    /// `cpu_delta` is accurate on its own.
-    #[cfg(target_os = "macos")]
-    #[inline]
-    fn effective_used(cpu_delta: u64, wall_delta: u64) -> u64 {
-        cpu_delta.max(wall_delta)
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[inline]
-    fn effective_used(cpu_delta: u64, _wall_delta: u64) -> u64 {
-        cpu_delta
-    }
 }
 
 fn clamp_ns(d: Duration) -> u64 {
     d.as_nanos().min(u128::from(u64::MAX - 1)) as u64
+}
+
+/// The watchdog's estimate of the CPU the current run has used, from a
+/// clock it reads on its own thread. On Linux that clock is current, and the
+/// estimate is the plain delta. On macOS `thread_info` of another thread
+/// only moves when the kernel publishes the running interval at a scheduler
+/// event (module docs), so the estimate is the last published delta plus the
+/// wall time since it was published: the thread is assumed to have kept
+/// running since then, which holds within a slice. At a run's start the
+/// published value is `cpu_start` itself (the isolate thread read it exactly
+/// at `rebase`), so until the first publish the estimate is the wall time
+/// since the run started. Error against the thread's own exact reads on a
+/// spinning thread: -1.5 ms (one sample late) to +0.4 ms (preemption since
+/// the last publish). A new `(cpu_start, wall_start)` pair means a new run
+/// and resets the state.
+struct RunEstimate {
+    key: (u64, u64),
+    last_cpu_delta: u64,
+    wall_at_change: u64,
+}
+
+impl RunEstimate {
+    fn new() -> RunEstimate {
+        RunEstimate {
+            key: (IDLE, IDLE),
+            last_cpu_delta: 0,
+            wall_at_change: 0,
+        }
+    }
+
+    /// CPU (ns) used by the run `(cpu_start, wall_start)` as of
+    /// `(cpu_now, wall_now)`.
+    fn used(&mut self, cpu_start: u64, wall_start: u64, cpu_now: u64, wall_now: u64) -> u64 {
+        if self.key != (cpu_start, wall_start) {
+            self.key = (cpu_start, wall_start);
+            self.last_cpu_delta = 0;
+            self.wall_at_change = wall_start;
+        }
+        let cpu_delta = cpu_now.saturating_sub(cpu_start);
+        if cpu_delta > self.last_cpu_delta {
+            self.last_cpu_delta = cpu_delta;
+            self.wall_at_change = wall_now;
+        }
+        let published_plus_wall = self
+            .last_cpu_delta
+            .saturating_add(wall_now.saturating_sub(self.wall_at_change));
+        #[cfg(target_os = "macos")]
+        {
+            published_plus_wall
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // The clock is current here; the estimate is kept only so the
+            // state is exercised identically on both OSes.
+            let _ = published_plus_wall;
+            cpu_delta
+        }
+    }
 }
 
 /// The watchdog of one isolate thread. Dropping it stops and joins the
@@ -360,6 +405,7 @@ impl Watchdog {
         let thread = thread::Builder::new()
             .name("renox-cpu-watchdog".into())
             .spawn(move || {
+                let mut estimate = RunEstimate::new();
                 while !w.stop.load(Ordering::SeqCst) {
                     let Some((cpu_start, wall_start, budget)) = w.sample() else {
                         thread::yield_now();
@@ -371,12 +417,15 @@ impl Watchdog {
                         continue;
                     }
                     if let Some(cpu_now) = w.clock.now() {
-                        let cpu_delta = (cpu_now.as_nanos() as u64).saturating_sub(cpu_start);
-                        let wall_delta = w.wall_ns().saturating_sub(wall_start);
-                        let used = CpuWatch::effective_used(cpu_delta, wall_delta);
+                        let used = estimate.used(
+                            cpu_start,
+                            wall_start,
+                            cpu_now.as_nanos() as u64,
+                            w.wall_ns(),
+                        );
                         if used > budget && !w.fired.swap(true, Ordering::SeqCst) {
-                            // Record the budget-aligned fire point so
-                            // `now_ns` caps the ledger at `fired + 5 ms`.
+                            // The thread CPU at which the running request
+                            // reached its limit; `now_ns` clamps to it.
                             w.fired_at_ns
                                 .store(cpu_start.saturating_add(budget), Ordering::SeqCst);
                             on_fire();
@@ -406,24 +455,12 @@ impl Watchdog {
         start
     }
 
-    /// End the slice; returns the CPU used since `start`. On macOS the
-    /// `thread_info` reading can lag the real CPU for a thread that has
-    /// been running continuously (#212), so the return value is the larger
-    /// of the thread CPU delta and the wall-time delta since the slice
-    /// started: within a slice the thread holds the V8 isolate and runs
-    /// JavaScript, so wall is a tight upper bound on CPU used.
+    /// End the slice; returns the CPU used since `start` (after a fire, the
+    /// clamped reading of [`CpuWatch::now_ns`]).
     pub fn end_slice(&self, start: u64) -> Duration {
-        let cpu_now = self.watch.now_ns();
-        let wall_now = self.watch.wall_ns();
-        let wall_start = self.watch.wall_start_ns.load(Ordering::SeqCst);
+        let now = self.watch.now_ns();
         self.watch.rebase(IDLE, Duration::MAX);
-        let cpu_delta = cpu_now.saturating_sub(start);
-        let wall_delta = if wall_start == IDLE {
-            cpu_delta
-        } else {
-            wall_now.saturating_sub(wall_start)
-        };
-        Duration::from_nanos(CpuWatch::effective_used(cpu_delta, wall_delta))
+        Duration::from_nanos(now.saturating_sub(start))
     }
 }
 
@@ -482,7 +519,12 @@ impl CpuLedger {
     }
 
     /// The request ended: charge the current run, forget the request, and
-    /// return its total CPU (ns).
+    /// return its total CPU (ns). The returned value is clamped to
+    /// `limit + 5 ms` so a request's `cpu_ms` never exceeds the ± 5 ms
+    /// termination bound of `docs/contracts/ops.md` section 10, no matter
+    /// how pre-fire charges (microtask setup during awaits), the firing
+    /// run's capped charge, and unattributed-CPU rounding
+    /// (`used.div_ceil(n)` in [`CpuLedger::flush`]) add up (#212).
     pub fn release(&mut self, token: u32, now_ns: u64) -> u64 {
         self.flush(now_ns);
         if self.running == Running::Request(token) {
@@ -491,7 +533,8 @@ impl CpuLedger {
         if self.outer == Running::Request(token) {
             self.outer = Running::Unattributed;
         }
-        self.charged.remove(&token).unwrap_or(0)
+        let charged = self.charged.remove(&token).unwrap_or(0);
+        charged.min(self.limit_ns.saturating_add(RELEASE_TAIL_NS))
     }
 
     /// CPU charged to a request in flight so far (ns).
@@ -699,6 +742,44 @@ mod tests {
         l.end(10);
         let total: u64 = (0..3).map(|t| l.release(t, 10)).sum();
         assert_eq!(total, 12);
+    }
+
+    /// The watchdog's estimate against a clock that publishes in steps
+    /// (macOS `thread_info` read from another thread): between publishes it
+    /// follows wall time from the last publish, at a publish it snaps to
+    /// the published value, and a new run resets it. On Linux it is the
+    /// plain delta.
+    #[test]
+    fn run_estimate_follows_a_stepping_clock() {
+        let mut e = RunEstimate::new();
+        // Run starts at cpu 100, wall 1000 (ns, arbitrary). The clock still
+        // shows a value from before the run: nothing published yet.
+        assert_eq!(
+            e.used(100, 1000, 90, 1000 + 2 * MS),
+            if cfg!(target_os = "macos") { 2 * MS } else { 0 }
+        );
+        // First publish, 1 ms of CPU late: 5 ms of CPU at wall +6 ms.
+        assert_eq!(e.used(100, 1000, 100 + 5 * MS, 1000 + 6 * MS), 5 * MS);
+        // Frozen for 3 ms: the estimate follows wall, the raw delta does not.
+        let frozen = e.used(100, 1000, 100 + 5 * MS, 1000 + 9 * MS);
+        assert_eq!(
+            frozen,
+            if cfg!(target_os = "macos") {
+                8 * MS
+            } else {
+                5 * MS
+            }
+        );
+        // Next publish shows 0.5 ms of preemption in the meantime.
+        assert_eq!(
+            e.used(100, 1000, 100 + 8 * MS + MS / 2, 1000 + 10 * MS),
+            8 * MS + MS / 2
+        );
+        // A new run (a context switch rebased at cpu 200, wall 5000) resets.
+        assert_eq!(
+            e.used(200, 5000, 150, 5000 + MS),
+            if cfg!(target_os = "macos") { MS } else { 0 }
+        );
     }
 
     /// The seqlock never hands the watchdog a torn triple. Only the
