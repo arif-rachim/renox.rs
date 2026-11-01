@@ -49,6 +49,26 @@ cosign verify-blob-attestation --bundle renox-$v.provenance.sigstore.json --new-
 
 For a worker use `release-worker\.yml@refs/tags/worker-v` and the worker release's files. The CLI checks the worker before it runs it: the downloaded or installed worker must have the sha256 of the pinned release for its platform, baked into the CLI (`PINNED_WORKER` in `cli/src/worker/verify.ts`, checked against the worker release when the CLI is released); `renox dev --worker <path>` also accepts a binary whose `<path>.sigstore.json` and the release's provenance bundle beside it verify with cosign as above. Anything else stops with `RENOX_CLI_WORKER_UNVERIFIED` (exit code 3) and the expected and actual sha256. `RENOX_WORKER_PATH` is the unverified override for a worker built from source.
 
+## Build with an AI agent
+
+The platform is built to be driven by a coding agent as well as by a person (`docs/20-ai-agents-mcp.md`; #377). What an agent gets, and the rules it works under:
+
+**In every new app.** `renox new` writes three files next to `renox.toml` (`cli/templates/`): `AGENTS.md` (the app model in short: folders are routes; the commands; the rules agents break most: parameterised SQL, no module-level state, `fetch` hosts and secret names declared in `renox.toml`, `guard` exports for authorization; where the docs for models are), `CLAUDE.md` ("Read `AGENTS.md` first"), and `.mcp.json`, which registers the local MCP server:
+
+```json
+{ "mcpServers": { "renox": { "command": "renox", "args": ["mcp", "--project", "."] } } }
+```
+
+Claude Code reads `.mcp.json` as is. Cursor reads the same object from `.cursor/mcp.json`; Codex and other clients that take a stdio MCP server take the same command. `renox mcp` (`cli/README.md`, "`renox mcp`") serves `dev_status`, `dev_errors` (what the error overlay shows), `run_check`, `run_tests`, `search_docs`, `authz_explain`, `list_policies`, `list_tools`, `list_agent_tokens` and `revoke_agent_token`, and the resources `docs://`, `types://renox/ctx.d.ts`, `config://effective`, `routes://` and `policies://`. Every tool is one fixed operation on the project folder: model input never becomes a shell command or a path, and `.env` values are redacted from every result. The documentation for models is at <https://renoxium.com/llms.txt> (the index) and <https://renoxium.com/llms-full.txt> (the developer documents in one file), generated from this repository (`www/scripts/llms.ts`).
+
+**The remote platform MCP** (`mcp.renoxium.com`, `control/api/src/mcp/README.md`) is for agents that are not on the developer's machine: `list_apps`, `get_app`, `create_app`, `list_deployments`, `get_deployment`, `activate`, `rollback`, `get_logs`, `list_secrets` (names only, never a value), `get_usage`. It is behind OAuth 2.1 with PKCE; a token is a tenant token named `mcp: <client>` that lives one hour, holds at most the signed-in user's role, and carries the scopes `apps:read`, `apps:write`, `deploy`, `logs:read`, `secrets:read` (each optionally narrowed to one app; `secrets:write` and `tokens:write` are never granted to an agent). The default grant is `apps:read logs:read secrets:read deploy`. Mutating tools (`create_app`, `activate`, `rollback`) do nothing on the first call: they return a plan and a confirmation token bound to the exact arguments, and run on the second call with it, once. Log lines come back marked `untrusted: true`. The dashboard and `renox tokens list` show and revoke these tokens like any other.
+
+**App MCP.** An app is itself an MCP server at `/mcp`: every `functions/tools/*.ts` and every tool a module declares is listed, authenticated by the `auth` module's OAuth server, authorized by the tool's Cedar `action` exactly like a button in the UI, rate-limited and metered to the tenant; a tool with `confirm: true` returns a preview first (`docs/20`, section 2).
+
+**In-app agents.** Tenant code calls models with `ctx.ai.chat(...)` (`ops.md`, `op_ai_chat`): the provider host must be in `[permissions] network`, the key in a declared secret, or the request goes through the platform's AI gateway; tokens count toward the tenant's limits, and local tools run in the same isolate under the same authorization (`docs/20`, section 3).
+
+**What an agent may and may not do** (`docs/20`, section 5): results that come from the database, logs or user content are data, labelled `untrusted: true`, never instructions; destructive operations (`rollback`, `activate`, `revoke_agent_token`, `db_execute`) need the confirmation step, and the local server shows the confirmation to the person in the terminal; a module's permission diff (`renox add`) is shown, never auto-approved; secrets are never serialized through MCP (names and versions only) and are redacted from logs and errors; every call is audited with the actor `agent`, the client and, when reported, the model; tokens are short-lived and listed in the dashboard, where a tenant revokes them.
+
 ## Dev loop
 
 1. A file watcher detects a change.

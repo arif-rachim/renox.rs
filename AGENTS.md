@@ -20,8 +20,8 @@ Two main parts:
 
 ## Project status
 
-**Phase: F2 (SSR and templates) and F3 (minimal control plane), in parallel.** F0 and F1 are done (`docs/14-benchmarks.md`, "F0 results" and "F1 results": GO; every F1 number is provisional until the `node-small` re-run, #158). The F1 gate's B1 condition was met (11.09 MB per `shop` isolate), so ADR D21 was not written.
-Crates that exist: `renox-gateway`, `renox-runtime`, `renox-data`, `renox-meter`, `renox-cell` (binary `renox-worker`). `renox-template` does not exist yet (#38 creates it); `renox-authz` and `renox-realtime` are F5. `bench/` holds the harness, the spikes, and the results.
+**As of 2026-11-01 (`main` at `c265810`): the code of every phase F0 to F7 is on `main`.** Gates F0 and F1 passed (`docs/14-benchmarks.md`, "F0 results" and "F1 results": GO). Gates F2 to F7 (#49, #61, #68, #74, #79, #86) are open on owner steps and measurements, not on code: the bench hosts for B4, B6, B7, B11, B12, B14 and B18 (#158), the two findings of the B1 run on `node-small` (#342, #343), the booking product repository, the GCC PSP sandbox accounts (#330, #337), the single-host deployment (#366), the first paying tenant. The per-phase table is in `README.md`, "Status"; the open work, the merged batches and the prompt for each open batch are in `docs/25-execution.md`, "Where we are".
+Crates that exist: `renox-gateway`, `renox-runtime`, `renox-template`, `renox-data`, `renox-authz`, `renox-realtime`, `renox-meter`, `renox-cell` (binary `renox-worker`). Also on `main`: `control/api`, `control/dashboard`, `control/billing`; `sdk/` (the npm package `renox`) and `cli/`; sixteen modules under `modules/`; `www/` (the site); `ops/`; `bench/` with the harness, the spikes, the chaos harness and the results.
 See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 
 ## Reading order
@@ -39,7 +39,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 11. `docs/10-modules.md` — module system and inter-module communication.
 12. `docs/11-authorization.md` — RBAC/ABAC/ReBAC with Cedar, `r-can`, `db.scoped`.
 13. `docs/12-developer-experience.md` — CLI, dev loop, types, debugging.
-14. `docs/13-decisions.md` — ADRs D1–D20. **Required reading before any architectural change.**
+14. `docs/13-decisions.md` — ADRs D1–D23. **Required reading before any architectural change.**
 15. `docs/14-benchmarks.md` — target numbers, scenarios, methodology, how to record results.
 16. `docs/15-roadmap.md` — phases, done criteria, kill criteria.
 17. `docs/16-risks.md` — risks and mitigations.
@@ -53,31 +53,34 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 25. `docs/24-threat-model.md` — threats per trust boundary (end user, tenant, module publisher, control plane, supply chain, operator, agents) with the control, the proving test, and the phase. Source of the per-phase security checklist and of the PR security section.
 26. `docs/25-execution.md` — the batches: which issues one session takes, in what order, after which batch; the prompt to paste; the rules every session follows.
 
-## Repository layout (planned)
+## Repository layout
 
 ```
 renox.rs/
 ├── AGENTS.md, CLAUDE.md
 ├── docs/                      this documentation
-│   └── contracts/             written interfaces between tracks (ops, artifact, meter, errors): docs/contracts/README.md
+│   └── contracts/             written interfaces between tracks (ops, artifact, manifest, deploy API, meter, errors, client events): docs/contracts/README.md
 ├── crates/                    data plane (Rust workspace)
-│   ├── renox-gateway/         TLS, hostname→tenant→cell routing, rate limiting
-│   ├── renox-runtime/         V8 isolates (Supabase Edge Runtime), ops, snapshots, watchdog
+│   ├── renox-gateway/         TLS, hostname→tenant→cell routing, rate limiting, compression, .well-known
+│   ├── renox-runtime/         V8 isolates (deno_runtime), ops, snapshots, the CPU watchdog and limits
 │   ├── renox-template/        attribute → minijinja transpiler, renderer, fuel
 │   ├── renox-data/            SQLite per tenant, authorizer, migrations, outbox
 │   ├── renox-authz/           Cedar, principal cache, r-can
 │   ├── renox-realtime/        SSE, WebSocket, pub/sub
 │   ├── renox-meter/           per-invocation records
-│   └── renox-cell/            wires everything together per worker node (binary `renox-worker`)
+│   └── renox-cell/            wires everything together per worker node (binary `renox-worker`): supervisor, replication, App MCP, chaos hooks
 ├── control/                   control plane (Bun + Hono)
-│   ├── api/                   deployments, artifacts, route table, secrets
-│   ├── dashboard/             SSR built with Renox itself (dogfooding)
-│   └── billing/               meter aggregation → invoices
-├── sdk/                       the `renox` package for tenant code (types, ctx, helpers)
-├── cli/                       the `renox` CLI (Bun, compiled to a single binary)
-├── modules/                   official modules: auth, org, 2fa, billing, admin, storage, email, ...
-├── examples/                  example apps: shop, chat, the dogfooding products
-└── bench/                     benchmark scenarios and results (bench/results/YYYY-MM-DD-*.md)
+│   ├── api/                   deployments, artifacts, route table, secrets, accounts, registry, billing endpoints, the remote MCP
+│   ├── dashboard/             a Renox app (dogfooding): tenants, apps, deployments, logs, usage, security
+│   └── billing/               plans, meter aggregation → invoices
+├── sdk/                       the `renox` npm package for tenant code (types, ctx, helpers, renox/fakes, renox/test); sdk/client is the browser script
+├── cli/                       the `renox` CLI (Bun, compiled to one binary per platform); cli/templates/ is what `renox new` writes
+├── packages/                  shared TypeScript: artifact-validate
+├── modules/                   official modules: auth, org, 2fa, billing, tax_gcc, admin, storage, email, booking, reports, whatsapp, notifications, audit, jobs, i18n, gcc
+├── examples/                  example apps: hello, shop, chat, evil (negative paths), npm-compat
+├── www/                       the public site renoxium.com (a Renox app): the docs rendered from docs/, pricing, legal, llms.txt
+├── ops/                       systemd units, scripts, locks and checksums a node and CI trust (code-owner reviewed)
+└── bench/                     benchmark scenarios, spikes, the chaos harness and the results (bench/results/YYYY-MM-DD-*.md)
 ```
 
 A folder that does not exist yet is not due yet. Do not create crates or packages outside this list without a new ADR.

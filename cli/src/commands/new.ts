@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 
 import cliPackage from "../../package.json" with { type: "json" };
 import { EXIT, UserError } from "../errors.ts";
-import { TEMPLATES, type TemplateName, TSCONFIG } from "../lib/templates.ts";
+import { COMMON, TEMPLATES, type TemplateName, TSCONFIG } from "../lib/templates.ts";
 
 /**
  * The CLI's own version, read from cli/package.json at build time (bun
@@ -27,6 +27,7 @@ export function newApp(name: string, template: string, parent = process.cwd()): 
   if (existsSync(dir) && readdirSync(dir).length > 0)
     throw new UserError(`${name}/ exists and is not empty`, { hint: "choose another name, or remove the folder" });
   const files: Record<string, string> = {
+    ...COMMON,
     ...TEMPLATES[template as TemplateName],
     "renox.toml": `[app]\nname = "${name}"\ntimezone = "Asia/Dubai"\n\n[permissions]\n# Outbound hosts for fetch, e.g. ["api.stripe.com"]; empty = no network.\nnetwork = []\n# Secret names the app reads from ctx.secrets.\nsecrets = []\n`,
     "package.json": `${JSON.stringify(
