@@ -1,6 +1,6 @@
 # Remote platform MCP (#62)
 
-The control API serves the platform MCP of `docs/20-ai-agents-mcp.md` (section 1, "remote"; section 5, agent security) to cloud agents: the same team operations the CLI has, behind OAuth 2.1. `mcp.renox.dev` is a hostname for this API; the issuer and the resource are the origin a client used (`<origin>`, `<origin>/mcp`).
+The control API serves the platform MCP of `docs/20-ai-agents-mcp.md` (section 1, "remote"; section 5, agent security) to cloud agents: the same team operations the CLI has, behind OAuth 2.1. `mcp.renoxium.com` is a hostname for this API (the resource is named "Renoxium platform MCP"); the issuer and the resource are the origin a client used (`<origin>`, `<origin>/mcp`).
 
 | File | What it holds |
 | --- | --- |

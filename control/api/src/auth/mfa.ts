@@ -342,7 +342,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     await db.query("delete from account_mfa_totp where user_id = $1", [u.userId]);
     await db.query("insert into account_mfa_totp (user_id, secret_sealed, created_at) values ($1, $2, $3)", [u.userId, sealSecret(deps, u.userId, secret), deps.now()]);
     c.set("auditTarget", { user_id: u.userId });
-    return c.json({ secret, otpauth_uri: totpUri({ secret, issuer: "Renox", account: user.email }) }, 201);
+    return c.json({ secret, otpauth_uri: totpUri({ secret, issuer: "Renoxium", account: user.email }) }, 201);
   });
 
   app.post("/v1/account/mfa/totp/confirm", operation(deps, "confirmTotp"), mfaAuth(deps), async (c) => {
@@ -371,7 +371,7 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     const existing = await db.query<{ credential_id: string }>("select credential_id from account_mfa_webauthn where user_id = $1", [u.userId]);
     return c.json({
       challenge: await newChallenge(db, u.userId, "register", deps.now()),
-      rp: { id: rpId, name: "Renox" },
+      rp: { id: rpId, name: "Renoxium" },
       user: { id: base64url(new TextEncoder().encode(user.id)), name: user.email, displayName: user.email },
       pubKeyCredParams: [
         { type: "public-key", alg: -7 },

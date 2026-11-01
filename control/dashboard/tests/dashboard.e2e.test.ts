@@ -55,7 +55,7 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
   ]);
   expect(r.manifest.templates?.["pages/apps/[app]/logs"]?.fragments).toEqual({ log_lines: { target: "log-lines" } });
   expect(r.manifest.templates?.["pages/apps/[app]/deployments"]?.fragments).toEqual({ page: { target: "page" } });
-  expect(r.manifest.permissions).toEqual({ network: ["api.renox.app"], secrets: ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL"] });
+  expect(r.manifest.permissions).toEqual({ network: ["api.renoxium.com"], secrets: ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL", "RENOX_PLATFORM_DOMAIN"] });
   expect(readdirSync(join(r.dir, "migrations/app")).sort()).toEqual(["001_sessions.sql", "002_log_followers.sql", "003_impersonations.sql"]);
   expect(await check(app)).toEqual({ errors: [], findings: [] });
 });
@@ -73,7 +73,7 @@ test.skipIf(!worker)(
     // Point the dashboard at the local API and allowlist it: only the blocked ranges stand in the way.
     writeFileSync(
       join(dir, "renox.toml"),
-      `[app]\nname = "dashboard"\ntimezone = "Asia/Dubai"\n\n[permissions]\nnetwork = ["api.renox.app", "127.0.0.1:${local.port}"]\nsecrets = ["DASHBOARD_KEY", "RENOX_API_URL"]\n`,
+      `[app]\nname = "dashboard"\ntimezone = "Asia/Dubai"\n\n[permissions]\nnetwork = ["api.renoxium.com", "127.0.0.1:${local.port}"]\nsecrets = ["DASHBOARD_KEY", "RENOX_API_URL"]\n`,
     );
     const KEY = "e2e-dashboard-key-0123456789abcdef";
     writeFileSync(join(dir, ".env"), `DASHBOARD_KEY=${KEY}\nRENOX_API_URL=https://127.0.0.1:${local.port}\n`);
@@ -123,7 +123,7 @@ test.skipIf(!worker)(
 
       // A malformed token never leaves the dashboard.
       const malformed = await (await fetch(`${base}/signin`, form({ _csrf: csrf, token: "hunter2" }))).text();
-      expect(malformed).toContain("That is not a Renox token");
+      expect(malformed).toContain("That is not a Renoxium token");
 
       // Signed in (a row written with Bun's WebCrypto, read by the worker's):
       // every screen renders through the worker, with the refusal shown in place.

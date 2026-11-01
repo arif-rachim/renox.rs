@@ -162,7 +162,7 @@ test("problem() in the request's locale: an unreachable API and a refused role",
   const AR = { cookie: "renox_lang=ar" };
   expect((await problem(ctx({}), failure(403))).message).toBe("Your token or role does not allow this (apps:write).");
   expect((await problem(ctx(AR), failure(403))).message).toBe("لا يسمح رمزك أو دورك بذلك (apps:write).");
-  expect((await problem(ctx({ "accept-language": "ar-AE" }), failure(0))).message).toBe("تعذّر الوصول إلى واجهة التحكم البرمجية على api.renox.app (RENOX_UPSTREAM).");
+  expect((await problem(ctx({ "accept-language": "ar-AE" }), failure(0))).message).toBe("تعذّر الوصول إلى واجهة التحكم البرمجية على api.renoxium.com (RENOX_UPSTREAM).");
 });
 
 test("a notice, a form error and a problem message of an action, in Arabic", async () => {
@@ -192,7 +192,7 @@ test.skipIf(!worker)(
     const deployments = {
       signed_in: true,
       impersonation: null,
-      api_host: "api.renox.app",
+      api_host: "api.renoxium.com",
       app: "shop",
       section: "deployments",
       problem: null,
@@ -232,7 +232,7 @@ test.skipIf(!worker)(
       const pages: [string, Record<string, string>, string[], string][] = [
         ["/signin", AR, ["pages/signin.html"], "<h1>تسجيل الدخول</h1>"],
         // Accept-Language alone chooses Arabic too.
-        ["/signup", { "accept-language": "ar-AE,ar;q=0.9,en;q=0.5" }, ["pages/signup/index.html"], "أنشئ حسابك في Renox"],
+        ["/signup", { "accept-language": "ar-AE,ar;q=0.9,en;q=0.5" }, ["pages/signup/index.html"], "أنشئ حسابك في Renoxium"],
         ["/legal/dpa", AR, ["pages/legal/dpa.html"], "اتفاقية معالجة البيانات"],
         ["/legal/terms", AR, ["pages/legal/terms.html"], "الإصدار 2026-10-30."],
         ["/apps/shop/deployments", AR, ["pages/apps/[app]/deployments.html", "partials/app-nav.html", "partials/deployment-actions.html"], "<h1>عمليات النشر</h1>"],

@@ -6,7 +6,7 @@ Owner of this document: the security lead (see "On call"). Reviewed after every 
 
 ## On call
 
-- `security@renox.app` and GitHub private vulnerability reports go to the on-call rotation: one primary, one secondary, weekly hand-over. The rotation and the phone numbers live in the operations password manager, not in this repository.
+- `security@renoxium.com` and GitHub private vulnerability reports go to the on-call rotation: one primary, one secondary, weekly hand-over. The rotation and the phone numbers live in the operations password manager, not in this repository.
 - The primary acknowledges a page within 15 minutes, day or night, for SEV1 and SEV2; within one business day for SEV3 and SEV4.
 - Anyone who suspects an incident pages the primary. Nobody waits for certainty.
 
@@ -52,7 +52,7 @@ Before changing anything that holds evidence, copy it. Evidence goes to the inci
 | --- | --- | --- | --- |
 | Internal: on call, founders | At once | Incident channel | Incident lead |
 | Status page | SEV1 within 1 hour, SEV2 within 4 hours, if customers are or may be affected | Status page | Incident lead |
-| Affected tenants (owner and admins) | As soon as the facts are confirmed, at the latest within 72 hours for SEV1 and SEV2 | Email from `security@renox.app`; dashboard banner | Incident lead, reviewed by a second person |
+| Affected tenants (owner and admins) | As soon as the facts are confirmed, at the latest within 72 hours for SEV1 and SEV2 | Email from `security@renoxium.com`; dashboard banner | Incident lead, reviewed by a second person |
 | Data protection authority | Within the window the applicable law sets for a personal-data breach, after a documented assessment | The authority's breach notification channel | Founder responsible for compliance |
 | Reporter (if the incident came from a report) | At acknowledgement, at fix, at disclosure | Reply to the report | On call |
 

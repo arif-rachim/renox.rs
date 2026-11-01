@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { DPA_VERSION, TERMS_VERSION } from "../../api/src/signup/dpa.ts";
 import { assertScoped, mailToken, registeredNode, tenant } from "../../api/tests/helpers.ts";
 import { buildArtifact } from "../../../cli/src/lib/build.ts";
+import { DEFAULT_API, DEFAULT_PLATFORM_DOMAIN, apiBase, platformDomain } from "../lib/api.ts";
 import { actions as newActions, load as newLoad } from "../pages/apps/new.ts";
 import { load as homeLoad } from "../pages/index.ts";
 import { actions as signinActions } from "../pages/signin.ts";
@@ -82,7 +83,10 @@ describe("the first app", () => {
       [false, "/apps/new"],
       [false, null],
     ]);
-    expect(data(await newLoad(loaderCtx(d, "/apps/new"))).templates.map((t: { id: string }) => t.id)).toEqual(["shop", "hello", "booking", "invoices"]);
+    const fresh = data(await newLoad(loaderCtx(d, "/apps/new")));
+    expect(fresh.templates.map((t: { id: string }) => t.id)).toEqual(["shop", "hello", "booking", "invoices"]);
+    // #364: the platform domain shown for the new app is configuration, renox.rs by default.
+    expect(fresh.platform_domain).toBe("renox.rs");
     expect(data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "Bad Name", template: "hello" }))).form_error).toContain("lower-case");
     // shop is not built on this control plane: the page says so.
     expect(data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "my-shop", template: "shop" }))).form_error).toContain("not available");
@@ -104,8 +108,8 @@ test("the legal pages carry the versions sign-up records", () => {
 // The templates rendered by the worker (`renox dev`).
 test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow, the checklist and the legal pages", async () => {
   const dev = await devWithData({
-    "pages/apps/new.ts": { signed_in: true, impersonation: null, api_host: "api.renox.app", templates: [{ id: "shop", name: "Shop", about: "A shop" }], created: null, form_error: null, action_problem: null, name: "", template: "shop" },
-    "pages/index.ts": { signed_in: true, impersonation: null, api_host: "api.renox.app", steps: [{ done: true, text: "Verify your email address", href: null }, { done: false, text: "Create your first app from a template", href: "/apps/new" }] },
+    "pages/apps/new.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", platform_domain: "apps.example.test", templates: [{ id: "shop", name: "Shop", about: "A shop" }], created: null, form_error: null, action_problem: null, name: "", template: "shop" },
+    "pages/index.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", steps: [{ done: true, text: "Verify your email address", href: null }, { done: false, text: "Create your first app from a template", href: "/apps/new" }] },
   });
   try {
     const page = async (path: string) => (await (await fetch(`${dev.base}${path}`)).text()).replaceAll(' dir="auto"', "");
@@ -119,6 +123,7 @@ test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow
     expect(v).toContain('id="verify-token"');
     const newApp = await page("/apps/new");
     expect(newApp).toContain('name="template" value="shop" checked');
+    expect(newApp).toContain("<code>&lt;name&gt;.apps.example.test</code>");
     const home = await page("/");
     expect(home).toContain('<a href="/apps/new">Create your first app from a template</a>');
     for (const page of ["dpa", "terms"]) {
@@ -129,4 +134,18 @@ test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow
   } finally {
     await dev.stop();
   }
+});
+
+test("the platform domain of the new-app page: RENOX_PLATFORM_DOMAIN when it is a hostname, else renox.rs (#364)", () => {
+  expect(DEFAULT_PLATFORM_DOMAIN).toBe("renox.rs");
+  expect(platformDomain({})).toBe("renox.rs");
+  expect(platformDomain({ RENOX_PLATFORM_DOMAIN: "apps.example.test" })).toBe("apps.example.test");
+  for (const bad of ["", "Apps.Example", "example", "a..b", "x.test/<script>", "-a.test"]) expect(platformDomain({ RENOX_PLATFORM_DOMAIN: bad })).toBe("renox.rs");
+});
+
+test("the dashboard calls https://api.renoxium.com by default; RENOX_API_URL (https only) overrides it (#364)", () => {
+  expect(DEFAULT_API).toBe("https://api.renoxium.com");
+  expect(apiBase({})).toBe("https://api.renoxium.com");
+  expect(apiBase({ RENOX_API_URL: "https://api.example.test/" })).toBe("https://api.example.test");
+  expect(apiBase({ RENOX_API_URL: "http://api.example.test" })).toBe("https://api.renoxium.com");
 });

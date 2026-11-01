@@ -1,6 +1,6 @@
 # www
 
-The public site, renox.app (#326): a Renox app deployed as the second internal tenant, after the dashboard.
+The public site of Renoxium, served at `renoxium.com` (#326): a `renox` app deployed as the second internal tenant, after the dashboard.
 
 | Route | Source |
 | --- | --- |

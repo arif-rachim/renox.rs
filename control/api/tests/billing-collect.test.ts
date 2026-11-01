@@ -189,6 +189,17 @@ describe("collecting invoices (#350)", () => {
     expect(failures(h)[0]?.text).toContain("no card on file can be charged");
   });
 
+  test("the failed-charge mail links the configured dashboard and names Renoxium (#364)", async () => {
+    const { h } = await due();
+    psp.answer = () => ({ status: "failed", payment_intent: "pi_declined", code: "card_declined" });
+    h.deps.config.dashboardUrl = "https://console.example.test/";
+    await sweepBilling(h.deps, h.clock.now);
+    const [mail] = failures(h);
+    expect(mail?.subject).toStartWith("Payment of Renoxium invoice ");
+    expect(mail?.text).toContain(`Add or replace the card: https://console.example.test/billing (tenant ${T})`);
+    expect(mail?.text).not.toMatch(/renox\.(app|dev)/u);
+  });
+
   test("the PSP unreachable: nothing is counted and the next hour tries again", async () => {
     const { h } = await due();
     psp.answer = () => ({ status: "unavailable" });

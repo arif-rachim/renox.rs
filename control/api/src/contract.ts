@@ -16,7 +16,7 @@ type Spec = {
   "x-renox-state-machines": Record<string, { initial: string[]; transitions: Record<string, string[]> }>;
 };
 
-const SPEC_ID = "https://renox.dev/contracts/deploy-api/v0/deploy-api.yaml";
+const SPEC_ID = "https://renoxium.com/contracts/deploy-api/v0/deploy-api.yaml";
 const files: Record<string, string> = {
   "control-messages.schema.json": controlMessages.$id,
   "meter-record.schema.json": meterRecord.$id,

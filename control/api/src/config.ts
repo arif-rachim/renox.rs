@@ -16,13 +16,13 @@ export interface Config {
   databaseUrl: string;
   /** SHA-256 hex of the operator token; null disables the operator endpoints. */
   operatorTokenSha256: string | null;
-  /** Base domain of app hostnames: <app>.<platformDomain>. */
+  /** `CONTROL_PLATFORM_DOMAIN`: base domain of app hostnames, <app>.<platformDomain> (default `renox.rs`; docs/contracts/README.md "Domains"). Never a platform service's domain. */
   platformDomain: string;
   /** null: in-memory object store (tests and quick local runs only). */
   s3: S3Config | null;
   /** Base64 of the 32-byte master key (deploy-api.md section 9); null disables secrets. */
   masterKey: string | null;
-  /** Base URL of the dashboard, for links in account emails (#113). */
+  /** `CONTROL_DASHBOARD_URL`: base URL of the dashboard, for links in emails (#113; default `https://dashboard.renoxium.com`). */
   dashboardUrl: string;
   /** Directory where account emails are written as files (local development); null: no mail delivery. */
   mailOutboxDir: string | null;
@@ -30,13 +30,30 @@ export interface Config {
   erasureRetryMs?: number;
   /** `EXPORT_KMS_KEY_ID` (#308): exports are written with SSE-KMS and this key; unset: plain puts (local mode, logged at start). */
   exportKmsKeyId?: string | null;
-  /** `CONTROL_SECURITY_CONTACTS` (#310): the `Contact:` URIs of security.txt, comma separated. */
+  /** `CONTROL_SECURITY_CONTACTS` (#310): the `Contact:` URIs of security.txt, comma separated (default `mailto:security@renoxium.com`). */
   securityContacts?: string[];
+  /** `CONTROL_ABUSE_CONTACT` (#364): the address abuse mails name for appeals (default `abuse@renoxium.com`). */
+  abuseContact?: string;
+  /** `CONTROL_API_URL` (#364): the public origin of this API, for the canonical URL of its security.txt (default `https://api.renoxium.com`). */
+  apiUrl?: string;
   /** `CONTROL_SECURITY_POLICY`: the `Policy:` URI of security.txt, if any. */
   securityPolicy?: string | null;
 }
 
 type Env = Record<string, string | undefined>;
+
+/**
+ * The reference deployment's values (docs/contracts/README.md, "Domains"):
+ * tenant apps under `renox.rs`, the platform's own services and mail under
+ * `renoxium.com`. Every one is overridden by its variable.
+ */
+export const DEFAULTS = {
+  platformDomain: "renox.rs",
+  dashboardUrl: "https://dashboard.renoxium.com",
+  apiUrl: "https://api.renoxium.com",
+  securityContacts: ["mailto:security@renoxium.com"] as readonly string[],
+  abuseContact: "abuse@renoxium.com",
+} as const;
 
 export class ConfigError extends Error {}
 
@@ -60,14 +77,16 @@ export function loadConfig(env: Env = process.env): Config {
     port,
     databaseUrl: env.CONTROL_DATABASE_URL ?? "pglite:memory",
     operatorTokenSha256: operator,
-    platformDomain: env.CONTROL_PLATFORM_DOMAIN ?? "renox.app",
+    platformDomain: env.CONTROL_PLATFORM_DOMAIN ?? DEFAULTS.platformDomain,
     s3,
     masterKey: env.CONTROL_MASTER_KEY ?? null,
-    dashboardUrl: env.CONTROL_DASHBOARD_URL ?? "https://dashboard.renox.app",
+    dashboardUrl: env.CONTROL_DASHBOARD_URL ?? DEFAULTS.dashboardUrl,
     mailOutboxDir: env.CONTROL_MAIL_OUTBOX_DIR ?? null,
     erasureRetryMs: Math.max(1000, Number(env.CONTROL_ERASURE_RETRY_MS ?? 3_600_000) || 3_600_000),
     exportKmsKeyId: env.EXPORT_KMS_KEY_ID ?? null,
-    securityContacts: (env.CONTROL_SECURITY_CONTACTS ?? "mailto:security@renox.app").split(",").map((s) => s.trim()).filter((s) => s !== ""),
+    securityContacts: (env.CONTROL_SECURITY_CONTACTS ?? DEFAULTS.securityContacts.join(",")).split(",").map((s) => s.trim()).filter((s) => s !== ""),
+    abuseContact: env.CONTROL_ABUSE_CONTACT ?? DEFAULTS.abuseContact,
+    apiUrl: env.CONTROL_API_URL ?? DEFAULTS.apiUrl,
     securityPolicy: env.CONTROL_SECURITY_POLICY ?? null,
   };
 }

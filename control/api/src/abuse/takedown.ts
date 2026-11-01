@@ -6,6 +6,7 @@
 // `sla_breached_at` set on the ticket.
 
 import { writeAudit } from "../audit.ts";
+import { DEFAULTS } from "../config.ts";
 import type { Deps } from "../context.ts";
 import type { Db } from "../db/db.ts";
 import { ulid } from "../ids.ts";
@@ -42,8 +43,8 @@ export async function mailOwner(deps: Deps, tenantId: string, hostname: string, 
     .send({
       to,
       kind: "abuse_takedown",
-      subject: "Your Renox tenant was taken down after an abuse report",
-      text: `Tenant ${tenantId} was taken down because of ${hostname}: ${reason}\nIts sites answer the suspension page; your data, deployments and the dashboard stay. To appeal, or once the site is fixed, reply to abuse@renox.app with the hostname.`,
+      subject: "Your Renoxium tenant was taken down after an abuse report",
+      text: `Tenant ${tenantId} was taken down because of ${hostname}: ${reason}\nIts sites answer the suspension page; your data, deployments and the dashboard stay. To appeal, or once the site is fixed, reply to ${deps.config.abuseContact ?? DEFAULTS.abuseContact} with the hostname.`,
     })
     .catch(() => deps.log.warn("takedown email not sent", { tenant_id: tenantId }));
 }

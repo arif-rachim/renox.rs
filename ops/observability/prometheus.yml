@@ -40,6 +40,6 @@ scrape_configs:
       type: Bearer
       credentials_file: /etc/prometheus/secrets/ops-read-token
     static_configs:
-      - targets: ["api.renox.app"]
+      - targets: ["api.renoxium.com"]
         labels:
           instance: control-plane

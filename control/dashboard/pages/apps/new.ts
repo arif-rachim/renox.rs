@@ -5,7 +5,7 @@
 // CLI commands to work on it locally.
 import type { ActionContext, LoaderContext } from "renox";
 
-import { apiBase } from "../../lib/api.ts";
+import { apiBase, platformDomain } from "../../lib/api.ts";
 import { problem, signedIn } from "../../lib/guard.ts";
 import { trOf, type Tr } from "../../lib/i18n.ts";
 
@@ -25,7 +25,7 @@ const quiet = { created: null as null | { app: string; url: string; hash: string
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
   if (api instanceof Response) return api;
-  return { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, templates: templates(trOf(ctx)), ...quiet };
+  return { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, platform_domain: platformDomain(ctx.secrets), templates: templates(trOf(ctx)), ...quiet };
 }
 
 export const actions = {
@@ -35,14 +35,15 @@ export const actions = {
     const name = String(ctx.form.get("name") ?? "").trim();
     const template = String(ctx.form.get("template") ?? "");
     const tr = trOf(ctx);
-    if (!NAME.test(name)) return { ...quiet, name, template, form_error: tr("dash.apps.err_name") };
-    if (!TEMPLATES.some((t) => t.id === template)) return { ...quiet, name, form_error: tr("dash.new.err_template") };
+    const base = { ...quiet, platform_domain: platformDomain(ctx.secrets) };
+    if (!NAME.test(name)) return { ...base, name, template, form_error: tr("dash.apps.err_name") };
+    if (!TEMPLATES.some((t) => t.id === template)) return { ...base, name, form_error: tr("dash.new.err_template") };
     const r = await api.createAppFromTemplate(name, template);
     if (!r.ok) {
       const p = await problem(ctx, r);
       const why = r.status === 409 && JSON.stringify(r.details).includes("not available") ? tr("dash.new.err_unavailable") : r.status === 409 ? tr("dash.new.err_taken") : r.status === 503 ? tr("dash.new.err_busy") : null;
-      return why === null ? { ...quiet, name, template, action_problem: p } : { ...quiet, name, template, form_error: why };
+      return why === null ? { ...base, name, template, action_problem: p } : { ...base, name, template, form_error: why };
     }
-    return { ...quiet, created: r.value };
+    return { ...base, created: r.value };
   },
 };
