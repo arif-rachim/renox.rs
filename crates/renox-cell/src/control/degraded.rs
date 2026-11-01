@@ -7,12 +7,13 @@
 //! | Last route table | [`SnapshotFile`]: `<data_dir>/routes.snapshot.json`, written after every applied snapshot or delta, read at start before the control plane answers |
 //! | Artifacts | the disk cache of [`S3ArtifactStore`] is authoritative for the request path |
 //! | Meters and logs | spooled and replayed ([`crate::spool`]) |
-//! | Uncached cold start while storage or the control plane is down | [`GuardedDispatcher`]: 503 `RENOX_UNAVAILABLE`, `Retry-After: 5` (`errors.md`) |
+//! | Uncached cold start while storage or the control plane is down | [`GuardedDispatcher`]: 503 `RENOX_UNAVAILABLE`, `Retry-After: 5` (`errors.md`); the fetch waits at most [`crate::artifact_s3::HEAD_TIMEOUT`] for an answer, and for [`FETCH_BACKOFF`] after a failed one a cold start is refused without fetching (#359) |
 //! | Health | `/healthz` reports `degraded` with the reasons; every change is a tracing event (the alert) |
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use bytes::Bytes;
@@ -30,6 +31,11 @@ use crate::render::{default_page, prefers_html};
 /// `errors.md`, `RENOX_UNAVAILABLE`.
 pub const UNAVAILABLE_MESSAGE: &str = "The service is temporarily unavailable.";
 pub const RETRY_AFTER_SECS: u32 = 5;
+/// After a failed artifact fetch, uncached cold starts are refused without
+/// a new fetch for this long (#359): a client that honours `Retry-After`
+/// makes the next attempt, and storage that hangs costs each request
+/// nothing instead of the fetch's head timeout.
+pub const FETCH_BACKOFF: Duration = Duration::from_secs(RETRY_AFTER_SECS as u64);
 
 /// The last applied route table on disk. Holds routes only (hostnames,
 /// tenants, hashes, tiers): no secret, no token.
@@ -89,6 +95,9 @@ pub struct Guard {
     pub artifacts_dir: PathBuf,
     /// Whether a deployment declares secrets (`permissions.secrets`), by hash.
     declares: Mutex<HashMap<String, bool>>,
+    /// When the last artifact fetch failed for want of storage; cleared by
+    /// the next one that succeeds.
+    fetch_failed: Mutex<Option<Instant>>,
 }
 
 impl Guard {
@@ -98,7 +107,13 @@ impl Guard {
             health,
             artifacts_dir,
             declares: Mutex::new(HashMap::new()),
+            fetch_failed: Mutex::new(None),
         }
+    }
+
+    /// Whether a fetch failed less than [`FETCH_BACKOFF`] before `now`.
+    fn backing_off(&self, now: Instant) -> bool {
+        within_backoff(*self.fetch_failed.lock().expect("guard lock"), now)
     }
 
     fn declares_secrets(&self, hash: &str) -> bool {
@@ -118,6 +133,9 @@ impl Guard {
     async fn refuse(&self, manager: &CellManager, key: &CellKey) -> Option<&'static str> {
         // A live cell needs nothing that may be down.
         if !self.store.is_cached(&key.deployment_hash) && !manager.cells().contains(key) {
+            if self.backing_off(Instant::now()) {
+                return Some("artifact_unavailable");
+            }
             let store = self.store.clone();
             let hash = key.deployment_hash.clone();
             let fetched = tokio::task::spawn_blocking(move || store.get(&hash))
@@ -128,13 +146,17 @@ impl Guard {
                 })
                 .and_then(|r| r);
             match fetched {
-                Ok(_) => self.health.recover("object_storage"),
+                Ok(_) => {
+                    *self.fetch_failed.lock().expect("guard lock") = None;
+                    self.health.recover("object_storage");
+                }
                 // Not found or invalid: the manager reports it like before.
                 Err(ArtifactError::NotFound(_) | ArtifactError::HashMismatch { .. }) => {}
                 Err(ArtifactError::Invalid {
                     rule: "fetch",
                     reason,
                 }) => {
+                    *self.fetch_failed.lock().expect("guard lock") = Some(Instant::now());
                     self.health.degrade("object_storage", reason);
                     return Some("artifact_unavailable");
                 }
@@ -151,6 +173,10 @@ impl Guard {
         }
         None
     }
+}
+
+fn within_backoff(failed: Option<Instant>, now: Instant) -> bool {
+    failed.is_some_and(|t| now.saturating_duration_since(t) < FETCH_BACKOFF)
 }
 
 /// Whether `<artifacts_dir>/<hash>/manifest.json` lists any secret.
@@ -211,5 +237,22 @@ impl CellDispatcher for GuardedDispatcher {
             }
         }
         self.manager.dispatch(ctx, req).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_fetch_refuses_without_fetching_for_the_backoff_only() {
+        let t = Instant::now();
+        assert!(!within_backoff(None, t));
+        assert!(within_backoff(Some(t), t));
+        assert!(within_backoff(
+            Some(t),
+            t + FETCH_BACKOFF - Duration::from_millis(1)
+        ));
+        assert!(!within_backoff(Some(t), t + FETCH_BACKOFF));
     }
 }

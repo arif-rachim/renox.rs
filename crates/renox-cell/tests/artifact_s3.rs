@@ -9,8 +9,10 @@ mod fake_s3;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
-use renox_cell::artifact_s3::S3ArtifactStore;
+use renox_cell::artifact_s3::{HEAD_TIMEOUT, S3ArtifactStore};
 use renox_cell::control::http::ControlClient;
 use renox_cell::{ArtifactError, ArtifactStore};
 
@@ -108,4 +110,41 @@ async fn a_tampered_object_is_refused_with_hash_mismatch() {
     }
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(src);
+}
+
+/// Object storage that accepts the connection and never answers (#359, a
+/// paused server): the fetch fails as unavailable (`Invalid`, rule `fetch`,
+/// what the degraded-mode guard turns into 503 `RENOX_UNAVAILABLE`) after
+/// the head timeout, not after the 60 s download budget; nothing is cached,
+/// and the next fetch succeeds once the storage answers again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn storage_that_never_answers_fails_after_the_head_timeout() {
+    let s3 = FakeS3::default();
+    s3.put(HELLO_HASH, tar_of(&hello_dir()));
+    s3.hang.store(true, Ordering::SeqCst);
+    let (store, dir) = store(&s3, "hang").await;
+    let s = store.clone();
+    let started = Instant::now();
+    let got = tokio::task::spawn_blocking(move || s.get(HELLO_HASH).map(|_| ()))
+        .await
+        .unwrap();
+    let took = started.elapsed();
+    assert!(
+        matches!(got, Err(ArtifactError::Invalid { rule: "fetch", .. })),
+        "{got:?}"
+    );
+    assert!(
+        took >= HEAD_TIMEOUT && took < HEAD_TIMEOUT + Duration::from_secs(3),
+        "took {took:?}"
+    );
+    assert!(!store.is_cached(HELLO_HASH));
+
+    s3.hang.store(false, Ordering::SeqCst);
+    let s = store.clone();
+    let got = tokio::task::spawn_blocking(move || s.get(HELLO_HASH).map(|_| ()))
+        .await
+        .unwrap();
+    assert!(got.is_ok(), "{got:?}");
+    assert!(store.is_cached(HELLO_HASH));
+    let _ = std::fs::remove_dir_all(dir);
 }
