@@ -31,6 +31,20 @@
 //! macOS ARM) does not push `cpu_ms` past the ± 5 ms bound. Linux's
 //! `CLOCK_THREAD_CPUTIME_ID` is current for a running thread, so the
 //! wall-clock side is a no-op there.
+//!
+//! What the clock counts on a virtual machine (#342): the thread CPU clock
+//! is the guest kernel's view. A KVM guest whose host does not report steal
+//! time (no `kvm-stealtime` at boot, `/proc/stat` steal always 0) and whose
+//! kernel lacks `CONFIG_PARAVIRT_TIME_ACCOUNTING` counts the time the host
+//! takes its vCPU away as CPU of the thread that was running. On `node-small`
+//! that is 3.5 s per vCPU-minute, in stalls of up to 48–66 ms, mostly on one
+//! vCPU at a time; a cold `shop` request that ran 8.6 ms of guest cycles was
+//! charged up to 38.8 ms (`bench/results/2026-10-31-cold-request-cpu-node-small.md`).
+//! Nothing inside the guest tells such a stall from a spinning tenant, so
+//! the charge stays whole and the limit stays the limit. What the worker
+//! does control is how long a request is exposed: the first run of the
+//! request path is platform work and runs at isolate creation
+//! (`isolate.rs`, `warm_request_path`), not in the tenant's first request.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -444,14 +458,24 @@ pub enum Running {
     Unattributed,
 }
 
+/// What one request in flight was charged so far (ns).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Charge {
+    /// Everything: its own runs, its share of unattributed runs, and CPU
+    /// spent for it off this thread.
+    pub total: u64,
+    /// The runs of JavaScript in its own async context (#342 trace).
+    pub own: u64,
+}
+
 /// Per-request CPU of one isolate thread (#155). The isolate thread feeds it
 /// the thread CPU clock at every context switch; the ledger charges the run
 /// that just ended and says what budget the next run gets.
 #[derive(Debug)]
 pub struct CpuLedger {
     limit_ns: u64,
-    /// CPU charged so far, per request in flight (token → ns).
-    charged: HashMap<u32, u64>,
+    /// Per request in flight (token → what it was charged so far).
+    charged: HashMap<u32, Charge>,
     running: Running,
     /// The context a promise reaction interrupted, restored when it ends.
     outer: Running,
@@ -475,12 +499,17 @@ impl CpuLedger {
     /// before the request joined is never split onto it.
     pub fn admit(&mut self, token: u32, now_ns: u64) {
         self.flush(now_ns);
-        self.charged.insert(token, 0);
+        self.charged.insert(token, Charge::default());
     }
 
     /// The request ended: charge the current run, forget the request, and
     /// return its total CPU (ns).
     pub fn release(&mut self, token: u32, now_ns: u64) -> u64 {
+        self.release_charge(token, now_ns).total
+    }
+
+    /// [`CpuLedger::release`], with the parts of the charge.
+    pub fn release_charge(&mut self, token: u32, now_ns: u64) -> Charge {
         self.flush(now_ns);
         if self.running == Running::Request(token) {
             self.running = Running::Unattributed;
@@ -488,19 +517,19 @@ impl CpuLedger {
         if self.outer == Running::Request(token) {
             self.outer = Running::Unattributed;
         }
-        self.charged.remove(&token).unwrap_or(0)
+        self.charged.remove(&token).unwrap_or_default()
     }
 
     /// CPU charged to a request in flight so far (ns).
     pub fn charged(&self, token: u32) -> u64 {
-        self.charged.get(&token).copied().unwrap_or(0)
+        self.charged.get(&token).map(|c| c.total).unwrap_or(0)
     }
 
     /// Charge `ns` of CPU spent for a request off this thread (a password
     /// op on the blocking pool, `ops/password.rs`).
     pub fn add(&mut self, token: u32, ns: u64) {
         if let Some(c) = self.charged.get_mut(&token) {
-            *c = c.saturating_add(ns);
+            c.total = c.total.saturating_add(ns);
         }
     }
 
@@ -559,10 +588,15 @@ impl CpuLedger {
     /// work, the smallest remaining CPU among the requests in flight, or the
     /// whole limit with none in flight (orphaned work cannot spin forever).
     pub fn budget(&self) -> Duration {
-        let left = |t: &u32| self.limit_ns.saturating_sub(self.charged(*t));
+        let left = |c: &Charge| self.limit_ns.saturating_sub(c.total);
         Duration::from_nanos(match self.running {
-            Running::Request(t) => left(&t),
-            Running::Unattributed => self.charged.keys().map(left).min().unwrap_or(self.limit_ns),
+            Running::Request(t) => self.charged.get(&t).map(left).unwrap_or(self.limit_ns),
+            Running::Unattributed => self
+                .charged
+                .values()
+                .map(left)
+                .min()
+                .unwrap_or(self.limit_ns),
         })
     }
 
@@ -578,7 +612,8 @@ impl CpuLedger {
         match self.running {
             Running::Request(t) => {
                 if let Some(c) = self.charged.get_mut(&t) {
-                    *c += used;
+                    c.total += used;
+                    c.own += used;
                 }
             }
             Running::Unattributed => {
@@ -586,11 +621,108 @@ impl CpuLedger {
                 if n > 0 {
                     let share = used.div_ceil(n);
                     for c in self.charged.values_mut() {
-                        *c += share;
+                        c.total += share;
                     }
                 }
             }
         }
+    }
+}
+
+/// What the calling thread used so far, for the CPU trace (#342): page
+/// faults, context switches, and user and system CPU. Linux only
+/// (`getrusage(RUSAGE_THREAD)`); `None` elsewhere.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ThreadUsage {
+    pub minflt: u64,
+    pub majflt: u64,
+    /// Voluntary context switches (the thread waited).
+    pub nvcsw: u64,
+    /// Involuntary context switches (the scheduler took the CPU away).
+    pub nivcsw: u64,
+    pub user_ns: u64,
+    pub system_ns: u64,
+}
+
+impl ThreadUsage {
+    pub fn now() -> Option<ThreadUsage> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            // SAFETY: an all-zero `rusage` is a valid value (plain integers).
+            let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+            // SAFETY: `u` is a valid out-pointer; RUSAGE_THREAD reads only the
+            // calling thread's counters.
+            if unsafe { libc::getrusage(libc::RUSAGE_THREAD, &mut u) } != 0 {
+                return None;
+            }
+            let ns = |t: libc::timeval| t.tv_sec as u64 * 1_000_000_000 + t.tv_usec as u64 * 1_000;
+            Some(ThreadUsage {
+                minflt: u.ru_minflt as u64,
+                majflt: u.ru_majflt as u64,
+                nvcsw: u.ru_nvcsw as u64,
+                nivcsw: u.ru_nivcsw as u64,
+                user_ns: ns(u.ru_utime),
+                system_ns: ns(u.ru_stime),
+            })
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            None
+        }
+    }
+
+    /// The usage between `earlier` and `self`.
+    pub fn since(&self, earlier: &ThreadUsage) -> ThreadUsage {
+        ThreadUsage {
+            minflt: self.minflt.saturating_sub(earlier.minflt),
+            majflt: self.majflt.saturating_sub(earlier.majflt),
+            nvcsw: self.nvcsw.saturating_sub(earlier.nvcsw),
+            nivcsw: self.nivcsw.saturating_sub(earlier.nivcsw),
+            user_ns: self.user_ns.saturating_sub(earlier.user_ns),
+            system_ns: self.system_ns.saturating_sub(earlier.system_ns),
+        }
+    }
+}
+
+/// CPU of V8's garbage collections on the calling thread (#342 trace):
+/// [`gc_started`] and [`gc_ended`] are called from the isolate's GC prologue
+/// and epilogue; [`gc_total`] reads the sum.
+pub mod gc {
+    use std::cell::Cell;
+
+    thread_local! {
+        static START_NS: Cell<u64> = const { Cell::new(0) };
+        static TOTAL_NS: Cell<u64> = const { Cell::new(0) };
+        static COUNT: Cell<u64> = const { Cell::new(0) };
+    }
+
+    fn thread_cpu_ns() -> u64 {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `ts` is a valid out-pointer; CLOCK_THREAD_CPUTIME_ID reads
+        // the calling thread's CPU clock.
+        let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+        if rc != 0 {
+            return 0;
+        }
+        ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+    }
+
+    pub fn gc_started() {
+        START_NS.with(|s| s.set(thread_cpu_ns()));
+    }
+
+    pub fn gc_ended() {
+        let used = thread_cpu_ns().saturating_sub(START_NS.with(Cell::get));
+        TOTAL_NS.with(|t| t.set(t.get().saturating_add(used)));
+        COUNT.with(|c| c.set(c.get() + 1));
+    }
+
+    /// (CPU ns, collections) of the GCs on this thread so far.
+    pub fn gc_total() -> (u64, u64) {
+        (TOTAL_NS.with(Cell::get), COUNT.with(Cell::get))
     }
 }
 
@@ -696,6 +828,35 @@ mod tests {
         l.end(10);
         let total: u64 = (0..3).map(|t| l.release(t, 10)).sum();
         assert_eq!(total, 12);
+    }
+
+    /// A request's charge is everything it used; `own` is the part in its
+    /// own async context (#342 trace).
+    #[test]
+    fn ledger_charge_keeps_own_runs_apart_from_shared_ones() {
+        let mut l = CpuLedger::new(Duration::from_millis(50));
+        l.begin(0);
+        l.admit(1, 0);
+        l.switch(Some(1), 0);
+        l.switch(None, 30 * MS);
+        assert_eq!(l.budget(), Duration::from_millis(20));
+        let c = l.release_charge(1, 32 * MS);
+        assert_eq!((c.total, c.own), (32 * MS, 30 * MS));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn thread_usage_counts_this_threads_faults_and_cpu() {
+        let a = ThreadUsage::now().unwrap();
+        let mut v = vec![0u8; 8 << 20];
+        for i in (0..v.len()).step_by(4096) {
+            v[i] = 1;
+        }
+        std::hint::black_box(&v);
+        spin(Duration::from_millis(20));
+        let d = ThreadUsage::now().unwrap().since(&a);
+        assert!(d.minflt >= 1_000, "{d:?}");
+        assert!(d.user_ns + d.system_ns >= 15 * MS, "{d:?}");
     }
 
     /// The seqlock never hands the watchdog a torn triple. Only the

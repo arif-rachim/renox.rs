@@ -1,0 +1,74 @@
+{
+  "id": "B1",
+  "scenario": "renox-worker (release), N tenants per app each with one warm isolate after one request; shop, hello at N = 1, 10, 50, 100; esm-dir artifacts from the CLI; median of 3 runs; judged: shop at N = 100",
+  "notes": "shop N=1: RSS 38.56 MB, PSS 38.5 MB, V8 heap 5.52 MB per isolate; shop N=10: RSS 16.45 MB, PSS 16.44 MB, V8 heap 5.53 MB per isolate; shop N=50: RSS 13.7 MB, PSS 13.7 MB, V8 heap 5.53 MB per isolate; shop N=100: RSS 13.36 MB, PSS 13.36 MB, V8 heap 5.52 MB per isolate; hello N=1: RSS 30.04 MB, PSS 29.98 MB, V8 heap 4.81 MB per isolate; hello N=10: RSS 11.83 MB, PSS 11.82 MB, V8 heap 4.81 MB per isolate; hello N=50: RSS 9.55 MB, PSS 9.55 MB, V8 heap 4.81 MB per isolate; hello N=100: RSS 9.14 MB, PSS 9.14 MB, V8 heap 4.81 MB per isolate",
+  "samples": {
+    "shop_n1_rss_delta_mb": [
+      37.35,
+      38.56,
+      38.71
+    ],
+    "shop_n10_rss_delta_mb": [
+      16.06,
+      16.59,
+      16.45
+    ],
+    "shop_n50_rss_delta_mb": [
+      13.7,
+      13.68,
+      13.86
+    ],
+    "shop_n100_rss_delta_mb": [
+      13.37,
+      13.34,
+      13.36
+    ],
+    "hello_n1_rss_delta_mb": [
+      29.86,
+      30.04,
+      30.17
+    ],
+    "hello_n10_rss_delta_mb": [
+      11.83,
+      11.97,
+      11.42
+    ],
+    "hello_n50_rss_delta_mb": [
+      9.54,
+      9.55,
+      9.55
+    ],
+    "hello_n100_rss_delta_mb": [
+      9.13,
+      9.14,
+      9.14
+    ]
+  },
+  "summary": {
+    "rss_delta_mb": 13.36,
+    "shop_n1_rss_delta_mb": 38.56,
+    "shop_n1_pss_delta_mb": 38.5,
+    "shop_n1_v8_heap_mb": 5.52,
+    "shop_n10_rss_delta_mb": 16.45,
+    "shop_n10_pss_delta_mb": 16.44,
+    "shop_n10_v8_heap_mb": 5.53,
+    "shop_n50_rss_delta_mb": 13.7,
+    "shop_n50_pss_delta_mb": 13.7,
+    "shop_n50_v8_heap_mb": 5.53,
+    "shop_n100_rss_delta_mb": 13.36,
+    "shop_n100_pss_delta_mb": 13.36,
+    "shop_n100_v8_heap_mb": 5.52,
+    "hello_n1_rss_delta_mb": 30.04,
+    "hello_n1_pss_delta_mb": 29.98,
+    "hello_n1_v8_heap_mb": 4.81,
+    "hello_n10_rss_delta_mb": 11.83,
+    "hello_n10_pss_delta_mb": 11.82,
+    "hello_n10_v8_heap_mb": 4.81,
+    "hello_n50_rss_delta_mb": 9.55,
+    "hello_n50_pss_delta_mb": 9.55,
+    "hello_n50_v8_heap_mb": 4.81,
+    "hello_n100_rss_delta_mb": 9.14,
+    "hello_n100_pss_delta_mb": 9.14,
+    "hello_n100_v8_heap_mb": 4.81
+  }
+}
