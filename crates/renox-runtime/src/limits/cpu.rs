@@ -49,6 +49,7 @@ const IDLE: u64 = u64::MAX;
 /// [`CpuWatch::now_ns`] caps its reading at `fire_cpu + TERMINATION_TAIL_NS`
 /// so [`CpuLedger`] does not charge the request past the contract bound even
 /// when V8's unwind runs long (macos-15 ARM, 2.7 ms over without the cap).
+#[cfg(target_os = "macos")]
 const TERMINATION_TAIL_NS: u64 = 5_000_000;
 
 /// The CPU clock of one thread, readable from any thread. Linux:
