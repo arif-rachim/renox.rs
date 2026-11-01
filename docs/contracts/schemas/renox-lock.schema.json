@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://renox.dev/contracts/manifest/v1/renox-lock.schema.json",
+  "$id": "https://renoxium.com/contracts/manifest/v1/renox-lock.schema.json",
   "title": "Renox lock file (renox.lock), manifest contract version 1.3",
   "description": "A parsed renox.lock (TOML, written by the CLI). Prose: docs/contracts/manifest.md section 4. Consistency with renox.toml and the module manifests is MF2, MF3, MF5, MF11 and MF12.",
   "type": "object",

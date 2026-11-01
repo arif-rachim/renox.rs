@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://renox.dev/contracts/meter/v0/meter-record.schema.json",
+  "$id": "https://renoxium.com/contracts/meter/v0/meter-record.schema.json",
   "title": "Renox meter batch and record, meter contract version 0.3 (schema_version 0)",
   "description": "Root: one batch envelope (one line of the F1 ndjson sink, one HTTP body in F3). $defs/record: one invocation record. Prose: docs/contracts/meter.md. request_id uniqueness within a batch is rule M1 in validate.ts; the route form per kind, and which kinds carry the realtime fields, are the record's allOf of if/then/else (0.3).",
   "type": "object",

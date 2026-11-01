@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://renox.dev/contracts/manifest/v1/module-manifest.schema.json",
+  "$id": "https://renoxium.com/contracts/manifest/v1/module-manifest.schema.json",
   "title": "Renox module manifest (module.toml) and renox.toml [modules], [authz], [realtime], manifest contract version 1.3",
   "description": "The root validates a parsed module.toml. $defs/renoxToml validates a parsed renox.toml, of which this contract owns only [modules]. Prose: docs/contracts/manifest.md. Rules the schema cannot express (reserved names, own prefix, dependency graph, imports, config types, the lock) are MF1-MF12 in section 6. Version 1.1 (#272) adds [authz] ownership, entities, default_roles and sensitive, [realtime.feeds], permissions.roles, and the same [authz] and [realtime] on renox.toml for the app; rules MF13-MF14.",
   "type": "object",
