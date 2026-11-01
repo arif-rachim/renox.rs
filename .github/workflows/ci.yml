@@ -27,6 +27,14 @@ concurrency:
 permissions:
   contents: read
 
+# `shell: bash` named explicitly runs every step as `bash -eo pipefail` (#356).
+# The runner's default is `bash -e` without pipefail: a pipeline answers its
+# last command's status, so `make ts-test | tee` stayed green while tests
+# failed, and `cargo metadata | jq` would go on with empty input.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # Every check that is not a build: the path filter the other jobs read, then
   # one step per former job. Each check step runs even when an earlier one
@@ -349,9 +357,8 @@ jobs:
       # The pass/skip/fail counts go to the run summary: the worker tests
       # count as run there, not skipped (#186).
       - name: make ts-test
-        # pipefail (#356): without it the step answered tee's status, so a
-        # failing test never failed the job.
-        shell: bash -eo pipefail {0}
+        # The test status, not tee's, ends the step (pipefail, `defaults`
+        # above), after the counts are written to the summary.
         run: |
           status=0
           make ts-test 2>&1 | tee "$RUNNER_TEMP/ts-test.log" || status=$?

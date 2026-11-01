@@ -4,12 +4,22 @@
 // org.currentOrg `globalThis.__shopTestOrg`; storage.upload records into
 // `globalThis.__shopTestUploads` and answers the platform's dimensions of
 // the shop's 400 × 400 PNGs (#332).
+//
+// Only importers under examples/shop get the fake (#356): the suite run from
+// the repository root is one process, and a global `renox:modules` would
+// reach every test file loaded after the shop's.
 import { plugin } from "bun";
+import { join } from "node:path";
+
+const SHOP = join(import.meta.dir, "..") + "/";
 
 plugin({
   name: "renox-modules-fake",
   setup(build) {
-    build.module("renox:modules", () => ({
+    build.onResolve({ filter: /^modules$/u, namespace: "renox" }, (args) =>
+      args.importer.startsWith(SHOP) ? { path: "modules", namespace: "renox-modules-fake" } : undefined,
+    );
+    build.onLoad({ filter: /.*/u, namespace: "renox-modules-fake" }, () => ({
       loader: "object",
       exports: {
         auth: {

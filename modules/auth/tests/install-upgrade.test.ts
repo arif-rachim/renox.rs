@@ -21,10 +21,16 @@ function nextVersion(): string {
   const dir = join(mkdtempSync(join(tmpdir(), "renox-auth-next-")), "auth");
   cpSync(MODULE, dir, { recursive: true, filter: (p) => !p.slice(MODULE.length).startsWith("/tests") });
   writeFileSync(join(dir, "module.toml"), readFileSync(join(dir, "module.toml"), "utf8").replace('version = "1.0.0"', 'version = "1.1.0"'));
-  writeFileSync(join(dir, "migrations/006_users_locale.sql"), "-- 1.1.0: expand only (D17).\nalter table auth__users add column locale text;\n");
+  writeFileSync(join(dir, "migrations", NEXT_MIGRATION), "-- 1.1.0: expand only (D17).\nalter table auth__users add column locale text;\n");
   writeFileSync(join(dir, "pages/login.html"), readFileSync(join(dir, "pages/login.html"), "utf8").replace("<h1><r-t key=\"auth.login.title\" /></h1>", "<h1><r-t key=\"auth.login.title\" /></h1>\n  <p class=\"lede\">Welcome back.</p>"));
   return dir;
 }
+
+/** The migration files of a tree, in the order they run. */
+const migrationsOf = (dir: string): string[] => (existsSync(join(dir, "migrations")) ? readdirSync(join(dir, "migrations")).filter((f) => f.endsWith(".sql")).sort() : []);
+
+/** 1.1.0's migration: one number after the last one the module ships. */
+const NEXT_MIGRATION = `${String(Number.parseInt(migrationsOf(MODULE).at(-1) ?? "0", 10) + 1).padStart(3, "0")}_users_locale.sql`;
 
 const source = (from: string, tree: string): string => `path:${relative(from, tree)}`;
 
@@ -41,9 +47,6 @@ function moduleDirs(): Map<string, string> {
   return out;
 }
 
-/** The migration files of a tree, in the order they run. */
-const migrationsOf = (dir: string): string[] => (existsSync(join(dir, "migrations")) ? readdirSync(join(dir, "migrations")).filter((f) => f.endsWith(".sql")).sort() : []);
-
 /**
  * Each module applied all its own migrations in order, the app's ran last,
  * and `before` lists modules that must run before `after` (the dependency
@@ -54,8 +57,16 @@ function expectMigrationOrder(modules: { module: string; applied: string[] }[], 
   const names = modules.map((m) => m.module);
   expect(names.at(-1)).toBe("app");
   expect(new Set(names).size).toBe(names.length);
-  for (const m of modules) expect([m.module, m.applied]).toEqual([m.module, migrationsOf(m.module === "app" ? SHOP : (dirs.get(m.module) as string))]);
-  for (const [before, after] of deps) expect(names.indexOf(before), `${before} before ${after}`).toBeLessThan(names.indexOf(after));
+  for (const m of modules) {
+    const dir = m.module === "app" ? SHOP : dirs.get(m.module);
+    expect(dir, `module.toml of ${m.module} under modules/`).toBeDefined();
+    expect([m.module, m.applied]).toEqual([m.module, migrationsOf(dir as string)]);
+  }
+  for (const [before, after] of deps) {
+    expect(names, `${before} migrated`).toContain(before);
+    expect(names, `${after} migrated`).toContain(after);
+    expect(names.indexOf(before), `${before} before ${after}`).toBeLessThan(names.indexOf(after));
+  }
 }
 
 describe.skipIf(!worker)("install and upgrade", () => {
@@ -67,7 +78,7 @@ describe.skipIf(!worker)("install and upgrade", () => {
     const v2 = await v1.upgrade(source(SHOP, next));
     expect(v2.check.errors).toEqual([]);
     expect(v2.check.findings.filter((f) => f.rule === "override-drift")).toEqual([]);
-    expect(v2.migrate?.modules.find((m) => m.module === "auth")).toEqual({ module: "auth", applied: ["006_users_locale.sql"], skipped: ["001_init.sql", "002_tokens_user_agent.sql", "003_agents.sql", "004_phone_passkeys_uaepass.sql", "005_login_tickets.sql"] });
+    expect(v2.migrate?.modules.find((m) => m.module === "auth")).toEqual({ module: "auth", applied: [NEXT_MIGRATION], skipped: migrationsOf(MODULE) });
     const db = new Database(join(v2.project, ".renox", "test", "module.db"), { readonly: true });
     try {
       expect(db.query("select name from pragma_table_info('auth__public_users_v1')").all().map((c) => (c as { name: string }).name)).toEqual(["id", "email", "display_name", "created_at"]);
