@@ -62,7 +62,7 @@ export async function txtMatches(resolver: Resolver, hostname: string, token: st
 }
 
 export interface Edge {
-  /** The CNAME target tenants use (`edge.<platform domain>`, `edge.renox.rs` in the reference deployment; `CONTROL_EDGE_HOSTNAME` overrides it). */
+  /** The CNAME target tenants use (`edge.<platform domain>`, `edge.renoxium.app` in the reference deployment; `CONTROL_EDGE_HOSTNAME` overrides it). */
   hostname: string;
   /** Addresses an apex may point at with A/AAAA records. */
   addresses: string[];

@@ -2,7 +2,7 @@
 //! (`docs/24-threat-model.md` "Security process" item 5). Served by the
 //! gateway, valid under RFC 9116, whether or not the host is routed; a
 //! tenant host's own path reaches the tenant. #364: the defaults name
-//! `security@renoxium.com` on the platform domain's apex `renox.rs`, and
+//! `security@renoxium.com` on the platform domain's apex `renoxium.app`, and
 //! `worker.toml` `[gateway.security_txt]` replaces them.
 
 mod common;
@@ -29,7 +29,7 @@ fn gateway(root: &std::path::Path, txt: Option<SecurityTxt>) -> Gateway {
         .unwrap();
     table
         .upsert(entry(
-            "shop.renox.rs",
+            "shop.renoxium.app",
             "t_shop",
             HASH_B,
             RouteStatus::Active,
@@ -57,9 +57,9 @@ async fn platform_hosts_serve_a_valid_security_txt() {
     let app =
         gateway(dir.path(), Some(SecurityTxt::platform(SystemTime::now()))).router(cells.clone());
 
-    // `renox.rs`, the apex of the platform domain, has no route entry; it
+    // `renoxium.app`, the apex of the platform domain, has no route entry; it
     // serves the platform's file without reaching a cell.
-    for host in ["renox.rs"] {
+    for host in ["renoxium.app"] {
         let resp = app
             .clone()
             .oneshot(request(host, SECURITY_TXT_PATH))
@@ -74,14 +74,14 @@ async fn platform_hosts_serve_a_valid_security_txt() {
         let text = body(resp).await;
         validate(&text, SystemTime::now()).unwrap_or_else(|e| panic!("{host}: {e}\n{text}"));
         assert!(text.contains("Contact: mailto:security@renoxium.com\n"));
-        assert!(text.contains("Canonical: https://renox.rs/.well-known/security.txt\n"));
+        assert!(text.contains("Canonical: https://renoxium.app/.well-known/security.txt\n"));
     }
     assert_eq!(cells.count(), 0);
 
     // A tenant host's own `/.well-known/security.txt` is the tenant's.
     let resp = app
         .clone()
-        .oneshot(request("shop.renox.rs", SECURITY_TXT_PATH))
+        .oneshot(request("shop.renoxium.app", SECURITY_TXT_PATH))
         .await
         .unwrap();
     assert_eq!(body(resp).await, "tenant=t_shop");
@@ -90,7 +90,7 @@ async fn platform_hosts_serve_a_valid_security_txt() {
     let post = Request::builder()
         .method("POST")
         .uri(SECURITY_TXT_PATH)
-        .header("host", "renox.rs")
+        .header("host", "renoxium.app")
         .body(Body::empty())
         .unwrap();
     let resp = app.clone().oneshot(post).await.unwrap();
@@ -102,7 +102,7 @@ async fn without_the_setting_nothing_is_served() {
     let dir = tempfile::tempdir().unwrap();
     let app = gateway(dir.path(), None).router(FakeDispatcher::new());
     let resp = app
-        .oneshot(request("renox.rs", SECURITY_TXT_PATH))
+        .oneshot(request("renoxium.app", SECURITY_TXT_PATH))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND, "an unknown host");
@@ -137,7 +137,7 @@ async fn configured_settings_replace_the_defaults() {
     assert!(!text.contains("renoxium.com"));
     assert_eq!(cells.count(), 0);
     let resp = app
-        .oneshot(request("renox.rs", SECURITY_TXT_PATH))
+        .oneshot(request("renoxium.app", SECURITY_TXT_PATH))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);

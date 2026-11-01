@@ -30,14 +30,14 @@ health_listen = "@HEALTH_LISTEN@"
 # The platform's /.well-known/security.txt (RFC 9116, #121), served by the
 # gateway on `hosts` before any route lookup (#364). Every key is optional.
 # The values below are the defaults of the reference deployment (tenant apps
-# on renox.rs, the company and its mail on renoxium.com), except `policy`,
+# on renoxium.app, the company and its mail on renoxium.com), except `policy`,
 # which is unset by default. `canonical` defaults to
 # https://<first host>/.well-known/security.txt. A value RFC 9116 refuses stops
 # the worker at start.
 # [gateway.security_txt]
-# hosts = ["renox.rs"]
+# hosts = ["renoxium.app"]
 # contacts = ["mailto:security@renoxium.com"]
-# canonical = "https://renox.rs/.well-known/security.txt"
+# canonical = "https://renoxium.app/.well-known/security.txt"
 # policy = "https://renoxium.com/security"
 
 # The sections below arrive with F6 (#253 sandbox, #254 process tiers, #255

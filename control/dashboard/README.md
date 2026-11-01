@@ -43,7 +43,7 @@ renox tokens create dashboard --scope apps:read --scope apps:write --scope deplo
 | --- | --- | --- |
 | `DASHBOARD_KEY` | yes | At least 32 characters; derives the key of stored sign-ins. Changing it signs everyone out |
 | `RENOX_API_URL` | no | Another control API (`https://` only); its host must also be in `[permissions] network` |
-| `RENOX_PLATFORM_DOMAIN` | no | The API's `CONTROL_PLATFORM_DOMAIN`, shown as `<name>.<domain>` on the new-app page; default `renox.rs` |
+| `RENOX_PLATFORM_DOMAIN` | no | The API's `CONTROL_PLATFORM_DOMAIN`, shown as `<name>.<domain>` on the new-app page; default `renoxium.app` |
 | `OPS_CONSOLE` | no | `operators` turns on the operator console (`/ops/tenants/:tenant`) on this deployment; anything else answers 403 there |
 
 ## Run

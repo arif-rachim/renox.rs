@@ -394,7 +394,7 @@ async fn csp_reports_are_normalised() {
             "blocked_uri": "https://evil.example.net/x.js",
             "violated_directive": "script-src-elem",
             "effective_directive": "script-src-elem",
-            "source_file": "https://shop.renox.rs/products/42",
+            "source_file": "https://shop.renoxium.app/products/42",
             "line": 3,
             "column": 1,
             "disposition": "enforce",

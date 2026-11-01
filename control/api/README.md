@@ -24,7 +24,7 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 | `CONTROL_DATABASE_URL` | `pglite:memory` | `postgres://…`, `pglite:memory`, or `pglite:<dir>` |
 | `CONTROL_OPERATOR_TOKEN_SHA256` | unset (operator endpoints answer 401) | SHA-256 hex of the `renox_op_…` token |
 | `CONTROL_MASTER_KEY` | unset (secret endpoints disabled) | Base64 of the 32-byte master key that wraps the per-tenant data keys |
-| `CONTROL_PLATFORM_DOMAIN` | `renox.rs` | App hostnames are `<app>.<domain>`; the custom-domain CNAME target is `edge.<domain>` (`CONTROL_EDGE_HOSTNAME` overrides it). Never the domain of a platform service (`docs/contracts/README.md`, "Domains") |
+| `CONTROL_PLATFORM_DOMAIN` | `renoxium.app` | App hostnames are `<app>.<domain>`; the custom-domain CNAME target is `edge.<domain>` (`CONTROL_EDGE_HOSTNAME` overrides it). Never the domain of a platform service (`docs/contracts/README.md`, "Domains") |
 | `CONTROL_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | unset, `renox-artifacts`, `me-central-1` | Object storage |
 | `CONTROL_DASHBOARD_URL` | `https://dashboard.renoxium.com` | Base of the links in emails (account, billing); the passkey relying party is its host |
 | `CONTROL_API_URL` | `https://api.renoxium.com` | Public origin of this API: the `Canonical` of its security.txt |

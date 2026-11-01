@@ -477,7 +477,7 @@ impl Worker {
         gw_config.protocol.h2_max_control_frames_per_second =
             config.gateway.h2_max_control_frames_per_second;
         // The platform's security.txt (#121) from `[gateway.security_txt]`
-        // (#364; default: `renox.rs`, `security@renoxium.com`); production
+        // (#364; default: `renoxium.app`, `security@renoxium.com`); production
         // only. `WorkerConfig::parse` already checked it builds.
         if config.mode == Mode::Controlled {
             let txt = config

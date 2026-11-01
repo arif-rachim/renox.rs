@@ -1,6 +1,6 @@
 // The API the CLI talks to by default (#364; docs/contracts/README.md
 // "Domains"): the platform's own services live on renoxium.com, never under
-// the tenant domain renox.rs. RENOX_API_URL overrides it.
+// the tenant domain renoxium.app. RENOX_API_URL overrides it.
 
 import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";

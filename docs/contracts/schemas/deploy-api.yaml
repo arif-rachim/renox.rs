@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renoxium deploy API
-  version: 0.5.2
+  version: 0.5.3
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -185,8 +185,8 @@ paths:
                 two:
                   value:
                     apps:
-                      - { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.rs] }
-                      - { name: notes, tenant_id: t_hello, created_at: 1793318300500, active_deployment: null, hostnames: [notes.renox.rs] }
+                      - { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renoxium.app] }
+                      - { name: notes, tenant_id: t_hello, created_at: 1793318300500, active_deployment: null, hostnames: [notes.renoxium.app] }
         "401": { $ref: "#/components/responses/Unauthenticated" }
 
   /v1/apps/{app}:
@@ -1355,7 +1355,7 @@ paths:
                     - { $ref: "control-messages.schema.json#/$defs/certificate_remove" }
               examples:
                 connect:
-                  value: "event: message\ndata: {\"type\":\"resync\",\"schema_version\":0,\"version\":42}\n\nevent: message\ndata: {\"type\":\"route_delta\",\"schema_version\":0,\"prev_version\":42,\"version\":43,\"upserts\":[{\"hostname\":\"hello.renox.rs\",\"tenant_id\":\"t_hello\",\"app\":\"hello\",\"deployment_hash\":\"2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6\",\"status\":\"active\",\"updated_at\":1793318500000,\"version\":43,\"tier\":\"free\",\"node_id\":\"node-dxb-01\",\"secrets_version\":2}],\"removals\":[]}\n\n"
+                  value: "event: message\ndata: {\"type\":\"resync\",\"schema_version\":0,\"version\":42}\n\nevent: message\ndata: {\"type\":\"route_delta\",\"schema_version\":0,\"prev_version\":42,\"version\":43,\"upserts\":[{\"hostname\":\"hello.renoxium.app\",\"tenant_id\":\"t_hello\",\"app\":\"hello\",\"deployment_hash\":\"2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6\",\"status\":\"active\",\"updated_at\":1793318500000,\"version\":43,\"tier\":\"free\",\"node_id\":\"node-dxb-01\",\"secrets_version\":2}],\"removals\":[]}\n\n"
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
 
@@ -1391,7 +1391,7 @@ paths:
                     schema_version: 0
                     version: 42
                     entries:
-                      - { hostname: hello.renox.rs, tenant_id: t_hello, app: hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", status: active, updated_at: 1793318400000, version: 41, tier: free, node_id: node-dxb-01, secrets_version: 0 }
+                      - { hostname: hello.renoxium.app, tenant_id: t_hello, app: hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", status: active, updated_at: 1793318400000, version: 41, tier: free, node_id: node-dxb-01, secrets_version: 0 }
         "304": { description: The table did not change since the version in If-None-Match. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -1727,7 +1727,7 @@ paths:
               examples:
                 restored:
                   value:
-                    app: { name: hello-restored, tenant_id: t_hello, created_at: 1793318600000, active_deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", hostnames: [hello-restored.renox.rs] }
+                    app: { name: hello-restored, tenant_id: t_hello, created_at: 1793318600000, active_deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", hostnames: [hello-restored.renoxium.app] }
                     deployment:
                       app: hello-restored
                       hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
@@ -3466,7 +3466,7 @@ paths:
                   hash: { $ref: "#/components/schemas/Sha256" }
                   url: { type: string, pattern: "^https://" }
               examples:
-                shop: { value: { app: hello-shop, template: shop, hash: 802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a, url: "https://hello-shop.renox.rs" } }
+                shop: { value: { app: hello-shop, template: shop, hash: 802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a, url: "https://hello-shop.renoxium.app" } }
         "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -3496,9 +3496,9 @@ paths:
                 reporter_email: { type: string, format: email, maxLength: 254 }
                 captcha_token: { type: string, minLength: 1, maxLength: 4096 }
             examples:
-              phishing: { value: { url: "https://secure-login-bank.renox.rs/verify", category: phishing, description: "Imitates a UAE bank's login and posts the password to a form", captcha_token: "0.turnstile-token" } }
+              phishing: { value: { url: "https://secure-login-bank.renoxium.app/verify", category: phishing, description: "Imitates a UAE bank's login and posts the password to a form", captcha_token: "0.turnstile-token" } }
             x-renox-invalid-examples:
-              category: { value: { url: "https://x.renox.rs", category: rude, description: "a long enough text", captcha_token: x }, x-expect: enum }
+              category: { value: { url: "https://x.renoxium.app", category: rude, description: "a long enough text", captcha_token: x }, x-expect: enum }
       responses:
         "202":
           description: A ticket; the reporter, when an address is given, gets its id and the outcome.
@@ -3534,7 +3534,7 @@ paths:
                 properties:
                   items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/AbuseTicket" } }
               examples:
-                open: { value: { items: [{ id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.rs, tenant_id: t_phish, category: phishing, state: open, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793318400000, reason: null }] } }
+                open: { value: { items: [{ id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renoxium.app, tenant_id: t_phish, category: phishing, state: open, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793318400000, reason: null }] } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
 
@@ -3576,7 +3576,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AbuseTicket" }
               examples:
-                down: { value: { id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.rs, tenant_id: t_phish, category: phishing, state: taken_down, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793322000000, reason: "Confirmed bank phishing; Safe Browsing unsafe" } }
+                down: { value: { id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renoxium.app, tenant_id: t_phish, category: phishing, state: taken_down, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793322000000, reason: "Confirmed bank phishing; Safe Browsing unsafe" } }
         "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -5037,9 +5037,9 @@ components:
     InvoiceList:
       value: { items: [{ id: INV-2026-000123, tenant_id: t_hello, period: { start: 1790726400000, end: 1793318400000 }, status: paid, lines: [{ description: "Starter plan, October 2026", quantity: "1", unit_price: "79.00", amount: "79.00" }], subtotal: "79.00", vat: "3.95", total: "82.95", currency: AED, seller_trn: "100987654300003", buyer_trn: "100123456700003", issued_at: 1793318400000, paid_at: 1793322000000 }] }
     AppNew:
-      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renox.rs] }
+      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renoxium.app] }
     AppLive:
-      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.rs, www.example.com] }
+      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renoxium.app, www.example.com] }
     DeploymentValidated:
       value:
         app: hello
