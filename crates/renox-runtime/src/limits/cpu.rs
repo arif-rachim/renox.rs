@@ -237,30 +237,32 @@ impl CpuWatch {
     /// wall_slice_start)`: within a slice the isolate thread holds V8 and
     /// runs JavaScript, so wall is a tight upper bound on CPU used and does
     /// not lag (#212). Once the watchdog has fired, the reading is also
-    /// bounded from above by `fired_at + TERMINATION_TAIL_NS`, so
-    /// [`CpuLedger`] does not charge the request past the ± 5 ms contract
-    /// bound while V8 unwinds. Outside a slice (or on Linux) the raw clock
-    /// is returned.
+    /// bounded from above by `fired_at + TERMINATION_TAIL_NS` — this cap
+    /// applies regardless of slice state, because `release_cpu` runs after
+    /// `end_slice` has set `slice_start_ns = IDLE` and still needs the cap
+    /// so `CpuLedger` does not charge the request past the ± 5 ms contract
+    /// bound. On Linux the raw clock is returned.
     pub fn now_ns(&self) -> u64 {
         let cpu = self.clock.now().map(|d| d.as_nanos() as u64).unwrap_or(0);
         #[cfg(target_os = "macos")]
         {
+            let mut effective = cpu;
             let slice_start = self.slice_start_ns.load(Ordering::SeqCst);
             if slice_start != IDLE {
                 let wall_start = self.wall_start_ns.load(Ordering::SeqCst);
-                let mut effective = cpu;
                 if wall_start != IDLE {
                     let wall_based =
                         slice_start.saturating_add(self.wall_ns().saturating_sub(wall_start));
                     effective = effective.max(wall_based);
                 }
-                let fired_at = self.fired_at_ns.load(Ordering::SeqCst);
-                if fired_at != IDLE {
-                    effective = effective.min(fired_at.saturating_add(TERMINATION_TAIL_NS));
-                }
-                return effective;
             }
+            let fired_at = self.fired_at_ns.load(Ordering::SeqCst);
+            if fired_at != IDLE {
+                effective = effective.min(fired_at.saturating_add(TERMINATION_TAIL_NS));
+            }
+            return effective;
         }
+        #[cfg(not(target_os = "macos"))]
         cpu
     }
 
@@ -277,8 +279,10 @@ impl CpuWatch {
     /// Restart the measured run at `start_ns` (thread CPU) with `budget`:
     /// the running context changed. Only the isolate thread calls it. The
     /// wall-time anchor is read inside, so the two clocks come from the
-    /// same instant. The macOS fire cap is cleared because a new run
-    /// starts fresh.
+    /// same instant. The macOS fire cap is not touched: once the watchdog
+    /// has fired, intra-slice context switches (promise reactions during
+    /// V8's unwind) must not clear the cap, or [`CpuLedger`] would charge
+    /// past the ± 5 ms bound.
     pub fn rebase(&self, start_ns: u64, budget: Duration) {
         let wall_start = if start_ns == IDLE {
             IDLE
@@ -289,7 +293,6 @@ impl CpuWatch {
         self.budget_ns.store(clamp_ns(budget), Ordering::SeqCst);
         self.wall_start_ns.store(wall_start, Ordering::SeqCst);
         self.slice_start_ns.store(start_ns, Ordering::SeqCst);
-        self.fired_at_ns.store(IDLE, Ordering::SeqCst);
         self.seq.fetch_add(1, Ordering::SeqCst);
     }
 
