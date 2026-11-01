@@ -100,7 +100,17 @@ pub fn write_config(
     let dir = run_dir.join("litestream");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{database}.yml"));
-    std::fs::write(&path, config_yaml(r, file, database))?;
+    // Write then rename: a sidecar starting while another caller rewrites
+    // the config (a restore, a status read) must never read a truncated
+    // file ("no databases specified in configuration").
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".{database}.yml.{}-{seq}", std::process::id()));
+    std::fs::write(&tmp, config_yaml(r, file, database))?;
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(path)
 }
 

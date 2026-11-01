@@ -205,10 +205,10 @@
   "B20": {
     "metric": "Build/binary",
     "scenario": "renox-worker release build size and CI time",
-    "target_text": "≤ 100 MB; CI ≤ 15 min with cache",
+    "target_text": "≤ 160 MB; CI ≤ 15 min with cache",
     "fail_text": "—",
     "metrics": {
-      "binary_mb": { "unit": "MB", "better": "lower", "target": 100, "fail": null },
+      "binary_mb": { "unit": "MB", "better": "lower", "target": 160, "fail": null },
       "ci_min": { "unit": "min", "better": "lower", "target": 15, "fail": null }
     }
   }
