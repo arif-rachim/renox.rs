@@ -26,7 +26,11 @@ use crate::artifact::{
 use crate::control::http::{Answer, ControlClient, ControlError};
 use crate::tar_safe::{TarCaps, extract};
 
-/// Time for one artifact download, response head to last byte.
+/// Time to the response head, from the control API and from the object
+/// store (#359): storage that accepts connections and never answers is
+/// unavailable after this, not after the whole download budget.
+pub const HEAD_TIMEOUT: Duration = Duration::from_secs(5);
+/// Time for the body of one artifact download, first to last byte.
 pub const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 /// The stored object is the uncompressed tar of at most 100 MiB of files
 /// (T2), plus headers and padding.
@@ -113,7 +117,7 @@ impl S3ArtifactStore {
         let path = self.client.node_path(&format!("/artifacts/{hash}"));
         let first = self
             .client
-            .send(Method::GET, &path, None, &[], DOWNLOAD_TIMEOUT)
+            .send(Method::GET, &path, None, &[], HEAD_TIMEOUT)
             .await?;
         let answer = match first.status {
             StatusCode::OK => first,
@@ -124,10 +128,7 @@ impl S3ArtifactStore {
                     .and_then(|v| v.to_str().ok())
                     .ok_or_else(|| ControlError::Body("307 without Location".into()))?
                     .to_string();
-                let a = self
-                    .client
-                    .get_external(&location, DOWNLOAD_TIMEOUT)
-                    .await?;
+                let a = self.client.get_external(&location, HEAD_TIMEOUT).await?;
                 if a.status != StatusCode::OK {
                     return Err(ControlError::Status(a.status.as_u16()));
                 }

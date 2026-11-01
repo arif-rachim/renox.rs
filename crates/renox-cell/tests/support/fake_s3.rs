@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -66,6 +67,9 @@ pub struct FakeS3 {
     objects: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     /// Requests seen, as `METHOD path` (the query of a presigned URL dropped).
     pub seen: Arc<Mutex<Vec<String>>>,
+    /// When set, the object store reads a request and never answers (a
+    /// paused server: the connection is accepted and held, #359).
+    pub hang: Arc<AtomicBool>,
 }
 
 impl FakeS3 {
@@ -112,6 +116,10 @@ impl FakeS3 {
                             Vec::new(),
                         )
                     } else if let Some(hash) = path.strip_prefix("/renox-artifacts/") {
+                        if me.hang.load(Ordering::SeqCst) {
+                            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                            return;
+                        }
                         match me.objects.lock().unwrap().get(hash) {
                             Some(b) => (
                                 "200 OK",
