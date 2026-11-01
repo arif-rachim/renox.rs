@@ -47,7 +47,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::{ErrorCode, PlatformResponse};
 use crate::limits::Limits;
 use crate::limits::concurrency::ConcurrencyLimit;
-use crate::limits::cpu::{CpuLedger, CpuWatch, Watchdog};
+use crate::limits::cpu::{self, Charge, CpuLedger, CpuWatch, ThreadUsage, Watchdog};
 use crate::limits::heap::{self, HeapFlag};
 use crate::limits::wall::effective_deadline;
 use crate::loader::{ArtifactLoader, specifier_for};
@@ -2676,6 +2676,10 @@ async fn create_worker(
         .await
         .map_err(|e| CreateError::Internal(format!("hardening: {e}")))?;
 
+    // Step 3b (#342): one request of the platform's own through the
+    // request path, before any tenant code exists in the isolate.
+    warm_request_path(ctx, &mut worker, &dispatch, &guards).await?;
+
     // Step 4: tenant modules, under the module-evaluation limits
     // (ops.md section 10, last row).
     let module_start = Instant::now();
@@ -2896,6 +2900,116 @@ async fn create_worker(
 
 /// The owner of a route: the module of its `module` id, or of its template
 /// id for an `.html`-only page; else the app.
+/// The first run of the request path in an isolate is platform work (#342):
+/// V8 compiles and warms the bootstrap's dispatch, `Request`, `URL`,
+/// `Response` and the response ops on first use, about 4.5 ms that every
+/// isolate's first request paid on top of its handler (`shop` on
+/// `node-small`: cold 8.9 ms at the median against 3.7 ms with this). It runs
+/// here, once, at creation: a request of the platform's own (a handler the
+/// platform compiles, no body, no principal) through the bootstrap's
+/// `dispatch`, under the module-evaluation limits. No tenant code runs: the
+/// tenant's modules are evaluated after it (step 4) and the `auth` service
+/// is registered after them (step 5), so nothing of the tenant's ever runs
+/// with this request's token. Its result is discarded and its request ends
+/// like any other (its resources drained); it is not metered and not
+/// logged. It costs about 0.15 MB per isolate.
+///
+/// It does not touch timers: the global `setTimeout` is lazy-loaded from
+/// `node:timers` (`deno_runtime`, `98_global_scope_shared.js`), whose first
+/// use costs about 17 ms and 2.7 MB per isolate; warming it would charge
+/// that memory to every isolate, timers used or not. The first timer of an
+/// isolate is still paid by the request that sets it.
+async fn warm_request_path(
+    ctx: &ThreadContext,
+    worker: &mut MainWorker,
+    dispatch: &v8::Global<v8::Function>,
+    guards: &Guards,
+) -> Result<(), CreateError> {
+    let handler = worker
+        .js_runtime
+        .execute_script(
+            "[renox:warm]",
+            "(ctx) => Response.json({ path: ctx.url.pathname, accept: ctx.headers.get(\"accept\") })",
+        )
+        .map_err(|e| CreateError::Internal(format!("warm-up handler: {e}")))?;
+    let deadline = Instant::now() + Duration::from_millis(ctx.limits.module_wall_ms);
+    let (token, body) = {
+        let state = worker.js_runtime.op_state();
+        let mut state = state.borrow_mut();
+        let request = RequestState::new("renox_warm_up".into(), deadline, 0);
+        let token = state.borrow_mut::<RequestTable>().begin(request);
+        let body = state.borrow_mut::<ResponseSinks>().open(token, u64::MAX);
+        (token, body)
+    };
+    let args = {
+        deno_core::scope!(scope, &mut worker.js_runtime);
+        let headers: Vec<(ByteString, ByteString)> = vec![("accept".into(), "*/*".into())];
+        let null: v8::Local<v8::Value> = v8::null(scope).into();
+        let parts: Result<Vec<v8::Local<v8::Value>>, serde_v8::Error> = (|| {
+            Ok(vec![
+                v8::Local::new(scope, &handler),
+                v8::Integer::new_from_unsigned(scope, token).into(),
+                serde_v8::to_v8(scope, "GET")?,
+                serde_v8::to_v8(scope, "https://warm-up.invalid/")?,
+                serde_v8::to_v8(scope, headers.as_slice())?,
+                null,
+                serde_v8::to_v8(scope, serde_json::Map::new())?,
+                v8::Boolean::new(scope, true).into(),
+                null,
+                null,
+                serde_v8::to_v8(scope, "app")?,
+                null,
+                null,
+            ])
+        })();
+        parts.map(|p| {
+            p.into_iter()
+                .map(|l| v8::Global::new(scope, l))
+                .collect::<Vec<_>>()
+        })
+    };
+    let outcome = match args {
+        Ok(args) => {
+            let slice = guards
+                .watchdog
+                .begin_slice(Duration::from_millis(ctx.limits.module_cpu_ms));
+            let call = worker.js_runtime.call_with_args(dispatch, &args);
+            let r = tokio::time::timeout(
+                Duration::from_millis(ctx.limits.module_wall_ms),
+                worker
+                    .js_runtime
+                    .with_event_loop_promise(call, PollEventLoopOptions::default()),
+            )
+            .await;
+            guards.watchdog.end_slice(slice);
+            Some(r)
+        }
+        Err(_) => None,
+    };
+    drop(body);
+    end_request(ctx, worker, token, Ended::Finished);
+    if guards.watchdog.watch().fired() {
+        return Err(CreateError::Limit(ErrorCode::CpuLimit));
+    }
+    let answered = match outcome {
+        Some(Ok(Ok(v))) => read_outcome(worker, Ok(v)),
+        Some(Ok(Err(e))) => Err(e.to_string()),
+        Some(Err(_elapsed)) => {
+            worker.js_runtime.v8_isolate().terminate_execution();
+            return Err(CreateError::Limit(ErrorCode::Deadline));
+        }
+        None => Err("arguments".into()),
+    };
+    // A platform defect, not the tenant's: the isolate still serves, and
+    // its first request pays the first run as before #342.
+    match answered {
+        Ok(o) if o.kind == KIND_OK && o.status == Some(200) => {}
+        Ok(o) => tracing::warn!(kind = o.kind, status = ?o.status, "request path warm-up answered"),
+        Err(e) => tracing::warn!(error = %e, "request path warm-up failed"),
+    }
+    Ok(())
+}
+
 fn route_owner(r: &crate::manifest::RouteDef) -> String {
     let id = if r.module.is_empty() {
         r.page()
@@ -3023,6 +3137,82 @@ struct InFlight {
     /// Set once the head of a streamed body was sent: the request ends,
     /// and its meter goes here, when the stream ends.
     stream_end: Option<oneshot::Sender<StreamEnd>>,
+    /// The CPU trace of the request, when `renox_runtime::cpu` is at
+    /// debug level (#342).
+    trace: Option<CpuTrace>,
+}
+
+/// What a request's CPU charge was made of (#342): the thread's usage while
+/// it was in flight, the slices it was in, and the garbage collections.
+struct CpuTrace {
+    /// The request was the n-th one this isolate admitted (1 = cold).
+    nth: u64,
+    start: Instant,
+    usage: ThreadUsage,
+    gc: (u64, u64),
+    /// Slices that ended while it was in flight (0: it began and ended in
+    /// one slice); `max_slice_*` is the longest of them.
+    slices: u32,
+    max_slice_ns: u64,
+    max_slice_wall_ns: u64,
+}
+
+impl CpuTrace {
+    fn begin(nth: u64) -> CpuTrace {
+        CpuTrace {
+            nth,
+            start: Instant::now(),
+            usage: ThreadUsage::now().unwrap_or_default(),
+            gc: cpu::gc::gc_total(),
+            slices: 0,
+            max_slice_ns: 0,
+            max_slice_wall_ns: 0,
+        }
+    }
+
+    fn slice(&mut self, cpu_ns: u64, wall_ns: u64) {
+        self.slices += 1;
+        if cpu_ns > self.max_slice_ns {
+            self.max_slice_ns = cpu_ns;
+            self.max_slice_wall_ns = wall_ns;
+        }
+    }
+}
+
+/// End a request in the ledger, set its CPU, and write its trace line.
+fn release_flight(ctx: &ThreadContext, f: &mut InFlight, how: &'static str) {
+    let charge = release_cpu(f.token);
+    f.cpu_ns = charge.total;
+    let Some(t) = f.trace.take() else {
+        return;
+    };
+    let usage = ThreadUsage::now().unwrap_or_default().since(&t.usage);
+    let (gc_ns, gc_n) = cpu::gc::gc_total();
+    let ms = |ns: u64| (ns as f64 / 1e4).round() / 100.0;
+    tracing::debug!(
+        target: "renox_runtime::cpu",
+        tenant = %ctx.spec.tenant_id,
+        request_id = %f.ctx.request_id,
+        how,
+        nth = t.nth,
+        cpu_ms = ms(charge.total),
+        own_ms = ms(charge.own),
+        shared_ms = ms(charge.total.saturating_sub(charge.own)),
+        limit_ms = ctx.limits.cpu_ms,
+        wall_ms = ms(t.start.elapsed().as_nanos() as u64),
+        slices = t.slices,
+        max_slice_ms = ms(t.max_slice_ns),
+        max_slice_wall_ms = ms(t.max_slice_wall_ns),
+        gc_ms = ms(gc_ns.saturating_sub(t.gc.0)),
+        gc_count = gc_n.saturating_sub(t.gc.1),
+        user_ms = ms(usage.user_ns),
+        system_ms = ms(usage.system_ns),
+        minflt = usage.minflt,
+        majflt = usage.majflt,
+        nvcsw = usage.nvcsw,
+        nivcsw = usage.nivcsw,
+        "request cpu trace"
+    );
 }
 
 impl InFlight {
@@ -3067,6 +3257,10 @@ struct Attribution {
     watch: Arc<CpuWatch>,
     /// A slice is running: switches are charged and re-arm the watchdog.
     in_slice: bool,
+    /// Requests admitted so far (the first one is the cold request).
+    admitted: u64,
+    /// Write a CPU trace line per request (#342).
+    trace: bool,
 }
 
 thread_local! {
@@ -3107,17 +3301,17 @@ pub(crate) fn charge_cpu(token: u32, ns: u64) {
     });
 }
 
-/// End a request in the ledger; returns its CPU (ns).
-fn release_cpu(token: u32) -> u64 {
+/// End a request in the ledger; returns its charge.
+fn release_cpu(token: u32) -> Charge {
     with_attribution(|a| {
         let now = a.watch.now_ns();
-        let cpu = a.ledger.release(token, now);
+        let cpu = a.ledger.release_charge(token, now);
         if a.in_slice {
             a.watch.rebase(now, a.ledger.budget());
         }
         cpu
     })
-    .unwrap_or(0)
+    .unwrap_or_default()
 }
 
 /// The key of the request token in the async context object. The
@@ -3174,6 +3368,32 @@ fn install_promise_hooks(worker: &mut MainWorker) {
     scope.set_promise_hooks(None, before, after, None);
 }
 
+/// GC prologue and epilogue for the CPU trace (#342).
+fn install_gc_trace(worker: &mut MainWorker) {
+    unsafe extern "C" fn prologue(
+        _isolate: v8::UnsafeRawIsolatePtr,
+        _type: v8::GCType,
+        _flags: v8::GCCallbackFlags,
+        _data: *mut std::ffi::c_void,
+    ) {
+        cpu::gc::gc_started();
+    }
+    unsafe extern "C" fn epilogue(
+        _isolate: v8::UnsafeRawIsolatePtr,
+        _type: v8::GCType,
+        _flags: v8::GCCallbackFlags,
+        _data: *mut std::ffi::c_void,
+    ) {
+        cpu::gc::gc_ended();
+    }
+    let isolate = worker.js_runtime.v8_isolate();
+    // The callbacks touch only this thread's GC counters and ignore their
+    // arguments; V8 calls them on the isolate's thread, around each
+    // collection.
+    isolate.add_gc_prologue_callback(prologue, std::ptr::null_mut(), v8::GCType::kGCTypeAll);
+    isolate.add_gc_epilogue_callback(epilogue, std::ptr::null_mut(), v8::GCType::kGCTypeAll);
+}
+
 /// Set the async context that JavaScript started now runs in: a
 /// null-prototype object holding the request token under
 /// [`CPU_TOKEN_KEY`], or `undefined` for none.
@@ -3203,6 +3423,7 @@ async fn serve(
     mut rx: mpsc::UnboundedReceiver<Command>,
 ) {
     let cpu_limit = Duration::from_millis(ctx.limits.cpu_ms);
+    let trace = tracing::enabled!(target: "renox_runtime::cpu", tracing::Level::DEBUG);
     let mut calls: FuturesUnordered<SeqCall> = FuturesUnordered::new();
     let mut inflight: HashMap<u64, InFlight> = HashMap::new();
     let watch = guards.watchdog.watch().clone();
@@ -3211,11 +3432,17 @@ async fn serve(
             ledger: CpuLedger::new(cpu_limit),
             watch: watch.clone(),
             in_slice: false,
+            admitted: 0,
+            trace,
         })
     });
     install_promise_hooks(worker);
+    if trace {
+        install_gc_trace(worker);
+    }
     std::future::poll_fn(|cx| {
         let budget = with_attribution(|a| a.ledger.budget()).unwrap_or(cpu_limit);
+        let slice_wall = Instant::now();
         let slice = guards.watchdog.begin_slice(budget);
         with_attribution(|a| {
             a.ledger.begin(slice);
@@ -3249,7 +3476,7 @@ async fn serve(
                 }
                 Some(Command::Cancel { seq, meter, reason }) => {
                     if let Some(mut f) = inflight.remove(&seq) {
-                        f.cpu_ns = release_cpu(f.token);
+                        release_flight(ctx, &mut f, "cancel");
                         f.used = end_request(ctx, worker, f.token, Ended::Terminated);
                         let _ = meter.send(f.meter(ctx, reason.status()));
                     }
@@ -3308,7 +3535,7 @@ async fn serve(
                     inflight.insert(seq, flight);
                     continue;
                 }
-                flight.cpu_ns = release_cpu(flight.token);
+                release_flight(ctx, &mut flight, "finished");
                 flight.used = end_request(ctx, worker, flight.token, Ended::Finished);
                 let reply = finish_dispatch(ctx, &flight, outcome);
                 if flight.used.rolled_back_tx {
@@ -3345,7 +3572,24 @@ async fn serve(
             a.ledger.end(a.watch.now_ns());
             a.in_slice = false;
         });
-        guards.watchdog.end_slice(slice);
+        let slice_cpu = guards.watchdog.end_slice(slice);
+        if trace {
+            let wall = slice_wall.elapsed().as_nanos() as u64;
+            let cpu_ns = slice_cpu.as_nanos() as u64;
+            for f in inflight.values_mut() {
+                if let Some(t) = f.trace.as_mut() {
+                    t.slice(cpu_ns, wall);
+                }
+            }
+            tracing::trace!(
+                target: "renox_runtime::cpu",
+                tenant = %ctx.spec.tenant_id,
+                in_flight = inflight.len(),
+                cpu_us = cpu_ns / 1_000,
+                wall_us = wall / 1_000,
+                "slice"
+            );
+        }
         let heap_now = heap::used_heap_bytes(&mut worker.js_runtime);
         for f in inflight.values_mut() {
             f.peak_heap = f.peak_heap.max(heap_now);
@@ -3365,7 +3609,7 @@ async fn serve(
         if let Some((code, status)) = killed {
             ctx.shared.poisoned.store(true, Ordering::SeqCst);
             for (_, mut flight) in inflight.drain() {
-                flight.cpu_ns = release_cpu(flight.token);
+                release_flight(ctx, &mut flight, "killed");
                 flight.used = end_request(ctx, worker, flight.token, Ended::Terminated);
                 let mut f = serde_json::Map::new();
                 f.insert("code".into(), code.as_str().into());
@@ -3585,7 +3829,7 @@ fn end_streams(
         let Some(mut flight) = inflight.remove(&seq) else {
             continue;
         };
-        flight.cpu_ns = release_cpu(token);
+        release_flight(ctx, &mut flight, "stream");
         flight.used = end_request(ctx, worker, token, Ended::Finished);
         let route = flight.meter(ctx, MeterStatus::Ok).route.unwrap_or_default();
         let (status, complete) = match event {
@@ -3783,10 +4027,13 @@ fn start_dispatch(
     };
     // The handler runs in the request's async context; V8 carries it into
     // every reaction the handler creates (CPU attribution, #155).
-    with_attribution(|a| {
+    let trace = with_attribution(|a| {
+        a.admitted += 1;
         let now = a.watch.now_ns();
-        a.ledger.admit(token, now)
-    });
+        a.ledger.admit(token, now);
+        a.trace.then(|| CpuTrace::begin(a.admitted))
+    })
+    .flatten();
     set_async_context(worker, Some(token));
     attribute(|l, now| l.switch(Some(token), now));
     let entry = if job.event.is_some() {
@@ -3814,6 +4061,7 @@ fn start_dispatch(
             reply: Some(job.reply),
             body: Some(body),
             stream_end: None,
+            trace,
         },
     ))
 }

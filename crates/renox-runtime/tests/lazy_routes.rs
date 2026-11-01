@@ -177,15 +177,31 @@ async fn a_lazy_module_without_the_export_answers_module_eval() {
 /// The lazy module's top-level code runs inside the request: an op works
 /// (and is refused for its own reason, not RENOX_NO_REQUEST), and its CPU
 /// is charged to the request that triggered it (ops.md 1.4.0 section 7).
+///
+/// The top level does a fixed amount of work, not a spin for a span of
+/// wall time: on a busy machine (CI runs the tests in parallel) a 40 ms
+/// wall-clock spin can get less than 30 ms of CPU, and the charge is right
+/// to say so (#342: charged 27.6 ms against 27.7 ms of thread rusage, 59 ms
+/// wall, 12 involuntary context switches). The same work, run by the
+/// handler in later requests, is the reference; the lowest of three is
+/// taken, so one host stall on the thread (counted as CPU, #342) cannot
+/// raise it.
 #[tokio::test]
 async fn a_lazy_modules_top_level_runs_inside_its_first_request() {
     let (rt, _) = runtime();
     let src = r#"
+        function work() {
+            let x = 0;
+            for (let i = 0; i < 7000000; i++) x = (x * 31 + i) % 1000003;
+            return x;
+        }
         let code = "none";
         try { await fetch("https://blocked.example/"); } catch (e) { code = e.code; }
-        const end = Date.now() + 40;
-        while (Date.now() < end) {}
-        export function GET() { return Response.json({ code }); }
+        work();
+        export function GET(ctx) {
+            if (ctx.url.searchParams.has("work")) work();
+            return Response.json({ code });
+        }
     "#;
     let (dir, hash) = artifact(&[("ops", src, false)]);
     let iso = rt
@@ -196,9 +212,18 @@ async fn a_lazy_modules_top_level_runs_inside_its_first_request() {
     assert_eq!(first.response.status(), 200);
     assert_eq!(body_json(&first.response)["code"], "RENOX_FETCH_BLOCKED");
     let second = iso.dispatch(ctx("req_lazy_ops_00002"), get("/ops")).await;
+    let mut work_ms = f64::INFINITY;
+    for i in 3..=5 {
+        let r = iso
+            .dispatch(ctx(&format!("req_lazy_ops_0000{i}")), get("/ops?work=1"))
+            .await;
+        assert_eq!(r.response.status(), 200);
+        work_ms = work_ms.min(r.meter.cpu_ms);
+    }
+    assert!(work_ms >= 5.0, "the work was charged {work_ms} ms");
     assert!(
-        first.meter.cpu_ms >= 30.0,
-        "first request charged {} ms",
+        first.meter.cpu_ms >= 0.8 * work_ms,
+        "first request charged {} ms, the same work in a handler {work_ms} ms",
         first.meter.cpu_ms
     );
     assert!(
