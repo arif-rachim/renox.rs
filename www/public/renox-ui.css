@@ -180,7 +180,7 @@ main { flex: 1; min-inline-size: 0; padding: var(--rx-6) var(--rx-6) var(--rx-7)
 .side > a { padding: .4rem var(--rx-3); border-radius: var(--rx-r-control); color: var(--rx-ink-2); text-decoration: none; }
 .side > a:hover { background: var(--rx-sunken); color: var(--rx-ink); }
 /* The current page is the lit cell of the list. */
-.side > a.current { display: flex; align-items: center; gap: var(--rx-2); background: var(--rx-surface); color: var(--rx-ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--rx-rule); }
+.side > a.current { display: flex; align-items: center; gap: var(--rx-2); background: var(--rx-sunken); color: var(--rx-ink); font-weight: 600; }
 .side > a.current::before { content: ""; flex: none; inline-size: .5rem; block-size: .5rem; border-radius: var(--rx-r-cell); background: var(--rx-accent); }
 
 .narrow { max-inline-size: var(--rx-measure); }
@@ -322,7 +322,7 @@ form > label > input, form > label > select, form > label > textarea { inline-si
 .tabs { display: inline-flex; gap: 2px; padding: 2px; background: var(--rx-sunken); border-radius: var(--rx-r-control); }
 .tabs a { padding: .2rem .7rem; font-size: .8125rem; color: var(--rx-ink-2); text-decoration: none; border-radius: calc(var(--rx-r-control) - 2px); }
 .tabs a:hover { color: var(--rx-ink); }
-.tabs a.current { background: var(--rx-surface); color: var(--rx-ink); font-weight: 600; box-shadow: 0 0 0 1px var(--rx-rule); }
+.tabs a.current { background: var(--rx-surface); color: var(--rx-ink); font-weight: 600; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--rx-4); margin-block-end: var(--rx-5); }
 .card { padding: var(--rx-4) var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
@@ -339,8 +339,10 @@ form > label > input, form > label > select, form > label > textarea { inline-si
 .checklist { list-style: none; padding: 0; background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
 .checklist li { display: flex; align-items: baseline; gap: var(--rx-3); padding: var(--rx-3) var(--rx-4); border-block-end: 1px solid var(--rx-rule); }
 .checklist li:last-child { border-block-end: 0; }
+.checklist li { align-items: center; }
+.checklist li::before { content: ""; flex: none; inline-size: .7rem; block-size: .7rem; border-radius: var(--rx-r-cell); background: var(--rx-idle); }
 .checklist li.done { color: var(--rx-muted); }
-.checklist li.done > span:first-of-type { color: var(--rx-ok); font-weight: 700; }
+.checklist li.done::before { background: var(--rx-accent); }
 .checklist li:not(.done) a { font-weight: 600; }
 
 .codes { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: var(--rx-2); }
@@ -397,11 +399,12 @@ meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; accent-col
 
 @media (max-width: 48rem) {
   .frame { flex-direction: column; align-items: stretch; }
+  /* The section links wrap onto a second line rather than run past the screen's edge. */
   .side {
     position: static;
     flex-direction: row;
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    gap: 2px var(--rx-1);
     min-inline-size: 0;
     padding: var(--rx-2) var(--rx-4);
     border-block-end: 1px solid var(--rx-rule);

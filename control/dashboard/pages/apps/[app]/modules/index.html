@@ -80,7 +80,7 @@
         <h3>{{ c.name }}</h3>
         <p class="muted">{{ c.publisher }} · {{ c.version }}<span r-if="c.price"> · {{ c.price }}</span></p>
         <p>{{ c.description }}</p>
-        <p class="muted" dir="auto"><r-t key="dash.modules.signed" /> ✓ <code>{{ c.signed }}</code> · <r-t key="dash.modules.mode" :mode="c.isolation" /></p>
+        <p class="muted" dir="auto"><r-t key="dash.modules.signed" /> <code>{{ c.signed }}</code> · <r-t key="dash.modules.mode" :mode="c.isolation" /></p>
         <x-form action="review" hx-target="#page" hx-swap="outerHTML">
           <input type="hidden" name="publisher" :value="c.publisher">
           <input type="hidden" name="name" :value="c.name">

@@ -63,7 +63,11 @@
       "step_verify": "Verify your email address",
       "step_create": "Create your first app from a template",
       "step_deploy_app": "Deploy {app} (renox deploy, or the template's own deploy)",
-      "step_deploy": "Deploy it"
+      "step_deploy": "Deploy it",
+      "done": "Done:",
+      "todo": "To do:",
+      "cli_title": "Deploy from your terminal",
+      "cli_intro": "Sign in once, then deploy from the app folder. The app is live as soon as the command finishes."
     },
     "signin": {
       "intro": "Paste a Renoxium token for your tenant. Create one with",

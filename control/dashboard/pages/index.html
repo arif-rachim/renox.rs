@@ -1,13 +1,23 @@
 <r-layout use="main">
   <r-group slot="title"><r-t key="dash.home.title" /> · <r-t key="dash.brand" /></r-group>
-  <section class="narrow">
+  <section>
     <h1><r-t key="dash.home.title" /></h1>
+    <div class="cols">
+    <div>
     <ol class="checklist">
       <li r-for="s in steps" :class="{ done: s.done }">
-        <span r-if="s.done">✓</span><span r-if="!s.done">○</span>
+        <span class="visually-hidden" r-if="s.done"><r-t key="dash.home.done" /></span><span class="visually-hidden" r-if="!s.done"><r-t key="dash.home.todo" /></span>
         <a :href="s.href" r-if="s.href">{{ s.text }}</a><span r-if="!s.href">{{ s.text }}</span>
       </li>
     </ol>
     <p class="muted"><r-t key="dash.home.hint" /></p>
+    </div>
+    <div class="panel">
+      <h2><r-t key="dash.home.cli_title" /></h2>
+      <p><r-t key="dash.home.cli_intro" /></p>
+      <pre><code>bunx renox login
+bunx renox deploy</code></pre>
+    </div>
+    </div>
   </section>
 </r-layout>

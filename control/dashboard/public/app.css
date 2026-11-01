@@ -27,3 +27,14 @@ ul.logs .level { flex: none; min-inline-size: 3rem; }
 /* Stack frames of a browser error group. */
 .frames { padding-inline-start: var(--rx-5); font-family: var(--rx-font-mono); font-size: .8125rem; }
 .frames li { padding-block: .15rem; }
+
+/* Below 40rem a log line is a small block: time and level, the message, then
+   the request id with its source (app-screens rule: fields move, none dropped). */
+@media (max-width: 40rem) {
+  table.logs, table.logs tbody { display: block; }
+  table.logs tr { display: grid; grid-template-columns: auto 1fr; gap: .15rem var(--rx-3); padding-block: var(--rx-2); border-block-end: 1px solid var(--rx-rule); }
+  table.logs td { display: block; padding: 0; border: 0; }
+  /* The message right under its time; the id and source after it. */
+  table.logs td.msg { grid-column: 1 / -1; order: 1; }
+  table.logs td:nth-child(3), table.logs td:nth-child(4) { order: 2; grid-column: 1 / -1; font-size: .75rem; color: var(--rx-muted); word-break: break-all; }
+}
