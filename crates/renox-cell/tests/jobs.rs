@@ -7,6 +7,15 @@
 //! a run waits for it, a row left running is queued again at start; and
 //! the jobs half of "Event handler fails repeatedly" (a failing job is
 //! dead-lettered, listed without its payload, retried with an audit row).
+//!
+//! The fixture's `report` job is minutely and the cell's scheduler runs on
+//! the wall clock, so a real minute boundary inside a test fires a real
+//! tick (issue #362: a persisted next tick one minute later than expected,
+//! an extra run). The tests that read ticks first wait until at least
+//! [`MARGIN`] is left in the current minute ([`clear_of_minute_boundary`])
+//! and derive what they expect from that minute; the scheduler is unchanged.
+//! Every test that counts or orders `app__runs` does so; the module-ops
+//! test reads only dead rows by id, which a real tick does not touch.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
@@ -298,13 +307,32 @@ fn minute_floor(ms: i64) -> i64 {
     ms - ms.rem_euclid(60_000)
 }
 
+/// Time a tick-reading test needs before the next minute boundary. The
+/// slowest of them takes about a second; ten leaves room for a loaded host.
+const MARGIN: i64 = 10_000;
+
+/// Wait, when less than [`MARGIN`] is left in the current minute, until
+/// just past the boundary, so that no real tick of the minutely `report`
+/// job fires while the test runs. Returns the time it starts at, on the
+/// scheduler's clock.
+async fn clear_of_minute_boundary() -> i64 {
+    let now = jobs::now_ms();
+    let left = 60_000 - now.rem_euclid(60_000);
+    if left < MARGIN {
+        tokio::time::sleep(Duration::from_millis(u64::try_from(left).unwrap() + 50)).await;
+    }
+    let now = jobs::now_ms();
+    assert!(60_000 - now.rem_euclid(60_000) >= MARGIN, "{now}");
+    now
+}
+
 /// Three missed ticks of a minutely job (the persisted next tick is three
 /// minutes old) become exactly one run, for the latest missed tick, as
 /// `Renox::System::"app"`, metered `JOB app report`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missed_ticks_after_downtime_coalesce_into_one_run_as_the_system_principal() {
     let (data, artifacts, hash) = setup();
-    let now = jobs::now_ms();
+    let now = clear_of_minute_boundary().await;
     {
         let db = open(&data);
         jobs::set_next(&db, "app", "report", minute_floor(now) - 3 * 60_000).unwrap();
@@ -329,7 +357,9 @@ async fn missed_ticks_after_downtime_coalesce_into_one_run_as_the_system_princip
     // The next tick is persisted for the scheduled list and the next start.
     let db = open(&data);
     let next = jobs::stored_next(&db, "app", "report").unwrap().unwrap();
-    assert!(next > now && next <= now + 60_000, "{next} {now}");
+    // No boundary fell inside the test, so the cell started in the minute
+    // of `now`: the next tick is the following minute.
+    assert_eq!(next, minute_floor(now) + 60_000, "{next} {now}");
     assert!(
         jobs::list(&db, &[], "queued", 10, None)
             .unwrap()
@@ -344,6 +374,7 @@ async fn missed_ticks_after_downtime_coalesce_into_one_run_as_the_system_princip
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_second_tick_during_a_run_waits_for_it() {
     let (data, artifacts, hash) = setup();
+    let start = clear_of_minute_boundary().await;
     let n = node(&data, &artifacts, &hash);
     // A queued run that waits 600 ms holds the job's lease.
     let v = n.get("enqueue=%7B%22spin%22%3A600%7D").await;
@@ -362,6 +393,7 @@ async fn a_second_tick_during_a_run_waits_for_it() {
     // from a second connection here, which does not wake the worker the way
     // the cell's own scheduler does, so a committed enqueue wakes it after.
     let t0 = jobs::now_ms();
+    assert_eq!(minute_floor(t0), minute_floor(start), "no boundary yet");
     {
         let db = open(&data);
         assert!(jobs::schedule_tick(&db, "app", "report", t0, t0).unwrap());
@@ -369,21 +401,26 @@ async fn a_second_tick_during_a_run_waits_for_it() {
     }
     let v = n.get("enqueue=%7B%22n%22%3A9%7D").await;
     assert!(v["id"].is_string(), "{v}");
+    // The runs this test caused: the two queued ones and the ticks it wrote.
+    // A real tick of the minutely job is not one of them (and with the
+    // margin above none fires), but it would still hold the lease.
+    let ours = |r: &Run| r.payload != "null" || matches!(r.tick, Some(t) if t == t0 || t == t0 + 1);
+    let mine = || runs(&data).into_iter().filter(ours).collect::<Vec<_>>();
     assert!(
-        eventually(Duration::from_secs(10), || runs(&data).len() == 3).await,
+        eventually(Duration::from_secs(10), || mine().len() == 3).await,
         "{:?}",
         runs(&data)
     );
     tokio::time::sleep(Duration::from_millis(300)).await;
     let r = runs(&data);
-    assert_eq!(r.len(), 3, "{r:?}");
+    assert_eq!(mine().len(), 3, "{r:?}");
     for w in r.windows(2) {
         assert!(
             w[1].started >= w[0].ended,
             "runs of one job never overlap: {r:?}"
         );
     }
-    let scheduled: Vec<&Run> = r.iter().filter(|x| x.payload == "null").collect();
+    let scheduled: Vec<Run> = mine().into_iter().filter(|x| x.payload == "null").collect();
     assert_eq!(scheduled.len(), 1, "one run for both ticks: {r:?}");
     assert_eq!(scheduled[0].tick, Some(t0 + 1), "the later tick");
 }
@@ -394,6 +431,8 @@ async fn a_second_tick_during_a_run_waits_for_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enqueue_follows_the_transaction() {
     let (data, artifacts, hash) = setup();
+    // `app__runs` must hold only the enqueued run, not a real tick's.
+    clear_of_minute_boundary().await;
     let n = node(&data, &artifacts, &hash);
     let v = n.get("enqueue=%7B%22n%22%3A1%7D&fail=1").await;
     assert_eq!(v["error"], "rolled back");
@@ -416,6 +455,8 @@ async fn enqueue_follows_the_transaction() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_row_left_running_is_requeued_at_start() {
     let (data, artifacts, hash) = setup();
+    // `runs()[0]` must be the requeued row, not a real tick's run.
+    clear_of_minute_boundary().await;
     let id = {
         let db = open(&data);
         let id = db
