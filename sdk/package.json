@@ -1,35 +1,65 @@
 {
   "name": "renox",
   "version": "0.1.0",
-  "description": "Types and helpers for Renox tenant code: ctx (db, fetch, secrets, log, deadline), handlers, errors",
-  "private": true,
+  "description": "Types and helpers for Renox tenant code: ctx (db, fetch, secrets, log, deadline), handlers, pages, modules, errors, test fakes",
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/arif-rachim/renox.rs/tree/main/sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arif-rachim/renox.rs.git",
+    "directory": "sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/arif-rachim/renox.rs/issues"
+  },
+  "keywords": [
+    "renox",
+    "renoxium",
+    "sdk",
+    "hosting",
+    "multi-tenant",
+    "sqlite",
+    "typescript",
+    "htmx"
+  ],
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./kysely": {
-      "types": "./src/kysely.ts",
-      "default": "./src/kysely.ts"
+      "types": "./dist/kysely.d.ts",
+      "default": "./dist/kysely.js"
     },
     "./drizzle": {
-      "types": "./src/drizzle.ts",
-      "default": "./src/drizzle.ts"
+      "types": "./dist/drizzle.d.ts",
+      "default": "./dist/drizzle.js"
     },
     "./fakes": {
-      "types": "./src/fakes.ts",
-      "default": "./src/fakes.ts"
+      "types": "./dist/fakes.d.ts",
+      "default": "./dist/fakes.js"
     },
     "./test": {
-      "types": "./src/test.ts",
-      "default": "./src/test.ts"
+      "types": "./dist/test.d.ts",
+      "default": "./dist/test.js"
     }
   },
   "files": [
-    "src"
+    "dist",
+    "README.md"
   ],
+  "engines": {
+    "bun": ">=1.4",
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepare": "bun run build",
     "check": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p client",
     "test": "bun test"
   },

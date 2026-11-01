@@ -1,0 +1,17 @@
+{
+  // The published package: `bun run build` emits JavaScript and declarations
+  // into dist/, which `exports` in package.json points at (#376). The
+  // runtime-neutral check of the sources stays in tsconfig.json; this config
+  // only emits, so it includes `src/test.ts` (Bun-only, `renox/test`) and
+  // needs bun-types for it.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["bun-types"]
+  },
+  "include": ["src/**/*.ts"]
+}

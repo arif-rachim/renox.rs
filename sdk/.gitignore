@@ -1,0 +1,2 @@
+# Built by `bun run build` (and by `prepare` on `bun install`); the published package ships it, the repository does not.
+dist/
