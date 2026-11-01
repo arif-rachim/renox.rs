@@ -31,9 +31,14 @@ export async function load(ctx: LoaderContext) {
     api.usage(name, now - DAY_MS, now),
     api.logs(name, { since: now - DAY_MS }),
   ]);
-  if (!app.ok) return { ...base, problem: await problem(ctx, app), info: null, deployments: [], usage: null, logs: [], logs_problem: null, deployments_problem: null };
+  if (!app.ok) return { ...base, problem: await problem(ctx, app), info: null, finding: null, live_row: null, deployments: [], usage: null, logs: [], logs_problem: null, deployments_problem: null };
   const tr = trOf(ctx);
   const live = deployments.ok ? deployments.value.deployments.find((d) => d.state === "active") : undefined;
+  const rows = deployments.ok ? deploymentRows(deployments.value.deployments, now, tr) : [];
+  // The screen's finding (taste-skill app-screens 2.2): the errors of the last 24 hours, newest first,
+  // read before anything else; a quiet line when there are none, nothing when the logs did not load.
+  const errors = logs.ok ? logs.value.filter((l) => l.level === "error") : [];
+  const latest = errors.at(-1);
   return {
     ...base,
     problem: null,
@@ -45,7 +50,17 @@ export async function load(ctx: LoaderContext) {
       hostnames: app.value.hostnames,
       url: app.value.hostnames[0] === undefined ? null : `https://${app.value.hostnames[0]}/`,
     },
-    deployments: deployments.ok ? deploymentRows(deployments.value.deployments, now, tr) : [],
+    finding: !logs.ok
+      ? null
+      : latest === undefined
+        ? { bad: false, text: tr("dash.overview.no_errors"), href: null }
+        : {
+            bad: true,
+            text: tr("dash.overview.errors_24h", { n: errors.length, when: ago(latest.ts, now, tr), message: latest.message.slice(0, 160) }),
+            href: `/apps/${name}/logs?level=error&window=24h`,
+          },
+    live_row: rows.find((r) => r.state === "active") ?? null,
+    deployments: rows,
     deployments_problem: deployments.ok ? null : await problem(ctx, deployments),
     usage: usage.ok
       ? {

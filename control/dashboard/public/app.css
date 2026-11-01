@@ -38,3 +38,23 @@ ul.logs .level { flex: none; min-inline-size: 3rem; }
   table.logs td.msg { grid-column: 1 / -1; order: 1; }
   table.logs td:nth-child(3), table.logs td:nth-child(4) { order: 2; grid-column: 1 / -1; font-size: .75rem; color: var(--rx-muted); word-break: break-all; }
 }
+
+/* Overview: the finding under the title, then the live version as the screen's largest block
+   (taste-skill app-screens 2.2: the screen's question answered first, its one finding read first). */
+.finding { margin-block: 0 var(--rx-4); color: var(--rx-ink-2); }
+.finding::before { content: ""; display: inline-block; inline-size: .6rem; block-size: .6rem; margin-inline-end: var(--rx-2); border-radius: var(--rx-r-cell); background: var(--rx-accent); vertical-align: .05em; }
+.finding.bad { color: var(--rx-bad); }
+.finding.bad::before { background: var(--rx-bad); }
+.finding a { color: inherit; font-weight: 600; }
+.live-panel { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--rx-5); padding: var(--rx-5); margin-block-end: var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
+.live-cell { inline-size: 3.5rem; block-size: 3.5rem; border-radius: var(--rx-r-control); background: var(--rx-accent); }
+.live-main > * { margin: 0; }
+.live-label { font-size: .8125rem; color: var(--rx-muted); }
+.live-hash { margin-block: .1rem var(--rx-2); }
+.live-hash code { padding: 0; background: none; font-size: 1.75rem; font-weight: 600; letter-spacing: -.01em; color: var(--rx-ink); }
+.live-main .meta { margin: 0; font-size: .875rem; }
+@media (max-width: 40rem) {
+  .live-panel { grid-template-columns: auto 1fr; }
+  .live-cell { inline-size: 2.5rem; block-size: 2.5rem; }
+  .live-act { grid-column: 1 / -1; }
+}

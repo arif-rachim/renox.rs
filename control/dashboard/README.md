@@ -10,7 +10,7 @@ The F3 subset of `docs/19-platform-wireframes.md`:
 | --- | --- | --- |
 | `/signin`, `/signout` | — | Sign in with a tenant token; sign out deletes it (below) |
 | `/apps` | 3.1 Org overview, 3.2 New app | The tenant's apps: status, live version, hostnames; create an app (`apps:write`) |
-| `/apps/:app` | 3.3 App overview | Status, live version and deploy time, hostnames, the last 24 h of usage, recent deployments with Promote/Rollback, the latest log lines |
+| `/apps/:app` | 3.3 App overview | First the finding: the errors of the last 24 h with the latest and a link to them (or "No errors"); then the live version with its Rollback, the last 24 h of usage, recent deployments with Promote/Rollback, the latest log lines |
 | `/apps/:app/deployments[?hash=]` | 3.4 Deployments | Every deployment with its state; Promote (`validated` or `superseded` → live) and Rollback (`deploy`); with `hash`, the validation violations, permissions, secret-set version and activation error |
 | `/apps/:app/logs` | 3.5 Logs | Level, source (`all`/`server`/`client`), search, window (15m–7d) and deployment filters; Live streams new lines over SSE (`/sse/logs`), with the 2-second poll of the `log_lines` fragment as the fallback |
 | `/account/security` | 3.14 (account) | The signed-in user's second factors with their own token: authenticator app, passkeys, recovery codes (step-up inline), removal; the team's requirement shown |

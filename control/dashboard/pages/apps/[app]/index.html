@@ -8,12 +8,21 @@
         <h1>{{ app }}</h1>
         <a class="button" :href="info.url" r-if="info.url"><r-t key="dash.common.open" /> ↗</a>
       </div>
-      <ul class="meta">
-        <li :class="{ ok: info.live }">{{ info.status }}</li>
-        <li>v <code>{{ info.version }}</code></li>
-        <li><r-t key="dash.overview.deployed" /> {{ info.deployed }}</li>
-        <li r-for="h in info.hostnames">{{ h }}</li>
-      </ul>
+      <p class="finding" :class="{ bad: finding.bad }" r-if="finding">{{ finding.text }}<r-group r-if="finding.href"> <a :href="finding.href"><r-t key="dash.overview.see_errors" /></a></r-group></p>
+      <div class="live-panel" r-if="info.live">
+        <span class="live-cell" aria-hidden="true"></span>
+        <div class="live-main">
+          <p class="live-label"><r-t key="dash.overview.live_version" /></p>
+          <p class="live-hash"><code>{{ info.version }}</code></p>
+          <ul class="meta">
+            <li class="ok">{{ info.status }}</li>
+            <li><r-t key="dash.overview.deployed" /> {{ info.deployed }}</li>
+            <li r-for="h in info.hostnames">{{ h }}</li>
+          </ul>
+        </div>
+        <div class="live-act" r-if="live_row"><x-deployment-actions :d="live_row" /></div>
+      </div>
+      <p class="warning" r-if="!info.live"><r-t key="dash.overview.no_live" /></p>
       <p class="notice" r-if="notice">{{ notice }}</p>
       <x-problem :problem="action_problem" r-if="action_problem" />
       <h2><r-t key="dash.overview.last_24h" /></h2>
