@@ -69,9 +69,13 @@ fn median(mut v: Vec<f64>) -> f64 {
 /// charged at most 2× the CPU the same request uses alone, and none is
 /// ended with `RENOX_CPU_LIMIT`. No request is charged less than its own
 /// JavaScript work, within 20 % measurement noise (the same work run
-/// without `await`, which has no event
-/// loop overhead to share); the rest of a request's solo cost is per-slice
-/// platform work, which concurrent requests share.
+/// without `await`, which has no event loop overhead to share); the rest
+/// of a request's solo cost is per-slice platform work, which concurrent
+/// requests share. The work baseline is taken before and after the
+/// concurrent rounds and the smaller one is used: V8 keeps tiering `work()`
+/// up through the 192 more calls the rounds make, and on macos-15 ARM the
+/// last round came out 26 % cheaper than the first baseline (#212), which
+/// is the JIT, not the ledger.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_light_requests_are_charged_their_own_cpu() {
     let _serial = SERIAL.lock().await;
@@ -109,10 +113,11 @@ async fn concurrent_light_requests_are_charged_their_own_cpu() {
         sync.push(out.meter.cpu_ms);
     }
     // The fastest run: the work itself, with the least noise on top.
-    let work = sync.iter().cloned().fold(f64::MAX, f64::min);
-    println!("same work without await: fastest {work:.3} ms, all {sync:?}");
+    let work_before = sync.iter().cloned().fold(f64::MAX, f64::min);
+    println!("same work without await: fastest {work_before:.3} ms, all {sync:?}");
 
     let mut worst_ratio: f64 = 0.0;
+    let mut round_mins = Vec::new();
     for round in 0..3 {
         let started = Instant::now();
         let handles: Vec<_> = (0..16)
@@ -143,9 +148,26 @@ async fn concurrent_light_requests_are_charged_their_own_cpu() {
             max <= 2.0 * own,
             "a request was charged {max:.3} ms, its own CPU is {own:.3} ms"
         );
+        round_mins.push(min);
+    }
+    // The same baseline once the JIT has seen the rounds' work.
+    let mut sync_after = Vec::new();
+    for i in 0..9 {
+        let put = http::Request::builder()
+            .method("PUT")
+            .uri("https://test.renox.app/sync")
+            .body(bytes::Bytes::new())
+            .unwrap();
+        let out = iso.dispatch(ctx(&format!("req_synca_{i:07}")), put).await;
+        assert_eq!(out.response.status(), 200);
+        sync_after.push(out.meter.cpu_ms);
+    }
+    let work = work_before.min(sync_after.iter().cloned().fold(f64::MAX, f64::min));
+    println!("same work after the rounds: all {sync_after:?}; baseline {work:.3} ms");
+    for (round, min) in round_mins.iter().enumerate() {
         assert!(
-            min >= 0.8 * work,
-            "a request was charged {min:.3} ms for {work:.3} ms of its own JavaScript"
+            *min >= 0.8 * work,
+            "round {round}: a request was charged {min:.3} ms for {work:.3} ms of its own JavaScript"
         );
     }
     println!("worst charged / own: {worst_ratio:.2}");
