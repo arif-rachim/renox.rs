@@ -7,7 +7,7 @@
 //! The hosts, contacts, canonical URL and policy are operator
 //! configuration (`worker.toml` `[gateway.security_txt]`, #364); the
 //! defaults are the reference deployment's (`docs/contracts/README.md`,
-//! "Domains"): the platform domain's apex `renox.rs`, reports to
+//! "Domains"): the platform domain's apex `renoxium.app`, reports to
 //! `security@renoxium.com`.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -31,7 +31,7 @@ pub struct SecurityTxt {
 
 /// The hosts that serve the file by default: the apex of the platform
 /// domain, which no tenant can claim.
-pub const DEFAULT_HOSTS: &[&str] = &["renox.rs"];
+pub const DEFAULT_HOSTS: &[&str] = &["renoxium.app"];
 
 /// The default `Contact`: the platform's security mailbox, on the company
 /// domain, never on the tenant domain.
@@ -295,10 +295,10 @@ mod tests {
         assert!(f.body().contains("Contact: mailto:security@renoxium.com\n"));
         assert!(
             f.body()
-                .contains("Canonical: https://renox.rs/.well-known/security.txt\n")
+                .contains("Canonical: https://renoxium.app/.well-known/security.txt\n")
         );
         assert!(f.body().contains("Preferred-Languages: en, ar\n"));
-        assert!(f.serves("renox.rs") && !f.serves("shop.renox.rs"));
+        assert!(f.serves("renoxium.app") && !f.serves("shop.renoxium.app"));
         // The default settings build the same file.
         assert_eq!(Settings::default().build(now).unwrap().body(), f.body());
     }
@@ -325,8 +325,8 @@ mod tests {
         );
         assert!(body.contains("Canonical: https://apps.example.test/.well-known/security.txt\n"));
         assert!(body.contains("Policy: https://example.test/policy\n"));
-        assert!(!body.contains("renoxium.com") && !body.contains("renox.rs"));
-        assert!(f.serves("www.apps.example.test") && !f.serves("renox.rs"));
+        assert!(!body.contains("renoxium.com") && !body.contains("renoxium.app"));
+        assert!(f.serves("www.apps.example.test") && !f.serves("renoxium.app"));
     }
 
     #[test]

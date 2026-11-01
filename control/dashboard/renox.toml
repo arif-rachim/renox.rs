@@ -8,7 +8,7 @@ timezone = "Asia/Dubai"
 # the key that encrypts stored sign-ins; RENOX_API_URL (optional, https only)
 # points at another API, whose host must then be added to `network`.
 # RENOX_PLATFORM_DOMAIN (optional) is the API's CONTROL_PLATFORM_DOMAIN, shown
-# as `<name>.<domain>` on the new-app page; default `renox.rs`.
+# as `<name>.<domain>` on the new-app page; default `renoxium.app`.
 [permissions]
 network = ["api.renoxium.com"]
 secrets = ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL", "RENOX_PLATFORM_DOMAIN"]

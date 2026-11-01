@@ -1,5 +1,5 @@
 // The platform's domains and contacts come from configuration (#364;
-// docs/contracts/README.md "Domains"): tenant apps under `renox.rs`, the
+// docs/contracts/README.md "Domains"): tenant apps under `renoxium.app`, the
 // platform's own services and mail under `renoxium.com`. Each default is read
 // here, and each is overridden by its variable. docs/24-threat-model.md C,
 // "Shared-domain reputation": no default may point at a domain that is not
@@ -14,9 +14,9 @@ import { securityTxt } from "../src/well-known.ts";
 import { harness, signup } from "./helpers.ts";
 
 describe("control API defaults (#364)", () => {
-  test("the reference deployment: renox.rs for apps, renoxium.com for the dashboard, the API and mail", () => {
+  test("the reference deployment: renoxium.app for apps, renoxium.com for the dashboard, the API and mail", () => {
     const c = loadConfig({});
-    expect(c.platformDomain).toBe("renox.rs");
+    expect(c.platformDomain).toBe("renoxium.app");
     expect(c.dashboardUrl).toBe("https://dashboard.renoxium.com");
     expect(c.apiUrl).toBe("https://api.renoxium.com");
     expect(c.securityContacts).toEqual(["mailto:security@renoxium.com"]);
@@ -63,12 +63,12 @@ describe("mail texts from the config (#364)", () => {
   test("the takedown mail names the configured abuse address, and abuse@renoxium.com by default", async () => {
     const h = await harness();
     await signup(h, "owner@takedown.ae", "t_takedown");
-    await mailOwner(h.deps, "t_takedown", "bankcopy.renox.rs", "phishing");
+    await mailOwner(h.deps, "t_takedown", "bankcopy.renoxium.app", "phishing");
     const first = h.mailer.last("owner@takedown.ae", "abuse_takedown");
     expect(first?.subject).toBe("Your Renoxium tenant was taken down after an abuse report");
     expect(first?.text).toContain("reply to abuse@renoxium.com with the hostname");
     h.deps.config.abuseContact = "abuse@example.test";
-    await mailOwner(h.deps, "t_takedown", "bankcopy.renox.rs", "phishing");
+    await mailOwner(h.deps, "t_takedown", "bankcopy.renoxium.app", "phishing");
     expect(h.mailer.last("owner@takedown.ae", "abuse_takedown")?.text).toContain("reply to abuse@example.test with the hostname");
   });
 
@@ -80,10 +80,10 @@ describe("mail texts from the config (#364)", () => {
 });
 
 describe("the CNAME target and the labels a person reads (#364)", () => {
-  test("the custom-domain CNAME target is edge.<platform domain>, edge.renox.rs by default; CONTROL_EDGE_HOSTNAME overrides it", async () => {
+  test("the custom-domain CNAME target is edge.<platform domain>, edge.renoxium.app by default; CONTROL_EDGE_HOSTNAME overrides it", async () => {
     const h = await harness();
     h.deps.config.platformDomain = loadConfig({}).platformDomain;
-    expect(domainServiceFromEnv(h.deps, {}).edge.hostname).toBe("edge.renox.rs");
+    expect(domainServiceFromEnv(h.deps, {}).edge.hostname).toBe("edge.renoxium.app");
     expect(domainServiceFromEnv(h.deps, { CONTROL_EDGE_HOSTNAME: "edge.example.test" }).edge.hostname).toBe("edge.example.test");
   });
 

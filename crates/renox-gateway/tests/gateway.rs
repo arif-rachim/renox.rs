@@ -395,7 +395,7 @@ async fn route_table_file_reload() {
     .unwrap();
     let table = RouteTable::from_json(&json).unwrap();
     let hello = table
-        .lookup("hello.renox.rs")
+        .lookup("hello.renoxium.app")
         .expect("worked example routes");
     assert_eq!(hello.status, RouteStatus::Active);
     assert!(
@@ -403,7 +403,7 @@ async fn route_table_file_reload() {
             .reload_from_json("{\"version\":1,\"entries\":[]}")
             .is_err()
     );
-    assert!(table.lookup("hello.renox.rs").is_some());
+    assert!(table.lookup("hello.renoxium.app").is_some());
 }
 
 /// Serving over a real socket: `Gateway::serve` sets the client address.

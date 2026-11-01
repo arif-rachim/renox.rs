@@ -13,8 +13,8 @@ import type { Fetch, Secrets } from "renox";
 /** The API `renox login` uses by default (cli/src/commands/login.ts). */
 export const DEFAULT_API = "https://api.renoxium.com";
 
-/** The domain tenant apps live under (`<app>.renox.rs`; docs/contracts/README.md "Domains"); `CONTROL_PLATFORM_DOMAIN` of the API. */
-export const DEFAULT_PLATFORM_DOMAIN = "renox.rs";
+/** The domain tenant apps live under (`<app>.renoxium.app`; docs/contracts/README.md "Domains"); `CONTROL_PLATFORM_DOMAIN` of the API. */
+export const DEFAULT_PLATFORM_DOMAIN = "renoxium.app";
 
 /** Bytes of an API response body the dashboard reads at most (a log page is the largest). */
 const MAX_BODY = 4 * 1024 * 1024;

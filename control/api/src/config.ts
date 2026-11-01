@@ -16,7 +16,7 @@ export interface Config {
   databaseUrl: string;
   /** SHA-256 hex of the operator token; null disables the operator endpoints. */
   operatorTokenSha256: string | null;
-  /** `CONTROL_PLATFORM_DOMAIN`: base domain of app hostnames, <app>.<platformDomain> (default `renox.rs`; docs/contracts/README.md "Domains"). Never a platform service's domain. */
+  /** `CONTROL_PLATFORM_DOMAIN`: base domain of app hostnames, <app>.<platformDomain> (default `renoxium.app`; docs/contracts/README.md "Domains"). Never a platform service's domain. */
   platformDomain: string;
   /** null: in-memory object store (tests and quick local runs only). */
   s3: S3Config | null;
@@ -44,11 +44,11 @@ type Env = Record<string, string | undefined>;
 
 /**
  * The reference deployment's values (docs/contracts/README.md, "Domains"):
- * tenant apps under `renox.rs`, the platform's own services and mail under
+ * tenant apps under `renoxium.app`, the platform's own services and mail under
  * `renoxium.com`. Every one is overridden by its variable.
  */
 export const DEFAULTS = {
-  platformDomain: "renox.rs",
+  platformDomain: "renoxium.app",
   dashboardUrl: "https://dashboard.renoxium.com",
   apiUrl: "https://api.renoxium.com",
   securityContacts: ["mailto:security@renoxium.com"] as readonly string[],

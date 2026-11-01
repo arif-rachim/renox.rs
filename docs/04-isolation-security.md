@@ -89,7 +89,7 @@ Browser-facing protections are enforced by the gateway and the template engine, 
 | --- | --- | --- |
 | CORS | Closed: only the app's own origins. SSR + htmx pages need no CORS at all | `[security.cors] origins = ["https://partner.example"]`, `methods`, `headers`, `credentials`; overridable per function via `export const cors = {...}` |
 | CSP | Strict: `default-src 'self'`; scripts and styles from `'self'` plus a per-request nonce that the template engine injects into every `<script>`/`<style>` it emits; htmx, Alpine, and islands bundles are allowed; `frame-ancestors 'none'`; `object-src 'none'`; `upgrade-insecure-requests` | `[security.csp] script_src += ["https://js.stripe.com", "https://checkout.tabby.ai"]` and the same for `img_src`, `connect_src`, `frame_src`, `font_src`. `unsafe-inline` and `unsafe-eval` are refused unless `allow_unsafe = true` is set explicitly and is flagged in the dashboard. Report-only mode is available; violation reports go to `/__renox/events?kind=csp` on the app's own origin, under the client-event limits and privacy rules (`docs/contracts/client-events.md` sections 6–8) |
-| HSTS | On, `max-age=31536000; includeSubDomains`; preload on request | Cannot be disabled on `*.renox.rs` (the platform domain) |
+| HSTS | On, `max-age=31536000; includeSubDomains`; preload on request | Cannot be disabled on `*.renoxium.app` (the platform domain) |
 | Clickjacking | `X-Frame-Options: DENY` + `frame-ancestors 'none'` | Per page: `export const frame = { ancestors: ["https://host.example"] }` for embeddable widgets |
 | Other headers | `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying camera/microphone/geolocation by default, `Cross-Origin-Opener-Policy: same-origin` | `[security.headers]` |
 | CSRF | Token required for every non-GET action; htmx sends it automatically via a header; double-submit cookie pattern bound to the session | Webhook routes and API-key/JWT-authenticated functions are exempt automatically |
@@ -98,7 +98,7 @@ Browser-facing protections are enforced by the gateway and the template engine, 
 | Rate limiting | Per IP, per user, and per route at the gateway; stricter buckets for login, registration, password reset, and webhooks | `[security.ratelimit]` per route |
 | Input validation | `validate(req, Schema)` (zod/valibot) before handler bodies; file uploads limited by size and type | Per handler |
 | Output escaping | Templates auto-escape; raw HTML only via explicit `r-html`; URLs in `:href` are checked for `javascript:` | — |
-| TLS | Automatic certificates (ACME) for `*.renox.rs` (one wildcard, DNS-01) and custom domains; TLS 1.2+; OCSP stapling | — |
+| TLS | Automatic certificates (ACME) for `*.renoxium.app` (one wildcard, DNS-01) and custom domains; TLS 1.2+; OCSP stapling | — |
 
 All of these are measured by `renox check --security`, which reports the effective headers for each route and fails on `unsafe-inline` without an explicit opt-in.
 

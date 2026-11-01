@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1.5.1** (F7, #363: patch, wording and examples only; the platform domain is operator configuration, `renox.rs` in the reference deployment). 1.5 (F7, #346: the route table's `suspended` status and `display_name`, the neutral suspension page (section 5)). 1.4 (F7, #318: route kind `webhook`, the `storage` and `ai` objects of the app and of each module, the optional `sbom.cdx.json` member, the `isolate` mode taking effect, rules V28–V29; for `ops.md` 1.7.0). 1.3 (F5, #272: the app's policy set and schema under `policies/`, route kinds `ws`, `sse`, `tool`, `job`, the `guard` of a route, the `authz` and `realtime` blocks of the app and of each module, rules V24–V27; for `ops.md` 1.5.0). 1.2 (#263) added `entries`; 1.1 (#227) added modules. The major number is written into every manifest as `artifact.version`; 1.1 to 1.3 are additive and keep `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
+| Version | **1.5.2** (F7: patch, wording and examples only; the reference deployment's platform domain is `renoxium.app`). 1.5.1 (F7, #363: patch, wording and examples only; the platform domain is operator configuration). 1.5 (F7, #346: the route table's `suspended` status and `display_name`, the neutral suspension page (section 5)). 1.4 (F7, #318: route kind `webhook`, the `storage` and `ai` objects of the app and of each module, the optional `sbom.cdx.json` member, the `isolate` mode taking effect, rules V28–V29; for `ops.md` 1.7.0). 1.3 (F5, #272: the app's policy set and schema under `policies/`, route kinds `ws`, `sse`, `tool`, `job`, the `guard` of a route, the `authz` and `realtime` blocks of the app and of each module, rules V24–V27; for `ops.md` 1.5.0). 1.2 (#263) added `entries`; 1.1 (#227) added modules. The major number is written into every manifest as `artifact.version`; 1.1 to 1.3 are additive and keep `artifact.version: 1` (section 8). Version 0 (F1, #15) stays valid: every consumer accepts 0 and 1 (section 8). History: "Changelog" at the bottom |
 | Producers | `cli/` (P11): `renox build` writes an artifact directory; examples are also written by hand |
 | Consumers | `crates/renox-cell` (P5) and `crates/renox-runtime` (P1): load and verify an artifact; `crates/renox-gateway` (P3): reads the route table, the public index, and the `security` object; `control/api` (P12, F3): validates, stores, and routes artifacts |
 | Machine-readable | [`schemas/manifest.schema.json`](schemas/manifest.schema.json), [`schemas/route-table.schema.json`](schemas/route-table.schema.json), [`schemas/migrations-checksums.schema.json`](schemas/migrations-checksums.schema.json), [`schemas/public-manifest.schema.json`](schemas/public-manifest.schema.json) (JSON Schema draft 2020-12) |
@@ -122,7 +122,7 @@ Version 1, abridged from [`examples/artifact/shop-artifact/`](examples/artifact/
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `artifact.version` | integer, `0` or `1` | yes | Version of this contract. A consumer refuses a manifest with a version it does not know |
-| `app.name` | string, `^[a-z][a-z0-9-]{0,62}$` | yes | The app name from `renox.toml`; used in `<app>.<platform domain>` (`renox.rs` in the reference deployment, `docs/contracts/README.md`, "Domains") and in logs |
+| `app.name` | string, `^[a-z][a-z0-9-]{0,62}$` | yes | The app name from `renox.toml`; used in `<app>.<platform domain>` (`renoxium.app` in the reference deployment, `docs/contracts/README.md`, "Domains") and in logs |
 | `app.timezone` | string, IANA zone name | yes | Tenant-local time zone (`docs/07-app-model.md`, scheduled jobs from F6). Must be a zone known to `Intl` |
 | `code.format` | `"esm-dir"` \| `"eszip"` | yes | How `code/` is laid out (section 1) |
 | `code.entry` | object: module id → module path | yes, at least one entry | One entry per route module. The path is relative to `code/` for `esm-dir`, and the specifier `file:///<path>` inside `bundle.eszip` for `eszip`. Ends in `.js` or `.mjs`. A module id is the source path without extension: `functions/...` for function routes, `pages/...` for page routes (version 1) |
@@ -456,7 +456,7 @@ The gateway maps a request's hostname to the tenant and deployment that serve it
   "version": 0,
   "entries": [
     {
-      "hostname": "hello.renox.rs",
+      "hostname": "hello.renoxium.app",
       "tenant_id": "t_hello",
       "deployment_hash": "<artifact hash>",
       "status": "active",
@@ -484,7 +484,7 @@ Rules:
 - `(hostname, deployment_hash)` is unique.
 - F1/F2: the table is a local JSON file read at start and re-read on `SIGHUP`. A file that fails validation is refused as a whole and the previous table stays in use.
 - F3: the control plane publishes changes over pub/sub, with a per-entry `version` for ordering and a periodic full resync (#97). That field is reserved here and added as a minor change in F3.
-- Preview hosts (`<app>-<hash>.<platform domain>`, `<app>-<hash>.renox.rs` in the reference deployment) and verified custom domains are ordinary entries.
+- Preview hosts (`<app>-<hash>.<platform domain>`, `<app>-<hash>.renoxium.app` in the reference deployment) and verified custom domains are ordinary entries.
 
 ## 6. Validation rules
 
@@ -530,7 +530,7 @@ Every rejection names the rule (`V1`–`V29`), the path or field, and a one-line
 [`examples/hello-artifact/`](examples/hello-artifact/) is the version 0 artifact for `examples/hello`, written by hand:
 
 - `examples/hello-artifact/<hash>/` holds `manifest.json` and `code/functions/api/hello.js` (the transpiled `functions/api/hello.ts`). The directory name is the content hash of section 2 and `validate.ts` recomputes it.
-- `examples/hello-artifact/route-table.json` routes `hello.renox.rs` and its preview host to that hash.
+- `examples/hello-artifact/route-table.json` routes `hello.renoxium.app` and its preview host to that hash.
 
 [`examples/artifact/shop-artifact/`](examples/artifact/shop-artifact/) is a version 1 artifact, written by hand: the three page shapes (`.html` only, `.ts` + `.html` with `load` and actions, `.ts` only), a function route, a layout, `_error` and `_404` templates, a fragment map with a fragment defined in the layout, a tenant `public/manifest.json` served as a static file next to the root `public.json`, and a `security` object.
 
@@ -581,3 +581,4 @@ Settled in version 1: the `public/manifest.json` name clash (version 0 Open 1, n
 | 1.4 | #318 | Minor (additive), `artifact.version` stays `1`. **Routes:** kind `webhook` (`functions/webhooks/*.ts`, `POST` only, CSRF-exempt, no `guard`, optional `provider`). **Manifest:** optional `storage` (`allowed_types`, `images.widths`) of the app and of each module entry, optional `ai` (`mode`) of the app. **Layout:** optional `sbom.cdx.json` (CycloneDX 1.5). **Modules:** `isolation: "isolate"` takes effect (Open 7 settled; `ops.md` section 15.6). **Rules:** V28 (webhooks), V29 (storage, AI, SBOM). For `ops.md` 1.7.0 |
 | 1.5 | #346 | Minor (additive), `artifact.version` stays `1`, the route table's `version` stays `0`. **Route table:** status `suspended` and the optional `display_name` of a suspended entry; a suspended hostname has no `active` entry (V13); the gateway answers it with the neutral suspension page, 503 `RENOX_TENANT_SUSPENDED` with `Retry-After: 3600`, no cell touched (section 5). Consumers: `crates/renox-gateway` serves the page, `control/api` writes `suspended` entries instead of removing them (`deploy-api.md` 0.5.1), #325 and #123 implement both |
 | 1.5.1 | #363 | Patch, wording and examples only. Tenant hosts are `<app>.<platform domain>` and preview hosts `<app>-<hash>.<platform domain>`, where the platform domain is operator configuration and `renox.rs` in the reference deployment (`README.md`, "Domains"); HSTS is always on for `*.<platform domain>`; the examples use `*.renox.rs`; the schema `$id` values are `https://renoxium.com/contracts/...` (the base moved off the retired domain) (names, not fetched URLs) |
+| 1.5.2 | owner, 2026-11-01 | Patch, wording and examples only. The reference deployment's platform domain is `renoxium.app` instead of `renox.rs` (`README.md`, "Domains"): tenant hosts `<app>.renoxium.app`, preview hosts `<app>-<hash>.renoxium.app`; the examples use `*.renoxium.app`. No rule, field or behaviour changes |

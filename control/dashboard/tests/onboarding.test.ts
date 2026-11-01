@@ -85,8 +85,8 @@ describe("the first app", () => {
     ]);
     const fresh = data(await newLoad(loaderCtx(d, "/apps/new")));
     expect(fresh.templates.map((t: { id: string }) => t.id)).toEqual(["shop", "hello", "booking", "invoices"]);
-    // #364: the platform domain shown for the new app is configuration, renox.rs by default.
-    expect(fresh.platform_domain).toBe("renox.rs");
+    // #364: the platform domain shown for the new app is configuration, renoxium.app by default.
+    expect(fresh.platform_domain).toBe("renoxium.app");
     expect(data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "Bad Name", template: "hello" }))).form_error).toContain("lower-case");
     // shop is not built on this control plane: the page says so.
     expect(data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "my-shop", template: "shop" }))).form_error).toContain("not available");
@@ -136,11 +136,11 @@ test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow
   }
 });
 
-test("the platform domain of the new-app page: RENOX_PLATFORM_DOMAIN when it is a hostname, else renox.rs (#364)", () => {
-  expect(DEFAULT_PLATFORM_DOMAIN).toBe("renox.rs");
-  expect(platformDomain({})).toBe("renox.rs");
+test("the platform domain of the new-app page: RENOX_PLATFORM_DOMAIN when it is a hostname, else renoxium.app (#364)", () => {
+  expect(DEFAULT_PLATFORM_DOMAIN).toBe("renoxium.app");
+  expect(platformDomain({})).toBe("renoxium.app");
   expect(platformDomain({ RENOX_PLATFORM_DOMAIN: "apps.example.test" })).toBe("apps.example.test");
-  for (const bad of ["", "Apps.Example", "example", "a..b", "x.test/<script>", "-a.test"]) expect(platformDomain({ RENOX_PLATFORM_DOMAIN: bad })).toBe("renox.rs");
+  for (const bad of ["", "Apps.Example", "example", "a..b", "x.test/<script>", "-a.test"]) expect(platformDomain({ RENOX_PLATFORM_DOMAIN: bad })).toBe("renoxium.app");
 });
 
 test("the dashboard calls https://api.renoxium.com by default; RENOX_API_URL (https only) overrides it (#364)", () => {

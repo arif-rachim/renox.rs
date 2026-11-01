@@ -494,7 +494,7 @@ pub struct GatewaySection {
 /// `[gateway.security_txt]` (#364): the hosts that serve the platform's
 /// `/.well-known/security.txt` and its fields. Every key is optional; the
 /// defaults are the reference deployment's (`renox_gateway::well_known`):
-/// host `renox.rs`, `Contact: mailto:security@renoxium.com`, the canonical
+/// host `renoxium.app`, `Contact: mailto:security@renoxium.com`, the canonical
 /// URL on the first host. Checked against RFC 9116 when the file is loaded.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, default)]
@@ -830,7 +830,7 @@ mod tests {
     }
 
     /// #364: `[gateway.security_txt]` defaults to the reference deployment
-    /// (`renox.rs`, `security@renoxium.com`), every key overrides it, and a
+    /// (`renoxium.app`, `security@renoxium.com`), every key overrides it, and a
     /// value RFC 9116 refuses stops the load with the table's name.
     #[test]
     fn gateway_security_txt_keys() {
@@ -840,14 +840,14 @@ mod tests {
         let d = WorkerConfig::parse(min, base).unwrap();
         assert_eq!(d.gateway.security_txt, SecurityTxtSection::default());
         let txt = d.gateway.security_txt.settings().build(now).unwrap();
-        assert!(txt.serves("renox.rs"));
+        assert!(txt.serves("renoxium.app"));
         assert!(
             txt.body()
                 .contains("Contact: mailto:security@renoxium.com\n")
         );
         assert!(
             txt.body()
-                .contains("Canonical: https://renox.rs/.well-known/security.txt\n")
+                .contains("Canonical: https://renoxium.app/.well-known/security.txt\n")
         );
         let c = WorkerConfig::parse(
             &format!(
@@ -857,7 +857,7 @@ mod tests {
         )
         .unwrap();
         let txt = c.gateway.security_txt.settings().build(now).unwrap();
-        assert!(txt.serves("apps.example.test") && !txt.serves("renox.rs"));
+        assert!(txt.serves("apps.example.test") && !txt.serves("renoxium.app"));
         assert!(txt.body().contains("Contact: mailto:sec@example.test\n"));
         assert!(txt.body().contains("Policy: https://example.test/policy\n"));
         let err = WorkerConfig::parse(
