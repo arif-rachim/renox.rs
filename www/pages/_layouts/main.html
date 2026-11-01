@@ -6,6 +6,8 @@
   <title><slot name="title">Renoxium</slot></title>
   <link rel="stylesheet" href="/renox-ui.css">
   <link rel="stylesheet" href="/site.css">
+  <!-- Marks the page as scripted before it paints, so entrances only hide what a script will reveal (site.js). -->
+  <script>document.documentElement.classList.add("js")</script>
 </head>
 <body>
   <header class="top">

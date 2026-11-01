@@ -169,9 +169,11 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect((await get("/docs?q=threat")).text).toContain('href="/docs/24-threat-model"');
     const home = await get("/");
     expect(home.status).toBe(200);
-    expect(home.text).toContain("<h1>Your TypeScript app runs when someone asks for it.");
+    expect(home.text).toMatch(/<h1 id="hero-title">Idle apps cost almost nothing\.<\/h1>/u);
     // The hero's node: one cell per tenant slot, the lit ones marked.
-    expect(home.text.match(/<i class="[^"]*"><\/i>/gu)?.length).toBe(200);
+    expect(home.text.match(/<i class="(?:on|blink b\d|)"><\/i>/gu)?.length).toBe(NODE.columns * NODE.rows);
+    // The behaviour is a file of the site's own, loaded with the request's nonce.
+    expect(home.text).toMatch(/<script src="\/site\.js" nonce="[^"]+"><\/script>/u);
     expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
     expect(home.text).toContain("AED 79.00");
     const pricing = await get("/pricing");

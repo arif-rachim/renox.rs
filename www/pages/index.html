@@ -1,85 +1,189 @@
 <r-layout use="main">
   <r-group slot="title">Renoxium · TypeScript app hosting</r-group>
 
-  <section class="hero">
+  <!-- Hero: the claim, then the product itself on a stage cut by the cell's notch. -->
+  <section class="hero" aria-labelledby="hero-title">
     <div class="hero-text">
-      <h1>Your TypeScript app runs when someone asks for it. Idle, it costs almost nothing.</h1>
-      <p class="lede">Renoxium runs each app in its own V8 isolate with its own SQLite database, packed by the thousand onto shared nodes. Add sign-in, organizations, billing and admin as modules. Deploy in seconds, roll back in seconds.</p>
-      <p class="actions">
-        <a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a>
-        <a class="button" href="/docs">Read the docs</a>
-      </p>
+      <h1 id="hero-title">Idle apps cost almost nothing.</h1>
+      <p class="lede">Renoxium hosts TypeScript apps. Each one wakes on a request, in its own V8 isolate with its own SQLite database, and holds no memory while it waits.</p>
+      <p><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a></p>
     </div>
-    <figure class="node-figure">
-      <div class="node" role="img" aria-label="A node drawn as a grid of apps: a few are serving requests, the rest are idle.">
-        <i r-for="c in cells" :class="c.cls"></i>
+    <div class="hero-stage">
+      <div class="ui deploys" data-ui data-deploys>
+        <div class="ui-head">
+          <strong>shop</strong>
+          <span class="ui-live"><i></i><span data-live-label>Live: 2e84bef</span></span>
+          <span class="ui-muted">shop.renoxium.app</span>
+        </div>
+        <table class="ui-table">
+          <thead><tr><th>Version</th><th>Deployed</th><th>State</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+          <tbody>
+            <tr class="is-live" data-hash="2e84bef"><td><code>2e84bef</code></td><td>3 min ago</td><td data-state>live</td><td><button type="button" class="ui-btn" data-act>Live</button></td></tr>
+            <tr data-hash="6e58237"><td><code>6e58237</code></td><td>Yesterday</td><td data-state>superseded</td><td><button type="button" class="ui-btn" data-act>Roll back</button></td></tr>
+            <tr data-hash="70ad3d5"><td><code>70ad3d5</code></td><td>2 days ago</td><td data-state>superseded</td><td><button type="button" class="ui-btn" data-act>Roll back</button></td></tr>
+            <tr data-hash="8a0f5c8"><td><code>8a0f5c8</code></td><td>5 days ago</td><td data-state>superseded</td><td><button type="button" class="ui-btn" data-act>Roll back</button></td></tr>
+          </tbody>
+        </table>
+        <p class="ui-foot" data-deploy-note>Every deploy is kept. Roll back to any of them in one click.</p>
       </div>
-      <figcaption>One node, many apps. A lit square is an app serving a request; the others are idle and hold no memory.</figcaption>
-    </figure>
-  </section>
-
-  <section class="facts" aria-labelledby="facts-title">
-    <h2 id="facts-title">What your app gets</h2>
-    <dl>
-      <div><dt>Its own isolate</dt><dd>CPU, memory, wall-clock and network limits are enforced in Rust, so a runaway loop in one app never slows another.</dd></div>
-      <div><dt>Its own database</dt><dd>One SQLite file per tenant, backed up continuously. Every statement a module runs passes the SQLite authorizer.</dd></div>
-      <div><dt>Pages rendered on the server</dt><dd>HTML templates rendered in Rust, htmx fragments, View Transitions, SSE and WebSockets. No SPA unless you want one.</dd></div>
-      <div><dt>Modules instead of rewrites</dt><dd>Sign-in with 2FA and phone OTP, organizations and roles, billing, tax invoices, admin, storage, email and WhatsApp. Change a module's page without forking it.</dd></div>
-      <div><dt>Access rules in one place</dt><dd>Cedar policies for roles, attributes and relations, route guards, and queries scoped to the signed-in user.</dd></div>
-      <div><dt>Deploys you can undo</dt><dd>Every deploy is an immutable artifact. Promote, roll back, read logs and usage per app in the dashboard.</dd></div>
-    </dl>
-  </section>
-
-  <section class="build" aria-labelledby="build-title">
-    <div>
-      <h2 id="build-title">From a folder to a live app</h2>
-      <p><code>pages/products/[id].html</code> is the page at <code>/products/:id</code>, and the loader beside it reads the data.</p>
-      <ol class="steps">
-        <li><strong>Create the app</strong> from a template: <code>bunx renox new my-shop</code></li>
-        <li><strong>Run it</strong> on the real runtime: <code>bunx renox dev</code></li>
-        <li><strong>Add sign-in</strong> with its tables, pages and policies: <code>bunx renox add auth</code></li>
-        <li><strong>Deploy</strong> to <code>my-shop.renoxium.app</code>: <code>bunx renox deploy</code></li>
-      </ol>
     </div>
-    <figure class="source">
-      <figcaption>pages/products/[id].ts</figcaption>
-      <pre><code>import type { LoaderContext } from "renox";
-
-export const guard = { action: "product.read" };
-
-export async function load({ params, db }: LoaderContext) {
-  const product = await db.queryOne(
-    "select * from shop__products where id = ?", [params.id]);
-  if (!product) return new Response(null, { status: 404 });
-  return { product, inStock: product.stock > 0 };
-}</code></pre>
-    </figure>
   </section>
 
+  <!-- Showcase: one app's screens, chosen from a list; the screen stands on a large cell. -->
+  <section class="showcase" aria-labelledby="show-title">
+    <div class="show-list">
+      <h2 id="show-title">Every app gets</h2>
+      <div class="show-names" role="radiogroup" aria-labelledby="show-title">
+        <label><input type="radio" name="show" value="logs" checked> Logs</label>
+        <label><input type="radio" name="show" value="usage"> Usage</label>
+        <label><input type="radio" name="show" value="secrets"> Secrets</label>
+        <label><input type="radio" name="show" value="database"> A database</label>
+      </div>
+    </div>
+    <div class="show-stage">
+      <div class="cell-big" aria-hidden="true"></div>
+
+      <figure class="show-item" data-show="logs">
+        <div class="ui" data-ui>
+          <div class="ui-head"><strong>Logs</strong><span class="ui-muted">shop · last hour</span></div>
+          <ul class="ui-logs">
+            <li><time>14:01:06</time><b>info</b><span>order 1043 created</span></li>
+            <li><time>14:00:54</time><b class="w">warn</b><span>slow query on app__orders (180 ms)</span></li>
+            <li class="e"><time>14:00:48</time><b class="x">error</b><span>payment provider timed out after 5000 ms</span></li>
+            <li><time>14:00:42</time><b>info</b><span>POST /cart 303</span></li>
+            <li><time>14:00:30</time><b>info</b><span>GET /products/42 200 (8 ms)</span></li>
+          </ul>
+        </div>
+        <figcaption>Every line with its request id, filtered by level and source, or live as it happens.</figcaption>
+      </figure>
+
+      <figure class="show-item" data-show="usage">
+        <div class="ui" data-ui>
+          <div class="ui-head"><strong>Usage</strong><span class="ui-muted">shop · last 24 hours</span></div>
+          <div class="ui-bars" aria-hidden="true"><i class="h5"></i><i class="h4"></i><i class="h3"></i><i class="h2"></i><i class="h2"></i><i class="h1"></i><i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i><i class="h5"></i><i class="h6"></i><i class="h6"></i><i class="h5"></i><i class="h5"></i><i class="h4"></i></div>
+          <dl class="ui-totals"><div><dt>Requests</dt><dd>1,284</dd></div><div><dt>CPU</dt><dd>2.2 s</dd></div><div><dt>Egress</dt><dd>7.1 MB</dd></div></dl>
+        </div>
+        <figcaption>Requests, CPU, egress and database time per hour, against the plan's monthly quota.</figcaption>
+      </figure>
+
+      <figure class="show-item" data-show="secrets">
+        <div class="ui" data-ui>
+          <div class="ui-head"><strong>Secrets</strong><span class="ui-muted">shop · version 3</span></div>
+          <table class="ui-table">
+            <tbody>
+              <tr><td><code>SMTP_PASSWORD</code></td><td>2 days ago</td></tr>
+              <tr><td><code>STRIPE_KEY</code></td><td>2 days ago</td></tr>
+              <tr><td><code>WHATSAPP_TOKEN</code></td><td>5 days ago</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>Names only once they are saved. A value never reaches a log line.</figcaption>
+      </figure>
+
+      <figure class="show-item" data-show="database">
+        <div class="ui" data-ui>
+          <div class="ui-head"><strong>Database</strong><span class="ui-muted">shop · SQLite</span></div>
+          <div class="ui-meter"><span>4.2 MB of 1 GB</span><i><b></b></i></div>
+          <p class="ui-line"><button type="button" class="ui-btn">Export</button> <button type="button" class="ui-btn">Restore</button></p>
+        </div>
+        <figcaption>One SQLite file per tenant, backed up continuously. Export it or restore it from the dashboard.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Modules: each one a sentence with the switch that installs it. -->
+  <section class="modules" aria-labelledby="mod-title">
+    <h2 id="mod-title">Modules instead of rewrites</h2>
+    <div class="band" data-band>
+      <p>Sign people in with passwords and passkeys.</p>
+      <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Sign-in module"><i></i></button>
+      <p class="band-more"><code>renox add auth</code> brings the login and account pages, passkeys and magic links, with no auth code of your own.</p>
+    </div>
+    <div class="band" data-band>
+      <p>Put people in organisations with roles.</p>
+      <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Organisations module"><i></i></button>
+      <p class="band-more"><code>renox add org</code> brings invites by email, a role per member and an organisation switcher.</p>
+    </div>
+    <div class="band" data-band>
+      <p>Charge for plans and send invoices.</p>
+      <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Billing module"><i></i></button>
+      <p class="band-more"><code>renox add billing</code> brings plans, subscriptions, checkouts and refunds, with Stripe UAE first.</p>
+    </div>
+    <div class="band" data-band>
+      <p>Run the back office in one place.</p>
+      <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Admin module"><i></i></button>
+      <p class="band-more"><code>renox add admin</code> brings the users page, roles and the audit log behind one admin area.</p>
+    </div>
+  </section>
+
+  <!-- From a folder to a live app: five stages, dark to light. Radios, so it works without script. -->
+  <section class="flow" aria-labelledby="flow-title">
+    <div class="flow-intro">
+      <h2 id="flow-title">Folder to live app</h2>
+      <p><code>pages/products/[id].html</code> is the page at <code>/products/:id</code>, and the loader beside it reads the data. No build step, no Node, no Docker: TypeScript, HTML and SQL.</p>
+    </div>
+    <div class="stages">
+      <label class="stage t1"><input type="radio" name="stage" checked><span class="stage-name">Create</span><span class="stage-body"><span>Start from a template: a shop, a booking site, invoices, or a blank app.</span><code>bunx renox new my-shop</code></span></label>
+      <label class="stage t2"><input type="radio" name="stage"><span class="stage-name">Run</span><span class="stage-body"><span>Run it locally on the same runtime that hosts it.</span><code>bunx renox dev</code></span></label>
+      <label class="stage t3"><input type="radio" name="stage"><span class="stage-name">Extend</span><span class="stage-body"><span>Add a module with its tables, pages and policies.</span><code>bunx renox add auth</code></span></label>
+      <label class="stage t4"><input type="radio" name="stage"><span class="stage-name">Deploy</span><span class="stage-body"><span>Upload, validate and go live on its own address.</span><code>bunx renox deploy</code></span></label>
+      <label class="stage t5"><input type="radio" name="stage"><span class="stage-name">Roll back</span><span class="stage-body"><span>Every deploy is kept. Promote an older one from the dashboard.</span></span></label>
+    </div>
+  </section>
+
+  <!-- About: the UAE, on a deep inset panel. -->
   <section class="uae" aria-labelledby="uae-title">
-    <h2 id="uae-title">Made for businesses in the UAE</h2>
-    <p>Prices in AED, and a tax invoice with 5 % VAT every month. English and Arabic, with right-to-left pages. A <a href="/legal/dpa">data processing agreement</a> you accept at sign-up.</p>
+    <div class="uae-panel">
+      <div class="uae-left">
+        <h2 id="uae-title">Built for the UAE.</h2>
+        <div class="invoice" data-ui>
+          <p class="inv-ar" lang="ar" dir="rtl">فاتورة ضريبية</p>
+          <p class="inv-en">Tax invoice, Starter plan</p>
+          <dl><div><dt>Plan</dt><dd>AED 79.00</dd></div><div><dt>VAT 5 %</dt><dd>AED 3.95</dd></div><div class="tot"><dt>Total</dt><dd>AED 82.95</dd></div></dl>
+        </div>
+      </div>
+      <div class="uae-right">
+        <div><h3>Priced in dirhams</h3><p>Plans in AED, and a tax invoice with 5 % VAT every month.</p></div>
+        <div><h3>In English and Arabic</h3><p>The dashboard reads in both, right to left in Arabic. A data processing agreement is part of sign-up.</p></div>
+        <div class="ui ui-ar" data-ui lang="ar" dir="rtl">
+          <div class="ui-head"><strong>shop</strong><span class="ui-live"><i></i><span>يعمل</span></span></div>
+          <ul class="ui-nav"><li class="cur">نظرة عامة</li><li>عمليات النشر</li><li>السجلات</li><li>الاستخدام</li></ul>
+          <p class="ui-sub">آخر 24 ساعة</p>
+          <dl class="ui-totals"><div><dt>الطلبات</dt><dd>1,284</dd></div><div><dt>CPU</dt><dd>2.2 s</dd></div><div><dt>البيانات الصادرة</dt><dd>7.1 MB</dd></div></dl>
+        </div>
+        <p><a class="button primary" href="/legal/dpa">Read the agreement</a></p>
+      </div>
+    </div>
   </section>
 
-  <section aria-labelledby="plans-title">
-    <h2 id="plans-title">Plans</h2>
-    <p class="muted">Monthly, in {{ currency }}, excluding 5 % VAT. <a href="/pricing">Compare every quota</a></p>
-    <table class="list plans-table">
-      <thead><tr><th>Plan</th><th class="n">Price</th><th class="n">Requests a month</th><th class="n">Apps</th><th class="n">Database</th></tr></thead>
-      <tbody>
-        <tr r-for="p in plans">
-          <td><strong>{{ p.name }}</strong><r-group r-if="p.free"> <span class="tag">No card needed</span></r-group></td>
-          <td class="n">{{ currency }} {{ p.price }}</td>
-          <td class="n">{{ p.requests }}</td>
-          <td class="n">{{ p.apps }}</td>
-          <td class="n">{{ p.db }}</td>
-        </tr>
-      </tbody>
-    </table>
+  <!-- Plans step up like bars: the bigger plan is the taller tile. -->
+  <section class="plans-step" aria-labelledby="plans-title">
+    <div class="plans-head">
+      <h2 id="plans-title">Plans in dirhams</h2>
+      <p>Monthly, excluding 5 % VAT. <a href="/pricing">Every quota of every plan</a></p>
+    </div>
+    <div class="tile {{ p.step }}" r-for="p in plans">
+      <h3>{{ p.name }}</h3>
+      <p class="tile-price">{{ currency }} {{ p.price }}</p>
+      <ul>
+        <li>{{ p.requests }} requests a month</li>
+        <li>{{ p.apps }} apps</li>
+        <li>{{ p.db }} database</li>
+        <li>{{ p.domains }} custom domains</li>
+      </ul>
+      <a class="tile-go" href="https://dashboard.renoxium.com/signup">Start with {{ p.name }}</a>
+    </div>
   </section>
 
-  <section class="closing">
-    <p>Start from a shop, a booking site, invoices, or a blank app.</p>
-    <a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a>
+  <!-- The closing sentence has a blank: the app's name. -->
+  <section class="closing" aria-labelledby="close-title">
+    <h2 id="close-title" class="close-line">Put <label class="blank"><span class="visually-hidden">Your app's name</span><input name="app" value="my-shop" maxlength="40" spellcheck="false" autocomplete="off" data-app-name></label> <a class="close-go" href="https://dashboard.renoxium.com/signup">online.</a></h2>
+    <p class="close-note">It will live at <strong data-app-host>my-shop.renoxium.app</strong>. The Free plan is {{ currency }} 0.00 a month.</p>
   </section>
+
+  <!-- The mark, built large: one node of tenant cells. -->
+  <div class="node" role="img" aria-label="A node drawn as a grid of apps: a few are serving requests, the rest are idle.">
+    <i r-for="c in cells" :class="c.cls"></i>
+  </div>
+  <x-script src="/site.js"></x-script>
 </r-layout>

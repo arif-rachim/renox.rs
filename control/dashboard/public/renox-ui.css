@@ -69,7 +69,6 @@
   --rx-r-panel: 10px;
   --rx-radius: var(--rx-r-control);
   --rx-measure: 40rem;
-  --rx-focus: 0 0 0 2px var(--rx-paper), 0 0 0 4px var(--rx-accent);
 }
 
 /* 2. Base ------------------------------------------------------------------ */
@@ -91,7 +90,7 @@ img, svg { max-inline-size: 100%; }
 a { color: var(--rx-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--rx-accent) 55%, transparent); text-decoration-thickness: 1px; text-underline-offset: .2em; }
 a:hover { color: var(--rx-accent); text-decoration-color: currentColor; }
 
-:focus-visible { outline: none; box-shadow: var(--rx-focus); border-radius: var(--rx-r-control); }
+:focus-visible { outline: 2px solid var(--rx-accent); outline-offset: 2px; }
 
 hr { border: 0; border-block-start: 1px solid var(--rx-rule); margin-block: var(--rx-6); }
 

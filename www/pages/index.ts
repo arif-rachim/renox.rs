@@ -1,17 +1,15 @@
-// GET /: the landing page of renoxium.com. The plan summary comes from
+// GET /: the landing page of renoxium.com. The plan tiles come from
 // pricing.toml (the pricing page's source), so the landing page never states
 // a price or a quota the billing plans do not have.
+//
+// The page follows one motif, the node's cell (packages/ui/README.md,
+// "Principles"): the closing mark is a node of tenant cells, most idle, a few
+// lit, from a fixed pattern so the page renders the same every time.
 import { PRICING, quotaText } from "../lib/pricing.ts";
 
-/**
- * The hero's illustration: one node as a grid of tenant cells (packages/ui
- * README, "Visual idea"). Most are idle; `on` cells are serving a request;
- * `blink` cells (1-4) switch on and off in turn. A fixed pattern, so the page
- * renders the same every time.
- */
-export const NODE = { columns: 20, rows: 10 } as const;
-const ON = new Set([7, 23, 41, 58, 66, 89, 95, 112, 131, 147, 158, 176, 183, 194]);
-const BLINK: Record<number, number> = { 30: 1, 74: 2, 121: 3, 167: 4 };
+export const NODE = { columns: 40, rows: 6 } as const;
+const ON = new Set([5, 22, 47, 61, 78, 93, 104, 126, 139, 152, 171, 188, 203, 219, 236]);
+const BLINK: Record<number, number> = { 33: 1, 86: 2, 145: 3, 197: 4 };
 
 export function nodeCells(): { cls: string }[] {
   return Array.from({ length: NODE.columns * NODE.rows }, (_, i) => ({
@@ -19,17 +17,22 @@ export function nodeCells(): { cls: string }[] {
   }));
 }
 
+/** Tile heights step up with the plan, like bars (the sheet's "Plans that step up"). */
+const STEP = ["s1", "s2", "s3", "s4"] as const;
+
 export function load() {
   return {
     cells: nodeCells(),
     currency: PRICING.currency,
-    plans: PRICING.plans.map((p) => ({
+    plans: PRICING.plans.map((p, i) => ({
       name: p.name,
       price: p.price_month,
       free: Number(p.price_month) === 0,
+      step: STEP[Math.min(i, STEP.length - 1)],
       requests: quotaText("requests", p.quotas.requests ?? null),
       apps: quotaText("apps", p.quotas.apps ?? null),
       db: quotaText("db_bytes", p.quotas.db_bytes ?? null),
+      domains: quotaText("custom_domains", p.quotas.custom_domains ?? null),
     })),
   };
 }
