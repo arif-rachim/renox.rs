@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://renox.dev/contracts/deploy-api/v0/control-messages.schema.json",
+  "$id": "https://renoxium.com/contracts/deploy-api/v0/control-messages.schema.json",
   "title": "Renox control-plane <-> worker messages, deploy API contract version 0",
   "description": "Every JSON document a worker node and the control plane exchange: registration, heartbeat, the route table (snapshot and deltas), activation (prepare), secret and certificate bundles, certificate push, log batches, and from 0.3 the node listener messages (restore, replication status, drop, import, move). Meter batches are meter-record.schema.json. Prose: docs/contracts/deploy-api.md sections 7-10. Each message carries `type` and `schema_version`; a receiver rejects a schema_version it does not know.",
   "oneOf": [

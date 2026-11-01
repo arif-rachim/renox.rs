@@ -14,7 +14,7 @@ A fourth, non-protocol surface is the repository itself: `AGENTS.md`, `docs/`, a
 
 ```
 renox mcp            # local, stdio transport; for Claude Code, Cursor, Codex
-mcp.renox.dev        # remote, Streamable HTTP + OAuth 2.1; for cloud agents
+mcp.renoxium.com     # remote, Streamable HTTP + OAuth 2.1; for cloud agents
 ```
 
 ### Tools

@@ -487,6 +487,33 @@ pub struct GatewaySection {
     pub h2_max_resets_per_ip_per_second: u32,
     /// HTTP/2 control frames per connection per second (token bucket).
     pub h2_max_control_frames_per_second: u32,
+    /// `[gateway.security_txt]`: the platform's security.txt (#121, #364).
+    pub security_txt: SecurityTxtSection,
+}
+
+/// `[gateway.security_txt]` (#364): the hosts that serve the platform's
+/// `/.well-known/security.txt` and its fields. Every key is optional; the
+/// defaults are the reference deployment's (`renox_gateway::well_known`):
+/// host `renox.rs`, `Contact: mailto:security@renoxium.com`, the canonical
+/// URL on the first host. Checked against RFC 9116 when the file is loaded.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct SecurityTxtSection {
+    pub hosts: Vec<String>,
+    pub contacts: Vec<String>,
+    pub canonical: Option<String>,
+    pub policy: Option<String>,
+}
+
+impl SecurityTxtSection {
+    pub fn settings(&self) -> renox_gateway::well_known::Settings {
+        renox_gateway::well_known::Settings {
+            hosts: self.hosts.iter().map(|h| h.to_ascii_lowercase()).collect(),
+            contacts: self.contacts.clone(),
+            canonical: self.canonical.clone(),
+            policy: self.policy.clone(),
+        }
+    }
 }
 
 impl Default for GatewaySection {
@@ -500,6 +527,7 @@ impl Default for GatewaySection {
             h2_max_resets_per_second: protocol.h2_max_resets_per_second,
             h2_max_resets_per_ip_per_second: protocol.h2_max_resets_per_ip_per_second,
             h2_max_control_frames_per_second: protocol.h2_max_control_frames_per_second,
+            security_txt: SecurityTxtSection::default(),
         }
     }
 }
@@ -635,6 +663,14 @@ impl WorkerConfig {
                     "gateway.{key} must be at least 1"
                 )));
             }
+        }
+        if let Err(e) = c
+            .gateway
+            .security_txt
+            .settings()
+            .build(std::time::SystemTime::now())
+        {
+            return Err(ConfigError::Invalid(format!("gateway.security_txt: {e}")));
         }
         if let Some(p) = &mut c.replication.path
             && p.is_relative()
@@ -791,6 +827,53 @@ mod tests {
         assert_eq!(c.gateway.h2_max_resets_per_second, 100);
         assert_eq!(c.gateway.h2_max_resets_per_ip_per_second, 200);
         assert_eq!(c.gateway.h2_max_control_frames_per_second, 2000);
+    }
+
+    /// #364: `[gateway.security_txt]` defaults to the reference deployment
+    /// (`renox.rs`, `security@renoxium.com`), every key overrides it, and a
+    /// value RFC 9116 refuses stops the load with the table's name.
+    #[test]
+    fn gateway_security_txt_keys() {
+        let base = Path::new("/srv/renox");
+        let min = "listen = \"127.0.0.1:0\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nroutes_file = \"r.json\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\n";
+        let now = std::time::SystemTime::now();
+        let d = WorkerConfig::parse(min, base).unwrap();
+        assert_eq!(d.gateway.security_txt, SecurityTxtSection::default());
+        let txt = d.gateway.security_txt.settings().build(now).unwrap();
+        assert!(txt.serves("renox.rs"));
+        assert!(
+            txt.body()
+                .contains("Contact: mailto:security@renoxium.com\n")
+        );
+        assert!(
+            txt.body()
+                .contains("Canonical: https://renox.rs/.well-known/security.txt\n")
+        );
+        let c = WorkerConfig::parse(
+            &format!(
+                "{min}[gateway.security_txt]\nhosts = [\"Apps.Example.test\"]\ncontacts = [\"mailto:sec@example.test\"]\ncanonical = \"https://apps.example.test/.well-known/security.txt\"\npolicy = \"https://example.test/policy\"\n"
+            ),
+            base,
+        )
+        .unwrap();
+        let txt = c.gateway.security_txt.settings().build(now).unwrap();
+        assert!(txt.serves("apps.example.test") && !txt.serves("renox.rs"));
+        assert!(txt.body().contains("Contact: mailto:sec@example.test\n"));
+        assert!(txt.body().contains("Policy: https://example.test/policy\n"));
+        let err = WorkerConfig::parse(
+            &format!("{min}[gateway.security_txt]\ncontacts = [\"security@example.test\"]\n"),
+            base,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("gateway.security_txt"), "{err}");
+        assert!(
+            WorkerConfig::parse(
+                &format!("{min}[gateway.security_txt]\nemail = \"x\"\n"),
+                base
+            )
+            .is_err()
+        );
     }
 
     /// #260: the three HTTP/2 flood knobs of #166 parse, default to the

@@ -188,7 +188,7 @@ describe("billing (section 20)", () => {
     expect(grace).toContain(new Date(now + 86_400_000 + 2000 + 7 * 86_400_000).toISOString().slice(0, 10));
     await sweepBilling(h.deps, now + 86_400_000 + 2000 + 7 * 86_400_000);
     expect((await h.db.query<{ state: string }>("select state from tenants where id = $1", [T]))[0]?.state).toBe("suspended");
-    expect(h.mailer.last("owner@bill.ae", "tier_suspended")?.subject).toBe("Your Renox tenant is suspended");
+    expect(h.mailer.last("owner@bill.ae", "tier_suspended")?.subject).toBe("Your Renoxium tenant is suspended");
   });
 
   test("the anomaly rule: a spike against the 7-day median writes one review row and the signal; a paid tenant is reviewed, not moved", async () => {

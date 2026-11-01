@@ -59,8 +59,8 @@ async function mailFailure(deps: Deps, tenantId: string, invoiceId: string, tota
     .send({
       to,
       kind: "invoice_payment_failed",
-      subject: `Payment of Renox invoice ${invoiceId} failed`,
-      text: `The charge of AED ${total} for invoice ${invoiceId} (tenant ${tenantId}) failed: ${why}. ${next} Add or replace the card: https://dashboard.renox.app/billing (tenant ${tenantId}). An invoice unpaid 14 days after its date suspends the tenant.`,
+      subject: `Payment of Renoxium invoice ${invoiceId} failed`,
+      text: `The charge of AED ${total} for invoice ${invoiceId} (tenant ${tenantId}) failed: ${why}. ${next} Add or replace the card: ${deps.config.dashboardUrl.replace(/\/+$/u, "")}/billing (tenant ${tenantId}). An invoice unpaid 14 days after its date suspends the tenant.`,
     })
     .catch(() => deps.log.warn("invoice payment email not sent", { tenant_id: tenantId, invoice: invoiceId }));
 }

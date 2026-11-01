@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://renox.dev/contracts/ops/v1.schema.json",
+  "$id": "https://renoxium.com/contracts/ops/v1.schema.json",
   "title": "Renox runtime ops, contract version 1.5.0",
   "description": "One op call as JSON: {op, args, result} or {op, args, error}; or one page dispatch (ops.md section 14): {dispatch: \"page\", invocation, result}; or, from 1.3.0, the bootstrap init with the module list (section 11, step 3): {dispatch: \"init\", modules}, or one event delivery (section 15.4): {dispatch: \"event\", envelope, result}. bigint and Uint8Array use the $bigint and $bytes encodings. Source of truth for prose: ops.md. From 1.5.0 also one realtime handler run (section 18): {dispatch: \"realtime\", envelope, result}; one tool call (section 19): {dispatch: \"tool\", envelope, result}; one job attempt (section 20): {dispatch: \"job\", envelope, result}.",
   "oneOf": [

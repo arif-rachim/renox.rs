@@ -173,6 +173,8 @@ pub enum WorkerError {
     Control(String),
     /// `[sandbox]` could not be applied (#253).
     Sandbox(String),
+    /// A `worker.toml` value the worker cannot use (#364: `[gateway.security_txt]`).
+    Config(String),
 }
 
 impl std::fmt::Display for WorkerError {
@@ -184,6 +186,7 @@ impl std::fmt::Display for WorkerError {
             WorkerError::Tls(e) => write!(f, "tls: {e}"),
             WorkerError::Control(e) => write!(f, "control plane: {e}"),
             WorkerError::Sandbox(e) => write!(f, "{e}"),
+            WorkerError::Config(e) => write!(f, "worker.toml: {e}"),
         }
     }
 }
@@ -473,11 +476,17 @@ impl Worker {
             config.gateway.h2_max_resets_per_ip_per_second;
         gw_config.protocol.h2_max_control_frames_per_second =
             config.gateway.h2_max_control_frames_per_second;
-        // The platform's security.txt on `renox.app` (#121); production only.
+        // The platform's security.txt (#121) from `[gateway.security_txt]`
+        // (#364; default: `renox.rs`, `security@renoxium.com`); production
+        // only. `WorkerConfig::parse` already checked it builds.
         if config.mode == Mode::Controlled {
-            gw_config.security_txt = Some(Arc::new(
-                renox_gateway::well_known::SecurityTxt::platform(std::time::SystemTime::now()),
-            ));
+            let txt = config
+                .gateway
+                .security_txt
+                .settings()
+                .build(std::time::SystemTime::now())
+                .map_err(|e| WorkerError::Config(format!("gateway.security_txt: {e}")))?;
+            gw_config.security_txt = Some(Arc::new(txt));
         }
         let gateway = Gateway::new(gw_config, routes.clone());
         // `/__renox/events` lines go to the same tenant log (#126).

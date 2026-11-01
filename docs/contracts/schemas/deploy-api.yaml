@@ -1,4 +1,4 @@
-# Renox deploy API, contract version 0.5 (F7).
+# Renoxium deploy API, contract version 0.5 (F7).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -10,8 +10,8 @@
 # keywords, so the same subset checker validates them.
 openapi: 3.1.0
 info:
-  title: Renox deploy API
-  version: 0.5.1
+  title: Renoxium deploy API
+  version: 0.5.2
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -19,7 +19,7 @@ info:
     name: Proprietary
     identifier: LicenseRef-Renox-Proprietary
 servers:
-  - url: https://api.renox.app
+  - url: https://api.renoxium.com
     description: Production (UAE region)
   - url: http://localhost:8787
     description: Local compose stack (control/docker-compose.yml)
@@ -185,8 +185,8 @@ paths:
                 two:
                   value:
                     apps:
-                      - { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.app] }
-                      - { name: notes, tenant_id: t_hello, created_at: 1793318300500, active_deployment: null, hostnames: [notes.renox.app] }
+                      - { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.rs] }
+                      - { name: notes, tenant_id: t_hello, created_at: 1793318300500, active_deployment: null, hostnames: [notes.renox.rs] }
         "401": { $ref: "#/components/responses/Unauthenticated" }
 
   /v1/apps/{app}:
@@ -1355,7 +1355,7 @@ paths:
                     - { $ref: "control-messages.schema.json#/$defs/certificate_remove" }
               examples:
                 connect:
-                  value: "event: message\ndata: {\"type\":\"resync\",\"schema_version\":0,\"version\":42}\n\nevent: message\ndata: {\"type\":\"route_delta\",\"schema_version\":0,\"prev_version\":42,\"version\":43,\"upserts\":[{\"hostname\":\"hello.renox.app\",\"tenant_id\":\"t_hello\",\"app\":\"hello\",\"deployment_hash\":\"2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6\",\"status\":\"active\",\"updated_at\":1793318500000,\"version\":43,\"tier\":\"free\",\"node_id\":\"node-dxb-01\",\"secrets_version\":2}],\"removals\":[]}\n\n"
+                  value: "event: message\ndata: {\"type\":\"resync\",\"schema_version\":0,\"version\":42}\n\nevent: message\ndata: {\"type\":\"route_delta\",\"schema_version\":0,\"prev_version\":42,\"version\":43,\"upserts\":[{\"hostname\":\"hello.renox.rs\",\"tenant_id\":\"t_hello\",\"app\":\"hello\",\"deployment_hash\":\"2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6\",\"status\":\"active\",\"updated_at\":1793318500000,\"version\":43,\"tier\":\"free\",\"node_id\":\"node-dxb-01\",\"secrets_version\":2}],\"removals\":[]}\n\n"
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
 
@@ -1391,7 +1391,7 @@ paths:
                     schema_version: 0
                     version: 42
                     entries:
-                      - { hostname: hello.renox.app, tenant_id: t_hello, app: hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", status: active, updated_at: 1793318400000, version: 41, tier: free, node_id: node-dxb-01, secrets_version: 0 }
+                      - { hostname: hello.renox.rs, tenant_id: t_hello, app: hello, deployment_hash: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", status: active, updated_at: 1793318400000, version: 41, tier: free, node_id: node-dxb-01, secrets_version: 0 }
         "304": { description: The table did not change since the version in If-None-Match. }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -1669,7 +1669,7 @@ paths:
               examples:
                 created:
                   value:
-                    url: "https://backups.renox.app/exports/t_hello/t_hello/1793318500000.db?X-Amz-Expires=900&X-Amz-Signature=0a1b2c3d4e5f"
+                    url: "https://backups.renoxium.com/exports/t_hello/t_hello/1793318500000.db?X-Amz-Expires=900&X-Amz-Signature=0a1b2c3d4e5f"
                     expires_at: 1793319400000
                     created_at: 1793318500000
                     size_bytes: 39845888
@@ -1679,7 +1679,7 @@ paths:
                 http-url:
                   x-expect: pattern
                   value:
-                    url: "http://backups.renox.app/exports/t_hello/t_hello/1793318500000.db"
+                    url: "http://backups.renoxium.com/exports/t_hello/t_hello/1793318500000.db"
                     expires_at: 1793319400000
                     created_at: 1793318500000
                     size_bytes: 39845888
@@ -1727,7 +1727,7 @@ paths:
               examples:
                 restored:
                   value:
-                    app: { name: hello-restored, tenant_id: t_hello, created_at: 1793318600000, active_deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", hostnames: [hello-restored.renox.app] }
+                    app: { name: hello-restored, tenant_id: t_hello, created_at: 1793318600000, active_deployment: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", hostnames: [hello-restored.renox.rs] }
                     deployment:
                       app: hello-restored
                       hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6"
@@ -2265,7 +2265,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DeviceStart" }
               examples:
-                started: { value: { device_code: "dvc_abcdefghijklmnopqrstuvwxyz234567", user_code: "WDJB-MJHT", verification_uri: "https://dashboard.renox.app/device", expires_in: 600, interval: 5 } }
+                started: { value: { device_code: "dvc_abcdefghijklmnopqrstuvwxyz234567", user_code: "WDJB-MJHT", verification_uri: "https://dashboard.renoxium.com/device", expires_in: 600, interval: 5 } }
         "400": { $ref: "#/components/responses/Validation" }
         "429": { $ref: "#/components/responses/RateLimited" }
 
@@ -2402,7 +2402,7 @@ paths:
                   secret: { type: string, pattern: "^[A-Z2-7]{16,64}$" }
                   otpauth_uri: { type: string, pattern: "^otpauth://totp/" }
               examples:
-                started: { value: { secret: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP, otpauth_uri: "otpauth://totp/Renox:owner%40hello.ae?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Renox" } }
+                started: { value: { secret: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP, otpauth_uri: "otpauth://totp/Renoxium:owner%40hello.ae?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Renoxium" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/StepUp" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -2459,7 +2459,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PasskeyOptions" }
               examples:
-                options: { value: { challenge: Y2hhbGxlbmdlLTAxMjM0NTY3ODk, rp: { id: dashboard.renox.app, name: Renox }, user: { id: dXNyXzAxSkJRNDAwMDAwMDAwMDBVUw, name: owner@hello.ae, displayName: owner@hello.ae }, pubKeyCredParams: [{ type: public-key, alg: -7 }, { type: public-key, alg: -257 }], excludeCredentials: [], authenticatorSelection: { userVerification: preferred } } }
+                options: { value: { challenge: Y2hhbGxlbmdlLTAxMjM0NTY3ODk, rp: { id: dashboard.renoxium.com, name: Renoxium }, user: { id: dXNyXzAxSkJRNDAwMDAwMDAwMDBVUw, name: owner@hello.ae, displayName: owner@hello.ae }, pubKeyCredParams: [{ type: public-key, alg: -7 }, { type: public-key, alg: -257 }], excludeCredentials: [], authenticatorSelection: { userVerification: preferred } } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/StepUp" }
 
@@ -2536,7 +2536,7 @@ paths:
                         id: { type: string }
                   userVerification: { enum: [preferred, required, discouraged] }
               examples:
-                options: { value: { challenge: Y2hhbGxlbmdlLTAxMjM0NTY3ODk, rpId: dashboard.renox.app, allowCredentials: [{ type: public-key, id: Y3JlZC0x }], userVerification: preferred } }
+                options: { value: { challenge: Y2hhbGxlbmdlLTAxMjM0NTY3ODk, rpId: dashboard.renoxium.com, allowCredentials: [{ type: public-key, id: Y3JlZC0x }], userVerification: preferred } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -3466,7 +3466,7 @@ paths:
                   hash: { $ref: "#/components/schemas/Sha256" }
                   url: { type: string, pattern: "^https://" }
               examples:
-                shop: { value: { app: hello-shop, template: shop, hash: 802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a, url: "https://hello-shop.renox.app" } }
+                shop: { value: { app: hello-shop, template: shop, hash: 802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a, url: "https://hello-shop.renox.rs" } }
         "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -3477,7 +3477,7 @@ paths:
     post:
       operationId: reportAbuse
       tags: [abuse]
-      summary: Report phishing, malware or other abuse on a Renox host (section 22; public)
+      summary: Report phishing, malware or other abuse on a tenant host under the platform domain (section 22; public)
       security: []
       x-renox-audit: reportAbuse (ticket, hostname, category; never the reporter's address)
       x-renox-errors: [RENOX_VALIDATION, RENOX_RATE_LIMITED]
@@ -3496,9 +3496,9 @@ paths:
                 reporter_email: { type: string, format: email, maxLength: 254 }
                 captcha_token: { type: string, minLength: 1, maxLength: 4096 }
             examples:
-              phishing: { value: { url: "https://secure-login-bank.renox.app/verify", category: phishing, description: "Imitates a UAE bank's login and posts the password to a form", captcha_token: "0.turnstile-token" } }
+              phishing: { value: { url: "https://secure-login-bank.renox.rs/verify", category: phishing, description: "Imitates a UAE bank's login and posts the password to a form", captcha_token: "0.turnstile-token" } }
             x-renox-invalid-examples:
-              category: { value: { url: "https://x.renox.app", category: rude, description: "a long enough text", captcha_token: x }, x-expect: enum }
+              category: { value: { url: "https://x.renox.rs", category: rude, description: "a long enough text", captcha_token: x }, x-expect: enum }
       responses:
         "202":
           description: A ticket; the reporter, when an address is given, gets its id and the outcome.
@@ -3534,7 +3534,7 @@ paths:
                 properties:
                   items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/AbuseTicket" } }
               examples:
-                open: { value: { items: [{ id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.app, tenant_id: t_phish, category: phishing, state: open, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793318400000, reason: null }] } }
+                open: { value: { items: [{ id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.rs, tenant_id: t_phish, category: phishing, state: open, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793318400000, reason: null }] } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
 
@@ -3576,7 +3576,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AbuseTicket" }
               examples:
-                down: { value: { id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.app, tenant_id: t_phish, category: phishing, state: taken_down, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793322000000, reason: "Confirmed bank phishing; Safe Browsing unsafe" } }
+                down: { value: { id: abt_01JBQ3Z7MA0000000000000001, hostname: secure-login-bank.renox.rs, tenant_id: t_phish, category: phishing, state: taken_down, safe_browsing: unsafe, reported_at: 1793318400000, updated_at: 1793322000000, reason: "Confirmed bank phishing; Safe Browsing unsafe" } }
         "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -4950,7 +4950,7 @@ components:
       properties:
         id: { $ref: "#/components/schemas/AbuseTicketId" }
         hostname: { $ref: "#/components/schemas/Hostname" }
-        tenant_id: { type: [string, "null"], pattern: "^[a-z0-9][a-z0-9_-]{0,62}$", description: "null when the hostname is not a Renox host" }
+        tenant_id: { type: [string, "null"], pattern: "^[a-z0-9][a-z0-9_-]{0,62}$", description: "null when the hostname is not a platform host" }
         category: { $ref: "#/components/schemas/AbuseCategory" }
         state: { $ref: "#/components/schemas/AbuseState" }
         safe_browsing: { enum: [safe, unsafe, unknown] }
@@ -5037,9 +5037,9 @@ components:
     InvoiceList:
       value: { items: [{ id: INV-2026-000123, tenant_id: t_hello, period: { start: 1790726400000, end: 1793318400000 }, status: paid, lines: [{ description: "Starter plan, October 2026", quantity: "1", unit_price: "79.00", amount: "79.00" }], subtotal: "79.00", vat: "3.95", total: "82.95", currency: AED, seller_trn: "100987654300003", buyer_trn: "100123456700003", issued_at: 1793318400000, paid_at: 1793322000000 }] }
     AppNew:
-      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renox.app] }
+      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renox.rs] }
     AppLive:
-      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.app, www.example.com] }
+      value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renox.rs, www.example.com] }
     DeploymentValidated:
       value:
         app: hello

@@ -83,7 +83,7 @@ describe("sign-in", () => {
     await tenant(d.h, "t_hello");
     const noScope = await scopedToken(d.h, "t_hello", ["deploy"]);
     const cases: [string, string][] = [
-      ["renox_node_" + "a".repeat(32), "not a Renox token"],
+      ["renox_node_" + "a".repeat(32), "not a Renoxium token"],
       [`renox_pat_${"a".repeat(32)}`, "refused this token"],
       [noScope, "needs the apps:read scope"],
     ];
@@ -136,7 +136,7 @@ describe("apps (3.1, 3.2)", () => {
     d.fetch = () => Promise.reject(Object.assign(new Error("blocked"), { code: "RENOX_FETCH_BLOCKED" }));
     const p = data(await appsLoad(loaderCtx(d, "/apps"))).problem as { status: number; code: string; message: string };
     expect(p).toMatchObject({ status: 0, code: "RENOX_FETCH_BLOCKED" });
-    expect(p.message).toContain("api.renox.app");
+    expect(p.message).toContain("api.renoxium.com");
   });
 });
 

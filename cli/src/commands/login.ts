@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 
 import { type CliError, EnvironmentError, EXIT, UserError, ValidationError } from "../errors.ts";
 
-export const DEFAULT_API = "https://api.renox.app";
+export const DEFAULT_API = "https://api.renoxium.com";
 const TOKEN = /^renox_pat_[a-z2-7]{32}$/u;
 
 export interface Credentials {

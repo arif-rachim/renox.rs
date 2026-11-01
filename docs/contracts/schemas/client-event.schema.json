@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://renox.dev/contracts/client-events/v0/client-event.schema.json",
+  "$id": "https://renoxium.com/contracts/client-events/v0/client-event.schema.json",
   "title": "Renox client events, contract version 0",
   "description": "Root: the batch envelope a browser POSTs to /__renox/events. $defs/event: one event. $defs/cspReport and $defs/reportsJson: the raw CSP report bodies the endpoint also accepts and normalises to csp.violation. Prose: docs/contracts/client-events.md. Byte limits (32 KB body, 1 KB extra) are rules CE1 and CE2 in validate.ts.",
   "type": "object",

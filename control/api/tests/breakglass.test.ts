@@ -144,8 +144,8 @@ describe("security.txt on the API host (RFC 9116, #310)", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toStartWith("text/plain");
     const text = await res.text();
-    expect(text).toContain("Contact: mailto:security@renox.app\n");
-    expect(text).toContain("Canonical: https://api.renox.app/.well-known/security.txt\n");
+    expect(text).toContain("Contact: mailto:security@renoxium.com\n");
+    expect(text).toContain("Canonical: https://api.renoxium.com/.well-known/security.txt\n");
     expect(text).toContain("Preferred-Languages: en, ar\n");
     const expires = /Expires: (\S+)\n/u.exec(text)?.[1] as string;
     expect(expires).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u);

@@ -14,7 +14,7 @@ import { logIngest, type StoredLine } from "../../api/src/ingest/logs.ts";
 import { harness, type Harness } from "../../api/tests/helpers.ts";
 import { startDev } from "../../../cli/src/commands/dev.ts";
 
-export const API_ORIGIN = "https://api.renox.app";
+export const API_ORIGIN = "https://api.renoxium.com";
 export const DASH = "https://dashboard.renox.test";
 /** A test-only key; long enough for lib/session.ts. */
 export const SECRETS = Object.freeze({ DASHBOARD_KEY: "test-dashboard-key-0123456789abcdef" });
