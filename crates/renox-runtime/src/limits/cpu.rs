@@ -26,7 +26,10 @@
 //! [`CpuWatch::now_ns`] bounds its return value from below by
 //! `slice_start + wall_delta` while inside a slice, so [`CpuLedger`] charges
 //! the request what it actually used even when the raw clock still lags.
-//! Linux's `CLOCK_THREAD_CPUTIME_ID` is current for a running thread, so the
+//! Once the watchdog fires, [`CpuWatch::now_ns`] also caps the reading at
+//! `fired_at + TERMINATION_TAIL_NS` so V8's unwind (which can run long on
+//! macOS ARM) does not push `cpu_ms` past the ± 5 ms bound. Linux's
+//! `CLOCK_THREAD_CPUTIME_ID` is current for a running thread, so the
 //! wall-clock side is a no-op there.
 
 use std::collections::HashMap;
@@ -39,6 +42,14 @@ use std::time::{Duration, Instant};
 pub const WATCHDOG_INTERVAL: Duration = Duration::from_millis(1);
 
 const IDLE: u64 = u64::MAX;
+
+/// On macOS, the CPU the running run may still consume between the watchdog
+/// firing and V8's next interrupt check. Matches the ± 5 ms termination bound
+/// of `docs/contracts/ops.md` section 10 (#212). After the watchdog fires,
+/// [`CpuWatch::now_ns`] caps its reading at `fire_cpu + TERMINATION_TAIL_NS`
+/// so [`CpuLedger`] does not charge the request past the contract bound even
+/// when V8's unwind runs long (macos-15 ARM, 2.7 ms over without the cap).
+const TERMINATION_TAIL_NS: u64 = 5_000_000;
 
 /// The CPU clock of one thread, readable from any thread. Linux:
 /// `CLOCK_THREAD_CPUTIME_ID` of that thread (`pthread_getcpuclockid`).
@@ -204,6 +215,12 @@ pub struct CpuWatch {
     /// pairs a new start with an old budget.
     seq: AtomicU64,
     fired: AtomicBool,
+    /// Thread CPU time (ns) at which the watchdog fired, or `IDLE` while it
+    /// has not. Set once per slice by the watchdog thread (macOS only). After
+    /// fire, [`CpuWatch::now_ns`] caps its reading at
+    /// `fired_at_ns + TERMINATION_TAIL_NS` to keep `cpu_ms` within the ± 5 ms
+    /// contract bound even when V8's unwind runs long on macOS ARM (#212).
+    fired_at_ns: AtomicU64,
     stop: AtomicBool,
 }
 
@@ -218,8 +235,11 @@ impl CpuWatch {
     /// below by the wall-time-based estimate `slice_start + (wall_now -
     /// wall_slice_start)`: within a slice the isolate thread holds V8 and
     /// runs JavaScript, so wall is a tight upper bound on CPU used and does
-    /// not lag (#212). Outside a slice (or on Linux) the raw clock is
-    /// returned.
+    /// not lag (#212). Once the watchdog has fired, the reading is also
+    /// bounded from above by `fired_at + TERMINATION_TAIL_NS`, so
+    /// [`CpuLedger`] does not charge the request past the ± 5 ms contract
+    /// bound while V8 unwinds. Outside a slice (or on Linux) the raw clock
+    /// is returned.
     pub fn now_ns(&self) -> u64 {
         let cpu = self.clock.now().map(|d| d.as_nanos() as u64).unwrap_or(0);
         #[cfg(target_os = "macos")]
@@ -227,11 +247,17 @@ impl CpuWatch {
             let slice_start = self.slice_start_ns.load(Ordering::SeqCst);
             if slice_start != IDLE {
                 let wall_start = self.wall_start_ns.load(Ordering::SeqCst);
+                let mut effective = cpu;
                 if wall_start != IDLE {
                     let wall_based =
                         slice_start.saturating_add(self.wall_ns().saturating_sub(wall_start));
-                    return cpu.max(wall_based);
+                    effective = effective.max(wall_based);
                 }
+                let fired_at = self.fired_at_ns.load(Ordering::SeqCst);
+                if fired_at != IDLE {
+                    effective = effective.min(fired_at.saturating_add(TERMINATION_TAIL_NS));
+                }
+                return effective;
             }
         }
         cpu
@@ -250,7 +276,8 @@ impl CpuWatch {
     /// Restart the measured run at `start_ns` (thread CPU) with `budget`:
     /// the running context changed. Only the isolate thread calls it. The
     /// wall-time anchor is read inside, so the two clocks come from the
-    /// same instant.
+    /// same instant. The macOS fire cap is cleared because a new run
+    /// starts fresh.
     pub fn rebase(&self, start_ns: u64, budget: Duration) {
         let wall_start = if start_ns == IDLE {
             IDLE
@@ -261,6 +288,7 @@ impl CpuWatch {
         self.budget_ns.store(clamp_ns(budget), Ordering::SeqCst);
         self.wall_start_ns.store(wall_start, Ordering::SeqCst);
         self.slice_start_ns.store(start_ns, Ordering::SeqCst);
+        self.fired_at_ns.store(IDLE, Ordering::SeqCst);
         self.seq.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -321,6 +349,7 @@ impl Watchdog {
             budget_ns: AtomicU64::new(u64::MAX),
             seq: AtomicU64::new(0),
             fired: AtomicBool::new(false),
+            fired_at_ns: AtomicU64::new(IDLE),
             stop: AtomicBool::new(false),
         });
         let w = watch.clone();
@@ -342,6 +371,10 @@ impl Watchdog {
                         let wall_delta = w.wall_ns().saturating_sub(wall_start);
                         let used = CpuWatch::effective_used(cpu_delta, wall_delta);
                         if used > budget && !w.fired.swap(true, Ordering::SeqCst) {
+                            // Record the budget-aligned fire point so
+                            // `now_ns` caps the ledger at `fired + 5 ms`.
+                            w.fired_at_ns
+                                .store(cpu_start.saturating_add(budget), Ordering::SeqCst);
                             on_fire();
                         }
                     }
@@ -679,6 +712,7 @@ mod tests {
             budget_ns: AtomicU64::new(u64::MAX),
             seq: AtomicU64::new(0),
             fired: AtomicBool::new(false),
+            fired_at_ns: AtomicU64::new(IDLE),
             stop: AtomicBool::new(false),
         });
         let seen = Arc::new(AtomicU64::new(0));
