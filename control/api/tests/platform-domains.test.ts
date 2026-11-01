@@ -94,8 +94,17 @@ describe("the CNAME target and the labels a person reads (#364)", () => {
     const totp = (await (await h.request("POST", "/v1/account/mfa/totp", { session: s, json: {} })).json()) as { otpauth_uri: string };
     expect(totp.otpauth_uri).toStartWith("otpauth://totp/Renoxium:");
     expect(new URL(totp.otpauth_uri).searchParams.get("issuer")).toBe("Renoxium");
-    const opts = (await (await h.request("POST", "/v1/account/mfa/passkeys/options", { session: s, json: {} })).json()) as { rp: { id: string; name: string } };
-    expect(opts.rp).toEqual({ id: "dashboard.renoxium.com", name: "Renoxium" });
+    // mfa.test.ts sets MFA_RP_ID for the whole process; without it the rp id is the dashboard's host.
+    const saved = { id: process.env.MFA_RP_ID, origin: process.env.MFA_ORIGIN };
+    delete process.env.MFA_RP_ID;
+    delete process.env.MFA_ORIGIN;
+    try {
+      const opts = (await (await h.request("POST", "/v1/account/mfa/passkeys/options", { session: s, json: {} })).json()) as { rp: { id: string; name: string } };
+      expect(opts.rp).toEqual({ id: "dashboard.renoxium.com", name: "Renoxium" });
+    } finally {
+      if (saved.id !== undefined) process.env.MFA_RP_ID = saved.id;
+      if (saved.origin !== undefined) process.env.MFA_ORIGIN = saved.origin;
+    }
   });
 
   test("the MCP resource is named Renoxium platform MCP", async () => {
