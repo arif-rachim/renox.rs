@@ -7,9 +7,11 @@ timezone = "Asia/Dubai"
 # signed-in user's own token. DASHBOARD_KEY (at least 32 characters) derives
 # the key that encrypts stored sign-ins; RENOX_API_URL (optional, https only)
 # points at another API, whose host must then be added to `network`.
+# RENOX_PLATFORM_DOMAIN (optional) is the API's CONTROL_PLATFORM_DOMAIN, shown
+# as `<name>.<domain>` on the new-app page; default `renoxium.app`.
 [permissions]
-network = ["api.renox.app"]
-secrets = ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL"]
+network = ["api.renoxium.com"]
+secrets = ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL", "RENOX_PLATFORM_DOMAIN"]
 
 # #325: the card form of /billing is Stripe's own (public/billing.js): its
 # script, its frames, and its API calls from the browser. Card numbers never

@@ -6,8 +6,8 @@ Two audiences use the platform:
 
 | Audience | Enters through | Main jobs |
 | --- | --- | --- |
-| Tenant developer | `app.renox.dev` + `renox` CLI | Create apps, deploy, install modules, read logs, manage data, secrets, domains, billing, team |
-| Platform operator (us) | `ops.renox.dev` | Tenants, nodes, cells, abuse, incidents, revenue |
+| Tenant developer | `dashboard.renoxium.com` + `renox` CLI | Create apps, deploy, install modules, read logs, manage data, secrets, domains, billing, team |
+| Platform operator (us) | `dashboard.renoxium.com/ops` | Tenants, nodes, cells, abuse, incidents, revenue |
 
 End users of tenant applications never see the Renox UI; they see the tenant's app on the tenant's domain.
 
@@ -18,7 +18,7 @@ Sign up ──► Create app (template) ──► renox dev locally ──► re
    │              │                                              │                 │
    │              └── or: import from git                        └── custom domain └── configure billing module
    ▼
-First app live on <app>.renox.app within ~10 minutes
+First app live on <app>.renoxium.app within ~10 minutes
 ```
 
 Activation metric: time from sign-up to first successful deploy (target ≤ 10 minutes with the `shop` template). Measured from the control plane by the funnel report (`control/api/src/signup/funnel.ts`, #326); the scripted run is `bench/results/2026-10-30-activation.md`.
@@ -58,7 +58,7 @@ URL scheme: `/o/<org>/apps/<app>/<section>`; every screen is linkable and htmx-d
 │ Apps                                                                         │
 │ ┌────────────────────────┬────────────┬───────────┬──────────┬─────────────┐ │
 │ │ shop                   │ ● healthy  │ v a1b2c3  │ 2m ago   │ shop.acme.id│ │
-│ │ internal-crm           │ ● healthy  │ v 9f8e7d  │ 3d ago   │ crm.renox.app│
+│ │ internal-crm           │ ● healthy  │ v 9f8e7d  │ 3d ago   │ crm.renoxiu…│ │
 │ │ landing                │ ○ idle     │ v 44aa21  │ 12d ago  │ acme.id     │ │
 │ └────────────────────────┴────────────┴───────────┴──────────┴─────────────┘ │
 │ Recent activity                                                              │
@@ -77,8 +77,8 @@ Primary action: **New app**. Secondary: open an app, go to billing.
 │ Region      [ UAE (me-central) ▾ ]       │
 │ Modules     [x] auth  [x] org  [ ] billing  [ ] admin  [ ] storage │
 │                                          │
-│ We will create shop.renox.app and show   │
-│ you the CLI commands to run locally.     │
+│ We will create shop.renoxium.app and     │
+│ show you the CLI commands to run locally.│
 │                          [ Create app ]  │
 └──────────────────────────────────────────┘
           │
@@ -95,7 +95,7 @@ Primary action: **New app**. Secondary: open an app, go to billing.
 
 ```
 ┌ shop ───────────────────────────────────────────────── [ Open ↗ ] [ Deploy ▾ ] ┐
-│ ● healthy · v a1b2c3 · deployed 2m ago by alice · shop.acme.id, shop.renox.app │
+│ ● healthy · v a1b2c3 · 2m ago by alice · shop.acme.id, shop.renoxium.app       │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Last 24h    p50 2.1 ms   p99 14 ms   errors 0.02%   req 41k   cpu 1.9 min    │
 │ [▁▂▃▅▂▁▂▃▇▅▃▂▁▂▃]  requests          [▁▁▂▁▁▁▁▂▁▁]  errors                   │
@@ -230,9 +230,9 @@ Install flow shows the permission review (network, tables, secrets, slots) befor
 
 ```
 ┌ Domains ────────────────────────────────────────────── [ + Add domain ] ┐
-│ shop.renox.app      default   ✓ TLS                                       │
+│ shop.renoxium.app   default   ✓ TLS                                       │
 │ shop.acme.id        custom    ✓ TLS (Let's Encrypt, renews Dec 10)        │
-│ www.acme.id         custom    ⚠ DNS: add CNAME → edge.renox.app  [Recheck]│
+│ www.acme.id         custom    ⚠ DNS: CNAME → edge.renoxium.app   [Recheck]│
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -297,7 +297,7 @@ Tier selection, region, idle timeout, limits (within tier), delete app (with exp
 ```
 $ renox deploy
   Bundling… 312 modules, 42 templates, 7 policies            1.9s
-  Uploading 3.1 MB → app.renox.dev                            0.8s
+  Uploading 3.1 MB → api.renoxium.com                         0.8s
   Validating… ✓ manifest ✓ templates ✓ policies ✓ routes ✓ permissions
   Migrations: billing 004_add_coupon ✓                        12ms
   Live: https://shop.acme.id  (a1b2c3)                        total 6.4s
@@ -308,7 +308,7 @@ $ renox authz explain --user alice --action invoice.refund --resource inv_123
 $ renox db export > shop.db
 ```
 
-## 5. Operator console (`ops.renox.dev`)
+## 5. Operator console (`dashboard.renoxium.com/ops`)
 
 ```
 ┌ Fleet ───────────────────────────────────────────────────────────────────────┐

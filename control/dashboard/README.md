@@ -25,7 +25,7 @@ Every page works without JavaScript except the Live log view and adding a passke
 
 ## How it reaches the control API (ADR D23)
 
-The dashboard is an ordinary tenant. It calls the API at its public hostname, `api.renox.app`, declared in `renox.toml` `[permissions] network`, with `ctx.fetch` under every tenant rule (allowlist, DNS in Rust, blocked ranges, `fetch_blocked_addresses`). There is no exemption, no `internal` flag, no node token.
+The dashboard is an ordinary tenant. It calls the API at its public hostname, `api.renoxium.com`, declared in `renox.toml` `[permissions] network`, with `ctx.fetch` under every tenant rule (allowlist, DNS in Rust, blocked ranges, `fetch_blocked_addresses`). There is no exemption, no `internal` flag, no node token.
 
 The credential is the signed-in user's own **tenant token** (`renox_pat_…`), forwarded on every API call, so the user acts with exactly their scopes and role (`control/api/README.md`, "Roles"). The dashboard does not proxy the API's password login: the API's per-IP sign-in buckets would see the node's address for every user (D23, Consequences). A user gets a token from `renox login` or, for the dashboard only:
 
@@ -43,6 +43,7 @@ renox tokens create dashboard --scope apps:read --scope apps:write --scope deplo
 | --- | --- | --- |
 | `DASHBOARD_KEY` | yes | At least 32 characters; derives the key of stored sign-ins. Changing it signs everyone out |
 | `RENOX_API_URL` | no | Another control API (`https://` only); its host must also be in `[permissions] network` |
+| `RENOX_PLATFORM_DOMAIN` | no | The API's `CONTROL_PLATFORM_DOMAIN`, shown as `<name>.<domain>` on the new-app page; default `renoxium.app` |
 | `OPS_CONSOLE` | no | `operators` turns on the operator console (`/ops/tenants/:tenant`) on this deployment; anything else answers 403 there |
 
 ## Run
@@ -59,7 +60,7 @@ bun ../../cli/src/main.ts dev --port 8790
 
 1. Sign up the platform's own tenant and its owner (`POST /v1/account/signup` with `tenant_id`, then verify the email), and sign in with `renox login`.
 2. `renox secrets set DASHBOARD_KEY --app dashboard` (a random 32-byte value), then `renox deploy` from this folder.
-3. Attach the dashboard hostname (`CONTROL_DASHBOARD_URL` of the API, default `https://dashboard.renox.app`) to the app: `POST /v1/apps/dashboard/domains` (`domains:write`; the CLI has no `domains` command yet).
+3. Attach the dashboard hostname (`CONTROL_DASHBOARD_URL` of the API, default `https://dashboard.renoxium.com`) to the app: `POST /v1/apps/dashboard/domains` (`domains:write`; the CLI has no `domains` command yet).
 4. The node that runs it lists the control plane's node-facing addresses in `fetch_blocked_addresses`, not the public API address (D23).
 
 The deployment is recorded in the F3 review (#61).
@@ -69,7 +70,7 @@ The deployment is recorded in the F3 review (#61).
 `bun test` in this directory:
 
 - `tests/session.test.ts`: the token is stored only encrypted, a row copied to another session or read with another key does not decrypt, idle and absolute expiry, no key no sign-in, only `renox_pat_` tokens.
-- `tests/pages.test.ts`: every loader and action against the real control API in process (`control/api` on PGlite) through a fake `ctx` whose `fetch` reaches only `https://api.renox.app`: sign-in and `next` (no open redirect), sign-out, a revoked token, the app list and create, Promote/Rollback and the deployment detail, logs filters and the live fragment, usage bars and quota, secrets set/list/delete with the value never returned or logged, and the API's 403 and 404 shown on the page.
+- `tests/pages.test.ts`: every loader and action against the real control API in process (`control/api` on PGlite) through a fake `ctx` whose `fetch` reaches only `https://api.renoxium.com`: sign-in and `next` (no open redirect), sign-out, a revoked token, the app list and create, Promote/Rollback and the deployment detail, logs filters and the live fragment, usage bars and quota, secrets set/list/delete with the value never returned or logged, and the API's 403 and 404 shown on the page.
 - `tests/client-errors.test.ts`: the Browser errors page (#128) against the real control API: groups, the original TypeScript position from a privately uploaded sourcemap, resolve/ignore/reopen, the 80 % quota warning, and the link from a client log line to its group. With `RENOX_WORKER_PATH`, the screenshot test renders the group view and the Logs page filtered to `source: client` through the worker and checks the HTML. A local control API cannot be reached from `renox dev` (see above), so `devWithData` in `tests/helpers.ts` runs `renox dev` on a copy whose two loaders return what the real loaders returned in process. Where Node resolves Playwright (or `PLAYWRIGHT_PATH`), it also shoots both pages in Chromium and fails on any console error or CSP violation. The PNGs go to `RENOX_SCREENSHOTS` (default: a temporary directory). The map is the committed fixture in `control/api/test/fixtures/sourcemaps/`.
 - `tests/database.test.ts`: the Database page (#258) against the real control API with a fake node: the header, the generations, restore into a new app (bad input refused before the API, `apps:read` refused by it), and an export that answers a signed link the dashboard never fetches. With `RENOX_WORKER_PATH`, it renders the page through the worker and shoots it like the test above.
 - `tests/ops.test.ts`: the operator console (#259): 403 without `OPS_CONSOLE`; with it, a tier change sent once with the operator token, which is not kept and does not replace the sign-in; bad input refused before the API; a token without `ops:write` shown as the API's refusal; the status panel (#296) read once with the operator token, not kept, an unknown token shown as the API's 401. With `RENOX_WORKER_PATH`, the worker renders the status panel and the three actions.

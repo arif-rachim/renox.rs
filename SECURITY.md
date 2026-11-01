@@ -1,15 +1,15 @@
 # Security policy
 
-Renox runs other people's code next to other people's data. We want to hear about every weakness that lets one tenant, end user, module publisher or outsider read, change or disrupt what is not theirs.
+Renoxium runs other people's code next to other people's data. We want to hear about every weakness that lets one tenant, end user, module publisher or outsider read, change or disrupt what is not theirs.
 
 ## Reporting a vulnerability
 
-- Email **security@renox.app**. The mailbox is routed to the on-call rotation (`ops/security/incident-runbook.md`, "On call").
+- Email **security@renoxium.com**. The mailbox is routed to the on-call rotation (`ops/security/incident-runbook.md`, "On call").
 - Or, where private vulnerability reporting is enabled on this repository, open a report through GitHub's "Report a vulnerability".
 - Please do **not** open a public issue, pull request or discussion for a vulnerability.
 - Write in English or Arabic. Include what you did, what you saw, the affected host or component, and how to reproduce it. A proof of concept that stays inside your own tenant is the most useful kind.
 
-The machine-readable version of this page is served at `https://renox.app/.well-known/security.txt` (RFC 9116) by the gateway (`crates/renox-gateway/src/well_known.rs`).
+The machine-readable version of this page is served at `https://renoxium.app/.well-known/security.txt` (RFC 9116) by the gateway (`crates/renox-gateway/src/well_known.rs`) and at `https://api.renoxium.com/.well-known/security.txt` by the control API (`control/api/src/well-known.ts`).
 
 ## What to expect
 
@@ -29,7 +29,7 @@ These are targets, not guarantees; we tell you when we will miss one and why. Se
 - The data plane: the gateway, the runtime and its isolates, the per-tenant SQLite files and their authorizer, templates, the worker (`crates/`).
 - The control plane: the deploy API, the dashboard, billing, the operator console (`control/`).
 - The `renox` CLI and SDK (`cli/`, `sdk/`), the official modules (`modules/`), the platform MCP and the per-app MCP endpoint.
-- `*.renox.app` hosts we operate, and custom domains as far as Renox serves them.
+- The platform's own hosts under `renoxium.com` (the site, `dashboard.`, `api.`, `mcp.`, `docs.`), tenant app hosts under `renoxium.app` as far as the platform serves them, and custom domains as far as Renoxium serves them.
 
 Examples of what we care about most: escaping an isolate or a process tier; reading or writing another tenant's data; reaching private or metadata addresses through tenant `fetch`; a module reading a table outside its prefix; a secret appearing in a log, error, bundle or response; taking over a custom domain or an account; bypassing a per-tenant limit in a way that hurts other tenants.
 
@@ -49,7 +49,7 @@ If you act in good faith under this policy, we will not pursue or support legal 
 - you stop and report as soon as you reach data that is not yours, you do not keep, copy or share it, and you tell us what you accessed;
 - you do not degrade the service for others, do not use what you find beyond what demonstrates it, and give us a reasonable time to fix it before you publish.
 
-If in doubt about whether something is allowed, ask at security@renox.app first.
+If in doubt about whether something is allowed, ask at security@renoxium.com first.
 
 ## Bug bounty
 

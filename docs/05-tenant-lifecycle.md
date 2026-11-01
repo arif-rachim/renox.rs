@@ -54,7 +54,7 @@ Deployment switch: the new isolate is created alongside the old one; new request
 
 ## Custom domains and DNS
 
-Every app gets `<app>.renox.app` and per-deployment preview hosts (`<app>-<hash>.renox.app`). Tenants attach their own domains without transferring them; Renox never needs to be the registrar or DNS provider. Routing is by hostname (SNI and `Host`), so a custom domain is one more row in the gateway's route table.
+Every app gets `<app>.renoxium.app` and per-deployment preview hosts (`<app>-<hash>.renoxium.app`); `renoxium.app` serves tenant apps only, and the platform's own services live on `renoxium.com` (`docs/contracts/README.md`, "Domains"). Tenants attach their own domains without transferring them; Renox never needs to be the registrar or DNS provider. Routing is by hostname (SNI and `Host`), so a custom domain is one more row in the gateway's route table.
 
 ### Attaching a domain
 
@@ -62,7 +62,7 @@ Every app gets `<app>.renox.app` and per-deployment preview hosts (`<app>-<hash>
 | --- | --- | --- |
 | 1. Add | Dashboard, `renox domains add www.example.com`, or the MCP tool `add_domain` | Creates a verification token and shows DNS instructions |
 | 2. Verify ownership | `TXT _renox-verify.example.com = rnx-verify-<token>` | Polls until it matches. The hostname is **not served** before verification (prevents domain takeover) |
-| 3. Point traffic | `www` → `CNAME edge.renox.app`; apex (`example.com`) → `ALIAS`/`ANAME` where the DNS provider supports it, otherwise `A`/`AAAA` records to Renox anycast IPs | Watches propagation; shows "DNS: ok / pending" |
+| 3. Point traffic | `www` → `CNAME edge.renoxium.app`; apex (`example.com`) → `ALIAS`/`ANAME` where the DNS provider supports it, otherwise `A`/`AAAA` records to Renox anycast IPs | Watches propagation; shows "DNS: ok / pending" |
 | 4. Certificate | Nothing | ACME (Let's Encrypt): HTTP-01 for hostnames, DNS-01 for wildcards; renewal 30 days before expiry; issuance queued to respect rate limits |
 | 5. Live | Opens `https://www.example.com` | Serves with the right certificate; apex ↔ `www` redirect per the tenant's canonical choice |
 
@@ -72,7 +72,7 @@ Every app gets `<app>.renox.app` and per-deployment preview hosts (`<app>-<hash>
 | --- | --- |
 | Several domains per app | Yes; one canonical, others 301 |
 | Domain proxied by Cloudflare | Yes; certificates still issued; Cloudflare connects to Renox over TLS |
-| Wildcard (`*.example.com`) for tenants building their own multi-tenant SaaS | Yes; requires DNS-01 via a one-time `CNAME _acme-challenge.example.com → acme.renox.app`; one certificate covers all subdomains |
+| Wildcard (`*.example.com`) for tenants building their own multi-tenant SaaS | Yes; requires DNS-01 via a one-time `CNAME _acme-challenge.example.com → acme.renoxium.app`; one certificate covers all subdomains |
 | Domains owned by the tenant's own customers (Shopify-style `shopbudi.com` → tenant app) | Yes, via the **Domains API** from inside the app: `ctx.domains.add("shopbudi.com", { route: "/stores/budi" })`; the tenant app shows the DNS instructions to its customer; verification and certificates work the same way; metered per domain |
 | Other records (MX, unrelated subdomains) | Untouched; Renox only asks for records of registered hostnames |
 | Buying domains through Renox | Not initially; possible later through a registrar partner |
@@ -82,7 +82,7 @@ Every app gets `<app>.renox.app` and per-deployment preview hosts (`<app>-<hash>
 - Verification before serving; the verification record must stay in place (re-checked periodically) or serving stops after a grace period.
 - Certificates and private keys are stored encrypted in the control plane and pushed to gateways; keys never enter a tenant cell.
 - CAA guidance in the instructions (`0 issue "letsencrypt.org"`).
-- HSTS is enabled after the first certificate; tenants may disable it on custom domains (not on `*.renox.app`).
+- HSTS is enabled after the first certificate; tenants may disable it on custom domains (not on `*.renoxium.app`).
 - Domains that stop pointing at Renox are flagged and their renewals paused; serving resumes automatically when DNS points back.
 
 ## Secrets and data access

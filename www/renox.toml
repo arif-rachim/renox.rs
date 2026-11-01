@@ -1,4 +1,6 @@
-# renox.app: the public site (#326). The documentation under docs/, rendered
+# The public site of Renoxium, served at renoxium.com (#326): a platform
+# service, so never under the tenant domain renoxium.app. The documentation under
+# docs/, rendered
 # from the repository's markdown at build time; the pricing page from
 # pricing.toml; the DPA and terms. No network, no secrets, no database.
 [app]

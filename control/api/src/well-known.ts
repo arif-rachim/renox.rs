@@ -6,17 +6,18 @@
 
 import type { Hono } from "hono";
 import { operation } from "./audit.ts";
+import { DEFAULTS } from "./config.ts";
 import type { Deps, Env } from "./context.ts";
 
 /** RFC 9116 section 2.5.5: less than a year; the gateway uses 180 days. */
 export const EXPIRES_AFTER_MS = 180 * 86_400_000;
 
 export function securityTxt(deps: Deps): string {
-  const contacts = deps.config.securityContacts ?? ["mailto:security@renox.app"];
+  const contacts = deps.config.securityContacts ?? DEFAULTS.securityContacts;
   const lines = contacts.map((c) => `Contact: ${c}`);
   lines.push(`Expires: ${new Date(deps.now() + EXPIRES_AFTER_MS).toISOString().replace(/\.\d{3}Z$/u, "Z")}`);
   if ((deps.config.securityPolicy ?? null) !== null) lines.push(`Policy: ${deps.config.securityPolicy}`);
-  lines.push(`Canonical: https://api.${deps.config.platformDomain}/.well-known/security.txt`);
+  lines.push(`Canonical: ${(deps.config.apiUrl ?? DEFAULTS.apiUrl).replace(/\/+$/u, "")}/.well-known/security.txt`);
   lines.push("Preferred-Languages: en, ar");
   return `${lines.join("\n")}\n`;
 }

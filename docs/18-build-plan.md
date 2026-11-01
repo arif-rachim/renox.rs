@@ -29,7 +29,7 @@ This document lists everything we build, in two groups: **platform components** 
 | P17 | Observability | tracing in all crates; collector config | Rust + ops | All | F6 |
 | P18 | Module registry and signatures | `control/api` (registry endpoints), P11 (`renox publish`) | TypeScript | P12, P11 | F7 |
 | P19 | Benchmarks | `bench/` | Shell + TS + Rust harness | P1 (F0), then everything | F0 onward |
-| P21 | Platform MCP server (`renox mcp` local via stdio; `mcp.renox.dev` remote with OAuth 2.1 scopes, confirmation tokens, audit) | `cli/` (local), `control/api` (remote) | TypeScript | P11, P12; docs as resources | F2–F3 (local), F3–F4 (remote) |
+| P21 | Platform MCP server (`renox mcp` local via stdio; `mcp.renoxium.com` remote with OAuth 2.1 scopes, confirmation tokens, audit) | `cli/` (local), `control/api` (remote) | TypeScript | P11, P12; docs as resources | F2–F3 (local), F3–F4 (remote) |
 | P23 | Domain and certificate manager: verification (TXT), DNS checks, ACME (HTTP-01, DNS-01 wildcard), certificate store and distribution to gateways, Domains API (`ctx.domains`) | `control/api` (manager), `crates/renox-gateway` (SNI + cert reload) | TypeScript + Rust | P3, P12; object storage/KMS for keys | F3 (basic custom domains), F7 (wildcard, Domains API) |
 | P22 | App MCP (`functions/tools/`, module `[[tools]]`, `/mcp` per app with OAuth from `auth`, Cedar actions, metering) and `ctx.ai` (provider access, optional AI gateway, durable agent jobs) | `crates/renox-runtime` (ops), `sdk/`, `control/` (gateway) | Rust + TypeScript | P8 authz, M1 auth (OAuth server), P9 outbox, P4 metering | F5 (App MCP), F7 (`ctx.ai`) |
 | P20 | Example apps | `examples/` | Renox apps | P10, P11 | F0 onward |

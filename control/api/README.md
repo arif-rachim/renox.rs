@@ -24,9 +24,11 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 | `CONTROL_DATABASE_URL` | `pglite:memory` | `postgres://…`, `pglite:memory`, or `pglite:<dir>` |
 | `CONTROL_OPERATOR_TOKEN_SHA256` | unset (operator endpoints answer 401) | SHA-256 hex of the `renox_op_…` token |
 | `CONTROL_MASTER_KEY` | unset (secret endpoints disabled) | Base64 of the 32-byte master key that wraps the per-tenant data keys |
-| `CONTROL_PLATFORM_DOMAIN` | `renox.app` | App hostnames are `<app>.<domain>` |
+| `CONTROL_PLATFORM_DOMAIN` | `renoxium.app` | App hostnames are `<app>.<domain>`; the custom-domain CNAME target is `edge.<domain>` (`CONTROL_EDGE_HOSTNAME` overrides it). Never the domain of a platform service (`docs/contracts/README.md`, "Domains") |
 | `CONTROL_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | unset, `renox-artifacts`, `me-central-1` | Object storage |
-| `CONTROL_DASHBOARD_URL` | `https://dashboard.renox.app` | Base of the links in account emails |
+| `CONTROL_DASHBOARD_URL` | `https://dashboard.renoxium.com` | Base of the links in emails (account, billing); the passkey relying party is its host |
+| `CONTROL_API_URL` | `https://api.renoxium.com` | Public origin of this API: the `Canonical` of its security.txt |
+| `CONTROL_ABUSE_CONTACT` | `abuse@renoxium.com` | The address takedown emails name for appeals |
 | `CONTROL_MAIL_OUTBOX_DIR` | unset (account emails are dropped, with a warning) | Writes each account email to a file there (local development) |
 
 The start sequence is: open the database, apply the migrations in `migrations/`, then serve. A migration file that changed after it was applied stops the start.
@@ -170,7 +172,7 @@ Not done yet (#308 stays open for them): deleting the database's Litestream gene
 ## Break-glass, security.txt, operator tokens (#310)
 
 - **Break-glass** (`src/ops/breakglass.ts`, deploy-api.md 0.4 section 17): `POST /v1/ops/tenants/{tenant_id}/impersonate` with `{ reason, scopes? }` needs an operator token created with `ops:impersonate` (alone or with `ops:read`, at most 1 day; the bootstrap token and `ops:write` never grant it). It answers a `renox_pat_` tenant token with read scopes only (`apps:read`, `logs:read`, `secrets:read` by default) that expires after 60 minutes; one active per operator and tenant (409). `DELETE …/impersonate/{impersonation_id}` ends it at once; `endExpiredImpersonations` (every 30 s in `main.ts`) ends it at the time box with an `endImpersonation` row by `platform`. The owner is emailed at start (operator, reason, end time) and at end (how, requests made). Every request with the token is audited with actor `operator:<acct_id>/<imp_id>` (`auditActor`, set in `src/auth/middleware.ts`). `getOpsTenant.actions[]` lists active impersonations first. Migration `0013_breakglass.sql`.
-- **security.txt** (`src/well-known.ts`): `GET /.well-known/security.txt` (RFC 9116): `CONTROL_SECURITY_CONTACTS` (comma separated, default `mailto:security@renox.app`), `CONTROL_SECURITY_POLICY`, `Canonical` on `api.<platform domain>`, `Preferred-Languages: en, ar`, `Expires` 180 days ahead, as the gateway's file.
+- **security.txt** (`src/well-known.ts`): `GET /.well-known/security.txt` (RFC 9116): `CONTROL_SECURITY_CONTACTS` (comma separated, default `mailto:security@renoxium.com`), `CONTROL_SECURITY_POLICY`, `Canonical` on `CONTROL_API_URL`, `Preferred-Languages: en, ar`, `Expires` 180 days ahead, as the gateway's file.
 - **Operator tokens** (`src/tokens/routes.ts`): `createToken` from an account flagged `operator` accepts `["ops:write"]`, `["ops:read"]` (a read-only console token: `getOpsTenant`, `/v1/ops/metrics`), `["ops:impersonate"]` or `["ops:impersonate", "ops:read"]`, never a tenant scope.
 - **Operator ids**: the audit rows of `setTenantTier` and `moveTenant` store the operator as `acct_<ulid>` (the wire form), never `usr_`.
 

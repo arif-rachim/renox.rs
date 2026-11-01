@@ -1,4 +1,4 @@
-# Renox
+# Renoxium
 
 **A multi-tenant hosting platform for TypeScript applications.**
 Tenants deploy web apps and functions written in TypeScript; Renox runs them safely, densely, and cheaply in V8 isolates with one SQLite file per tenant.
@@ -6,6 +6,12 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 > *"Assemble a SaaS from auth, billing, and admin modules, then deploy to hosting that charges only for what you use."*
 
 > **Status: Phase F1 (minimal data plane).** F0 is done: the spike benchmarks ran against the unmodified Supabase Edge Runtime and the gate decided GO (`docs/14-benchmarks.md`, "F0 results"). The repository holds the documentation, the benchmark harness and spikes under `bench/`, and the example apps; the first platform crates land in F1 (see [Roadmap](#roadmap)).
+
+## Naming
+
+- **Renoxium** is the product and the hosting: the name a person reads on the site, the dashboard, mails, invoices, passkey and authenticator labels, and the MCP resource.
+- **`renox`** is the toolkit a developer types or imports: the `renox` CLI, the packages and crates, `renox.toml`, the `renox:modules` specifier, the `RENOX_*` error codes and variables. It is not renamed.
+- **Two domains, split on purpose** (`docs/contracts/README.md`, "Domains"): tenant apps live on `renoxium.app` (`<app>.renoxium.app`, previews `<app>-<hash>.renoxium.app`, custom domains CNAME to `edge.renoxium.app`; on the Public Suffix List, `ops/psl/`), and the platform's own services on `renoxium.com` (the site at the apex, `dashboard.`, `api.`, `mcp.`, `docs.`, and mail such as `security@` and `abuse@`). A tenant's phishing page can then never cost the company domain its reputation, its mail deliverability or the dashboard's cookies. `renox.rs` is not used by the platform; it is only this repository's name. Both domains are operator configuration; these are the reference deployment's values.
 
 ## Why
 

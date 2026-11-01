@@ -220,7 +220,7 @@ $ renox deploy
   Uploading <size> MB → <api host>                                     <s>
   Validating… ✓ manifest ✓ routes ✓ templates ✓ permissions ✓ bundle (validated)
   Activating… ✓ migrations ✓ cell ✓ probe                              <s>
-  Live: https://shop.renox.app  (<new hash, 12 characters>)            total <s>
+  Live: https://shop.renoxium.app   (<new hash, 12 characters>)            total <s>
   Rollback: renox deploy --rollback <previous hash, 12 characters>
 ```
 

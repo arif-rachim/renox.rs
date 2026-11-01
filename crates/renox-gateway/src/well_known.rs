@@ -3,6 +3,12 @@
 //! researcher reaches us. Answered by the gateway before route lookup, for
 //! the hosts listed in [`SecurityTxt::hosts`] only; a tenant's hostname
 //! serves whatever the tenant's app serves at that path.
+//!
+//! The hosts, contacts, canonical URL and policy are operator
+//! configuration (`worker.toml` `[gateway.security_txt]`, #364); the
+//! defaults are the reference deployment's (`docs/contracts/README.md`,
+//! "Domains"): the platform domain's apex `renoxium.app`, reports to
+//! `security@renoxium.com`.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -23,6 +29,14 @@ pub struct SecurityTxt {
     body: String,
 }
 
+/// The hosts that serve the file by default: the apex of the platform
+/// domain, which no tenant can claim.
+pub const DEFAULT_HOSTS: &[&str] = &["renoxium.app"];
+
+/// The default `Contact`: the platform's security mailbox, on the company
+/// domain, never on the tenant domain.
+pub const DEFAULT_CONTACT: &str = "mailto:security@renoxium.com";
+
 /// The fields of the file.
 #[derive(Debug, Clone)]
 pub struct Fields {
@@ -35,16 +49,68 @@ pub struct Fields {
 }
 
 impl Fields {
-    /// The platform's: `security@renox.app`, English and Arabic, expiring
+    /// The reference deployment's: [`DEFAULT_CONTACT`], the canonical URL on
+    /// the first of [`DEFAULT_HOSTS`], English and Arabic, expiring
     /// [`EXPIRES_AFTER`] from `now`.
     pub fn platform(now: SystemTime) -> Fields {
         Fields {
-            contacts: vec!["mailto:security@renox.app".into()],
+            contacts: vec![DEFAULT_CONTACT.into()],
             policy: None,
-            canonical: Some(format!("https://renox.app{SECURITY_TXT_PATH}")),
+            canonical: Some(canonical_for(DEFAULT_HOSTS[0])),
             preferred_languages: vec!["en".into(), "ar".into()],
             expires: now + EXPIRES_AFTER,
         }
+    }
+}
+
+/// `https://<host>/.well-known/security.txt`.
+pub fn canonical_for(host: &str) -> String {
+    format!("https://{}{SECURITY_TXT_PATH}", host.to_ascii_lowercase())
+}
+
+/// What an operator sets (`worker.toml` `[gateway.security_txt]`); every
+/// field falls back to the reference deployment's value.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Settings {
+    /// Hosts that serve the file; empty: [`DEFAULT_HOSTS`].
+    pub hosts: Vec<String>,
+    /// `Contact` URIs; empty: [`DEFAULT_CONTACT`].
+    pub contacts: Vec<String>,
+    /// `Canonical`; `None`: [`canonical_for`] the first host.
+    pub canonical: Option<String>,
+    pub policy: Option<String>,
+}
+
+impl Settings {
+    /// The file these settings describe as of `now`, checked with
+    /// [`validate`] so a bad `worker.toml` stops the start instead of
+    /// publishing an invalid file.
+    pub fn build(&self, now: SystemTime) -> Result<SecurityTxt, String> {
+        let hosts: Vec<String> = if self.hosts.is_empty() {
+            DEFAULT_HOSTS.iter().map(|h| (*h).to_string()).collect()
+        } else {
+            self.hosts.clone()
+        };
+        if let Some(h) = hosts
+            .iter()
+            .find(|h| h.is_empty() || h.contains([':', '/', ' ']))
+        {
+            return Err(format!("host {h:?} is not a bare hostname"));
+        }
+        let mut fields = Fields::platform(now);
+        if !self.contacts.is_empty() {
+            fields.contacts = self.contacts.clone();
+        }
+        fields.canonical = Some(
+            self.canonical
+                .clone()
+                .unwrap_or_else(|| canonical_for(&hosts[0])),
+        );
+        fields.policy = self.policy.clone();
+        let refs: Vec<&str> = hosts.iter().map(String::as_str).collect();
+        let txt = SecurityTxt::new(&refs, &fields);
+        validate(txt.body(), now)?;
+        Ok(txt)
     }
 }
 
@@ -121,9 +187,9 @@ impl SecurityTxt {
         }
     }
 
-    /// The platform's file for `renox.app` and `www.renox.app`.
+    /// The reference deployment's file, served on [`DEFAULT_HOSTS`].
     pub fn platform(now: SystemTime) -> SecurityTxt {
-        SecurityTxt::new(&["renox.app", "www.renox.app"], &Fields::platform(now))
+        SecurityTxt::new(DEFAULT_HOSTS, &Fields::platform(now))
     }
 
     pub fn body(&self) -> &str {
@@ -226,9 +292,72 @@ mod tests {
         let now = SystemTime::now();
         let f = SecurityTxt::platform(now);
         validate(f.body(), now).unwrap();
-        assert!(f.body().contains("Contact: mailto:security@renox.app\n"));
+        assert!(f.body().contains("Contact: mailto:security@renoxium.com\n"));
+        assert!(
+            f.body()
+                .contains("Canonical: https://renoxium.app/.well-known/security.txt\n")
+        );
         assert!(f.body().contains("Preferred-Languages: en, ar\n"));
-        assert!(f.serves("renox.app") && !f.serves("shop.renox.app"));
+        assert!(f.serves("renoxium.app") && !f.serves("shop.renoxium.app"));
+        // The default settings build the same file.
+        assert_eq!(Settings::default().build(now).unwrap().body(), f.body());
+    }
+
+    #[test]
+    fn settings_override_every_default() {
+        let now = SystemTime::now();
+        let f = Settings {
+            hosts: vec!["apps.example.test".into(), "www.apps.example.test".into()],
+            contacts: vec![
+                "mailto:sec@example.test".into(),
+                "https://example.test/report".into(),
+            ],
+            canonical: None,
+            policy: Some("https://example.test/policy".into()),
+        }
+        .build(now)
+        .unwrap();
+        let body = f.body();
+        assert!(
+            body.contains(
+                "Contact: mailto:sec@example.test\nContact: https://example.test/report\n"
+            )
+        );
+        assert!(body.contains("Canonical: https://apps.example.test/.well-known/security.txt\n"));
+        assert!(body.contains("Policy: https://example.test/policy\n"));
+        assert!(!body.contains("renoxium.com") && !body.contains("renoxium.app"));
+        assert!(f.serves("www.apps.example.test") && !f.serves("renoxium.app"));
+    }
+
+    #[test]
+    fn invalid_settings_are_refused() {
+        let now = SystemTime::now();
+        for (s, why) in [
+            (
+                Settings {
+                    contacts: vec!["security@example.test".into()],
+                    ..Settings::default()
+                },
+                "URI",
+            ),
+            (
+                Settings {
+                    canonical: Some("http://example.test/x".into()),
+                    ..Settings::default()
+                },
+                "https",
+            ),
+            (
+                Settings {
+                    hosts: vec!["example.test:443".into()],
+                    ..Settings::default()
+                },
+                "bare hostname",
+            ),
+        ] {
+            let err = s.build(now).unwrap_err();
+            assert!(err.contains(why), "{s:?}: {err}");
+        }
     }
 
     #[test]

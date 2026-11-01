@@ -4,14 +4,14 @@
     {
       "type": "csp-violation",
       "age": 10,
-      "url": "https://shop.renox.app/products/42",
+      "url": "https://shop.renoxium.app/products/42",
       "user_agent": "Mozilla/5.0",
       "body": {
-        "documentURL": "https://shop.renox.app/products/42",
+        "documentURL": "https://shop.renoxium.app/products/42",
         "blockedURL": "inline",
         "effectiveDirective": "script-src-elem",
         "originalPolicy": "default-src 'self'",
-        "sourceFile": "https://shop.renox.app/products/42",
+        "sourceFile": "https://shop.renoxium.app/products/42",
         "lineNumber": 7,
         "columnNumber": 5,
         "disposition": "report",

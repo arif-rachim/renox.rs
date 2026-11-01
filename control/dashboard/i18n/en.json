@@ -1,6 +1,6 @@
 {
   "dash": {
-    "brand": "Renox dashboard",
+    "brand": "Renoxium dashboard",
     "nav": {
       "apps": "Apps",
       "billing": "Billing",
@@ -66,20 +66,20 @@
       "step_deploy": "Deploy it"
     },
     "signin": {
-      "intro": "Paste a Renox token for your tenant. Create one with",
+      "intro": "Paste a Renoxium token for your tenant. Create one with",
       "intro_dashboard": ", or for the dashboard only:",
       "calls": "The dashboard calls the control API at",
       "stored": "with this token, with your scopes and role. It is stored encrypted for this browser session and never shown again; signing out deletes it.",
       "not_configured": "The dashboard is not configured: the DASHBOARD_KEY secret is not set.",
       "token": "Token",
-      "not_token": "That is not a Renox token: it starts with renox_pat_ followed by 32 letters and digits.",
+      "not_token": "That is not a Renoxium token: it starts with renox_pat_ followed by 32 letters and digits.",
       "set_secret": "The dashboard is not configured: set the {secret} secret.",
       "refused": "The control API refused this token (unknown, expired or revoked).",
       "no_scope": "This token cannot list apps: it needs the apps:read scope."
     },
     "signup": {
       "title": "Sign up",
-      "heading": "Create your Renox account",
+      "heading": "Create your Renoxium account",
       "sent": "Check your email: we sent a link to",
       "sent_after": "to verify the address (it works for 24 hours). If the address already has an account, the email says so instead.",
       "workspace_id": "Workspace id",
@@ -136,7 +136,7 @@
       "service_h": "1. The service",
       "service": "Renox hosts TypeScript applications. Your plan sets the quotas; a free workspace that stays over them enters a 7-day grace period and is then suspended until it is back within quota or upgraded. Suspension keeps your data, deployments and dashboard.",
       "use_h": "2. Acceptable use",
-      "use": "No phishing, malware, spam, crypto mining, open proxies, or content that is unlawful in the UAE. Reports go to abuse@renox.app; a site found in breach can be taken down at once and reviewed after.",
+      "use": "No phishing, malware, spam, crypto mining, open proxies, or content that is unlawful in the UAE. Reports go to abuse@renoxium.com; a site found in breach can be taken down at once and reviewed after.",
       "payment_h": "3. Payment",
       "payment": "Paid plans are billed monthly in AED with 5 % VAT on a tax invoice. An invoice unpaid 14 days after its date, or a payment dispute, suspends the workspace until it is settled.",
       "data_h": "4. Your data",
@@ -354,7 +354,7 @@
     },
     "modules": {
       "title": "Modules",
-      "disabled": "A module of this app was disabled by Renox.",
+      "disabled": "A module of this app was disabled by Renoxium.",
       "disabled_note": "Running deployments keep running; plan its removal or an upgrade.",
       "installed": "Installed",
       "module": "Module",
@@ -390,10 +390,10 @@
       "install": "Install",
       "no_match": "No module matches.",
       "err_version": "No such module version.",
-      "err_disabled": "{name} {version} was disabled by Renox: {reason}",
+      "err_disabled": "{name} {version} was disabled by Renoxium: {reason}",
       "err_changed": "This version is not the one you reviewed. Review it again.",
       "approved_notice": "{name} {version} approved for {app}. Add it to renox.toml as {source} and run renox deploy; the lock records this approval.",
-      "status_disabled": "disabled by Renox: {reason}",
+      "status_disabled": "disabled by Renoxium: {reason}",
       "status_upgrade": "{version} available",
       "status_current": "up to date"
     },
@@ -419,7 +419,7 @@
       "switch": "Switch",
       "plans_note": "A paid plan needs a card. Prices are in AED and exclude 5 % VAT; a downgrade applies at the end of the period.",
       "add_card": "Add or replace the card",
-      "card_note": "Card details go to Stripe directly; Renox never sees the number.",
+      "card_note": "Card details go to Stripe directly; Renoxium never sees the number.",
       "save_card": "Save the card",
       "invoices": "Invoices",
       "no_invoices": "No invoices yet.",

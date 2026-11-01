@@ -46,20 +46,20 @@ async function ownerEmail(deps: Deps, tenantId: string): Promise<string | null> 
 const day = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 /** The email of a tier step; never a usage figure beyond the dimension names. */
-export function tierMail(to: TierState, from: TierState, tenantId: string, over: string[], since: number): { kind: "tier_over_quota" | "tier_grace" | "tier_suspended" | "tier_reinstated"; subject: string; text: string } | null {
-  const upgrade = `https://dashboard.renox.app/billing (tenant ${tenantId})`;
+export function tierMail(to: TierState, from: TierState, tenantId: string, over: string[], since: number, dashboardUrl: string): { kind: "tier_over_quota" | "tier_grace" | "tier_suspended" | "tier_reinstated"; subject: string; text: string } | null {
+  const upgrade = `${dashboardUrl.replace(/\/+$/u, "")}/billing (tenant ${tenantId})`;
   if (to === "over_quota")
-    return { kind: "tier_over_quota", subject: "Your Renox usage is over the Free plan's quota", text: `Tenant ${tenantId} is over its monthly quota for: ${over.join(", ") || "usage"}. Requests are still served. If it is still over in 24 hours, a 7-day grace period starts. Upgrade: ${upgrade}` };
+    return { kind: "tier_over_quota", subject: "Your Renoxium usage is over the Free plan's quota", text: `Tenant ${tenantId} is over its monthly quota for: ${over.join(", ") || "usage"}. Requests are still served. If it is still over in 24 hours, a 7-day grace period starts. Upgrade: ${upgrade}` };
   if (to === "grace")
-    return { kind: "tier_grace", subject: "Grace period started for your Renox tenant", text: `Tenant ${tenantId} is in a grace period until ${day(since + 7 * DAY_MS)} (UTC). Requests are served until then; after it the tenant is suspended unless it is back within quota or upgraded. Upgrade: ${upgrade}` };
+    return { kind: "tier_grace", subject: "Grace period started for your Renoxium tenant", text: `Tenant ${tenantId} is in a grace period until ${day(since + 7 * DAY_MS)} (UTC). Requests are served until then; after it the tenant is suspended unless it is back within quota or upgraded. Upgrade: ${upgrade}` };
   if (to === "suspended")
-    return { kind: "tier_suspended", subject: "Your Renox tenant is suspended", text: `Tenant ${tenantId} is suspended: its sites answer the suspension page. Your data, deployments and the dashboard stay. A payment or an upgrade ends it: ${upgrade}` };
-  if (to === "active" && from !== "active") return { kind: "tier_reinstated", subject: "Your Renox tenant is active again", text: `Tenant ${tenantId} is active again.` };
+    return { kind: "tier_suspended", subject: "Your Renoxium tenant is suspended", text: `Tenant ${tenantId} is suspended: its sites answer the suspension page. Your data, deployments and the dashboard stay. A payment or an upgrade ends it: ${upgrade}` };
+  if (to === "active" && from !== "active") return { kind: "tier_reinstated", subject: "Your Renoxium tenant is active again", text: `Tenant ${tenantId} is active again.` };
   return null;
 }
 
 async function notify(deps: Deps, tenantId: string, to: TierState, from: TierState, over: string[], since: number): Promise<void> {
-  const mail = tierMail(to, from, tenantId, over, since);
+  const mail = tierMail(to, from, tenantId, over, since, deps.config.dashboardUrl);
   const email = mail === null ? null : await ownerEmail(deps, tenantId);
   if (mail !== null && email !== null) await deps.mailer.send({ to: email, ...mail }).catch(() => undefined);
 }

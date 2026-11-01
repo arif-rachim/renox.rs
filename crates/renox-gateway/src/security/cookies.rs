@@ -2,7 +2,7 @@
 //! "Cookie tossing between tenants"). A cookie whose `Domain=` names the
 //! platform apex or any parent of the request host is sent by the browser
 //! to every other tenant under that parent, so one tenant could plant or
-//! overwrite another's session or CSRF cookie. Until `renox.app` is on the
+//! overwrite another's session or CSRF cookie. Until `renoxium.app` is on the
 //! Public Suffix List (`ops/psl/README.md`), and for custom domains after
 //! that, the gateway enforces it on every tenant response:
 //!

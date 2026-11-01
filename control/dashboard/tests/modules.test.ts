@@ -147,10 +147,10 @@ describe("registry moderation (operator console)", () => {
     expect(JSON.stringify(ok)).not.toContain(OPERATOR_TOKEN);
     expect(d.h.mailer.last("owner@shop.ae", "module_disabled")?.text).toContain("exfiltrates TRNs");
     const page = data(await load(loaderCtx(d, "/apps/shop/modules", { params: P })));
-    expect(page.disabled).toEqual(["tax_gcc 2.0.0 (disabled by Renox: exfiltrates TRNs to a third party)"]);
+    expect(page.disabled).toEqual(["tax_gcc 2.0.0 (disabled by Renoxium: exfiltrates TRNs to a third party)"]);
     expect(page.cards).toEqual([]);
     // A disabled version cannot be reviewed for install.
-    expect(data(await actions.review(actionCtx(d, "/apps/shop/modules", "review", form("2.0.0"), { params: P }))).form_error).toContain("was disabled by Renox");
+    expect(data(await actions.review(actionCtx(d, "/apps/shop/modules", "review", form("2.0.0"), { params: P }))).form_error).toContain("was disabled by Renoxium");
     const again = data(await opsActions.enable(actionCtx(d, "/ops/registry", "enable", { hash: v1.hash, reason: "false positive, reviewed again", token: OPERATOR_TOKEN })));
     expect(again.result.notice).toContain("Enabled again");
     expect(data(await load(loaderCtx(d, "/apps/shop/modules", { params: P }))).disabled).toBeNull();
@@ -166,14 +166,14 @@ test.skipIf(!worker)("the worker renders the Modules page with the upgrade revie
   await publish("2.1.0", { network: ["api.fta.gov.ae"], migrations: ["001_lines.sql", "002_rates.sql"] });
   const page = data(await load(loaderCtx(d, "/apps/shop/modules", { params: P })));
   const review = data(await actions.review(actionCtx(d, "/apps/shop/modules", "review", form("2.1.0"), { params: P })));
-  const disabled = ["tax_gcc 2.0.0 (disabled by Renox: exfiltrates TRNs to a third party)"];
+  const disabled = ["tax_gcc 2.0.0 (disabled by Renoxium: exfiltrates TRNs to a third party)"];
   const ops = data(await opsLoad(loaderCtx(d, "/ops/registry")));
   const dev = await devWithData({ "pages/apps/[app]/modules/index.ts": { ...page, ...review, disabled }, "pages/ops/registry/index.ts": ops });
   try {
     const res = await fetch(`${dev.base}/apps/shop/modules`);
     expect(res.status).toBe(200);
     const html = (await res.text()).replaceAll(' dir="auto"', "");
-    expect(html).toContain("A module of this app was disabled by Renox.");
+    expect(html).toContain("A module of this app was disabled by Renoxium.");
     expect(html).toContain("Review upgrade: tax_gcc 2.0.0 → 2.1.0");
     expect(html).toContain("<code>+ network api.fta.gov.ae</code> (new)");
     expect(html).toContain("<code>002_rates.sql</code>");

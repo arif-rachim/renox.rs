@@ -11,7 +11,10 @@
 import type { Fetch, Secrets } from "renox";
 
 /** The API `renox login` uses by default (cli/src/commands/login.ts). */
-export const DEFAULT_API = "https://api.renox.app";
+export const DEFAULT_API = "https://api.renoxium.com";
+
+/** The domain tenant apps live under (`<app>.renoxium.app`; docs/contracts/README.md "Domains"); `CONTROL_PLATFORM_DOMAIN` of the API. */
+export const DEFAULT_PLATFORM_DOMAIN = "renoxium.app";
 
 /** Bytes of an API response body the dashboard reads at most (a log page is the largest). */
 const MAX_BODY = 4 * 1024 * 1024;
@@ -284,6 +287,12 @@ export function apiBase(secrets: Secrets): string {
   // The token is sent to this origin: plain http or credentials in the URL are never used.
   if (url.protocol !== "https:" || url.username !== "" || url.password !== "") return DEFAULT_API;
   return url.origin;
+}
+
+/** The platform domain shown for new apps: `RENOX_PLATFORM_DOMAIN` when it is a plain lower-case hostname, else the default. */
+export function platformDomain(secrets: Secrets): string {
+  const raw = secrets.RENOX_PLATFORM_DOMAIN;
+  return raw !== undefined && /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u.test(raw) ? raw : DEFAULT_PLATFORM_DOMAIN;
 }
 
 const fail = (status: number, code: string, message: string, extra: Partial<ApiFailure> = {}): ApiFailure => ({

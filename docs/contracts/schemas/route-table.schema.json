@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://renox.dev/contracts/artifact/v0/route-table.schema.json",
+  "$id": "https://renoxium.com/contracts/artifact/v0/route-table.schema.json",
   "title": "Renox route table, artifact contract version 0",
   "description": "The gateway's hostname -> tenant -> deployment table (F1: a local JSON file). Prose: docs/contracts/artifact.md section 5. At most one active entry per hostname and unique (hostname, deployment_hash) are checked by V13.",
   "type": "object",

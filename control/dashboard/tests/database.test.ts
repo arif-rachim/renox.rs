@@ -85,7 +85,7 @@ describe("Database (3.8)", () => {
     expect(page.view.generations.map((g: Data) => g.id)).toEqual(["a1b2c3d4e5f60718", "0123456789abcdef"]);
     expect(page.view.latest).toBe(new Date(now).toISOString().slice(0, 19));
     // Only the API was called, with the user's own token.
-    expect(new Set(d.calls.sent.map((c) => new URL(c.url).origin))).toEqual(new Set(["https://api.renox.app"]));
+    expect(new Set(d.calls.sent.map((c) => new URL(c.url).origin))).toEqual(new Set(["https://api.renoxium.com"]));
   });
 
   test("export answers a signed link the browser downloads; the dashboard never fetched the bytes", async () => {

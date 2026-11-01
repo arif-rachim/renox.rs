@@ -166,7 +166,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       authorization_servers: [originOf(c)],
       scopes_supported: [...MCP_SCOPES],
       bearer_methods_supported: ["header"],
-      resource_name: "Renox platform MCP",
+      resource_name: "Renoxium platform MCP",
     });
   };
   app.get("/.well-known/oauth-protected-resource", protectedResource);
@@ -228,7 +228,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
     const q = c.req.query();
     const client = clientOf(deps, q.client_id);
     // Before the redirect URI is known to be the client's, errors are shown here, never redirected.
-    if (client === null) return page(c, 400, "Unknown client", "<p>This application is not registered with Renox.</p>");
+    if (client === null) return page(c, 400, "Unknown client", "<p>This application is not registered with Renoxium.</p>");
     if (q.redirect_uri === undefined || !client.r.includes(q.redirect_uri)) return page(c, 400, "Wrong redirect address", "<p>The redirect address is not one this application registered.</p>");
     const state = q.state ?? null;
     const fail = (error: string, description: string) => redirectWith(q.redirect_uri as string, { error, error_description: description, state, iss: originOf(c) });
@@ -243,8 +243,8 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       return page(
         c,
         401,
-        "Sign in to Renox",
-        `<p>Sign in to the <a href="${escapeHtml(deps.config.dashboardUrl)}">Renox dashboard</a> in this browser, then reload this page to review the access <strong>${escapeHtml(client.n)}</strong> asks for.</p>`,
+        "Sign in to Renoxium",
+        `<p>Sign in to the <a href="${escapeHtml(deps.config.dashboardUrl)}">Renoxium dashboard</a> in this browser, then reload this page to review the access <strong>${escapeHtml(client.n)}</strong> asks for.</p>`,
       );
     }
     if (session.tenantId === null || session.role === null) return page(c, 403, "No team selected", "<p>Choose a team in the dashboard first, then reload this page.</p>");
@@ -264,7 +264,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
     return page(
       c,
       200,
-      `Allow ${client.n} to use Renox?`,
+      `Allow ${client.n} to use Renoxium?`,
       `<p><strong>${escapeHtml(client.n)}</strong> (returns to <code>${escapeHtml(target.host)}</code>) asks to act in team <code>${escapeHtml(session.tenantId)}</code> as an agent, with at most your role (<code>${escapeHtml(session.role)}</code>):</p>
 <ul>${granted.map((s) => `<li><code>${escapeHtml(s)}</code></li>`).join("")}</ul>
 <p>Tools that change something (create an app, activate, roll back) still ask for a confirmation on each call. Secret values are never readable. The access lasts one hour; you can revoke it under Tokens.</p>
@@ -287,7 +287,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       return page(c, 400, "This request expired", "<p>Start the sign-in from the application again.</p>");
     }
     const client = clientOf(deps, req.c);
-    if (client === null || !client.r.includes(req.r)) return page(c, 400, "Unknown client", "<p>This application is not registered with Renox.</p>");
+    if (client === null || !client.r.includes(req.r)) return page(c, 400, "Unknown client", "<p>This application is not registered with Renoxium.</p>");
     const actor = `user:${session.userId}`;
     if (form.decision !== "approve") {
       await audit(deps, c, "mcpAuthorize", session.tenantId, actor, { client: client.n, decision: "deny" }, 302);
