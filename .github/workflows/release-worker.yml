@@ -59,7 +59,10 @@ concurrency:
 
 env:
   # B20 target (docs/14-benchmarks.md): the binary must stay at or under this.
-  MAX_BINARY_MB: "100"
+  # Raised from 100 on 2026-11-01: the F7 image pipeline (rav1e AVIF encoder)
+  # and the PDF renderer (typst) brought the size-built binary to 118.0-133.7 MB
+  # across the four targets (run 41231474082); 160 leaves about 20 % headroom.
+  MAX_BINARY_MB: "160"
 
 jobs:
   build:
