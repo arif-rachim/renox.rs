@@ -1,0 +1,100 @@
+{
+  "id": "B9",
+  "scenario": "100 items × 10 fields V8 → minijinja::Value; criterion median per path at 10/100/1000 items, median of runs",
+  "notes": "best path at 100 items: json_string_struct (extra path, not in the issue)",
+  "samples": {
+    "json_string_10_us": [
+      60.17,
+      62.77,
+      60.62
+    ],
+    "json_string_100_us": [
+      639.05,
+      645.29,
+      648.77
+    ],
+    "json_string_1000_us": [
+      7745.53,
+      7057.88,
+      7282.57
+    ],
+    "json_string_struct_10_us": [
+      29.45,
+      28.62,
+      29.14
+    ],
+    "json_string_struct_100_us": [
+      290.25,
+      290.37,
+      304.28
+    ],
+    "json_string_struct_1000_us": [
+      3221.85,
+      3065.84,
+      3111.69
+    ],
+    "serde_json_10_us": [
+      102.4,
+      100.19,
+      103.08
+    ],
+    "serde_json_100_us": [
+      1019.49,
+      1015.98,
+      1003.57
+    ],
+    "serde_json_1000_us": [
+      12015.03,
+      11637.99,
+      12057.48
+    ],
+    "struct_10_us": [
+      45.59,
+      45.73,
+      46.31
+    ],
+    "struct_100_us": [
+      497.08,
+      488.01,
+      497.8
+    ],
+    "struct_1000_us": [
+      5343.94,
+      5092.61,
+      5151.9
+    ],
+    "walker_10_us": [
+      71.95,
+      71.42,
+      72.04
+    ],
+    "walker_100_us": [
+      731.1,
+      713.09,
+      703.71
+    ],
+    "walker_1000_us": [
+      8496.18,
+      8226.93,
+      8236.47
+    ]
+  },
+  "summary": {
+    "marshal_us": 290.37,
+    "json_string_10_us": 60.62,
+    "json_string_100_us": 645.29,
+    "json_string_1000_us": 7282.57,
+    "json_string_struct_10_us": 29.14,
+    "json_string_struct_100_us": 290.37,
+    "json_string_struct_1000_us": 3111.69,
+    "serde_json_10_us": 102.4,
+    "serde_json_100_us": 1015.98,
+    "serde_json_1000_us": 12015.03,
+    "struct_10_us": 45.73,
+    "struct_100_us": 497.08,
+    "struct_1000_us": 5151.9,
+    "walker_10_us": 71.95,
+    "walker_100_us": 713.09,
+    "walker_1000_us": 8236.47
+  }
+}

@@ -38,6 +38,8 @@ This is the same shape as B18 (`bench/scenarios/B18/`), with both nodes on one h
 | `RENOX_CHAOS_S3_ACCESS_KEY_ID`, `RENOX_CHAOS_S3_SECRET_ACCESS_KEY` | the compose file's development values |
 | `RENOX_CHAOS_S3_DOWN`, `RENOX_CHAOS_S3_UP` | `docker pause renox-control-minio-1`, `docker unpause renox-control-minio-1` |
 
+Any S3 server works. On `node-small` (2026-11-01, no MinIO image could be pulled and MinIO no longer publishes binaries) it was `rclone serve s3 --addr 127.0.0.1:9000 --auth-key <id>,<secret> --force-path-style=true <dir>` with a `renox-artifacts` directory in `<dir>`. How the outage is made matters: with the server stopped (connections refused) the scenario passes; with it paused (`kill -STOP`, or `docker pause` as in CI: connections accepted and never answered) the cold start waits for the worker's 60 s artifact download timeout, so the scenario fails (see the 2026-11-01 results).
+
 ## Weekly run
 
 `.github/workflows/chaos.yml` runs every scenario on Mondays (and on demand), uploads the result files as an artifact, and opens an issue labelled `chaos` when a scenario fails (or comments on the open one). To check the failure path, run the workflow on a branch where one scenario's assertion is inverted: it must end red and open the issue.

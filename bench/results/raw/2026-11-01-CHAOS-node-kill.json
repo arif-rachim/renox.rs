@@ -1,0 +1,55 @@
+{
+  "id": "CHAOS-node-kill",
+  "scenario": "node-kill",
+  "title": "Node killed",
+  "failureModes": [
+    "Node dies"
+  ],
+  "description": "two controlled renox-workers, control/api sweeping every 5 s (unhealthy after 30 s), file replica; the owner of a tenant killed with SIGKILL after 10 s of writes (B18)",
+  "verdict": "PASS",
+  "result": "RTO 31.0 s, RPO 0.36 s, 101 rows lost, bystander 387×200",
+  "target": "RTO ≤ 60 s, RPO ≤ 10 s (B18), no error for a tenant on the surviving node",
+  "alerts": [
+    {
+      "rule": "RenoxNodeUnhealthy",
+      "observed": "condition true after 30.7 s"
+    }
+  ],
+  "checks": [
+    {
+      "name": "RTO ≤ 60 s",
+      "ok": true,
+      "detail": "31.0 s from SIGKILL to the first 200 on node-chaos-1"
+    },
+    {
+      "name": "the surviving node stays healthy",
+      "ok": true,
+      "detail": "renox_cp_node_healthy 1, heartbeat age 3.4 s"
+    },
+    {
+      "name": "RPO ≤ 10 s",
+      "ok": true,
+      "detail": "0.36 s (101 of 2952 acknowledged rows not restored)"
+    },
+    {
+      "name": "no cross-tenant impact",
+      "ok": true,
+      "detail": "bystander t-chaos-b on node-chaos-1: 387×200"
+    },
+    {
+      "name": "detected by the control plane",
+      "ok": true,
+      "detail": "renox_cp_node_healthy = 0 after 30.7 s"
+    }
+  ],
+  "metrics": {
+    "rto_s": 31.015212744000003,
+    "rpo_s": 0.357,
+    "rows_lost": 101,
+    "rows_acknowledged": 2952,
+    "detection_s": 30.667548796000002
+  },
+  "notes": [
+    "Both nodes run on one host (loopback); the two-host B18 run is O3 (#158)."
+  ]
+}

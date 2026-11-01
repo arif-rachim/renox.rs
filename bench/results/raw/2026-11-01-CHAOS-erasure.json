@@ -1,0 +1,51 @@
+{
+  "id": "CHAOS-erasure",
+  "scenario": "erasure",
+  "title": "Erasure with the owning node down",
+  "failureModes": [
+    "Tenant erasure cannot finish (owning node down, object store unreachable)"
+  ],
+  "description": "two controlled renox-workers, file replica, control/api with a 2 s erasure retry; the owner deletes the tenant while its node is killed, then the node restarts",
+  "verdict": "PASS",
+  "result": "done in 10.3 s, replica purged, bystander 97×200",
+  "target": "the erasure finishes once the node is reachable again, with the replica purged and no impact on other tenants",
+  "alerts": [],
+  "checks": [
+    {
+      "name": "the owner's request is accepted",
+      "ok": true,
+      "detail": "DELETE answered 202"
+    },
+    {
+      "name": "the erasure waits for the node",
+      "ok": true,
+      "detail": "state erasing 5 s after the request with the node down"
+    },
+    {
+      "name": "it finishes once the node is back",
+      "ok": true,
+      "detail": "done 10.3 s after the request"
+    },
+    {
+      "name": "the replica generations are purged",
+      "ok": true,
+      "detail": "replica_purged_at 1793493789709, no replica directory left"
+    },
+    {
+      "name": "the hostname is no longer served",
+      "ok": true,
+      "detail": "GET on node-chaos-2 answered 404"
+    },
+    {
+      "name": "no cross-tenant impact",
+      "ok": true,
+      "detail": "bystander t-chaos-keep on node-chaos-1: 97×200"
+    }
+  ],
+  "metrics": {
+    "done_s": 10.280777403000014
+  },
+  "notes": [
+    "Both nodes run on one host (loopback). Production retries a failed step hourly and finishes within 24 hours while the node and the store answer."
+  ]
+}
