@@ -817,6 +817,7 @@ export function checkRouteTable(table: Json): Violation[] {
   const out = schemaViolations("V13", routeTableSchema as Json, table, "");
   if (out.length > 0 || !isObject(table)) return out;
   const active = new Set<string>();
+  const suspended = new Set<string>();
   const pairs = new Set<string>();
   for (const e of table.entries as JsonObject[]) {
     const pair = `${e.hostname} ${e.deployment_hash}`;
@@ -826,7 +827,12 @@ export function checkRouteTable(table: Json): Violation[] {
       if (active.has(e.hostname as string)) out.push({ rule: "V13", reason: `more than one active entry for ${e.hostname}` });
       active.add(e.hostname as string);
     }
+    if (e.status === "suspended") suspended.add(e.hostname as string);
+    // artifact.md 1.5 section 5: the tenant's name is shown on the suspension page only.
+    if (e.display_name !== undefined && e.status !== "suspended") out.push({ rule: "V13", reason: `display_name on a ${String(e.status)} entry for ${e.hostname}; it is for suspended entries only` });
   }
+  // A suspended hostname serves the neutral page: it has no active entry beside it.
+  for (const h of suspended) if (active.has(h)) out.push({ rule: "V13", reason: `${h} is both suspended and active` });
   return out;
 }
 

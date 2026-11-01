@@ -22,6 +22,8 @@ test("db.d.ts reflects the shop's app__products columns", () => {
     stock: number;
     category: string;
     image: string;
+    image_width: number | null;
+    image_height: number | null;
   };`);
   expect(dts).toContain(`"app__cart_items": {`);
   expect(columnType("VARCHAR(20)")).toBe("string");

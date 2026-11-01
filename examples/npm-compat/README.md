@@ -13,14 +13,14 @@ The app behind B17 (`docs/14-benchmarks.md`): it imports each package from the c
 | Package | Version | Kind | What the check does |
 | --- | --- | --- | --- |
 | `stripe` | 23.0.1 | Official SDK | Builds a test webhook signature header and verifies it with `constructEventAsync` using the SubtleCrypto provider. A tampered payload is rejected. |
-| `checkout-sdk-node` (Checkout.com) | 5.7.0 | Official SDK | Builds a sandbox client with a merchant subdomain and checks the host and the `payments` and `hostedPayments` APIs. Nothing is sent. |
+| `checkout-sdk-node` (Checkout.com) | 5.8.0 | Official SDK | Builds a sandbox client with a merchant subdomain and checks the host and the `payments` and `hostedPayments` APIs. Nothing is sent. |
 | Telr | — | Hand-written helper | Builds the Hosted Payment Page `create` order request. Computes and verifies a transaction advice check (SHA-1 over the secret and fields joined with `:`), and rejects a tampered amount. |
 | PayTabs | — | Hand-written helper | Signs a callback with HMAC-SHA256 of the raw body using the server key, through `crypto.subtle`, and cross-checks it against `node:crypto`. Also signs return-page fields, sorted with `signature` excluded. |
 | Tabby | — | Hand-written helper | Builds the checkout session request (Bearer key, `amount` as a string, `lang: ar`). Verifies the webhook header value with a constant-time compare. |
 | `arctic` | 3.7.0 | Official | Google provider authorization URL with state and PKCE (S256). |
 | `@oslojs/crypto`, `@oslojs/encoding` | 1.0.1, 1.1.0 | Official | SHA-256 test vector, hex and base64url encoding. |
 | WhatsApp Cloud API | — | Hand-written builder | Builds the template message request to `graph.facebook.com/<ver>/<phone-id>/messages` and validates its shape, including an Arabic parameter. An invalid recipient is rejected. |
-| `resend` | 6.34.1 | Official SDK | Constructs the client and a bilingual email object. Nothing is sent. |
+| `resend` | 6.35.0 | Official SDK | Constructs the client and a bilingual email object. Nothing is sent. |
 | `nodemailer` | 10.2.1 | Official | Sends one message to a `streamTransport` and checks the generated MIME headers. |
 | `zod` | 4.6.7 | Official | Parses a nested order. An invalid order reports every issue. |
 | `date-fns` | 4.4.0 | Official | `addDays` across a month boundary, `format`, weekday name. |
