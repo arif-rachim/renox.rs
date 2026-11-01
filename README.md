@@ -5,7 +5,18 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 
 > *"Assemble a SaaS from auth, billing, and admin modules, then deploy to hosting that charges only for what you use."*
 
-> **Status: Phase F1 (minimal data plane).** F0 is done: the spike benchmarks ran against the unmodified Supabase Edge Runtime and the gate decided GO (`docs/14-benchmarks.md`, "F0 results"). The repository holds the documentation, the benchmark harness and spikes under `bench/`, and the example apps; the first platform crates land in F1 (see [Roadmap](#roadmap)).
+> **Status (2026-11-01, `main` at `c265810`).** The code of every phase F0 to F7 is on `main`: eight crates under `crates/`, the control plane under `control/`, the `renox` CLI and SDK, sixteen official modules, the examples, the site. Gates F0 and F1 passed (GO). Gates F2 to F7 are open on owner steps and measurements, not on code; what each one still needs is in the table below, the open work and the prompt for each batch in [`docs/25-execution.md`](docs/25-execution.md), "Where we are".
+>
+> | Phase | Built | Gate |
+> | --- | --- | --- |
+> | F0 Spike | The spike benchmarks under `bench/` against the unmodified Supabase Edge Runtime | #133, GO |
+> | F1 Minimal data plane | Gateway, runtime (V8 isolates, CPU, memory, wall-clock and `fetch` limits in Rust), SQLite per tenant with the authorizer, meter, cell; two tenants on one node, an infinite loop terminated at its limit | #165, GO. B1 and B2 re-run on `node-small`; B4, B11, B12 wait for the load-generator host (#158) |
+> | F2 SSR and templates | `renox-template`, pages (loaders, actions, layouts, partials, fragments), the `shop` example, streamed responses, the isolate pool, the macOS CPU clock (#212) | #49 open: B6 and B7 on `node-small` with a load generator (#46, #158), the two findings of the B1 run (#342, #343), four rows of #112 |
+> | F3 Minimal control plane | Deploy API, the dashboard as a Renox app, logs, secrets, custom domains, signed CLI and worker releases, the remote MCP | #61 open: the bench runs above, #219 (pin the CLI to `worker-v0.2.0`), the open rows of #99 and #116 |
+> | F4 Modules | Manifest, resolver and lock, forward-only migrations, services, events, hooks, slots, overrides; the modules under `modules/` | #68 open: the owner's booking product repository |
+> | F5 Authorization and realtime | Cedar policies and `guard`, `r-can`, `db.scoped()`, SSE and WebSocket with topics, `2fa`, App MCP on `/mcp` | #74 open: the B14 run on `node-small` (load generator, #158) |
+> | F6 Reliability and security | seccomp and Landlock, process tiers, Litestream replication, failover, export and restore, the chaos harness, OpenTelemetry, audit, erasure | #79 open: gate F5, the B18 two-host run, the `ops/` code-owner reviews, one green weekly chaos run |
+> | F7 External customers | `billing` with Stripe UAE, `tax_gcc`, `admin`, `storage`, `email`, `booking`, `reports`, `whatsapp`, the registry, `isolate` mode, EN/AR, onboarding, the site and docs, the SDK on npm | #86 open: the first paying tenant; the GCC PSP adapters (#330, #337) wait for sandbox accounts; the single-host deployment (#366) and the binary size (#372) are open |
 
 ## Naming
 
@@ -122,16 +133,16 @@ Full list, scenarios, and methodology in [`docs/14-benchmarks.md`](docs/14-bench
 
 ## Roadmap
 
-| Phase | Name | Done when |
-| --- | --- | --- |
-| F0 | Spike (done) | Memory per isolate, cold start, npm compatibility, and marshaling numbers meet the targets. If not, re-evaluate before writing platform code |
-| **F1** | Minimal data plane (current) | Two tenants on one node; an infinite loop in one does not affect the other; meters recorded |
-| F2 | SSR and templates | The `shop` example runs |
-| F3 | Minimal control plane | `renox deploy` goes live in under 30 s; rollback works |
-| F4 | Modules | The first product uses `auth` and `org` with no auth code of its own |
-| F5 | Authorization and realtime | Cedar guards and the chat room work |
-| F6 | Production reliability and security | A node is killed and tenants recover elsewhere |
-| F7 | External customers | First paying external tenant |
+| Phase | Name | Done when | Status (2026-11-01) |
+| --- | --- | --- | --- |
+| F0 | Spike | Memory per isolate, cold start, npm compatibility, and marshaling numbers meet the targets. If not, re-evaluate before writing platform code | Done, gate GO (#133) |
+| F1 | Minimal data plane | Two tenants on one node; an infinite loop in one does not affect the other; meters recorded | Done, gate GO (#165) |
+| F2 | SSR and templates | The `shop` example runs | Built; gate #49 waits for the bench hosts |
+| F3 | Minimal control plane | `renox deploy` goes live in under 30 s; rollback works | Built; gate #61 waits for the bench runs and `worker-v0.2.0` |
+| F4 | Modules | The first product uses `auth` and `org` with no auth code of its own | Built; gate #68 waits for the booking product repository |
+| F5 | Authorization and realtime | Cedar guards and the chat room work | Built; gate #74 waits for the B14 run |
+| F6 | Production reliability and security | A node is killed and tenants recover elsewhere | Built; gate #79 waits for gate F5, B18 and the `ops/` reviews |
+| F7 | External customers | First paying external tenant | Built but for the GCC PSP adapters; gate #86 waits for the first paying tenant |
 
 Each phase has kill criteria. See [`docs/15-roadmap.md`](docs/15-roadmap.md) and [`docs/18-build-plan.md`](docs/18-build-plan.md).
 
@@ -146,22 +157,25 @@ Start with [`AGENTS.md`](AGENTS.md), which holds the rules and the full reading 
 | [`docs/04-isolation-security.md`](docs/04-isolation-security.md) | Isolation model, per-tenant limits, threat model |
 | [`docs/06-data.md`](docs/06-data.md) | SQLite per tenant, authorizer, replication |
 | [`docs/10-modules.md`](docs/10-modules.md) | Module system |
-| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D20. **Required reading before any architectural change** |
+| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D23. **Required reading before any architectural change** |
 | [`docs/14-benchmarks.md`](docs/14-benchmarks.md) | Targets, scenarios, methodology |
 | [`docs/20-ai-agents-mcp.md`](docs/20-ai-agents-mcp.md) | Platform MCP, app MCP per tenant, agent security |
 
-## Planned repository layout
+## Repository layout
 
 ```
 renox.rs/
-├── docs/        this documentation
-├── crates/      data plane (Rust workspace): gateway, runtime, template, data, authz, realtime, meter, cell
-├── control/     control plane (Bun + Hono): api, dashboard, billing
-├── sdk/         the `renox` package for tenant code
-├── cli/         the `renox` CLI
-├── modules/     official modules: auth, org, 2fa, billing, admin, storage, email, ...
-├── examples/    example apps: shop, chat, the dogfooding products
-└── bench/       benchmark scenarios and results
+├── docs/        this documentation; docs/contracts/ are the written interfaces between the parts
+├── crates/      data plane (Rust workspace): renox-gateway, -runtime, -template, -data, -authz, -realtime, -meter, -cell (binary renox-worker)
+├── control/     control plane (Bun + Hono): api, dashboard (a Renox app), billing
+├── sdk/         the `renox` npm package for tenant code; sdk/client is the browser script
+├── cli/         the `renox` CLI (Bun, compiled to one binary per platform)
+├── packages/    shared TypeScript: artifact-validate
+├── modules/     official modules: auth, org, 2fa, billing, tax_gcc, admin, storage, email, booking, reports, whatsapp, notifications, audit, jobs, i18n, gcc
+├── examples/    example apps: hello, shop, chat, evil (negative paths), npm-compat
+├── www/         the public site renoxium.com (a Renox app): the docs, pricing, legal pages, llms.txt
+├── ops/         units, scripts, locks and checksums a node and CI trust (code-owner reviewed)
+└── bench/       benchmark scenarios, spikes, the chaos harness and the results
 ```
 
 A folder that does not exist yet is not due yet.

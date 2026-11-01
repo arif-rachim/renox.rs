@@ -79,6 +79,11 @@ struct Db {
     pid: Option<u32>,
     /// Set by `closed`; the stop happens at this time.
     stop_at: Option<Instant>,
+    /// SIGTERM was sent and the process has not exited yet. Litestream
+    /// checkpoints its WAL into the file while it shuts down, so the state
+    /// turns `Stopped` only once the process is gone: a restore or a test
+    /// that touches the file before then races with that write.
+    stopping: bool,
     /// The sidecar exited on its own this many times in a row.
     crashes: u32,
     next_start: Instant,
@@ -313,7 +318,21 @@ impl Replication {
             let now = Instant::now();
             for db in dbs.values_mut() {
                 let running = db.running.load(Ordering::SeqCst);
-                if db.state == State::Replicating && !running && db.stop_at.is_none() {
+                if db.stopping && !running {
+                    db.stopping = false;
+                    if db.open {
+                        // Reopened while it shut down: start a new sidecar.
+                        db.state = State::Starting;
+                        db.next_start = now;
+                    } else {
+                        db.state = State::Stopped;
+                    }
+                }
+                if db.state == State::Replicating
+                    && !running
+                    && db.stop_at.is_none()
+                    && !db.stopping
+                {
                     // Exited on its own: restart after a backoff.
                     db.crashes += 1;
                     db.state = State::Starting;
@@ -324,8 +343,10 @@ impl Replication {
                     Some(at) if now >= at => {
                         if running {
                             to_stop.push((db.database.clone(), db.pid));
+                            db.stopping = true;
+                        } else {
+                            db.state = State::Stopped;
                         }
-                        db.state = State::Stopped;
                         db.stop_at = None;
                     }
                     Some(_) => {}
@@ -514,6 +535,7 @@ impl DbLifecycle for Replication {
             baseline: (0, None, None),
             pid: None,
             stop_at: None,
+            stopping: false,
             crashes: 0,
             next_start: Instant::now(),
             running: Arc::new(AtomicBool::new(false)),

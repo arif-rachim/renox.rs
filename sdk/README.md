@@ -2,7 +2,7 @@
 
 Types and small helpers for Renox functions. Contract: [`docs/contracts/ops.md`](../docs/contracts/ops.md) version `1.1.0` and [`docs/contracts/ctx.d.ts`](../docs/contracts/ctx.d.ts). The types here are identical to the contract; `tests/contract.test-d.ts` fails the `check` script if they drift.
 
-The package is workspace-local in F1 (`"renox": "workspace:*"`). It is runtime-neutral: no Bun, Node, or Deno APIs, so the same import works under `renox dev`, in the worker, and in `bun test`.
+The package is published to npm as `renox` (below, "Install"); inside this repository the workspace link (`"renox": "workspace:*"`) resolves the same `exports`. It is runtime-neutral: no Bun, Node, or Deno APIs, so the same import works under `renox dev`, in the worker, and in `bun test`.
 
 ```ts
 // functions/api/notes/[id].ts
@@ -13,6 +13,16 @@ export const GET: Handler = async ({ db, params }) => {
   return note ? Response.json(note) : new Response(null, { status: 404 });
 };
 ```
+
+## Install
+
+```sh
+bun add renox        # or: npm install renox
+```
+
+`renox new` writes this dependency at the CLI's own version (`"renox": "^<cli version>"`, `cli/src/commands/new.ts`): the CLI and the SDK are released together from one `cli-v<version>` tag, by `.github/workflows/release-cli.yml` (binaries) and `.github/workflows/release-sdk.yml` (this package, `npm publish --provenance`). Keep them at the same version.
+
+The package ships compiled JavaScript and declarations under `dist/` (`bun run build`, `tsconfig.build.json`); `exports` maps `renox`, `renox/kysely`, `renox/drizzle`, `renox/fakes` and `renox/test` to them, so `tsc`, Node and editors resolve it like any published package. `renox/test` is Bun-only (`bun:test`, `bun:sqlite`); the rest has no runtime dependency. `tests/pack.test.ts` packs the package, installs the tarball into a fresh `renox new` app outside the repository, type-checks it and runs a test with `renox/fakes`. Every publish carries npm provenance from the release workflow (`npm view renox --json | jq .dist.attestations`, or the Provenance badge on npmjs.com).
 
 ## F1 surface
 

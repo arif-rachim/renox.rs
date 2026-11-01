@@ -1,0 +1,70 @@
+# Renoxium
+
+> Renoxium is a multi-tenant hosting platform for web applications and functions written in TypeScript. An app is TypeScript functions and HTML pages in folders that are its routes; it runs in a V8 isolate with its own SQLite file, under CPU, memory, wall-clock and network limits enforced by the platform, and it assembles auth, organisations, billing, admin, storage, email and other official modules instead of writing them. The toolkit a developer types is `renox`: the CLI (`renox new`, `dev`, `check`, `test`, `deploy`) and the npm package `renox` (types, helpers, test fakes).
+
+For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.json` into every new app; `renox mcp` is the local MCP server (project status, check and test results, policy explanations, these documents as resources); `mcp.renoxium.com` is the remote one behind OAuth 2.1. The full text of the documents below is at https://renoxium.com/llms-full.txt. Links to github.com are files the site does not render.
+
+## Getting started
+
+- [Developer experience](https://renoxium.com/docs/12-developer-experience): install the CLI and the SDK, create an app with renox new, run it with renox dev, deploy it
+- [renox CLI reference](https://github.com/arif-rachim/renox.rs/blob/main/cli/README.md): every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy
+- [The renox SDK](https://github.com/arif-rachim/renox.rs/blob/main/sdk/README.md): the `renox` npm package: Handler, Ctx, pages, validate, modules, query builders, renox/fakes and renox/test
+- [Example apps](https://github.com/arif-rachim/renox.rs/blob/main/examples/): hello (one function), shop (pages, templates, modules, policies), chat (realtime)
+
+## App model
+
+- [Tenant application model](https://renoxium.com/docs/07-app-model): folders are routes: functions/, pages/ with loaders and actions, migrations/, policies/, jobs/, public/; renox.toml; the ctx SDK
+- [Template engine](https://renoxium.com/docs/08-template-engine): HTML-first templates with r-* attributes compiled to minijinja, layouts, partials as <x-name>, fragments, render fuel
+- [Partial rendering and realtime](https://renoxium.com/docs/09-htmx-realtime): htmx fragments, morphing and view transitions; SSE and WebSocket routes with topics and authorization
+- [Module system and inter-module communication](https://renoxium.com/docs/10-modules): the module system: manifest, permissions, services, events, hooks, slots, overrides, tables prefixed <module>__
+- [Authorization: RBAC, ABAC, and relations](https://renoxium.com/docs/11-authorization): Cedar policies, guard exports, r-can in templates, db.scoped(), roles and 2FA step-up
+
+## Modules
+
+- [Module system and inter-module communication](https://renoxium.com/docs/10-modules): how modules are installed (renox add), configured and talk to each other
+- [twofa](https://github.com/arif-rachim/renox.rs/blob/main/modules/2fa/README.md): Two-step verification: TOTP, passkeys and recovery codes after the password, mfa_verified on the principal, step-up for sensitive actions
+- [admin](https://github.com/arif-rachim/renox.rs/blob/main/modules/admin/README.md): The app's back office: a layout with the admin.sidebar slot, a dashboard with the admin.dashboard slot that other modules fill, users and the admin role, the audit viewer
+- [audit](https://github.com/arif-rachim/renox.rs/blob/main/modules/audit/README.md): Append-only audit trail: audit__events, record and query, the platform's authorization decisions, retention and export
+- [auth](https://github.com/arif-rachim/renox.rs/blob/main/modules/auth/README.md): Users, passwords (argon2id), sessions, and the login, register and account pages
+- [billing](https://github.com/arif-rachim/renox.rs/blob/main/modules/billing/README.md): Plans, subscriptions, one-off checkouts, invoices, refunds and usage for an app's own customers; a PSP adapter (Stripe UAE) and verified webhooks
+- [booking](https://github.com/arif-rachim/renox.rs/blob/main/modules/booking/README.md): Appointments: services, staff, weekly and seasonal hours, slots in the tenant's time zone, holds, deposits through billing, reminders, the staff's live calendar
+- [email](https://github.com/arif-rachim/renox.rs/blob/main/modules/email/README.md): Transactional email: bilingual (English and Arabic) templates, Resend or Amazon SES, queued through the outbox with retries, a suppression list fed by bounces and complaints, a message log
+- [gcc](https://github.com/arif-rachim/renox.rs/blob/main/modules/gcc/README.md): UAE data and checks: emirates and areas, +971 phones, Emirates ID, TRN, trade licence, Makani, P.O. Box
+- [i18n](https://github.com/arif-rachim/renox.rs/blob/main/modules/i18n/README.md): Locale detection (?lang, user, organisation, Accept-Language), stored preferences, EN/AR catalogs and the RTL baseline
+- [jobs](https://github.com/arif-rachim/renox.rs/blob/main/modules/jobs/README.md): The app's scheduled and queued jobs: next and last runs, the queue, running runs, dead letters with the redacted last error; retry and cancel
+- [notifications](https://github.com/arif-rachim/renox.rs/blob/main/modules/notifications/README.md): In-app notifications: a list, an unread badge that updates live over SSE, preferences per category and channel
+- [org](https://github.com/arif-rachim/renox.rs/blob/main/modules/org/README.md): Organisations, memberships with roles, invitations, and the active organisation of a session
+- [reports](https://github.com/arif-rachim/renox.rs/blob/main/modules/reports/README.md): Sales (from tax_gcc) and cash (from billing) reports per period: a page, CSV and Excel exports, import files for Xero, QuickBooks and Zoho Books, a nightly emailed summary
+- [storage](https://github.com/arif-rachim/renox.rs/blob/main/modules/storage/README.md): Uploads through ctx.storage: per-owner folders and quotas, the SVG sanitiser, signed links, a file browser and the x-upload partial
+- [tax_gcc](https://github.com/arif-rachim/renox.rs/blob/main/modules/tax_gcc/README.md): UAE FTA tax invoices: TRN, 5 % VAT with zero-rated and exempt lines in AED and fils, credit notes, the VAT return, a bilingual invoice template and PDF
+- [whatsapp](https://github.com/arif-rachim/renox.rs/blob/main/modules/whatsapp/README.md): WhatsApp Cloud API: notifications, OTP, approved templates, a signed inbound webhook into a light inbox, a chat-to-order link
+
+## CLI
+
+- [renox CLI reference](https://github.com/arif-rachim/renox.rs/blob/main/cli/README.md): renox new, dev, build, check, test, add, remove, migrate, deploy, logs, secrets, db, jobs, authz explain, mcp
+- [Installing the CLI and the SDK](https://renoxium.com/docs/12-developer-experience#installing-the-cli): signed binaries for Linux and macOS, the npm package at the same version
+
+## MCP for agents
+
+- [AI agents and MCP](https://renoxium.com/docs/20-ai-agents-mcp): the platform MCP (local and remote), App MCP tools, in-app agents with ctx.ai, agent security
+- [Build with an AI agent](https://renoxium.com/docs/12-developer-experience#build-with-an-ai-agent): connect Claude Code, Cursor or Codex to renox mcp; the remote MCP and its scopes; what agents may and may not do
+- [renox mcp](https://github.com/arif-rachim/renox.rs/blob/main/cli/README.md#renox-mcp): the local server: tools dev_status, dev_errors, run_check, run_tests, search_docs, authz_explain, list_policies, list_tools; resources docs://, config://effective, routes://
+- [Remote platform MCP](https://github.com/arif-rachim/renox.rs/blob/main/control/api/src/mcp/README.md): mcp.renoxium.com: OAuth 2.1 with PKCE, scopes apps:read, apps:write, deploy, logs:read, secrets:read; confirmation tokens for mutating tools
+
+## Contracts
+
+- [Contracts](https://renoxium.com/docs/contracts-README): the index of the contracts and their versions; the two domains, renoxium.app for tenant apps and renoxium.com for the platform
+- [Contract: runtime ops and the ctx surface](https://renoxium.com/docs/contracts-ops): every op tenant code can call (db, fetch, secrets, log, storage, ai, pdf, realtime, jobs), the limits per tier and what happens at each limit, the error codes
+- [Contract: artifact format and route table](https://renoxium.com/docs/contracts-artifact): what renox build produces and renox deploy uploads: manifest, routes, code, templates, migrations, public files
+- [Contract: module manifest, renox.toml modules, renox.lock](https://renoxium.com/docs/contracts-manifest): what a module declares in module.toml and what the tenant approves
+- [Contract: deploy API](https://renoxium.com/docs/contracts-deploy-api): the control-plane API the CLI, the dashboard and the remote MCP use
+- [Contract: tenant-facing error catalogue](https://renoxium.com/docs/contracts-errors): error codes, HTTP statuses and response bodies
+- [Contract: meter records](https://renoxium.com/docs/contracts-meter): the per-request meter record that usage and billing are computed from
+- [Contract: client events](https://renoxium.com/docs/contracts-client-events): the browser events the renox client script reports
+
+## Optional
+
+- [Overview](https://renoxium.com/docs/00-overview): what Renoxium is, the principles, the expectations
+- [System architecture](https://renoxium.com/docs/03-architecture): control plane, data plane, the request path
+- [Isolation and security](https://renoxium.com/docs/04-isolation-security): the isolation model and the per-tenant limits
+- [Data](https://renoxium.com/docs/06-data): one SQLite file per tenant, the authorizer, migrations, replication
