@@ -3,8 +3,17 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import cliPackage from "../../package.json" with { type: "json" };
 import { EXIT, UserError } from "../errors.ts";
 import { TEMPLATES, type TemplateName, TSCONFIG } from "../lib/templates.ts";
+
+/**
+ * The CLI's own version, read from cli/package.json at build time (bun
+ * build --compile inlines it). `renox new` pins the SDK to it: the CLI and
+ * the `renox` package release at one version (#376), so an app scaffolded by
+ * release X installs SDK X.
+ */
+export const CLI_VERSION: string = cliPackage.version;
 
 const NAME = /^[a-z][a-z0-9-]{0,62}$/u;
 
@@ -26,7 +35,7 @@ export function newApp(name: string, template: string, parent = process.cwd()): 
         private: true,
         type: "module",
         scripts: { dev: "renox dev", build: "renox build", check: "renox check" },
-        dependencies: { renox: "^0.1.0" },
+        dependencies: { renox: `^${CLI_VERSION}` },
       },
       null,
       2,
