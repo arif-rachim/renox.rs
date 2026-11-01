@@ -29,7 +29,7 @@ export async function run(worker: string): Promise<Outcome> {
     scenario: "storage-down",
     title: "Object storage unreachable",
     failureModes: ["Object storage unreachable"],
-    description: "control/api keeps artifacts in S3 (MinIO); the storage is paused while one tenant is warm and another's artifact is removed from its node's cache, then resumed",
+    description: "control/api keeps artifacts in S3 (MinIO); the node restarts with one tenant's artifact removed from its cache, another tenant is warmed from the cache, the storage is paused, then resumed",
     target: "cached tenant 200 throughout; uncached cold start 503 RENOX_UNAVAILABLE while down, 200 after; /healthz reports object_storage",
     alerts: [{ rule: "RenoxObjectStorageUnreachable", observed: "reads renox_worker_degraded{component=\"object_storage\"} (pending #295); the reason is on /healthz" }],
     notes: [],
@@ -48,9 +48,15 @@ export async function run(worker: string): Promise<Outcome> {
   try {
     const { victim, victimNode, byNode } = await s.place(4);
     const cold = (byNode.get(victimNode.node) ?? []).find((t) => t !== victim) ?? null;
-    if ((await s.hit(victimNode, victim)).status !== 200) throw new Error("warming the victim failed");
-    // The cold tenant's artifact leaves the node's cache, so its cold start must fetch it.
+    // Activation prepares every tenant's cell, so the cold tenant's cell is
+    // already live: the node restarts with the cold tenant's artifact gone
+    // from its cache, so that tenant's next start must fetch it.
+    const proc = victimNode.proc;
+    s.killWorker(victimNode, "SIGTERM");
+    await proc?.exited;
     if (cold !== null) rmSync(join(victimNode.dir, "artifacts", cold.hash), { recursive: true, force: true });
+    await s.startWorker(victimNode);
+    if ((await s.hit(victimNode, victim)).status !== 200) throw new Error("warming the victim failed");
 
     sh(down);
     storageDown = true;

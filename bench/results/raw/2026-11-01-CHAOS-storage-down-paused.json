@@ -1,0 +1,44 @@
+{
+  "id": "CHAOS-storage-down",
+  "scenario": "storage-down",
+  "title": "Object storage unreachable",
+  "failureModes": [
+    "Object storage unreachable"
+  ],
+  "description": "control/api keeps artifacts in S3 (MinIO); the node restarts with one tenant's artifact removed from its cache, another tenant is warmed from the cache, the storage is paused, then resumed",
+  "target": "cached tenant 200 throughout; uncached cold start 503 RENOX_UNAVAILABLE while down, 200 after; /healthz reports object_storage",
+  "alerts": [
+    {
+      "rule": "RenoxObjectStorageUnreachable",
+      "observed": "reads renox_worker_degraded{component=\"object_storage\"} (pending #295); the reason is on /healthz"
+    }
+  ],
+  "notes": [
+    "Logs kept in /tmp/renox-chaos-420D5D."
+  ],
+  "verdict": "FAIL",
+  "result": "cached tenant serves: t-chaos-a: 200; uncached cold start refused: t-chaos-d: 0 TimeoutError: The operation timed out.; the worker reports it: no object_storage reason within 30 s; cold start after recovery: 200",
+  "checks": [
+    {
+      "name": "cached tenant serves",
+      "ok": true,
+      "detail": "t-chaos-a: 200"
+    },
+    {
+      "name": "uncached cold start refused",
+      "ok": false,
+      "detail": "t-chaos-d: 0 TimeoutError: The operation timed out."
+    },
+    {
+      "name": "the worker reports it",
+      "ok": false,
+      "detail": "no object_storage reason within 30 s"
+    },
+    {
+      "name": "cold start after recovery",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "metrics": {}
+}
