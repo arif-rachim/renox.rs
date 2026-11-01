@@ -277,8 +277,10 @@ impl CpuWatch {
     /// Restart the measured run at `start_ns` (thread CPU) with `budget`:
     /// the running context changed. Only the isolate thread calls it. The
     /// wall-time anchor is read inside, so the two clocks come from the
-    /// same instant. The macOS fire cap is cleared because a new run
-    /// starts fresh.
+    /// same instant. The macOS fire cap is not touched: once the watchdog
+    /// has fired, intra-slice context switches (promise reactions during
+    /// V8's unwind) must not clear the cap, or [`CpuLedger`] would charge
+    /// past the ± 5 ms bound.
     pub fn rebase(&self, start_ns: u64, budget: Duration) {
         let wall_start = if start_ns == IDLE {
             IDLE
@@ -289,7 +291,6 @@ impl CpuWatch {
         self.budget_ns.store(clamp_ns(budget), Ordering::SeqCst);
         self.wall_start_ns.store(wall_start, Ordering::SeqCst);
         self.slice_start_ns.store(start_ns, Ordering::SeqCst);
-        self.fired_at_ns.store(IDLE, Ordering::SeqCst);
         self.seq.fetch_add(1, Ordering::SeqCst);
     }
 
