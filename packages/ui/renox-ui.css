@@ -11,6 +11,9 @@
  * stylesheet loaded after this one (control/dashboard/public/app.css,
  * www/public/site.css).
  *
+ * Visual idea (packages/ui/README.md): a node full of tenant cells, most idle,
+ * a few lit. The lit cell (jade) is the only accent.
+ *
  * Sections: 1 tokens · 2 base · 3 type · 4 layout · 5 components ·
  * 6 utilities · 7 dark · 8 small screens · 9 motion and print.
  */
@@ -20,33 +23,35 @@
 :root {
   color-scheme: light dark;
 
-  /* Paper and ink. */
-  --rx-paper: #f6f4ef;
-  --rx-surface: #fdfcf9;
-  --rx-sunken: #edeae2;
-  --rx-ink: #17181b;
-  --rx-ink-2: #3a3c41;
-  --rx-muted: #67665f;
-  --rx-rule: #d8d4c9;
-  --rx-rule-strong: #17181b;
-  --rx-field: #b8b3a6;
+  /* Ground and ink: cool porcelain, blue-black. */
+  --rx-paper: #f5f7fa;
+  --rx-surface: #ffffff;
+  --rx-sunken: #eceff4;
+  --rx-ink: #18202e;
+  --rx-ink-2: #344054;
+  --rx-muted: #5b6575;
+  --rx-rule: #dce1e8;
+  --rx-rule-strong: #b9c1cd;
+  --rx-field: #b9c1cd;
 
-  /* One accent, for action and position only. */
-  --rx-accent: #c4381c;
-  --rx-accent-ink: #fff;
+  /* The cell. Jade is a lit cell: a running app, the current place, the action.
+     Idle is a cell holding nothing. The motif: .brand, .node, and status. */
+  --rx-accent: #0b7a5f;
+  --rx-accent-ink: #ffffff;
+  --rx-idle: #d5dbe3;
 
-  /* State. Never decoration. */
-  --rx-ok: #1c7444;
-  --rx-ok-bg: #e3eee3;
-  --rx-warn: #965400;
-  --rx-warn-bg: #f4ead3;
-  --rx-bad: #b1261d;
-  --rx-bad-bg: #f6e0dc;
-  --rx-info-bg: #e8e5dc;
+  /* State. Live is a lit cell, so ok is the accent. */
+  --rx-ok: #0b7a5f;
+  --rx-ok-bg: #e2f2ec;
+  --rx-warn: #9a5800;
+  --rx-warn-bg: #fbf0dc;
+  --rx-bad: #b42f2a;
+  --rx-bad-bg: #fbe7e5;
+  --rx-info-bg: #e9edf3;
 
-  /* Type. System faces only: Latin and Arabic in each stack. */
+  /* Type: one sans family carries everything; monospace only for code,
+     hashes and ids. System faces only, Latin and Arabic in each stack. */
   --rx-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans Arabic", "Geeza Pro", Tahoma, sans-serif;
-  --rx-font-serif: ui-serif, "Iowan Old Style", Charter, Georgia, Cambria, "Times New Roman", "Noto Naskh Arabic", "Geeza Pro", serif;
   --rx-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
 
   /* Spacing: a 4 px step. */
@@ -58,8 +63,12 @@
   --rx-6: 2rem;
   --rx-7: 3rem;
 
-  --rx-radius: 2px;
-  --rx-measure: 42rem;
+  /* Radius by rank: a cell, a control, a panel. */
+  --rx-r-cell: 2px;
+  --rx-r-control: 6px;
+  --rx-r-panel: 10px;
+  --rx-radius: var(--rx-r-control);
+  --rx-measure: 40rem;
   --rx-focus: 0 0 0 2px var(--rx-paper), 0 0 0 4px var(--rx-accent);
 }
 
@@ -73,40 +82,41 @@ body {
   margin: 0;
   background: var(--rx-paper);
   color: var(--rx-ink);
-  font: 400 .9375rem/1.55 var(--rx-font-sans);
-  font-feature-settings: "kern";
-  text-rendering: optimizeLegibility;
+  font: 400 .9375rem/1.6 var(--rx-font-sans);
+  font-kerning: normal;
 }
 
 img, svg { max-inline-size: 100%; }
 
-a { color: inherit; text-decoration: underline; text-decoration-color: var(--rx-accent); text-decoration-thickness: 1px; text-underline-offset: .18em; }
-a:hover { text-decoration-thickness: 2px; }
+a { color: var(--rx-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--rx-accent) 55%, transparent); text-decoration-thickness: 1px; text-underline-offset: .2em; }
+a:hover { color: var(--rx-accent); text-decoration-color: currentColor; }
 
-:focus-visible { outline: none; box-shadow: var(--rx-focus); border-radius: var(--rx-radius); }
+:focus-visible { outline: none; box-shadow: var(--rx-focus); border-radius: var(--rx-r-control); }
 
-hr { border: 0; border-block-start: 1px solid var(--rx-rule); margin-block: var(--rx-5); }
+hr { border: 0; border-block-start: 1px solid var(--rx-rule); margin-block: var(--rx-6); }
 
-::selection { background: var(--rx-accent); color: var(--rx-accent-ink); }
+::selection { background: color-mix(in srgb, var(--rx-accent) 25%, transparent); }
 
 /* 3. Type ------------------------------------------------------------------ */
 
-h1, h2, h3, h4 { line-height: 1.2; margin-block: 0 var(--rx-3); text-wrap: balance; }
-h1 { font-size: 1.75rem; font-weight: 650; letter-spacing: -.015em; margin-block-end: var(--rx-4); }
-h2 { font-size: 1.0625rem; font-weight: 650; margin-block-start: var(--rx-6); padding-block-start: var(--rx-3); border-block-start: 1px solid var(--rx-rule); }
-h3 { font-size: 1rem; font-weight: 600; }
+/* One family. Hierarchy from size and weight: 13 · 15 · 17 · 22 · 28 px. */
+h1, h2, h3, h4 { line-height: 1.2; margin-block: 0 var(--rx-3); text-wrap: balance; color: var(--rx-ink); }
+h1 { font-size: 1.75rem; font-weight: 650; letter-spacing: -.02em; margin-block-end: var(--rx-4); }
+h2 { font-size: 1.0625rem; font-weight: 650; letter-spacing: -.005em; margin-block-start: var(--rx-6); }
+h3 { font-size: .9375rem; font-weight: 600; }
 h1 + h2, h2:first-child { margin-block-start: 0; }
 p, ul, ol, dl, table, pre, figure, fieldset { margin-block: 0 var(--rx-4); }
 small, .small { font-size: .8125rem; }
 
+/* Monospace is for code: source, commands, hashes, request ids. */
 code, kbd, samp, pre { font-family: var(--rx-font-mono); font-size: .8125rem; }
-code { padding: .05em .3em; background: var(--rx-sunken); border-radius: var(--rx-radius); }
+code { padding: .1em .35em; background: var(--rx-sunken); border-radius: var(--rx-r-cell); }
 pre {
-  padding: var(--rx-3) var(--rx-4);
-  background: var(--rx-sunken);
+  padding: var(--rx-4);
+  background: var(--rx-surface);
   border: 1px solid var(--rx-rule);
-  border-radius: var(--rx-radius);
-  line-height: 1.6;
+  border-radius: var(--rx-r-panel);
+  line-height: 1.65;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -116,33 +126,42 @@ pre code { padding: 0; background: none; }
 code, pre, kbd, samp { direction: ltr; unicode-bidi: isolate; }
 pre { text-align: start; }
 
-/* Numbers that line up: hashes, times, money, counts. */
 .num, .n, time { font-variant-numeric: tabular-nums; }
 .n { text-align: end; }
 
 /* 4. Layout ---------------------------------------------------------------- */
 
-/* The top bar: brand, primary links, then whatever follows .spacer. */
 .top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--rx-2) var(--rx-5);
   padding: var(--rx-3) var(--rx-5);
-  background: var(--rx-paper);
-  border-block-end: 1px solid var(--rx-rule-strong);
+  background: var(--rx-surface);
+  border-block-end: 1px solid var(--rx-rule);
 }
-.top a, .top .link { color: var(--rx-ink); text-decoration: none; }
-.top a:hover, .top .link:hover { text-decoration: underline; text-decoration-color: var(--rx-accent); }
+.top a, .top .link { color: var(--rx-ink-2); text-decoration: none; }
+.top a:hover, .top .link:hover { color: var(--rx-ink); }
 .top .muted, .top .muted a { color: var(--rx-muted); }
-.brand { display: inline-flex; align-items: center; gap: var(--rx-2); font-weight: 700; letter-spacing: -.01em; }
-/* The mark: a filled square in the accent. */
-.brand::before { content: ""; inline-size: .8em; block-size: .8em; background: var(--rx-accent); }
 .top .lang { display: flex; gap: var(--rx-3); font-size: .8125rem; }
+
+/* The mark: four cells of a node, one of them lit. */
+.brand { display: inline-flex; align-items: center; gap: .55em; font-weight: 700; letter-spacing: -.01em; }
+.top a.brand { color: var(--rx-ink); }
+.brand::before {
+  content: "";
+  flex: none;
+  inline-size: .95em;
+  block-size: .95em;
+  background:
+    linear-gradient(var(--rx-accent) 0 0) 0 0 / 44% 44% no-repeat,
+    linear-gradient(var(--rx-idle) 0 0) 100% 0 / 44% 44% no-repeat,
+    linear-gradient(var(--rx-idle) 0 0) 0 100% / 44% 44% no-repeat,
+    linear-gradient(var(--rx-idle) 0 0) 100% 100% / 44% 44% no-repeat;
+}
 
 .spacer { flex: 1; }
 
-/* Side navigation + main column. */
 .frame { display: flex; align-items: flex-start; max-inline-size: 84rem; margin-inline: auto; }
 main { flex: 1; min-inline-size: 0; padding: var(--rx-6) var(--rx-6) var(--rx-7); }
 
@@ -151,201 +170,191 @@ main { flex: 1; min-inline-size: 0; padding: var(--rx-6) var(--rx-6) var(--rx-7)
   inset-block-start: 0;
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-inline-size: 13rem;
   padding-block: var(--rx-6);
-  padding-inline: var(--rx-5) 0;
+  padding-inline: var(--rx-4) 0;
 }
-.side-title { margin: 0 0 var(--rx-3); padding-inline-start: var(--rx-3); font-family: var(--rx-font-mono); font-size: .8125rem; font-weight: 600; }
-.side-title a { text-decoration: none; }
-.side > a {
-  padding: .35rem var(--rx-3);
-  border-inline-start: 2px solid var(--rx-rule);
-  color: var(--rx-ink-2);
-  text-decoration: none;
-}
-.side > a:hover { color: var(--rx-ink); border-inline-start-color: var(--rx-ink); }
-.side > a.current { color: var(--rx-ink); font-weight: 600; border-inline-start: 2px solid var(--rx-accent); background: var(--rx-sunken); }
+.side-title { margin: 0 0 var(--rx-3); padding-inline-start: var(--rx-3); font-weight: 650; }
+.side-title a { color: var(--rx-ink); text-decoration: none; }
+.side > a { padding: .4rem var(--rx-3); border-radius: var(--rx-r-control); color: var(--rx-ink-2); text-decoration: none; }
+.side > a:hover { background: var(--rx-sunken); color: var(--rx-ink); }
+/* The current page is the lit cell of the list. */
+.side > a.current { display: flex; align-items: center; gap: var(--rx-2); background: var(--rx-surface); color: var(--rx-ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--rx-rule); }
+.side > a.current::before { content: ""; flex: none; inline-size: .5rem; block-size: .5rem; border-radius: var(--rx-r-cell); background: var(--rx-accent); }
 
 .narrow { max-inline-size: var(--rx-measure); }
-.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 0 var(--rx-6); }
-.title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--rx-2) var(--rx-4); margin-block-end: var(--rx-2); }
-.title-row h1 { margin-block-end: var(--rx-2); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: var(--rx-5) var(--rx-6); }
+.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rx-2) var(--rx-4); margin-block-end: var(--rx-3); }
+.title-row h1 { margin-block-end: 0; }
 .row, .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--rx-3); margin-block: var(--rx-2) var(--rx-4); }
 .inline { display: inline; }
 .stack > * + * { margin-block-start: var(--rx-3); }
 
+/* A raised area: a group of things that belong together. */
+.panel { padding: var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
+.panel > :last-child { margin-block-end: 0; }
+.panel > h2:first-child { margin-block-start: 0; }
+
 /* 5. Components ------------------------------------------------------------ */
 
-/* Buttons. Outline by default; .primary is solid ink, one per view. */
+/* Buttons: quiet by default; one .primary per view. */
 button, .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--rx-2);
-  min-block-size: 2.125rem;
-  padding: .35rem .85rem;
-  font: 500 .875rem/1.2 var(--rx-font-sans);
+  min-block-size: 2.25rem;
+  padding: .4rem .9rem;
+  font: 550 .875rem/1.2 var(--rx-font-sans);
   color: var(--rx-ink);
-  background: transparent;
-  border: 1px solid var(--rx-ink);
-  border-radius: var(--rx-radius);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-field);
+  border-radius: var(--rx-r-control);
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
 }
-button:hover, .button:hover { background: var(--rx-sunken); text-decoration: none; }
+button:hover, .button:hover { border-color: var(--rx-ink-2); color: var(--rx-ink); }
 button:active, .button:active { transform: translateY(1px); }
-button.primary, .button.primary { background: var(--rx-ink); color: var(--rx-paper); }
-button.primary:hover, .button.primary:hover { background: var(--rx-ink-2); }
-button.danger, .button.danger { color: var(--rx-bad); border-color: var(--rx-bad); }
+button.primary, .button.primary { background: var(--rx-accent); border-color: var(--rx-accent); color: var(--rx-accent-ink); }
+button.primary:hover, .button.primary:hover { background: color-mix(in srgb, var(--rx-accent) 86%, #000); color: var(--rx-accent-ink); }
+button.danger, .button.danger { color: var(--rx-bad); border-color: color-mix(in srgb, var(--rx-bad) 50%, transparent); }
 button.danger:hover, .button.danger:hover { background: var(--rx-bad-bg); }
 button.link { min-block-size: 0; padding: 0; border: 0; background: none; font-weight: 400; color: inherit; }
-button.link:hover { text-decoration: underline; text-decoration-color: var(--rx-accent); }
+button.link:hover { color: var(--rx-ink); text-decoration: underline; }
 button:disabled, .button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
-td button, td .button { min-block-size: 1.75rem; padding: .2rem .6rem; font-size: .8125rem; }
+td button, td .button { min-block-size: 1.875rem; padding: .25rem .65rem; font-size: .8125rem; }
 
 /* Fields. A label wraps its field: text above, field below. */
-label { display: inline-flex; flex-direction: column; gap: var(--rx-1); font-size: .8125rem; font-weight: 500; color: var(--rx-ink-2); }
+label { display: inline-flex; flex-direction: column; gap: var(--rx-1); font-size: .8125rem; font-weight: 550; color: var(--rx-ink-2); }
 input, select, textarea {
-  min-block-size: 2.125rem;
-  padding: .35rem .6rem;
+  min-block-size: 2.25rem;
+  padding: .4rem .65rem;
   font: 400 .9375rem/1.3 var(--rx-font-sans);
   color: var(--rx-ink);
   background: var(--rx-surface);
   border: 1px solid var(--rx-field);
-  border-radius: var(--rx-radius);
+  border-radius: var(--rx-r-control);
 }
 input:hover, select:hover, textarea:hover { border-color: var(--rx-ink-2); }
-input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--rx-ink); }
-input[type="checkbox"], input[type="radio"] { min-block-size: 0; inline-size: 1rem; block-size: 1rem; margin: 0; accent-color: var(--rx-ink); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--rx-accent); }
+input[type="checkbox"], input[type="radio"] { min-block-size: 0; inline-size: 1rem; block-size: 1rem; margin: 0; accent-color: var(--rx-accent); }
 input[type="file"] { padding: .3rem; }
 textarea { min-block-size: 6rem; resize: vertical; }
 input:user-invalid { border-color: var(--rx-bad); }
-/* A checkbox or radio label reads on one line. */
 label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { flex-direction: row; align-items: center; gap: var(--rx-2); font-size: .9375rem; font-weight: 400; color: var(--rx-ink); }
 
-fieldset { padding: 0; border: 0; border-block-start: 1px solid var(--rx-rule); }
-legend { padding: var(--rx-3) 0 var(--rx-2); font-size: .8125rem; font-weight: 600; color: var(--rx-ink-2); }
-/* Choices in a fieldset: one row each, the description under the name. */
+fieldset { padding: 0; border: 0; }
+legend { padding: 0 0 var(--rx-2); font-size: .8125rem; font-weight: 550; color: var(--rx-ink-2); }
+/* Choices in a fieldset: one tile each, the description under the name; the chosen tile is lit. */
 fieldset > label:has(> input[type="radio"]), fieldset > label:has(> input[type="checkbox"]) {
   display: grid;
   grid-template-columns: 1rem 1fr;
   align-items: baseline;
   gap: .15rem var(--rx-3);
-  padding: var(--rx-3) 0;
-  border-block-end: 1px solid var(--rx-rule);
+  padding: var(--rx-3) var(--rx-4);
+  margin-block-end: var(--rx-2);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-rule);
+  border-radius: var(--rx-r-control);
   cursor: pointer;
 }
+fieldset > label:has(> input:checked) { border-color: var(--rx-accent); box-shadow: inset 0 0 0 1px var(--rx-accent); }
 fieldset > label > input { grid-row: span 2; align-self: start; margin-block-start: .2rem; }
 fieldset > label > .muted { grid-column: 2; font-size: .875rem; }
-fieldset > label:has(> input:checked) strong { text-decoration: underline; text-decoration-color: var(--rx-accent); text-decoration-thickness: 2px; text-underline-offset: .2em; }
 form > label, form > fieldset, form > p, x-form > label { margin-block-end: var(--rx-4); }
 form > label > input, form > label > select, form > label > textarea { inline-size: 100%; max-inline-size: 28rem; }
 .row > label > input, .filters > label > input, .filters > label > select { inline-size: auto; }
 
-/* Tables: a ledger. Heavy rule under the header, light rules between rows. */
+/* Tables: rows on a surface; header in sentence case, quiet. */
 .list { inline-size: 100%; border-collapse: collapse; margin-block: var(--rx-2) var(--rx-5); font-size: .875rem; }
-.list th, .list td { padding: .5rem var(--rx-3); text-align: start; vertical-align: top; border-block-end: 1px solid var(--rx-rule); }
+.list th, .list td { padding: .55rem var(--rx-3); text-align: start; vertical-align: top; border-block-end: 1px solid var(--rx-rule); }
 .list th:first-child, .list td:first-child { padding-inline-start: 0; }
 .list th:last-child, .list td:last-child { padding-inline-end: 0; }
-.list thead th {
-  padding-block: .4rem;
-  font-size: .75rem;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--rx-muted);
-  border-block-end: 1px solid var(--rx-rule-strong);
-  white-space: nowrap;
-}
+.list thead th { padding-block: .45rem; font-size: .8125rem; font-weight: 550; color: var(--rx-muted); white-space: nowrap; }
 .list td { font-variant-numeric: tabular-nums; }
-.list tbody tr:hover { background: color-mix(in srgb, var(--rx-sunken) 55%, transparent); }
+.list .n { text-align: end; }
+.list tbody tr:last-child td { border-block-end: 0; }
 .list code { padding: 0; background: none; }
 .list tr.bad td { color: var(--rx-bad); }
 
-/* Messages: a rule on the start edge, a tint behind. */
+/* Messages: a tinted panel; the colour says which kind. */
 .notice, .problem, .warning {
   margin-block: 0 var(--rx-4);
   padding: var(--rx-3) var(--rx-4);
-  border-inline-start: 3px solid;
-  border-radius: 0;
+  border-radius: var(--rx-r-control);
+  border: 1px solid;
 }
-.notice { background: var(--rx-ok-bg); border-color: var(--rx-ok); }
-.problem { background: var(--rx-bad-bg); border-color: var(--rx-bad); }
-.warning { background: var(--rx-warn-bg); border-color: var(--rx-warn); }
+.notice { background: var(--rx-ok-bg); border-color: color-mix(in srgb, var(--rx-ok) 30%, transparent); }
+.problem { background: var(--rx-bad-bg); border-color: color-mix(in srgb, var(--rx-bad) 30%, transparent); }
+.warning { background: var(--rx-warn-bg); border-color: color-mix(in srgb, var(--rx-warn) 30%, transparent); }
 .notice > :last-child, .problem > :last-child, .warning > :last-child { margin-block-end: 0; }
 .problem p, .problem ul { margin-block: 0 var(--rx-1); }
 .problem-inline { color: var(--rx-bad); }
 
-/* Full-width bar above everything. */
-.banner { margin: 0; padding: var(--rx-2) var(--rx-5); font-weight: 600; border: 0; }
+.banner { margin: 0; padding: var(--rx-2) var(--rx-5); font-weight: 600; border: 0; border-radius: 0; }
 .banner.impersonation { background: var(--rx-bad); color: #fff; }
-.banner.impersonation code { color: inherit; background: rgb(255 255 255 / .15); }
+.banner.impersonation code { color: inherit; background: rgb(255 255 255 / .18); }
 
-/* Status text. The glyph in the text (● ○ ✗) carries the shape; this, the colour. */
+/* Status. The glyph in the text (● ○ ✗) carries the shape; this, the colour. */
 .ok { color: var(--rx-ok); }
 .bad { color: var(--rx-bad); }
 .warn { color: var(--rx-warn); }
 
-/* A small label, for a state or a count. */
-.tag {
-  display: inline-block;
-  padding: .05rem .4rem;
-  font: 600 .6875rem/1.5 var(--rx-font-mono);
-  letter-spacing: .03em;
-  text-transform: uppercase;
-  border: 1px solid currentColor;
-  border-radius: var(--rx-radius);
-}
+/* A small label for a state or a count. */
+.tag { display: inline-block; padding: .05rem .45rem; font-size: .75rem; font-weight: 550; border-radius: 999px; background: var(--rx-sunken); color: var(--rx-ink-2); }
+
+/* Facts in a line, spaced rather than joined with dots. */
+.meta { display: flex; flex-wrap: wrap; gap: var(--rx-1) var(--rx-5); list-style: none; padding: 0; color: var(--rx-ink-2); }
+.meta > li { margin: 0; }
+
+/* Numbers that matter: a value over its name. */
+.stats { display: flex; flex-wrap: wrap; margin-block: 0 var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); overflow: hidden; }
+/* Each fact draws its end and bottom rule; the negative margins tuck the outer ones under the border. */
+.stats > div { flex: 1 1 9.5rem; display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: .15rem; padding: var(--rx-3) var(--rx-4); border-inline-end: 1px solid var(--rx-rule); border-block-end: 1px solid var(--rx-rule); margin-inline-end: -1px; margin-block-end: -1px; }
+.stats dt { font-size: .8125rem; color: var(--rx-muted); }
+/* Labels written for the middle of a sentence still start a label with a capital. */
+.stats dt::first-letter { text-transform: uppercase; }
+.stats dd { margin: 0; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Segmented links: ranges, filters. */
-.tabs { display: inline-flex; border: 1px solid var(--rx-ink); border-radius: var(--rx-radius); }
-.tabs a { padding: .2rem .65rem; font-size: .8125rem; text-decoration: none; }
-.tabs a + a { border-inline-start: 1px solid var(--rx-ink); }
-.tabs a:hover { background: var(--rx-sunken); }
-.tabs a.current { background: var(--rx-ink); color: var(--rx-paper); }
+.tabs { display: inline-flex; gap: 2px; padding: 2px; background: var(--rx-sunken); border-radius: var(--rx-r-control); }
+.tabs a { padding: .2rem .7rem; font-size: .8125rem; color: var(--rx-ink-2); text-decoration: none; border-radius: calc(var(--rx-r-control) - 2px); }
+.tabs a:hover { color: var(--rx-ink); }
+.tabs a.current { background: var(--rx-surface); color: var(--rx-ink); font-weight: 600; box-shadow: 0 0 0 1px var(--rx-rule); }
 
-/* Boxes in a grid; ruled, never shadowed. */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--rx-4); margin-block-end: var(--rx-5); }
-.card { padding: var(--rx-4); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-radius); }
+.card { padding: var(--rx-4) var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
 .card h3 { margin-block-end: var(--rx-1); }
 .card > :last-child { margin-block-end: 0; }
-.review { padding: var(--rx-4); margin-block-end: var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule-strong); }
+.review { padding: var(--rx-5); margin-block-end: var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-accent); border-radius: var(--rx-r-panel); }
 
-/* Definition lists as two columns. */
 .detail dl, dl.pairs { display: grid; grid-template-columns: max-content 1fr; gap: var(--rx-2) var(--rx-5); }
 .detail dt, dl.pairs dt { color: var(--rx-muted); font-size: .8125rem; }
 .detail dd, dl.pairs dd { margin: 0; word-break: break-word; }
-.detail { padding: var(--rx-4) var(--rx-5); margin-block: var(--rx-4); background: var(--rx-surface); border: 1px solid var(--rx-rule); }
+.detail { padding: var(--rx-4) var(--rx-5); margin-block: var(--rx-4); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
 
-/* A to-do list whose done items stay visible. */
-.checklist { list-style: none; padding: 0; counter-reset: rx-step; border-block-start: 1px solid var(--rx-rule-strong); }
-.checklist li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--rx-3);
-  padding: var(--rx-3) 0;
-  border-block-end: 1px solid var(--rx-rule);
-  counter-increment: rx-step;
-}
-.checklist li::before { content: counter(rx-step, decimal-leading-zero); font: 500 .75rem var(--rx-font-mono); color: var(--rx-muted); min-inline-size: 1.5rem; }
+/* Steps of a real sequence. A done step is a lit cell. */
+.checklist { list-style: none; padding: 0; background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
+.checklist li { display: flex; align-items: baseline; gap: var(--rx-3); padding: var(--rx-3) var(--rx-4); border-block-end: 1px solid var(--rx-rule); }
+.checklist li:last-child { border-block-end: 0; }
 .checklist li.done { color: var(--rx-muted); }
-.checklist li.done > span:first-of-type { color: var(--rx-ok); }
+.checklist li.done > span:first-of-type { color: var(--rx-ok); font-weight: 700; }
+.checklist li:not(.done) a { font-weight: 600; }
 
-/* Recovery codes, keys: a grid of monospace cells. */
 .codes { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: var(--rx-2); }
-.codes code { display: block; padding: var(--rx-2); text-align: center; border: 1px dashed var(--rx-field); background: var(--rx-surface); }
+.codes code { display: block; padding: var(--rx-2); text-align: center; border: 1px dashed var(--rx-field); background: var(--rx-surface); border-radius: var(--rx-r-control); }
 
-/* Bar charts drawn as <svg><rect>: ink bars on a baseline. */
-.chart { margin: 0 0 var(--rx-5); }
-.chart figcaption { margin-block-end: var(--rx-1); font-size: .8125rem; color: var(--rx-muted); }
-.chart svg { display: block; inline-size: 100%; block-size: 6.5rem; border-block-end: 1px solid var(--rx-rule-strong); background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--rx-rule) calc(25% - 1px) 25%); }
-.chart rect { fill: color-mix(in srgb, var(--rx-ink-2) 70%, var(--rx-paper)); }
+/* Bar charts drawn as <svg><rect>: cells stacked into columns. */
+.chart { margin: 0 0 var(--rx-5); padding: var(--rx-4); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
+.chart figcaption { margin-block-end: var(--rx-2); font-size: .8125rem; font-weight: 550; color: var(--rx-ink-2); }
+.chart svg { display: block; inline-size: 100%; block-size: 5.5rem; }
+.chart rect { fill: color-mix(in srgb, var(--rx-accent) 72%, var(--rx-surface)); }
 .chart rect:hover { fill: var(--rx-accent); }
 
-meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; }
+meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; accent-color: var(--rx-accent); }
 
-/* Long-form text: legal pages, documents. */
 .legal, .prose { max-inline-size: var(--rx-measure); }
 .legal p, .legal li, .prose p, .prose li { line-height: 1.7; }
 
@@ -360,26 +369,28 @@ meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --rx-paper: #131416;
-    --rx-surface: #191a1d;
-    --rx-sunken: #222327;
-    --rx-ink: #ecebe6;
-    --rx-ink-2: #c4c2bb;
-    --rx-muted: #9a988f;
-    --rx-rule: #313238;
-    --rx-rule-strong: #ecebe6;
-    --rx-field: #4a4b52;
-    --rx-accent: #ff6b47;
-    --rx-accent-ink: #131416;
-    --rx-ok: #63c58d;
-    --rx-ok-bg: #16281d;
-    --rx-warn: #e2a64a;
-    --rx-warn-bg: #2c2412;
-    --rx-bad: #ff7b6e;
-    --rx-bad-bg: #321a17;
-    --rx-info-bg: #222327;
+    --rx-paper: #0f141b;
+    --rx-surface: #161c25;
+    --rx-sunken: #1d2430;
+    --rx-ink: #e6eaf0;
+    --rx-ink-2: #c3cad5;
+    --rx-muted: #98a2b1;
+    --rx-rule: #29313d;
+    --rx-rule-strong: #3a4452;
+    --rx-field: #3a4452;
+    --rx-accent: #3cc79e;
+    --rx-accent-ink: #0b1a15;
+    --rx-idle: #2a323e;
+    --rx-ok: #3cc79e;
+    --rx-ok-bg: #12261f;
+    --rx-warn: #e4a447;
+    --rx-warn-bg: #2a2214;
+    --rx-bad: #ff7f74;
+    --rx-bad-bg: #2d1819;
+    --rx-info-bg: #1d2430;
   }
-  .banner.impersonation { color: #131416; }
+  .chart rect { fill: color-mix(in srgb, var(--rx-accent) 55%, var(--rx-surface)); }
+  .banner.impersonation { color: #1a0d0c; }
 }
 
 /* 8. Small screens --------------------------------------------------------- */
@@ -392,12 +403,11 @@ meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; }
     flex-wrap: nowrap;
     overflow-x: auto;
     min-inline-size: 0;
-    padding: 0 var(--rx-4);
+    padding: var(--rx-2) var(--rx-4);
     border-block-end: 1px solid var(--rx-rule);
   }
   .side-title { display: none; }
-  .side > a { flex: none; border-inline-start: 0; border-block-end: 2px solid transparent; }
-  .side > a.current { border-inline-start: 0; border-block-end: 2px solid var(--rx-accent); background: none; }
+  .side > a { flex: none; }
   main { padding: var(--rx-5) var(--rx-4) var(--rx-6); }
   .top { padding: var(--rx-3) var(--rx-4); gap: var(--rx-2) var(--rx-4); }
   .list { display: block; overflow-x: auto; }

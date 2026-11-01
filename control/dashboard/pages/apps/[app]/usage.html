@@ -9,7 +9,15 @@
     <x-problem :problem="problem" r-if="problem" />
     <r-group r-if="totals">
       <p class="muted">{{ period }}</p>
-      <p><r-t key="dash.overview.requests" /> {{ totals.requests }} · CPU {{ totals.cpu }} · <r-t key="dash.usage.wall" /> {{ totals.wall }} · <r-t key="dash.usage.egress" /> {{ totals.egress }} · <r-t key="dash.usage.fetch" /> {{ totals.fetch }} · <r-t key="dash.usage.database" /> {{ totals.db }} · <r-t key="dash.usage.fuel" /> {{ totals.fuel }}</p>
+      <dl class="stats">
+        <div><dt><r-t key="dash.overview.requests" /></dt><dd>{{ totals.requests }}</dd></div>
+        <div><dt>CPU</dt><dd>{{ totals.cpu }}</dd></div>
+        <div><dt><r-t key="dash.usage.wall" /></dt><dd>{{ totals.wall }}</dd></div>
+        <div><dt><r-t key="dash.usage.egress" /></dt><dd>{{ totals.egress }}</dd></div>
+        <div><dt><r-t key="dash.usage.fetch" /></dt><dd>{{ totals.fetch }}</dd></div>
+        <div><dt><r-t key="dash.usage.database" /></dt><dd>{{ totals.db }}</dd></div>
+        <div><dt><r-t key="dash.usage.fuel" /></dt><dd>{{ totals.fuel }}</dd></div>
+      </dl>
       <figure class="chart" r-for="c in charts">
         <figcaption>{{ c.title }}</figcaption>
         <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" :aria-label="c.title" preserveAspectRatio="none">

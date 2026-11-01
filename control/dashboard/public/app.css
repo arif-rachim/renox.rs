@@ -9,7 +9,7 @@
 .logs td { padding-block: .35rem; }
 .logs td.when { white-space: nowrap; color: var(--rx-muted); }
 .logs td.msg { word-break: break-word; font-family: var(--rx-font-sans); font-size: .875rem; }
-.logs .level { font-weight: 600; font-size: .75rem; letter-spacing: .03em; text-transform: uppercase; color: var(--rx-muted); }
+.logs .level { font-weight: 600; font-size: .75rem; color: var(--rx-muted); }
 /* The row's class names the level; only the label takes the colour. */
 .logs tr.warn, .logs tr.error { color: inherit; }
 .logs tr.warn .level { color: var(--rx-warn); }
@@ -19,7 +19,7 @@
 .logs small.frame { display: block; max-inline-size: none; }
 
 /* The overview's short list of recent lines. */
-ul.logs { list-style: none; padding: 0; border-block-start: 1px solid var(--rx-rule-strong); }
+ul.logs { list-style: none; padding: 0; }
 ul.logs li { display: flex; gap: var(--rx-3); padding: .4rem 0; border-block-end: 1px solid var(--rx-rule); word-break: break-word; }
 ul.logs li > .muted:first-child { flex: none; }
 ul.logs .level { flex: none; min-inline-size: 3rem; }

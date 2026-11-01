@@ -19,7 +19,7 @@ import { doc, search, sidebar, slugOfPath, SOURCES } from "../lib/docs.ts";
 import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
 import { loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
-import { load as homeLoad } from "../pages/index.ts";
+import { load as homeLoad, NODE, nodeCells } from "../pages/index.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
 setDefaultTimeout(120_000);
@@ -105,6 +105,15 @@ describe("pricing and legal", () => {
     expect(page.plans[3]?.quotas[0]).toEqual({ label: "Requests / month", value: "unlimited" });
   });
 
+  test("the landing page's node: a fixed pattern, mostly idle", () => {
+    const cells = nodeCells();
+    expect(cells).toHaveLength(NODE.columns * NODE.rows);
+    const lit = cells.filter((c) => c.cls !== "").length;
+    expect(lit).toBeGreaterThan(0);
+    expect(lit / cells.length).toBeLessThan(0.15);
+    expect(nodeCells()).toEqual(cells);
+  });
+
   test("the landing page's plan summary is pricing.toml's", () => {
     const home = homeLoad();
     expect(home.currency).toBe(PRICING.currency);
@@ -160,7 +169,9 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect((await get("/docs?q=threat")).text).toContain('href="/docs/24-threat-model"');
     const home = await get("/");
     expect(home.status).toBe(200);
-    expect(home.text).toContain("<h1>Assemble a SaaS from modules.");
+    expect(home.text).toContain("<h1>Your TypeScript app runs when someone asks for it.");
+    // The hero's node: one cell per tenant slot, the lit ones marked.
+    expect(home.text.match(/<i class="[^"]*"><\/i>/gu)?.length).toBe(200);
     expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
     expect(home.text).toContain("AED 79.00");
     const pricing = await get("/pricing");

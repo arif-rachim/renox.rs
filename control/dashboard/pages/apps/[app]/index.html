@@ -8,11 +8,23 @@
         <h1>{{ app }}</h1>
         <a class="button" :href="info.url" r-if="info.url"><r-t key="dash.common.open" /> ↗</a>
       </div>
-      <p><span :class="{ ok: info.live }">{{ info.status }}</span> · v <code>{{ info.version }}</code> · <r-t key="dash.overview.deployed" /> {{ info.deployed }}<r-group r-for="h in info.hostnames"> · {{ h }}</r-group></p>
+      <ul class="meta">
+        <li :class="{ ok: info.live }">{{ info.status }}</li>
+        <li>v <code>{{ info.version }}</code></li>
+        <li><r-t key="dash.overview.deployed" /> {{ info.deployed }}</li>
+        <li r-for="h in info.hostnames">{{ h }}</li>
+      </ul>
       <p class="notice" r-if="notice">{{ notice }}</p>
       <x-problem :problem="action_problem" r-if="action_problem" />
       <h2><r-t key="dash.overview.last_24h" /></h2>
-      <p r-if="usage"><r-t key="dash.overview.requests" /> {{ usage.requests }} · CPU {{ usage.cpu }} · <r-t key="dash.overview.egress" /> {{ usage.egress }}<span class="problem-inline" r-if="usage.over"> · <r-t key="dash.overview.over_quota" /> {{ usage.over }}</span> · <a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
+      <r-group r-if="usage">
+        <dl class="stats">
+          <div><dt><r-t key="dash.overview.requests" /></dt><dd>{{ usage.requests }}</dd></div>
+          <div><dt>CPU</dt><dd>{{ usage.cpu }}</dd></div>
+          <div><dt><r-t key="dash.overview.egress" /></dt><dd>{{ usage.egress }}</dd></div>
+        </dl>
+        <p><span class="problem-inline" r-if="usage.over"><r-t key="dash.overview.over_quota" /> {{ usage.over }}. </span><a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
+      </r-group>
       <p class="muted" r-else><r-t key="dash.overview.no_usage" /></p>
       <div class="cols">
         <div>

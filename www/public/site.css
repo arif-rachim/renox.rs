@@ -1,91 +1,111 @@
 /*
  * www: the site's own layer over renox-ui.css (loaded first;
- * packages/ui/README.md). Editorial pages: serif headlines, a wider measure,
- * rules between sections. Logical properties only.
+ * packages/ui/README.md). One memorable thing, the node in the hero; the
+ * rest stays quiet. Logical properties only.
  */
 
 body { font-size: 1rem; }
 main { max-inline-size: 72rem; margin-inline: auto; padding: var(--rx-6) var(--rx-5) var(--rx-7); }
 .top { padding-inline: max(var(--rx-5), calc((100% - 72rem) / 2 + var(--rx-5))); }
-.top .button { min-block-size: 1.875rem; padding-block: .2rem; }
+.top .button { min-block-size: 2rem; padding-block: .25rem; }
 
-h1, main > section > h2, .split h2, .spec h2 { font-family: var(--rx-font-serif); font-weight: 600; letter-spacing: -.01em; }
 main > section { margin-block-end: var(--rx-7); }
-main > section > h2, .split h2 { font-size: 1.5rem; padding-block-start: var(--rx-4); border-block-start: 1px solid var(--rx-rule-strong); margin-block-start: 0; }
+main > section > h2, .build h2 { font-size: 1.375rem; letter-spacing: -.015em; margin-block: 0 var(--rx-4); }
 
-/* Landing: headline and terminal side by side, stacked on a phone. */
-.hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--rx-6); align-items: end; padding-block: var(--rx-6) var(--rx-5); }
-.hero h1 { font-size: clamp(2.25rem, 5vw, 3.5rem); line-height: 1.05; letter-spacing: -.025em; margin-block-end: var(--rx-5); }
-.lede { font-size: 1.1875rem; line-height: 1.5; color: var(--rx-ink-2); max-inline-size: 36rem; }
-.actions { display: flex; flex-wrap: wrap; gap: var(--rx-3); margin-block: var(--rx-5) var(--rx-3); }
-.actions .button { min-block-size: 2.625rem; padding-inline: 1.15rem; font-size: .9375rem; }
+/* Hero: the claim on the start side, the node on the end side. */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--rx-7); align-items: center; padding-block: var(--rx-6) var(--rx-5); }
+.hero h1 { font-size: clamp(2rem, 4.2vw, 3.25rem); line-height: 1.08; letter-spacing: -.03em; font-weight: 700; margin-block-end: var(--rx-5); }
+.lede { font-size: 1.125rem; line-height: 1.6; color: var(--rx-ink-2); max-inline-size: 34rem; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--rx-3); margin-block: var(--rx-5) 0; }
+.actions .button { min-block-size: 2.75rem; padding-inline: 1.2rem; font-size: .9375rem; }
 
-/* The terminal is always dark, in either scheme. */
-.terminal {
-  margin: 0;
-  padding: var(--rx-4) var(--rx-5);
-  background: #17181b;
-  color: #e9e7e1;
-  border: 0;
-  border-block-start: 3px solid var(--rx-accent);
-  font-size: .8125rem;
-  line-height: 1.75;
-  white-space: pre;
+/* The node: 20 x 10 tenant cells. */
+.node-figure { margin: 0; }
+.node {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 5px;
+  padding: var(--rx-5);
+  background: var(--rx-surface);
+  border: 1px solid var(--rx-rule);
+  border-radius: var(--rx-r-panel);
 }
-.terminal .prompt { color: #9a988f; user-select: none; }
-.terminal .comment { color: #8a887f; }
+.node i { aspect-ratio: 1; border-radius: var(--rx-r-cell); background: var(--rx-idle); }
+.node i.on { background: var(--rx-accent); }
+/* Four cells take requests in turn: the one motion on the page. */
+.node i.blink { animation: rx-request 8s steps(1, end) infinite; }
+.node i.b2 { animation-delay: -2s; }
+.node i.b3 { animation-delay: -4s; }
+.node i.b4 { animation-delay: -6s; }
+@keyframes rx-request { 0%, 70% { background: var(--rx-idle); } 72%, 92% { background: var(--rx-accent); } }
+.node-figure figcaption { margin-block-start: var(--rx-3); font-size: .875rem; color: var(--rx-muted); max-inline-size: 30rem; }
 
-/* Specification: a two-column sheet. */
-.spec dl { display: grid; grid-template-columns: 10rem 1fr; margin: 0; }
-.spec dt, .spec dd { margin: 0; padding: var(--rx-3) 0; border-block-end: 1px solid var(--rx-rule); }
-.spec dt { font-family: var(--rx-font-mono); font-size: .8125rem; font-weight: 600; padding-block-start: calc(var(--rx-3) + .15rem); }
-.spec dd { max-inline-size: 44rem; }
+/* What your app gets: name over description, in a grid. */
+.facts dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: var(--rx-5) var(--rx-6); margin: 0; }
+.facts dt { font-weight: 650; margin-block-end: var(--rx-1); }
+.facts dd { margin: 0; color: var(--rx-ink-2); }
 
-.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: var(--rx-6); align-items: start; }
-.split > div > :last-child { margin-block-end: 0; }
+/* From a folder to a live app: the steps beside the source. */
+.build { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: var(--rx-6); align-items: start; }
+.steps { list-style: none; padding: 0; counter-reset: rx-step; }
+.steps li { counter-increment: rx-step; position: relative; padding-block: var(--rx-2) var(--rx-3); padding-inline-start: 2.5rem; }
+.steps li::before {
+  content: counter(rx-step);
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: var(--rx-2);
+  display: grid;
+  place-items: center;
+  inline-size: 1.6rem;
+  block-size: 1.6rem;
+  font-size: .8125rem;
+  font-weight: 700;
+  color: var(--rx-accent-ink);
+  background: var(--rx-accent);
+  border-radius: var(--rx-r-cell);
+}
+.steps li strong { display: block; }
 .source { margin: 0; }
-.source figcaption { padding: var(--rx-2) var(--rx-4); font: .75rem var(--rx-font-mono); color: var(--rx-muted); border: 1px solid var(--rx-rule); border-block-end: 0; background: var(--rx-surface); }
-.source pre { margin: 0; white-space: pre; }
+.source figcaption { padding: var(--rx-2) var(--rx-4); font: .75rem var(--rx-font-mono); color: var(--rx-muted); background: var(--rx-sunken); border: 1px solid var(--rx-rule); border-block-end: 0; border-start-start-radius: var(--rx-r-panel); border-start-end-radius: var(--rx-r-panel); }
+.source pre { margin: 0; white-space: pre; border-start-start-radius: 0; border-start-end-radius: 0; }
 
-ol.numbered { list-style: none; padding: 0; counter-reset: rx-n; }
-ol.numbered li { counter-increment: rx-n; position: relative; padding-block: var(--rx-3); padding-inline-start: 2.5rem; border-block-end: 1px solid var(--rx-rule); }
-ol.numbered li::before { content: counter(rx-n, decimal-leading-zero); position: absolute; inset-inline-start: 0; font: 600 .8125rem/1.9 var(--rx-font-mono); color: var(--rx-accent); }
+.uae p { max-inline-size: 44rem; font-size: 1.0625rem; }
 
 .plans-table td strong { font-weight: 600; }
-.closing { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--rx-4); padding-block: var(--rx-5); border-block: 1px solid var(--rx-rule-strong); }
-.closing p { margin: 0; font-family: var(--rx-font-serif); font-size: 1.375rem; }
+.closing { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--rx-4); padding: var(--rx-5) var(--rx-6); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
+.closing p { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -.01em; }
 
-/* Pricing page: plans as ruled columns. */
-.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); border-block-start: 1px solid var(--rx-rule-strong); }
-.plan { padding-block: var(--rx-4); padding-inline: 0 var(--rx-4); border-block-end: 1px solid var(--rx-rule); }
-.plan + .plan { padding-inline-start: var(--rx-4); border-inline-start: 1px solid var(--rx-rule); }
-.plan h2 { border: 0; padding: 0; margin: 0 0 var(--rx-2); font-size: 1.25rem; }
-.plan .price { margin-block-end: 0; font: 600 1.5rem var(--rx-font-mono); }
+/* Pricing page: plans as panels. */
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--rx-4); }
+.plan { padding: var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
+.plan h2 { margin: 0 0 var(--rx-2); font-size: 1.125rem; }
+.plan .price { margin-block-end: 0; font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .plan ul { padding-inline-start: 1.1rem; margin-block-start: var(--rx-3); font-size: .875rem; }
 
 /* Documentation: the reading order beside the document. */
 .docs { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: var(--rx-6); }
-.docs nav ol { padding-inline-start: 1.4rem; font-size: .875rem; line-height: 1.45; }
+.docs nav ol { padding-inline-start: 1.4rem; font-size: .875rem; line-height: 1.45; color: var(--rx-muted); }
 .docs nav li { padding-block: .2rem; }
 .docs nav a { text-decoration: none; color: var(--rx-ink-2); }
-.docs nav a:hover { color: var(--rx-ink); text-decoration: underline; text-decoration-color: var(--rx-accent); }
+.docs nav a:hover { color: var(--rx-accent); }
 .docs nav a.current { font-weight: 600; color: var(--rx-ink); }
-article { max-inline-size: 48rem; line-height: 1.7; }
+article { max-inline-size: 46rem; line-height: 1.7; }
 article h1 { font-size: 2.25rem; }
-article h2 { margin-block-start: var(--rx-6); }
+article h2 { margin-block-start: var(--rx-6); font-size: 1.25rem; }
 article table { border-collapse: collapse; display: block; overflow-x: auto; font-size: .875rem; margin-block-end: var(--rx-4); }
-article th, article td { border-block-end: 1px solid var(--rx-rule); padding: .4rem var(--rx-3); vertical-align: top; text-align: start; }
-article th { border-block-end-color: var(--rx-rule-strong); font-size: .8125rem; }
+article th, article td { border-block-end: 1px solid var(--rx-rule); padding: .45rem var(--rx-3); vertical-align: top; text-align: start; }
+article th { font-weight: 600; }
 
-.site-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rx-2) var(--rx-5); padding: var(--rx-5) max(var(--rx-5), calc((100% - 72rem) / 2 + var(--rx-5))); border-block-start: 1px solid var(--rx-rule-strong); font-size: .875rem; }
-.site-footer a { text-decoration: none; }
-.site-footer a:hover { text-decoration: underline; text-decoration-color: var(--rx-accent); }
+.site-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rx-2) var(--rx-5); padding: var(--rx-5) max(var(--rx-5), calc((100% - 72rem) / 2 + var(--rx-5))); background: var(--rx-surface); border-block-start: 1px solid var(--rx-rule); font-size: .875rem; }
+.site-footer a { color: var(--rx-ink-2); text-decoration: none; }
+.site-footer a:hover { color: var(--rx-accent); }
 
 @media (max-width: 48rem) {
-  .hero { grid-template-columns: 1fr; padding-block-start: var(--rx-3); }
-  .spec dl { grid-template-columns: 1fr; }
-  .spec dt { border-block-end: 0; padding-block-end: 0; }
+  /* Docs and Pricing stay in the footer; the bar keeps the brand and the two account links on one line. */
+  .top > a:not(.brand):not(.button):not([href*="signin"]) { display: none; }
+  .hero { grid-template-columns: 1fr; gap: var(--rx-5); padding-block-start: var(--rx-3); }
+  .node { gap: 3px; padding: var(--rx-3); }
   .docs { grid-template-columns: 1fr; }
-  .plan, .plan + .plan { padding-inline: 0; border-inline-start: 0; }
   main { padding-inline: var(--rx-4); }
+  .closing { padding: var(--rx-4); }
 }

@@ -3,52 +3,42 @@
 
   <section class="hero">
     <div class="hero-text">
-      <h1>Assemble a SaaS from modules. Pay only for what it uses.</h1>
-      <p class="lede">Renoxium runs your server-rendered TypeScript app in its own V8 isolate, with its own SQLite database. Add auth, organizations, billing and admin as modules. Deploy in seconds, roll back in seconds.</p>
+      <h1>Your TypeScript app runs when someone asks for it. Idle, it costs almost nothing.</h1>
+      <p class="lede">Renoxium runs each app in its own V8 isolate with its own SQLite database, packed by the thousand onto shared nodes. Add sign-in, organizations, billing and admin as modules. Deploy in seconds, roll back in seconds.</p>
       <p class="actions">
         <a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a>
         <a class="button" href="/docs">Read the docs</a>
       </p>
-      <p class="muted small">No build step, no Node, no Docker. TypeScript, HTML and SQL.</p>
     </div>
-    <pre class="terminal" aria-label="Terminal"><code><span class="prompt">$</span> bunx renox new my-shop --template hello
-<span class="prompt">$</span> cd my-shop
-<span class="comment"># run it locally on the real runtime</span>
-<span class="prompt">$</span> bunx renox dev
-<span class="comment"># add sign-in, 2FA and its pages</span>
-<span class="prompt">$</span> bunx renox add auth
-<span class="comment"># live at https://my-shop.renoxium.app</span>
-<span class="prompt">$</span> bunx renox deploy</code></pre>
+    <figure class="node-figure">
+      <div class="node" role="img" aria-label="A node drawn as a grid of apps: a few are serving requests, the rest are idle.">
+        <i r-for="c in cells" :class="c.cls"></i>
+      </div>
+      <figcaption>One node, many apps. A lit square is an app serving a request; the others are idle and hold no memory.</figcaption>
+    </figure>
   </section>
 
-  <section class="spec" aria-labelledby="spec-title">
-    <h2 id="spec-title">Specification</h2>
+  <section class="facts" aria-labelledby="facts-title">
+    <h2 id="facts-title">What your app gets</h2>
     <dl>
-      <dt>Runtime</dt>
-      <dd>A V8 isolate per tenant. CPU, memory, wall-clock and network limits are enforced in Rust, so a runaway loop in one app never slows another.</dd>
-      <dt>Data</dt>
-      <dd>One SQLite file per tenant, backed up continuously. Module tables are prefixed and every statement passes the SQLite authorizer.</dd>
-      <dt>Rendering</dt>
-      <dd>HTML templates rendered in Rust, htmx fragments, View Transitions, SSE and WebSockets. No SPA unless you want one.</dd>
-      <dt>Modules</dt>
-      <dd>Auth with 2FA and phone OTP, organizations and roles, billing, tax invoices, admin, storage, email and WhatsApp. Override a module's template without forking it.</dd>
-      <dt>Access</dt>
-      <dd>Cedar policies for roles, attributes and relations; route guards; queries scoped to the signed-in user.</dd>
-      <dt>Deploys</dt>
-      <dd>Every deploy is an immutable artifact. Promote, roll back, read logs and usage per app in the dashboard.</dd>
-      <dt>Cost</dt>
-      <dd>An idle app is evicted from memory and costs almost nothing. You pay for the requests, CPU and storage you use.</dd>
+      <div><dt>Its own isolate</dt><dd>CPU, memory, wall-clock and network limits are enforced in Rust, so a runaway loop in one app never slows another.</dd></div>
+      <div><dt>Its own database</dt><dd>One SQLite file per tenant, backed up continuously. Every statement a module runs passes the SQLite authorizer.</dd></div>
+      <div><dt>Pages rendered on the server</dt><dd>HTML templates rendered in Rust, htmx fragments, View Transitions, SSE and WebSockets. No SPA unless you want one.</dd></div>
+      <div><dt>Modules instead of rewrites</dt><dd>Sign-in with 2FA and phone OTP, organizations and roles, billing, tax invoices, admin, storage, email and WhatsApp. Change a module's page without forking it.</dd></div>
+      <div><dt>Access rules in one place</dt><dd>Cedar policies for roles, attributes and relations, route guards, and queries scoped to the signed-in user.</dd></div>
+      <div><dt>Deploys you can undo</dt><dd>Every deploy is an immutable artifact. Promote, roll back, read logs and usage per app in the dashboard.</dd></div>
     </dl>
   </section>
 
-  <section class="split" aria-labelledby="model-title">
+  <section class="build" aria-labelledby="build-title">
     <div>
-      <h2 id="model-title">Folders are routes</h2>
-      <p><code>pages/products/[id].html</code> is <code>/products/:id</code>. A loader beside it reads the data; the template renders it. Configuration is the exception, not the rule.</p>
-      <ol class="numbered">
-        <li><strong>Write pages and functions.</strong> HTML for the page, TypeScript for its data.</li>
-        <li><strong>Install modules.</strong> <code>renox add auth</code> brings the tables, pages and policies.</li>
-        <li><strong>Deploy.</strong> <code>renox deploy</code>, and the app is live on its own address.</li>
+      <h2 id="build-title">From a folder to a live app</h2>
+      <p><code>pages/products/[id].html</code> is the page at <code>/products/:id</code>, and the loader beside it reads the data.</p>
+      <ol class="steps">
+        <li><strong>Create the app</strong> from a template: <code>bunx renox new my-shop</code></li>
+        <li><strong>Run it</strong> on the real runtime: <code>bunx renox dev</code></li>
+        <li><strong>Add sign-in</strong> with its tables, pages and policies: <code>bunx renox add auth</code></li>
+        <li><strong>Deploy</strong> to <code>my-shop.renoxium.app</code>: <code>bunx renox deploy</code></li>
       </ol>
     </div>
     <figure class="source">
@@ -66,22 +56,19 @@ export async function load({ params, db }: LoaderContext) {
     </figure>
   </section>
 
-  <section class="split" aria-labelledby="uae-title">
-    <div>
-      <h2 id="uae-title">Made for businesses in the UAE</h2>
-      <p>Prices in AED. A tax invoice with 5 % VAT every month. English and Arabic, with right-to-left pages. A data processing agreement you accept at sign-up.</p>
-      <p><a href="/legal/dpa">Read the data processing agreement</a></p>
-    </div>
+  <section class="uae" aria-labelledby="uae-title">
+    <h2 id="uae-title">Made for businesses in the UAE</h2>
+    <p>Prices in AED, and a tax invoice with 5 % VAT every month. English and Arabic, with right-to-left pages. A <a href="/legal/dpa">data processing agreement</a> you accept at sign-up.</p>
   </section>
 
   <section aria-labelledby="plans-title">
     <h2 id="plans-title">Plans</h2>
-    <p class="muted">Monthly, in {{ currency }}, excluding 5 % VAT.</p>
+    <p class="muted">Monthly, in {{ currency }}, excluding 5 % VAT. <a href="/pricing">Compare every quota</a></p>
     <table class="list plans-table">
-      <thead><tr><th>Plan</th><th class="n">Price</th><th class="n">Requests / month</th><th class="n">Apps</th><th class="n">Database</th></tr></thead>
+      <thead><tr><th>Plan</th><th class="n">Price</th><th class="n">Requests a month</th><th class="n">Apps</th><th class="n">Database</th></tr></thead>
       <tbody>
         <tr r-for="p in plans">
-          <td><strong>{{ p.name }}</strong><r-group r-if="p.free"> <span class="muted">no card needed</span></r-group></td>
+          <td><strong>{{ p.name }}</strong><r-group r-if="p.free"> <span class="tag">No card needed</span></r-group></td>
           <td class="n">{{ currency }} {{ p.price }}</td>
           <td class="n">{{ p.requests }}</td>
           <td class="n">{{ p.apps }}</td>
@@ -89,11 +76,10 @@ export async function load({ params, db }: LoaderContext) {
         </tr>
       </tbody>
     </table>
-    <p><a href="/pricing">Every quota of every plan</a></p>
   </section>
 
   <section class="closing">
-    <p>Start from a template: a shop, a booking site, invoices, or a blank app.</p>
+    <p>Start from a shop, a booking site, invoices, or a blank app.</p>
     <a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a>
   </section>
 </r-layout>
