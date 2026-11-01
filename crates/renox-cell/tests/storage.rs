@@ -238,8 +238,13 @@ async fn a_put_within_the_quota_is_stored_with_its_metadata_and_metered() {
         .await;
     assert_eq!(f["key"], "app/photos/a.png", "{f}");
     assert_eq!(f["content_type"], "image/png");
-    assert_eq!(f["width"], 8);
-    assert_eq!(f["height"], 6);
+    if cfg!(feature = "media") {
+        assert_eq!(f["width"], 8);
+        assert_eq!(f["height"], 6);
+    } else {
+        // Without the image pipeline (#372) the dimensions are unknown.
+        assert!(f["width"].is_null() && f["height"].is_null(), "{f}");
+    }
     assert_eq!(f["public"], true);
     assert_eq!(f["sha256"].as_str().unwrap().len(), 64);
     let rec = n.record(&id).await;

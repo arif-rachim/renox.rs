@@ -6,6 +6,9 @@
 //! Naskh Arabic (shaped by the bundled font, never a fallback box), the PDF
 //! is small, the render time is metered, and template data cannot inject
 //! typst code.
+//!
+//! Needs the `pdf` feature (the default; #372).
+#![cfg(feature = "pdf")]
 
 mod support;
 

@@ -6,7 +6,7 @@
 //! | Bytes | an [`ObjectStore`]: [`DirStore`] (a local directory, `renox dev` and tests) or [`S3Store`] (the platform bucket, SigV4 like the replica purge) |
 //! | Signed URLs | HMAC-SHA256 with the tenant's key ([`PlatformKey::tenant_key`]) over `<path>?exp=<unix s>` |
 //! | Limits | the tier's (*proposed* free 1 GiB / 10 MiB, paid 50 GiB / 100 MiB) |
-//! | Image dimensions | the `image` crate's header read |
+//! | Image dimensions | the `image` crate's header read (feature `media`, #372) |
 //!
 //! The isolate never sees a credential: the ops call [`CellStorage`] in Rust.
 
@@ -318,12 +318,19 @@ impl StorageHost for CellStorage {
         self.limits
     }
 
+    #[cfg(feature = "media")]
     fn dimensions(&self, bytes: &[u8]) -> Option<(u32, u32)> {
         image::ImageReader::new(std::io::Cursor::new(bytes))
             .with_guessed_format()
             .ok()?
             .into_dimensions()
             .ok()
+    }
+
+    /// Without the `media` feature (#372) a stored image has no dimensions.
+    #[cfg(not(feature = "media"))]
+    fn dimensions(&self, _bytes: &[u8]) -> Option<(u32, u32)> {
+        None
     }
 }
 

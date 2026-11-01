@@ -14,6 +14,11 @@
 //!
 //! A cache hit never decodes; only a miss counts against the rate and is metered
 //! (`image` record, `IMG <w>w <fmt>`).
+//!
+//! Cargo features (#372; both on by default): `media` is the pipeline itself
+//! (without it every `/_img` request is 503 `RENOX_UNAVAILABLE`, `/_files`
+//! still serves), `avif` the AVIF encoder (without it `f=auto` picks WebP and
+//! `f=avif` is 400 `RENOX_VALIDATION`).
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -77,6 +82,9 @@ pub fn round_width(w: u32, widths: &[u32], original: u32) -> u32 {
     best.min(original.max(1))
 }
 
+/// Whether this worker encodes AVIF (the `avif` feature).
+pub const AVIF: bool = cfg!(feature = "avif");
+
 /// The format `f` asks for, given the request's `Accept` and the original's type.
 pub fn pick_format(f: Option<&str>, accept: &str, original: &str) -> Result<Format, &'static str> {
     let fallback = if original == "image/png" {
@@ -85,14 +93,14 @@ pub fn pick_format(f: Option<&str>, accept: &str, original: &str) -> Result<Form
         Format::Jpeg
     };
     match f.unwrap_or("auto") {
-        "auto" => Ok(if accept.contains("image/avif") {
+        "auto" => Ok(if AVIF && accept.contains("image/avif") {
             Format::Avif
         } else if accept.contains("image/webp") {
             Format::Webp
         } else {
             fallback
         }),
-        "avif" => Ok(Format::Avif),
+        "avif" if AVIF => Ok(Format::Avif),
         "webp" => Ok(Format::Webp),
         "jpeg" | "jpg" => Ok(Format::Jpeg),
         "png" => Ok(Format::Png),
@@ -101,6 +109,7 @@ pub fn pick_format(f: Option<&str>, accept: &str, original: &str) -> Result<Form
 }
 
 /// Resize and encode. Pixels only: EXIF, XMP, ICC and GPS never reach the variant.
+#[cfg(feature = "media")]
 pub fn transform(original: &[u8], width: u32, format: Format) -> Result<Vec<u8>, String> {
     let img = image::load_from_memory(original).map_err(|e| e.to_string())?;
     let (w, h) = (img.width().max(1), img.height().max(1));
@@ -113,12 +122,15 @@ pub fn transform(original: &[u8], width: u32, format: Format) -> Result<Vec<u8>,
     };
     let mut out = Vec::new();
     match format {
+        #[cfg(feature = "avif")]
         Format::Avif => {
             let enc = image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut out, 10, 70);
             img.to_rgba8()
                 .write_with_encoder(enc)
                 .map_err(|e| e.to_string())?;
         }
+        #[cfg(not(feature = "avif"))]
+        Format::Avif => return Err("AVIF is not available on this worker".into()),
         Format::Webp => {
             let enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
             img.to_rgba8()
@@ -139,6 +151,13 @@ pub fn transform(original: &[u8], width: u32, format: Format) -> Result<Vec<u8>,
         }
     }
     Ok(out)
+}
+
+/// Without the `media` feature (#372) nothing is decoded; `serve` answers
+/// 503 before it gets here.
+#[cfg(not(feature = "media"))]
+pub fn transform(_original: &[u8], _width: u32, _format: Format) -> Result<Vec<u8>, String> {
+    Err("the image pipeline is not available on this worker".into())
 }
 
 /// A token bucket per cell (one tenant's deployment).
@@ -214,6 +233,7 @@ fn error(status: u16, code: &str, request_id: &str, retry: Option<u64>) -> Serve
         "RENOX_IMAGE_RATE" => "Too many image transforms. Try again shortly.",
         "RENOX_STORAGE_NOT_FOUND" => "No stored file has this key.",
         "RENOX_VALIDATION" => "The request is not valid.",
+        "RENOX_UNAVAILABLE" => "The service is temporarily unavailable.",
         _ => "The request could not be served.",
     }, "request_id": request_id } });
     let mut b = http::Response::builder()
@@ -369,6 +389,11 @@ pub async fn serve(files: &Files, parts: &http::request::Parts, request_id: &str
             created: None,
         };
     }
+    // A worker without the pipeline (#372): the file exists and is readable,
+    // but no variant can be made; `errors.md` `RENOX_UNAVAILABLE` (503, Retry-After).
+    if !cfg!(feature = "media") {
+        return error(503, "RENOX_UNAVAILABLE", request_id, Some(5));
+    }
     let original_type = file.content_type.as_str();
     if !matches!(
         original_type,
@@ -495,6 +520,7 @@ mod tests {
         assert_eq!(round_width(700, &[320, 640, 1280], 4000), 640);
     }
 
+    #[cfg(feature = "avif")]
     #[test]
     fn auto_picks_avif_then_webp_then_the_original() {
         assert_eq!(
@@ -508,6 +534,19 @@ mod tests {
         assert_eq!(pick_format(None, "*/*", "image/png"), Ok(Format::Png));
         assert_eq!(pick_format(None, "*/*", "image/jpeg"), Ok(Format::Jpeg));
         assert_eq!(pick_format(Some("gif"), "*/*", "image/jpeg"), Err("f"));
+    }
+
+    #[cfg(not(feature = "avif"))]
+    #[test]
+    fn without_the_avif_feature_auto_picks_webp_and_avif_is_refused() {
+        assert_eq!(
+            pick_format(None, "image/avif,image/webp,*/*", "image/jpeg"),
+            Ok(Format::Webp)
+        );
+        assert_eq!(
+            pick_format(Some("avif"), "image/avif", "image/jpeg"),
+            Err("f")
+        );
     }
 
     #[test]

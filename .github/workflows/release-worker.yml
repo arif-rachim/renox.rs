@@ -59,10 +59,13 @@ concurrency:
 
 env:
   # B20 target (docs/14-benchmarks.md): the binary must stay at or under this.
-  # Raised from 100 on 2026-11-01: the F7 image pipeline (rav1e AVIF encoder)
-  # and the PDF renderer (typst) brought the size-built binary to 118.0-133.7 MB
-  # across the four targets (run 41231474082); 160 leaves about 20 % headroom.
-  MAX_BINARY_MB: "160"
+  # 128 is the cosign ceiling: `cosign verify-blob-attestation` refuses an
+  # artefact over 128 MiB (COSIGN_MAX_ATTACHMENT_SIZE), so a larger binary
+  # fails here, in the build job, instead of in the release job's "Verify in
+  # a fresh container" (run 41321600807, #372). The F7 PDF engine (typst)
+  # brought the x86_64 Linux build to 133.7 MB; without the `pdf` feature it
+  # is 107.4 MB (bench/results/2026-11-01-B20-binary-size-bloat-renox-worker.md).
+  MAX_BINARY_MB: "128"
 
 jobs:
   build:
