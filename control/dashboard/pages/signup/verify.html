@@ -11,7 +11,7 @@
       <form method="post" action="/signup/verify" id="verify">
         <x-csrf />
         <input type="hidden" name="token" id="verify-token">
-        <button type="submit"><r-t key="dash.common.verify" /></button>
+        <button type="submit" class="primary"><r-t key="dash.common.verify" /></button>
       </form>
       <script>
         // The token is in the fragment (#token=…): copy it into the form and submit once.

@@ -18,6 +18,7 @@ import { startDev } from "../../cli/src/commands/dev.ts";
 import { doc, search, sidebar, slugOfPath, SOURCES } from "../lib/docs.ts";
 import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
+import { loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
 import { load as homeLoad } from "../pages/index.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
@@ -117,6 +118,23 @@ describe("pricing and legal", () => {
   test("the legal pages carry the versions sign-up records", () => {
     expect(readFileSync(join(import.meta.dir, "../pages/legal/dpa.html"), "utf8")).toContain(`Version ${DPA_VERSION}.`);
     expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`Version ${TERMS_VERSION}.`);
+  });
+});
+
+describe("design system (packages/ui/README.md)", () => {
+  const read = (p: string) => readFileSync(join(import.meta.dir, "..", p), "utf8");
+
+  test("public/renox-ui.css is packages/ui/renox-ui.css, unchanged, and loads before site.css", () => {
+    expect(read("public/renox-ui.css")).toBe(readFileSync(join(ROOT, "packages/ui/renox-ui.css"), "utf8"));
+    const layout = read("pages/_layouts/main.html");
+    expect(layout.indexOf('href="/renox-ui.css"')).toBeGreaterThan(-1);
+    expect(layout.indexOf('href="/site.css"')).toBeGreaterThan(layout.indexOf('href="/renox-ui.css"'));
+  });
+
+  test("site.css uses no physical direction and loads nothing", () => {
+    const css = read("public/site.css");
+    expect(physicalLines(css)).toEqual([]);
+    expect(loadsAnything(css)).toBe(false);
   });
 });
 
