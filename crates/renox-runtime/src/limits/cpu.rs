@@ -237,30 +237,32 @@ impl CpuWatch {
     /// wall_slice_start)`: within a slice the isolate thread holds V8 and
     /// runs JavaScript, so wall is a tight upper bound on CPU used and does
     /// not lag (#212). Once the watchdog has fired, the reading is also
-    /// bounded from above by `fired_at + TERMINATION_TAIL_NS`, so
-    /// [`CpuLedger`] does not charge the request past the ± 5 ms contract
-    /// bound while V8 unwinds. Outside a slice (or on Linux) the raw clock
-    /// is returned.
+    /// bounded from above by `fired_at + TERMINATION_TAIL_NS` — this cap
+    /// applies regardless of slice state, because `release_cpu` runs after
+    /// `end_slice` has set `slice_start_ns = IDLE` and still needs the cap
+    /// so `CpuLedger` does not charge the request past the ± 5 ms contract
+    /// bound. On Linux the raw clock is returned.
     pub fn now_ns(&self) -> u64 {
         let cpu = self.clock.now().map(|d| d.as_nanos() as u64).unwrap_or(0);
         #[cfg(target_os = "macos")]
         {
+            let mut effective = cpu;
             let slice_start = self.slice_start_ns.load(Ordering::SeqCst);
             if slice_start != IDLE {
                 let wall_start = self.wall_start_ns.load(Ordering::SeqCst);
-                let mut effective = cpu;
                 if wall_start != IDLE {
                     let wall_based =
                         slice_start.saturating_add(self.wall_ns().saturating_sub(wall_start));
                     effective = effective.max(wall_based);
                 }
-                let fired_at = self.fired_at_ns.load(Ordering::SeqCst);
-                if fired_at != IDLE {
-                    effective = effective.min(fired_at.saturating_add(TERMINATION_TAIL_NS));
-                }
-                return effective;
             }
+            let fired_at = self.fired_at_ns.load(Ordering::SeqCst);
+            if fired_at != IDLE {
+                effective = effective.min(fired_at.saturating_add(TERMINATION_TAIL_NS));
+            }
+            return effective;
         }
+        #[cfg(not(target_os = "macos"))]
         cpu
     }
 
