@@ -52,6 +52,14 @@ const IDLE: u64 = u64::MAX;
 #[cfg(target_os = "macos")]
 const TERMINATION_TAIL_NS: u64 = 5_000_000;
 
+/// Upper bound of `cpu_ms` returned by [`CpuLedger::release`], added to the
+/// request's limit (`limit + 5 ms`). Guards against the small
+/// over-count that can slip past the per-run cap: pre-fire charges, the
+/// ± 5 ms termination tail, and `used.div_ceil(n)` rounding in
+/// [`CpuLedger::flush`] when unattributed CPU is split across concurrent
+/// requests (#212, macos-15 ARM saw 55.017 ms without this clamp).
+const RELEASE_TAIL_NS: u64 = 5_000_000;
+
 /// The CPU clock of one thread, readable from any thread. Linux:
 /// `CLOCK_THREAD_CPUTIME_ID` of that thread (`pthread_getcpuclockid`).
 /// macOS (#139): the thread's Mach port and `thread_info(THREAD_BASIC_INFO)`,
@@ -260,7 +268,7 @@ impl CpuWatch {
             if fired_at != IDLE {
                 effective = effective.min(fired_at.saturating_add(TERMINATION_TAIL_NS));
             }
-            return effective;
+            effective
         }
         #[cfg(not(target_os = "macos"))]
         cpu
@@ -482,7 +490,12 @@ impl CpuLedger {
     }
 
     /// The request ended: charge the current run, forget the request, and
-    /// return its total CPU (ns).
+    /// return its total CPU (ns). The returned value is clamped to
+    /// `limit + 5 ms` so a request's `cpu_ms` never exceeds the ± 5 ms
+    /// termination bound of `docs/contracts/ops.md` section 10, no matter
+    /// how pre-fire charges (microtask setup during awaits), the firing
+    /// run's capped charge, and unattributed-CPU rounding
+    /// (`used.div_ceil(n)` in [`CpuLedger::flush`]) add up (#212).
     pub fn release(&mut self, token: u32, now_ns: u64) -> u64 {
         self.flush(now_ns);
         if self.running == Running::Request(token) {
@@ -491,7 +504,8 @@ impl CpuLedger {
         if self.outer == Running::Request(token) {
             self.outer = Running::Unattributed;
         }
-        self.charged.remove(&token).unwrap_or(0)
+        let charged = self.charged.remove(&token).unwrap_or(0);
+        charged.min(self.limit_ns.saturating_add(RELEASE_TAIL_NS))
     }
 
     /// CPU charged to a request in flight so far (ns).
