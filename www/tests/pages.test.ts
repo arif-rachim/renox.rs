@@ -18,6 +18,7 @@ import { startDev } from "../../cli/src/commands/dev.ts";
 import { doc, search, sidebar, slugOfPath, SOURCES } from "../lib/docs.ts";
 import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
+import { load as homeLoad } from "../pages/index.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
 setDefaultTimeout(120_000);
@@ -103,6 +104,16 @@ describe("pricing and legal", () => {
     expect(page.plans[3]?.quotas[0]).toEqual({ label: "Requests / month", value: "unlimited" });
   });
 
+  test("the landing page's plan summary is pricing.toml's", () => {
+    const home = homeLoad();
+    expect(home.currency).toBe(PRICING.currency);
+    expect(home.plans.map((p) => [p.name, p.price])).toEqual(PRICING.plans.map((p) => [p.name, p.price_month]));
+    expect(home.plans[0]).toMatchObject({ name: "Free", free: true, requests: "100,000", apps: "2", db: "100 MB" });
+    expect(home.plans.filter((p) => p.free)).toHaveLength(1);
+    // An unlimited quota (-1 in pricing.toml) reads "unlimited", never 0.
+    expect(home.plans.at(-1)).toMatchObject({ name: "Agency", requests: "unlimited", apps: "unlimited" });
+  });
+
   test("the legal pages carry the versions sign-up records", () => {
     expect(readFileSync(join(import.meta.dir, "../pages/legal/dpa.html"), "utf8")).toContain(`Version ${DPA_VERSION}.`);
     expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`Version ${TERMS_VERSION}.`);
@@ -129,6 +140,11 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect(overview.text).toMatch(/<h1 id="[^"]+">/u);
     expect((await get("/docs/no-such-doc")).status).toBe(404);
     expect((await get("/docs?q=threat")).text).toContain('href="/docs/24-threat-model"');
+    const home = await get("/");
+    expect(home.status).toBe(200);
+    expect(home.text).toContain("<h1>Assemble a SaaS from modules.");
+    expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
+    expect(home.text).toContain("AED 79.00");
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);

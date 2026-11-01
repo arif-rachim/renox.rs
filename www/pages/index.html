@@ -1,6 +1,121 @@
 <r-layout use="main">
   <r-group slot="title">Renoxium · TypeScript app hosting</r-group>
-  <h1>Host your TypeScript apps</h1>
-  <p>Renoxium runs your server-rendered TypeScript app with its own SQLite database, per-tenant limits, and deploys in seconds. Start from a template and be live in under 10 minutes.</p>
-  <p><a href="https://dashboard.renoxium.com/signup">Create an account</a> · <a href="/docs">Read the docs</a> · <a href="/pricing">See pricing</a></p>
+
+  <section class="hero">
+    <p class="eyebrow">TypeScript hosting + ready-made modules</p>
+    <h1>Assemble a SaaS from modules.<br>Pay only for what it uses.</h1>
+    <p class="lead">Renoxium runs your server-rendered TypeScript app in its own V8 isolate with its own SQLite database. Add auth, organizations, billing and admin as modules, deploy in seconds, and roll back in seconds.</p>
+    <p class="actions">
+      <a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a>
+      <a class="button" href="/docs">Read the docs</a>
+    </p>
+    <p class="muted small">No build step, no Node, no Docker. TypeScript, HTML and SQL.</p>
+  </section>
+
+  <section class="code-pair">
+    <div class="terminal">
+      <p class="label">Terminal</p>
+      <pre><code><span class="prompt">$</span> bunx renox new my-shop --template hello
+<span class="prompt">$</span> cd my-shop
+<span class="muted"># run it locally on the real runtime</span>
+<span class="prompt">$</span> bunx renox dev
+<span class="muted"># add sign-in, 2FA and its pages</span>
+<span class="prompt">$</span> bunx renox add auth
+<span class="muted"># live at https://my-shop.renox.rs</span>
+<span class="prompt">$</span> bunx renox deploy</code></pre>
+    </div>
+    <div class="terminal">
+      <p class="label">pages/products/[id].ts</p>
+      <pre><code>import type { LoaderContext } from "renox";
+
+export const guard = { action: "product.read" };
+
+export async function load({ params, db }: LoaderContext) {
+  const product = await db.queryOne(
+    "select * from shop__products where id = ?", [params.id]);
+  if (!product) return new Response(null, { status: 404 });
+  return { product, inStock: product.stock > 0 };
+}</code></pre>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Folders are routes. Configuration is the exception.</h2>
+    <ol class="steps">
+      <li>
+        <h3>Write pages and functions</h3>
+        <p><code>pages/products/[id].html</code> is <code>/products/:id</code>. A loader next to it fetches the data; the template renders it in Rust.</p>
+      </li>
+      <li>
+        <h3>Install modules</h3>
+        <p><code>renox add auth</code> brings sign-in with 2FA, its tables, pages and policies. Override a template without forking the module.</p>
+      </li>
+      <li>
+        <h3>Deploy and watch</h3>
+        <p>Every deploy is an immutable artifact. Promote, roll back, read logs and usage per app in the dashboard.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>What you get</h2>
+    <div class="features">
+      <article class="feature">
+        <h3>An isolate per tenant</h3>
+        <p>CPU, memory, wall-clock and network limits are enforced in Rust. A runaway loop in one app never slows another.</p>
+      </article>
+      <article class="feature">
+        <h3>SQLite per tenant</h3>
+        <p>One database file per tenant, with continuous backups. Module tables are prefixed and every statement passes the SQLite authorizer.</p>
+      </article>
+      <article class="feature">
+        <h3>Modules are the product</h3>
+        <p>Auth with 2FA and phone OTP, organizations and roles, billing, tax invoices, admin, storage, email and WhatsApp.</p>
+      </article>
+      <article class="feature">
+        <h3>HTML first</h3>
+        <p>Server-rendered pages with htmx fragments, View Transitions, SSE and WebSockets. No SPA unless you want one.</p>
+      </article>
+      <article class="feature">
+        <h3>Authorization built in</h3>
+        <p>Cedar policies for roles, attributes and relations, route guards, and queries scoped to the signed-in user.</p>
+      </article>
+      <article class="feature">
+        <h3>Usage-based, idle is free</h3>
+        <p>An idle app is evicted from memory and costs almost nothing. You pay for requests, CPU and storage you actually use.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="band uae">
+    <div>
+      <h2>Built for businesses in the UAE</h2>
+      <p>Prices in AED, a tax invoice with 5 % VAT every month, English and Arabic with right-to-left layouts, and a data processing agreement you can sign at sign-up.</p>
+    </div>
+    <p><a class="button" href="/legal/dpa">Read the DPA</a></p>
+  </section>
+
+  <section>
+    <h2>Simple plans</h2>
+    <p class="muted">Monthly, in {{ currency }}, excluding 5 % VAT.</p>
+    <div class="plans">
+      <section class="plan" r-for="p in plans">
+        <h3>{{ p.name }}</h3>
+        <p class="price">{{ currency }} {{ p.price }}</p>
+        <ul>
+          <li>{{ p.requests }} requests / month</li>
+          <li>{{ p.apps }} apps</li>
+          <li>{{ p.db }} database</li>
+        </ul>
+        <p r-if="p.free" class="muted small">No card needed.</p>
+      </section>
+    </div>
+    <p><a href="/pricing">Compare every quota →</a></p>
+  </section>
+
+  <section class="cta">
+    <h2>Live in under 10 minutes</h2>
+    <p>Start from a template: a shop, a booking site, invoices, or a blank app.</p>
+    <p class="actions"><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a></p>
+  </section>
 </r-layout>
