@@ -11,6 +11,21 @@ publish.workspace = true
 # instead of racing a short idle timeout (#182). Enabled for this crate's own
 # tests below.
 test-support = []
+# The release binary carries everything (#372). A lean worker leaves one or
+# more of these out; what it answers instead is in src/images/mod.rs and
+# renox-runtime's src/ops/pdf.rs. Sizes per feature:
+# bench/results/2026-11-01-B20-binary-size-bloat-renox-worker.md.
+default = ["media", "avif", "pdf"]
+# The image pipeline: `/_img` variants and the width and height of a stored
+# image (`image`: decode JPEG, PNG, WebP; encode JPEG, PNG, lossless WebP).
+# Without it `/_img` answers 503 `RENOX_UNAVAILABLE` and `op_storage_put`
+# records no dimensions.
+media = ["dep:image"]
+# AVIF variants (`ravif` and the `rav1e` encoder, pure Rust). Without it
+# `f=auto` picks WebP and `f=avif` is 400 `RENOX_VALIDATION`.
+avif = ["media", "image/avif"]
+# `ctx.pdf` through renox-runtime (typst).
+pdf = ["renox-runtime/pdf"]
 
 # The only crate that depends on the others; nothing depends on it
 # (docs/03-architecture.md, workspace dependencies).
@@ -21,7 +36,7 @@ renox-gateway = { path = "../renox-gateway" }
 renox-meter = { path = "../renox-meter" }
 # WebSocket and SSE connections, topics, fan-out (#278; wired by #281).
 renox-realtime = { path = "../renox-realtime" }
-renox-runtime = { path = "../renox-runtime" }
+renox-runtime = { path = "../renox-runtime", default-features = false, features = ["v8"] }
 # Page rendering off the isolate thread (#40), and the compiler behind
 # `renox-worker transpile` for the CLI (#43).
 renox-template = { path = "../renox-template" }
@@ -56,8 +71,9 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.11"
 # The image pipeline (#321; ops.md 1.7.0 section 21): decode JPEG, PNG,
 # WebP; encode AVIF (ravif, pure Rust), WebP (lossless), JPEG, PNG. Already in
-# the tree through deno_canvas; `avif` adds ravif and rav1e. README, "Images".
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "avif"] }
+# the tree through deno_canvas; the `avif` feature above adds ravif and
+# rav1e. README, "Images".
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "fs"] }
 # The zone of a job's `tz` (ops.md section 20, #297): the system tzdb,
 # already in the tree through other crates.
@@ -87,7 +103,13 @@ landlock = "0.4.7"
 seccompiler = { version = "0.5.0", features = ["json"] }
 
 [dev-dependencies]
-renox-cell = { path = ".", features = ["test-support"] }
+# `default-features = false`: otherwise this dev-dependency on the crate itself
+# turns the default features back on for every test build, and
+# `--no-default-features` (the lean compositions of #372) would test nothing.
+renox-cell = { path = ".", default-features = false, features = ["test-support"] }
+# tests/images.rs and tests/storage.rs build their test pictures with it,
+# whatever features the crate under test has.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 # tests/telemetry.rs: the in-memory span exporter.
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "process"] }

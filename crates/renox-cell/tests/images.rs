@@ -7,6 +7,11 @@
 //! the second request comes from the variant cache; the transform rate
 //! refuses past its burst while cached variants keep being served; a
 //! private original needs a signature on `/_img` too.
+//!
+//! The lean compositions of #372 (`--no-default-features --features
+//! test-support,pdf` or `test-support,media,pdf`) run their own test each;
+//! the helpers of the AVIF test are then unused.
+#![cfg_attr(not(feature = "avif"), allow(dead_code))]
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
@@ -253,6 +258,7 @@ fn image_records(n: &Node) -> Vec<MeterRecord> {
         .collect()
 }
 
+#[cfg(feature = "avif")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_4000px_jpeg_asked_at_400_avif_is_resized_stripped_cached_and_metered() {
     let n = node("pipeline", None);
@@ -379,6 +385,83 @@ async fn a_4000px_jpeg_asked_at_400_avif_is_resized_stripped_cached_and_metered(
     );
 }
 
+/// Built without `avif` (#372): `f=auto` with an `Accept` that prefers AVIF
+/// gets WebP, an explicit `f=avif` is refused, and the rest of the pipeline
+/// is unchanged.
+#[cfg(all(feature = "media", not(feature = "avif")))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_avif_auto_serves_webp_and_f_avif_is_refused() {
+    let n = node("noavif", None);
+    let original = photo();
+    n.put(
+        "app/products/chair.jpg",
+        "image/jpeg",
+        "&public=1",
+        &original,
+    )
+    .await;
+    let (_, status, headers, webp) = n
+        .call_with(
+            "GET",
+            "/_img/app/products/chair.jpg?w=400&f=auto",
+            vec![],
+            "image/avif,image/webp,*/*",
+        )
+        .await;
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&webp));
+    assert_eq!(headers["content-type"], "image/webp");
+    let img = image::load_from_memory(&webp).unwrap();
+    assert_eq!((img.width(), img.height()), (400, 300));
+    assert!(!contains(&webp, GPS_MARKER) && !contains(&webp, b"Exif"));
+    let (_, status, _, body) = n
+        .call("GET", "/_img/app/products/chair.jpg?w=400&f=avif", vec![])
+        .await;
+    assert_eq!(status, 400);
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(v["error"]["code"], "RENOX_VALIDATION");
+}
+
+/// Built without `media` (#372): `/_files` still serves and `/_img` is 503
+/// `RENOX_UNAVAILABLE` with `Retry-After`, after the same access checks.
+#[cfg(not(feature = "media"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_media_files_serve_and_img_is_unavailable() {
+    let n = node("nomedia", None);
+    let original = photo();
+    let (_, f) = n
+        .put(
+            "app/products/chair.jpg",
+            "image/jpeg",
+            "&public=1",
+            &original,
+        )
+        .await;
+    assert!(
+        f["width"].is_null(),
+        "no dimensions without the pipeline: {f}"
+    );
+    let (_, status, headers, body) = n
+        .call("GET", "/_files/app/products/chair.jpg", vec![])
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(headers["content-type"], "image/jpeg");
+    assert_eq!(body, original);
+    let (_, status, headers, body) = n
+        .call("GET", "/_img/app/products/chair.jpg?w=400", vec![])
+        .await;
+    assert_eq!(status, 503, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(headers["retry-after"], "5");
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(v["error"]["code"], "RENOX_UNAVAILABLE");
+    assert_eq!(
+        n.call("GET", "/_img/app/products/none.jpg?w=400", vec![])
+            .await
+            .1,
+        404
+    );
+}
+
+#[cfg(feature = "media")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_transform_rate_refuses_past_its_burst_and_cached_variants_still_serve() {
     let n = node("rate", Some((0.01, 2.0)));
@@ -401,6 +484,7 @@ async fn the_transform_rate_refuses_past_its_burst_and_cached_variants_still_ser
     assert_eq!(n.call("GET", "/_img/app/s.png?f=jpeg", vec![]).await.1, 200);
 }
 
+#[cfg(feature = "media")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_private_original_needs_a_signature_on_img_too() {
     let n = node("private", None);

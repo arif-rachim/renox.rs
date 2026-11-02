@@ -11,15 +11,12 @@
 //!
 //! Every text node becomes a typst string literal, so template data can
 //! never be read as typst markup or code.
+//!
+//! The layout engine is the Cargo feature `pdf` (on by default; #372). A
+//! worker built without it keeps `ctx.pdf` and its option checks but answers
+//! every render with `RENOX_INTERNAL`, `reason: "pdf_unavailable"`.
 
-use std::sync::{Arc, OnceLock};
-
-use typst::diag::{FileError, FileResult};
-use typst::foundations::{Bytes, Datetime};
-use typst::syntax::{FileId, Source};
-use typst::text::{Font, FontBook};
-use typst::utils::LazyHash;
-use typst::{Library, LibraryExt, World};
+use std::sync::Arc;
 
 /// Output limits (*proposed*, ops.md section 24).
 pub const MAX_PAGES: usize = 200;
@@ -76,6 +73,8 @@ pub enum PdfError {
     Limit(String),
     /// The template or the layout failed.
     Render(String),
+    /// This worker was built without the `pdf` feature.
+    Unavailable,
 }
 
 /// The cell's renderer: a page or partial template of the deployment with
@@ -94,303 +93,342 @@ impl std::fmt::Debug for TemplateSlot {
     }
 }
 
-const FONTS: &[&[u8]] = &[
-    include_bytes!("../../fonts/NotoSans-Regular.ttf"),
-    include_bytes!("../../fonts/NotoSans-Bold.ttf"),
-    include_bytes!("../../fonts/NotoNaskhArabic-Regular.ttf"),
-    include_bytes!("../../fonts/NotoNaskhArabic-Bold.ttf"),
-];
+#[cfg(feature = "pdf")]
+pub use engine::{html_to_pdf, layout, text_runs, to_typst};
 
-struct Shared {
-    library: LazyHash<Library>,
-    book: LazyHash<FontBook>,
-    fonts: Vec<Font>,
-}
+/// The layout engine: typst with the bundled fonts, and the HTML reader.
+#[cfg(feature = "pdf")]
+mod engine {
+    use std::sync::OnceLock;
 
-fn shared() -> &'static Shared {
-    static S: OnceLock<Shared> = OnceLock::new();
-    S.get_or_init(|| {
-        let fonts: Vec<Font> = FONTS
-            .iter()
-            .flat_map(|data| Font::iter(Bytes::new(*data)))
-            .collect();
-        Shared {
-            library: LazyHash::new(Library::default()),
-            book: LazyHash::new(FontBook::from_fonts(&fonts)),
-            fonts,
+    use html5ever::tendril::TendrilSink;
+    use markup5ever_rcdom::{Handle, NodeData, RcDom};
+    use typst::diag::{FileError, FileResult};
+    use typst::foundations::{Bytes, Datetime};
+    use typst::syntax::{FileId, Source};
+    use typst::text::{Font, FontBook};
+    use typst::utils::LazyHash;
+    use typst::{Library, LibraryExt, World};
+
+    use super::{MAX_BYTES, MAX_PAGES, PdfError, PdfOptions};
+
+    const FONTS: &[&[u8]] = &[
+        include_bytes!("../../fonts/NotoSans-Regular.ttf"),
+        include_bytes!("../../fonts/NotoSans-Bold.ttf"),
+        include_bytes!("../../fonts/NotoNaskhArabic-Regular.ttf"),
+        include_bytes!("../../fonts/NotoNaskhArabic-Bold.ttf"),
+    ];
+
+    struct Shared {
+        library: LazyHash<Library>,
+        book: LazyHash<FontBook>,
+        fonts: Vec<Font>,
+    }
+
+    fn shared() -> &'static Shared {
+        static S: OnceLock<Shared> = OnceLock::new();
+        S.get_or_init(|| {
+            let fonts: Vec<Font> = FONTS
+                .iter()
+                .flat_map(|data| Font::iter(Bytes::new(*data)))
+                .collect();
+            Shared {
+                library: LazyHash::new(Library::default()),
+                book: LazyHash::new(FontBook::from_fonts(&fonts)),
+                fonts,
+            }
+        })
+    }
+
+    struct Doc {
+        main: Source,
+    }
+
+    impl World for Doc {
+        fn library(&self) -> &LazyHash<Library> {
+            &shared().library
         }
-    })
-}
-
-struct Doc {
-    main: Source,
-}
-
-impl World for Doc {
-    fn library(&self) -> &LazyHash<Library> {
-        &shared().library
-    }
-    fn book(&self) -> &LazyHash<FontBook> {
-        &shared().book
-    }
-    fn main(&self) -> FileId {
-        self.main.id()
-    }
-    fn source(&self, id: FileId) -> FileResult<Source> {
-        if id == self.main.id() {
-            Ok(self.main.clone())
-        } else {
+        fn book(&self) -> &LazyHash<FontBook> {
+            &shared().book
+        }
+        fn main(&self) -> FileId {
+            self.main.id()
+        }
+        fn source(&self, id: FileId) -> FileResult<Source> {
+            if id == self.main.id() {
+                Ok(self.main.clone())
+            } else {
+                Err(FileError::AccessDenied)
+            }
+        }
+        fn file(&self, _id: FileId) -> FileResult<Bytes> {
+            // No images, no includes, no remote resources.
             Err(FileError::AccessDenied)
         }
-    }
-    fn file(&self, _id: FileId) -> FileResult<Bytes> {
-        // No images, no includes, no remote resources.
-        Err(FileError::AccessDenied)
-    }
-    fn font(&self, index: usize) -> Option<Font> {
-        shared().fonts.get(index).cloned()
-    }
-    fn today(&self, _offset: Option<typst::foundations::Duration>) -> Option<Datetime> {
-        None
-    }
-}
-
-// ---------------------------------------------------------------------------
-// HTML -> typst code.
-
-use html5ever::tendril::TendrilSink;
-use markup5ever_rcdom::{Handle, NodeData, RcDom};
-
-fn string_lit(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' | '\r' | '\t' => out.push(' '),
-            c => out.push(c),
+        fn font(&self, index: usize) -> Option<Font> {
+            shared().fonts.get(index).cloned()
+        }
+        fn today(&self, _offset: Option<typst::foundations::Duration>) -> Option<Datetime> {
+            None
         }
     }
-    out.push('"');
-    out
-}
 
-fn attr(node: &Handle, name: &str) -> Option<String> {
-    if let NodeData::Element { attrs, .. } = &node.data {
-        attrs
-            .borrow()
-            .iter()
-            .find(|a| &*a.name.local == name)
-            .map(|a| a.value.to_string())
-    } else {
-        None
+    // ---------------------------------------------------------------------------
+    // HTML -> typst code.
+
+    fn string_lit(s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' | '\r' | '\t' => out.push(' '),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
     }
-}
 
-fn tag(node: &Handle) -> Option<String> {
-    match &node.data {
-        NodeData::Element { name, .. } => Some(name.local.to_string()),
-        _ => None,
+    fn attr(node: &Handle, name: &str) -> Option<String> {
+        if let NodeData::Element { attrs, .. } = &node.data {
+            attrs
+                .borrow()
+                .iter()
+                .find(|a| &*a.name.local == name)
+                .map(|a| a.value.to_string())
+        } else {
+            None
+        }
     }
-}
 
-/// Inline content of `node` as a typst content expression `[...]`.
-fn inline(node: &Handle, out: &mut String) {
-    for child in node.children.borrow().iter() {
-        match &child.data {
-            NodeData::Text { contents } => {
-                let t = contents.borrow().to_string();
-                let collapsed: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                if collapsed.is_empty() {
-                    if !t.is_empty() {
+    fn tag(node: &Handle) -> Option<String> {
+        match &node.data {
+            NodeData::Element { name, .. } => Some(name.local.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Inline content of `node` as a typst content expression `[...]`.
+    fn inline(node: &Handle, out: &mut String) {
+        for child in node.children.borrow().iter() {
+            match &child.data {
+                NodeData::Text { contents } => {
+                    let t = contents.borrow().to_string();
+                    let collapsed: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if collapsed.is_empty() {
+                        if !t.is_empty() {
+                            out.push(' ');
+                        }
+                        continue;
+                    }
+                    if t.starts_with(char::is_whitespace) {
                         out.push(' ');
                     }
-                    continue;
+                    out.push('#');
+                    out.push_str(&string_lit(&collapsed));
+                    if t.ends_with(char::is_whitespace) {
+                        out.push(' ');
+                    }
                 }
-                if t.starts_with(char::is_whitespace) {
-                    out.push(' ');
-                }
-                out.push('#');
-                out.push_str(&string_lit(&collapsed));
-                if t.ends_with(char::is_whitespace) {
-                    out.push(' ');
-                }
+                NodeData::Element { .. } => match tag(child).as_deref() {
+                    Some("br") => out.push_str(" #linebreak() "),
+                    Some("strong" | "b" | "th") => {
+                        out.push_str("#strong[");
+                        inline(child, out);
+                        out.push(']');
+                    }
+                    Some("em" | "i") => {
+                        out.push_str("#emph[");
+                        inline(child, out);
+                        out.push(']');
+                    }
+                    Some("script" | "style" | "head" | "template") => {}
+                    _ => inline(child, out),
+                },
+                _ => {}
             }
-            NodeData::Element { .. } => match tag(child).as_deref() {
-                Some("br") => out.push_str(" #linebreak() "),
-                Some("strong" | "b" | "th") => {
-                    out.push_str("#strong[");
-                    inline(child, out);
-                    out.push(']');
-                }
-                Some("em" | "i") => {
-                    out.push_str("#emph[");
-                    inline(child, out);
-                    out.push(']');
-                }
-                Some("script" | "style" | "head" | "template") => {}
-                _ => inline(child, out),
-            },
-            _ => {}
         }
     }
-}
 
-fn cells(row: &Handle) -> Vec<Handle> {
-    row.children
-        .borrow()
-        .iter()
-        .filter(|c| matches!(tag(c).as_deref(), Some("td" | "th")))
-        .cloned()
-        .collect()
-}
-
-fn rows(table: &Handle) -> Vec<Handle> {
-    let mut out = Vec::new();
-    for c in table.children.borrow().iter() {
-        match tag(c).as_deref() {
-            Some("tr") => out.push(c.clone()),
-            Some("thead" | "tbody" | "tfoot") => out.extend(rows(c)),
-            _ => {}
-        }
+    fn cells(row: &Handle) -> Vec<Handle> {
+        row.children
+            .borrow()
+            .iter()
+            .filter(|c| matches!(tag(c).as_deref(), Some("td" | "th")))
+            .cloned()
+            .collect()
     }
-    out
-}
 
-/// Block content of `node` as typst code lines.
-fn blocks(node: &Handle, out: &mut String) {
-    for child in node.children.borrow().iter() {
-        match &child.data {
-            NodeData::Text { contents } => {
-                let t = contents.borrow().to_string();
-                let t: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !t.is_empty() {
-                    out.push_str(&format!("#par[#{}]\n", string_lit(&t)));
-                }
+    fn rows(table: &Handle) -> Vec<Handle> {
+        let mut out = Vec::new();
+        for c in table.children.borrow().iter() {
+            match tag(c).as_deref() {
+                Some("tr") => out.push(c.clone()),
+                Some("thead" | "tbody" | "tfoot") => out.extend(rows(c)),
+                _ => {}
             }
-            NodeData::Element { .. } => {
-                let name = tag(child).unwrap_or_default();
-                match name.as_str() {
-                    "h1" | "h2" | "h3" | "h4" => {
-                        let level = &name[1..];
-                        out.push_str(&format!("#heading(level: {level}, outlined: false)["));
-                        inline(child, out);
-                        out.push_str("]\n");
+        }
+        out
+    }
+
+    /// Block content of `node` as typst code lines.
+    fn blocks(node: &Handle, out: &mut String) {
+        for child in node.children.borrow().iter() {
+            match &child.data {
+                NodeData::Text { contents } => {
+                    let t = contents.borrow().to_string();
+                    let t: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if !t.is_empty() {
+                        out.push_str(&format!("#par[#{}]\n", string_lit(&t)));
                     }
-                    "p" => {
-                        out.push_str("#par[");
-                        inline(child, out);
-                        out.push_str("]\n");
-                    }
-                    "hr" => out.push_str("#line(length: 100%)\n"),
-                    "ul" | "ol" => {
-                        let f = if name == "ul" { "list" } else { "enum" };
-                        out.push_str(&format!("#{f}("));
-                        for li in child
-                            .children
-                            .borrow()
-                            .iter()
-                            .filter(|c| tag(c).as_deref() == Some("li"))
-                        {
-                            out.push('[');
-                            inline(li, out);
-                            out.push_str("], ");
+                }
+                NodeData::Element { .. } => {
+                    let name = tag(child).unwrap_or_default();
+                    match name.as_str() {
+                        "h1" | "h2" | "h3" | "h4" => {
+                            let level = &name[1..];
+                            out.push_str(&format!("#heading(level: {level}, outlined: false)["));
+                            inline(child, out);
+                            out.push_str("]\n");
                         }
-                        out.push_str(")\n");
-                    }
-                    "table" => {
-                        let rs = rows(child);
-                        let cols = rs.iter().map(|r| cells(r).len()).max().unwrap_or(1).max(1);
-                        out.push_str(&format!("#table(columns: {cols}, "));
-                        for r in &rs {
-                            let cs = cells(r);
-                            for i in 0..cols {
+                        "p" => {
+                            out.push_str("#par[");
+                            inline(child, out);
+                            out.push_str("]\n");
+                        }
+                        "hr" => out.push_str("#line(length: 100%)\n"),
+                        "ul" | "ol" => {
+                            let f = if name == "ul" { "list" } else { "enum" };
+                            out.push_str(&format!("#{f}("));
+                            for li in child
+                                .children
+                                .borrow()
+                                .iter()
+                                .filter(|c| tag(c).as_deref() == Some("li"))
+                            {
                                 out.push('[');
-                                if let Some(c) = cs.get(i) {
-                                    if tag(c).as_deref() == Some("th") {
-                                        out.push_str("#strong[");
-                                        inline(c, out);
-                                        out.push(']');
-                                    } else {
-                                        inline(c, out);
-                                    }
-                                }
+                                inline(li, out);
                                 out.push_str("], ");
                             }
+                            out.push_str(")\n");
                         }
-                        out.push_str(")\n");
-                    }
-                    "script" | "style" | "head" | "template" => {}
-                    "span" | "strong" | "b" | "em" | "i" | "a" | "small" => {
-                        out.push_str("#par[");
-                        inline(child, out);
-                        out.push_str("]\n");
-                    }
-                    // div, section, article, body, header, footer, main, …
-                    _ => {
-                        let dir = attr(child, "dir");
-                        if let Some(d) = dir.as_deref().filter(|d| *d == "rtl" || *d == "ltr") {
-                            out.push_str(&format!("#[#set text(dir: {d})\n"));
-                            blocks(child, out);
+                        "table" => {
+                            let rs = rows(child);
+                            let cols = rs.iter().map(|r| cells(r).len()).max().unwrap_or(1).max(1);
+                            out.push_str(&format!("#table(columns: {cols}, "));
+                            for r in &rs {
+                                let cs = cells(r);
+                                for i in 0..cols {
+                                    out.push('[');
+                                    if let Some(c) = cs.get(i) {
+                                        if tag(c).as_deref() == Some("th") {
+                                            out.push_str("#strong[");
+                                            inline(c, out);
+                                            out.push(']');
+                                        } else {
+                                            inline(c, out);
+                                        }
+                                    }
+                                    out.push_str("], ");
+                                }
+                            }
+                            out.push_str(")\n");
+                        }
+                        "script" | "style" | "head" | "template" => {}
+                        "span" | "strong" | "b" | "em" | "i" | "a" | "small" => {
+                            out.push_str("#par[");
+                            inline(child, out);
                             out.push_str("]\n");
-                        } else {
-                            blocks(child, out);
+                        }
+                        // div, section, article, body, header, footer, main, …
+                        _ => {
+                            let dir = attr(child, "dir");
+                            if let Some(d) = dir.as_deref().filter(|d| *d == "rtl" || *d == "ltr") {
+                                out.push_str(&format!("#[#set text(dir: {d})\n"));
+                                blocks(child, out);
+                                out.push_str("]\n");
+                            } else {
+                                blocks(child, out);
+                            }
                         }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
-}
 
-fn find(node: &Handle, name: &str) -> Option<Handle> {
-    if tag(node).as_deref() == Some(name) {
-        return Some(node.clone());
+    fn find(node: &Handle, name: &str) -> Option<Handle> {
+        if tag(node).as_deref() == Some(name) {
+            return Some(node.clone());
+        }
+        node.children.borrow().iter().find_map(|c| find(c, name))
     }
-    node.children.borrow().iter().find_map(|c| find(c, name))
-}
 
-/// The typst source of an HTML document or fragment.
-pub fn to_typst(html: &str, options: &PdfOptions) -> String {
-    let dom = html5ever::parse_document(RcDom::default(), Default::default()).one(html);
-    let root = dom.document.clone();
-    let html_el = find(&root, "html");
-    let dir = html_el
-        .as_ref()
-        .and_then(|h| attr(h, "dir"))
-        .filter(|d| d == "rtl" || d == "ltr");
-    let lang = html_el
-        .as_ref()
-        .and_then(|h| attr(h, "lang"))
-        .map(|l| l.split('-').next().unwrap_or("en").to_ascii_lowercase())
-        .filter(|l| l.len() == 2 && l.chars().all(|c| c.is_ascii_lowercase()))
-        .unwrap_or_else(|| "en".into());
-    let paper = match options.page.as_str() {
-        "Letter" => "us-letter",
-        "A5" => "a5",
-        _ => "a4",
-    };
-    let mut out = format!(
-        "#set page(paper: \"{paper}\", flipped: {}, margin: {}mm)\n#set text(font: (\"Noto Sans\", \"Noto Naskh Arabic\"), size: 10pt, lang: \"{lang}\"{})\n#set table(inset: 5pt)\n",
-        options.landscape,
-        options.margin_mm,
-        dir.map(|d| format!(", dir: {d}")).unwrap_or_default(),
-    );
-    let body = find(&root, "body").unwrap_or(root);
-    blocks(&body, &mut out);
-    out
-}
+    /// The typst source of an HTML document or fragment.
+    pub fn to_typst(html: &str, options: &PdfOptions) -> String {
+        let dom = html5ever::parse_document(RcDom::default(), Default::default()).one(html);
+        let root = dom.document.clone();
+        let html_el = find(&root, "html");
+        let dir = html_el
+            .as_ref()
+            .and_then(|h| attr(h, "dir"))
+            .filter(|d| d == "rtl" || d == "ltr");
+        let lang = html_el
+            .as_ref()
+            .and_then(|h| attr(h, "lang"))
+            .map(|l| l.split('-').next().unwrap_or("en").to_ascii_lowercase())
+            .filter(|l| l.len() == 2 && l.chars().all(|c| c.is_ascii_lowercase()))
+            .unwrap_or_else(|| "en".into());
+        let paper = match options.page.as_str() {
+            "Letter" => "us-letter",
+            "A5" => "a5",
+            _ => "a4",
+        };
+        let mut out = format!(
+            "#set page(paper: \"{paper}\", flipped: {}, margin: {}mm)\n#set text(font: (\"Noto Sans\", \"Noto Naskh Arabic\"), size: 10pt, lang: \"{lang}\"{})\n#set table(inset: 5pt)\n",
+            options.landscape,
+            options.margin_mm,
+            dir.map(|d| format!(", dir: {d}")).unwrap_or_default(),
+        );
+        let body = find(&root, "body").unwrap_or(root);
+        blocks(&body, &mut out);
+        out
+    }
 
-/// Lays `html` out; the document, for the PDF writer and the tests.
-pub fn layout(html: &str, options: &PdfOptions) -> Result<typst_layout::PagedDocument, PdfError> {
-    let world = Doc {
-        main: Source::detached(to_typst(html, options)),
-    };
-    let doc = typst::compile::<typst_layout::PagedDocument>(&world)
-        .output
-        .map_err(|errs| {
+    /// Lays `html` out; the document, for the PDF writer and the tests.
+    pub fn layout(
+        html: &str,
+        options: &PdfOptions,
+    ) -> Result<typst_layout::PagedDocument, PdfError> {
+        let world = Doc {
+            main: Source::detached(to_typst(html, options)),
+        };
+        let doc = typst::compile::<typst_layout::PagedDocument>(&world)
+            .output
+            .map_err(|errs| {
+                PdfError::Render(
+                    errs.iter()
+                        .map(|e| e.message.to_string())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                )
+            })?;
+        if doc.pages().len() > MAX_PAGES {
+            return Err(PdfError::Limit(format!(
+                "{} pages, at most {MAX_PAGES}",
+                doc.pages().len()
+            )));
+        }
+        Ok(doc)
+    }
+
+    /// HTML to PDF bytes.
+    pub fn html_to_pdf(html: &str, options: &PdfOptions) -> Result<Vec<u8>, PdfError> {
+        let doc = layout(html, options)?;
+        let bytes = typst_pdf::pdf(&doc, &typst_pdf::PdfOptions::default()).map_err(|errs| {
             PdfError::Render(
                 errs.iter()
                     .map(|e| e.message.to_string())
@@ -398,54 +436,35 @@ pub fn layout(html: &str, options: &PdfOptions) -> Result<typst_layout::PagedDoc
                     .join("; "),
             )
         })?;
-    if doc.pages().len() > MAX_PAGES {
-        return Err(PdfError::Limit(format!(
-            "{} pages, at most {MAX_PAGES}",
-            doc.pages().len()
-        )));
+        if bytes.len() > MAX_BYTES {
+            return Err(PdfError::Limit(format!(
+                "{} bytes, at most {MAX_BYTES}",
+                bytes.len()
+            )));
+        }
+        Ok(bytes)
     }
-    Ok(doc)
-}
 
-/// HTML to PDF bytes.
-pub fn html_to_pdf(html: &str, options: &PdfOptions) -> Result<Vec<u8>, PdfError> {
-    let doc = layout(html, options)?;
-    let bytes = typst_pdf::pdf(&doc, &typst_pdf::PdfOptions::default()).map_err(|errs| {
-        PdfError::Render(
-            errs.iter()
-                .map(|e| e.message.to_string())
-                .collect::<Vec<_>>()
-                .join("; "),
-        )
-    })?;
-    if bytes.len() > MAX_BYTES {
-        return Err(PdfError::Limit(format!(
-            "{} bytes, at most {MAX_BYTES}",
-            bytes.len()
-        )));
-    }
-    Ok(bytes)
-}
-
-/// The text runs of a laid-out document in reading order of the frames,
-/// with each run's font family (tests: order, shaping font, direction).
-pub fn text_runs(doc: &typst_layout::PagedDocument) -> Vec<(String, String)> {
-    fn walk(frame: &typst::layout::Frame, out: &mut Vec<(String, String)>) {
-        for (_, item) in frame.items() {
-            match item {
-                typst::layout::FrameItem::Group(g) => walk(&g.frame, out),
-                typst::layout::FrameItem::Text(t) => {
-                    out.push((t.text.to_string(), t.font.info().family.clone()));
+    /// The text runs of a laid-out document in reading order of the frames,
+    /// with each run's font family (tests: order, shaping font, direction).
+    pub fn text_runs(doc: &typst_layout::PagedDocument) -> Vec<(String, String)> {
+        fn walk(frame: &typst::layout::Frame, out: &mut Vec<(String, String)>) {
+            for (_, item) in frame.items() {
+                match item {
+                    typst::layout::FrameItem::Group(g) => walk(&g.frame, out),
+                    typst::layout::FrameItem::Text(t) => {
+                        out.push((t.text.to_string(), t.font.info().family.clone()));
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
+        let mut out = Vec::new();
+        for page in doc.pages() {
+            walk(&page.frame, &mut out);
+        }
+        out
     }
-    let mut out = Vec::new();
-    for page in doc.pages() {
-        walk(&page.frame, &mut out);
-    }
-    out
 }
 
 #[cfg(feature = "v8")]
@@ -492,6 +511,7 @@ mod ops {
         let options = PdfOptions::from_json(&options)
             .map_err(|m| JsErrorBox::range_error(format!("pdf.render: {m}")))?;
         let started = Instant::now();
+        #[cfg(feature = "pdf")]
         let out = tokio::task::spawn_blocking(move || {
             let html = host
                 .render(&template, &data_json)
@@ -506,9 +526,20 @@ mod ops {
                 "The PDF render failed.",
             )
         })?;
+        // Built without the engine (#372): the template is not rendered either.
+        #[cfg(not(feature = "pdf"))]
+        let out: Result<Vec<u8>, PdfError> = {
+            let _ = (host, template, data_json, options);
+            Err(PdfError::Unavailable)
+        };
         request.borrow_mut().render_pdf_ms += started.elapsed().as_secs_f64() * 1000.0;
         match out {
             Ok(bytes) => Ok(bytes),
+            Err(PdfError::Unavailable) => Err(op_error(
+                "RENOX_INTERNAL",
+                serde_json::json!({ "reason": "pdf_unavailable" }),
+                "PDF rendering is not available on this worker.",
+            )),
             Err(PdfError::Limit(m)) => Err(op_error(
                 "RENOX_PDF_LIMIT",
                 serde_json::json!({ "reason": m }),
@@ -530,6 +561,7 @@ mod ops {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "pdf")]
     #[test]
     fn text_is_quoted_never_markup() {
         let t = to_typst(

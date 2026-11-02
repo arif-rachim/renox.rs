@@ -238,6 +238,14 @@ Most of each miss is decoding the 12-megapixel original. A release build is seve
 
 Tests: `tests/storage.rs`, `tests/images.rs`; `<x-image>` in `crates/renox-template/tests/x_image.rs`.
 
+Cargo features (#372; all on by default, and the release binary carries all of them): `media` is the pipeline (`image`: decode and the JPEG, PNG and lossless WebP encoders, the dimensions of a stored image), `avif` adds the AVIF encoder (`ravif`, `rav1e`), `pdf` is renox-runtime's `pdf` (the typst engine behind `ctx.pdf`). Sizes of the size-built x86_64 Linux binary (`bench/results/2026-11-01-B20-binary-size-bloat-renox-worker.md`): everything 133.7 MiB; without `pdf` 107.4 MiB; without `avif` 132.5 MiB. A worker without `media` answers every `/_img` request 503 `RENOX_UNAVAILABLE` (`Retry-After: 5`) after the same lookup and signature checks, serves `/_files` as before and records no width or height on `ctx.storage.put`; without `avif`, `f=auto` picks WebP and `f=avif` is 400 `RENOX_VALIDATION`. `tests/images.rs` has one test per variant:
+
+```
+cargo test -p renox-cell --test images                                              # everything
+cargo test -p renox-cell --test images --no-default-features --features test-support,media,pdf   # no AVIF
+cargo test -p renox-cell --test images --no-default-features --features test-support,pdf         # no pipeline
+```
+
 ## Authorization (#279)
 
 The cell enforces `docs/contracts/ops.md` 1.5.0 section 17 (`docs/11-authorization.md`, "Enforcement points"):

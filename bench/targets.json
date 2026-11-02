@@ -205,10 +205,10 @@
   "B20": {
     "metric": "Build/binary",
     "scenario": "renox-worker release build size and CI time",
-    "target_text": "≤ 160 MB; CI ≤ 15 min with cache",
-    "fail_text": "—",
+    "target_text": "≤ 128 MB on every target (the cosign ceiling); CI ≤ 15 min with cache",
+    "fail_text": "> 128 MB: cosign refuses the artefact",
     "metrics": {
-      "binary_mb": { "unit": "MB", "better": "lower", "target": 160, "fail": null },
+      "binary_mb": { "unit": "MB", "better": "lower", "target": 128, "fail": 128 },
       "ci_min": { "unit": "min", "better": "lower", "target": 15, "fail": null }
     }
   }
