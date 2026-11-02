@@ -4,8 +4,8 @@
   <!-- Hero: the claim, then the product itself on a stage cut by the cell's notch. -->
   <section class="hero" aria-labelledby="hero-title">
     <div class="hero-text">
-      <h1 id="hero-title">Idle apps cost almost nothing.</h1>
-      <p class="lede">Renoxium hosts TypeScript apps. Each one wakes on a request, in its own V8 isolate with its own SQLite database, and holds no memory while it waits.</p>
+      <h1 id="hero-title">Ship the SaaS.<br> Skip the plumbing.</h1>
+      <p class="lede">Add sign-in, teams, billing and admin as modules, then deploy your TypeScript app to hosting that charges only for what it uses.</p>
       <p><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a></p>
     </div>
     <div class="hero-stage">
@@ -114,6 +114,28 @@
       <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Admin module"><i></i></button>
       <p class="band-more"><code>renox add admin</code> brings the users page, roles and the audit log behind one admin area.</p>
     </div>
+  </section>
+
+  <!-- How Renoxium compares: the verdicts of docs/02-comparison.md, section B. -->
+  <section class="compare" aria-labelledby="compare-title">
+    <div class="compare-head">
+      <h2 id="compare-title">How Renoxium compares</h2>
+      <p>Other platforms host the code. Renoxium also brings the parts every SaaS rebuilds, and the way a business in the UAE pays.</p>
+    </div>
+    <div class="compare-scroll">
+      <table class="compare-table">
+        <thead>
+          <tr><th scope="col"><span class="visually-hidden">What you need</span></th><th scope="col" r-for="p in platforms" :class="{ ours: p.ours }">{{ p.name }}</th></tr>
+        </thead>
+        <tbody>
+          <tr r-for="r in compare">
+            <th scope="row">{{ r.need }}</th>
+            <td r-for="c in r.cells" :class="{ ours: c.ours }" :data-p="c.platform"><span class="mark {{ c.v }}" aria-hidden="true"></span><span class="visually-hidden">{{ c.word }}</span><span class="note" r-if="c.note">{{ c.note }}</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="compare-key"><span class="mark yes" aria-hidden="true"></span> Yes <span class="mark part" aria-hidden="true"></span> Partly <span class="mark no" aria-hidden="true"></span> No. As of {{ compare_as_of }}; the full comparison is in <a href="/docs/02-comparison">the documentation</a>.</p>
   </section>
 
   <!-- From a folder to a live app: five stages, dark to light. Radios, so it works without script. -->

@@ -23,8 +23,8 @@ main p, main li { font-size: var(--s-body); }
 /* Hero: the claim in the upper left; from about 40% down, the stage takes columns 5-12 and runs off the
    edge, its leading top corner cut by one cell (the notch). Nothing overlaps the headline. */
 .hero { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--rx-5); min-block-size: calc(100svh - 64px); padding-block-start: clamp(40px, 7vh, 96px); }
-.hero-text { grid-row: 1; grid-column: 1 / span 7; align-self: start; position: relative; z-index: 1; }
-.hero h1 { font-size: var(--s-display); line-height: 1; letter-spacing: -.04em; font-weight: 700; margin-block-end: var(--rx-5); max-inline-size: 11ch; }
+.hero-text { grid-row: 1; grid-column: 1 / span 9; align-self: start; position: relative; z-index: 1; }
+.hero h1 { font-size: var(--s-display); line-height: 1; letter-spacing: -.04em; font-weight: 700; margin-block-end: var(--rx-5); }
 .hero .lede { max-inline-size: 34ch; color: var(--rx-ink); }
 .hero-stage {
   grid-row: 1;
@@ -113,6 +113,28 @@ main p, main li { font-size: var(--s-body); }
 [dir="rtl"] .switch[aria-checked="true"] i { transform: translateX(-1.5rem); }
 .switch:hover { background: color-mix(in srgb, var(--rx-idle) 80%, var(--rx-ink)); }
 .switch[aria-checked="true"]:hover { background: color-mix(in srgb, var(--rx-accent) 86%, #000); }
+
+/* How Renoxium compares: a real table; each verdict is a cell, lit, half-lit or idle. */
+.compare-head { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--rx-6); align-items: start; margin-block-end: var(--rx-6); }
+.compare-head p { margin: 0; max-inline-size: 48ch; }
+.compare-scroll { overflow-x: auto; }
+.compare-table { inline-size: 100%; min-inline-size: 760px; border-collapse: collapse; font-size: var(--s-small); }
+.compare-table th, .compare-table td { padding: var(--rx-3) var(--rx-3); text-align: center; vertical-align: middle; border-block-end: 1px solid var(--rx-rule); }
+.compare-table thead th { font-weight: 600; color: var(--rx-ink-2); border-block-end-color: var(--rx-rule-strong); }
+.compare-table tbody th { text-align: start; font-weight: 500; color: var(--rx-ink); padding-inline-start: 0; inline-size: 30%; }
+/* Renoxium's column is lit like a live app: a pale jade field. */
+.compare-table .ours { background: color-mix(in srgb, var(--rx-accent) 12%, var(--rx-paper)); }
+.compare-table thead .ours { color: var(--rx-ink); font-weight: 700; }
+.compare-table .note { display: block; margin-block-start: .2rem; font-size: .8125rem; color: var(--rx-muted); }
+.mark { display: inline-block; inline-size: .85rem; block-size: .85rem; border-radius: var(--rx-r-cell); vertical-align: -.1em; }
+.mark.yes { background: var(--rx-accent); }
+.mark.part { position: relative; overflow: hidden; background: var(--rx-idle); }
+/* Partly: the lower half of the cell is lit. */
+.mark.part::after { content: ""; position: absolute; inset-inline: 0; inset-block-end: 0; block-size: 50%; background: var(--rx-accent); }
+.mark.no { background: var(--rx-idle); }
+.compare-key { margin-block-start: var(--rx-4); font-size: var(--s-small); color: var(--rx-ink-2); }
+.compare-key .mark { margin-inline: var(--rx-3) var(--rx-1); }
+.compare-key .mark:first-child { margin-inline-start: 0; }
 
 /* Folder to live app: an accordion of stages, darkest first. */
 .flow-intro { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--rx-6); align-items: start; margin-block-end: 64px; }
@@ -243,7 +265,7 @@ article th { font-weight: 600; }
   /* The deploy list keeps its action in reach of a thumb: the date column gives way. */
   .deploys th:nth-child(2), .deploys td:nth-child(2) { display: none; }
   .hero-text { grid-column: 1 / -1; }
-  .hero h1 { font-size: 11vw; }
+  .hero h1 { font-size: 9vw; }
   .hero-stage { grid-row: 2; grid-column: 1 / -1; margin-block-start: var(--rx-5); margin-inline: calc(-1 * var(--rx-4)); padding-block-start: 64px; padding-inline-start: 16px; clip-path: polygon(0 48px, 48px 48px, 48px 0, 100% 0, 100% 100%, 0 100%); }
   .showcase { grid-template-columns: 1fr; min-block-size: 0; }
   .show-names { flex-direction: row; flex-wrap: wrap; gap: var(--rx-2) var(--rx-4); }
@@ -251,7 +273,17 @@ article th { font-weight: 600; }
   .modules { margin-inline: calc(-1 * var(--rx-4)); }
   .band { min-block-size: 132px; padding-inline: var(--rx-4); }
   .band > p:first-child { font-size: var(--s-sub); }
-  .flow-intro { grid-template-columns: 1fr; }
+  .flow-intro, .compare-head { grid-template-columns: 1fr; }
+  /* The comparison on a phone: one block per need, its six verdicts in two columns, nothing scrolls sideways. */
+  .compare-table { min-inline-size: 0; }
+  .compare-table thead { display: none; }
+  .compare-table, .compare-table tbody, .compare-table tr, .compare-table th, .compare-table td { display: block; }
+  .compare-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--rx-4); padding-block: var(--rx-4); border-block-end: 1px solid var(--rx-rule); }
+  .compare-table tbody th { grid-column: 1 / -1; inline-size: auto; padding: 0 0 var(--rx-2); border: 0; font-weight: 600; }
+  .compare-table td { display: grid; grid-template-columns: .85rem 1fr; align-items: center; column-gap: var(--rx-2); padding: .35rem var(--rx-2); text-align: start; border: 0; }
+  .compare-table td::before { content: attr(data-p); grid-column: 2; grid-row: 1; color: var(--rx-ink-2); }
+  .compare-table td .mark { grid-column: 1; grid-row: 1; }
+  .compare-table td .note { grid-column: 2; margin: 0; }
   .stages, .stages:has(input:checked) { grid-template-columns: 1fr; block-size: auto; }
   .stages .stage { min-block-size: 64px; }
   .uae-panel { grid-template-columns: 1fr; padding: var(--rx-5); margin-inline: calc(-1 * var(--rx-3)); min-block-size: 0; }
