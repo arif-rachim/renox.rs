@@ -59,13 +59,14 @@ concurrency:
 
 env:
   # B20 target (docs/14-benchmarks.md): the binary must stay at or under this.
-  # 128 is the cosign ceiling: `cosign verify-blob-attestation` refuses an
+  # The hard ceiling is 128: `cosign verify-blob-attestation` refuses an
   # artefact over 128 MiB (COSIGN_MAX_ATTACHMENT_SIZE), so a larger binary
-  # fails here, in the build job, instead of in the release job's "Verify in
-  # a fresh container" (run 41321600807, #372). The F7 PDF engine (typst)
-  # brought the x86_64 Linux build to 133.7 MB; without the `pdf` feature it
-  # is 107.4 MB (bench/results/2026-11-01-B20-binary-size-bloat-renox-worker.md).
-  MAX_BINARY_MB: "128"
+  # must fail here, in the build job, not in the release job's "Verify in a
+  # fresh container" (run 41321600807, #372). 120 keeps headroom under it.
+  # The F7 PDF engine (typst) brought the x86_64 Linux build to 133.7 MB;
+  # the release is built without the `pdf` feature (below): 107.4 MB
+  # (bench/results/2026-11-01-B20-binary-size-bloat-renox-worker.md).
+  MAX_BINARY_MB: "120"
 
 jobs:
   build:
@@ -163,16 +164,25 @@ jobs:
             exit 1
           fi
       # Step 1 of the packaged build: snapshot and residual lazy sources,
-      # written by the same source and v8 as the binary below.
+      # written by the same source, features and v8 as the binary below.
+      #
+      # Features (#372, 2026-11-02): the release leaves the `pdf` feature
+      # (the typst engine behind ctx.pdf, 26 MiB) out, so the binary fits
+      # under the cosign ceiling: on this worker `ctx.pdf.render` answers
+      # RENOX_INTERNAL with reason `pdf_unavailable`. `media` and `avif`
+      # stay in. The op set is the same with or without `pdf`, so the
+      # snapshot is the same; both steps still name the features so they
+      # cannot drift apart (crates/renox-runtime/README.md, "Packaging").
       - name: Write the packaged sources
         run: |
           echo "RENOX_PACKAGED_DIR=$RUNNER_TEMP/packaged" >> "$GITHUB_ENV"
           RENOX_PACKAGED_DIR="$RUNNER_TEMP/packaged" cargo test --release --locked \
-            -p renox-runtime --test packaged -- --ignored --exact write_packaged_sources --nocapture
+            -p renox-runtime --test packaged --no-default-features --features v8 \
+            -- --ignored --exact write_packaged_sources --nocapture
       - name: Build
         run: |
           cargo build --release --locked -p renox-cell --bin renox-worker \
-            --features renox-runtime/packaged
+            --no-default-features --features media,avif,renox-runtime/packaged
           cp target/release/renox-worker target/renox-worker
       - name: Package
         env:
