@@ -79,9 +79,10 @@ const proxies = new TrustedProxies(config.trustedProxies ?? []);
 const clientIpHeader = config.clientIpHeader ?? "CF-Connecting-IP";
 if (proxies.size > 0) log.info("trusted proxies", { proxies: proxies.entries.join(","), header: clientIpHeader });
 const server = Bun.serve({
+  hostname: config.listenHost ?? "0.0.0.0",
   port: config.port,
   fetch: (req, srv) => publicApp.fetch(req, behindProxies(srv as AddressSource, proxies, clientIpHeader)),
   idleTimeout: 0,
 });
 const nodeServer = Bun.serve({ hostname: nodeAt.hostname, port: nodeAt.port, fetch: nodeApp.fetch, idleTimeout: 0 });
-log.info("control api listening", { port: server.port, node_host: nodeAt.hostname, node_port: nodeServer.port, migrations_applied: applied });
+log.info("control api listening", { host: config.listenHost ?? "0.0.0.0", port: server.port, node_host: nodeAt.hostname, node_port: nodeServer.port, migrations_applied: applied });

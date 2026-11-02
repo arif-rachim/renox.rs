@@ -2,7 +2,7 @@
 // are read here and passed only to the code that needs them; they are never
 // logged (the config object has no toJSON that includes them).
 
-import { parseProxyEntry } from "./auth/ip.ts";
+import { parseProxyEntry, TrustedProxies } from "./auth/ip.ts";
 
 export interface S3Config {
   endpoint: string;
@@ -14,6 +14,13 @@ export interface S3Config {
 
 export interface Config {
   port: number;
+  /**
+   * `CONTROL_LISTEN_HOST` (#366): the address the public listener binds
+   * (default `0.0.0.0`). On the single host `127.0.0.1`: only `cloudflared`
+   * reaches it. Refused when it is not loopback while every trusted proxy is
+   * (loadConfig), so a forged client-address header can never come from outside.
+   */
+  listenHost?: string;
   /** postgres://… or pglite:memory or pglite:<dir>. */
   databaseUrl: string;
   /** SHA-256 hex of the operator token; null disables the operator endpoints. */
@@ -78,6 +85,27 @@ function trustedProxies(raw: string | undefined): string[] {
   return entries;
 }
 
+/** True for an address only this host can reach: 127.0.0.0/8, ::1, `localhost`. */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.replace(/^\[(.*)\]$/u, "$1").toLowerCase();
+  if (h === "localhost") return true;
+  return parseProxyEntry(h) !== null && new TrustedProxies([h]).loopbackOnly();
+}
+
+/**
+ * The start-up check of #366 scope 2: with trusted proxies that are all on
+ * loopback (`cloudflared` on the same host), the public listener must be on
+ * loopback too. Otherwise a client on the network could connect from a
+ * non-proxy address, which is harmless, or the proxy list could be widened
+ * later without anyone noticing that the listener faces the internet.
+ */
+export function checkListen(listenHost: string, proxies: string[]): void {
+  if (proxies.length === 0) return;
+  if (new TrustedProxies(proxies).loopbackOnly() && !isLoopbackHost(listenHost)) {
+    throw new ConfigError(`CONTROL_LISTEN_HOST ${listenHost} is not a loopback address while CONTROL_TRUSTED_PROXIES is loopback only: set CONTROL_LISTEN_HOST=127.0.0.1`);
+  }
+}
+
 /** `CONTROL_CLIENT_IP_HEADER`: an HTTP header name (RFC 9110 token). */
 function clientIpHeader(raw: string | undefined): string {
   const header = (raw ?? DEFAULTS.clientIpHeader).trim();
@@ -101,8 +129,13 @@ export function loadConfig(env: Env = process.env): Config {
   }
   const port = Number(env.CONTROL_LISTEN_PORT ?? "8787");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ConfigError("CONTROL_LISTEN_PORT is not a port");
+  const listenHost = (env.CONTROL_LISTEN_HOST ?? "0.0.0.0").trim();
+  if (listenHost === "") throw new ConfigError("CONTROL_LISTEN_HOST is empty");
+  const proxies = trustedProxies(env.CONTROL_TRUSTED_PROXIES);
+  checkListen(listenHost, proxies);
   return {
     port,
+    listenHost,
     databaseUrl: env.CONTROL_DATABASE_URL ?? "pglite:memory",
     operatorTokenSha256: operator,
     platformDomain: env.CONTROL_PLATFORM_DOMAIN ?? DEFAULTS.platformDomain,
@@ -116,7 +149,7 @@ export function loadConfig(env: Env = process.env): Config {
     abuseContact: env.CONTROL_ABUSE_CONTACT ?? DEFAULTS.abuseContact,
     apiUrl: env.CONTROL_API_URL ?? DEFAULTS.apiUrl,
     securityPolicy: env.CONTROL_SECURITY_POLICY ?? null,
-    trustedProxies: trustedProxies(env.CONTROL_TRUSTED_PROXIES),
+    trustedProxies: proxies,
     clientIpHeader: clientIpHeader(env.CONTROL_CLIENT_IP_HEADER),
   };
 }
