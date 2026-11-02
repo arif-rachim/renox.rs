@@ -71,10 +71,14 @@ interface Code {
   e: number;
 }
 
-/** The origin clients use for this API (the issuer), from the request. */
-export const originOf = (c: Context<Env>): string => new URL(c.req.url).origin;
-export const resourceOf = (c: Context<Env>): string => `${originOf(c)}/mcp`;
-export const resourceMetadataUrl = (c: Context<Env>): string => `${originOf(c)}/.well-known/oauth-protected-resource/mcp`;
+/**
+ * The origin clients use for this API (the issuer): `CONTROL_MCP_URL` when set,
+ * which it must be behind a TLS terminator that hands the request on as plain
+ * http; otherwise the request's own origin.
+ */
+export const originOf = (c: Context<Env>, deps: Deps): string => deps.config.mcpUrl ?? new URL(c.req.url).origin;
+export const resourceOf = (c: Context<Env>, deps: Deps): string => `${originOf(c, deps)}/mcp`;
+export const resourceMetadataUrl = (c: Context<Env>, deps: Deps): string => `${originOf(c, deps)}/.well-known/oauth-protected-resource/mcp`;
 
 /** A redirect URI a public client may register: https, or http on the loopback interface; no fragment, no credentials. */
 export function redirectUriOk(uri: unknown): uri is string {
@@ -162,8 +166,8 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
   const protectedResource = (c: Context<Env>) => {
     c.set("action", "getProtectedResourceMetadata");
     return c.json({
-      resource: resourceOf(c),
-      authorization_servers: [originOf(c)],
+      resource: resourceOf(c, deps),
+      authorization_servers: [originOf(c, deps)],
       scopes_supported: [...MCP_SCOPES],
       bearer_methods_supported: ["header"],
       resource_name: "Renoxium platform MCP",
@@ -174,7 +178,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
 
   app.get("/.well-known/oauth-authorization-server", (c) => {
     c.set("action", "getAuthorizationServerMetadata");
-    const o = originOf(c);
+    const o = originOf(c, deps);
     return c.json({
       issuer: o,
       authorization_endpoint: `${o}/oauth/authorize`,
@@ -231,10 +235,10 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
     if (client === null) return page(c, 400, "Unknown client", "<p>This application is not registered with Renoxium.</p>");
     if (q.redirect_uri === undefined || !client.r.includes(q.redirect_uri)) return page(c, 400, "Wrong redirect address", "<p>The redirect address is not one this application registered.</p>");
     const state = q.state ?? null;
-    const fail = (error: string, description: string) => redirectWith(q.redirect_uri as string, { error, error_description: description, state, iss: originOf(c) });
+    const fail = (error: string, description: string) => redirectWith(q.redirect_uri as string, { error, error_description: description, state, iss: originOf(c, deps) });
     if (q.response_type !== "code") return fail("unsupported_response_type", "response_type must be code");
     if (q.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/u.test(q.code_challenge ?? "")) return fail("invalid_request", "PKCE with code_challenge_method S256 is required");
-    if (q.resource !== undefined && q.resource !== resourceOf(c)) return fail("invalid_target", "resource must be this server's MCP endpoint");
+    if (q.resource !== undefined && q.resource !== resourceOf(c, deps)) return fail("invalid_target", "resource must be this server's MCP endpoint");
     const scopes = parseScopes(q.scope);
     if (scopes === null) return fail("invalid_scope", `scopes: ${MCP_SCOPES.join(", ")} (optionally :<app>)`);
 
@@ -256,7 +260,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
       ch: q.code_challenge as string,
       st: state,
       sc: granted,
-      res: resourceOf(c),
+      res: resourceOf(c, deps),
       ses: session.id,
       e: deps.now() + CONSENT_TTL_MS,
     } satisfies ConsentRequest);
@@ -291,11 +295,11 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
     const actor = `user:${session.userId}`;
     if (form.decision !== "approve") {
       await audit(deps, c, "mcpAuthorize", session.tenantId, actor, { client: client.n, decision: "deny" }, 302);
-      return redirectWith(req.r, { error: "access_denied", error_description: "the user denied the request", state: req.st, iss: originOf(c) });
+      return redirectWith(req.r, { error: "access_denied", error_description: "the user denied the request", state: req.st, iss: originOf(c, deps) });
     }
     // The role may have changed since the page was shown.
     const scopes = grantable(req.sc, session.role);
-    if (scopes.length === 0) return redirectWith(req.r, { error: "invalid_scope", error_description: "your role holds none of the requested scopes", state: req.st, iss: originOf(c) });
+    if (scopes.length === 0) return redirectWith(req.r, { error: "invalid_scope", error_description: "your role holds none of the requested scopes", state: req.st, iss: originOf(c, deps) });
     const db = withTenant(deps.db, { kind: "tenant", via: "session", tenantId: session.tenantId, sessionId: session.id, userId: session.userId, role: session.role });
     const now = deps.now();
     const token = await createTenantToken(db, session.tenantId, `${TOKEN_PREFIX_NAME}${client.n}`, scopes, 1, now, session.userId);
@@ -304,7 +308,7 @@ export function registerOAuth(app: Hono<Env>, deps: Deps): void {
     await db.query("update tokens set expires_at = $3 where tenant_id = $1 and id = $2", [session.tenantId, token.id, pending]);
     const code = seal(deps, "code", "rnxcode_", { t: token.token, id: token.id, ten: session.tenantId, x: pending, c: req.c, r: req.r, ch: req.ch, res: req.res, sc: scopes, e: pending } satisfies Code);
     await audit(deps, c, "mcpAuthorize", session.tenantId, actor, { client: client.n, decision: "approve", token_id: token.id, scopes: scopes.join(" ") }, 302);
-    return redirectWith(req.r, { code, state: req.st, iss: originOf(c) });
+    return redirectWith(req.r, { code, state: req.st, iss: originOf(c, deps) });
   });
 
   app.post("/oauth/token", async (c) => {

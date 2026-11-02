@@ -28,6 +28,7 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 | `CONTROL_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | unset, `renox-artifacts`, `me-central-1` | Object storage |
 | `CONTROL_DASHBOARD_URL` | `https://dashboard.renoxium.com` | Base of the links in emails (account, billing); the passkey relying party is its host |
 | `CONTROL_API_URL` | `https://api.renoxium.com` | Public origin of this API: the `Canonical` of its security.txt |
+| `CONTROL_MCP_URL` | unset: the request's origin | Public origin of the platform MCP and its OAuth server (issuer, resource, the `Origin` check). Set it behind a TLS terminator, `https://mcp.renoxium.com` on the single host; https only (http on loopback), no path |
 | `CONTROL_ABUSE_CONTACT` | `abuse@renoxium.com` | The address takedown emails name for appeals |
 | `CONTROL_MAIL_PROVIDER` | unset: the outbox when `CONTROL_MAIL_OUTBOX_DIR` is set, otherwise none (emails dropped, with a warning) | `resend` (production, #385) or `outbox` |
 | `CONTROL_MAIL_OUTBOX_DIR` | unset | Writes each account email to a file there (local development; `CONTROL_MAIL_PROVIDER=outbox`) |

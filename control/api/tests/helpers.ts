@@ -80,7 +80,7 @@ export const harnesses: Harness[] = [];
  * owning node's prepare_result). By default activation is accepted at once,
  * as before #96, so tests about the pointer switch need no node.
  */
-export async function harness(modules: RouteModule[] = [], opts: { prepare?: "node" | "accept"; trustedProxies?: string[]; clientIpHeader?: string } = {}): Promise<Harness> {
+export async function harness(modules: RouteModule[] = [], opts: { prepare?: "node" | "accept"; trustedProxies?: string[]; clientIpHeader?: string; mcpUrl?: string } = {}): Promise<Harness> {
   const db = await testDb();
   const tables = await db.query<{ tablename: string }>(
     "select tablename from pg_tables where schemaname = 'public' and tablename <> 'schema_migrations'",
@@ -111,6 +111,7 @@ export async function harness(modules: RouteModule[] = [], opts: { prepare?: "no
       mailOutboxDir: null,
       ...(opts.trustedProxies === undefined ? {} : { trustedProxies: opts.trustedProxies }),
       ...(opts.clientIpHeader === undefined ? {} : { clientIpHeader: opts.clientIpHeader }),
+      ...(opts.mcpUrl === undefined ? {} : { mcpUrl: opts.mcpUrl }),
     },
   };
   // The public listener's wrapping of main.ts (#366): with trusted proxies the
