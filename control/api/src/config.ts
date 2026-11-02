@@ -35,6 +35,11 @@ export interface Config {
   dashboardUrl: string;
   /** Directory where account emails are written as files (local development); null: no mail delivery. */
   mailOutboxDir: string | null;
+  /**
+   * The mailer (#385). `CONTROL_MAIL_PROVIDER=resend|outbox`; unset: outbox when
+   * `CONTROL_MAIL_OUTBOX_DIR` is set, otherwise none (as before #385).
+   */
+  mail?: MailConfig;
   /** How long a failed erasure step waits before its retry (#308; CONTROL_ERASURE_RETRY_MS, default one hour; the chaos harness shortens it). */
   erasureRetryMs?: number;
   /** `EXPORT_KMS_KEY_ID` (#308): exports are written with SSE-KMS and this key; unset: plain puts (local mode, logged at start). */
@@ -58,6 +63,11 @@ export interface Config {
   clientIpHeader?: string;
 }
 
+export type MailConfig =
+  | { provider: "resend"; from: string; apiUrl: string; /** `CONTROL_RESEND_API_KEY`: never logged. */ apiKey: string }
+  | { provider: "outbox"; from: string; dir: string }
+  | { provider: "none"; from: string };
+
 type Env = Record<string, string | undefined>;
 
 /**
@@ -72,6 +82,8 @@ export const DEFAULTS = {
   securityContacts: ["mailto:security@renoxium.com"] as readonly string[],
   abuseContact: "abuse@renoxium.com",
   clientIpHeader: "CF-Connecting-IP",
+  mailFrom: "Renoxium <no-reply@renoxium.com>",
+  resendApiUrl: "https://api.resend.com",
 } as const;
 
 export class ConfigError extends Error {}
@@ -83,6 +95,44 @@ function trustedProxies(raw: string | undefined): string[] {
     if (parseProxyEntry(entry) === null) throw new ConfigError(`CONTROL_TRUSTED_PROXIES: not an address or a CIDR: ${entry}`);
   }
   return entries;
+}
+
+/**
+ * The mail keys (#385). A Resend key is `re_` and letters, digits and `_`; the
+ * message of a refusal never repeats the value.
+ */
+function mailConfig(env: Env): MailConfig {
+  const from = env.CONTROL_MAIL_FROM ?? DEFAULTS.mailFrom;
+  if (/[\r\n]/u.test(from) || !/^[^<>@]*<?[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>?$/u.test(from.trim())) {
+    throw new ConfigError("CONTROL_MAIL_FROM must be an address like Renoxium <no-reply@renoxium.com>");
+  }
+  const provider = env.CONTROL_MAIL_PROVIDER;
+  const dir = env.CONTROL_MAIL_OUTBOX_DIR;
+  switch (provider) {
+    case undefined:
+      return dir === undefined ? { provider: "none", from } : { provider: "outbox", from, dir };
+    case "outbox":
+      if (dir === undefined || dir === "") throw new ConfigError("CONTROL_MAIL_PROVIDER=outbox needs CONTROL_MAIL_OUTBOX_DIR");
+      return { provider: "outbox", from, dir };
+    case "resend": {
+      const apiKey = env.CONTROL_RESEND_API_KEY ?? "";
+      if (apiKey === "") throw new ConfigError("CONTROL_MAIL_PROVIDER=resend needs CONTROL_RESEND_API_KEY");
+      if (!/^re_[A-Za-z0-9_]{8,200}$/u.test(apiKey)) throw new ConfigError("CONTROL_RESEND_API_KEY is not a Resend API key (re_…)");
+      const apiUrl = (env.CONTROL_RESEND_API_URL ?? DEFAULTS.resendApiUrl).replace(/\/+$/u, "");
+      let url: URL;
+      try {
+        url = new URL(apiUrl);
+      } catch {
+        throw new ConfigError("CONTROL_RESEND_API_URL is not a URL");
+      }
+      const loopback = url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "localhost";
+      if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new ConfigError("CONTROL_RESEND_API_URL must be https:// (http:// only to loopback)");
+      if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") throw new ConfigError("CONTROL_RESEND_API_URL must be an origin and path only");
+      return { provider: "resend", from, apiUrl, apiKey };
+    }
+    default:
+      throw new ConfigError("CONTROL_MAIL_PROVIDER must be resend or outbox");
+  }
 }
 
 /** True for an address only this host can reach: 127.0.0.0/8, ::1, `localhost`. */
@@ -143,6 +193,7 @@ export function loadConfig(env: Env = process.env): Config {
     masterKey: env.CONTROL_MASTER_KEY ?? null,
     dashboardUrl: env.CONTROL_DASHBOARD_URL ?? DEFAULTS.dashboardUrl,
     mailOutboxDir: env.CONTROL_MAIL_OUTBOX_DIR ?? null,
+    mail: mailConfig(env),
     erasureRetryMs: Math.max(1000, Number(env.CONTROL_ERASURE_RETRY_MS ?? 3_600_000) || 3_600_000),
     exportKmsKeyId: env.EXPORT_KMS_KEY_ID ?? null,
     securityContacts: (env.CONTROL_SECURITY_CONTACTS ?? DEFAULTS.securityContacts.join(",")).split(",").map((s) => s.trim()).filter((s) => s !== ""),

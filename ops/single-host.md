@@ -105,7 +105,12 @@ The worker's own addresses go into `fetch_blocked_addresses` (`ops/worker.toml.e
 2. **DNS-only API token** for the certificate: Cloudflare dashboard → My Profile → API Tokens → Create Token → Custom. Permissions: *Zone → DNS → Edit*. Zone resources: *Include → Specific zone → renoxium.app*. Nothing else. Put it in `/etc/renox/secrets/cloudflare-dns.token` (0600).
 3. **R2.** Two buckets in the owner's Cloudflare account: `renoxium-artifacts` (the control API's artifact store) and `renoxium-backups`. On `renoxium-backups`, add a lifecycle rule that deletes objects under `control-db/` after 30 days. Add a bucket lock rule that keeps objects under `control-db/` for 30 days, so the host's key cannot delete a backup early. Then create two R2 API tokens with *Object Read & Write*, each limited to its one bucket. The artifacts pair goes into `control.env` (`CONTROL_S3_*`); the backup pair into `/etc/renox/secrets/r2-backup.env`, in the four-line format of `ops/scripts/backup-control-db.sh`.
 4. **Backup key.** On the owner's workstation: `age-keygen -o renoxium-backup.key`. It prints the public key (`age1…`). The private key file goes into the owner's password manager and an offline copy (`ops/security/keys.md`); only the public key goes to the host as `/etc/renox/backup-age.pub`.
-5. **Mail.** The Resend account, the `renoxium.com` domain verified there (the records above), and an API key with *Sending access* for that domain only: `CONTROL_RESEND_API_KEY` in `control.env`. Zoho mailboxes or aliases for `security@`, `abuse@`, `support@renoxium.com`.
+5. **Mail (#385).** Every platform email (verification, password reset, new-device and new-token notices, invitations, billing, abuse takedowns, break-glass) goes through Resend:
+   - a Resend account; add the domain `renoxium.com` and create the records Resend shows (the `resend._domainkey` DKIM TXT, and the MX and SPF TXT of the `send.` return path; see the DNS table). Wait until Resend marks the domain verified;
+   - an API key with *Sending access* limited to `renoxium.com`;
+   - in `/etc/renox/control.env`: `CONTROL_MAIL_PROVIDER=resend`, `CONTROL_RESEND_API_KEY=<the key>`, and `CONTROL_MAIL_FROM` (default `Renoxium <no-reply@renoxium.com>`). The API refuses to start with `resend` and no key, or a value that is not a Resend key. Its start-up line names the provider and the sender, never the key.
+
+   A failed delivery is retried, four attempts of at most 5 s each. After the last one the API logs `mail send failed` with the kind and the HTTP status, never the message, and the request that sent the mail still succeeds. Zoho keeps the mailboxes or aliases `security@`, `abuse@`, `support@renoxium.com`; Resend only sends.
 
 ## Install, in order
 
@@ -213,6 +218,6 @@ The session that wrote this page (#366) had no Cloudflare, R2, Resend or Zoho ac
 - the DNS-only API token and the first real certificate (owner list, step 2; install, step 8);
 - the R2 buckets, lifecycle and lock rules, keys, and a backup to real R2 (owner list, step 3);
 - the backup key pair (owner list, step 4);
-- Resend and Zoho, and their DNS records (owner list, step 5);
+- Resend and Zoho, their DNS records, and the Resend key in `control.env` (owner list, step 5; the mailer itself is tested against a fake Resend, `control/api/tests/mailer.test.ts`);
 - install steps 1 to 11 on `node-small` itself;
 - Litestream replication of tenant files to R2 ("Backups" above).

@@ -29,7 +29,11 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 | `CONTROL_DASHBOARD_URL` | `https://dashboard.renoxium.com` | Base of the links in emails (account, billing); the passkey relying party is its host |
 | `CONTROL_API_URL` | `https://api.renoxium.com` | Public origin of this API: the `Canonical` of its security.txt |
 | `CONTROL_ABUSE_CONTACT` | `abuse@renoxium.com` | The address takedown emails name for appeals |
-| `CONTROL_MAIL_OUTBOX_DIR` | unset (account emails are dropped, with a warning) | Writes each account email to a file there (local development) |
+| `CONTROL_MAIL_PROVIDER` | unset: the outbox when `CONTROL_MAIL_OUTBOX_DIR` is set, otherwise none (emails dropped, with a warning) | `resend` (production, #385) or `outbox` |
+| `CONTROL_MAIL_OUTBOX_DIR` | unset | Writes each account email to a file there (local development; `CONTROL_MAIL_PROVIDER=outbox`) |
+| `CONTROL_RESEND_API_KEY` | unset (required with `resend`) | Resend API key (`re_…`), sending access for the platform's domain only. A secret: from the `EnvironmentFile` (`/etc/renox/control.env`, 0600), never logged, never in an error |
+| `CONTROL_MAIL_FROM` | `Renoxium <no-reply@renoxium.com>` | The sender of every platform email |
+| `CONTROL_RESEND_API_URL` | `https://api.resend.com` | Resend's API origin; `http://` only to loopback (tests) |
 
 The start sequence is: open the database, apply the migrations in `migrations/`, then serve. A migration file that changed after it was applied stops the start.
 
@@ -121,7 +125,7 @@ Not yet in `docs/contracts/deploy-api.md` (a contract issue adds them); request 
 | `POST|GET /v1/team/invitations`, `DELETE …/{invitation_id}` | `team:write`; `team:read`; `team:write` | invite `{email, role}` (7 days); list; revoke |
 | `POST|DELETE /v1/team/owner-transfer`, `POST …/accept` | owner; owner; the proposed user | owner transfer (7 days) |
 
-Passwords are argon2id (19 MiB, 2 iterations), 10 to 256 bytes. Account emails go through a `Mailer`; only a file outbox exists so far.
+Passwords are argon2id (19 MiB, 2 iterations), 10 to 256 bytes. Account emails go through a `Mailer` (`src/auth/mailer.ts`): `ResendMailer` in production (#385; one idempotency key per message; four attempts of at most 5 s with exponential backoff on network errors, timeouts, 429 after `Retry-After` and 5xx; other 4xx final; a failure names the kind and the status only and never fails the request that sent it), `OutboxDirMailer` in local development, `NullMailer` otherwise.
 
 ### Second factors (#293)
 
