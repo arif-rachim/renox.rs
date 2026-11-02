@@ -50,8 +50,10 @@ describe("main.ts", () => {
       stdout: "pipe",
       stderr: "pipe",
     });
-    expect(await proc.exited).not.toBe(0);
-    expect(await new Response(proc.stderr).text()).toContain("CONTROL_LISTEN_HOST");
+    // 78 (EX_CONFIG): renox-control.service does not restart on it.
+    expect(await proc.exited).toBe(78);
+    const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+    expect(out).toContain("CONTROL_LISTEN_HOST");
   }, 30_000);
 
   test("on loopback behind the tunnel: not reachable on another address; the sign-up bucket keys on CF-Connecting-IP", async () => {

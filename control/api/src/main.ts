@@ -27,7 +27,17 @@ import { sweepSafeBrowsing } from "./safe-browsing/check.ts";
 import { rescanActive } from "./deployments/advisories.ts";
 
 const log = createLogger();
-const config = loadConfig();
+/** A configuration error exits with 78 (EX_CONFIG): renox-control.service does not restart on it (#366). */
+function loadOrExit(): ReturnType<typeof loadConfig> {
+  try {
+    return loadConfig();
+  } catch (e) {
+    if (!(e instanceof ConfigError)) throw e;
+    log.error("configuration refused", { error: e.message });
+    process.exit(78);
+  }
+}
+const config = loadOrExit();
 
 /** The node listener: a port of its own, and the address it binds (default: every interface). */
 function nodeListener(env: Record<string, string | undefined>): { hostname: string; port: number } {

@@ -1,0 +1,39 @@
+# Nightly encrypted dump of the control database to R2 (#366,
+# ops/scripts/backup-control-db.sh). Runs as the distribution's `postgres`
+# user (peer authentication on the local socket). The R2 key pair stays in a
+# root-only file and reaches the script through LoadCredential (%d); the
+# dump is encrypted to /etc/renox/backup-age.pub, whose private key is kept
+# off the host (ops/single-host.md "Backups"). Started by renox-backup-db.timer.
+[Unit]
+Description=Back up the control database to R2
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+LoadCredential=r2-backup.env:/etc/renox/secrets/r2-backup.env
+# The public key too: postgres cannot traverse /etc/renox (root:renox 0750).
+LoadCredential=backup-age.pub:/etc/renox/backup-age.pub
+ExecStart=/opt/renox/bin/backup-control-db.sh --database renox --recipients %d/backup-age.pub --r2-env %d/r2-backup.env
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077

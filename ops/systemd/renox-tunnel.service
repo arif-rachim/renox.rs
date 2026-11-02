@@ -1,0 +1,50 @@
+# Cloudflare Tunnel for the control API on the single host (#366,
+# ops/single-host.md "Tunnel"): api.renoxium.com and mcp.renoxium.com ->
+# http://127.0.0.1:8787 (ops/cloudflared/config.yml.example). Outbound only.
+# The tunnel credentials stay in a root-only file; systemd hands a copy to
+# this unit's dynamic user through LoadCredential (%d), never in the
+# environment or on a command line anyone else can read.
+[Unit]
+Description=Renoxium control API tunnel (cloudflared)
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
+After=network-online.target renox-control.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+DynamicUser=yes
+ExecStart=/opt/renox/bin/cloudflared --no-autoupdate --config %d/config.yml tunnel run --credentials-file %d/credentials.json
+# /etc/renox is root:renox 0750, which the dynamic user cannot traverse: both
+# files reach it as credentials (read by systemd as root, copied 0400).
+LoadCredential=config.yml:/etc/renox/tunnel/config.yml
+LoadCredential=credentials.json:/etc/renox/tunnel/credentials.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=120s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+MemoryMax=256M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

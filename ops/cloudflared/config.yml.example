@@ -1,0 +1,31 @@
+# cloudflared on the single host (#366, ops/single-host.md "Tunnel"): the
+# control API is published as api.renoxium.com and mcp.renoxium.com through an
+# outbound connection to Cloudflare. No inbound port, no origin certificate.
+# Installed as /etc/renox/tunnel/config.yml (root, 0644; it holds no secret);
+# renox-tunnel.service passes it to cloudflared through LoadCredential.
+#
+# The tunnel's credentials file (`cloudflared tunnel create` writes
+# <tunnel id>.json) is a secret: it lives at /etc/renox/tunnel/credentials.json
+# (root, 0600) and reaches cloudflared only through renox-tunnel.service's
+# LoadCredential, as `--credentials-file`. It is never put here, in the
+# repository, or in a log line.
+#
+# Replace @TUNNEL_ID@ with the id `cloudflared tunnel create renoxium-control`
+# printed (a UUID; not a secret).
+tunnel: "@TUNNEL_ID@"
+# Updates come from ops/cloudflared.lock and ops/scripts/fetch-cloudflared.sh, never by itself.
+no-autoupdate: true
+# Readiness and metrics on loopback only (the firewall drops everything else anyway).
+metrics: 127.0.0.1:20241
+loglevel: info
+
+ingress:
+  # The control API's public listener: CONTROL_LISTEN_HOST=127.0.0.1, CONTROL_LISTEN_PORT=8787.
+  # cloudflared sets CF-Connecting-IP to the client's address; the API believes
+  # it only from 127.0.0.1 and ::1 (CONTROL_TRUSTED_PROXIES, control/api/src/auth/ip.ts).
+  - hostname: api.renoxium.com
+    service: http://127.0.0.1:8787
+  - hostname: mcp.renoxium.com
+    service: http://127.0.0.1:8787
+  # Everything else, including the node listener (8788), is never published.
+  - service: http_status:404

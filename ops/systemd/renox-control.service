@@ -1,0 +1,61 @@
+# The control API (control/api, Bun) on the single host (#366,
+# ops/single-host.md). Its public listener is 127.0.0.1:8787, reached only
+# through renox-tunnel.service; its node listener is 127.0.0.1:8788, reached
+# only by the worker on the same host. Postgres is the distribution's, on
+# 127.0.0.1:5432. Every setting, including the secrets (the master key, the
+# operator token hash, the mail provider's API key), is in
+# /etc/renox/control.env (root, 0600; ops/systemd/control.env.example), which
+# systemd reads as root: the service user cannot read the file itself.
+[Unit]
+Description=Renoxium control API
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=exec
+User=renox-control
+Group=renox-control
+EnvironmentFile=/etc/renox/control.env
+Environment=HOME=/var/lib/renox-control
+# Bun's transpiler cache would be written under HOME; the code is read-only.
+Environment=BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+WorkingDirectory=/opt/renox/src/control/api
+ExecStart=/opt/renox/bin/bun /opt/renox/src/control/api/src/main.ts
+Restart=on-failure
+RestartSec=2s
+# 78 (EX_CONFIG): the configuration was refused (for example a public
+# CONTROL_LISTEN_HOST behind loopback-only proxies); restarting cannot help.
+RestartPreventExitStatus=78
+TimeoutStopSec=30s
+StateDirectory=renox-control
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+# Bun's JIT needs writable and executable pages: no MemoryDenyWriteExecute.
+ReadOnlyPaths=/opt/renox/src
+LimitNOFILE=65536
+MemoryMax=1G
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

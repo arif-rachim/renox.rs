@@ -1,0 +1,12 @@
+# lego release pinned for the wildcard certificate of the tenant app domain
+# (#366, ops/scripts/renew-wildcard-cert.sh). Read by ops/scripts/fetch-lego.sh,
+# which refuses a download whose SHA-256 differs before extracting. One line
+# per Rust target:
+#   <rust target>  <sha256 of the release tarball>  <tarball name>
+# The digests match upstream's lego_4.35.0_checksums.txt and two downloads
+# (2026-11-02). v4 is pinned on purpose: renew-wildcard-cert.sh uses the v4
+# command line (`run`, `renew --days`), which v5 changed.
+# How to bump: ops/README.md, "cloudflared and lego".
+version 4.35.0
+x86_64-unknown-linux-gnu  f40ff1f8bdd16c98970f44f748b976b7e30f5ffef2f6faddf9dd65a4c0670c7a  lego_v4.35.0_linux_amd64.tar.gz
+aarch64-unknown-linux-gnu  129844431ee85483cced3c8ff0744dff4e3c1ad805d35686adde2b031436957d  lego_v4.35.0_linux_arm64.tar.gz
