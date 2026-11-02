@@ -14,7 +14,7 @@
         <label><r-t key="dash.signup.workspace_id" /> <input name="tenant_id" :value="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false"></label>
         <label><r-t key="dash.signup.workspace_name" /> <input name="tenant_name" maxlength="128"></label>
         <label><input type="checkbox" name="dpa" value="yes" required> <r-t key="dash.signup.accept" /> <a href="/legal/dpa"><r-t key="dash.signup.dpa_link" /></a> <r-t key="dash.signup.and" /> <a href="/legal/terms"><r-t key="dash.signup.terms_link" /></a>.</label>
-        <button type="submit"><r-t key="dash.signup.submit" /></button>
+        <button type="submit" class="primary"><r-t key="dash.signup.submit" /></button>
       </form>
       <p class="muted"><r-t key="dash.signup.have_account" /> <a href="/signin"><r-t key="dash.common.sign_in" /></a>. <r-t key="dash.signup.agreement_note" /></p>
     </r-group>

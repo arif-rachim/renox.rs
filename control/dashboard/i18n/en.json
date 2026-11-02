@@ -63,7 +63,11 @@
       "step_verify": "Verify your email address",
       "step_create": "Create your first app from a template",
       "step_deploy_app": "Deploy {app} (renox deploy, or the template's own deploy)",
-      "step_deploy": "Deploy it"
+      "step_deploy": "Deploy it",
+      "done": "Done:",
+      "todo": "To do:",
+      "cli_title": "Deploy from your terminal",
+      "cli_intro": "Sign in once, then deploy from the app folder. The app is live as soon as the command finishes."
     },
     "signin": {
       "intro": "Paste a Renoxium token for your tenant. Create one with",
@@ -210,7 +214,12 @@
       "all_deployments": "All deployments",
       "recent_logs": "Recent logs",
       "no_logs": "No log lines in the last 24 hours.",
-      "all_logs": "All logs"
+      "all_logs": "All logs",
+      "errors_24h": "{n, plural, one {# error} other {# errors}} in the last 24 hours. The latest, {when}: {message}",
+      "no_errors": "No errors in the last 24 hours.",
+      "see_errors": "See the errors",
+      "live_version": "Live version",
+      "no_live": "Nothing is live yet. Deploy with renox deploy, or promote a deployment below."
     },
     "deployments": {
       "hash": "Hash",

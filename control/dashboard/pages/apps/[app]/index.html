@@ -8,11 +8,32 @@
         <h1>{{ app }}</h1>
         <a class="button" :href="info.url" r-if="info.url"><r-t key="dash.common.open" /> ↗</a>
       </div>
-      <p><span :class="{ ok: info.live }">{{ info.status }}</span> · v <code>{{ info.version }}</code> · <r-t key="dash.overview.deployed" /> {{ info.deployed }}<r-group r-for="h in info.hostnames"> · {{ h }}</r-group></p>
+      <p class="finding" :class="{ bad: finding.bad }" r-if="finding">{{ finding.text }}<r-group r-if="finding.href"> <a :href="finding.href"><r-t key="dash.overview.see_errors" /></a></r-group></p>
+      <div class="live-panel" r-if="info.live">
+        <span class="live-cell" aria-hidden="true"></span>
+        <div class="live-main">
+          <p class="live-label"><r-t key="dash.overview.live_version" /></p>
+          <p class="live-hash"><code>{{ info.version }}</code></p>
+          <ul class="meta">
+            <li class="ok">{{ info.status }}</li>
+            <li><r-t key="dash.overview.deployed" /> {{ info.deployed }}</li>
+            <li r-for="h in info.hostnames">{{ h }}</li>
+          </ul>
+        </div>
+        <div class="live-act" r-if="live_row"><x-deployment-actions :d="live_row" /></div>
+      </div>
+      <p class="warning" r-if="!info.live"><r-t key="dash.overview.no_live" /></p>
       <p class="notice" r-if="notice">{{ notice }}</p>
       <x-problem :problem="action_problem" r-if="action_problem" />
       <h2><r-t key="dash.overview.last_24h" /></h2>
-      <p r-if="usage"><r-t key="dash.overview.requests" /> {{ usage.requests }} · CPU {{ usage.cpu }} · <r-t key="dash.overview.egress" /> {{ usage.egress }}<span class="problem-inline" r-if="usage.over"> · <r-t key="dash.overview.over_quota" /> {{ usage.over }}</span> · <a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
+      <r-group r-if="usage">
+        <dl class="stats">
+          <div><dt><r-t key="dash.overview.requests" /></dt><dd>{{ usage.requests }}</dd></div>
+          <div><dt>CPU</dt><dd>{{ usage.cpu }}</dd></div>
+          <div><dt><r-t key="dash.overview.egress" /></dt><dd>{{ usage.egress }}</dd></div>
+        </dl>
+        <p><span class="problem-inline" r-if="usage.over"><r-t key="dash.overview.over_quota" /> {{ usage.over }}. </span><a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
+      </r-group>
       <p class="muted" r-else><r-t key="dash.overview.no_usage" /></p>
       <div class="cols">
         <div>

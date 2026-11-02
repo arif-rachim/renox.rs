@@ -23,7 +23,7 @@
           <label r-for="t in templates"><input type="radio" name="template" :value="t.id" :checked="t.id == template"> <strong>{{ t.name }}</strong> <span class="muted">{{ t.about }}</span></label>
         </fieldset>
         <p class="muted"><r-t key="dash.new.we_create" /> <code>&lt;name&gt;.{{ platform_domain }}</code> <r-t key="dash.new.we_create_after" /></p>
-        <button type="submit"><r-t key="dash.apps.create" /></button>
+        <button type="submit" class="primary"><r-t key="dash.apps.create" /></button>
       </x-form>
     </r-group>
   </section>

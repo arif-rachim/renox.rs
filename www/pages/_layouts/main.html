@@ -4,18 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><slot name="title">Renoxium</slot></title>
+  <link rel="stylesheet" href="/renox-ui.css">
   <link rel="stylesheet" href="/site.css">
+  <!-- Marks the page as scripted before it paints, so entrances only hide what a script will reveal (site.js). -->
+  <script>document.documentElement.classList.add("js")</script>
 </head>
 <body>
   <header class="top">
     <a class="brand" href="/"><strong>Renoxium</strong></a>
     <a href="/docs">Docs</a>
     <a href="/pricing">Pricing</a>
-    <a href="https://dashboard.renoxium.com/signup">Sign up</a>
+    <span class="spacer"></span>
+    <a href="https://dashboard.renoxium.com/signin">Sign in</a>
+    <a class="button primary" href="https://dashboard.renoxium.com/signup">Sign up</a>
   </header>
   <main><slot /></main>
-  <footer class="muted">
-    <a href="/legal/dpa">Data processing agreement</a> · <a href="/legal/terms">Terms</a>
+  <footer class="site-footer">
+    <span class="brand">Renoxium</span>
+    <span class="muted">TypeScript hosting for the UAE and the Gulf.</span>
+    <span class="spacer"></span>
+    <a href="/docs">Docs</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/legal/dpa">Data processing agreement</a>
+    <a href="/legal/terms">Terms</a>
   </footer>
 </body>
 </html>

@@ -18,6 +18,8 @@ import { startDev } from "../../cli/src/commands/dev.ts";
 import { doc, search, sidebar, slugOfPath, SOURCES } from "../lib/docs.ts";
 import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
+import { loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
+import { COMPARE, load as homeLoad, NODE, nodeCells, PLATFORMS } from "../pages/index.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
 setDefaultTimeout(120_000);
@@ -103,9 +105,65 @@ describe("pricing and legal", () => {
     expect(page.plans[3]?.quotas[0]).toEqual({ label: "Requests / month", value: "unlimited" });
   });
 
+  test("the landing page's node: a fixed pattern, mostly idle", () => {
+    const cells = nodeCells();
+    expect(cells).toHaveLength(NODE.columns * NODE.rows);
+    const lit = cells.filter((c) => c.cls !== "").length;
+    expect(lit).toBeGreaterThan(0);
+    expect(lit / cells.length).toBeLessThan(0.15);
+    expect(nodeCells()).toEqual(cells);
+  });
+
+  test("the landing page's comparison says what docs/02-comparison.md section B says", () => {
+    // Columns of that table: Vercel, Cloudflare Workers, Deno Deploy, Supabase, Fly.io, Railway / Render, PocketBase, Renox.
+    const DOC_COLUMN: Record<(typeof PLATFORMS)[number], number> = { Renoxium: 7, Vercel: 0, "Cloudflare Workers": 1, Supabase: 3, "Fly.io": 4, "Railway / Render": 5 };
+    const VERDICT: Record<string, string> = { "✅": "yes", "⚠️": "part", "❌": "no" };
+    const doc = readFileSync(join(ROOT, "docs/02-comparison.md"), "utf8");
+    const section = doc.slice(doc.indexOf("## B."), doc.indexOf("## C."));
+    expect(section.length).toBeGreaterThan(0);
+    for (const row of COMPARE) {
+      const line = section.split("\n").find((l) => l.startsWith(`| ${row.doc} |`));
+      expect(line, row.doc).toBeDefined();
+      const cells = (line as string).split("|").slice(2, -1).map((c) => c.trim());
+      PLATFORMS.forEach((p, i) => {
+        const symbol = Object.keys(VERDICT).find((k) => cells[DOC_COLUMN[p]]?.startsWith(k));
+        expect(`${row.doc} / ${p}: ${symbol === undefined ? "?" : VERDICT[symbol]}`).toBe(`${row.doc} / ${p}: ${row.cells[i]?.[0]}`);
+      });
+    }
+    // Renoxium meets every need it lists; otherwise the row does not belong on its landing page.
+    expect(COMPARE.every((r) => r.cells[0]?.[0] === "yes")).toBe(true);
+  });
+
+  test("the landing page's plan summary is pricing.toml's", () => {
+    const home = homeLoad();
+    expect(home.currency).toBe(PRICING.currency);
+    expect(home.plans.map((p) => [p.name, p.price])).toEqual(PRICING.plans.map((p) => [p.name, p.price_month]));
+    expect(home.plans[0]).toMatchObject({ name: "Free", free: true, requests: "100,000", apps: "2", db: "100 MB" });
+    expect(home.plans.filter((p) => p.free)).toHaveLength(1);
+    // An unlimited quota (-1 in pricing.toml) reads "unlimited", never 0.
+    expect(home.plans.at(-1)).toMatchObject({ name: "Agency", requests: "unlimited", apps: "unlimited" });
+  });
+
   test("the legal pages carry the versions sign-up records", () => {
     expect(readFileSync(join(import.meta.dir, "../pages/legal/dpa.html"), "utf8")).toContain(`Version ${DPA_VERSION}.`);
     expect(readFileSync(join(import.meta.dir, "../pages/legal/terms.html"), "utf8")).toContain(`Version ${TERMS_VERSION}.`);
+  });
+});
+
+describe("design system (packages/ui/README.md)", () => {
+  const read = (p: string) => readFileSync(join(import.meta.dir, "..", p), "utf8");
+
+  test("public/renox-ui.css is packages/ui/renox-ui.css, unchanged, and loads before site.css", () => {
+    expect(read("public/renox-ui.css")).toBe(readFileSync(join(ROOT, "packages/ui/renox-ui.css"), "utf8"));
+    const layout = read("pages/_layouts/main.html");
+    expect(layout.indexOf('href="/renox-ui.css"')).toBeGreaterThan(-1);
+    expect(layout.indexOf('href="/site.css"')).toBeGreaterThan(layout.indexOf('href="/renox-ui.css"'));
+  });
+
+  test("site.css uses no physical direction and loads nothing", () => {
+    const css = read("public/site.css");
+    expect(physicalLines(css)).toEqual([]);
+    expect(loadsAnything(css)).toBe(false);
   });
 });
 
@@ -129,6 +187,18 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect(overview.text).toMatch(/<h1 id="[^"]+">/u);
     expect((await get("/docs/no-such-doc")).status).toBe(404);
     expect((await get("/docs?q=threat")).text).toContain('href="/docs/24-threat-model"');
+    const home = await get("/");
+    expect(home.status).toBe(200);
+    expect(home.text).toMatch(/<h1 id="hero-title">Ship the SaaS\.<br> Skip the plumbing\.<\/h1>/u);
+    // The comparison: one row per need, one cell per platform, each verdict in words for screen readers.
+    expect(home.text).toContain('<h2 id="compare-title">How Renoxium compares</h2>');
+    expect(home.text.match(/<span class="visually-hidden">(?:Yes|Partly|No)<\/span>/gu)?.length).toBe(COMPARE.length * PLATFORMS.length);
+    // The hero's node: one cell per tenant slot, the lit ones marked.
+    expect(home.text.match(/<i class="(?:on|blink b\d|)"><\/i>/gu)?.length).toBe(NODE.columns * NODE.rows);
+    // The behaviour is a file of the site's own, loaded with the request's nonce.
+    expect(home.text).toMatch(/<script src="\/site\.js" nonce="[^"]+"><\/script>/u);
+    expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
+    expect(home.text).toContain("AED 79.00");
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);

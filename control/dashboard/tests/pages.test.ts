@@ -278,6 +278,32 @@ describe("logs (3.5)", () => {
   });
 });
 
+describe("overview (3.3): the finding and the live version", () => {
+  test("the errors of the last 24 hours lead the screen, with the latest and a link to them; none is one quiet line", async () => {
+    const { d, owner } = await signedIn();
+    await registeredNode(d.h, "node-1");
+    expect((await upload(d.h, owner, "hello", variant(1))).status).toBe(201);
+    const hash = contentHash(variant(1));
+    expect(data(await deploymentsActions.activate(actionCtx(d, "/apps/hello/deployments", "activate", { hash }, { params: HELLO }))).notice).toBe(`${hash.slice(0, 7)} is live.`);
+    const ctx = () => loaderCtx(d, "/apps/hello", { params: HELLO });
+
+    const quiet = data(await overviewLoad(ctx()));
+    expect(quiet.finding).toEqual({ bad: false, text: "No errors in the last 24 hours.", href: null });
+    expect(quiet.live_row).toMatchObject({ hash, state: "active" });
+
+    const now = Date.now();
+    const line = (i: number, level: "info" | "error", message: string) => ({
+      ts: now - 120_000 + i * 1000, tenant_id: "t_hello", app: "hello", deployment_hash: hash,
+      request_id: `01JBQ3Z7M8K5V6W9X2Y4A1B3D${i}`, module: "functions/api/hello", level, message, fields: null, source: "server" as const,
+    });
+    await addLogs(d.h, [line(1, "error", "first failure"), line(2, "info", "fine"), line(3, "error", "payment provider timed out")]);
+    const loud = data(await overviewLoad(ctx())).finding as { bad: boolean; text: string; href: string };
+    expect(loud.bad).toBe(true);
+    expect(loud.text).toMatch(/^2 errors in the last 24 hours\. The latest, .+: payment provider timed out$/u);
+    expect(loud.href).toBe("/apps/hello/logs?level=error&window=24h");
+  });
+});
+
 describe("usage (3.13, per app)", () => {
   test("24 hourly bars, totals and the quota, from the API's rollup", async () => {
     const { d } = await signedIn();
