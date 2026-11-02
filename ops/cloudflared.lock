@@ -1,0 +1,11 @@
+# cloudflared release pinned for the single host's Cloudflare Tunnel (#366,
+# ops/single-host.md). Read by ops/scripts/fetch-cloudflared.sh, which refuses
+# a download whose SHA-256 differs. One line per Rust target:
+#   <rust target>  <sha256 of the release binary>  <asset name>
+# The release assets are bare binaries (no tarball). Both digests were taken
+# from two downloads that matched (2026-11-02); upstream publishes no
+# checksum file for the bare binaries.
+# How to bump: ops/README.md, "cloudflared and lego".
+version 2026.10.0
+x86_64-unknown-linux-gnu  d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db  cloudflared-linux-amd64
+aarch64-unknown-linux-gnu  e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08  cloudflared-linux-arm64

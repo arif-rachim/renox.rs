@@ -1,0 +1,12 @@
+# Nightly backup of the control database (#366). R2's lifecycle rule on
+# control-db/ deletes objects after 30 days (ops/single-host.md "Backups").
+[Unit]
+Description=Nightly backup of the control database to R2
+
+[Timer]
+OnCalendar=*-*-* 02:17:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -17,6 +17,14 @@ Operational files that the build and CI trust. Owned by code owners (`.github/CO
 | `security/keys.md` | The key inventory (master key, page session key, backup and export KMS keys, release signing, TLS), custody, rotation procedures and the drill record (#309) |
 | `terraform/` | KMS keys (one per purpose, rotation on) and the export bucket (versioned, exports expire after 7 days, unencrypted puts refused); validated by `.github/workflows/ops.yml`, applied by the owner (#309) |
 | `scripts/*.test.sh` | `fetch-litestream.test.sh` (CI lint job, no network) and `bootstrap-node.test.sh` (CI rust job: a systemd container with the worker just built) |
+| `single-host.md` | The runbook of the single host (#366): worker, control plane, Postgres and the tunnel on one machine behind Cloudflare, from an empty host to live ("Single host" below) |
+| `cloudflared.lock`, `lego.lock` | cloudflared and lego versions and SHA-256 per target (#366) |
+| `cloudflared/config.yml.example` | The tunnel's ingress: `api` and `mcp.renoxium.com` → `http://127.0.0.1:8787`, everything else 404 |
+| `scripts/fetch-cloudflared.sh`, `scripts/fetch-lego.sh` | Download the pinned binary, refuse a SHA-256 mismatch before it is installed or extracted, print its path |
+| `scripts/firewall-single-host.sh` | nftables: inbound 22, 80, 443 only; refuses unless SSH stays reachable on 22 |
+| `scripts/renew-wildcard-cert.sh` | `*.renoxium.app` and `renoxium.app` by DNS-01 (lego, Cloudflare), installed for the gateway's `CertStore`, worker reloaded |
+| `scripts/backup-control-db.sh` | `pg_dump` encrypted with age, uploaded to R2 with a SigV4 PUT, read back |
+| `systemd/control.env.example`, `systemd/single-host.env.example` | Templates of `/etc/renox/control.env` (0600) and `/etc/renox/single-host.env`; never installed as units |
 
 ## Verified prebuilt V8
 
@@ -77,6 +85,10 @@ Every node is set up from this directory by `scripts/bootstrap-node.sh`; nothing
 | `renox-node.target` | — | Everything below; `systemctl enable --now renox-node.target` |
 | `renox-worker.service` | `renox-free.slice` | The worker: gateway, supervisor (#254) and the shared process of the free tier. User `renox`, `NoNewPrivileges`, `ProtectSystem=strict` with `ReadWritePaths` on the data, artifacts, meters, logs, spool and replica dirs only, `PrivateTmp`, `ProtectKernelTunables`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `SystemCallArchitectures=native`, `Delegate=yes` so the supervisor can create child cgroups under its own (`[process] launcher = "direct"`). Its own seccomp and Landlock profile is `[sandbox]` (#253) |
 | `renox-child@<tenant>.service` | `renox-paid.slice` | One paid tenant's child worker (`--child <tenant>`), started by the supervisor with `[process] launcher = "systemd"`; `MemoryMax=1G`, `TasksMax=512`, `CPUQuota=200%`; writes only its own tenant dir |
+| `renox-control.service` | — | Single host only (#366): `control/api` on Bun as `renox-control`, `EnvironmentFile=/etc/renox/control.env`, both listeners on loopback; exit 78 (a refused configuration) is not restarted |
+| `renox-tunnel.service` | — | Single host only: `cloudflared` as a dynamic user, its config and credentials by `LoadCredential` |
+| `renox-cert-renew.service`, `.timer` | — | Single host only: `renew-wildcard-cert.sh` daily, the DNS token by `LoadCredential` |
+| `renox-backup-db.service`, `.timer` | — | Single host only: `backup-control-db.sh` nightly as `postgres`, the R2 keys and the age public key by `LoadCredential` |
 | `renox-litestream@<db>.service` | `renox-free.slice` | One Litestream sidecar per tenant file (#255), `litestream replicate -config /run/renox/litestream/<db>.yml`; writes only the replica dir and the `-litestream` shadow next to the file |
 | `renox.slice` | — | Parent of both tiers: 90 % of RAM, 65,536 tasks |
 | `renox-free.slice` | `renox.slice` | `CPUWeight=100`, `MemoryMax=50%`, `TasksMax=16384`: what all free tenants together take |
@@ -141,3 +153,21 @@ microvm_hook = "/opt/renox/ops/scripts/move-to-microvm.sh"
 With `[sandbox]` on, the hook inherits the worker's seccomp filter (#253). That filter has no fork: no `fork`, no `vfork`, no `clone` without thread flags. So a hook may use only shell builtins (`printf`, `[ ]`, `read`, `exit`) and must start a launcher with `exec`, never as a child; `sleep`, a pipe, or `$(…)` would kill it. Killed by the filter, the hook exits with 128 + 31 (`SIGSYS`), which counts as failed, so the tenant serves where it was. The stub stays within these rules, and so does the hook of `crates/renox-cell/tests/move_hook.rs`, which CI runs under `RENOX_TEST_SANDBOX=enforce`.
 
 The real launcher (the Firecracker image, its network, and the route to a VM) is F7 work. It replaces this script behind the same interface: two arguments in, one exit code out.
+
+## Single host
+
+`single-host.md` is the runbook: the worker, the control plane, Postgres and a Cloudflare Tunnel on one machine (#366). `bootstrap-node.sh --single-host` installs the extra binaries, units, user and templates; the owner fills in the secrets.
+
+Tests, all without network or accounts:
+
+| Test | Runs in | Proves |
+| --- | --- | --- |
+| `fetch-cloudflared.test.sh`, `fetch-lego.test.sh` | CI ops step | A binary or tarball matching the lock is installed; one changed byte, another hash in the lock, an unknown target are refused and leave nothing behind |
+| `renew-wildcard-cert.test.sh` | CI ops step | A fake lego: a group-readable token file is refused; both CertStore directories written; reload only on a change; a certificate without the apex or with another key is refused; the token never in argv, environment or output |
+| `backup-control-db.test.sh` | CI ops step | A fake S3 that verifies each request's SigV4 signature: the object decrypts to the dump and is not it in the clear; a failing `pg_dump` uploads nothing; bad credentials files are refused; the secret never in curl's argv |
+| `firewall-single-host.test.sh` | CI ops step (two containers) | Refuses without sshd, with sshd on another port, from a session on another port; once applied 22, 80, 443 answer from outside and 8787, 5432 do not; a second run is a no-op |
+| `bootstrap-node.test.sh` | CI rust job (systemd container) | `--single-host`'s refusals, the worker.toml it writes (parsed by the real worker), files and modes; `renox-tunnel` and `renox-cert-renew` with `LoadCredential` (skipped where the container's systemd has no credentials); `renox-control` on loopback only and its refusal of `0.0.0.0` |
+
+### cloudflared and lego
+
+Bump like Litestream: download the new release twice (two networks if possible), check both give the same `sha256sum` (for lego, also against upstream's `lego_<version>_checksums.txt`), replace the version and the lines in the lock, and run both fetch tests. lego stays on v4: `renew-wildcard-cert.sh` uses the v4 command line.

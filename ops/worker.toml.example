@@ -14,13 +14,24 @@ platform_key_file = "/etc/renox/platform.key"
 idle_timeout_secs = 600
 # The node's own public addresses and the control plane's node-facing ones
 # (ADR D23, #218): tenant fetch is refused to them on top of the private ranges.
+# Controlled mode refuses an empty list. On the single host (#366,
+# ops/single-host.md) it is the node's public IPv4 and IPv6 and 127.0.0.1
+# (the control plane's node listener), for example
+#   fetch_blocked_addresses = ["203.0.113.10", "2001:db8::10", "127.0.0.1"]
+# The dashboard tenant still reaches api.renoxium.com, through Cloudflare's
+# public addresses (D23).
 fetch_blocked_addresses = [@BLOCKED_ADDRESSES@]
 
 [tls]
 cert_dir = "/var/lib/renox/data/_certs"
 http_listen = "0.0.0.0:80"
 
+# The wildcard certificate of *.renoxium.app and renoxium.app is written into
+# cert_dir by ops/scripts/renew-wildcard-cert.sh (#366), which then reloads the
+# worker (SIGHUP); custom domains get theirs by HTTP-01 on http_listen.
 [control]
+# https:// to the control plane's node listener; on the single host the
+# listener on loopback, plain HTTP: "http://127.0.0.1:8788" (#366).
 url = "@CONTROL_URL@"
 node_token_file = "/etc/renox/node.token"
 region = "@REGION@"
@@ -40,11 +51,14 @@ health_listen = "@HEALTH_LISTEN@"
 # canonical = "https://renoxium.app/.well-known/security.txt"
 # policy = "https://renoxium.com/security"
 
-# The sections below arrive with F6 (#253 sandbox, #254 process tiers, #255
-# replication); see crates/renox-cell/README.md for their keys and defaults.
-# [sandbox]
-# enabled = true
-# mode = "enforce"
+# The seccomp and Landlock profile (#253). Controlled mode refuses to start
+# without it (crates/renox-cell/README.md, "Sandbox").
+[sandbox]
+enabled = true
+mode = "enforce"
+
+# The sections below arrive with F6 (#254 process tiers, #255 replication);
+# see crates/renox-cell/README.md for their keys and defaults.
 #
 # [process]
 # launcher = "systemd"
@@ -56,3 +70,8 @@ health_listen = "@HEALTH_LISTEN@"
 # bucket = "renox-replica-me-central-1"
 # region = "me-central-1"
 # litestream_bin = "/opt/renox/bin/litestream"
+#
+# Cloudflare R2 as the replica (the single host, #366) is not possible yet: a
+# controlled worker refuses a region outside allowed_regions (the UAE) and an
+# s3 replica without sse_kms_key_id, and R2 has region "auto" and no KMS.
+# ops/single-host.md, "Backups", has the state and the follow-up.
