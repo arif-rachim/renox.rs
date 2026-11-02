@@ -9,13 +9,16 @@
 # and from a session on a port it does not open, and leaves no rules behind
 # when it refuses; --dry-run loads nothing; once applied, 22, 80 and 443 answer
 # from outside while 8787 and 5432 (listening on every interface on purpose)
-# do not; a second run is a no-op (same ruleset, one table, one include line).
+# do not; a second run is a no-op (same ruleset, one table, one include line);
+# --ssh-port opens that port instead of 22 (a bad value is refused, a session
+# on 22 is refused, and after the switch 22 is closed from outside).
 #
 # Skipped (exit 0, with the reason) without a docker daemon. An image that
 # already exists under the test's tag is reused (a local build behind a proxy).
 set -euo pipefail
 
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# pwd -W (Git Bash on Windows) gives docker cp a path it understands; elsewhere pwd.
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && { pwd -W 2>/dev/null || pwd; })
 
 skip() { echo "SKIP firewall container test: $*"; exit 0; }
 command -v docker >/dev/null 2>&1 || skip "docker is not installed"
@@ -116,6 +119,29 @@ tables=$(on nft list tables | grep -c renox_single_host || true)
 includes=$(on grep -c 'renox-single-host.nft' /etc/nftables.conf || true)
 if [[ $tables == 1 && $includes == 1 ]]; then pass "one table, one include line in /etc/nftables.conf"; else fail "one table ($tables), one include ($includes)"; fi
 if on nft -c -f /etc/nftables.d/renox-single-host.nft; then pass "the persisted file parses"; else fail "the persisted file parses"; fi
+
+# 7. --ssh-port: sshd on 49222 only, the session on 49222.
+docker exec "$client" pkill -x nc >/dev/null 2>&1 || true
+before=$(on nft list ruleset 2>/dev/null | sha256sum)
+for bad in 0 65536 abc "" 443; do
+  if fw --ssh-port "$bad" >/dev/null 2>"$ctx/err"; then fail "--ssh-port '$bad': refused"
+  elif grep -q "ssh-port" "$ctx/err"; then pass "--ssh-port '$bad': refused"
+  else fail "--ssh-port '$bad': refused ($(cat "$ctx/err"))"; fi
+done
+after=$(on nft list ruleset 2>/dev/null | sha256sum)
+if [[ $before == "$after" ]]; then pass "a refused --ssh-port leaves the ruleset alone"; else fail "a refused --ssh-port leaves the ruleset alone"; fi
+sshd_on 49222
+if fw -e SSH_CONNECTION="198.51.100.7 50000 10.0.0.2 22" --ssh-port 49222 >/dev/null 2>"$ctx/err"; then fail "--ssh-port 49222 from a session on 22: refused"
+elif grep -q "arrived on port 22" "$ctx/err"; then pass "--ssh-port 49222 from a session on 22: refused"
+else fail "--ssh-port 49222 from a session on 22: refused ($(cat "$ctx/err"))"; fi
+if fw -e SSH_CONNECTION="198.51.100.7 50000 10.0.0.2 49222" --ssh-port 49222 >/dev/null 2>"$ctx/err"; then pass "sshd on 49222, --ssh-port 49222 and the session on 49222: applied"
+else fail "--ssh-port 49222 applied: $(cat "$ctx/err")"; fi
+if reach 49222; then pass "port 49222 reachable from outside"; else fail "port 49222 reachable from outside"; fi
+if reach 22; then fail "port 22 closed from outside after --ssh-port 49222"; else pass "port 22 closed from outside after --ssh-port 49222"; fi
+for p in 80 443; do
+  if reach "$p"; then pass "port $p still reachable with --ssh-port 49222"; else fail "port $p still reachable with --ssh-port 49222"; fi
+done
+if on grep -q 'tcp dport 49222 accept' /etc/nftables.d/renox-single-host.nft; then pass "the persisted file carries port 49222"; else fail "the persisted file carries port 49222"; fi
 
 if [[ $failures -ne 0 ]]; then echo "$failures failed" >&2; exit 1; fi
 echo "all passed"

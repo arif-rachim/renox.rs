@@ -17,7 +17,7 @@ This page takes an empty host to live. Every secret it names lives in a root-onl
               │ 80, 443                                             │ outbound from the host
               ▼                                                     ▼
  ┌──────────────────────────── node-small ─────────────────────────────────────┐
- │ nftables: inbound 22, 80, 443 only                                          │
+ │ nftables: inbound SSH (22 or --ssh-port), 80, 443 only                      │
  │                                                                             │
  │ renox-worker (0.0.0.0:443, :80)    renox-tunnel (cloudflared, DynamicUser)  │
  │   TLS, ACME HTTP-01, HTTP/2,          │                                     │
@@ -117,8 +117,8 @@ The worker's own addresses go into `fetch_blocked_addresses` (`ops/worker.toml.e
 
 All commands as root on the host unless the step says otherwise.
 
-1. **Base.** Ubuntu 24.04 with current updates. sshd on port 22 with key authentication only. Then: `apt-get install -y postgresql nftables age curl openssl git`.
-2. **Firewall.** `ops/scripts/firewall-single-host.sh --dry-run` shows the rules, then run it without `--dry-run`. It refuses to change anything unless sshd listens on 22 (Ubuntu 24.04 starts it through `ssh.socket`, which counts) and the SSH session you run it from arrived on 22. Keep a second SSH session open while you run it the first time.
+1. **Base.** Ubuntu 24.04 with current updates. sshd with key authentication only (port 22, or another port: the firewall step takes it). Then: `apt-get install -y postgresql nftables age curl openssl git`.
+2. **Firewall.** `ops/scripts/firewall-single-host.sh --dry-run` shows the rules, then run it without `--dry-run`. When sshd runs on another port, pass it: `--ssh-port 49222` (both runs). It refuses to change anything unless sshd listens on that port (Ubuntu 24.04 starts it through `ssh.socket`, which counts) and the SSH session you run it from arrived on it; only that one port is opened for SSH. Keep a second SSH session open while you run it the first time.
 3. **Source and Bun.** Check out the deployed tag into `/opt/renox/src`. Install Bun 1.4.4 (the version CI uses): download `bun-linux-x64.zip` and `SHASUMS256.txt` from the `bun-v1.4.4` release and compare with `sha256sum`. Then `install -m 0755 bun /opt/renox/bin/bun`, and run `/opt/renox/bin/bun install --frozen-lockfile --production` in `/opt/renox/src`.
 4. **Postgres.** The distribution's Postgres listens on `localhost` only (check `listen_addresses` in `/etc/postgresql/16/main/postgresql.conf`). Create the role and the database:
    ```
