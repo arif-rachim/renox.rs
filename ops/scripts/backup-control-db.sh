@@ -18,9 +18,10 @@
 # command line, and this script never prints it.
 #
 # Object key: <prefix>/<yyyy>/<mm>/control-db-<yyyymmddThhmmssZ>.dump.age.
-# Retention (30 days) is the bucket's lifecycle rule on <prefix>/, an owner
-# step: the host's key cannot delete old backups, so a compromised host cannot
-# erase them either.
+# Retention is the bucket's, two owner steps (ops/single-host.md "Backups"):
+# a lifecycle rule deletes objects under <prefix>/ after 30 days, and a bucket
+# lock rule on <prefix>/ keeps every object for 30 days, so the host's key
+# (which R2 cannot limit to writes only) cannot erase earlier backups either.
 #
 # Options:
 #   --prefix <p>     object key prefix (control-db)
