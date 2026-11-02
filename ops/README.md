@@ -21,7 +21,7 @@ Operational files that the build and CI trust. Owned by code owners (`.github/CO
 | `cloudflared.lock`, `lego.lock` | cloudflared and lego versions and SHA-256 per target (#366) |
 | `cloudflared/config.yml.example` | The tunnel's ingress: `api` and `mcp.renoxium.com` → `http://127.0.0.1:8787`, everything else 404 |
 | `scripts/fetch-cloudflared.sh`, `scripts/fetch-lego.sh` | Download the pinned binary, refuse a SHA-256 mismatch before it is installed or extracted, print its path |
-| `scripts/firewall-single-host.sh` | nftables: inbound 22, 80, 443 only; refuses unless SSH stays reachable on 22 |
+| `scripts/firewall-single-host.sh` | nftables: inbound SSH (22, or `--ssh-port <n>`), 80, 443 only; refuses unless SSH stays reachable on that port |
 | `scripts/renew-wildcard-cert.sh` | `*.renoxium.app` and `renoxium.app` by DNS-01 (lego, Cloudflare), installed for the gateway's `CertStore`, worker reloaded |
 | `scripts/backup-control-db.sh` | `pg_dump` encrypted with age, uploaded to R2 with a SigV4 PUT, read back |
 | `systemd/control.env.example`, `systemd/single-host.env.example` | Templates of `/etc/renox/control.env` (0600) and `/etc/renox/single-host.env`; never installed as units |
@@ -165,7 +165,7 @@ Tests, all without network or accounts:
 | `fetch-cloudflared.test.sh`, `fetch-lego.test.sh` | CI ops step | A binary or tarball matching the lock is installed; one changed byte, another hash in the lock, an unknown target are refused and leave nothing behind |
 | `renew-wildcard-cert.test.sh` | CI ops step | A fake lego: a group-readable token file is refused; both CertStore directories written; reload only on a change; a certificate without the apex or with another key is refused; the token never in argv, environment or output |
 | `backup-control-db.test.sh` | CI ops step | A fake S3 that verifies each request's SigV4 signature: the object decrypts to the dump and is not it in the clear; a failing `pg_dump` uploads nothing; bad credentials files are refused; the secret never in curl's argv |
-| `firewall-single-host.test.sh` | CI ops step (two containers) | Refuses without sshd, with sshd on another port, from a session on another port; once applied 22, 80, 443 answer from outside and 8787, 5432 do not; a second run is a no-op |
+| `firewall-single-host.test.sh` | CI ops step (two containers) | Refuses without sshd, with sshd on another port, from a session on another port, with a bad `--ssh-port`; once applied 22, 80, 443 answer from outside and 8787, 5432 do not; a second run is a no-op; `--ssh-port 49222` opens 49222 and closes 22 |
 | `bootstrap-node.test.sh` | CI rust job (systemd container) | `--single-host`'s refusals, the worker.toml it writes (parsed by the real worker), files and modes; `renox-tunnel` and `renox-cert-renew` with `LoadCredential` (skipped where the container's systemd has no credentials); `renox-control` on loopback only and its refusal of `0.0.0.0` |
 
 ### cloudflared and lego

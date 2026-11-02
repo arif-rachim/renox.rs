@@ -6,20 +6,23 @@
 # outside even if a listener is misconfigured. Outbound is not restricted:
 # the tunnel, R2, ACME and the mail provider are reached from here.
 #
-#   sudo ops/scripts/firewall-single-host.sh [--dry-run] [--no-ssh]
+#   sudo ops/scripts/firewall-single-host.sh [--dry-run] [--no-ssh] [--ssh-port <n>]
 #
-# Port 22 is always open; nothing this script writes can close it. Before it
-# changes anything it checks that the SSH server and the session running it
-# stay reachable, and refuses otherwise:
-#   - sshd must listen on port 22 (a server on another port only would be
-#     locked out; move it to 22 first or open its port by hand);
+# The SSH port (22, or --ssh-port when sshd runs elsewhere) is always open;
+# nothing this script writes can close it. Before it changes anything it
+# checks that the SSH server and the session running it stay reachable, and
+# refuses otherwise:
+#   - sshd must listen on the SSH port (a server on another port only would
+#     be locked out; pass that port with --ssh-port, or move sshd);
 #   - the session the script runs in (SSH_CONNECTION, or every established
 #     connection of an sshd process when sudo dropped that variable) must
-#     have arrived on port 22;
+#     have arrived on the SSH port;
 #   - when no sshd runs at all, it refuses unless --no-ssh says that is
 #     intended (a console-only host).
 # After loading the rules it reads them back and removes its table again if
-# the port 22 rule is not there.
+# the SSH port rule is not there. Only one SSH port is opened: a second run
+# with another --ssh-port replaces the rule, so run it from a session on the
+# new port.
 #
 # Idempotent: the rules live in their own table, `inet renox_single_host`,
 # which each run replaces atomically (one `nft -f` transaction); other tables
@@ -29,23 +32,28 @@
 # RENOX_FIREWALL_ROOT prefixes every path written (tests only).
 set -euo pipefail
 
+die() { echo "firewall-single-host: $*" >&2; exit 1; }
+
 dry_run=0
 no_ssh=0
+ssh_port=22
 while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run) dry_run=1; shift ;;
     --no-ssh) no_ssh=1; shift ;;
-    -h | --help) sed -n '2,31p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --ssh-port)
+      [[ $# -ge 2 ]] || die "--ssh-port needs a value"
+      ssh_port=$2; shift 2 ;;
+    -h | --help) sed -n '2,33p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "firewall-single-host: unknown option $1" >&2; exit 2 ;;
   esac
 done
-
-die() { echo "firewall-single-host: $*" >&2; exit 1; }
+[[ $ssh_port =~ ^[0-9]{1,5}$ && $ssh_port -ge 1 && $ssh_port -le 65535 ]] || die "--ssh-port must be a port number from 1 to 65535, not '$ssh_port'"
+[[ $ssh_port != 80 && $ssh_port != 443 ]] || die "--ssh-port $ssh_port is the worker's port; sshd cannot share it"
 
 root=${RENOX_FIREWALL_ROOT:-}
 table=renox_single_host
-ssh_port=22
-open_tcp="22, 80, 443"
+open_tcp="$ssh_port, 80, 443"
 
 [[ $(id -u) -eq 0 ]] || die "run as root (it loads nftables rules)"
 command -v nft >/dev/null 2>&1 || die "nft is not installed (apt-get install nftables)"
@@ -78,7 +86,7 @@ if [[ -z $listen_ports ]]; then
   fi
 else
   if ! grep -qx "$ssh_port" <<< "$listen_ports"; then
-    die "sshd listens on port(s) $(paste -sd, <<< "$listen_ports"), not $ssh_port: these rules open $ssh_port only and would lock SSH out; refusing"
+    die "sshd listens on port(s) $(paste -sd, <<< "$listen_ports"), not $ssh_port: these rules open $ssh_port only and would lock SSH out; refusing (pass the port sshd uses with --ssh-port)"
   fi
 fi
 
@@ -108,7 +116,7 @@ table inet ${table} {
     iif "lo" accept
     ct state established,related accept
     ct state invalid drop
-    # Port ${ssh_port} first: SSH is never closed by these rules.
+    # The SSH port (${ssh_port}) first: SSH is never closed by these rules.
     tcp dport ${ssh_port} accept
     tcp dport { 80, 443 } accept
     ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded, parameter-problem } accept
