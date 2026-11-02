@@ -19,6 +19,7 @@ import { endExpiredImpersonations } from "./ops/breakglass.ts";
 import { routeService } from "./routes/service.ts";
 import { sweep } from "./workers/health.ts";
 import { NullMailer, OutboxDirMailer } from "./auth/mailer.ts";
+import { behindProxies, TrustedProxies, type AddressSource } from "./auth/ip.ts";
 import { startDomainJobs } from "./domains/jobs.ts";
 import { sweepBilling } from "./billing/sweep.ts";
 import { sweepAbuse } from "./abuse/takedown.ts";
@@ -72,6 +73,15 @@ setInterval(() => void rescanActive(deps).catch((e: unknown) => log.error("advis
 if (!process.env.RENOX_SAFE_BROWSING_KEY) log.warn("RENOX_SAFE_BROWSING_KEY is not set: hostnames are not checked with Safe Browsing");
 if ((config.exportKmsKeyId ?? null) === null) log.warn("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (local mode only)");
 
-const server = Bun.serve({ port: config.port, fetch: publicApp.fetch, idleTimeout: 0 });
+// The public listener behind a trusted proxy (#366): requests from a listed peer
+// take their client address from the configured header (src/auth/ip.ts).
+const proxies = new TrustedProxies(config.trustedProxies ?? []);
+const clientIpHeader = config.clientIpHeader ?? "CF-Connecting-IP";
+if (proxies.size > 0) log.info("trusted proxies", { proxies: proxies.entries.join(","), header: clientIpHeader });
+const server = Bun.serve({
+  port: config.port,
+  fetch: (req, srv) => publicApp.fetch(req, behindProxies(srv as AddressSource, proxies, clientIpHeader)),
+  idleTimeout: 0,
+});
 const nodeServer = Bun.serve({ hostname: nodeAt.hostname, port: nodeAt.port, fetch: nodeApp.fetch, idleTimeout: 0 });
 log.info("control api listening", { port: server.port, node_host: nodeAt.hostname, node_port: nodeServer.port, migrations_applied: applied });

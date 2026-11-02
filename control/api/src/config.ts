@@ -2,6 +2,8 @@
 // are read here and passed only to the code that needs them; they are never
 // logged (the config object has no toJSON that includes them).
 
+import { parseProxyEntry } from "./auth/ip.ts";
+
 export interface S3Config {
   endpoint: string;
   bucket: string;
@@ -38,6 +40,15 @@ export interface Config {
   apiUrl?: string;
   /** `CONTROL_SECURITY_POLICY`: the `Policy:` URI of security.txt, if any. */
   securityPolicy?: string | null;
+  /**
+   * `CONTROL_TRUSTED_PROXIES` (#366): addresses or CIDRs, comma separated, of the
+   * proxies in front of the public listener (on the single host `127.0.0.1,::1`,
+   * `cloudflared`). Empty by default: the socket address is the client address
+   * and no header is read (src/auth/ip.ts).
+   */
+  trustedProxies?: string[];
+  /** `CONTROL_CLIENT_IP_HEADER` (#366): the header a trusted proxy puts the client address in (default `CF-Connecting-IP`). */
+  clientIpHeader?: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -53,9 +64,26 @@ export const DEFAULTS = {
   apiUrl: "https://api.renoxium.com",
   securityContacts: ["mailto:security@renoxium.com"] as readonly string[],
   abuseContact: "abuse@renoxium.com",
+  clientIpHeader: "CF-Connecting-IP",
 } as const;
 
 export class ConfigError extends Error {}
+
+/** `CONTROL_TRUSTED_PROXIES`: each entry an address or a CIDR, or the config is refused. */
+function trustedProxies(raw: string | undefined): string[] {
+  const entries = (raw ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
+  for (const entry of entries) {
+    if (parseProxyEntry(entry) === null) throw new ConfigError(`CONTROL_TRUSTED_PROXIES: not an address or a CIDR: ${entry}`);
+  }
+  return entries;
+}
+
+/** `CONTROL_CLIENT_IP_HEADER`: an HTTP header name (RFC 9110 token). */
+function clientIpHeader(raw: string | undefined): string {
+  const header = (raw ?? DEFAULTS.clientIpHeader).trim();
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(header)) throw new ConfigError("CONTROL_CLIENT_IP_HEADER is not a header name");
+  return header;
+}
 
 export function loadConfig(env: Env = process.env): Config {
   const s3 = env.CONTROL_S3_ENDPOINT
@@ -88,5 +116,7 @@ export function loadConfig(env: Env = process.env): Config {
     abuseContact: env.CONTROL_ABUSE_CONTACT ?? DEFAULTS.abuseContact,
     apiUrl: env.CONTROL_API_URL ?? DEFAULTS.apiUrl,
     securityPolicy: env.CONTROL_SECURITY_POLICY ?? null,
+    trustedProxies: trustedProxies(env.CONTROL_TRUSTED_PROXIES),
+    clientIpHeader: clientIpHeader(env.CONTROL_CLIENT_IP_HEADER),
   };
 }

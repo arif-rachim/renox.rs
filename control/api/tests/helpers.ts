@@ -12,6 +12,7 @@ import { memoryLogger } from "../src/log.ts";
 import { MemoryObjectStore } from "../src/storage/object-store.ts";
 import { createTenantToken, newTokenValue, sha256hex } from "../src/auth/tokens.ts";
 import { MemoryMailer } from "../src/auth/mailer.ts";
+import { behindProxies, TrustedProxies } from "../src/auth/ip.ts";
 import { guardDb } from "../src/tenancy/scope.ts";
 import { CSRF_HEADER, csrfOf, SESSION_COOKIE } from "../src/auth/sessions.ts";
 import { routeService } from "../src/routes/service.ts";
@@ -79,7 +80,7 @@ export const harnesses: Harness[] = [];
  * owning node's prepare_result). By default activation is accepted at once,
  * as before #96, so tests about the pointer switch need no node.
  */
-export async function harness(modules: RouteModule[] = [], opts: { prepare?: "node" | "accept" } = {}): Promise<Harness> {
+export async function harness(modules: RouteModule[] = [], opts: { prepare?: "node" | "accept"; trustedProxies?: string[]; clientIpHeader?: string } = {}): Promise<Harness> {
   const db = await testDb();
   const tables = await db.query<{ tablename: string }>(
     "select tablename from pg_tables where schemaname = 'public' and tablename <> 'schema_migrations'",
@@ -108,8 +109,14 @@ export async function harness(modules: RouteModule[] = [], opts: { prepare?: "no
       masterKey: TEST_MASTER_KEY,
       dashboardUrl: "https://dashboard.renox.test",
       mailOutboxDir: null,
+      ...(opts.trustedProxies === undefined ? {} : { trustedProxies: opts.trustedProxies }),
+      ...(opts.clientIpHeader === undefined ? {} : { clientIpHeader: opts.clientIpHeader }),
     },
   };
+  // The public listener's wrapping of main.ts (#366): with trusted proxies the
+  // client address comes from the header for a request from a listed peer.
+  const proxies = new TrustedProxies(opts.trustedProxies ?? []);
+  const header = opts.clientIpHeader ?? "CF-Connecting-IP";
   const app = createApp(deps, modules);
   if (opts.prepare !== "node") routeService(deps).prepare = async () => ({ ok: true });
   const request: Harness["request"] = (method, path, init = {}) => {
@@ -125,7 +132,7 @@ export async function harness(modules: RouteModule[] = [], opts: { prepare?: "no
       body = JSON.stringify(init.json);
     }
     const ip = init.ip ?? "192.0.2.10";
-    return Promise.resolve(app.request(path, { method, headers, body }, { requestIP: () => ({ address: ip }) }));
+    return Promise.resolve(app.request(path, { method, headers, body }, behindProxies({ requestIP: () => ({ address: ip }) }, proxies, header)));
   };
   const h = { app, deps, db, store, log, clock, mailer, unscoped, request };
   harnesses.push(h);
