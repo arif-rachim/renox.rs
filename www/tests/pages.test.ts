@@ -189,7 +189,7 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect((await get("/docs?q=threat")).text).toContain('href="/docs/24-threat-model"');
     const home = await get("/");
     expect(home.status).toBe(200);
-    expect(home.text).toMatch(/<h1 id="hero-title">Ship the SaaS\. Skip the plumbing\.<\/h1>/u);
+    expect(home.text).toMatch(/<h1 id="hero-title">Ship the SaaS\.<br> Skip the plumbing\.<\/h1>/u);
     // The comparison: one row per need, one cell per platform, each verdict in words for screen readers.
     expect(home.text).toContain('<h2 id="compare-title">How Renoxium compares</h2>');
     expect(home.text.match(/<span class="visually-hidden">(?:Yes|Partly|No)<\/span>/gu)?.length).toBe(COMPARE.length * PLATFORMS.length);
