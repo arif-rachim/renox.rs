@@ -50,6 +50,15 @@ export interface Config {
   abuseContact?: string;
   /** `CONTROL_API_URL` (#364): the public origin of this API, for the canonical URL of its security.txt (default `https://api.renoxium.com`). */
   apiUrl?: string;
+  /**
+   * `CONTROL_MCP_URL`: the public origin of the platform MCP and its OAuth
+   * server (src/mcp/), for example `https://mcp.renoxium.com`. Behind a TLS
+   * terminator (the single host's Cloudflare Tunnel) requests arrive as
+   * `http://127.0.0.1:8787`, so the request's own origin is wrong: the issuer,
+   * the resource and the `Origin` check use this value instead. Unset (null):
+   * the request's origin, which is right when clients reach the API directly.
+   */
+  mcpUrl?: string | null;
   /** `CONTROL_SECURITY_POLICY`: the `Policy:` URI of security.txt, if any. */
   securityPolicy?: string | null;
   /**
@@ -157,6 +166,23 @@ export function checkListen(listenHost: string, proxies: string[]): void {
 }
 
 /** `CONTROL_CLIENT_IP_HEADER`: an HTTP header name (RFC 9110 token). */
+/** A public origin from a variable: https (http only on loopback), no path, query, fragment or credentials; null when unset. */
+function publicOrigin(raw: string | undefined, name: string): string | null {
+  if (raw === undefined || raw.trim() === "") return null;
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    throw new ConfigError(`${name} is not a URL`);
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && loopback)) throw new ConfigError(`${name} must be an https origin`);
+  if (u.pathname !== "/" || u.search !== "" || u.hash !== "" || u.username !== "" || u.password !== "") {
+    throw new ConfigError(`${name} must be an origin only, like https://mcp.renoxium.com`);
+  }
+  return u.origin;
+}
+
 function clientIpHeader(raw: string | undefined): string {
   const header = (raw ?? DEFAULTS.clientIpHeader).trim();
   if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(header)) throw new ConfigError("CONTROL_CLIENT_IP_HEADER is not a header name");
@@ -199,6 +225,7 @@ export function loadConfig(env: Env = process.env): Config {
     securityContacts: (env.CONTROL_SECURITY_CONTACTS ?? DEFAULTS.securityContacts.join(",")).split(",").map((s) => s.trim()).filter((s) => s !== ""),
     abuseContact: env.CONTROL_ABUSE_CONTACT ?? DEFAULTS.abuseContact,
     apiUrl: env.CONTROL_API_URL ?? DEFAULTS.apiUrl,
+    mcpUrl: publicOrigin(env.CONTROL_MCP_URL, "CONTROL_MCP_URL"),
     securityPolicy: env.CONTROL_SECURITY_POLICY ?? null,
     trustedProxies: proxies,
     clientIpHeader: clientIpHeader(env.CONTROL_CLIENT_IP_HEADER),

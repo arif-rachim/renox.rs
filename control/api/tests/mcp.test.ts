@@ -15,6 +15,7 @@ import { Client } from "../../../cli/node_modules/@modelcontextprotocol/sdk/dist
 import { UnauthorizedError, type OAuthClientProvider } from "../../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js";
 import { StreamableHTTPClientTransport } from "../../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
 import { SESSION_COOKIE } from "../src/auth/sessions.ts";
+import { ConfigError, loadConfig } from "../src/config.ts";
 import { logIngest } from "../src/ingest/logs.ts";
 import { addMember, assertScoped, auditRows, createApp_, harness, type Harness, PASSWORD, type Session, signup } from "./helpers.ts";
 
@@ -350,6 +351,42 @@ describe("tools", () => {
       expect((await rpc([{ jsonrpc: "2.0", id: 4, method: "ping" }])).status).toBe(400);
     } finally {
       srv.stop();
+    }
+  });
+});
+
+describe("behind a TLS terminator (CONTROL_MCP_URL)", () => {
+  // The single host's Cloudflare Tunnel hands requests on as http://127.0.0.1:8787
+  // (ops/single-host.md): the request's origin is http, the public one https.
+  const PUBLIC = "https://mcp.renoxium.com";
+
+  test("the issuer, the resource and the 401 challenge name the configured origin, not the request's", async () => {
+    const h = await harness([], { mcpUrl: PUBLIC });
+    const prm = await h.request("GET", "/.well-known/oauth-protected-resource/mcp");
+    expect(await prm.json()).toMatchObject({ resource: `${PUBLIC}/mcp`, authorization_servers: [PUBLIC] });
+    const asm = (await (await h.request("GET", "/.well-known/oauth-authorization-server")).json()) as Record<string, string>;
+    expect(asm.issuer).toBe(PUBLIC);
+    expect(asm.authorization_endpoint).toBe(`${PUBLIC}/oauth/authorize`);
+    expect(asm.token_endpoint).toBe(`${PUBLIC}/oauth/token`);
+    const none = await h.request("POST", "/mcp", { json: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
+    expect(none.headers.get("www-authenticate")).toBe(`Bearer resource_metadata="${PUBLIC}/.well-known/oauth-protected-resource/mcp"`);
+  });
+
+  test("the Origin check accepts the public origin and refuses the internal one (DNS rebinding)", async () => {
+    const h = await harness([], { mcpUrl: PUBLIC });
+    const body = { json: { jsonrpc: "2.0", id: 1, method: "tools/list" } };
+    // Past the origin check, the missing token is the answer.
+    expect((await h.request("POST", "/mcp", { ...body, headers: { origin: PUBLIC } })).status).toBe(401);
+    expect((await h.request("POST", "/mcp", { ...body, headers: { origin: "http://localhost" } })).status).toBe(403);
+    expect((await h.request("POST", "/mcp", { ...body, headers: { origin: "https://evil.example" } })).status).toBe(403);
+  });
+
+  test("CONTROL_MCP_URL: unset is the request's origin; only an https origin (http on loopback) is accepted", () => {
+    expect(loadConfig({}).mcpUrl).toBeNull();
+    expect(loadConfig({ CONTROL_MCP_URL: "https://mcp.renoxium.com/" }).mcpUrl).toBe(PUBLIC);
+    expect(loadConfig({ CONTROL_MCP_URL: "http://127.0.0.1:8787" }).mcpUrl).toBe("http://127.0.0.1:8787");
+    for (const bad of ["http://mcp.renoxium.com", "https://mcp.renoxium.com/mcp", "https://mcp.renoxium.com/?a=1", "https://u:p@mcp.renoxium.com", "mcp.renoxium.com"]) {
+      expect(() => loadConfig({ CONTROL_MCP_URL: bad })).toThrow(ConfigError);
     }
   });
 });

@@ -257,7 +257,7 @@ export function registerMcp(app: Hono<Env>, deps: Deps): void {
 
   const unauthorized = (c: Context<Env>, presented: boolean) =>
     c.json({ error: "invalid_token", error_description: "an access token from this server's OAuth flow is required" }, 401, {
-      "www-authenticate": `Bearer resource_metadata="${resourceMetadataUrl(c)}"${presented ? ', error="invalid_token"' : ""}`,
+      "www-authenticate": `Bearer resource_metadata="${resourceMetadataUrl(c, deps)}"${presented ? ', error="invalid_token"' : ""}`,
     });
 
   const notAllowed = (c: Context<Env>) => {
@@ -271,7 +271,7 @@ export function registerMcp(app: Hono<Env>, deps: Deps): void {
     c.set("action", "callMcp");
     // DNS rebinding: a browser page of another origin may not drive this endpoint.
     const origin = c.req.header("origin");
-    if (origin !== undefined && origin !== originOf(c)) return c.json(rpcError(null, -32600, "origin not allowed"), 403);
+    if (origin !== undefined && origin !== originOf(c, deps)) return c.json(rpcError(null, -32600, "origin not allowed"), 403);
     const agent = await agentOf(deps, c.req.header("authorization"));
     if (agent === null) return unauthorized(c, c.req.header("authorization") !== undefined);
 
