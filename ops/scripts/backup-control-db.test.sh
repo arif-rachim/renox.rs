@@ -89,6 +89,8 @@ start_server
 age-keygen -o "$tmp/identity" 2>/dev/null
 age-keygen -y "$tmp/identity" > "$tmp/recipients"
 write_env() {
+  # A case may have left it read-only (0440): replace it, never write through it.
+  rm -f "$tmp/r2.env"
   printf 'R2_ENDPOINT=http://127.0.0.1:%s\nR2_BUCKET=renoxium-backups\nR2_ACCESS_KEY_ID=%s\nR2_SECRET_ACCESS_KEY=%s\n' "$port" "$key_id" "$secret" > "$tmp/r2.env"
   chmod 0600 "$tmp/r2.env"
 }
