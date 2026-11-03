@@ -14,7 +14,7 @@ import { newTokenValue } from "../src/auth/tokens.ts";
 
 afterEach(assertScoped);
 
-type Line = { level: string; msg: string; stage?: string; error_name?: string; error_code?: string; error?: string; detail?: Record<string, unknown> };
+type Line = { level: string; msg: string; stage?: string; error_name?: string; error_code?: string; sqlstate?: string; error?: string; detail?: Record<string, unknown> };
 const lines = (log: { lines: string[] }): Line[] => log.lines.map((l) => JSON.parse(l) as Line);
 
 /** An error shaped like Bun's S3 client failure: a generic message, the useful parts in name, code and cause. */
@@ -79,7 +79,9 @@ describe("unhandled error log", () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("RENOX_INTERNAL");
     const line = lines(h.log).find((l) => l.msg === "unhandled error");
     expect(line?.stage).toBe("db");
-    expect(line?.error_code).toBe("42P01"); // undefined_table
+    // undefined_table, whichever driver: PGlite puts it in `code`, Bun's Postgres client in `errno`.
+    expect(line?.sqlstate).toBe("42P01");
+    expect(line?.error_code).toBeDefined();
     expect(line?.error).toContain("no_such_table_402");
   });
 
@@ -106,6 +108,12 @@ describe("unhandled error log", () => {
 });
 
 describe("describeError", () => {
+  test("the SQLSTATE is read from either driver's field", () => {
+    expect(describeError(Object.assign(new Error("x"), { code: "23505" })).sqlstate).toBe("23505");
+    expect(describeError(Object.assign(new Error("x"), { code: "ERR_POSTGRES_SERVER_ERROR", errno: "23505" })).sqlstate).toBe("23505");
+    expect(describeError(Object.assign(new Error("x"), { code: "ECONNRESET" })).sqlstate).toBeUndefined();
+  });
+
   test("stops at a cyclic or very deep chain, and handles non-errors", () => {
     const a = new Error("a");
     const b = new Error("b", { cause: a });

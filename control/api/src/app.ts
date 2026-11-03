@@ -114,6 +114,7 @@ export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surf
       error: error.message,
       error_name: error.name,
       ...(error.code === undefined ? {} : { error_code: error.code }),
+      ...(error.sqlstate === undefined ? {} : { sqlstate: error.sqlstate }),
       detail: error,
     });
     // An object-store failure is upstream and usually transient (a reset

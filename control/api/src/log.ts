@@ -45,6 +45,7 @@ const STAGE = Symbol.for("renox.stage");
 /** How deep the cause chain is followed; AggregateError members count as causes. */
 const MAX_CAUSE_DEPTH = 5;
 const MAX_TEXT = 2000;
+const SQLSTATE = /^[0-9A-Z]{5}$/u;
 
 /**
  * Marks `err` with the stage it was thrown in (the first mark wins) and
@@ -85,6 +86,8 @@ export interface ErrorDescription {
   message: string;
   code?: string | number;
   errno?: string | number;
+  /** The Postgres SQLSTATE: `code` in PGlite, `errno` in Bun's client (whose `code` is ERR_POSTGRES_SERVER_ERROR). */
+  sqlstate?: string;
   status?: number;
   stack?: string;
   cause?: ErrorDescription;
@@ -107,6 +110,8 @@ export function describeError(err: unknown, depth = 0): ErrorDescription {
   const out: ErrorDescription = { name: clip(e.name || e.constructor?.name || "Error"), message: clip(e.message ?? "") };
   if (typeof e.code === "string" || typeof e.code === "number") out.code = typeof e.code === "string" ? clip(e.code) : e.code;
   if (typeof e.errno === "string" || typeof e.errno === "number") out.errno = e.errno;
+  const sqlstate = [e.code, e.errno].find((v): v is string => typeof v === "string" && SQLSTATE.test(v));
+  if (sqlstate !== undefined) out.sqlstate = sqlstate;
   if (typeof e.status === "number") out.status = e.status;
   if (typeof e.stack === "string") out.stack = clip(e.stack.split("\n").slice(0, 8).join("\n"));
   if (depth < MAX_CAUSE_DEPTH) {
