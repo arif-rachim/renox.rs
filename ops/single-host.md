@@ -176,7 +176,7 @@ All commands as root on the host unless the step says otherwise.
 | --- | --- |
 | `systemctl is-active renox-worker renox-control renox-tunnel` | `active` three times |
 | `systemctl list-timers 'renox-*'` | both timers with a next run |
-| `nft list table inet renox_single_host` | the input chain with `tcp dport 22 accept` and `tcp dport { 80, 443 } accept` |
+| `nft list table inet renox_single_host` | the input chain with `tcp dport <ssh port> accept` (22, or the `--ssh-port` of step 2) and `tcp dport { 80, 443 } accept` |
 | From another machine: `nc -z <node> 5432`, `8787`, `8788` | all refused or timed out |
 | `curl -fsS https://api.renoxium.com/v1/healthz` | 200 through the tunnel |
 | `curl -sI https://<app>.renoxium.app/` | the wildcard certificate (`openssl s_client -servername <app>.renoxium.app -connect <node>:443`) |
