@@ -24,6 +24,8 @@ const out = process.argv[2] ?? join(tmpdir(), "renox-dashboard-shots");
 mkdirSync(out, { recursive: true });
 
 const d = await dash();
+// The product's tenant domain (docs/contracts/README.md, "Domains"); the API fixture still says renox.app.
+(d.h.deps.config as { platformDomain: string }).platformDomain = "renoxium.app";
 const owner = await tenant(d.h, "t_acme");
 for (const name of ["hello", "booking", "crm"]) await createApp_(d.h, owner, name);
 await registeredNode(d.h, "node-1");
