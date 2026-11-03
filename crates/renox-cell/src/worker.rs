@@ -246,7 +246,8 @@ struct RoutesFile {
 
 /// A running worker.
 pub struct Worker {
-    /// The gateway's address: HTTPS with `[tls]`, plain HTTP without.
+    /// The gateway's TCP address (HTTPS with `[tls]`, plain HTTP without);
+    /// `0.0.0.0:0` with a `unix:` listen socket (`config.listen` names it).
     pub addr: SocketAddr,
     /// The plain listener of `[tls] http_listen` (ACME and redirects).
     pub http_addr: Option<SocketAddr>,
@@ -473,6 +474,10 @@ impl Worker {
         gw_config.rate_limit.requests_per_second = config.gateway.rate_limit_per_ip;
         gw_config.rate_limit.burst = config.gateway.rate_limit_burst;
         gw_config.limits.max_connections_per_ip = config.gateway.max_connections_per_ip;
+        gw_config.limits.max_connections_per_trusted_peer =
+            config.gateway.max_connections_per_trusted_peer;
+        // #414: who may name the client (`WorkerConfig::parse` checked it).
+        gw_config.client_ip = config.gateway.client_ip().map_err(WorkerError::Config)?;
         gw_config.protocol.h2_max_resets_per_second = config.gateway.h2_max_resets_per_second;
         gw_config.protocol.h2_max_resets_per_ip_per_second =
             config.gateway.h2_max_resets_per_ip_per_second;
@@ -497,12 +502,20 @@ impl Worker {
             Some(tls) => Some(load_certificates(tls)?),
             None => None,
         };
-        let listener = bind_listener(config.listen)
-            .await
-            .map_err(io("bind the listen address"))?;
-        let addr = listener
-            .local_addr()
-            .map_err(io("read the listen address"))?;
+        let (listener, addr) = match &config.listen {
+            crate::config::Listen::Tcp(a) => {
+                let l = bind_listener(*a)
+                    .await
+                    .map_err(io("bind the listen address"))?;
+                let addr = l.local_addr().map_err(io("read the listen address"))?;
+                (Listener::Tcp(l), addr)
+            }
+            crate::config::Listen::Unix(path) => {
+                let l = bind_unix_listener(path, config.gateway.socket_gid)
+                    .map_err(io("bind the listen socket"))?;
+                (Listener::Unix(l), SocketAddr::from(([0, 0, 0, 0], 0)))
+            }
+        };
         let s3_for_prepare = s3.clone();
         let guarded = Arc::new(GuardedDispatcher {
             manager: manager.clone(),
@@ -592,9 +605,19 @@ impl Worker {
                 }
                 tasks.push(spawn_sighup_reload(store.clone()));
                 let store = store.clone();
+                let Listener::Tcp(listener) = listener else {
+                    return Err(WorkerError::Config(
+                        "[tls] needs a TCP listen address, not unix:".into(),
+                    ));
+                };
                 tokio::spawn(async move { gateway.serve_tls(listener, store, dispatcher).await })
             }
-            _ => tokio::spawn(async move { gateway.serve(listener, dispatcher).await }),
+            _ => match listener {
+                Listener::Tcp(l) => tokio::spawn(async move { gateway.serve(l, dispatcher).await }),
+                Listener::Unix(l) => {
+                    tokio::spawn(async move { gateway.serve_unix(l, dispatcher).await })
+                }
+            },
         };
         let mut health_addr = None;
         let mut node_addr = None;
@@ -732,7 +755,8 @@ impl Worker {
             }
             crate::sandbox::apply_test_sandbox();
         }
-        tracing::info!(%addr, ?http_addr, ?health_addr, tls = certs.is_some(), controlled = controller.is_some(), routes = routes.len(), "renox-worker listening");
+        let listen = config.listen.to_string();
+        tracing::info!(%listen, %addr, ?http_addr, ?health_addr, tls = certs.is_some(), controlled = controller.is_some(), routes = routes.len(), "renox-worker listening");
         Ok(Worker {
             addr,
             http_addr,
@@ -796,6 +820,40 @@ impl Worker {
         }
         self.manager.meter().flush_and_close().await;
     }
+}
+
+/// The gateway's listener: TCP, or the unix socket behind `cloudflared`.
+enum Listener {
+    Tcp(TcpListener),
+    Unix(tokio::net::UnixListener),
+}
+
+/// Binds the gateway's unix socket (#414, ADR D25): a stale socket file
+/// from a previous run is removed first (only a socket, never another kind
+/// of file), then the new one is mode 0660 in `gid` (the group `cloudflared`
+/// is in), or 0600 without a group. The mode is set before the first
+/// `accept`, and the trusted peer is still decided per connection by uid.
+pub fn bind_unix_listener(
+    path: &Path,
+    gid: Option<u32>,
+) -> std::io::Result<tokio::net::UnixListener> {
+    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if !meta.file_type().is_socket() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("{} exists and is not a socket", path.display()),
+            ));
+        }
+        std::fs::remove_file(path)?;
+    }
+    let listener = tokio::net::UnixListener::bind(path)?;
+    let mode = if gid.is_some() { 0o660 } else { 0o600 };
+    if gid.is_some() {
+        std::os::unix::fs::chown(path, None, gid)?;
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    Ok(listener)
 }
 
 /// Binds a public listener (#404). `[::]:<port>` is dual-stack: one IPv6

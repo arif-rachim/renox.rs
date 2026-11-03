@@ -160,7 +160,13 @@ impl Profile {
         connect_ports.sort_unstable();
         connect_ports.dedup();
 
-        let mut bind_ports = vec![config.listen.port()];
+        // A `unix:` listen socket is created in its directory (#414).
+        if let crate::config::Listen::Unix(sock) = &config.listen
+            && let Some(dir) = sock.parent()
+        {
+            read_write.push(dir.to_path_buf());
+        }
+        let mut bind_ports: Vec<u16> = config.listen.port().into_iter().collect();
         bind_ports.extend(
             config
                 .tls

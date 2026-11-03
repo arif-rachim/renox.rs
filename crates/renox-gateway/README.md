@@ -29,7 +29,7 @@ pub struct RequestCtx {
     pub deployment_hash: String,  // the active deployment of the hostname
     pub request_id: String,       // ULID, also in x-renox-request-id
     pub deadline: Instant,        // accept time + wall-clock limit (30 s default)
-    pub client_ip: IpAddr,        // TCP peer; IPv4-mapped IPv6 shown as IPv4
+    pub client_ip: IpAddr,        // the client (see "Client address"); IPv4-mapped IPv6 shown as IPv4
     pub csp_nonce: String,        // this request's CSP nonce (#47): the renderer's and the header's
 }
 ```
@@ -38,9 +38,19 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 
 - the original method, URI, and body;
 - hop-by-hop headers removed (`Connection` and the headers it names, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`, `Upgrade`);
+- the forwarding headers removed (`CF-Connecting-IP`, `CF-Connecting-IPv6`, `True-Client-IP`, `X-Real-IP`, `X-Forwarded-For`, `-Proto`, `-Host`, `-Port`, `Forwarded`, and the configured client-IP header), from every peer;
 - every client-sent `x-renox-*` header removed except `x-renox-csrf` (the page CSRF token, which the cell checks and removes before tenant code, #41), then `x-renox-request-id` and `x-renox-client-ip` set, so tenant code can trust those two (`docs/contracts/ops.md` section 6).
 
 `deadline` is the one clock for the request (`docs/03-architecture.md`, "Deadlines"): the cell, ops, queries, and fetches all derive their timeouts from it.
+
+## Client address
+
+`src/client_ip.rs` (#414, ADR D25). Behind Cloudflare every request reaches the worker from `cloudflared`, so the socket peer is the edge. `GatewayConfig.client_ip` (`ClientIpConfig`) says which peers may name the client in `header` (default `CF-Connecting-IP`):
+
+- a TCP peer inside `trusted_proxies` (CIDR list, empty by default; `Gateway::serve`);
+- a unix-socket peer whose uid, read with `SO_PEERCRED` at accept, is in `trusted_socket_uids` (`Gateway::serve_unix`; the production layout, where `cloudflared` reaches `unix:/run/renox-edge/worker.sock` as `renox-tunnel`).
+
+From a trusted peer, a header with exactly one address names the client (v4-mapped IPv6 as IPv4); missing, repeated, comma-separated or malformed falls back to the peer. Any other peer keeps its socket address whatever it sends; an untrusted unix peer counts as `127.0.0.1`. The derived address feeds the token bucket, client events, `RequestCtx.client_ip`, `x-renox-client-ip` and the `ClientAddr` request extension (which also says whether a trusted proxy sent `X-Forwarded-Proto: https`). The forwarding headers are removed before dispatch from every peer. Connection caps run before any header is read: a trusted peer gets `limits.max_connections_per_trusted_peer` (10,000), every other peer `max_connections_per_ip`. Empty lists trust nobody, on purpose: `renox dev` connects from loopback and copies the browser's headers. Proof: `tests/client_ip.rs` (`docs/24-threat-model.md` A, "Forged client-IP header", "Local process forges the client-IP header").
 
 ## Route table
 
@@ -99,6 +109,7 @@ Certificates are issued and pushed by the control plane from F3 (ACME, #59); key
 | `header_read_timeout` | 10 s | hyper's HTTP/1.1 head timer (also between keep-alive requests); the TLS handshake gets the same budget | connection closed |
 | `idle_timeout` | 60 s | `IdleTimeout` around the socket: no byte read or written for this long while waiting on the socket | connection closed |
 | `max_connections_per_ip` | 100 | `ConnectionLimiter` at accept (IPv6 by /64) | plain HTTP: fixed `503` + `Retry-After: 1`, closed; TLS: closed before the handshake |
+| `max_connections_per_trusted_peer` | 10,000 | A second `ConnectionLimiter` for trusted proxies (see "Client address") | fixed `503`, closed |
 
 The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.x only (no h2c, no cleartext upgrade), TLS uses HTTP/2 when ALPN negotiated `h2`. A sniffing step would read the first bytes before the head timer starts. Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
 
@@ -209,6 +220,7 @@ The CSP carries `report-uri /__renox/events?kind=csp; report-to renox-csp`, and 
 | `limits` | see "Input limits" | Header, body, timeout, and connection limits |
 | `protocol` | see "Protocol limits" | HTTP/2 stream, reset, and control-frame limits |
 | `client_events` | see "Client events" | `/__renox/events` limits (`ClientEventLimits`) |
+| `client_ip` | trusts nobody | Which peers may name the client (`ClientIpConfig`: `trusted_proxies`, `trusted_socket_uids`, `header`); see "Client address" |
 | `security_txt` | `None` | The platform's `/.well-known/security.txt` (RFC 9116, #121), answered before route lookup on its hosts only. `well_known::Settings::build` makes it from `worker.toml` `[gateway.security_txt]` (#364): `hosts` (default `renoxium.app`, the platform domain's apex), `contacts` (default `mailto:security@renoxium.com`), `canonical` (default `https://<first host>/.well-known/security.txt`), `policy`; a file RFC 9116 refuses is an error. The worker sets it in controlled mode |
 
 ## Tests

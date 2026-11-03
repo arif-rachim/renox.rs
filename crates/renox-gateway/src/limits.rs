@@ -11,6 +11,7 @@
 //! | `header_read_timeout` | hyper (HTTP/1.1 request head), TLS handshake | connection closed |
 //! | `idle_timeout` | [`IdleTimeout`] around the socket | connection closed |
 //! | `max_connections_per_ip` | [`ConnectionLimiter`] at accept | 503 and close (plain HTTP), close (TLS) |
+//! | `max_connections_per_trusted_peer` | a second [`ConnectionLimiter`] for trusted proxies (`client_ip.rs`) | 503 and close |
 //! | `protocol.h2_max_resets_per_ip_per_second` | [`IpResetLimiter`], counted by `H2FloodBudget` | HTTP/2 connection closed |
 
 use std::collections::HashMap;
@@ -49,6 +50,10 @@ pub struct GatewayLimits {
     pub idle_timeout: Duration,
     /// Open connections per client IP (IPv6 by /64).
     pub max_connections_per_ip: usize,
+    /// Open connections per trusted proxy (#414): `cloudflared` carries
+    /// every visitor over its connections, so it is not capped like one
+    /// client. Per-request limits still key on the client address.
+    pub max_connections_per_trusted_peer: usize,
 }
 
 impl Default for GatewayLimits {
@@ -61,6 +66,7 @@ impl Default for GatewayLimits {
             header_read_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_secs(60),
             max_connections_per_ip: 100,
+            max_connections_per_trusted_peer: 10_000,
         }
     }
 }

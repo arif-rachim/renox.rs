@@ -28,10 +28,11 @@ use limits::{
     BodyCheck, ConnectionLimiter, IdleTimeout, IpResetLimiter, connection_limit_response,
 };
 use protocol::{H2FloodBudget, Http1Guard};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UnixListener};
 use tower::ServiceExt;
 
 pub mod client_events;
+pub mod client_ip;
 pub mod client_script;
 pub mod compress;
 pub mod host_check;
@@ -50,6 +51,7 @@ pub mod well_known;
 pub use client_events::{
     ClientEventLimits, ClientEventSink, ClientEventStats, ClientLogLine, DropReason,
 };
+pub use client_ip::{ClientAddr, ClientIpConfig, IpNet, Peer};
 pub use host_check::TlsSni;
 pub use limits::{GatewayLimits, RouteKind};
 pub use protocol::ProtocolLimits;
@@ -115,7 +117,9 @@ pub struct RequestCtx {
     /// cell, ops, queries, and fetches all use this one deadline
     /// (`docs/03-architecture.md`, "Deadlines").
     pub deadline: Instant,
-    /// The TCP peer address (IPv4-mapped IPv6 shown as IPv4).
+    /// The client address: the socket peer's, or the trusted edge's
+    /// `CF-Connecting-IP` (`client_ip.rs`, #414). IPv4-mapped IPv6 is shown
+    /// as IPv4.
     pub client_ip: IpAddr,
     /// This request's CSP nonce (#47): the renderer puts it on every
     /// `<script>`/`<style>`, the gateway sends it in the CSP header.
@@ -156,6 +160,8 @@ pub struct GatewayConfig {
     /// `/.well-known/security.txt` for the platform's own hosts
     /// (`well_known.rs`, #121); `None` serves nothing.
     pub security_txt: Option<Arc<well_known::SecurityTxt>>,
+    /// Which socket peers may name the client (`client_ip.rs`, #414).
+    pub client_ip: ClientIpConfig,
 }
 
 impl GatewayConfig {
@@ -168,6 +174,7 @@ impl GatewayConfig {
             protocol: ProtocolLimits::default(),
             client_events: ClientEventLimits::default(),
             security_txt: None,
+            client_ip: ClientIpConfig::default(),
         }
     }
 }
@@ -212,6 +219,8 @@ struct Inner {
     security: security::SecurityStore,
     limiter: RateLimiter,
     connections: Arc<ConnectionLimiter>,
+    /// Trusted proxies' connections, under their own, larger cap (#414).
+    trusted_connections: Arc<ConnectionLimiter>,
     h2_resets: Arc<IpResetLimiter>,
     counters: Counters,
     client_events: client_events::ClientEvents,
@@ -244,6 +253,8 @@ impl Gateway {
         let security = security::SecurityStore::new(config.artifact_root.clone());
         let limiter = RateLimiter::new(config.rate_limit);
         let connections = ConnectionLimiter::new(config.limits.max_connections_per_ip);
+        let trusted_connections =
+            ConnectionLimiter::new(config.limits.max_connections_per_trusted_peer);
         let h2_resets = IpResetLimiter::new(config.protocol.h2_max_resets_per_ip_per_second);
         let client_events = client_events::ClientEvents::new(config.client_events);
         Self {
@@ -254,6 +265,7 @@ impl Gateway {
                 security,
                 limiter,
                 connections,
+                trusted_connections,
                 h2_resets,
                 counters: Counters::default(),
                 client_events,
@@ -331,6 +343,48 @@ impl Gateway {
         .await
     }
 
+    /// Accepts plain-HTTP connections (HTTP/1.x only) on a unix socket
+    /// (#414, ADR D25): `cloudflared` reaches it through a `unix:` origin.
+    /// A peer whose uid is in [`ClientIpConfig::trusted_socket_uids`] is a
+    /// trusted proxy; any other local process is served as [`client_ip::LOCAL_PEER`]
+    /// and its forwarding headers are ignored.
+    pub async fn serve_unix<D: CellDispatcher>(
+        &self,
+        listener: UnixListener,
+        dispatcher: Arc<D>,
+    ) -> std::io::Result<()> {
+        let router = self.router(dispatcher);
+        let settings = self.conn_settings();
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(conn) => conn,
+                Err(e) if is_transient_accept_error(&e) => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            let uid = stream.peer_cred().ok().map(|c| c.uid());
+            let trusted = settings.client_ip.trusts_uid(uid);
+            let limiter = if trusted {
+                &settings.trusted_connections
+            } else {
+                &settings.connections
+            };
+            let guard = limiter.try_acquire(client_ip::LOCAL_PEER);
+            let router = router.clone();
+            let settings = settings.clone();
+            tokio::spawn(async move {
+                let Some(_guard) = guard else {
+                    reject_connection(stream).await;
+                    return;
+                };
+                let stream = IdleTimeout::new(stream, settings.limits.idle_timeout);
+                serve_connection(stream, Peer::Unix { trusted }, router, &settings, None).await
+            });
+        }
+    }
+
     /// Accepts TLS connections on `listener`, choosing the certificate by
     /// SNI from `certs` (see [`tls`]). `certs.reload()` takes effect for new
     /// handshakes without dropping established connections. Responses on
@@ -356,6 +410,8 @@ impl Gateway {
             limits: self.inner.config.limits,
             protocol: self.inner.config.protocol,
             connections: self.inner.connections.clone(),
+            trusted_connections: self.inner.trusted_connections.clone(),
+            client_ip: Arc::new(self.inner.config.client_ip.clone()),
             h2_resets: self.inner.h2_resets.clone(),
             refused: self.inner.counters.protocol_refused.clone(),
         }
@@ -368,6 +424,8 @@ struct ConnSettings {
     limits: GatewayLimits,
     protocol: ProtocolLimits,
     connections: Arc<ConnectionLimiter>,
+    trusted_connections: Arc<ConnectionLimiter>,
+    client_ip: Arc<ClientIpConfig>,
     h2_resets: Arc<IpResetLimiter>,
     refused: Arc<AtomicU64>,
 }
@@ -390,7 +448,14 @@ async fn accept_loop(
         let router = router.clone();
         let tls = tls.clone();
         let settings = settings.clone();
-        let guard = settings.connections.try_acquire(peer.ip());
+        // A trusted proxy carries many clients on its connections: its own,
+        // larger cap (#414); every other peer is capped per address.
+        let peer_ip = client_ip::normalize(peer.ip());
+        let guard = if settings.client_ip.trusts_tcp(peer_ip) {
+            settings.trusted_connections.try_acquire(peer_ip)
+        } else {
+            settings.connections.try_acquire(peer_ip)
+        };
         tokio::spawn(async move {
             let Some(_guard) = guard else {
                 if tls.is_none() {
@@ -402,7 +467,7 @@ async fn accept_loop(
             let limits = settings.limits;
             let stream = IdleTimeout::new(stream, limits.idle_timeout);
             match tls {
-                None => serve_connection(stream, peer, router, &settings, None).await,
+                None => serve_connection(stream, Peer::Tcp(peer), router, &settings, None).await,
                 Some(acceptor) => {
                     // The handshake gets the same budget as a request head,
                     // so a client cannot hold a socket by stalling it.
@@ -417,7 +482,7 @@ async fn accept_loop(
                         alpn: session.alpn_protocol().map(<[u8]>::to_vec),
                         sni: session.server_name().map(str::to_owned),
                     };
-                    serve_connection(stream, peer, router, &settings, Some(tls)).await
+                    serve_connection(stream, Peer::Tcp(peer), router, &settings, Some(tls)).await
                 }
             }
         });
@@ -426,7 +491,7 @@ async fn accept_loop(
 
 /// Over the per-IP connection cap: a fixed 503 and close, written with a
 /// short timeout so a refused client cannot hold the task either.
-async fn reject_connection(mut stream: tokio::net::TcpStream) {
+async fn reject_connection<S: tokio::io::AsyncWrite + Unpin>(mut stream: S) {
     use tokio::io::AsyncWriteExt;
     let _ = tokio::time::timeout(Duration::from_secs(1), async {
         stream.write_all(&connection_limit_response()).await?;
@@ -449,7 +514,7 @@ struct TlsInfo {
 /// `protocol.rs` sits between the socket and hyper.
 async fn serve_connection<I>(
     io: I,
-    peer: SocketAddr,
+    peer: Peer,
     router: Router,
     settings: &ConnSettings,
     tls: Option<TlsInfo>,
@@ -467,7 +532,10 @@ async fn serve_connection<I>(
     let service = hyper::service::service_fn(move |req: Request<_>| {
         let mut req = req.map(Body::new);
         req.extensions_mut().insert(conn_switch.clone());
-        req.extensions_mut().insert(ConnectInfo(peer));
+        req.extensions_mut().insert(peer);
+        if let Peer::Tcp(addr) = peer {
+            req.extensions_mut().insert(ConnectInfo(addr));
+        }
         if is_tls {
             req.extensions_mut().insert(TlsConnection);
         }
@@ -482,7 +550,10 @@ async fn serve_connection<I>(
         let io = TokioIo::new(H2FloodBudget::new(
             io,
             protocol,
-            Some(settings.h2_resets.slot(peer.ip())),
+            Some(settings.h2_resets.slot(match peer {
+                Peer::Tcp(addr) => addr.ip(),
+                Peer::Unix { .. } => client_ip::LOCAL_PEER,
+            })),
             refused,
         ));
         let mut builder = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
@@ -576,7 +647,8 @@ async fn route<D: CellDispatcher>(
 ) -> Response<Body> {
     let inner = &state.gateway.inner;
     let counters = &inner.counters;
-    let client_ip = client_ip(&req);
+    let client = client_addr(&req, &inner.config.client_ip);
+    let client_ip = client.ip;
 
     if let RateDecision::Limited { retry_after_secs } = inner.limiter.check(client_ip) {
         counters.rate_limited.fetch_add(1, Ordering::Relaxed);
@@ -697,7 +769,13 @@ async fn route<D: CellDispatcher>(
         client_ip,
         csp_nonce: nonce.to_owned(),
     };
-    prepare_request_headers(req.headers_mut(), request_id, client_ip);
+    prepare_request_headers(
+        req.headers_mut(),
+        request_id,
+        client_ip,
+        &inner.config.client_ip,
+    );
+    req.extensions_mut().insert(client);
     if let Some(ws) = ws {
         req.extensions_mut().insert(ws);
     }
@@ -781,15 +859,22 @@ async fn platform_path<D: CellDispatcher>(
     }
 }
 
-fn client_ip(req: &Request<Body>) -> IpAddr {
-    let ip = req
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip())
-        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-    match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(ip),
-        v4 => v4,
+/// The request's client (#414): from the [`Peer`] the accept loop set (or
+/// a test's `ConnectInfo`), and the trusted edge's header if the peer is
+/// one. No peer at all (a router driven by hand): the unspecified address.
+fn client_addr(req: &Request<Body>, config: &ClientIpConfig) -> ClientAddr {
+    let peer = req.extensions().get::<Peer>().copied().or_else(|| {
+        req.extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(addr)| Peer::Tcp(*addr))
+    });
+    match peer {
+        Some(peer) => client_ip::resolve(peer, req.headers(), config),
+        None => ClientAddr {
+            ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            via_trusted_proxy: false,
+            forwarded_https: false,
+        },
     }
 }
 
@@ -819,10 +904,16 @@ fn request_host(req: &Request<Body>) -> Result<String, HostError> {
     }
 }
 
-/// Removes hop-by-hop headers (including those named in `Connection`) and
-/// every client-sent `x-renox-*` header except [`CSRF_HEADER`], then sets the two headers tenant
-/// code may trust (`ops.md` section 6).
-fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip: IpAddr) {
+/// Removes hop-by-hop headers (including those named in `Connection`), the
+/// forwarding headers of `client_ip.rs` (from every peer, #414) and every
+/// client-sent `x-renox-*` header except [`CSRF_HEADER`], then sets the two
+/// headers tenant code may trust (`ops.md` section 6).
+fn prepare_request_headers(
+    headers: &mut HeaderMap,
+    request_id: &str,
+    client_ip: IpAddr,
+    config: &ClientIpConfig,
+) {
     let named: Vec<HeaderName> = headers
         .get_all(header::CONNECTION)
         .iter()
@@ -836,6 +927,7 @@ fn prepare_request_headers(headers: &mut HeaderMap, request_id: &str, client_ip:
     for name in HOP_BY_HOP {
         headers.remove(name);
     }
+    client_ip::strip(headers, config);
     let renox: Vec<HeaderName> = headers
         .keys()
         .filter(|k| k.as_str().starts_with("x-renox-") && k.as_str() != CSRF_HEADER)

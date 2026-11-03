@@ -13,9 +13,12 @@ use crate::tiers::{TierName, TierOverride, Tiers};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkerConfig {
-    /// Address the gateway listens on: plain HTTP without `[tls]` (local
-    /// development, F1), HTTPS with it (production `0.0.0.0:443`).
-    pub listen: SocketAddr,
+    /// Where the gateway listens: a TCP address (`127.0.0.1:8080`; plain
+    /// HTTP without `[tls]`, HTTPS with it), or `unix:<path>`, the
+    /// production layout behind `cloudflared` (ADR D25, #414): plain
+    /// HTTP/1.1 on a unix socket whose trusted peer is chosen by uid
+    /// (`[gateway] trusted_socket_users`).
+    pub listen: Listen,
     /// `<data_dir>/<tenant_id>/app.db` and `secrets.json`.
     pub data_dir: PathBuf,
     /// Artifact directories named by their hash.
@@ -469,6 +472,56 @@ pub struct TlsSection {
     pub https_port: Option<u16>,
 }
 
+/// `listen`: a TCP address or `unix:<path>` (#414).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "String")]
+pub enum Listen {
+    Tcp(SocketAddr),
+    Unix(PathBuf),
+}
+
+impl TryFrom<String> for Listen {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, String> {
+        match s.strip_prefix("unix:") {
+            Some("") => Err("listen = \"unix:\" needs a socket path".into()),
+            Some(path) => Ok(Listen::Unix(PathBuf::from(path))),
+            None => s
+                .parse()
+                .map(Listen::Tcp)
+                .map_err(|_| format!("listen {s:?} is neither ip:port nor unix:<path>")),
+        }
+    }
+}
+
+impl Listen {
+    /// The TCP port, if TCP.
+    pub fn port(&self) -> Option<u16> {
+        match self {
+            Listen::Tcp(a) => Some(a.port()),
+            Listen::Unix(_) => None,
+        }
+    }
+
+    /// The TCP address, if TCP.
+    pub fn tcp(&self) -> Option<SocketAddr> {
+        match self {
+            Listen::Tcp(a) => Some(*a),
+            Listen::Unix(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Listen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Listen::Tcp(a) => write!(f, "{a}"),
+            Listen::Unix(p) => write!(f, "unix:{}", p.display()),
+        }
+    }
+}
+
 /// `[gateway]`: the per-client limits of `renox-gateway` (README of that
 /// crate, "Configuration" and "Input limits"). Benchmarks that send all
 /// their load from one address raise them.
@@ -489,6 +542,69 @@ pub struct GatewaySection {
     pub h2_max_control_frames_per_second: u32,
     /// `[gateway.security_txt]`: the platform's security.txt (#121, #364).
     pub security_txt: SecurityTxtSection,
+    /// TCP peers (CIDR ranges or addresses) whose `client_ip_header` names
+    /// the client (#414). Empty (the default): no TCP peer is trusted.
+    /// Never list loopback where untrusted local processes run; production
+    /// uses the unix socket and `trusted_socket_users` instead (ADR D25).
+    pub trusted_proxies: Vec<String>,
+    /// Users (names or numeric uids) whose connections to a `unix:` listen
+    /// socket are trusted proxies (#414): production `["renox-tunnel"]`,
+    /// the static user of `cloudflared`. Names are resolved from
+    /// `/etc/passwd` when the config is read, before the sandbox applies.
+    pub trusted_socket_users: Vec<String>,
+    /// The header a trusted proxy names the client in.
+    pub client_ip_header: String,
+    /// Open connections per trusted proxy (#414).
+    pub max_connections_per_trusted_peer: usize,
+    /// The group of a `unix:` listen socket (name or numeric gid); the
+    /// socket is mode 0660 in it, so only its members (the worker and
+    /// `cloudflared`, group `renox-edge` in production) can connect.
+    /// Absent: mode 0600, the worker's own user only.
+    pub socket_group: Option<String>,
+    /// Resolved from `trusted_socket_users` by `WorkerConfig::parse`.
+    #[serde(skip)]
+    pub trusted_socket_uids: Vec<u32>,
+    /// Resolved from `socket_group` by `WorkerConfig::parse`.
+    #[serde(skip)]
+    pub socket_gid: Option<u32>,
+}
+
+impl GatewaySection {
+    /// The gateway's client-address rule (#414), from the parsed section.
+    pub fn client_ip(&self) -> Result<renox_gateway::ClientIpConfig, String> {
+        let trusted_proxies = self
+            .trusted_proxies
+            .iter()
+            .map(|n| renox_gateway::IpNet::parse(n))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("gateway.trusted_proxies: {e}"))?;
+        let header = axum::http::HeaderName::from_bytes(self.client_ip_header.trim().as_bytes())
+            .map_err(|_| {
+                format!(
+                    "gateway.client_ip_header {:?} is not a header name",
+                    self.client_ip_header
+                )
+            })?;
+        Ok(renox_gateway::ClientIpConfig {
+            trusted_proxies,
+            trusted_socket_uids: self.trusted_socket_uids.clone(),
+            header,
+        })
+    }
+}
+
+/// A user's uid: a number, or a name looked up in `passwd` (the text of
+/// `/etc/passwd`). The worker has no NSS dependency; system users of a
+/// node (`renox-tunnel`) are local.
+pub fn lookup_id(name: &str, db: &str) -> Option<u32> {
+    let name = name.trim();
+    if let Ok(id) = name.parse::<u32>() {
+        return Some(id);
+    }
+    db.lines()
+        .map(|l| l.split(':').collect::<Vec<_>>())
+        .find(|f| f.len() > 2 && f[0] == name)
+        .and_then(|f| f[2].parse().ok())
 }
 
 /// `[gateway.security_txt]` (#364): the hosts that serve the platform's
@@ -524,6 +640,14 @@ impl Default for GatewaySection {
             rate_limit_per_ip: rate.requests_per_second,
             rate_limit_burst: rate.burst,
             max_connections_per_ip: renox_gateway::GatewayLimits::default().max_connections_per_ip,
+            trusted_proxies: Vec::new(),
+            trusted_socket_users: Vec::new(),
+            client_ip_header: renox_gateway::client_ip::CF_CONNECTING_IP.into(),
+            max_connections_per_trusted_peer: renox_gateway::GatewayLimits::default()
+                .max_connections_per_trusted_peer,
+            socket_group: None,
+            trusted_socket_uids: Vec::new(),
+            socket_gid: None,
             h2_max_resets_per_second: protocol.h2_max_resets_per_second,
             h2_max_resets_per_ip_per_second: protocol.h2_max_resets_per_ip_per_second,
             h2_max_control_frames_per_second: protocol.h2_max_control_frames_per_second,
@@ -664,6 +788,41 @@ impl WorkerConfig {
                 )));
             }
         }
+        if let Listen::Unix(p) = &mut c.listen
+            && p.is_relative()
+        {
+            *p = base.join(&*p);
+        }
+        // #414: user and group names are resolved now, before Landlock hides
+        // `/etc/passwd` and `/etc/group` from the worker.
+        if !c.gateway.trusted_socket_users.is_empty() || c.gateway.socket_group.is_some() {
+            let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+            let group = std::fs::read_to_string("/etc/group").unwrap_or_default();
+            let mut uids = Vec::new();
+            for user in &c.gateway.trusted_socket_users {
+                uids.push(lookup_id(user, &passwd).ok_or_else(|| {
+                    ConfigError::Invalid(format!(
+                        "gateway.trusted_socket_users: no user {user:?} on this host"
+                    ))
+                })?);
+            }
+            c.gateway.trusted_socket_uids = uids;
+            if let Some(g) = &c.gateway.socket_group {
+                c.gateway.socket_gid = Some(lookup_id(g, &group).ok_or_else(|| {
+                    ConfigError::Invalid(format!(
+                        "gateway.socket_group: no group {g:?} on this host"
+                    ))
+                })?);
+            }
+        }
+        if let Err(e) = c.gateway.client_ip() {
+            return Err(ConfigError::Invalid(e));
+        }
+        if c.gateway.max_connections_per_trusted_peer == 0 {
+            return Err(ConfigError::Invalid(
+                "gateway.max_connections_per_trusted_peer must be at least 1".into(),
+            ));
+        }
         if let Err(e) = c
             .gateway
             .security_txt
@@ -765,7 +924,7 @@ impl WorkerConfig {
             }
             if tls
                 .http_listen
-                .is_some_and(|h| h == c.listen && h.port() != 0)
+                .is_some_and(|h| Some(h) == c.listen.tcp() && h.port() != 0)
             {
                 return Err(ConfigError::Invalid(
                     "tls.http_listen must differ from listen".into(),
@@ -918,6 +1077,84 @@ mod tests {
         assert!(
             WorkerConfig::parse(&with("[gateway]\nh2_max_resets_per_second = -1\n"), base).is_err()
         );
+    }
+
+    /// #414: `listen = "unix:…"`, the client-address keys of `[gateway]`,
+    /// users and groups resolved by name or number, and the refusals.
+    #[test]
+    fn unix_listen_and_client_ip_keys() {
+        let rest = "data_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+        let c = WorkerConfig::parse(
+            &format!("listen = \"127.0.0.1:8080\"\n{rest}"),
+            Path::new("/srv"),
+        )
+        .unwrap();
+        assert_eq!(c.listen, Listen::Tcp("127.0.0.1:8080".parse().unwrap()));
+        let ip = c.gateway.client_ip().unwrap();
+        assert!(ip.trusted_proxies.is_empty() && ip.trusted_socket_uids.is_empty());
+        assert_eq!(ip.header.as_str(), "cf-connecting-ip");
+        assert_eq!(c.gateway.max_connections_per_trusted_peer, 10_000);
+
+        let text = format!(
+            "listen = \"unix:run/worker.sock\"\n{rest}[gateway]\ntrusted_proxies = [\"127.0.0.1/32\", \"::1\"]\ntrusted_socket_users = [\"root\", \"4242\"]\nsocket_group = \"0\"\nclient_ip_header = \"True-Client-IP\"\nmax_connections_per_trusted_peer = 50\n"
+        );
+        let c = WorkerConfig::parse(&text, Path::new("/srv")).unwrap();
+        assert_eq!(c.listen, Listen::Unix("/srv/run/worker.sock".into()));
+        assert_eq!(c.listen.to_string(), "unix:/srv/run/worker.sock");
+        assert_eq!(c.listen.port(), None);
+        assert_eq!(c.gateway.trusted_socket_uids, vec![0, 4242]);
+        assert_eq!(c.gateway.socket_gid, Some(0));
+        let ip = c.gateway.client_ip().unwrap();
+        assert_eq!(ip.trusted_proxies.len(), 2);
+        assert_eq!(ip.header.as_str(), "true-client-ip");
+        assert_eq!(ip.trusted_socket_uids, vec![0, 4242]);
+
+        for (bad, why) in [
+            ("listen = \"unix:\"\n", "socket path"),
+            ("listen = \"localhost\"\n", "neither"),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\ntrusted_proxies = [\"10.0.0.1/8\"]\n",
+                "trusted_proxies",
+            ),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\ntrusted_socket_users = [\"no-such-user-renox\"]\n",
+                "trusted_socket_users",
+            ),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\nsocket_group = \"no-such-group-renox\"\n",
+                "socket_group",
+            ),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\nclient_ip_header = \"bad header\"\n",
+                "client_ip_header",
+            ),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\nmax_connections_per_trusted_peer = 0\n",
+                "max_connections_per_trusted_peer",
+            ),
+        ] {
+            // `[gateway]` must follow the top-level keys.
+            let (top, table) = bad
+                .split_once("[gateway]")
+                .map_or((bad, ""), |(a, b)| (a, b));
+            let text = if table.is_empty() {
+                format!("{top}{rest}")
+            } else {
+                format!("{top}{rest}[gateway]{table}")
+            };
+            let err = WorkerConfig::parse(&text, Path::new("/srv"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(why), "{bad}: {err}");
+        }
+        assert_eq!(
+            lookup_id(
+                "svc",
+                "root:x:0:0::/:/bin/sh\nsvc:x:991:991::/:/usr/sbin/nologin\n"
+            ),
+            Some(991)
+        );
+        assert_eq!(lookup_id("other", "svc:x:991:991::/:/bin/false\n"), None);
     }
 
     #[test]

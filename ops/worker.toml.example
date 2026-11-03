@@ -48,6 +48,20 @@ region = "@REGION@"
 max_cells = 2000
 health_listen = "@HEALTH_LISTEN@"
 
+# Client addresses behind a proxy or Cloudflare Tunnel (#414, ADR D25). Only a
+# trusted peer's CF-Connecting-IP names the client; every other peer keeps its
+# socket address, and the forwarding headers never reach tenant code. Both lists
+# are empty by default (nobody trusted). Behind cloudflared the worker listens on
+# a unix socket and trusts cloudflared's user, never a loopback range that any
+# local process can reach:
+#   listen = "unix:/run/renox-edge/worker.sock"
+# [gateway]
+# trusted_socket_users = ["renox-tunnel"]
+# socket_group = "renox-edge"
+# trusted_proxies = []                       # CIDR ranges of trusted TCP peers
+# client_ip_header = "CF-Connecting-IP"
+# max_connections_per_trusted_peer = 10000
+
 # The platform's /.well-known/security.txt (RFC 9116, #121), served by the
 # gateway on `hosts` before any route lookup (#364). Every key is optional.
 # The values below are the defaults of the reference deployment (tenant apps
