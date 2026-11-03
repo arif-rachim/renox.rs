@@ -7,6 +7,7 @@
 import { Hono } from "hono";
 import { ApiError, errorBody } from "./errors.ts";
 import { ulid } from "./ids.ts";
+import { describeError, stageOf } from "./log.ts";
 import { actorOf, type Deps, type Env } from "./context.ts";
 import { registerHealth } from "./health.ts";
 import { registerApps } from "./apps/routes.ts";
@@ -39,6 +40,9 @@ import { registerBilling } from "./billing/routes.ts";
 import { registerTemplates } from "./signup/templates.ts";
 import { registerAiGateway } from "./ai/gateway.ts";
 import { registerAbuse } from "./abuse/routes.ts";
+
+/** Seconds a client waits before retrying after an object-store failure (#402). */
+export const UPSTREAM_RETRY_AFTER_S = 5;
 
 export type RouteModule = (app: Hono<Env>, deps: Deps) => void;
 
@@ -96,8 +100,28 @@ export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surf
       if (err.extra.retryAfter !== undefined) res.headers.set("retry-after", String(err.extra.retryAfter));
       return res;
     }
-    // The operator log gets the message; the response gets only the fixed text.
-    deps.log.error("unhandled error", { request_id: requestId, error: err instanceof Error ? err.message : String(err) });
+    // The operator log gets the name, code, stage and cause chain (secrets
+    // masked, #402); the response gets only the fixed text.
+    const stage = stageOf(err) ?? "handler";
+    const error = describeError(err);
+    const upstream = stage.startsWith("object_store.");
+    deps.log.error(upstream ? "upstream storage error" : "unhandled error", {
+      request_id: requestId,
+      method: c.req.method,
+      route: c.req.routePath,
+      stage,
+      error: error.message,
+      error_name: error.name,
+      ...(error.code === undefined ? {} : { error_code: error.code }),
+      detail: error,
+    });
+    // An object-store failure is upstream and usually transient (a reset
+    // connection to the bucket): 503 with Retry-After, which the CLI retries.
+    if (upstream) {
+      const res = c.json(errorBody("RENOX_UNAVAILABLE", requestId), 503);
+      res.headers.set("retry-after", String(UPSTREAM_RETRY_AFTER_S));
+      return res;
+    }
     return c.json(errorBody("RENOX_INTERNAL", requestId), 500);
   });
 
