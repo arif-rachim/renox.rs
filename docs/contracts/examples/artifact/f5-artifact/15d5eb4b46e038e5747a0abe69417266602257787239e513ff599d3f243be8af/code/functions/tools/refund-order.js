@@ -1,4 +1,4 @@
-import { tool } from "@renoxium/sdk";
+import { tool } from "renox";
 export default tool({
   name: "refund_order",
   description: "Refund a paid order",
