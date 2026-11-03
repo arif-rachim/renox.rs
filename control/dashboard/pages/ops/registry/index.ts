@@ -10,7 +10,7 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { Api, apiBase, type Result } from "../../../lib/api.ts";
-import { signedIn } from "../../../lib/guard.ts";
+import { frame, signedIn } from "../../../lib/guard.ts";
 import { forbidden, OPS_TOKEN, opsEnabled, opsProblem, REASON_MAX, REASON_MIN } from "../../../lib/ops.ts";
 import { EN, trOf, type Tr } from "../../../lib/i18n.ts";
 import { clock } from "../../../lib/view.ts";
@@ -22,7 +22,7 @@ export async function load(ctx: LoaderContext) {
   if (!opsEnabled(ctx.secrets)) return forbidden();
   const api = await signedIn(ctx);
   if (api instanceof Response) return api;
-  return { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, reason_min: REASON_MIN, reason_max: REASON_MAX, ...quiet };
+  return { ...frame(ctx, api, "ops"), reason_min: REASON_MIN, reason_max: REASON_MAX, ...quiet };
 }
 
 /** Why the form is refused before the API, or null. The token is never part of the message. */

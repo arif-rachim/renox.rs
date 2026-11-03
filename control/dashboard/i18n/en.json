@@ -14,7 +14,11 @@
       "usage": "Usage",
       "secrets": "Secrets",
       "database": "Database",
-      "settings": "Settings"
+      "settings": "Settings",
+      "main": "Dashboard",
+      "account": "Account",
+      "security": "Security",
+      "ops": "Ops"
     },
     "banner": {
       "access": "Operator access to tenant",
@@ -79,7 +83,9 @@
       "not_token": "That is not a Renoxium token: it starts with renox_pat_ followed by 32 letters and digits.",
       "set_secret": "The dashboard is not configured: set the {secret} secret.",
       "refused": "The control API refused this token (unknown, expired or revoked).",
-      "no_scope": "This token cannot list apps: it needs the apps:read scope."
+      "no_scope": "This token cannot list apps: it needs the apps:read scope.",
+      "lede": "The dashboard for your apps, deployments, logs and usage.",
+      "get_token": "Where a token comes from"
     },
     "signup": {
       "title": "Sign up",
@@ -101,7 +107,8 @@
       "err_accept": "Accept the data processing agreement and the terms to create an account.",
       "err_disposable": "Use an address that is not a disposable mailbox.",
       "err_taken": "That workspace id is taken; choose another.",
-      "err_too_many": "Too many sign-ups from here; try again later."
+      "err_too_many": "Too many sign-ups from here; try again later.",
+      "no_account": "No account yet?"
     },
     "verify": {
       "title": "Verify your address",
@@ -183,7 +190,11 @@
       "deploy_with": "Deploy it with",
       "from_folder": "from the project folder.",
       "create": "Create app",
-      "err_name": "A name is 1 to 50 lower-case letters, digits and dashes, starting with a letter."
+      "err_name": "A name is 1 to 50 lower-case letters, digits and dashes, starting with a letter.",
+      "stat_live": "apps live",
+      "stat_requests": "requests today (UTC)",
+      "stat_storage": "database storage used",
+      "from_template": "From a template"
     },
     "new": {
       "is_live": "is live",
@@ -219,7 +230,8 @@
       "no_errors": "No errors in the last 24 hours.",
       "see_errors": "See the errors",
       "live_version": "Live version",
-      "no_live": "Nothing is live yet. Deploy with renox deploy, or promote a deployment below."
+      "no_live": "Nothing is live yet. Deploy with renox deploy, or promote a deployment below.",
+      "flow_label": "The path of a request to {app}: its hostname, the edge, the cell with its isolate and SQLite file, and the live version."
     },
     "deployments": {
       "hash": "Hash",
@@ -584,6 +596,18 @@
       "not_configured": "The dashboard is not configured: {reason}.",
       "no_deployment": "No deployment was chosen.",
       "no_app": "No such app."
+    },
+    "usage_all": {
+      "last_24h": "Last 24 hours, every app",
+      "per_hour": "Per hour",
+      "empty": "No apps yet.",
+      "note": "Usage is metered per request and summed per hour; the monthly quota and the estimate are on"
+    },
+    "account": {
+      "workspace": "Workspace",
+      "restrictions": "Restrictions",
+      "sign_in_h": "Your sign-in",
+      "sign_in_token": "This browser session holds your tenant token, encrypted, and calls the control API at"
     }
   }
 }

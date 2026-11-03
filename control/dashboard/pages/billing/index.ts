@@ -12,8 +12,8 @@
 // in its own frame and the page sends only the setup id.
 import type { ActionContext, LoaderContext } from "renox";
 
-import { apiBase, type Api, type ApiFailure, type Billing, type Invoice, needsStepUp, type PaymentSetup, type Plan, type Result } from "../../lib/api.ts";
-import { problem, type Problem, signedIn } from "../../lib/guard.ts";
+import { type Api, type ApiFailure, type Billing, type Invoice, needsStepUp, type PaymentSetup, type Plan, type Result } from "../../lib/api.ts";
+import { frame, problem, signedIn, type Problem } from "../../lib/guard.ts";
 import { trOf } from "../../lib/i18n.ts";
 import { clock } from "../../lib/view.ts";
 
@@ -64,7 +64,7 @@ const invoiceRows = (items: Invoice[]) =>
   items.map((i) => ({ id: i.id, issued: clock(i.issued_at).slice(0, 10), total: `${i.total} ${i.currency}`, status: i.status, pdf: `/billing/invoices/${encodeURIComponent(i.id)}` }));
 
 async function page(ctx: LoaderContext | ActionContext, api: Api, view: View) {
-  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, section: "billing", owner_only: false, no_tenant: false, billing: null, invoices: [] as ReturnType<typeof invoiceRows>, has_invoices: false, ...view };
+  const base = { ...frame(ctx, api, "billing"), section: "billing", owner_only: false, no_tenant: false, billing: null, invoices: [] as ReturnType<typeof invoiceRows>, has_invoices: false, ...view };
   const tenant = await tenantOf(api);
   if (!tenant.ok) return { ...base, problem: view.problem ?? (await problem(ctx, tenant)) };
   if (tenant.value === null) return { ...base, no_tenant: true };

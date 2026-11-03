@@ -1,0 +1,29 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="dash.nav.usage" /> · <r-t key="dash.brand" /></r-group>
+  <section id="page">
+    <div class="page-hero">
+      <p class="pill quiet"><r-t key="dash.usage_all.last_24h" /></p>
+      <h1 class="dot dot-small"><r-t key="dash.nav.usage" /></h1>
+    </div>
+    <x-problem :problem="problem" r-if="problem" />
+    <div class="cards" r-if="totals">
+      <div class="card stat"><b class="value">{{ totals.requests }}</b><span class="caption"><r-t key="dash.overview.requests" /></span></div>
+      <div class="card stat"><b class="value">{{ totals.cpu }}</b><span class="caption">CPU</span></div>
+      <div class="card stat"><b class="value">{{ totals.egress }}</b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
+    </div>
+    <table class="list" r-if="!problem">
+      <thead><tr><th><r-t key="dash.apps.app" /></th><th><r-t key="dash.overview.requests" /></th><th>CPU</th><th><r-t key="dash.overview.egress" /></th><th></th></tr></thead>
+      <tbody>
+        <tr r-for="a in apps">
+          <td><a href="/apps/{{ a.name }}">{{ a.name }}</a></td>
+          <td class="n">{{ a.requests }}</td>
+          <td class="n">{{ a.cpu }}</td>
+          <td class="n">{{ a.egress }}</td>
+          <td><a href="/apps/{{ a.name }}/usage"><r-t key="dash.usage_all.per_hour" /></a></td>
+        </tr>
+        <tr r-empty="apps"><td colspan="5"><r-t key="dash.usage_all.empty" /></td></tr>
+      </tbody>
+    </table>
+    <p class="muted"><r-t key="dash.usage_all.note" /> <a href="/billing"><r-t key="dash.nav.billing" /></a></p>
+  </section>
+</r-layout>

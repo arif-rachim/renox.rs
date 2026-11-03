@@ -29,6 +29,7 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
   expect(r.manifest.routes.map((x) => `${x.kind === "function" ? x.method : x.kind === "page" ? "PAGE" : x.kind.toUpperCase()} ${"path" in x ? x.path : x.name}`).sort()).toEqual([
     "JOB log-follower",
     "PAGE /",
+    "PAGE /account",
     "PAGE /account/security",
     "PAGE /apps",
     "PAGE /apps/:app",
@@ -51,6 +52,7 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
     "PAGE /signout",
     "PAGE /signup",
     "PAGE /signup/verify",
+    "PAGE /usage",
     "SSE /sse/logs",
   ]);
   expect(r.manifest.templates?.["pages/apps/[app]/logs"]?.fragments).toEqual({ log_lines: { target: "log-lines" } });
@@ -94,7 +96,7 @@ test.skipIf(!worker)(
       const page = await fetch(`${base}/signin?next=/apps/shop`);
       expect(page.status).toBe(200);
       const html = await page.text();
-      expect(html).toContain("<h1>Sign in</h1>");
+      expect(html).toContain('<h1 class="dot dot-small">Sign in</h1>');
       expect(html).toContain(`127.0.0.1:${local.port}`);
       expect(html).toContain('name="next" value="/apps/shop"');
       expect(page.headers.get("content-security-policy")).toContain("script-src");

@@ -10,9 +10,9 @@
       <thead><tr><th><r-t key="dash.deployments.hash" /></th><th><r-t key="dash.deployments.when" /></th><th><r-t key="dash.common.status" /></th><th><r-t key="dash.deployments.size" /></th><th><r-t key="dash.deployments.notes" /></th><th><r-t key="dash.common.actions" /></th></tr></thead>
       <tbody>
         <tr r-for="d in deployments">
-          <td><a href="?hash={{ d.hash }}"><code>{{ d.short }}</code></a></td>
+          <td><a class="pill" href="?hash={{ d.hash }}"><code>{{ d.short }}</code></a></td>
           <td>{{ d.when }}</td>
-          <td :class="{ ok: d.state == 'active', bad: d.state == 'rejected' }">{{ d.label }}</td>
+          <td><span class="pill" :class="{ ok: d.state == 'active', bad: d.state == 'rejected' }">{{ d.label }}</span></td>
           <td>{{ d.size }}</td>
           <td>{{ d.error ?? "" }}</td>
           <td><x-deployment-actions :d="d" /> <a href="?hash={{ d.hash }}"><r-t key="dash.deployments.details" /></a></td>

@@ -6,8 +6,7 @@
 // deploy or rollback (deploy-api.md section 9).
 import type { ActionContext, LoaderContext } from "renox";
 
-import { apiBase } from "../../../lib/api.ts";
-import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";
 import { ago } from "../../../lib/view.ts";
 
@@ -20,7 +19,7 @@ export async function load(ctx: LoaderContext) {
   const name = appParam(ctx.params.app);
   if (name === null) return notFound();
   const now = Date.now();
-  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "secrets", notice: null, form_error: null, action_problem: null };
+  const base = { ...frame(ctx, api, "apps"), app: name, section: "secrets", notice: null, form_error: null, action_problem: null };
   const r = await api.listSecrets(name);
   if (!r.ok) return { ...base, problem: await problem(ctx, r), version: null, secrets: [] };
   return {

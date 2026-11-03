@@ -6,10 +6,9 @@
 // last events and their frames. POST ?/status: lib/client-errors.ts.
 import type { LoaderContext } from "renox";
 
-import { apiBase } from "../../../lib/api.ts";
 import { clientErrorActions, eventRow, FINGERPRINT, groupRow, SPARK, STATUSES } from "../../../lib/client-errors.ts";
 import { trOf } from "../../../lib/i18n.ts";
-import { appParam, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { appParam, frame, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { round } from "../../../lib/view.ts";
 
 export async function load(ctx: LoaderContext) {
@@ -24,8 +23,7 @@ export async function load(ctx: LoaderContext) {
   const fp = fpRaw !== null && FINGERPRINT.test(fpRaw) ? fpRaw : null;
   const now = Date.now();
   const base = {
-    signed_in: true, impersonation: api.impersonation,
-    api_host: new URL(apiBase(ctx.secrets)).host,
+    ...frame(ctx, api, "apps"),
     app: name,
     section: "client-errors",
     notice: null,

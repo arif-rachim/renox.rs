@@ -4,8 +4,7 @@
 // deploy it (`first_deploy_at` of `getTenant`, deploy-api.md 0.5 section 21).
 import type { LoaderContext } from "renox";
 
-import { apiBase } from "../lib/api.ts";
-import { signedIn } from "../lib/guard.ts";
+import { frame, signedIn } from "../lib/guard.ts";
 import { trOf } from "../lib/i18n.ts";
 
 const home = (): Response => new Response(null, { status: 303, headers: { location: "/apps" } });
@@ -24,9 +23,7 @@ export async function load(ctx: LoaderContext) {
   const has = first !== undefined;
   const tr = trOf(ctx);
   return {
-    signed_in: true,
-    impersonation: api.impersonation,
-    api_host: new URL(apiBase(ctx.secrets)).host,
+    ...frame(ctx, api, "apps"),
     steps: [
       { done: true, text: tr("dash.home.step_verify"), href: null },
       { done: has, text: tr("dash.home.step_create"), href: has ? null : "/apps/new" },

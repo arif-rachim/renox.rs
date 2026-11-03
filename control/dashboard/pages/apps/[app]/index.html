@@ -6,32 +6,45 @@
     <r-group r-if="info">
       <div class="title-row">
         <h1>{{ app }}</h1>
-        <a class="button" :href="info.url" r-if="info.url"><r-t key="dash.common.open" /> ↗</a>
+        <span class="pill ok" r-if="info.live">{{ info.status }}</span>
+        <span class="pill quiet" r-if="!info.live">{{ info.status }}</span>
+        <span class="spacer"></span>
+        <a class="button go" :href="info.url" r-if="info.url"><r-t key="dash.common.open" /> ↗</a>
       </div>
       <p class="finding" :class="{ bad: finding.bad }" r-if="finding">{{ finding.text }}<r-group r-if="finding.href"> <a :href="finding.href"><r-t key="dash.overview.see_errors" /></a></r-group></p>
-      <div class="live-panel" r-if="info.live">
-        <span class="live-cell" aria-hidden="true"></span>
-        <div class="live-main">
-          <p class="live-label"><r-t key="dash.overview.live_version" /></p>
-          <p class="live-hash"><code>{{ info.version }}</code></p>
-          <ul class="meta">
-            <li class="ok">{{ info.status }}</li>
-            <li><r-t key="dash.overview.deployed" /> {{ info.deployed }}</li>
-            <li r-for="h in info.hostnames">{{ h }}</li>
+
+      <!-- This app's real path: its hostname, the edge, the cell (isolate and SQLite). -->
+      <div class="panel app-flow">
+        <div class="flow flow-small" role="img" :aria-label="'dash.overview.flow_label' | t({'app': app})">
+          <ul class="flow-side flow-start">
+            <li r-for="h in info.hostnames"><span class="pill">{{ h }}</span><span class="pt"></span><span class="line"></span></li>
+            <li r-empty="info.hostnames"><span class="pill">{{ app }}</span><span class="pt"></span><span class="line"></span></li>
+            <li><span class="pill">edge</span><span class="pt"></span><span class="line"></span></li>
+          </ul>
+          <div class="flow-tile" aria-hidden="true"><i><b></b></i></div>
+          <ul class="flow-side flow-end">
+            <li><span class="line"></span><span class="pt"></span><span class="pill">isolate</span></li>
+            <li><span class="line"></span><span class="pt"></span><span class="pill">SQLite</span></li>
+            <li r-if="info.live"><span class="line"></span><span class="pt"></span><span class="pill ok live"><code>{{ info.version }}</code></span></li>
           </ul>
         </div>
-        <div class="live-act" r-if="live_row"><x-deployment-actions :d="live_row" /></div>
+        <ul class="meta" r-if="info.live">
+          <li><r-t key="dash.overview.live_version" /> <span class="pill"><code>{{ info.version }}</code></span></li>
+          <li><r-t key="dash.overview.deployed" /> {{ info.deployed }}</li>
+          <li r-if="live_row"><x-deployment-actions :d="live_row" /></li>
+        </ul>
+        <p class="warning" r-if="!info.live"><r-t key="dash.overview.no_live" /></p>
       </div>
-      <p class="warning" r-if="!info.live"><r-t key="dash.overview.no_live" /></p>
       <p class="notice" r-if="notice">{{ notice }}</p>
       <x-problem :problem="action_problem" r-if="action_problem" />
+
       <h2><r-t key="dash.overview.last_24h" /></h2>
       <r-group r-if="usage">
-        <dl class="stats">
-          <div><dt><r-t key="dash.overview.requests" /></dt><dd>{{ usage.requests }}</dd></div>
-          <div><dt>CPU</dt><dd>{{ usage.cpu }}</dd></div>
-          <div><dt><r-t key="dash.overview.egress" /></dt><dd>{{ usage.egress }}</dd></div>
-        </dl>
+        <div class="cards">
+          <div class="card stat"><b class="value">{{ usage.requests }}</b><span class="caption"><r-t key="dash.overview.requests" /></span></div>
+          <div class="card stat"><b class="value">{{ usage.cpu }}</b><span class="caption">CPU</span></div>
+          <div class="card stat"><b class="value">{{ usage.egress }}</b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
+        </div>
         <p><span class="problem-inline" r-if="usage.over"><r-t key="dash.overview.over_quota" /> {{ usage.over }}. </span><a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
       </r-group>
       <p class="muted" r-else><r-t key="dash.overview.no_usage" /></p>
@@ -42,9 +55,9 @@
           <table class="list">
             <tbody>
               <tr r-for="d in deployments">
-                <td><code>{{ d.short }}</code></td>
+                <td><span class="pill"><code>{{ d.short }}</code></span></td>
                 <td>{{ d.when }}</td>
-                <td :class="{ ok: d.state == 'active', bad: d.state == 'rejected' }">{{ d.label }}</td>
+                <td><span class="pill" :class="{ ok: d.state == 'active', bad: d.state == 'rejected' }">{{ d.label }}</span></td>
                 <td><x-deployment-actions :d="d" /></td>
               </tr>
               <tr r-empty="deployments"><td><r-t key="dash.overview.no_deployments" /></td></tr>
@@ -55,10 +68,10 @@
         <div>
           <h2><r-t key="dash.overview.recent_logs" /></h2>
           <x-problem :problem="logs_problem" r-if="logs_problem" />
-          <ul class="logs">
-            <li r-for="l in logs"><span class="muted">{{ l.when }}</span> <span class="level">{{ l.level }}</span> {{ l.message }}</li>
-            <li class="muted" r-empty="logs"><r-t key="dash.overview.no_logs" /></li>
-          </ul>
+          <div class="console logs">
+            <div r-for="l in logs"><span class="muted">{{ l.when }}</span> <span class="pill" :class="l.level_class">{{ l.level }}</span> {{ l.message }}</div>
+            <div class="muted" r-empty="logs"><r-t key="dash.overview.no_logs" /></div>
+          </div>
           <p><a href="/apps/{{ app }}/logs"><r-t key="dash.overview.all_logs" /></a></p>
         </div>
       </div>
