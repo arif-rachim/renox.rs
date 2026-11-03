@@ -18,7 +18,7 @@ import { startDev } from "../../cli/src/commands/dev.ts";
 import { doc, search, sidebar, slugOfPath, SOURCES } from "../lib/docs.ts";
 import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
-import { loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
+import { contrastFailures, loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
 import { COMPARE, load as homeLoad, NODE, nodeCells, PLATFORMS } from "../pages/index.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
@@ -164,6 +164,15 @@ describe("design system (packages/ui/README.md)", () => {
     const css = read("public/site.css");
     expect(physicalLines(css)).toEqual([]);
     expect(loadsAnything(css)).toBe(false);
+  });
+
+  /** ADR D27: the display font and its licence are the system's copies; the tokens keep WCAG 2.2 AA. */
+  test("the display font, its licence and the contrast of the tokens", () => {
+    const bytes = (p: string) => readFileSync(join(import.meta.dir, "..", p));
+    expect(bytes("public/doto-black.woff2")).toEqual(readFileSync(join(ROOT, "packages/ui/doto-black.woff2")));
+    expect(read("public/doto-OFL.txt")).toBe(readFileSync(join(ROOT, "packages/ui/doto-OFL.txt"), "utf8"));
+    expect(bytes("public/doto-black.woff2").byteLength).toBeLessThanOrEqual(40 * 1024);
+    expect(contrastFailures(read("public/renox-ui.css"))).toEqual([]);
   });
 });
 
