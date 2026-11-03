@@ -163,6 +163,8 @@ With `[replication] enabled = true` (#255, `docs/06-data.md` "Replication and ba
 
 With `[process] enabled = true` (#254, `docs/04-isolation-security.md` "Isolation hierarchy") the worker is a **supervisor**: the free tier shares its process, and each tenant whose route entry says `process = "own"` (controlled mode; the control plane writes it for every `paid` tenant, `docs/contracts/deploy-api.md` section 8) or that `own_tenants` lists (local mode) runs in a child `renox-worker --config <worker.toml> --child <tenant> --socket <run_dir>/children/<tenant>.sock` of its own.
 
+With `[process]` off (the default, and the single host's choice for now) every tenant runs in the worker's process, whatever its entry says. A controlled worker then logs one warning per tenant whose active entry on the node asks for `process = "own"` (#403), and `RouteState::own_process_ignored` lists them; the heartbeat cannot carry that list until the deploy API's `heartbeat` message has a field for it (comment on #403).
+
 ```
                        ┌──────────────── renox-worker (supervisor) ─────────────────┐
 client ── TLS ──► gateway ──► Supervisor ──► shared CellManager: free tenants       │

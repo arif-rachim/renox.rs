@@ -454,6 +454,8 @@ impl Worker {
         });
         if let Some(state) = &route_state {
             state.set_manager(manager.clone());
+            // #403: `process = "own"` without the supervisor is warned about.
+            state.set_process_enabled(config.process.enabled);
             // The last table this node applied: served until the control
             // plane answers (#98); replaced by its first snapshot.
             let file = SnapshotFile::in_data_dir(&config.data_dir);
