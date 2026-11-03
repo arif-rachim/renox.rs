@@ -31,6 +31,13 @@ StateDirectory=renox
 StateDirectoryMode=0750
 # The supervisor creates per-child cgroups under its own (#254, `direct` launcher).
 Delegate=yes
+# The gateway binds 443 and 80 ([tls] http_listen) as `renox` (#394): the one
+# capability it needs, ambient so it survives the exec, and the bounding set
+# holds nothing else. NoNewPrivileges blocks file capabilities (setcap), so
+# this is the only way. renox-child@.service does not get it: a child worker
+# binds no port, only its Unix socket.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

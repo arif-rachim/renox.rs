@@ -78,6 +78,16 @@ case $state in
   running | degraded) ;;
   *) skip "systemd in the container did not start (state: ${state:-none})" ;;
 esac
+# Two differences between a container and the Ubuntu 24.04 host, undone so
+# the test sees what the host does:
+# - Docker sets net.ipv4.ip_unprivileged_port_start to 0 in the container's
+#   network namespace; Ubuntu keeps 1024, where `renox` cannot bind 443 or 80
+#   without CAP_NET_BIND_SERVICE (#394).
+# - The container's / is a private mount, so systemd's credential directories
+#   (LoadCredential) never appear under /run/credentials; on the host / is
+#   shared (#395).
+docker exec "$name" sysctl -qw net.ipv4.ip_unprivileged_port_start=1024
+docker exec "$name" mount --make-rshared /
 
 docker exec "$name" mkdir -p /src
 docker cp "$here" "$name:/src/ops"
