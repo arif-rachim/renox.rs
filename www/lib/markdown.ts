@@ -83,8 +83,10 @@ export function render(md: string, resolve: Resolve = (t) => t): Rendered {
       i++;
       while (i < lines.length && !(lines[i] as string).trimStart().startsWith(close)) body.push(lines[i++] as string);
       i++;
+      // The language names the block's pill (`pre[data-lang]`, renox-ui).
       const lang = fence[3] === "" ? "" : ` class="language-${esc(fence[3] as string)}"`;
-      out.push(`<pre><code${lang}>${esc(body.join("\n"))}</code></pre>`);
+      const pill = fence[3] === "" ? "" : ` data-lang="${esc(fence[3] as string)}"`;
+      out.push(`<pre${pill}><code${lang}>${esc(body.join("\n"))}</code></pre>`);
       continue;
     }
     const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/u.exec(line);

@@ -13,7 +13,7 @@
 import type { ActionContext, LoaderContext } from "renox";
 
 import { Api, apiBase, type OpsTenant } from "../../../lib/api.ts";
-import { notFound, signedIn } from "../../../lib/guard.ts";
+import { frame, notFound, signedIn } from "../../../lib/guard.ts";
 import { endImpersonation, forbidden, formProblem, IMPERSONATION_ID, impersonate, NODE_ID, OPS_TOKEN, opsEnabled, opsProblem, REASON_MAX, REASON_MIN, run, stateView, TENANT_ID, type Action } from "../../../lib/ops.ts";
 import { signIn, signOut } from "../../../lib/session.ts";
 import { EN, trOf, type Tr } from "../../../lib/i18n.ts";
@@ -62,7 +62,7 @@ export async function load(ctx: LoaderContext) {
   if (api instanceof Response) return api;
   const tenant = tenantParam(ctx.params.tenant);
   if (tenant === null) return notFound();
-  return { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, tenant, reason_min: REASON_MIN, reason_max: REASON_MAX, ...quiet };
+  return { ...frame(ctx, api, "ops"), tenant, reason_min: REASON_MIN, reason_max: REASON_MAX, ...quiet };
 }
 
 async function act(ctx: ActionContext, action: Action | null) {

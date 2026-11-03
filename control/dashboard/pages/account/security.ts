@@ -15,8 +15,8 @@
 // change it, and never sends it with a token.
 import type { ActionContext, LoaderContext } from "renox";
 
-import { apiBase, type Api, type ApiFailure, type MfaStatus, needsStepUp, type Result } from "../../lib/api.ts";
-import { problem, type Problem, signedIn } from "../../lib/guard.ts";
+import { type Api, type ApiFailure, type MfaStatus, needsStepUp, type Result } from "../../lib/api.ts";
+import { frame, problem, signedIn, type Problem } from "../../lib/guard.ts";
 import { trOf } from "../../lib/i18n.ts";
 import { clock } from "../../lib/view.ts";
 
@@ -64,7 +64,7 @@ function shown(s: MfaStatus) {
 
 async function page(ctx: LoaderContext | ActionContext, api: Api, view: View) {
   const r = await api.getMfa();
-  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, section: "security", ...view };
+  const base = { ...frame(ctx, api, "security"), section: "security", ...view };
   if (!r.ok) return { ...base, status: null, problem: view.problem ?? (await problem(ctx, r)) };
   return { ...base, status: shown(r.value) };
 }

@@ -5,8 +5,8 @@
 // CLI commands to work on it locally.
 import type { ActionContext, LoaderContext } from "renox";
 
-import { apiBase, platformDomain } from "../../lib/api.ts";
-import { problem, signedIn } from "../../lib/guard.ts";
+import { platformDomain } from "../../lib/api.ts";
+import { frame, problem, signedIn } from "../../lib/guard.ts";
 import { trOf, type Tr } from "../../lib/i18n.ts";
 
 /** deploy-api.yaml `createAppFromTemplate` `template`; what each one is comes from `dash.new.about_<id>`. */
@@ -25,7 +25,7 @@ const quiet = { created: null as null | { app: string; url: string; hash: string
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
   if (api instanceof Response) return api;
-  return { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, platform_domain: platformDomain(ctx.secrets), templates: templates(trOf(ctx)), ...quiet };
+  return { ...frame(ctx, api, "apps"), platform_domain: platformDomain(ctx.secrets), templates: templates(trOf(ctx)), ...quiet };
 }
 
 export const actions = {

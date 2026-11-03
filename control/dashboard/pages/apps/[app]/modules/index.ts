@@ -13,8 +13,8 @@
 // module unsigned or permission diff on upgrade").
 import type { ActionContext, LoaderContext } from "renox";
 
-import { apiBase, type AppModule, type ModulePermissions, type RegistryVersion } from "../../../../lib/api.ts";
-import { appParam, notFound, problem, signedIn } from "../../../../lib/guard.ts";
+import { type AppModule, type ModulePermissions, type RegistryVersion } from "../../../../lib/api.ts";
+import { appParam, frame, notFound, problem, signedIn } from "../../../../lib/guard.ts";
 import { EN, trOf, type Tr } from "../../../../lib/i18n.ts";
 import { ago } from "../../../../lib/view.ts";
 
@@ -91,7 +91,7 @@ export async function load(ctx: LoaderContext) {
   const app = appParam(ctx.params.app);
   if (app === null) return notFound();
   const q = (ctx.url.searchParams.get("q") ?? "").trim().slice(0, 100);
-  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app, section: "modules", q };
+  const base = { ...frame(ctx, api, "apps"), app, section: "modules", q };
   const [installed, registry] = await Promise.all([api.listAppModules(app), api.listRegistry(q)]);
   if (!installed.ok) return { ...base, problem: await problem(ctx, installed), installed: [], disabled: null, cards: [] };
   // The upgrade check reads the whole registry, not the search result.

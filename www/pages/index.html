@@ -1,211 +1,64 @@
 <r-layout use="main">
   <r-group slot="title">Renoxium · TypeScript app hosting</r-group>
 
-  <!-- Hero: the claim, then the product itself on a stage cut by the cell's notch. -->
-  <section class="hero" aria-labelledby="hero-title">
-    <div class="hero-text">
-      <h1 id="hero-title">Ship the SaaS.<br> Skip the plumbing.</h1>
-      <p class="lede">Add sign-in, teams, billing and admin as modules, then deploy your TypeScript app to hosting that charges only for what it uses.</p>
-      <p><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a></p>
-    </div>
-    <div class="hero-stage">
-      <div class="ui deploys" data-ui data-deploys>
-        <div class="ui-head">
-          <strong>shop</strong>
-          <span class="ui-live"><i></i><span data-live-label>Live: 2e84bef</span></span>
-          <span class="ui-muted">shop.renoxium.app</span>
-        </div>
-        <table class="ui-table">
-          <thead><tr><th>Version</th><th>Deployed</th><th>State</th><th><span class="visually-hidden">Action</span></th></tr></thead>
-          <tbody>
-            <tr class="is-live" data-hash="2e84bef"><td><code>2e84bef</code></td><td>3 min ago</td><td data-state>live</td><td><button type="button" class="ui-btn" data-act>Live</button></td></tr>
-            <tr data-hash="6e58237"><td><code>6e58237</code></td><td>Yesterday</td><td data-state>superseded</td><td><button type="button" class="ui-btn" data-act>Roll back</button></td></tr>
-            <tr data-hash="70ad3d5"><td><code>70ad3d5</code></td><td>2 days ago</td><td data-state>superseded</td><td><button type="button" class="ui-btn" data-act>Roll back</button></td></tr>
-            <tr data-hash="8a0f5c8"><td><code>8a0f5c8</code></td><td>5 days ago</td><td data-state>superseded</td><td><button type="button" class="ui-btn" data-act>Roll back</button></td></tr>
-          </tbody>
-        </table>
-        <p class="ui-foot" data-deploy-note>Every deploy is kept. Roll back to any of them in one click.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Showcase: one app's screens, chosen from a list; the screen stands on a large cell. -->
-  <section class="showcase" aria-labelledby="show-title">
-    <div class="show-list">
-      <h2 id="show-title">Every app gets</h2>
-      <div class="show-names" role="radiogroup" aria-labelledby="show-title">
-        <label><input type="radio" name="show" value="logs" checked> Logs</label>
-        <label><input type="radio" name="show" value="usage"> Usage</label>
-        <label><input type="radio" name="show" value="secrets"> Secrets</label>
-        <label><input type="radio" name="show" value="database"> A database</label>
-      </div>
-    </div>
-    <div class="show-stage">
-      <div class="cell-big" aria-hidden="true"></div>
-
-      <figure class="show-item" data-show="logs">
-        <div class="ui" data-ui>
-          <div class="ui-head"><strong>Logs</strong><span class="ui-muted">shop · last hour</span></div>
-          <ul class="ui-logs">
-            <li><time>14:01:06</time><b>info</b><span>order 1043 created</span></li>
-            <li><time>14:00:54</time><b class="w">warn</b><span>slow query on app__orders (180 ms)</span></li>
-            <li class="e"><time>14:00:48</time><b class="x">error</b><span>payment provider timed out after 5000 ms</span></li>
-            <li><time>14:00:42</time><b>info</b><span>POST /cart 303</span></li>
-            <li><time>14:00:30</time><b>info</b><span>GET /products/42 200 (8 ms)</span></li>
-          </ul>
-        </div>
-        <figcaption>Every line with its request id, filtered by level and source, or live as it happens.</figcaption>
-      </figure>
-
-      <figure class="show-item" data-show="usage">
-        <div class="ui" data-ui>
-          <div class="ui-head"><strong>Usage</strong><span class="ui-muted">shop · last 24 hours</span></div>
-          <div class="ui-bars" aria-hidden="true"><i class="h5"></i><i class="h4"></i><i class="h3"></i><i class="h2"></i><i class="h2"></i><i class="h1"></i><i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i><i class="h5"></i><i class="h6"></i><i class="h6"></i><i class="h5"></i><i class="h5"></i><i class="h4"></i></div>
-          <dl class="ui-totals"><div><dt>Requests</dt><dd>1,284</dd></div><div><dt>CPU</dt><dd>2.2 s</dd></div><div><dt>Egress</dt><dd>7.1 MB</dd></div></dl>
-        </div>
-        <figcaption>Requests, CPU, egress and database time per hour, against the plan's monthly quota.</figcaption>
-      </figure>
-
-      <figure class="show-item" data-show="secrets">
-        <div class="ui" data-ui>
-          <div class="ui-head"><strong>Secrets</strong><span class="ui-muted">shop · version 3</span></div>
-          <table class="ui-table">
-            <tbody>
-              <tr><td><code>SMTP_PASSWORD</code></td><td>2 days ago</td></tr>
-              <tr><td><code>STRIPE_KEY</code></td><td>2 days ago</td></tr>
-              <tr><td><code>WHATSAPP_TOKEN</code></td><td>5 days ago</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <figcaption>Names only once they are saved. A value never reaches a log line.</figcaption>
-      </figure>
-
-      <figure class="show-item" data-show="database">
-        <div class="ui" data-ui>
-          <div class="ui-head"><strong>Database</strong><span class="ui-muted">shop · SQLite</span></div>
-          <div class="ui-meter"><span>4.2 MB of 1 GB</span><i><b></b></i></div>
-          <p class="ui-line"><button type="button" class="ui-btn">Export</button> <button type="button" class="ui-btn">Restore</button></p>
-        </div>
-        <figcaption>One SQLite file per tenant, backed up continuously. Export it or restore it from the dashboard.</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <!-- Modules: each one a sentence with the switch that installs it. -->
-  <section class="modules" aria-labelledby="mod-title">
-    <h2 id="mod-title">Modules instead of rewrites</h2>
-    <div class="band" data-band>
-      <p>Sign people in with passwords and passkeys.</p>
-      <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Sign-in module"><i></i></button>
-      <p class="band-more"><code>renox add auth</code> brings the login and account pages, passkeys and magic links, with no auth code of your own.</p>
-    </div>
-    <div class="band" data-band>
-      <p>Put people in organisations with roles.</p>
-      <button type="button" class="switch" role="switch" aria-checked="true" aria-label="Organisations module"><i></i></button>
-      <p class="band-more"><code>renox add org</code> brings invites by email, a role per member and an organisation switcher.</p>
-    </div>
-    <div class="band" data-band>
-      <p>Charge for plans and send invoices.</p>
-      <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Billing module"><i></i></button>
-      <p class="band-more"><code>renox add billing</code> brings plans, subscriptions, checkouts and refunds, with Stripe UAE first.</p>
-    </div>
-    <div class="band" data-band>
-      <p>Run the back office in one place.</p>
-      <button type="button" class="switch" role="switch" aria-checked="false" aria-label="Admin module"><i></i></button>
-      <p class="band-more"><code>renox add admin</code> brings the users page, roles and the audit log behind one admin area.</p>
-    </div>
-  </section>
-
-  <!-- How Renoxium compares: the verdicts of docs/02-comparison.md, section B. -->
-  <section class="compare" aria-labelledby="compare-title">
-    <div class="compare-head">
-      <h2 id="compare-title">How Renoxium compares</h2>
-      <p>Other platforms host the code. Renoxium also brings the parts every SaaS rebuilds, and the way a business in the UAE pays.</p>
-    </div>
-    <div class="compare-scroll">
-      <table class="compare-table">
-        <thead>
-          <tr><th scope="col"><span class="visually-hidden">What you need</span></th><th scope="col" r-for="p in platforms" :class="{ ours: p.ours }">{{ p.name }}</th></tr>
-        </thead>
-        <tbody>
-          <tr r-for="r in compare">
-            <th scope="row">{{ r.need }}</th>
-            <td r-for="c in r.cells" :class="{ ours: c.ours }" :data-p="c.platform"><span class="mark {{ c.v }}" aria-hidden="true"></span><span class="visually-hidden">{{ c.word }}</span><span class="note" r-if="c.note">{{ c.note }}</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="compare-key"><span class="mark yes" aria-hidden="true"></span> Yes <span class="mark part" aria-hidden="true"></span> Partly <span class="mark no" aria-hidden="true"></span> No. As of {{ compare_as_of }}; the full comparison is in <a href="/docs/02-comparison">the documentation</a>.</p>
-  </section>
-
-  <!-- From a folder to a live app: five stages, dark to light. Radios, so it works without script. -->
-  <section class="flow" aria-labelledby="flow-title">
-    <div class="flow-intro">
-      <h2 id="flow-title">Folder to live app</h2>
-      <p><code>pages/products/[id].html</code> is the page at <code>/products/:id</code>, and the loader beside it reads the data. No build step, no Node, no Docker: TypeScript, HTML and SQL.</p>
-    </div>
-    <div class="stages">
-      <label class="stage t1"><input type="radio" name="stage" checked><span class="stage-name">Create</span><span class="stage-body"><span>Start from a template: a shop, a booking site, invoices, or a blank app.</span><code>bunx renox new my-shop</code></span></label>
-      <label class="stage t2"><input type="radio" name="stage"><span class="stage-name">Run</span><span class="stage-body"><span>Run it locally on the same runtime that hosts it.</span><code>bunx renox dev</code></span></label>
-      <label class="stage t3"><input type="radio" name="stage"><span class="stage-name">Extend</span><span class="stage-body"><span>Add a module with its tables, pages and policies.</span><code>bunx renox add auth</code></span></label>
-      <label class="stage t4"><input type="radio" name="stage"><span class="stage-name">Deploy</span><span class="stage-body"><span>Upload, validate and go live on its own address.</span><code>bunx renox deploy</code></span></label>
-      <label class="stage t5"><input type="radio" name="stage"><span class="stage-name">Roll back</span><span class="stage-body"><span>Every deploy is kept. Promote an older one from the dashboard.</span></span></label>
-    </div>
-  </section>
-
-  <!-- About: the UAE, on a deep inset panel. -->
-  <section class="uae" aria-labelledby="uae-title">
-    <div class="uae-panel">
-      <div class="uae-left">
-        <h2 id="uae-title">Built for the UAE.</h2>
-        <div class="invoice" data-ui>
-          <p class="inv-ar" lang="ar" dir="rtl">فاتورة ضريبية</p>
-          <p class="inv-en">Tax invoice, Starter plan</p>
-          <dl><div><dt>Plan</dt><dd>AED 79.00</dd></div><div><dt>VAT 5 %</dt><dd>AED 3.95</dd></div><div class="tot"><dt>Total</dt><dd>AED 82.95</dd></div></dl>
-        </div>
-      </div>
-      <div class="uae-right">
-        <div><h3>Priced in dirhams</h3><p>Plans in AED, and a tax invoice with 5 % VAT every month.</p></div>
-        <div><h3>In English and Arabic</h3><p>The dashboard reads in both, right to left in Arabic. A data processing agreement is part of sign-up.</p></div>
-        <div class="ui ui-ar" data-ui lang="ar" dir="rtl">
-          <div class="ui-head"><strong>shop</strong><span class="ui-live"><i></i><span>يعمل</span></span></div>
-          <ul class="ui-nav"><li class="cur">نظرة عامة</li><li>عمليات النشر</li><li>السجلات</li><li>الاستخدام</li></ul>
-          <p class="ui-sub">آخر 24 ساعة</p>
-          <dl class="ui-totals"><div><dt>الطلبات</dt><dd>1,284</dd></div><div><dt>CPU</dt><dd>2.2 s</dd></div><div><dt>البيانات الصادرة</dt><dd>7.1 MB</dd></div></dl>
-        </div>
-        <p><a class="button primary" href="/legal/dpa">Read the agreement</a></p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Plans step up like bars: the bigger plan is the taller tile. -->
-  <section class="plans-step" aria-labelledby="plans-title">
-    <div class="plans-head">
-      <h2 id="plans-title">Plans in dirhams</h2>
-      <p>Monthly, excluding 5 % VAT. <a href="/pricing">Every quota of every plan</a></p>
-    </div>
-    <div class="tile {{ p.step }}" r-for="p in plans">
-      <h3>{{ p.name }}</h3>
-      <p class="tile-price">{{ currency }} {{ p.price }}</p>
-      <ul>
-        <li>{{ p.requests }} requests a month</li>
-        <li>{{ p.apps }} apps</li>
-        <li>{{ p.db }} database</li>
-        <li>{{ p.domains }} custom domains</li>
+  <!-- Hero: the dot-matrix headline in two parts around the diagram of a request's real path. -->
+  <section class="hero home-hero" aria-labelledby="hero-title">
+    <p class="pill quiet">TypeScript app hosting</p>
+    <h1 id="hero-title" class="dot">Deploy. Run.</h1>
+    <div class="flow" role="img" aria-label="A request reaches Renoxium through a custom domain and the edge, and runs in an isolate with its own SQLite file, backed up.">
+      <ul class="flow-side flow-start">
+        <li><span class="pill">request</span><span class="pt"></span><span class="line"></span></li>
+        <li><span class="pill">custom domain</span><span class="pt"></span><span class="line"></span></li>
+        <li><span class="pill">edge</span><span class="pt"></span><span class="line"></span></li>
       </ul>
-      <a class="tile-go" href="https://dashboard.renoxium.com/signup">Start with {{ p.name }}</a>
+      <div class="flow-tile" aria-hidden="true"><i><b></b></i></div>
+      <ul class="flow-side flow-end">
+        <li><span class="line"></span><span class="pt"></span><span class="pill">isolate</span></li>
+        <li><span class="line"></span><span class="pt"></span><span class="pill">SQLite</span></li>
+        <li><span class="line"></span><span class="pt"></span><span class="pill">backup</span></li>
+      </ul>
+    </div>
+    <p class="dot" aria-hidden="true">Scale.</p>
+    <p class="lede">Add sign-in, teams, billing and admin as modules, then deploy your TypeScript app to hosting that charges only for what it uses.</p>
+    <p class="actions"><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a> <a class="button go" href="/docs/getting-started">Read the docs</a></p>
+  </section>
+
+  <!-- Card row: numbers that are true and measured (docs/14-benchmarks.md), and the way in. -->
+  <section class="cards home-stats" aria-label="Measured numbers">
+    <div class="card stat" r-for="s in stats"><b class="value">{{ s.value }} <small r-if="s.unit">{{ s.unit }}</small></b><span class="caption">{{ s.caption }}</span></div>
+    <div class="card card-text">
+      <p>One app is a folder of TypeScript and HTML. Renoxium builds it, runs it in its own V8 isolate with its own SQLite file, and keeps every deploy for a one-click rollback.</p>
+      <p><a class="button go" href="https://dashboard.renoxium.com/signup">Sign up</a></p>
     </div>
   </section>
 
-  <!-- The closing sentence has a blank: the app's name. -->
-  <section class="closing" aria-labelledby="close-title">
-    <h2 id="close-title" class="close-line">Put <label class="blank"><span class="visually-hidden">Your app's name</span><input name="app" value="my-shop" maxlength="40" spellcheck="false" autocomplete="off" data-app-name></label> <a class="close-go" href="https://dashboard.renoxium.com/signup">online.</a></h2>
-    <p class="close-note">It will live at <strong data-app-host>my-shop.renoxium.app</strong>. The Free plan is {{ currency }} 0.00 a month.</p>
+  <!-- Feature sections: a headline that mixes ink and muted words, a paragraph, a link to the docs, and a field of cells lighting up on a node. -->
+  <section class="feature" r-for="f in features" :aria-labelledby="f.id">
+    <div class="feature-text">
+      <h2 :id="f.id">{{ f.head }} <span class="muted">{{ f.muted }}</span></h2>
+      <p>{{ f.text }}</p>
+      <p r-if="f.items"><span class="pill" r-for="i in f.items">{{ i }}</span></p>
+      <p><a class="button go" :href="f.href">{{ f.link }}</a></p>
+    </div>
+    <pre class="dots" aria-hidden="true" r-html="f.dots"></pre>
   </section>
 
-  <!-- The mark, built large: one node of tenant cells. -->
-  <div class="node" role="img" aria-label="A node drawn as a grid of apps: a few are serving requests, the rest are idle.">
-    <i r-for="c in cells" :class="c.cls"></i>
-  </div>
-  <x-script src="/site.js"></x-script>
+  <!-- Pricing teaser in dirhams, from pricing.toml (the pricing page's source). -->
+  <section class="pricing-teaser" aria-labelledby="plans-title">
+    <h2 id="plans-title">Plans in dirhams, <span class="muted">a tax invoice every month</span></h2>
+    <p>Monthly, excluding 5 % VAT. <a href="/pricing">Every quota of every plan</a></p>
+    <div class="cards plans-row">
+      <div class="card stat" r-for="p in plans">
+        <b class="value"><small>{{ currency }}</small> {{ p.price }}</b>
+        <span class="caption"><strong>{{ p.name }}</strong> · {{ p.requests }} requests a month · {{ p.apps }} apps · {{ p.db }} database</span>
+        <span><a class="button" href="https://dashboard.renoxium.com/signup">Start with {{ p.name }}</a></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing" aria-labelledby="close-title">
+    <h2 id="close-title" class="dot dot-small">Put your app online</h2>
+    <p class="lede">It will live at <code>&lt;app&gt;.renoxium.app</code>. The Free plan is {{ currency }} 0.00 a month.</p>
+    <p class="actions"><a class="button primary" href="https://dashboard.renoxium.com/signup">Create a free account</a></p>
+  </section>
 </r-layout>

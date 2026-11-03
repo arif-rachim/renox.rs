@@ -76,7 +76,7 @@ test("en.json and ar.json have the same keys; every Arabic message is Arabic", (
   // Every key a template uses has a message.
   const templates = [
     "pages/_layouts/main.html", "pages/_404.html", "pages/_error.html", "pages/index.html", "pages/signin.html", "pages/signup/index.html", "pages/signup/verify.html",
-    "pages/legal/dpa.html", "pages/legal/terms.html", "pages/apps/index.html", "pages/apps/new.html", "pages/apps/[app]/index.html", "pages/apps/[app]/deployments.html",
+    "pages/legal/dpa.html", "pages/legal/terms.html", "pages/apps/index.html", "pages/usage.html", "pages/account/index.html", "partials/app-nav.html", "pages/apps/new.html", "pages/apps/[app]/index.html", "pages/apps/[app]/deployments.html",
     "pages/apps/[app]/logs.html", "pages/apps/[app]/client-errors.html", "pages/apps/[app]/usage.html", "pages/apps/[app]/secrets.html", "pages/apps/[app]/database.html",
     "pages/apps/[app]/settings.html", "pages/apps/[app]/modules/index.html", "pages/billing/index.html", "pages/account/security.html", "pages/ops/registry/index.html",
     "pages/ops/tenants/[tenant].html", "partials/app-nav.html", "partials/deployment-actions.html", "partials/log-rows.html", "partials/problem.html",
@@ -220,7 +220,7 @@ test.skipIf(!worker)(
       // English by default, as before.
       const enPage = await get("/signin");
       expect(enPage.html).toContain('<html lang="en" dir="ltr">');
-      expect(enPage.html).toContain("<h1>Sign in</h1>");
+      expect(enPage.html).toContain('<h1 class="dot dot-small">Sign in</h1>');
 
       // ?lang=ar: the redirect that stores the choice.
       const moved = await get("/signin?lang=ar&next=/apps/shop");
@@ -230,7 +230,7 @@ test.skipIf(!worker)(
 
       const layout = ["pages/_layouts/main.html"];
       const pages: [string, Record<string, string>, string[], string][] = [
-        ["/signin", AR, ["pages/signin.html"], "<h1>تسجيل الدخول</h1>"],
+        ["/signin", AR, ["pages/signin.html"], '<h1 class="dot dot-small">تسجيل الدخول</h1>'],
         // Accept-Language alone chooses Arabic too.
         ["/signup", { "accept-language": "ar-AE,ar;q=0.9,en;q=0.5" }, ["pages/signup/index.html"], "أنشئ حسابك في Renoxium"],
         ["/legal/dpa", AR, ["pages/legal/dpa.html"], "اتفاقية معالجة البيانات"],

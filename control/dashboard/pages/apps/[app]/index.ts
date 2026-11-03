@@ -1,11 +1,12 @@
-// GET /apps/:app: the app overview (docs/19-platform-wireframes.md, 3.3):
-// status, live version and hostnames, the last 24 hours of usage, recent
-// deployments with promote and rollback, the latest log lines.
+// GET /apps/:app: the app overview (docs/19-platform-wireframes.md, 3.3;
+// #427): the finding, the app's real path as a diagram (hostname, edge, the
+// cell with its isolate and SQLite, the live hash), the last 24 hours of
+// usage as dot-matrix numbers, recent deployments with promote and rollback,
+// the latest log lines in a console panel.
 import type { LoaderContext } from "renox";
 
-import { apiBase } from "../../../lib/api.ts";
 import { deployActions } from "../../../lib/deploy-actions.ts";
-import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";
 import { ago, bytes, clock, deploymentRows, round, shortHash } from "../../../lib/view.ts";
 
@@ -18,8 +19,7 @@ export async function load(ctx: LoaderContext) {
   if (name === null) return notFound();
   const now = Date.now();
   const base = {
-    signed_in: true, impersonation: api.impersonation,
-    api_host: new URL(apiBase(ctx.secrets)).host,
+    ...frame(ctx, api, "apps"),
     app: name,
     section: "overview",
     notice: null,
@@ -74,7 +74,7 @@ export async function load(ctx: LoaderContext) {
       ? logs.value
           .slice(-8)
           .reverse()
-          .map((l) => ({ when: clock(l.ts).slice(11), level: l.level.toUpperCase(), request_id: l.request_id ?? "", message: l.message.slice(0, 300) }))
+          .map((l) => ({ when: clock(l.ts).slice(11), level: l.level, level_class: l.level === "error" ? "bad" : l.level === "warn" ? "warn" : "quiet", request_id: l.request_id ?? "", message: l.message.slice(0, 300) }))
       : [],
     logs_problem: logs.ok ? null : await problem(ctx, logs),
   };

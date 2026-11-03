@@ -1,13 +1,16 @@
 <r-layout use="main">
   <r-group slot="title">Pricing · Renoxium</r-group>
-  <h1>Pricing</h1>
-  <p class="muted">Monthly, in {{ currency }}. Prices exclude 5 % VAT; a tax invoice is issued every month.</p>
-  <div class="plans">
-    <section class="plan" r-for="p in plans">
+  <section class="hero">
+    <p class="pill quiet">Plans in {{ currency }}</p>
+    <h1 class="dot dot-small">Pricing</h1>
+    <p class="lede">Monthly, in {{ currency }}. Prices exclude 5 % VAT; a tax invoice is issued every month.</p>
+  </section>
+  <div class="cards plans-row">
+    <section class="card plan" r-for="p in plans">
       <h2>{{ p.name }}</h2>
-      <p class="price">{{ currency }} {{ p.price }}</p>
-      <p class="muted">{{ currency }} {{ p.with_vat }} with VAT</p>
-      <ul><li r-for="q in p.quotas">{{ q.label }}: {{ q.value }}</li></ul>
+      <p class="stat"><b class="value"><small>{{ currency }}</small> {{ p.price }}</b><span class="caption">a month · {{ currency }} {{ p.with_vat }} with VAT</span></p>
+      <ul class="plain"><li r-for="q in p.quotas"><span class="muted">{{ q.label }}</span> {{ q.value }}</li></ul>
+      <p><a class="button go" href="https://dashboard.renoxium.com/signup">Start with {{ p.name }}</a></p>
     </section>
   </div>
 </r-layout>

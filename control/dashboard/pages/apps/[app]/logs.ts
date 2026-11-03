@@ -11,8 +11,8 @@
 // their original TypeScript position, with the bundled one beside it.
 import type { LoaderContext } from "renox";
 
-import { apiBase, type LogLine } from "../../../lib/api.ts";
-import { appParam, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { type LogLine } from "../../../lib/api.ts";
+import { appParam, frame, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { clock, shortHash } from "../../../lib/view.ts";
 
 export const WINDOWS = { "15m": 15 * 60_000, "1h": 3_600_000, "24h": 86_400_000, "7d": 7 * 86_400_000 } as const;
@@ -75,8 +75,7 @@ export async function load(ctx: LoaderContext) {
   const f = filters(ctx.url);
   const query = new URLSearchParams({ level: f.level, source: f.source, window: f.window, q: f.q, ...(f.deployment === null ? {} : { deployment: f.deployment }) });
   const base = {
-    signed_in: true, impersonation: api.impersonation,
-    api_host: new URL(apiBase(ctx.secrets)).host,
+    ...frame(ctx, api, "apps"),
     app: name,
     section: "logs",
     filters: f,

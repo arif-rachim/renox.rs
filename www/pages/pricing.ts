@@ -18,7 +18,8 @@ export function load() {
     currency: PRICING.currency,
     plans: PRICING.plans.map((p) => ({
       name: p.name,
-      price: p.price_month,
+      // Whole dirhams in the dot face (it draws a period as a cross); the VAT-inclusive price keeps its fils.
+      price: p.price_month.replace(/\.00$/u, ""),
       with_vat: withVat(p.price_month, PRICING.vat_rate),
       quotas: Object.entries(p.quotas).map(([k, v]) => ({ label: LABELS[k] ?? k, value: quotaText(k, v) })),
     })),

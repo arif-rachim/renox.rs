@@ -1,0 +1,33 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="dash.nav.account" /> · <r-t key="dash.brand" /></r-group>
+  <section id="page">
+    <div class="page-hero">
+      <p class="pill quiet"><r-t key="dash.account.workspace" /></p>
+      <h1 class="dot dot-small">{{ tenant_id ?? 'dash.nav.account' | t }}</h1>
+    </div>
+    <x-problem :problem="problem" r-if="problem" />
+    <div class="cols" r-if="tenant">
+      <div class="panel">
+        <h2><r-t key="dash.account.workspace" /></h2>
+        <dl class="pairs">
+          <dt><r-t key="dash.settings.id" /></dt><dd><code>{{ tenant.id }}</code></dd>
+          <dt><r-t key="dash.common.name" /></dt><dd>{{ tenant.name }}</dd>
+          <dt><r-t key="dash.common.tier" /></dt><dd><span class="pill">{{ tenant.tier }}</span></dd>
+          <dt><r-t key="dash.common.state" /></dt><dd><span class="pill" :class="{ ok: tenant.active, bad: !tenant.active }">{{ tenant.state }}</span></dd>
+          <dt><r-t key="dash.settings.created" /></dt><dd>{{ tenant.created }}</dd>
+          <dt r-if="tenant.restrictions"><r-t key="dash.account.restrictions" /></dt><dd r-if="tenant.restrictions">{{ tenant.restrictions }}</dd>
+        </dl>
+      </div>
+      <div class="panel">
+        <h2><r-t key="dash.account.sign_in_h" /></h2>
+        <p><r-t key="dash.account.sign_in_token" /> <strong>{{ api_host }}</strong>.</p>
+        <p><a class="button go" href="/account/security"><r-t key="dash.nav.security" /></a></p>
+        <form method="post" action="/signout" class="inline">
+          <x-csrf />
+          <button type="submit" class="danger"><r-t key="dash.nav.sign_out" /></button>
+        </form>
+      </div>
+    </div>
+    <p class="muted" r-if="!tenant && !problem"><r-t key="dash.billing.no_tenant" /> <a href="/apps/new"><r-t key="dash.billing.create_one" /></a>.</p>
+  </section>
+</r-layout>

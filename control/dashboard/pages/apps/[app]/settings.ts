@@ -6,8 +6,7 @@
 // session and then shows its progress here, through the tombstone.
 import type { LoaderContext } from "renox";
 
-import { apiBase } from "../../../lib/api.ts";
-import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";
 import { clock } from "../../../lib/view.ts";
 
@@ -19,7 +18,7 @@ export async function load(ctx: LoaderContext) {
   if (api instanceof Response) return api;
   const name = appParam(ctx.params.app);
   if (name === null) return notFound();
-  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "settings" };
+  const base = { ...frame(ctx, api, "apps"), app: name, section: "settings" };
   const app = await api.getApp(name);
   if (!app.ok) return { ...base, problem: await problem(ctx, app), tenant: null, erasure: null };
   const t = await api.getTenant(app.value.tenant_id);

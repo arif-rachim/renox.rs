@@ -1,12 +1,15 @@
 <r-props app="string" section="string" />
-<nav class="side" :aria-label="'dash.nav.app' | t">
-  <p class="side-title"><a href="/apps/{{ app }}">{{ app }}</a></p>
-  <a href="/apps/{{ app }}" :class="{ current: section == 'overview' }"><r-t key="dash.nav.overview" /></a>
-  <a href="/apps/{{ app }}/deployments" :class="{ current: section == 'deployments' }"><r-t key="dash.nav.deployments" /></a>
-  <a href="/apps/{{ app }}/logs" :class="{ current: section == 'logs' }"><r-t key="dash.nav.logs" /></a>
-  <a href="/apps/{{ app }}/client-errors" :class="{ current: section == 'client-errors' }"><r-t key="dash.nav.client_errors" /></a>
-  <a href="/apps/{{ app }}/usage" :class="{ current: section == 'usage' }"><r-t key="dash.nav.usage" /></a>
-  <a href="/apps/{{ app }}/secrets" :class="{ current: section == 'secrets' }"><r-t key="dash.nav.secrets" /></a>
-  <a href="/apps/{{ app }}/database" :class="{ current: section == 'database' }"><r-t key="dash.nav.database" /></a>
-  <a href="/apps/{{ app }}/settings" :class="{ current: section == 'settings' }"><r-t key="dash.nav.settings" /></a>
+<nav class="subnav" :aria-label="'dash.nav.app' | t">
+  <p class="subnav-title"><a href="/apps">{{ 'dash.nav.apps' | t }}</a> <span class="muted">/</span> <a href="/apps/{{ app }}">{{ app }}</a></p>
+  <span class="tabs">
+    <a href="/apps/{{ app }}" :class="{ current: section == 'overview' }"><r-t key="dash.nav.overview" /></a>
+    <a href="/apps/{{ app }}/deployments" :class="{ current: section == 'deployments' }"><r-t key="dash.nav.deployments" /></a>
+    <a href="/apps/{{ app }}/logs" :class="{ current: section == 'logs' }"><r-t key="dash.nav.logs" /></a>
+    <a href="/apps/{{ app }}/client-errors" :class="{ current: section == 'client-errors' }"><r-t key="dash.nav.client_errors" /></a>
+    <a href="/apps/{{ app }}/usage" :class="{ current: section == 'usage' }"><r-t key="dash.nav.usage" /></a>
+    <a href="/apps/{{ app }}/secrets" :class="{ current: section == 'secrets' }"><r-t key="dash.nav.secrets" /></a>
+    <a href="/apps/{{ app }}/database" :class="{ current: section == 'database' }"><r-t key="dash.nav.database" /></a>
+    <a href="/apps/{{ app }}/modules" :class="{ current: section == 'modules' }"><r-t key="dash.modules.title" /></a>
+    <a href="/apps/{{ app }}/settings" :class="{ current: section == 'settings' }"><r-t key="dash.nav.settings" /></a>
+  </span>
 </nav>

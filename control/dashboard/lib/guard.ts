@@ -9,6 +9,7 @@ import type { ActionContext, LoaderContext } from "renox";
 import { Api, apiBase, type ApiFailure } from "./api.ts";
 import { trOf } from "./i18n.ts";
 import { applyLocale } from "./locale.ts";
+import { opsEnabled } from "./ops.ts";
 import { currentToken, SessionKeyMissing, signOut } from "./session.ts";
 
 type Context = LoaderContext | ActionContext;
@@ -56,6 +57,24 @@ export async function signedIn(ctx: Context): Promise<Api | Response> {
     api.impersonation = { tenant_id: imp.tenant_id, impersonation_id: imp.impersonation_id, until: new Date(imp.expires_at).toISOString().replace(/\.\d{3}Z$/u, "Z") };
   }
   return api;
+}
+
+/** The side navigation's items (pages/_layouts/main.html); `ops` only when the console is on. */
+export type Nav = "apps" | "usage" | "billing" | "account" | "security" | "ops";
+
+/**
+ * What every signed-in page hands the layout (#427): the sign-in, the
+ * break-glass banner, the API host, whether the operator console is on, and
+ * which item of the side navigation is current.
+ */
+export function frame(ctx: Context, api: Api, nav: Nav | null) {
+  return {
+    signed_in: true,
+    impersonation: api.impersonation,
+    api_host: new URL(apiBase(ctx.secrets)).host,
+    ops_on: opsEnabled(ctx.secrets),
+    nav,
+  };
 }
 
 /** What a page shows for a failed call; a 401 also ends the dashboard sign-in. */

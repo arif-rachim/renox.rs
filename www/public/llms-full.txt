@@ -6,6 +6,84 @@ The documents below are the developer-facing ones of https://github.com/arif-rac
 
 ---
 
+Source: docs/getting-started.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/getting-started.md)
+
+# Getting started
+
+From an empty folder to an app at `https://<app>.renoxium.app`: install the CLI, create an app, run it locally, sign in, deploy. Every command below is the real one from the [CLI reference](../cli/README.md).
+
+## Install
+
+The CLI is not on npm yet, and there is no packaged `renox` binary yet. What works today is the CLI from the repository, run with [Bun](https://bun.sh) 1.4 or later:
+
+```sh
+git clone https://github.com/arif-rachim/renox.rs
+cd renox.rs
+bun install
+bun cli/scripts/fetch-worker.ts        # the signed renox-worker release for your platform
+alias renox="bun $PWD/cli/src/main.ts"
+```
+
+`fetch-worker.ts` downloads the `renox-worker` release the CLI is tested against (it refuses a download whose SHA-256 does not match) into `cli/bin/<platform>-<arch>/`, where `renox dev` finds it. To get one binary instead of the alias, `bun run --cwd cli compile` writes `cli/dist/renox`.
+
+When the first CLI release is published, the install becomes one line (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh`) and `bun add renox` installs the SDK at the same version; the details are in [Developer experience](12-developer-experience.md#installing-the-cli).
+
+## Your first app
+
+```sh
+renox new my-shop --template hello
+cd my-shop
+renox dev
+```
+
+`renox new` writes `renox.toml`, `package.json`, `tsconfig.json`, the agent files (`AGENTS.md`, `CLAUDE.md`, `.mcp.json`) and the template's files. `hello` is one function; `blank` has a health route and nothing else. `renox dev` builds the app, starts the worker on it and serves it at `http://localhost:8787`, rebuilding on every change.
+
+Folders are routes: `functions/api/hello.ts` answers `/api/hello`, `pages/products/[id].html` is the page at `/products/:id` with its loader in `pages/products/[id].ts`. The model is in [App model](07-app-model.md); `renox check` validates the project and `renox test` runs its tests.
+
+## Sign in
+
+Create an account at `https://dashboard.renoxium.com/signup` and verify the address from the email. Then, in the app folder:
+
+```sh
+renox login
+```
+
+`renox login` prints a code and polls until it is approved; the token it receives is kept in `~/.config/renox/credentials.json` (mode 0600). The approval page of the dashboard is not published yet, so until it is, the code cannot be approved from a browser; the CLI commands below are ready for the day it is. In CI, set `RENOX_TOKEN` instead.
+
+## Deploy
+
+```sh
+renox deploy
+```
+
+```
+Bundling… 1 routes, 0 modules, 0 templates
+Uploading 0.1 MB → api.renoxium.com
+Validating… ✓ manifest ✓ routes ✓ templates ✓ permissions ✓ bundle (validated)
+Activating… ✓ migrations ✓ cell ✓ probe
+Live: https://my-shop.renoxium.app   (<hash>)
+Rollback: renox deploy --rollback <previous hash>
+```
+
+The first deploy creates the app under the name in `renox.toml`. Every deploy is kept: `renox deploy --rollback` switches back to the previous one without a build or an upload. Then:
+
+| Command | What it does |
+| --- | --- |
+| `renox logs --follow` | The app's log lines as they happen |
+| `printf %s "$VALUE" \| renox secrets set NAME` | A secret, read from stdin and never from an argument |
+| `renox add auth` | Installs a module after showing its permissions ([Modules](10-modules.md)) |
+| `renox db export` | A snapshot of the app's SQLite database ([Data](06-data.md)) |
+
+## What next
+
+- [App model](07-app-model.md): pages, loaders and actions, functions, webhooks, jobs, the `ctx` surface.
+- [Templates](08-template-engine.md): HTML-first templates with `r-*` attributes.
+- [Modules](10-modules.md): sign-in, organisations, billing and admin as installed modules.
+- [Limits](contracts/ops.md#10-limits-per-tier-and-behaviour-on-limit): what the platform enforces per request and per app.
+- [AI agents and MCP](20-ai-agents-mcp.md): `renox mcp` for coding agents.
+
+---
+
 Source: docs/07-app-model.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/07-app-model.md)
 
 # 07 — Tenant application model
@@ -1450,6 +1528,598 @@ Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a
 bun run --filter renox check   # tsc on src/ and the contract test, then on the bun tests
 bun test sdk                   # error-code table, class behaviour, validate() with zod and valibot
 ```
+
+---
+
+Source: docs/contracts/errors.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/contracts/errors.md)
+
+# Contract: tenant-facing error catalogue
+
+| | |
+| --- | --- |
+| Version | **0.7** (F7, #418: `RENOX_HOST_MISMATCH` deprecated, no longer produced since ADR D25). 0.6 (F7, #346: `RENOX_TENANT_SUSPENDED`). 0.5 (F7, #318: `RENOX_STORAGE_QUOTA`, `RENOX_STORAGE_TYPE`, `RENOX_STORAGE_TOO_LARGE`, `RENOX_STORAGE_KEY`, `RENOX_STORAGE_NOT_FOUND`, `RENOX_IMAGE_RATE`, `RENOX_WEBHOOK_SIGNATURE`, `RENOX_AI_QUOTA`, `RENOX_AI_UNAVAILABLE`, `RENOX_PDF_LIMIT` for `ops.md` 1.7.0). 0.4 (F5, #272: `RENOX_REALTIME_LIMIT`, `RENOX_REALTIME_BACKPRESSURE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`, `RENOX_POLICY_INVALID`; `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` completed for `ops.md` 1.5.0). 0.3 (F6, #251). New codes are added as rows (minor). Renaming or removing a code, or changing its HTTP status, is breaking. History: "Changelog" at the bottom |
+| Producers | `crates/renox-gateway` (P3), `crates/renox-cell` (P5), `crates/renox-runtime` (P1), `crates/renox-data` (P2); from F3 `control/api` (P12, [`deploy-api.md`](deploy-api.md)) and `cli/` (P11) |
+| Consumers | `sdk/` (P10) error classes; `cli/` (P11) and the dashboard (P13), which quote these rows; the public docs; tenants' own API clients |
+| Related | [`ops.md`](ops.md) section 13 (which codes ops throw and which the platform answers with), [`meter.md`](meter.md) (`status`), `docs/23-failure-modes.md` (when each failure happens) |
+| Checker | `bun run docs/contracts/validate.ts`: every code used in `ops.md`, `deploy-api.md`, `schemas/deploy-api.yaml` and `docs/23-failure-modes.md` has exactly one row here, and `ctx.d.ts` uses exactly the codes of `ops.md` section 13 |
+
+Everything a tenant or an end user sees when the platform fails, refuses, or stops something is one of the codes below. It is never a stack trace, a file path, a hostname or IP of ours, an SQL statement, or a secret (`docs/23-failure-modes.md` rule 2; `docs/24-threat-model.md`). This file is the superset: `ops.md` defines the codes that cross the op boundary, and this catalogue adds the gateway, deploy, and availability codes. It is what the dashboard, the CLI, and the public docs quote.
+
+## 1. Response body
+
+### Function (API) routes
+
+Every error response the **platform** produces on a function route has a JSON body:
+
+```json
+{ "error": { "code": "RENOX_CPU_LIMIT", "request_id": "01JBQ3Z7MA0000000000000001", "message": "The request used more CPU time than its limit." } }
+```
+
+- `Content-Type: application/json; charset=utf-8`, `Cache-Control: no-store`, and `x-renox-request-id` with the same id as in the body.
+- `code` is a code from section 3 whose HTTP status is not "—". `message` is the **fixed** English text from the "Message" column, never built from tenant code, request input, or an internal error. `request_id` lets a developer find the full detail in their logs.
+- `Retry-After` is set where the row says so.
+- The TypeScript shape is `ErrorResponseBody` in `ctx.d.ts`.
+- The body never contains `details`, a stack, or the code of a thrown error. An uncaught `RENOX_DB_AUTH` reaches the client as `RENOX_INTERNAL`; the original code goes to the tenant's log only.
+
+A `Response` that tenant code returns itself (for example a 404 or a 400 built by the handler) is passed through untouched. Only platform-produced errors follow this format.
+
+### Page (HTML) routes, F2
+
+A platform error on a page route (`artifact.md` section 3, "Page routes") is answered with HTML, chosen in this order:
+
+1. The tenant's `pages/_error.html`: the template with `kind: "error"` in `manifest.templates`.
+2. The **platform default page**, if the app has no error template, if rendering it fails, or if it hits a limit itself: a static HTML page with the HTTP status, the message, and the request id, and no tenant content. It is never rendered with tenant code or tenant templates. It is the same page the gateway already sends for its own HTML errors (413), and the page every collateral request of a recycled isolate gets (`ops.md` section 10).
+
+**Inputs.** The error template receives exactly four variables, and nothing else:
+
+| Variable | Type | Value |
+| --- | --- | --- |
+| `status` | integer | The HTTP status from section 3 |
+| `code` | string or `null` | The code from section 3; `null` only for the 404 page below |
+| `request_id` | string | Same as `x-renox-request-id` |
+| `message` | string | The fixed English text from the "Message" column |
+
+No loader runs: `pages/_error.ts` is a build error (`renox check`), and the template sees no `ctx`, no session, no loader data of the failed request, no `params`, and no detail of the cause (limit values, stack, SQL). Layouts and partials may be used, so the page can look like the rest of the app.
+
+**Render budget: a fixed error-page budget**, decided here (#93 proposed "a tiny fixed fuel budget", version 0 of this file said "the normal render limits"; the fixed budget wins). The error page renders exactly when a request has already failed, often under load (`RENOX_CPU_LIMIT`, `RENOX_BUSY`). With the normal limits, a heavy `_error.html` would double the cost of every failure, and a flood of failures would become a flood of renders. So the error template gets the same small budget on every tier, independent of what the failed request used:
+
+| Limit | Value |
+| --- | --- |
+| Fuel | 10,000 units *proposed* |
+| Output | 64 KiB |
+| Include and `extends` depth | 4 |
+| Render time | 10 ms |
+
+Hitting any of them falls back to the platform default page, with the original status and code (never `RENOX_RENDER_LIMIT`), and logs one `RENOX_RENDER_LIMIT` line with `template: "pages/_error"`. #93 confirms the fuel number with a test against `renox-template`'s fuel unit (#38) and records it here as a patch. What the error render uses is added to the failed invocation's `render_fuel` and `render_ms` (`meter.md`).
+
+**404 page.** A `GET` or `HEAD` that matches no route, on an artifact with templates, whose `Accept` header prefers `text/html`, gets the template with `kind: "not_found"` (`pages/_404.html`), with `status: 404`, `code: null`, the request id, and the message "Page not found.", under the same fixed budget. Without a `_404.html` it falls back to `_error.html`, then to the default page. A 404 like this has no meter record (no tenant code runs, `meter.md` section 1). A `Response` with status 404 returned by `load` is a tenant response and passes through untouched.
+
+### When the route kind is not known
+
+The gateway can fail a request before a route is matched (`RENOX_BODY_TOO_LARGE`, `RENOX_UNAVAILABLE`, from 0.6 `RENOX_TENANT_SUSPENDED`, and until 0.7 `RENOX_HOST_MISMATCH`). It answers with the platform default page when the request's `Accept` header prefers `text/html`, and with the JSON body otherwise.
+
+## 2. What is logged
+
+Every row below produces one line in the tenant's log sink (`ops.md` section 4) unless it says otherwise. The line carries the standard fields (`ts`, `tenant_id`, `deployment_hash`, `request_id`, `module`, `level`) plus `code` and the fields listed in the row. These lines are what `renox logs` and the dashboard show the developer. Secret values are redacted from every field (`ops.md` section 3). Fields that would reveal our infrastructure (node names, internal addresses, file paths) go only to the platform's operator logs, never to the tenant sink.
+
+Thrown codes (section 3, "Thrown into tenant code") are logged when they end a request uncaught, as part of the `RENOX_INTERNAL` line (`cause_code`, `cause_message`, redacted `stack`). If tenant code catches them, logging is up to the tenant. Exceptions: `RENOX_FETCH_BLOCKED` is always logged by the platform (`docs/24-threat-model.md` rule 4), and so is `RENOX_DB_AUTH`, because a refused table is a security-relevant event even when caught.
+
+## 3. Catalogue
+
+Columns: **HTTP** = status of the platform response ("—" = never a response by itself: thrown into tenant code, and 500 `RENOX_INTERNAL` if uncaught). **Message** = the fixed text in the response body and on the default page. **Logged** = fields added to the tenant log line. **What to do** = the guidance the dashboard, CLI, and docs give the developer.
+
+### Request limits and platform responses
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_CPU_LIMIT` | F1 | 503 | The request's JavaScript used more CPU time than the tier limit (50 ms free / 500 ms paid), or module evaluation exceeded its budget. The isolate is recycled, and its other in-flight requests end with this code too | The request used more CPU time than its limit. | `route`, `cpu_ms`, `limit_ms`, `phase` (`request` / `module_load`) | Move heavy work out of the request path (precompute, paginate, cache in `ctx.db`), check for loops over unbounded input, or upgrade the tier | `ops.md` §10; `docs/04-isolation-security.md` "Per-tenant limits"; failure mode "Infinite loop / CPU over limit" |
+| `RENOX_OOM` | F1 | 503 | The isolate reached its V8 heap limit (128 MB / 512 MB). The isolate is recycled, and its other in-flight requests end with this code too | The request ran out of memory. | `route`, `peak_heap_bytes`, `limit_bytes` | Stream large bodies instead of buffering them, limit query result sizes, avoid unbounded global caches | `ops.md` §10; failure mode "Unbounded allocation" |
+| `RENOX_DEADLINE` | F1 | 504 | The request's wall-clock deadline (30 s / 60 s) passed. Also thrown into pending ops of that request | The request took too long. | `route`, `wall_ms`, `limit_ms`, `pending_ops` (op names) | Look for slow `fetch` targets or long database work; set timeouts on outbound calls with `ctx.deadline.remainingMs()` | `ops.md` §5, §10; failure mode "Handler never resolves" |
+| `RENOX_INTERNAL` | F1 | 500 | The handler threw (including an uncaught thrown code below), returned something that is not a `Response`, module evaluation failed, or a route's export is missing | Internal error. Quote the request id when reporting it. | `route`, `cause_code` (if the cause was a `RenoxError`), `cause_message`, `stack` (redacted), `phase` | Read the logged cause and stack; catch expected errors and return your own `Response` | `ops.md` §6, §11; failure mode "Handler throws" |
+| `RENOX_MODULE_EVAL` | F2 | 500 | A route module evaluated on its first request (ops 1.4.0, lazy route modules) threw while evaluating, or lacks the route's export. Only that route fails; the isolate stays up and the failure is cached until the isolate is replaced | Internal error. Quote the request id when reporting it. | `route`, `module`, `cause_message`, `stack` (redacted); logged once per isolate | Fix the module's top-level code (it now runs inside the first request, under its deadline and limits); run `renox check`, which refuses a missing export before deploy | `ops.md` §11, §13; failure mode "Route module fails to evaluate on first use" |
+| `RENOX_BUSY` | F1 | 503, `Retry-After: 1` | All concurrency slots of the deployment (50 / 500) stayed busy until the request's deadline | The service is busy. Try again shortly. | `route`, `concurrency_limit`, `queued_ms` (one summary line per second while it lasts, not one per request) | Find slow handlers that hold slots; raise the tier for more concurrency | `ops.md` §10; failure modes "Too many concurrent requests", "Flood from many IPs on one tenant" |
+| `RENOX_BODY_TOO_LARGE` | F1 | 413 | The request body exceeded the limit for the route kind (1 MB default) at the gateway, before any tenant code ran | The request body is too large. | `limit_bytes`, `received_bytes` (not metered, `meter.md` §1) | Upload large files through the storage module; raise the limit per route when available | `ops.md` §6; failure mode "Request body over limit" |
+| `RENOX_RENDER_LIMIT` | F2 | 500 | Template rendering ran out of fuel, iterations, output size, include depth, or render time | The page could not be rendered. | `template`, `line`, `limit` (`fuel` / `iterations` / `output` / `depth` / `time`) | Paginate the data passed to the template; reduce nested loops | `docs/08-template-engine.md`; failure mode "Template nested loops / huge output" |
+| `RENOX_CSRF` | F2 | 403 | A non-GET page action arrived without a valid CSRF token | The request could not be verified. Reload the page and try again. | `route`, `action`, `reason` (`missing` / `mismatch`) | Submit forms through the generated markup or htmx, which send the token; exempt webhook routes are automatic | `docs/04-isolation-security.md` "Web-layer protections"; failure mode "CSRF token missing or wrong" |
+| `RENOX_FORBIDDEN` | F5 | 403 | A Cedar policy denied the action, or nothing permitted it (fail closed): the route `guard` before any handler, `ctx.authz.require` (thrown; uncaught it still ends the request with 403, not 500), a `realtime.subscribe` (thrown in `open`; the connection closes with 1008), the tool check before `run` (a JSON-RPC error on `/mcp`), or `explain` outside dev mode | You do not have permission to do this. | `action`, `resource` (`type` and `id`), `reason` (`deny` / `unknown_action` / `missing_attribute` / `evaluation_error` / `eval_limit` / `dev_only`), `policy` (dev only), `principal` (id only); an audit row in `renox__authz_audit` when the action is sensitive | Check the role assignments and policies for the action; `renox authz explain` names the deciding policy in dev; a `missing_attribute` means the resource object lacks a declared `[authz.entities]` attribute | `ops.md` §17; `docs/11-authorization.md`; failure mode "Policy denies" |
+| `RENOX_REALTIME_LIMIT` | F5 | 503, `Retry-After: 5` (at the upgrade); — on an open connection | A `ws` or `sse` upgrade over the tenant's or the user's connection cap (503, no tenant code runs); on an open connection: `subscribe` over the topics per connection, `publish` or `send` with a message over 64 KB (thrown), or an inbound flood (closed with 1008) | Too many realtime connections. Try again shortly. | `reason` (`tenant` / `user` / `topics` / `message_size` / `flood`), `route`; a platform close is logged with `code` and `reason` | Close idle connections on the client; subscribe to fewer topics per connection; send smaller messages; raise the tier for more connections | `ops.md` §18, "Limits"; failure mode "WebSocket message flood / oversized frame" |
+| `RENOX_REALTIME_BACKPRESSURE` | F5 | — (close 1008) | A connection's outbound queue (256 messages) was full: the fan-out closed the slow consumer with 1008, or `send` to it rejected (thrown) | — (the client sees close code 1008 and reconnects; `Last-Event-ID` replays the recent events on SSE) | `conn`, `route`, `queued` | Nothing in the handler: a slow client is closed by design; reduce the message rate per topic, or coalesce updates into fewer, larger fragments | `ops.md` §18, "Limits"; failure mode "WebSocket message flood / oversized frame" |
+| `RENOX_HOST_MISMATCH` | F2 | 421 | **Deprecated in 0.7 (#418, ADR D25): no longer produced.** TLS ends at Cloudflare's edge and the worker sees no SNI, so this check is gone; the row stays so old clients and logs can be read. Was: the TLS SNI name and the `Host` (or `:authority`) both resolve in the route table, to **different tenants**. Refused before routing; no cell is touched | The request was sent to the wrong host. | Not logged to any tenant sink, since the two names belong to different tenants. The operator log records both host names | Nothing in the app. Clients must send the same name in SNI and `Host`; browsers retry a 421 on a new connection by themselves | `artifact.md` §5; `docs/24-threat-model.md` "Host/SNI confusion" |
+| `RENOX_TENANT_SUSPENDED` | F7 | 503, `Retry-After: 3600` | The hostname's route entry is `suspended` (`artifact.md` 1.5 section 5): the tenant is suspended for billing or abuse (`deploy-api.md` 0.5.1 sections 5, 20, 22). The gateway answers before routing with the platform's neutral page, which shows the tenant's `display_name` and nothing else; no cell is touched | This service is temporarily unavailable. | Not logged to the tenant sink (no request reaches the tenant); the operator log counts it per tenant | The owner pays the open invoice, upgrades, or answers the abuse ticket; the dashboard shows why | `artifact.md` §5, `deploy-api.md` §5 |
+| `RENOX_UNAVAILABLE` | F3 | 503, `Retry-After: 5` | The worker cannot load the deployment: artifact not cached and object storage or the control plane is unreachable, or the cell is marked unhealthy. In the deploy API: no healthy node can take an activation, or Postgres or object storage is unreachable | The service is temporarily unavailable. | `reason` (`artifact_unavailable` / `cell_unhealthy`); deploy API: the deployment's `last_error.stage` = `no_worker` | Nothing in the app; the platform retries and alerts. Check the status page; retry the activation | failure modes "Control plane unreachable from the worker", "Object storage unreachable"; `deploy-api.md` §6 |
+
+### Thrown into tenant code
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_FETCH_BLOCKED` | F1 | — | `fetch` to a host that is not on the allowlist, with the wrong scheme or port, resolving to a blocked address, over 5 redirects, or with a forbidden method | — | Always logged: `host`, `reason` (never the resolved IP) | Add the host to `[fetch] allow` in `renox.toml`; private and metadata addresses cannot be allowed | `ops.md` §2; `docs/24-threat-model.md` SSRF rows; failure mode "`fetch` to blocked destination" |
+| `RENOX_FETCH_FAILED` | F1 | — | `fetch` failed for a network reason: DNS, connect, TLS, reset, redirect mode `error`, too many concurrent fetches, or too many headers | — | When uncaught: `host`, `reason` | Retry with backoff for transient reasons; check the remote certificate for `tls` | `ops.md` §2 |
+| `RENOX_FETCH_EGRESS_LIMIT` | F1 | — | Outbound bytes of the request (sent + received over all fetches) passed 10 MB free / 100 MB paid; the stream is aborted | — | When uncaught: `host`, `limit_bytes` | Request smaller ranges or pages from the remote API; stream instead of downloading whole files | `ops.md` §2; failure mode "`fetch` response too large / too slow" |
+| `RENOX_DB_AUTH` | F1 | — | The SQLite authorizer refused a table, view, `ATTACH`, `PRAGMA`, or function outside the module's prefix | — | Always logged: `table`, `action`, `module` | Use only your module's `<module>__*` tables and declared `<dep>__public_*` views | `ops.md` §1; `docs/06-data.md`; failure mode "SQL touching another module's table" |
+| `RENOX_DB_BUSY` | F1 | — | The write lock stayed taken for the busy wait (2 s, or the remaining deadline if shorter) | — | When uncaught: `wait_ms` | Keep write transactions short; do not `fetch` inside `db.transaction` | `ops.md` §1 |
+| `RENOX_DB_TIMEOUT` | F1 | — | A statement ran longer than 1 s (or the remaining deadline); the statement is interrupted and its transaction rolled back | — | When uncaught: `elapsed_ms` (the SQL text is not logged) | Add an index, add `limit`, avoid unbounded `WITH RECURSIVE` | `ops.md` §1; failure mode "Runaway query" |
+| `RENOX_DB_QUOTA` | F1 | — | The tenant file reached its size quota (100 MB free / 10 GB paid); writes fail, reads continue | — | When uncaught: `quota_bytes`; also a dashboard warning | Delete old data or upgrade the tier | `ops.md` §1; failure modes "Database file over quota", "Disk full on node" |
+| `RENOX_DB_CONSTRAINT` | F1 | — | A unique, foreign key, not-null, check, or primary-key constraint failed | — | When uncaught: `kind` | Expected in normal operation: catch it and return a 409 or 400 | `ops.md` §1 |
+| `RENOX_DB_SQL` | F1 | — | Syntax error, unknown table or column, or another `SQLITE_ERROR` | — | When uncaught: SQLite's message (no file path) | Fix the statement; run `renox check`, which lints SQL | `ops.md` §1 |
+| `RENOX_DB_PARAM` | F1 | — | A parameter has an unsupported type or value (`undefined`, `NaN`, object, bigint outside i64, lone surrogate), the count does not match, named parameters were used, or the SQL text or parameter count is over its limit | — | When uncaught: `index` of the parameter, `reason` | Pass `null` instead of `undefined`; use positional `?` parameters | `ops.md` §1, §12 |
+| `RENOX_DB_COLUMN_NAME` | F1 | — | Two result columns have the same name | — | When uncaught: `column` | Alias the columns (`select a.id as a_id, b.id as b_id`) | `ops.md` §1 |
+| `RENOX_DB_MULTI_STATEMENT` | F1 | — | More than one statement was passed in one call | — | When uncaught | Run one statement per call; group them in `db.transaction` | `ops.md` §1 |
+| `RENOX_DB_RESULT_LIMIT` | F1 | — | A query returned more than 10,000 rows or 8 MB | — | When uncaught: `limit` (`rows` / `bytes`) | Paginate with `limit` and a cursor | `ops.md` §1 |
+| `RENOX_DB_TX_STATE` | F1 | — | A transaction was begun while one was already open on the request, or a handle was used after commit or rollback | — | When uncaught | Do not nest `db.transaction`; savepoints arrive in F4 | `ops.md` §1 |
+| `RENOX_DB_UNAVAILABLE` | F6 | 503, `Retry-After: 30` | The tenant's SQLite file failed its integrity check on open or is being restored | The service is temporarily unavailable. | `reason` (`integrity` / `restoring`) | Nothing in the app; the platform restores from the replica and alerts | failure mode "SQLite file corrupted, WAL unreadable" |
+| `RENOX_DB_SCOPE` | F5 | — | Module code ran a statement on an owned table (`[authz.ownership]`) without `db.scoped()`, a scoped statement lacked the value the table needs, an `INSERT` set a different owner, or the rewriter could not prove the statement (an owned table in a subquery or CTE, `INSERT … SELECT` from an owned table) | — | Always logged, like `RENOX_DB_AUTH`: `table`, `module`, `reason` (`unscoped` / `scope_missing` / `owner_mismatch` / `unprovable`); never the SQL | Use `db.scoped({ user_id, org_id })` for owned tables; pass the scope the table's `owner` and `org` columns need; keep owned tables out of subqueries, or read them in a separate statement | `ops.md` §17, "`db.scoped()`"; `docs/11-authorization.md`; failure mode "Unscoped query on an owned table" |
+| `RENOX_NO_REQUEST` | F1 | — | An op was called outside a live request: at module top level, or from a timer or promise that outlived its request | — | When uncaught at top level: as `RENOX_INTERNAL` with `phase: module_load`; later: one line with `op` | Do I/O inside handlers; do not keep work running after the response | `ops.md` §0 |
+| `RENOX_SECRETS_CONSUMED` | F1 | — | `op_secrets_get_all` was called a second time. Unreachable from tenant code through the public API | — | `op` | Read secrets from `ctx.secrets` | `ops.md` §3 |
+| `RENOX_MODULE_UNDECLARED` | F4 | — | Module code called a service of a module it does not list in `[dependencies]`, ran a hook point it does not export, or emitted an event it does not export | — | Always logged: `module` (the caller), `target` (the module, hook, or event) | Add the dependency (and the `[imports]` entry) to `module.toml`, then `renox install`; `renox check` finds it before deploy | `ops.md` §15.2–15.4; `manifest.md` MF7; `docs/24-threat-model.md` "Module calling a service or hook it did not declare" |
+| `RENOX_MODULE_SERVICE` | F4 | — | A service, hook filler, or in-memory event handler of another module threw; the enclosing transaction was rolled back | — | When uncaught: `module`, `service` / `hook` / `event`, `cause_code`; the callee's own error is logged with the callee's `module` | Read the callee module's log line for the cause; catch it to answer the user, knowing the transaction is gone | `ops.md` §15.2; failure mode "Module service throws" |
+| `RENOX_EVENT_PAYLOAD` | F4 | — | `ctx.events.emit` got a payload that does not match the event's exported schema, is not JSON-serialisable, or is over 64 KiB | — | When uncaught: `event`, `reason` (`schema` / `not_json` / `too_large`); never the payload | Send what the event's `payload` schema in `module.toml` says; put large data in a table and send its id | `ops.md` §15.4; `manifest.md` section 2 |
+
+| `RENOX_JOB_NOT_FOUND` | F6 | — | `op_jobs_retry` or `op_jobs_cancel` named an id that is not a job row of this tenant | — | When uncaught: `id`, `op` | Reload the list; the row was cancelled or pruned | `ops.md` §20 (1.6.0) |
+| `RENOX_JOB_STATE` | F6 | — | `op_jobs_retry` on a row that is not dead, or `op_jobs_cancel` on a running row | — | When uncaught: `id`, `state`, `op` | Retry only dead letters; wait for a running job to end before cancelling | `ops.md` §20 (1.6.0) |
+| `RENOX_STORAGE_QUOTA` | F7 | — | `op_storage_put` would take the tenant past its storage bytes | — | When uncaught: `limit_bytes`, `used_bytes` | Delete files or move to the paid tier | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_TYPE` | F7 | — | A content type outside `[storage] allowed_types`, one the sniffed bytes contradict, or SVG that was not sanitised | — | When uncaught: `declared`, `sniffed` | Upload a file of an allowed type; send SVG through the `storage` module's sanitiser | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_TOO_LARGE` | F7 | — | One file is over the tier's per-file limit | — | When uncaught: `limit_bytes` | Split or compress the file | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_KEY` | F7 | — | A key outside the pattern, with a `..` segment, or under another module's prefix | — | When uncaught: `key` (truncated to 64 characters) | Use the module's own keys | `ops.md` §21 (1.7.0) |
+| `RENOX_STORAGE_NOT_FOUND` | F7 | — | No file under that key | — | When uncaught: `key` (truncated) | Check the key | `ops.md` §21 (1.7.0) |
+| `RENOX_IMAGE_RATE` | F7 | 429 | The tenant's image transform rate is spent (`Retry-After`) | Too many image requests. Try again shortly. | `route` | Use the allowed widths; variants are cached after the first request | `ops.md` §21 (1.7.0) |
+| `RENOX_WEBHOOK_SIGNATURE` | F7 | 401 | A webhook's signature is missing or wrong, or its timestamp is outside the tolerance; the handler does not go on | The request could not be verified. | `provider`, `reason` (`missing` / `mismatch` / `expired`); never the body or a header value | Check the secret `WEBHOOK_<PROVIDER>_SECRET` and the provider's endpoint settings | `ops.md` §22 (1.7.0) |
+| `RENOX_AI_QUOTA` | F7 | 429 | The tenant's monthly AI tokens are spent | The service is temporarily unavailable. | `used_tokens`, `limit_tokens` | Wait for the next month or move to the paid tier; use a key of your own (`[ai] mode = "direct"`) | `ops.md` §23 (1.7.0) |
+| `RENOX_AI_UNAVAILABLE` | F7 | 503 | The model provider (or the platform gateway) did not answer or failed | The service is temporarily unavailable. | `provider`, `status`; never the provider's body | Retry later, or handle the error in the app | `ops.md` §23 (1.7.0) |
+| `RENOX_PDF_LIMIT` | F7 | — | A PDF would be over 200 pages or 20 MB | — | When uncaught: `pages`, `bytes` | Page the report, or produce several files | `ops.md` §24 (1.7.0) |
+
+`RENOX_DB_UNAVAILABLE` has an HTTP status because it fails the request before any tenant code runs (the cell cannot open the file). When it happens during a request it is thrown like the other `RENOX_DB_*` codes.
+
+### App MCP (`/mcp`, F5)
+
+Answered as JSON-RPC errors by the cell's `/mcp` endpoint (`ops.md` section 19): the HTTP status below and a body `{ "jsonrpc": "2.0", "id": …, "error": { "code": -32000, "message": <the fixed message>, "data": { "code": "RENOX_…", "request_id": … } } }`. None reaches tenant code; none writes a meter record (the tool's `run` did not start). A denied Cedar action on a tool is `RENOX_FORBIDDEN` (above), in the same JSON-RPC form.
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_TOOL_INPUT` | F5 | 400 | `tools/call` arguments fail the tool's declared input schema | The tool input is not valid. | `tool`, `details` `[{ field, reason }]` (never the argument values); `client.name` | The agent reads `details` and retries; the tool's `input` schema is what `tools/list` published | `ops.md` §19 |
+| `RENOX_TOOL_SCOPE` | F5 | 403 | The agent token's scopes do not cover the tool (`tools:*` or `tools:<name>`) | The token does not allow this tool. | `tool`, `token` (id only), `client.name` | The user grants the tool's scope to the agent in the `auth` module's consent screen; `tools/list` shows only covered tools | `ops.md` §19; `docs/20-ai-agents-mcp.md` section 5 |
+| `RENOX_TOOL_CONFIRM` | F5 | 409 | A `confirm: true` tool was called without the confirmation token of its preview, or with one that expired (10 minutes), was already used, or belongs to other arguments or another agent token | The action needs a fresh confirmation. | `tool`, `reason` (`missing` / `expired` / `replayed` / `mismatch`), `client.name` | Call the tool without a confirmation to get a preview and a new token, show the preview to the user, then call again with the token and the same arguments | `ops.md` §19, "Confirmation"; `docs/20-ai-agents-mcp.md` section 2, "Confirmation" |
+
+### Client events (dev overlay only)
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_CLIENT_EVENTS_DROPPED` | F2 | — | The gateway dropped browser events sent to `/__renox/events`: body or batch over its limit, per-IP or per-tenant rate, sampling, or the daily cap. The endpoint still answers 204, so the browser never sees it | — (production never shows it) | One summary line per minute while it lasts: `reason` (`body_size` / `batch_size` / `ip_rate` / `tenant_rate` / `sampled` / `daily_cap` / `invalid`), `dropped` (count). Shown in the dev overlay's "Browser" tab | Fix the error that floods the endpoint; lower `extra` sizes; disable client events with `[client] events = false` | `client-events.md`; failure mode "Client-event flood (bug or abuse)" |
+
+### Deploy (control plane and CLI)
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_DEPLOY_REJECTED` | F3 | 422 (deploy API) | An uploaded artifact failed validation: any of rules V1–V16 (bundle over 20 MB, route conflict, unknown permission key, path escape, hash mismatch, ...) or the upload rules T1–T8 (link or device entry, over 100 MiB or 10,000 entries, compression ratio over 50:1, extraction over 30 s, ...) | The artifact failed validation. | Deployment event with `rule` (`V1`–`V13`, `T1`–`T8`), `path` or `field`, `reason`; the deployment state becomes `rejected` | Run `renox check` locally, which applies the same rules, and fix what it reports | `artifact.md` §6; `deploy-api.md` §4; failure modes "Bundle over 20 MB, route conflict, unknown permission key", "Tarball decompression bomb / too many files" |
+| `RENOX_ACTIVATION_FAILED` | F3 | 422 (deploy API) | Activation stopped on the owning node: the artifact could not be fetched, a migration file failed, module evaluation failed, the probe answered 5xx or hit a limit, or the node did not answer within 60 s. Nothing switched; the previous deployment keeps serving | The deployment could not be activated. | Deployment event with `stage` (`fetch` / `load` / `migrate` / `probe` / `timeout`), `module`, `file`, `sqlite_error`, `http_status`; the deployment returns to `validated` with `last_error` | Fix the failing migration file or handler and deploy again; applied migration files are not re-run | `deploy-api.md` §6; failure modes "Migration fails half-way during activation", "New deployment fails its first request" |
+| `RENOX_POLICY_INVALID` | F5 | 422 (deploy API); `renox check` exit code 1 | A Cedar policy file (`policies/app/*.cedar`, a module's `policies/*.cedar`) does not parse, or does not validate against the merged schema (an unknown action or entity type, a type error), or the merged schema has a duplicate entity type or action (`artifact.md` V24); nothing is loaded | The policies failed validation. | Deployment event with `rule: "V24"`, `path` (the policy file), `reason` (the parser's or validator's message, which names policy text the tenant wrote, never ours); the deployment state becomes `rejected` | Run `renox check`, which prints the same message with the file and line; declare the action in `[authz] actions` or the entity in `[authz.entities]` / `policies/schema.cedarschema` | `artifact.md` §3, "Policies", §6 V24; `ops.md` §17; `docs/24-threat-model.md` rule 3 (fail closed) |
+| `RENOX_CLI_WORKER_UNVERIFIED` | F3 | — (CLI, exit code 3) | The CLI refused to run a `renox-worker` binary whose sha256 differs from the pinned release or whose sigstore signature or provenance does not verify | — | CLI output only: `expected_sha256`, `actual_sha256`, the binary path on the developer's own machine | Re-download the worker (`renox dev` fetches the pinned release) or pass a binary from an official release; never disable the check | `docs/24-threat-model.md` F, "Tampered release"; #129 |
+
+### Control API (deploy API, F3 and F6)
+
+Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](deploy-api.md) §1, §2, §12). The body is the JSON of section 1 plus, where `deploy-api.md` §12 says so, a `details` list; it never contains a secret value, a token, a server path, or an internal address. These codes are not thrown into tenant code and are not written to the tenant log sink; mutating requests are audit-logged instead (`deploy-api.md` §2).
+
+| Code | Phase | HTTP | When it happens | Message (end user) | Logged (tenant developer) | What to do | Refers to |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `RENOX_VALIDATION` | F3 | 400 | A request body, parameter or header is malformed: bad JSON, an unknown field, a value outside its pattern or range, a secret value under 8 bytes, a non-`.map` file in a sourcemap upload (422 there) | The request is not valid. | Audit row with the status; `details` `{ field, reason }` in the response | Fix the field named in `details`; the CLI validates before sending | `deploy-api.md` §1, §9 |
+| `RENOX_UNAUTHENTICATED` | F3 | 401, `WWW-Authenticate` | No token, an unknown, expired or revoked token, or a token of the wrong kind | Authentication is required. | Not logged per request; repeated failures per IP are counted | `renox login` again or create a new token; check the token has not expired | `deploy-api.md` §2; `docs/24-threat-model.md` E, "Leaked CLI or CI token" |
+| `RENOX_TOKEN_SCOPE` | F3 | 403 | The token is valid but lacks the operation's scope, or a node token names another node | The token does not allow this action. | Audit row with the token id and the action | Create a token with the needed scope (`deploy:<app>`, `secrets:write`, ...) | `deploy-api.md` §2 |
+| `RENOX_NOT_FOUND` | F3 | 404 | The app, deployment, secret, domain or token does not exist in the caller's tenant (another tenant's resources are also 404) | Not found. | — | Check the app name and hash (`renox deploy --list`) | `deploy-api.md` §2; `docs/24-threat-model.md` E, IDOR row |
+| `RENOX_CONFLICT` | F3 | 409 | A state transition the state machine does not allow, an app name or hostname already taken, another activation of the app in progress, a suspended tenant, an unknown node heartbeating, or a late `prepare_result` | The request conflicts with the current state. | Audit row; `details` `{ field, reason }` | Read the current state (`GET` the resource) and retry the right action; wait for the running activation | `deploy-api.md` §5, §6, §10 |
+| `RENOX_RATE_LIMITED` | F3 | 429, `Retry-After` | The token's request or upload bucket is empty, or too many unauthenticated requests came from one IP | Too many requests. Try again later. | — | Wait for `Retry-After`; batch work in CI instead of polling | `deploy-api.md` §2; `docs/24-threat-model.md` E, "Deploy API abuse" |
+| `RENOX_BACKUP_UNAVAILABLE` | F6 | 503, `Retry-After: 30` | A backup action (status aside) cannot run: replication is off for the app's database, the replica or the owning node is unreachable, or no generation exists yet (deploy API 0.3, `exportBackup`, `restoreBackup`, `importDatabase`, `moveTenant`; node listener `restore`) | No backup is available for this database right now. | Audit row with the action; `details` `{ field, reason }` (`replication: none`, `node: unreachable`, `replica: unreachable`, `generation: none`) | Wait and retry; a database with replication off has no restore points (free tier turns it on by default from F6) | `deploy-api.md` §14, §15; failure modes "Replica lagging / Litestream behind", "Node dies, restore fails" |
+| `RENOX_RESTORE_POINT_UNKNOWN` | F6 | 422 | A point-in-time restore asked for a time no generation covers: in the future, before the oldest generation, outside retention, or in a gap between generations | No backup covers the requested time. | Audit row; `details` `{ field: timestamp, reason }` with the oldest and newest restore points | Pick a time inside one of the generations that `GET /v1/apps/{app}/backups` lists | `deploy-api.md` §14 |
+| `RENOX_IMPORT_REJECTED` | F6 | 422 | `importDatabase` refused the file: the target app is not a staging app, the file is not a SQLite database, fails `PRAGMA quick_check`, or has a table, view, index or trigger name the authorizer would refuse (no `<module>__` prefix) | The database file cannot be imported. | Audit row; `details` `{ field, reason }` (`app` / `file` / `integrity` / `table`) | Import only into an app created with `staging: true`; run `renox check` on the schema; use `<module>__` table names | `deploy-api.md` §14 |
+| `RENOX_TENANT_MOVING` | F6 | 503, `Retry-After: 30` | The tenant is being moved by an operator (move to a microVM in progress): the node answers the tenant's requests with it, and the API refuses another tier change, move, export or import until the move ends | The service is being moved. Try again shortly. | One line per minute while it lasts, `source: platform`, `kind: move` | Nothing in the app; the move ends within minutes or is rolled back | `deploy-api.md` §17 |
+
+## 4. Rules for adding a code
+
+- Codes are `RENOX_` followed by upper-case words joined by `_`. A code names a cause the tenant can act on, not an implementation detail.
+- A new code needs a row here (all columns), and, if it crosses the op boundary, a row in `ops.md` section 13 and a type in `ctx.d.ts`, in the same PR. `validate.ts` fails otherwise.
+- A code listed with a later phase is reserved: nothing may produce it before that phase, and the row is completed by the issue that implements it.
+- The fixed messages are in English. Localised messages (EN/AR, `docs/21-uae-gcc-strategy.md`) are a later addition keyed by code. The `code` is the stable identifier, never the message.
+
+## Open
+
+1. **Localisation of messages.** The default page and the JSON `message` are English in F1. Arabic messages keyed by code and `Accept-Language` are expected with the F2 default page; the mechanism (a second fixed table) is not designed yet.
+2. **Rate limit (429).** Gateway rate limiting (`docs/23-failure-modes.md`, "Request flood from one IP") answers 429 with `Retry-After` and no code. The control API answers 429 with `RENOX_RATE_LIMITED` (F3); using the same code at the gateway would make it consistent with the others. This needs #22 to decide whether rate-limit responses carry a body at all, since a body costs bytes under a flood.
+3. **`RENOX_BUSY` log volume.** One summary line per second is a proposal for #28 to confirm.
+4. **`RENOX_TENANT_SUSPENDED` and crawlers (0.6).** A 503 with `Retry-After` tells search engines to come back rather than drop the pages. A suspension that lasts weeks would still lose ranking; whether a long suspension moves to 410 is the operator's decision and not in F7.
+
+## Changelog
+
+| Version | Issue | Changes |
+| --- | --- | --- |
+| 0 | #91 | First catalogue (F1) |
+| 0.1 | #152 | Page (HTML) routes: the four error-template inputs, the fixed error-page render budget, the 404 page, and the fallback order (section 1). New rows: `RENOX_HOST_MISMATCH` (421, F2), `RENOX_CLIENT_EVENTS_DROPPED` (F2, dev overlay only) |
+| 0.2 | #50 | Deploy API (F3): section "Control API" (`RENOX_VALIDATION`, `RENOX_UNAUTHENTICATED`, `RENOX_TOKEN_SCOPE`, `RENOX_NOT_FOUND`, `RENOX_CONFLICT`, `RENOX_RATE_LIMITED`); `RENOX_ACTIVATION_FAILED`, `RENOX_CLI_WORKER_UNVERIFIED`; `RENOX_DEPLOY_REJECTED` gains T1-T8 and its message; `RENOX_UNAVAILABLE` covers the deploy API |
+| 0.3 | #251 | Deploy API 0.3 (F6): `RENOX_BACKUP_UNAVAILABLE`, `RENOX_RESTORE_POINT_UNKNOWN`, `RENOX_IMPORT_REJECTED`, `RENOX_TENANT_MOVING` in "Control API" |
+| 0.4 | #272 | Ops 1.5.0 (F5): `RENOX_REALTIME_LIMIT` and `RENOX_REALTIME_BACKPRESSURE` in "Request limits"; the new section "App MCP" with `RENOX_TOOL_INPUT`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_CONFIRM`; `RENOX_POLICY_INVALID` in "Deploy"; the `RENOX_FORBIDDEN` and `RENOX_DB_SCOPE` rows completed (reasons, logged fields, the uncaught-is-403 rule) |
+| 0.5 | #318 | Ops 1.7.0 (F7): the storage, image, webhook, AI and PDF codes |
+| 0.6 | #346 | Artifact 1.5 and deploy API 0.5.1 (F7): `RENOX_TENANT_SUSPENDED`, the neutral suspension page the gateway answers for a `suspended` route entry |
+| 0.7 | #418 | `RENOX_HOST_MISMATCH` deprecated: the worker serves plain HTTP/1.1 behind Cloudflare Tunnel and has no SNI to compare (ADR D25). The row stays, marked as no longer produced; no other change |
+
+---
+
+Source: docs/contracts/manifest.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/contracts/manifest.md)
+
+# Contract: module manifest, `renox.toml [modules]`, `renox.lock`
+
+| | |
+| --- | --- |
+| Version | **1.3** (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
+| Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
+| Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
+| Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
+| Examples | [`examples/manifest/`](examples/manifest/): single files and whole projects (section 8) |
+| Checker | `bun run docs/contracts/validate.ts` (schemas, examples, rules MF1–MF16) |
+| Sources | `docs/10-modules.md` (the module system), `docs/18-build-plan.md` (catalog, definition of done for a module), `docs/13-decisions.md` D12 (isolation modes), D14 (outbox), D17 (forward-only migrations, versioned views), `docs/06-data.md` (authorizer and prefixes), `docs/24-threat-model.md` (module publisher boundary) |
+
+A module is a mini app with the same folder structure as an app (`docs/10-modules.md`). Its `module.toml` says what it is, what it needs, and what it offers. A tenant installs modules in `renox.toml [modules]`; the CLI resolves them, asks the tenant to approve their permissions, and records the result in `renox.lock`. The lock is the only input the artifact takes from this contract: what the runtime enforces is what the tenant approved, never what a manifest asks for later.
+
+All three files are TOML. The schemas validate the document a TOML parser produces (`Bun.TOML.parse` in `validate.ts`), so a TOML table is a JSON object and an array of tables is an array.
+
+## 1. Files
+
+| File | Written by | Where | Contents |
+| --- | --- | --- | --- |
+| `module.toml` | module author | root of the module tree (`modules/<name>/module.toml`, or a `path:`/`git:` source) | Section 2 |
+| `renox.toml` `[modules]` | tenant | app root | Section 4. The other sections of `renox.toml` belong to the CLI and to `artifact.md` |
+| `renox.lock` | CLI | app root, committed with the app | Section 5. Never edited by hand: `renox check` refuses a lock that does not match (MF12) |
+| `module.sig` | `renox publish` (1.2) | root of a module tree published to the registry | Section 5, "Registry modules". Not part of the module tree hash |
+
+Generated from these files and defined elsewhere:
+
+- `renox-modules.d.ts` (#236): the types of `renox:modules` and `ctx.services` for the app and each module, from `[exports.services]` and the services' TypeScript signatures (`ops.md` 1.3.0, #226).
+- The artifact's `modules` field (#227, `artifact.md` section 3): the lock entries, in lock order, with each module's exports.
+
+## 2. `module.toml`
+
+Abridged from [`examples/manifest/module.billing.valid.toml`](examples/manifest/module.billing.valid.toml) (the manifest of `docs/10-modules.md`):
+
+```toml
+[module]
+name = "billing"
+version = "1.2.0"
+
+[dependencies]
+auth = "^1.0"
+org  = "^1.0"
+
+[config]
+provider = { type = "enum", values = ["stripe", "checkout", "telr", "paytabs", "ngenius"] }
+currency = { type = "string", default = "AED", max_length = 3 }
+
+[permissions]
+tables  = "billing__*"
+network = ["api.stripe.com", "secure.telr.com"]
+secrets = ["BILLING_PROVIDER_KEY"]
+slots   = ["admin.sidebar"]
+roles   = ["finance", "viewer"]                  # 1.1: the roles the module may assign
+
+[exports]
+views = ["billing__public_user_plans_v1"]
+
+[exports.services]
+getActivePlan = "The user's active plan, or null"
+
+[exports.events."billing.invoice_paid"]
+payload = { type = "object", required = ["invoice_id", "user_id"], properties = { invoice_id = { type = "string" }, user_id = { type = "string" } } }
+
+[imports]
+services = ["auth.currentUser", "org.currentOrg"]
+
+[[slots]]
+name = "admin.sidebar"
+template = "partials/admin-menu.html"
+requires = "invoice.read"
+
+[[tools]]
+name = "create_invoice"
+file = "tools/create-invoice.ts"
+action = "invoice.create"
+
+[authz]
+actions   = ["invoice.read", "invoice.create", "invoice.refund"]
+sensitive = ["invoice.refund"]                   # 1.1: audited, and the Renox::Action::"sensitive" group
+
+[authz.ownership]                                # 1.1: db.scoped()
+"billing__invoices" = { owner = "user_id", org = "org_id" }
+
+[authz.entities]                                 # 1.1: Cedar entity Billing::Invoice
+Invoice = { table = "billing__invoices", attrs = ["amount", "org_id", "status"] }
+
+[authz.default_roles]                            # 1.1
+finance = ["invoice.read", "invoice.refund"]
+viewer  = ["invoice.read"]
+
+[realtime.feeds]                                 # 1.1: the change feed
+"billing__invoices" = "invoices:{org_id}"
+```
+
+No other tables or keys are allowed at any level (`additionalProperties: false`), so a typo can never silently drop a permission or an export.
+
+### `[module]`
+
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | `^[a-z][a-z0-9_]{0,31}$`, no `__`, no trailing `_`, not `app`, `renox` or `authz` (MF1) | yes | The module's name **and its table prefix** `<name>__`. `app` is the tenant's own code (`artifact.md` section 1); `renox` is the platform (`renox__*` tables); `authz` is the platform's event namespace (`authz.roles_changed`, #272). The catalog name in `docs/18-build-plan.md` may differ where it is not a valid name: `gcc-data` is installed as `gcc` (tables `gcc__*`), `2fa` as `twofa` |
+| `version` | semver `MAJOR.MINOR.PATCH[-pre]`, no build metadata | yes | The version of this tree. Public API changes follow semver (`docs/10-modules.md`, rule 3) |
+| `isolation` | `"shared"` \| `"isolate"` | no, default `"shared"` | D12. The least isolation the module accepts; a tenant may raise it, never lower it (MF11). `shared`: one context with the app and other modules; `isolate`: its own isolate with its own heap limit, serialised service calls, and only its approved secrets (`ops.md` 1.7.0, section 15.6; runs from #320) |
+| `description` | string, ≤ 200 | no | One line for `renox add` and the dashboard |
+| `price` | `{ amount, currency, period }` (1.2) | no | Informational, shown by the registry and `renox add`: `amount` a decimal string (`"49.00"`), `currency` ISO 4217 (`"AED"`), `period` `"once"`, `"month"`, or `"year"`. Nothing is charged through it in F7 (payouts are an owner decision, `docs/15`) |
+
+### `[publisher]` (1.2)
+
+Required in a tree published with `renox publish`; ignored for `path:` and `git:` sources.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `name` | `^[a-z0-9][a-z0-9-]{0,38}$` | The registry publisher; `registry:<publisher>/<name>` names the module (section 4). Claimed once in the registry, never reused |
+| `key_id` | `ed25519:<base64url of the 32-byte public key, no padding>` | The publisher's signing key. The registry lists a publisher's keys; a revoked key fails MF15 at install |
+
+### `[storage]` (1.2)
+
+`allowed_types`: the content types the module's `ctx.storage.put` accepts (`ops.md` section 21), MIME `type/subtype` without parameters, at most 64. Absent: the platform defaults (`artifact.md` 1.4, "Storage, AI, and the SBOM"). Copied to the artifact's module entry as `storage`.
+
+### `[dependencies]`
+
+Module name → semver range. A dependency is required for service calls and public views, and only for those (`docs/10-modules.md`, "Five communication mechanisms"): events, hooks, and slots need none. Every dependency must itself be installed in `renox.toml` (MF5); the CLI never installs a module implicitly.
+
+Ranges are a fixed subset of npm's:
+
+| Form | Matches | Example |
+| --- | --- | --- |
+| `^X.Y.Z` (also `^X.Y`, `^X`) | `>= X.Y.Z` and below the next change of the left-most non-zero part | `^1.2` = `>=1.2.0 <2.0.0`; `^0.3` = `>=0.3.0 <0.4.0`; `^0.0.4` = `=0.0.4` |
+| `~X.Y.Z` (also `~X.Y`, `~X`) | `>= X.Y.Z` and below the next minor (the next major for `~X`) | `~1.2.3` = `>=1.2.3 <1.3.0` |
+| `X.Y.Z` or `=X.Y.Z` | exactly that version | `1.0.0` |
+| `>=A <B` (full versions, one space) | the interval | `>=1.2.0 <1.5.0` |
+
+A pre-release version (`1.3.0-rc.1`) satisfies only an exact range naming it. Nothing else (`*`, `||`, `x`, hyphen ranges) is accepted.
+
+### `[config]`
+
+Key (`^[a-z][a-z0-9_]{0,63}$`) → declaration. The tenant sets values in `renox.toml`; the module reads the resolved object as `ctx.config` (`ops.md` 1.3.0, #226).
+
+| Field | Applies to | Meaning |
+| --- | --- | --- |
+| `type` | all | `"string"`, `"enum"`, `"int"` (64-bit, within ±(2^53 − 1)), `"bool"` |
+| `values` | `enum` only, required there | Allowed strings, unique, 1–64 |
+| `default` | all | Must have the key's type and pass its bounds (MF10) |
+| `required` | all | Default: `true` when there is no `default`, else `false`. `required = true` together with a `default` is rejected (MF10). An optional key without a default is absent from `ctx.config` when unset |
+| `min`, `max` | `int` only | Inclusive bounds, `min ≤ max` |
+| `max_length` | `string` only | Characters, 1–4096; without it a string value is at most 4096 characters |
+| `description` | all | One line |
+
+Secrets are never config: a value that must stay secret is a secret name under `[permissions]`, set with `renox secrets set`.
+
+### `[permissions]`
+
+What the module asks the tenant to approve (section 3). Every key is optional; an absent key asks for nothing.
+
+| Key | Type | Meaning | Enforced by |
+| --- | --- | --- | --- |
+| `tables` | exactly `"<name>__*"` (MF4) | The module owns tables, views, indexes, and triggers named `<name>__…` and may write them. Absent: the module has no tables and no migrations | SQLite authorizer (`docs/06-data.md`); `artifact.md` V19 |
+| `network` | allowlist entries, syntax of `ops.md` section 2 | Hosts the module's `fetch` may reach. Separate from the app's `[fetch] allow` and from every other module's | `op_fetch` with the module's list (`ops.md` 1.3.0, #226) |
+| `secrets` | names `^[A-Z][A-Z0-9_]{0,63}$` that start with `<NAME>_`, the module name in upper case (MF4) | The secrets the module reads as `ctx.secrets`. The prefix keeps one module from asking for the app's or another module's secret by name | `op_secrets_get_all` (`ops.md` section 3), once per module from 1.3.0 (#226) |
+| `slots` | slot names | The slots the module fills; must be exactly the names of its `[[slots]]` (MF8) | Renderer slot registry (`artifact.md` section 3) |
+| `hooks` | hook names | The hook points the module fills from `hooks.ts`; each must be exported by another installed module (MF8). A filler can halt another module's flow (`auth.after_login`), so filling is approved | Broker (`ops.md` 1.3.0, #226) |
+| `roles` (1.1) | role names, exactly the keys of `[authz.default_roles]` (MF13) | The roles the module may assign with `ctx.authz.roles.assign` (`ops.md` section 17). Assigning a role grants what its policies permit, so it is approved; any other role rejects with `RENOX_MODULE_UNDECLARED` | `op_authz_roles_*` (`ops.md` 1.5.0, #279) |
+| `app_access` (1.3) | `"read"` \| `"write"` | Access to the app's own `app__*` tables that the app grants this module by name in `renox.toml` (`app_tables`, section 4). `read`: `SELECT`; `write`: `SELECT`, `INSERT`, `UPDATE`, `DELETE`. Never DDL, never a table the app did not name, never another module's tables. Every write is audited (`ops.md` section 1, "App tables"). Absent: the module cannot touch any `app__*` table, whatever the app grants (MF16) | SQLite authorizer (`ops.md` 1.8.0 section 1) |
+
+Reading another module's public view needs no permission: it follows from `[dependencies]` and `[imports]` (MF7), and the authorizer allows `SELECT` on `<dep>__public_*` for declared dependencies only. Defining actions, entities, owned tables, and feeds (`[authz]`, `[realtime]`) needs no permission either: they concern the module's own tables and resources (MF14), and a policy that grants an action still comes from the app's or the module's policy set.
+
+**App tables (1.3).** A module that works on the app's data (a reports module, an admin panel, an import tool) asks for `app_access`; the app decides which of its tables the module sees. Both halves are needed: the module's request (`app_access`, approved like every permission) and the app's grant (`app_tables`, named one by one, no wildcard). The lock records both (section 5), and the runtime enforces the lock.
+
+### `[exports]`
+
+The module's public API, versioned with `version` (`docs/10-modules.md`, rule 3).
+
+| Key | Shape | Rule |
+| --- | --- | --- |
+| `views` | `["<name>__public_<id>_v<n>"]` | Views the module creates in its migrations for dependants (D17). `<name>` is this module (MF6); `<id>` matches `[a-z0-9_]+`; `v<n>` starts at `v1` |
+| `services` | `{ <export name> = "<one-line doc>" }` | Named exports of `services.ts`. The name is a JavaScript identifier; the signature comes from the TypeScript source (#236) |
+| `events` | `{ "<name>.<event>" = { payload = <schema>, description? } }` | Events the module emits. The name starts with this module's name (MF6). The payload schema is JSON Schema with the keyword subset of `validate.ts` (`README.md`, "Checking"); `op_events_emit` validates against it (`ops.md` 1.3.0, #226) |
+| `hooks` | `{ "<name>.<hook>" = { args = <schema>, result? = <schema>, description? } }` | Hook points the module runs with `ctx.hooks.run`. Same naming and schema rules as events (MF6) |
+
+### `[imports]`
+
+What the module uses from its dependencies, so a broken contract shows up in `renox check` before any code runs (`docs/23-failure-modes.md`, "Module contract broken on upgrade").
+
+| Key | Shape | Rule |
+| --- | --- | --- |
+| `services` | `["<dep>.<service>"]` | Each `<dep>` is in `[dependencies]`, and the installed version of `<dep>` exports `<service>` (MF7) |
+| `views` | `["<dep>__public_<id>_v<n>"]` | Each view's prefix is a dependency that exports it (MF7) |
+
+`renox check` (#235) compares `[imports]` with the code: every `renox:modules` member a module calls and every `<dep>__public_*` name in its SQL must be listed. The app has no manifest; it may use every installed module's exports.
+
+### `[[slots]]`
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `name` | slot name | The `<r-slot name>` this module fills (rendered by another module's or the app's template) |
+| `template` | `partials/….html` in the module tree | The partial inserted. Must exist in the module tree (MF9) |
+| `requires` | action name | The authorization action a user needs for the content to render. Must be in `[authz].actions` (MF9). Evaluated from F5; carried from F4 |
+| `priority` | integer 0–1000, default 100 | Order among the fillers of one slot: lower first, ties by module name |
+
+### `[[tools]]`
+
+MCP tools (`docs/20-ai-agents-mcp.md` section 2; `ops.md` section 19): `name` (`^[a-z][a-z0-9_]{0,63}$`), `file` (`tools/….ts` in the module tree, MF9), `action` (in `[authz].actions`, MF9), `confirm` (default `false`), `description`. From 1.1 they are **carried in the artifact** as `tool` routes (`artifact.md` 1.3): `renox build` reads the `tool(...)` the file default-exports, records its input schema, and takes `name`, `action`, `confirm`, and `description` from the manifest, which must equal the file's (`renox check`, #284). Tool names are unique across the app and its installed modules (`artifact.md` V25).
+
+### `[authz]`
+
+The module's side of `docs/11-authorization.md` (`ops.md` section 17). Everything here names the module's own tables and resources (MF14); the policies that grant actions live in `policies/*.cedar`, carried in the artifact (`artifact.md` section 1), and are evaluated from F5.
+
+| Key | Shape | Meaning |
+| --- | --- | --- |
+| `actions` | `["<resource>.<verb>"]` | The actions the module defines. `slots[].requires`, `tools[].action`, `sensitive`, and the actions of `default_roles` name them (MF9, MF13) |
+| `sensitive` (1.1) | a subset of `actions` (MF13) | Decisions on these actions are audited in `renox__authz_audit`, and the merged schema puts them in the group `Renox::Action::"sensitive"` (`docs/11`: "requires MFA, audit-logged") |
+| `[authz.ownership]` (1.1) | `"<table>" = { owner = "<column>", org? = "<column>" }`, tables under `<name>__` (MF14) | The owned tables `db.scoped()` fences: `owner` is the user (or session) column, `org` the organisation column. Module code reaching an owned table without a scope is refused (`RENOX_DB_SCOPE`) |
+| `[authz.entities]` (1.1) | `<Type> = { table? = "<name>__…", id? = "<column>", attrs = ["<column>", …] }`, `<Type>` matching `^[A-Z][A-Za-z0-9_]{0,63}$` | The Cedar entity types of the module, `<Module>::<Type>` with `<Module>` the module name capitalised: `attrs` are the only attributes sent to the engine; `table` (own prefix, MF14) and `id` (default `id`) let the cell load a `guard` resource |
+| `[authz.default_roles]` (1.1) | `<role> = ["<action>", …]`, actions of the merged action set (MF13) | The roles the module ships; its default policies grant them these actions. `permissions.roles` lists exactly these role names (MF13), and the lock's `approved.roles` is the tenant's approval |
+
+**The `auth.principal` convention (1.1).** The `auth` module (#291) exports the service `auth.principal(sessionId)` and the hook point `auth.principal` (`[exports.hooks."auth.principal"]`, `args = { principal }`). The cell calls the service once per request (`ops.md` section 17, "Principal"); the service builds the principal from its own tables and runs the hook, whose fillers extend `principal.attrs` and return `undefined` (a filler that halts is treated as a throw): `2fa` sets `attrs.mfa_verified`, `org` sets `attrs.org`. A module that wants an attribute on the principal fills this hook (`permissions.hooks = ["auth.principal"]`, approved at install like any hook fill); nothing else may add to a principal. `auth` also exports `auth.verifyAgentToken` for `/mcp` (`ops.md` section 19, #286).
+
+### `[realtime]` (1.1)
+
+`[realtime.feeds]`: `"<table>" = "<topic pattern>"`, tables under `<name>__` (MF14), the pattern a topic (`ops.md` section 18) whose `{column}` placeholders name columns of that table (`artifact.md` V26 checks the table against the module's migrations). After a commit that changes the table, the cell publishes `{ table, rowid, op }` to the topic to the connections that passed the subscribe check.
+
+## 3. Permissions and approval
+
+- **At install** (`renox add <module>`) and at every upgrade, the CLI shows the module's `[permissions]` and asks the tenant to approve them. The approved set is written to the module's lock entry as `approved` (section 5).
+- **A changed request needs a new approval.** When a manifest's `[permissions]` differ from its lock entry's `approved` in any way (a host added, a secret removed, a hook filled), `renox check` and `renox build` fail with MF12 until the tenant runs `renox approve <module>`. Removing a permission also needs approval, so the lock always says exactly what runs. `docs/23-failure-modes.md`, "Marketplace module unsigned or permission diff on upgrade", is the F7 registry form of the same rule.
+- **What runs is what was approved.** The artifact copies `approved`, not the manifest's request (`artifact.md` V22), and the runtime enforces the artifact (`ops.md` 1.3.0, #226). A module that asks for more after approval gets nothing more until the tenant approves.
+- **Approval in the control plane.** The control plane records the artifact's module permissions as approved at upload, as it does for the app's (`deploy-api.md` section 4, "Outcomes"). Dashboard approval of module upgrades is F7.
+
+## 4. `renox.toml [modules]`
+
+```toml
+[modules]
+auth    = { version = "^1.0", mount = "/auth" }
+org     = { version = "^1.0" }
+billing = { version = "^1.2", mount = "/billing", config = { provider = "telr" } }
+acme    = { version = "^0.4", source = "git:https://github.com/acme/renox-acme#v0.4.1", isolation = "isolate" }
+```
+
+The key is the module's name and must equal the manifest's `[module].name` (MF3).
+
+**`[authz]` and `[realtime]` of the app (1.1).** `renox.toml` may carry the same `[authz]` (`actions`, `sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`) and `[realtime.feeds]` tables as a module manifest, for the app's own `app__*` tables and resources (`App::<Type>` in Cedar); the CLI resolves them into the artifact's `authz` and `realtime` blocks (`artifact.md` 1.3) and `renox check` applies MF13 and MF14 to them with the prefix `app__`. The app's policies are `policies/*.cedar` in the app root, built into `policies/app/`, with the schema `policies/schema.cedarschema`.
+
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `version` | range (section 2) | yes | The versions the tenant accepts. The lock's version must satisfy it and every dependant's range (MF2) |
+| `source` | `path:<dir>` \| `git:https://<repo>#<ref>` | no | Where the module tree is. `path:` is relative to the app root (`..` allowed, no absolute path, no drive letter); `git:` names a tag or a commit, which the lock pins to a 40-hex commit. **Absent = an official module**, resolved by the CLI from the official module set of its own release (Open 1). 1.2: `registry:<publisher>/<name>` resolves from the Renox module registry (section 5, "Registry modules"); `<name>` is the module's name (MF3). `docs/10-modules.md` writes `registry = "acme/reports"`; the contract spells it as a `source` value so one key names where a module comes from |
+| `mount` | `/` or `/<segment>(/<segment>)*`, static segments | no, default `/<name>` | The path prefix of the module's routes (`artifact.md` section 3, "Modules"). Collisions after mounting are rejected at build (`artifact.md` V21) |
+| `config` | key → string, integer, or boolean | no | Values for the module's `[config]` keys. Unknown keys, wrong types, values outside bounds, and missing required keys are rejected (MF10) |
+| `isolation` | `"shared"` \| `"isolate"` | no, default: the manifest's | Overrides the mode **downward only**: from `shared` to `isolate`. Asking for `shared` when the manifest says `isolate` is rejected (MF11) |
+| `app_tables` (1.3) | array of `app__<table>` names, at most 64 | no, default none | The app's tables this module may use at its `permissions.app_access` (section 2). Each is an `app__` table; a module's or the platform's table is rejected; a grant to a module that asks no `app_access` is rejected (MF16). Changing the list needs `renox approve <module>` like any permission change |
+
+## 5. `renox.lock`
+
+```toml
+version = 1
+
+[[module]]
+name = "auth"
+version = "1.0.0"
+source = "path:modules/auth"
+hash = "<64 hex>"
+isolation = "shared"
+mount = "/auth"
+dependencies = []
+config = { registration = "open", session_days = 30, magic_links = true }
+approved = { tables = "auth__*", network = ["accounts.google.com"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET"], slots = [], hooks = [], roles = ["admin", "member"] }
+
+[[module]]                                       # 1.2: a registry module
+name = "tax_gcc"
+version = "2.1.0"
+source = "registry:gulfsoft/tax_gcc"
+hash = "<64 hex>"
+key_id = "ed25519:<43 base64url>"
+signature = "<86 base64url>"
+approved_version = "2.0.0"
+isolation = "isolate"
+mount = "/tax"
+dependencies = []
+config = {}
+approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hooks = [] }
+```
+
+| Key | Meaning |
+| --- | --- |
+| `version` | `1`, this contract's lock format |
+| `module[]` | One entry per installed module, in **topological order**: every module after all its dependencies, ties by name. This is the migration order and the artifact's `modules` order (`artifact.md` section 3) |
+| `name`, `version` | The manifest's name and version (MF3, MF12) |
+| `source` | `official`, `path:<dir>` (as in `renox.toml`), `git:https://<repo>#<40-hex commit>`, or (1.2) `registry:<publisher>/<name>` |
+| `hash` | SHA-256 of the module tree: the canonical listing of `artifact.md` section 2 over every regular file under the module directory, `module.toml` included. Reproducible with the `sha256sum` pipeline there. A `path:` module whose tree changed fails MF12 until `renox install` updates the lock |
+| `isolation` | The effective mode after the `renox.toml` override (MF11) |
+| `mount` | The effective mount (`renox.toml` or the default) |
+| `dependencies` | The names of the manifest's `[dependencies]`, sorted: the dependency edges (MF12) |
+| `config` | The resolved config: every declared key that has a value, from `renox.toml` or the default (MF12) |
+| `approved` | The permissions the tenant approved: `tables` (absent when none), `network`, `secrets`, `slots`, `hooks`, from 1.1 `roles` (absent or empty when the module assigns no role; section 3), and from 1.3 `app_access` (the manifest's, absent when none) and `app_tables` (the `renox.toml` grant, sorted; absent or empty when none) |
+| `key_id`, `signature` | 1.2, registry sources only (MF15): the publisher key and the `module.sig` signature the CLI verified at install. Absent for every other source |
+| `approved_version` | 1.2, optional: the module version `approved` was given for. Absent = `version`. After `renox install` upgrades a module whose permissions did not change, the approval carries over and this keeps the older version; when they changed, MF12 fails until `renox approve`, which shows the diff from the `approved_version` set and then sets `approved_version = version` |
+
+### Registry modules (1.2)
+
+- **Publishing.** `renox publish` (run in a module tree with `[publisher]`) computes the module tree hash (above), signs it, writes `module.sig`, and uploads the tree to the registry under `<publisher>/<name>@<version>`. A version, once published, is immutable; the registry refuses a second upload of the same version.
+- **`module.sig`** is a JSON object (`module-manifest.schema.json` `$defs/moduleSig`): `{ "version": 1, "publisher", "key_id", "name", "module_version", "hash", "signature" }`. `signature` is the Ed25519 signature (base64url, no padding) of the UTF-8 bytes `renox-module-v1\n<publisher>/<name>@<module_version>\n<hash>\n`. The tree hash is computed **without** `module.sig`, so the signature does not sign itself.
+- **Installing.** `renox add` and `renox install` download the tree, recompute the hash, check `module.sig` against the publisher's key from the registry (refusing a revoked key), check that `[publisher].name` and `[module].name` match the source, and then show the permissions for approval as for any source (section 3). The lock records `key_id` and `signature`; `renox check` re-verifies the signature over the locked hash offline (MF15).
+- **Upgrades.** A registry upgrade with changed `[permissions]` shows the diff against the approved set (`approved_version`) and needs `renox approve` (section 3, MF12); `docs/23-failure-modes.md`, "Marketplace module asks for new permissions".
+
+The lock is the input to the build: `renox build` resolves nothing; it reads the lock, checks it (MF1–MF12), and copies it into the artifact. `renox install` resolves (newest version satisfying every range) and rewrites the lock; `renox approve` rewrites `approved`.
+
+## 6. Rules
+
+Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `validate.ts` implements them for the examples. "Single file" rules need only one document; "project" rules need `renox.toml`, `renox.lock`, and the module trees together.
+
+| # | Rule | Scope |
+| --- | --- | --- |
+| MF1 | **Names.** A module name matches `^[a-z][a-z0-9_]{0,31}$`, contains no `__`, does not end with `_`, and is not `app`, `renox`, or (1.1) `authz`, the namespace of the platform event `authz.roles_changed` (`ops.md` section 17). This applies to `[module].name`, `[dependencies]` keys, `renox.toml [modules]` keys, and lock names. With this rule, no module's prefix `<a>__` is a prefix of another's tables: `a__x` cannot belong to a module `a_`, since `a_` is not a name (the authorizer's rule, `crates/renox-data/src/authorizer.rs`) | single file |
+| MF2 | **Versions.** Every `version` is semver and every range is of section 2. The lock's version of each module satisfies its `renox.toml` range and the range of every installed module that depends on it | single file, project |
+| MF3 | **One install per name and prefix.** The `renox.toml` key, the manifest's `[module].name`, and the lock entry's `name` are the same; no two installed modules (or a module and `app`) have the same name; no installed module's prefix is a prefix of another's; each `renox.toml` module has exactly one lock entry and the lock has no other | single file (lock), project |
+| MF4 | **Own prefix only.** `permissions.tables`, when present, is exactly `"<name>__*"` (in the manifest and in the lock's `approved`); every secret name starts with `<NAME>_`, the module name in upper case | single file |
+| MF5 | **Dependency graph.** Every dependency is installed; no module depends on itself; the graph has no cycle (rejected at build, not at call, `docs/10-modules.md` rule 1); the lock lists every module after its dependencies | single file (lock), project |
+| MF6 | **Export names.** Views are `<name>__public_<id>_v<n>` with this module's name; events and hook points start with `<name>.`; payload, argument, and result schemas use only the keyword subset of `validate.ts` | single file |
+| MF7 | **Imports.** Every `[imports]` service `<dep>.<service>` and view `<dep>__public_…` names a module in `[dependencies]` whose installed manifest exports it | project |
+| MF8 | **Fills.** `permissions.slots` is exactly the set of `[[slots]].name`; every hook in `permissions.hooks` is exported by an installed module other than this one | single file, project |
+| MF9 | **References.** Every `[[slots]].template` exists in the module tree; every `[[slots]].requires` and `[[tools]].action` is in `[authz].actions` | single file, project |
+| MF10 | **Config.** A declaration's `default` has its `type` and passes `values`, `min`, `max`, `max_length`; `min ≤ max`; `required = true` has no `default`. Every `renox.toml` config key is declared; every value has the declared type and passes its bounds; every required key has a value | single file, project |
+| MF11 | **Sources and isolation.** `source` is `path:`, `git:`, or (1.2) `registry:`; a `renox.toml` `isolation` is never lower than the manifest's (`shared` below `isolate`); the lock's `isolation` is the effective one | project |
+| MF12 | **Lock matches.** For each module: the lock's `version` is the manifest's; `hash` is the hash of the module tree; `dependencies` are the manifest's; `config` is the resolved config; `mount` and `source` are the `renox.toml` values (or the defaults); **`approved` equals the manifest's `[permissions]`** (section 3), `roles` included from 1.1 and `app_access` from 1.3 | project |
+| MF13 | **Actions and roles** (1.1). `permissions.roles` is exactly the set of `[authz.default_roles]` keys; every action of a `default_roles` entry, every `sensitive` action, every `slots[].requires`, and every `tools[].action` is in `[authz].actions` (MF9 for the last two); for the app's `renox.toml [authz]`, the same with the merged action set | single file |
+| MF14 | **Own prefix** (1.1). Every `[authz.ownership]` table, every `[authz.entities].table`, and every `[realtime.feeds]` table starts with `<name>__` (`app__` in `renox.toml`); every `[[tools]].file` exists in the module tree | single file, project (the file) |
+| MF15 | **Registry signatures** (1.2). A lock entry has `key_id` and `signature` exactly when its `source` is `registry:`; the source's `<name>` is the entry's `name`; the manifest of a registry module has `[publisher]` with the source's publisher and the lock's `key_id`; the signature verifies over the locked hash (section 5, "Registry modules") | single file (lock); the publisher and signature checks run in the CLI at install and in `renox check` (they need the registry tree and key) |
+| MF16 | **App tables** (1.3). Every `renox.toml` `app_tables` entry and every lock `approved.app_tables` entry starts with `app__`; the lock's `app_tables` is sorted and, when not empty, has `app_access`; the lock's `app_tables` is the `renox.toml` grant; a module granted `app_tables` asks for `permissions.app_access` | single file, project |
+
+Every rejection names the rule (`MF1`–`MF16`), the file and key, and a one-line reason, and never a filesystem path outside the app.
+
+## 7. What the other F4 contracts take from here
+
+| Consumer | Takes | Where |
+| --- | --- | --- |
+| Artifact 1.1 (#227) | The lock entries, in order, plus each module's `exports` and `[[slots]]` | `artifact.md` section 3, "Modules" |
+| Ops 1.3.0 (#226) | Per-module `ctx` from `approved` and `config`; dependency checks from `dependencies`; export checks from `exports` | `ops.md` 1.3.0 (#226, not merged yet) |
+| SDK (#236) | `[exports.services]` and the services' signatures | `renox-modules.d.ts` |
+| Migrations (#234) | Lock order as migration order; `permissions.tables` for which modules must have migrations | `artifact.md` V19 |
+| Artifact 1.3 and ops 1.5.0 (#272, F5) | `[authz]`, `[realtime]`, `[[tools]]` on the module entry and as `tool` routes; `approved.roles` for `op_authz_roles_*`; the `auth.principal` service and hook for the principal | `artifact.md` section 3, "Authorization and realtime"; `ops.md` sections 17–19 |
+| Artifact 1.4 and ops 1.7.0 (#318, F7) | `[storage]` on the module entry; `isolation = "isolate"` run by #320; `registry:` sources in the entry's `source` | `artifact.md` section 3, "Storage, AI, and the SBOM"; `ops.md` sections 15.6, 21 |
+| Ops 1.8.0 (#346, F7) | `approved.app_access` and `approved.app_tables`, copied with `approved` into the artifact (`artifact.md` V22), for the authorizer's app-table rule and its audit | `ops.md` section 1, "App tables" |
+
+## 8. Examples
+
+[`examples/manifest/`](examples/manifest/):
+
+- `module.<case>.(valid|invalid).toml`: single manifests. The valid ones include the manifests of the F4 catalog modules in `docs/18-build-plan.md`: `auth` (M1), `org` (M2), `gcc` (M23, catalog name `gcc-data`), and `i18n` (M12 with the M19 core), plus the `billing` manifest of `docs/10-modules.md`, which carries the 1.1 `[authz]`, `[realtime]`, `[[tools]]`, and `permissions.roles` (section 2).
+- `renox.<case>.(valid|invalid).toml` and `renox-lock.<case>.(valid|invalid).toml`: single `renox.toml` and lock files.
+- `projects/<case>.(valid|invalid)/`: a whole app (`renox.toml`, `renox.lock`, `modules/<name>/…`) for the project rules. `projects/shop.valid` installs `auth`, `org`, `gcc`, and `i18n` from `path:` sources; `projects/app-tables.valid` grants a module an app table (1.3).
+
+An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for a project, in its `renox.toml`), and `validate.ts` checks that it fails for that reason.
+
+## 9. Versioning
+
+- The lock carries `version = 1`. A CLI refuses a lock with a version it does not know.
+- **Minor** (no version bump): a new optional key with a default that keeps old behaviour, a new range form, a new rule that only rejects what was already meaningless.
+- **Major**: renaming or removing a key, changing a default, changing the hash rule. Lands with the CLI and the broker in one PR.
+- Contract edits are made only by `type:contract` issues.
+
+## Open
+
+1. **Official module distribution.** A `renox.toml` entry without `source` is an official module "from the CLI's release". Whether the CLI embeds `modules/*` or downloads them from the release assets (signed like the worker, #129) is decided by #235; the lock records `source = "official"` either way, and the hash pins the tree.
+2. **`isolate` mode.** Settled in 1.2: the runtime semantics are `ops.md` 1.7.0 section 15.6, implemented by #320. Until #320 lands, #235's build error for `isolate` stays.
+3. **Registry sources.** Settled in 1.2 (sections 2, 4, 5; MF15). Still open: the registry's own HTTP API (publish, fetch, key listing and revocation) belongs to the registry service of #329 and is not a tenant-facing contract here; payouts for `price` are an owner decision (`docs/15`).
+4. **Slot exports.** A slot is filled by name; nothing declares which module renders `<r-slot name="admin.sidebar">`. A filled slot that nothing renders is harmless (it never appears). An `[exports].slots` list can be added as a minor change if `renox check` needs to warn about it.
+5. **App events.** The app has no manifest, so it cannot export events or hook points in F4. `renox.toml [exports]` can be added as a minor change.
+6. **App-table grants by column or row (1.3).** `app_tables` grants a whole table. A column list (hide `app__customers.email` from a reports module) or a row filter would need the authorizer's column callback and a rewrite the authorizer cannot do; left out until a module needs it. The app can expose a view `app__<x>` with the columns it chooses and grant that instead.
+7. **Dashboard approval of app-table grants (1.3).** The grant is in `renox.toml`, so it reaches the control plane only through an artifact. Whether the dashboard shows "module X can write app__orders" before activation, like a permission diff, is #335's to decide.
+
+## Changelog
+
+| Version | Issue | Changes |
+| --- | --- | --- |
+| 1 | #225 | First version (F4): `module.toml` (`[module]`, `[dependencies]`, `[config]`, `[permissions]`, `[exports]`, `[imports]`, `[[slots]]`, `[[tools]]`, `[authz]`), `renox.toml [modules]`, `renox.lock` with approved permissions, rules MF1–MF12 |
+| 1.1 | #272 | Minor (no lock version bump; every new key is optional). `[authz] sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`; `[realtime.feeds]`; `[[tools]]` carried in the artifact (`artifact.md` 1.3); `permissions.roles` and `approved.roles`; the `auth.principal` service and hook convention; `renox.toml [authz]` and `[realtime]` for the app; `authz` a reserved name (MF1); rules MF13–MF14. For `ops.md` 1.5.0 sections 17–19 |
+| 1.2 | #318 | Minor (no lock version bump; every new key is optional). `source = "registry:<publisher>/<name>"` in `renox.toml` and the lock (MF11 relaxed); `[publisher]` (`name`, `key_id`) and `[module] price` in `module.toml`; `[storage] allowed_types`; the `module.sig` file and its signed message; the lock's `key_id`, `signature` (registry only), and `approved_version` for the upgrade diff; `renox publish`; the `isolate` mode settled (Open 2) and registry sources settled (Open 3); rule MF15. For `artifact.md` 1.4 and `ops.md` 1.7.0 |
+| 1.3 | #346 | Minor (no lock version bump; every new key is optional). `[permissions] app_access` (`read` \| `write`) in `module.toml`; `app_tables` on a `renox.toml [modules]` entry; the lock's `approved.app_access` and `approved.app_tables`; rule MF16; Open 6 and 7. For `ops.md` 1.8.0 section 1 |
 
 ---
 

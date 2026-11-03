@@ -1,28 +1,60 @@
 /*
  * control/dashboard: the dashboard's own layer over renox-ui.css (loaded
- * first; packages/ui/README.md). Only what no other app needs: log lines.
- * Logical properties only, for the Arabic pages (#336).
+ * first; packages/ui/README.md, ADR D27). Only what no other app needs: the
+ * page hero, the app sub-navigation, log lines, the finding. Logical
+ * properties only, for the Arabic pages (#336).
  */
 
-/* Log lines: monospace, one ledger row each, the level as a short label. */
+/* The hero of a page: a pill, then the page's one dot word. Sentence case elsewhere. */
+.page-hero { margin-block-end: var(--rx-5); }
+.page-hero .dot { text-align: start; margin-block: var(--rx-2) var(--rx-2); }
+.page-hero .lede { margin-block: 0; }
+.signin .page-hero { text-align: center; }
+.signin .page-hero .dot { text-align: center; }
+.signin .page-hero .lede { margin-inline: auto; }
+.signin .panel form > label > input { max-inline-size: none; }
+
+/* An app's sections: the path above, the segmented links below. */
+.subnav { margin-block-end: var(--rx-5); }
+.subnav-title { margin: 0 0 var(--rx-2); font-size: .9375rem; }
+.subnav-title a { text-decoration: none; color: var(--rx-ink-2); }
+.subnav-title a:last-child { color: var(--rx-ink); font-weight: 500; }
+.subnav .tabs { max-inline-size: 100%; }
+
+/* The overview's cards: one per app. */
+.app-card h2 { margin: 0 0 var(--rx-2); font-size: 1.125rem; }
+.app-card h2 a { text-decoration: none; }
+.app-card p { margin-block-end: var(--rx-2); }
+.app-card .pill { margin-inline-end: var(--rx-1); }
+
+/* The app's path, in a soft card, with the live version's facts under it. */
+.app-flow { margin-block-end: var(--rx-5); }
+.app-flow .flow { margin-block: 0 var(--rx-4); }
+.app-flow .meta { align-items: center; }
+.app-flow > :last-child { margin-block-end: 0; }
+
+/* The finding under the title: the errors of the last 24 hours, read first. */
+.finding { display: flex; align-items: baseline; gap: var(--rx-2); margin-block: 0 var(--rx-4); color: var(--rx-ink-2); }
+.finding::before { content: ""; flex: none; inline-size: .5rem; block-size: .5rem; border-radius: 50%; background: var(--rx-ok); }
+.finding.bad { color: var(--rx-bad); }
+.finding.bad::before { background: var(--rx-bad); }
+.finding a { color: inherit; font-weight: 500; }
+
+/* Log lines: a sunken panel, one ledger row each, the level as a pill. */
 .logs { font-family: var(--rx-font-mono); font-size: .8125rem; }
-.logs td { padding-block: .35rem; }
+table.logs { padding: var(--rx-2) var(--rx-4); background: var(--rx-sunken); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-control); }
+.logs td { padding-block: .35rem; border-block-end-color: color-mix(in srgb, var(--rx-rule-strong) 50%, transparent); }
 .logs td.when { white-space: nowrap; color: var(--rx-muted); }
 .logs td.msg { word-break: break-word; font-family: var(--rx-font-sans); font-size: .875rem; }
-.logs .level { font-weight: 600; font-size: .75rem; color: var(--rx-muted); }
+.logs .level { display: inline-flex; padding: 0 .5rem; font: 500 .6875rem/1.6 var(--rx-font-mono); color: var(--rx-muted); border: 1px solid var(--rx-rule-strong); border-radius: var(--rx-r-pill); background: var(--rx-surface); }
 /* The row's class names the level; only the label takes the colour. */
 .logs tr.warn, .logs tr.error { color: inherit; }
-.logs tr.warn .level { color: var(--rx-warn); }
-.logs tr.error .level { color: var(--rx-bad); }
-.logs tr.error { background: color-mix(in srgb, var(--rx-bad-bg) 60%, transparent); }
+.logs tr.warn .level { color: var(--rx-warn); border-color: color-mix(in srgb, var(--rx-warn) 45%, transparent); background: var(--rx-warn-bg); }
+.logs tr.error .level { color: var(--rx-bad); border-color: color-mix(in srgb, var(--rx-bad) 45%, transparent); background: var(--rx-bad-bg); }
 /* A stack frame inside a log line, not the page frame. */
 .logs small.frame { display: block; max-inline-size: none; }
-
-/* The overview's short list of recent lines. */
-ul.logs { list-style: none; padding: 0; }
-ul.logs li { display: flex; gap: var(--rx-3); padding: .4rem 0; border-block-end: 1px solid var(--rx-rule); word-break: break-word; }
-ul.logs li > .muted:first-child { flex: none; }
-ul.logs .level { flex: none; min-inline-size: 3rem; }
+.console.logs > div { padding-block: .3rem; }
+.console.logs .pill { font-size: .6875rem; }
 
 /* Stack frames of a browser error group. */
 .frames { padding-inline-start: var(--rx-5); font-family: var(--rx-font-mono); font-size: .8125rem; }
@@ -37,24 +69,5 @@ ul.logs .level { flex: none; min-inline-size: 3rem; }
   /* The message right under its time; the id and source after it. */
   table.logs td.msg { grid-column: 1 / -1; order: 1; }
   table.logs td:nth-child(3), table.logs td:nth-child(4) { order: 2; grid-column: 1 / -1; font-size: .75rem; color: var(--rx-muted); word-break: break-all; }
-}
-
-/* Overview: the finding under the title, then the live version as the screen's largest block
-   (taste-skill app-screens 2.2: the screen's question answered first, its one finding read first). */
-.finding { margin-block: 0 var(--rx-4); color: var(--rx-ink-2); }
-.finding::before { content: ""; display: inline-block; inline-size: .6rem; block-size: .6rem; margin-inline-end: var(--rx-2); border-radius: var(--rx-r-cell); background: var(--rx-accent); vertical-align: .05em; }
-.finding.bad { color: var(--rx-bad); }
-.finding.bad::before { background: var(--rx-bad); }
-.finding a { color: inherit; font-weight: 600; }
-.live-panel { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--rx-5); padding: var(--rx-5); margin-block-end: var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-panel); }
-.live-cell { inline-size: 3.5rem; block-size: 3.5rem; border-radius: var(--rx-r-control); background: var(--rx-accent); }
-.live-main > * { margin: 0; }
-.live-label { font-size: .8125rem; color: var(--rx-muted); }
-.live-hash { margin-block: .1rem var(--rx-2); }
-.live-hash code { padding: 0; background: none; font-size: 1.75rem; font-weight: 600; letter-spacing: -.01em; color: var(--rx-ink); }
-.live-main .meta { margin: 0; font-size: .875rem; }
-@media (max-width: 40rem) {
-  .live-panel { grid-template-columns: auto 1fr; }
-  .live-cell { inline-size: 2.5rem; block-size: 2.5rem; }
-  .live-act { grid-column: 1 / -1; }
+  .subnav .tabs { display: flex; flex-wrap: wrap; }
 }

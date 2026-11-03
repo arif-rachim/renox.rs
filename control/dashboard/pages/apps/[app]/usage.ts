@@ -5,8 +5,8 @@
 // no inline style, so the strict CSP holds.
 import type { LoaderContext } from "renox";
 
-import { apiBase, type UsageHour } from "../../../lib/api.ts";
-import { appParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { type UsageHour } from "../../../lib/api.ts";
+import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";
 import { bytes, CHART, clock, hourlyBars, percent, round } from "../../../lib/view.ts";
 
@@ -32,7 +32,7 @@ export async function load(ctx: LoaderContext) {
   // Whole hours, the current one included.
   const to = (Math.floor(Date.now() / HOUR) + 1) * HOUR;
   const from = to - slots * HOUR;
-  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "usage", range, ranges: Object.keys(RANGES), chart: CHART };
+  const base = { ...frame(ctx, api, "apps"), app: name, section: "usage", range, ranges: Object.keys(RANGES), chart: CHART };
   const r = await api.usage(name, from, to);
   if (!r.ok) return { ...base, problem: await problem(ctx, r), totals: null, charts: [], quota: null };
   const u = r.value;

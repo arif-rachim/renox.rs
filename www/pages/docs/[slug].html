@@ -1,12 +1,26 @@
 <r-layout use="main">
   <r-group slot="title">{{ title }} · Renoxium docs</r-group>
   <div class="docs">
-    <nav aria-label="Documentation">
-      <ol><li r-for="n in nav"><a href="/docs/{{ n.slug }}" :class="{ current: n.current }">{{ n.title }}</a></li></ol>
+    <nav class="side docs-nav" aria-label="Documentation">
+      <p class="side-title"><a href="/docs">Documentation</a></p>
+      <r-group r-for="g in nav">
+        <p class="side-group">{{ g.group }}</p>
+        <a r-for="n in g.items" :href="n.href" :class="{ current: n.current }">{{ n.label }}</a>
+      </r-group>
     </nav>
-    <article>
+    <article class="doc">
+      <p class="pill quiet doc-group">{{ group }}</p>
       <div r-html="html"></div>
-      <p class="muted"><a :href="source">Source on GitHub</a></p>
+      <nav class="doc-pager" aria-label="Previous and next">
+        <a class="button" :href="previous.href" r-if="previous">← {{ previous.label }}</a>
+        <span class="spacer"></span>
+        <a class="button go" :href="next.href" r-if="next">{{ next.label }} →</a>
+      </nav>
+      <p class="muted small"><a :href="source">Source on GitHub</a></p>
     </article>
+    <aside class="doc-contents" r-if="contents">
+      <p class="side-group">On this page</p>
+      <ol><li r-for="c in contents"><a href="#{{ c.id }}">{{ c.text }}</a></li></ol>
+    </aside>
   </div>
 </r-layout>

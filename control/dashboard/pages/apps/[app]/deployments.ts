@@ -4,9 +4,8 @@
 // POST ?/activate and ?/rollback: lib/deploy-actions.ts.
 import type { LoaderContext } from "renox";
 
-import { apiBase } from "../../../lib/api.ts";
 import { deployActions } from "../../../lib/deploy-actions.ts";
-import { appParam, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
+import { appParam, frame, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";
 import { ago, bytes, clock, deploymentRows, stateLabel } from "../../../lib/view.ts";
 
@@ -18,7 +17,7 @@ export async function load(ctx: LoaderContext) {
   const selected = hashParam(ctx.url.searchParams.get("hash"));
   const now = Date.now();
   const tr = trOf(ctx);
-  const base = { signed_in: true, impersonation: api.impersonation, api_host: new URL(apiBase(ctx.secrets)).host, app: name, section: "deployments", notice: null, action_problem: null };
+  const base = { ...frame(ctx, api, "apps"), app: name, section: "deployments", notice: null, action_problem: null };
   const [list, one, adv] = await Promise.all([
     api.listDeployments(name, 50),
     selected === null ? null : api.getDeployment(name, selected),
