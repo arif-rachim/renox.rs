@@ -6,7 +6,8 @@
 import type { CustomHostname, CustomHostnames } from "../src/domains/cloudflare.ts";
 import { CloudflareError } from "../src/domains/cloudflare.ts";
 
-export const EDGE = "edge.renoxium.app";
+/** The fallback origin and CNAME target: the zone apex (ADR D26). */
+export const EDGE = "renoxium.app";
 
 export class StubCloudflare implements CustomHostnames {
   readonly fallbackOrigin = EDGE;

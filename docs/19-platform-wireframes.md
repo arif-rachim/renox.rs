@@ -232,7 +232,7 @@ Install flow shows the permission review (network, tables, secrets, slots) befor
 ┌ Domains ────────────────────────────────────────────── [ + Add domain ] ┐
 │ shop.renoxium.app   default   ✓ TLS                                       │
 │ shop.acme.id        custom    ✓ TLS (Let's Encrypt, renews Dec 10)        │
-│ www.acme.id         custom    ⚠ DNS: CNAME → edge.renoxium.app   [Recheck]│
+│ www.acme.id         custom    ⚠ DNS: CNAME → renoxium.app        [Recheck]│
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 

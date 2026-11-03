@@ -2,7 +2,7 @@
 
 The contract is `docs/contracts/deploy-api.md` 0.6 section 10; the decision is ADR D25 (`docs/13-decisions.md`); the product rules are `docs/05-tenant-lifecycle.md`, "Custom domains and DNS".
 
-Every custom domain, the platform's own included (`renoxium.com`, `www.renoxium.com` and `dashboard.renoxium.com`, attached to the platform tenant through the same `addDomain` path, #396), is a **custom hostname** on the platform domain's Cloudflare zone. Cloudflare proves ownership with its pre-validation TXT record, validates and issues the edge certificate (DCV by TXT), renews it, and sends the traffic through the tunnel's fallback origin (`edge.renoxium.app`) to the worker. The control API orders no certificate, stores no key and runs no DNS lookups; nodes receive no certificate.
+Every custom domain, the platform's own included (`renoxium.com`, `www.renoxium.com` and `dashboard.renoxium.com`, attached to the platform tenant through the same `addDomain` path, #396), is a **custom hostname** on the platform domain's Cloudflare zone. Cloudflare proves ownership with its pre-validation TXT record, validates and issues the edge certificate (DCV by TXT), renews it, and sends the traffic through the tunnel's fallback origin, the zone apex `renoxium.app` (ADR D26), to the worker. The control API orders no certificate, stores no key and runs no DNS lookups; nodes receive no certificate.
 
 | File | What |
 | --- | --- |
@@ -41,7 +41,7 @@ Read by `loadConfig` (`src/config.ts`), all three or none; a refusal names the v
 | --- | --- |
 | `CONTROL_CF_API_TOKEN` | A Cloudflare API token with *Zone → SSL and Certificates → Edit* on the platform domain's zone only. Sent in the `Authorization` header; never logged |
 | `CONTROL_CF_ZONE_ID` | The zone id (32 hex characters) of the platform domain (`renoxium.app`) |
-| `CONTROL_CF_FALLBACK_ORIGIN` | The CNAME target of custom domains and the zone's fallback origin, `edge.renoxium.app` (a proxied CNAME to the tunnel, set in the Cloudflare dashboard) |
+| `CONTROL_CF_FALLBACK_ORIGIN` | The CNAME target of custom domains and the zone's fallback origin, the apex `renoxium.app` (the proxied CNAME to the tunnel; set as fallback origin in the Cloudflare dashboard; ADR D26) |
 | `CONTROL_CF_API_URL` | Default `https://api.cloudflare.com/client/v4`; `http://` only to loopback |
 
 Unset: `addDomain` answers 503 and the job creates nothing (local development and tests without a stub). The `_renox-verify` TXT record, the ACME settings (`CONTROL_ACME_*`), `CONTROL_EDGE_*` and `CONTROL_DNS_SERVERS` are gone (#419).

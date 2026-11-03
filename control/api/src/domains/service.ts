@@ -41,7 +41,7 @@ export function requireCloudflare(deps: Deps): CustomHostnames {
   return cf;
 }
 
-/** The CNAME target customers point their hostname at (the fallback origin; `edge.<platform domain>` without Cloudflare). */
+/** The CNAME target customers point their hostname at (the fallback origin, the zone apex `<platform domain>`; the platform domain without Cloudflare, ADR D26). */
 export function cnameTarget(deps: Deps): string {
-  return domainService(deps).cloudflare?.fallbackOrigin ?? `edge.${deps.config.platformDomain}`;
+  return domainService(deps).cloudflare?.fallbackOrigin ?? deps.config.platformDomain;
 }

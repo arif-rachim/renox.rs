@@ -18,7 +18,7 @@ The submission is an owner's task: it needs control of the `renoxium.app` DNS zo
    - [ ] `renoxium.app` is registered for more than two years ahead. `.app` registrars sell multi-year terms; renew it first if not. (`.app` is on the browsers' HSTS preload list as a whole TLD, so every tenant host is HTTPS-only, which the platform requires anyway.) The list maintainers check, and they remove entries whose domain lapses.
    - [ ] The reason is the security boundary between tenants, not cookies for our own convenience and not getting around Let's Encrypt rate limits. Rate limits are an explicitly rejected reason.
    - [ ] One entry covers both app and preview hosts, because previews live under `renoxium.app` too. If previews ever move to their own domain, that domain needs its own entry in the same PR.
-   - [ ] Nothing of the platform's own is served under `renoxium.app` except the apex's `/.well-known/security.txt` and the CNAME target `edge.renoxium.app`, which sets no cookies.
+   - [ ] Nothing of the platform's own is served under `renoxium.app` except the apex's `/.well-known/security.txt` and its role as the CNAME target and Cloudflare for SaaS fallback origin of custom domains (ADR D26); the apex sets no cookies.
 2. **The DNS record.** Create `TXT _psl.renoxium.app` = `https://github.com/publicsuffix/list/pull/<number>` as soon as the PR has a number. It must stay in place as long as the entry exists.
 3. **The pull request** to `publicsuffix/list`, against `public_suffix_list.dat`, in the PRIVATE section, in alphabetical order of the organisation name:
 

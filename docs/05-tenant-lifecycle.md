@@ -61,7 +61,7 @@ Every app gets `<app>.renoxium.app` and per-deployment preview hosts (`<app>-<ha
 | Step | Tenant | Renoxium |
 | --- | --- | --- |
 | 1. Add | Dashboard, `renox domains add www.example.com`, or the MCP tool `add_domain` | Creates the custom hostname at Cloudflare and shows the records to create (`verification`) and the CNAME target. Without Cloudflare configured: 503 |
-| 2. Verify ownership and point traffic | Cloudflare's ownership TXT (`_cf-custom-hostname.www.example.com`), the certificate's DCV TXT, and `www` → `CNAME edge.renoxium.app` | Reads the custom hostname every minute until Cloudflare reports it `active`. The hostname is **not served** before (prevents domain takeover) |
+| 2. Verify ownership and point traffic | Cloudflare's ownership TXT (`_cf-custom-hostname.www.example.com`), the certificate's DCV TXT, and `www` → `CNAME renoxium.app` | Reads the custom hostname every minute until Cloudflare reports it `active`. The hostname is **not served** before (prevents domain takeover) |
 | 3. Certificate | Nothing | Cloudflare issues and renews the edge certificate |
 | 4. Live | Opens `https://www.example.com` | Served through Cloudflare and the tunnel |
 
@@ -72,7 +72,7 @@ Every app gets `<app>.renoxium.app` and per-deployment preview hosts (`<app>-<ha
 | Case | Support |
 | --- | --- |
 | Several domains per app | Yes; one canonical, others 301 |
-| Domain whose own zone is proxied by Cloudflare | Through Cloudflare's Orange-to-Orange rules for SaaS; to verify per customer. The platform's own `renoxium.com` names use DNS-only CNAMEs to `edge.renoxium.app` to stay on the plain path (D25) |
+| Domain whose own zone is proxied by Cloudflare | Through Cloudflare's Orange-to-Orange rules for SaaS; to verify per customer. The platform's own `renoxium.com` names use DNS-only CNAMEs to `renoxium.app` to stay on the plain path (D25, D26) |
 | Wildcard (`*.example.com`) | Not offered: the contract's `Hostname` has no `*.` form |
 | Domains owned by the tenant's own customers (Shopify-style `shopbudi.com` → tenant app) | Planned, via the **Domains API** from inside the app: `ctx.domains.add("shopbudi.com", { route: "/stores/budi" })`, the same custom hostname path; metered per domain |
 | Other records (MX, unrelated subdomains) | Untouched; Renoxium only asks for records of registered hostnames |

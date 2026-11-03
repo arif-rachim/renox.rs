@@ -84,7 +84,7 @@ export interface CloudflareConfig {
   apiToken: string;
   /** `CONTROL_CF_ZONE_ID`: the zone of the platform domain (32 hex characters). */
   zoneId: string;
-  /** `CONTROL_CF_FALLBACK_ORIGIN`: the CNAME target of custom domains (`edge.renoxium.app`). */
+  /** `CONTROL_CF_FALLBACK_ORIGIN`: the CNAME target of custom domains and the zone's fallback origin, the apex (`renoxium.app`, ADR D26). */
   fallbackOrigin: string;
   /** `CONTROL_CF_API_URL` (tests: a stub on loopback; default `https://api.cloudflare.com/client/v4`). */
   apiUrl: string;
@@ -180,7 +180,7 @@ export function cloudflareConfig(env: Env): CloudflareConfig | null {
   if (missing.length > 0) throw new ConfigError(`Cloudflare for SaaS needs ${missing.join(", ")} as well (all three or none)`);
   if (!/^[A-Za-z0-9_-]{20,200}$/u.test(token)) throw new ConfigError("CONTROL_CF_API_TOKEN is not a Cloudflare API token");
   if (!/^[0-9a-f]{32}$/u.test(zone)) throw new ConfigError("CONTROL_CF_ZONE_ID must be 32 lower-case hex characters");
-  if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u.test(origin)) throw new ConfigError("CONTROL_CF_FALLBACK_ORIGIN must be a hostname, like edge.renoxium.app");
+  if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u.test(origin)) throw new ConfigError("CONTROL_CF_FALLBACK_ORIGIN must be a hostname, like renoxium.app");
   const apiUrl = (env.CONTROL_CF_API_URL ?? DEFAULTS.cloudflareApiUrl).replace(/\/+$/u, "");
   let url: URL;
   try {

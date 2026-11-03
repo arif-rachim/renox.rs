@@ -125,7 +125,7 @@ read -rs PW                      # the owner's password, kept out of the shell h
    done
    ```
 
-8. **The records.** In the `renoxium.com` zone create, for each name, the `verification` TXT records each answer lists (`purpose: ownership` and `dcv`) and a **DNS-only (grey)** CNAME to `edge.renoxium.app` (the apex by CNAME flattening). The job reads the custom hostnames every minute; `GET $API/v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `status: active`, `ssl_status: active`. Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`.
+8. **The records.** In the `renoxium.com` zone create, for each name, the `verification` TXT records each answer lists (`purpose: ownership` and `dcv`) and a **DNS-only (grey)** CNAME to `renoxium.app` (the apex by CNAME flattening; ADR D26). The job reads the custom hostnames every minute; `GET $API/v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `status: active`, `ssl_status: active`. Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`.
 
 A domain that was detached comes back when you repeat its `POST …/domains` call: it answers 201 with the same custom hostname and is read at the next tick. The node that runs the dashboard lists the control plane's node-facing addresses in `fetch_blocked_addresses`, not the public API address (D23).
 
