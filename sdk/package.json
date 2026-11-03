@@ -2,7 +2,7 @@
   "name": "renox",
   "version": "0.1.0",
   "description": "Types and helpers for Renox tenant code: ctx (db, fetch, secrets, log, deadline), handlers, pages, modules, errors, test fakes",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "homepage": "https://github.com/arif-rachim/renox.rs/tree/main/sdk",
   "repository": {
     "type": "git",
@@ -47,7 +47,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "bun": ">=1.4",
