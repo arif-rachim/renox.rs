@@ -3,7 +3,7 @@
 // the owner's token; the dashboard renders `partials/invoice.html` (English
 // and Arabic, bundled Noto fonts) with `ctx.pdf` in Rust. A member's token
 // gets the API's 403 and the page says so; another tenant's id is 404.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { problem, signedIn } from "../../../lib/guard.ts";
 import { clock } from "../../../lib/view.ts";

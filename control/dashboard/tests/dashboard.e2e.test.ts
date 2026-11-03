@@ -71,7 +71,7 @@ test.skipIf(!worker)(
 
     const dir = mkdtempSync(join(tmpdir(), "renox-dashboard-dev-"));
     cpSync(app, dir, { recursive: true, filter: copyFilter });
-    cpSync(join(app, "node_modules/renox"), join(dir, "node_modules/renox"), { recursive: true, dereference: true });
+    cpSync(join(app, "node_modules/@renoxium/sdk"), join(dir, "node_modules/@renoxium/sdk"), { recursive: true, dereference: true });
     // Point the dashboard at the local API and allowlist it: only the blocked ranges stand in the way.
     writeFileSync(
       join(dir, "renox.toml"),

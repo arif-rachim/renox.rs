@@ -9,7 +9,7 @@
 // and makes no network call: `renox.toml` declares no outbound host. The
 // import is here so that B1 measures a realistic dependency set (zod plus
 // one payment SDK; F0 finding in #14, F1 gate condition #37).
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 import { auth, org } from "renox:modules";
 import Stripe from "stripe";
 import { z } from "zod";

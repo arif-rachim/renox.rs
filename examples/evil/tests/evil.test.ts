@@ -3,7 +3,7 @@
 // limit stops them (crates/renox-runtime limits tests, B12).
 
 import { expect, test } from "bun:test";
-import { type Ctx, FetchBlockedError } from "renox";
+import { type Ctx, FetchBlockedError } from "@renoxium/sdk";
 import { GET as leak } from "../functions/api/leak.ts";
 import { GET as redirect } from "../functions/api/redirect.ts";
 import { GET as slow } from "../functions/api/slow.ts";

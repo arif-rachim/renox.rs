@@ -1,7 +1,7 @@
 // B8 (#42): the data of the shop list page (pages/products/index.ts, the B6
 // page) for `n` products. Both render paths call this, so they run the same
 // five queries and differ only in where the HTML is rendered.
-// The overlay is typechecked under bench/, where the `renox` package does
+// The overlay is typechecked under bench/, where the `@renoxium/sdk` package does
 // not resolve: the context types it uses are declared here, structurally
 // compatible with sdk/src/db.ts and sdk/src/ctx.ts.
 type Param = null | number | string;

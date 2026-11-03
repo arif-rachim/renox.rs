@@ -1,4 +1,4 @@
-// #237: renox/kysely. Unit tests over a bun:sqlite Db (statements and
+// #237: @renoxium/sdk/kysely. Unit tests over a bun:sqlite Db (statements and
 // parameter order as the op receives them), then the same builder on the
 // real worker, including the refusal of a table outside the app's prefix
 // (docs/23-failure-modes.md F4 row "Query builder still blocked by the

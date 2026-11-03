@@ -1,4 +1,4 @@
-// The shop on the real worker through `renox/test` (#238; was `renox dev`
+// The shop on the real worker through `@renoxium/sdk/test` (#238; was `renox dev`
 // by hand): seed, list 100, search,
 // detail, add to cart, checkout, through the API and through the pages
 // (#45: B6 page 20-30 KB with 100 items and five queries, the search
@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { check } from "../../../cli/src/commands/check.ts";
 import { buildArtifact } from "../../../cli/src/lib/build.ts";
 import { hashDir } from "../../../cli/src/lib/hash.ts";
-import { app as harness } from "renox/test";
+import { app as harness } from "@renoxium/sdk/test";
 
 const worker = process.env.RENOX_WORKER_PATH;
 const app = join(import.meta.dir, "..");

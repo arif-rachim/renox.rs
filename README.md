@@ -21,7 +21,8 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 ## Naming
 
 - **Renoxium** is the product and the hosting: the name a person reads on the site, the dashboard, mails, invoices, passkey and authenticator labels, and the MCP resource.
-- **`renox`** is the toolkit a developer types or imports: the `renox` CLI, the packages and crates, `renox.toml`, the `renox:modules` specifier, the `RENOX_*` error codes and variables. It is not renamed.
+- **`renox`** is the toolkit a developer types: the `renox` CLI, the crates, `renox.toml`, the `renox:modules` specifier, the `RENOX_*` error codes and variables. It is not renamed.
+- **`@renoxium/sdk`** is the one exception: the npm package tenant code imports (`import type { Handler } from "@renoxium/sdk"`). npm refuses the unscoped name `renox` as too close to `redux` and `detox`, so the SDK lives in the `renoxium` npm organization (`docs/13-decisions.md`, D28).
 - **Two domains, split on purpose** (`docs/contracts/README.md`, "Domains"): tenant apps live on `renoxium.app` (`<app>.renoxium.app`, previews `<app>-<hash>.renoxium.app`, custom domains CNAME to `renoxium.app` through Cloudflare for SaaS; on the Public Suffix List, `ops/psl/`), and the platform's own services on `renoxium.com` (the site at the apex, `dashboard.`, `api.`, `mcp.`, `docs.`, and mail such as `security@` and `abuse@`). A tenant's phishing page can then never cost the company domain its reputation, its mail deliverability or the dashboard's cookies. `renox.rs` is not used by the platform; it is only this repository's name. Both domains are operator configuration; these are the reference deployment's values.
 
 ## Why
@@ -103,7 +104,7 @@ my-app/
 
 ```ts
 // pages/products/[id].ts
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 export const guard = { action: "product.read" };
 
@@ -168,7 +169,7 @@ renox.rs/
 ├── docs/        this documentation; docs/contracts/ are the written interfaces between the parts
 ├── crates/      data plane (Rust workspace): renox-gateway, -runtime, -template, -data, -authz, -realtime, -meter, -cell (binary renox-worker)
 ├── control/     control plane (Bun + Hono): api, dashboard (a Renox app), billing
-├── sdk/         the `renox` npm package for tenant code; sdk/client is the browser script
+├── sdk/         the `@renoxium/sdk` npm package for tenant code; sdk/client is the browser script
 ├── cli/         the `renox` CLI (Bun, compiled to one binary per platform)
 ├── packages/    shared TypeScript: artifact-validate
 ├── modules/     official modules: auth, org, 2fa, billing, tax_gcc, admin, storage, email, booking, reports, whatsapp, notifications, audit, jobs, i18n, gcc

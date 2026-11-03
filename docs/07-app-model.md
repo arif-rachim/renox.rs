@@ -55,7 +55,7 @@ The same rule applies inside `load()`: returning a `Response` skips the template
 
 ```ts
 // pages/products/[id].ts
-import type { LoaderContext, ActionContext } from "renox";
+import type { LoaderContext, ActionContext } from "@renoxium/sdk";
 
 export const guard = { action: "product.read" };
 
@@ -83,7 +83,7 @@ Actions are invoked with `POST ?/addToCart`. They receive validated form data, r
 
 ```ts
 // functions/api/orders.ts
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 export const GET: Handler = async ({ db, auth, url }) => {
   const user = await auth.requireUser();

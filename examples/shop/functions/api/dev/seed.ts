@@ -5,7 +5,7 @@
 // Dev only until `renox db seed` exists (F2+): it answers 404 unless the
 // request came through `renox dev`, which routes the app as
 // `<app>.localhost`. A deployed app is never served under `.localhost`.
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 import { storage } from "renox:modules";
 

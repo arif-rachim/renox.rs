@@ -50,7 +50,7 @@ export function routesDts(routes: Route[], templates: Record<string, CompiledTem
       const names = Object.keys(t.fragments ?? {});
       return `  ${str(id)}: ${names.length ? names.map(str).join(" | ") : "never"};`;
     });
-  return `${HEADER}import type { ActionContext, LoaderContext } from "renox";
+  return `${HEADER}import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 /** Route parameters per module id (file names: [id] is a string, [...slug] a list). */
 export interface RouteParams {

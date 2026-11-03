@@ -1,7 +1,7 @@
 // GET /api/products            -> the first 100 products by id
 // GET /api/products?q=dates    -> name or description contains `q` (case-insensitive)
 // GET /api/products?category=coffee
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 import { badRequest, json, type Product } from "../../../lib/http.ts";
 

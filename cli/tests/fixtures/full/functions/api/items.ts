@@ -1,4 +1,4 @@
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 import { greet } from "../../lib/greet.ts";
 
 interface Item { id: number; name: string }

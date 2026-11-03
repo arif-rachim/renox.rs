@@ -1,7 +1,7 @@
 // GET /api/hello -> {"ok":true}
 // The smallest Renox function: used by benchmarks B4, B5, and B11.
 
-import type { Ctx, Handler } from "renox";
+import type { Ctx, Handler } from "@renoxium/sdk";
 
 // `satisfies` checks it against the contract's Handler while keeping the
 // narrower parameter, so tests and the F0 spike adapter can call it with only

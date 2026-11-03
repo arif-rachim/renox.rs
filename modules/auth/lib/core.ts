@@ -16,7 +16,7 @@
 // - Buckets: 10 failures per account and 30 per IP address in 15 minutes;
 //   past either, every attempt gets the same generic message.
 
-import type { DbStatements } from "renox";
+import type { DbStatements } from "@renoxium/sdk";
 
 export interface AuthCtx {
   db: DbStatements;
@@ -291,9 +291,9 @@ export async function revokeAll(ctx: AuthCtx, userId: string): Promise<void> {
   await ctx.db.execute("update auth__sessions set revoked_at = ? where user_id = ? and revoked_at is null", [now(), userId]);
 }
 
-// `redirect.safe()` of "renox" (sdk/src/redirect.ts, #111) decides every
+// `redirect.safe()` of "@renoxium/sdk" (sdk/src/redirect.ts, #111) decides every
 // redirect below. A module tree has no node_modules (its hash covers every
-// file), so `renox` cannot be bundled into it; `safePath` is
+// file), so `@renoxium/sdk` cannot be bundled into it; `safePath` is
 // `safeRedirectTarget(target)` with no allowed origins, and
 // tests/auth.test.ts holds the two to the same answers on #111's list.
 const CONTROL = /[\u0000-\u001f\u007f]/u;

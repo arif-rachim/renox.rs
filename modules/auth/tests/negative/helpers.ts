@@ -1,5 +1,5 @@
 // Shared by the negative tests: a worker on a fresh tenant file per test
-// file (renox/test), and the page flows an attacker drives.
+// file (@renoxium/sdk/test), and the page flows an attacker drives.
 import { join } from "node:path";
 
 import { app, type Reply, type TestApp } from "../../../../sdk/src/test.ts";

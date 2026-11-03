@@ -26,7 +26,7 @@ timezone = "Asia/Dubai"
 [authz]
 actions = ["invoice.create", "invoice.read"]
 `;
-const TOOL = `import { tool } from "renox";
+const TOOL = `import { tool } from "@renoxium/sdk";
 import { z } from "zod";
 export default tool({
   name: "create_invoice",
@@ -38,11 +38,11 @@ export default tool({
 });
 `;
 
-/** An app whose node_modules resolve `renox` (the SDK) and `zod`. */
+/** An app whose node_modules resolve `@renoxium/sdk` (the SDK) and `zod`. */
 function project(files: Record<string, string>): string {
   const dir = app(files);
-  mkdirSync(join(dir, "node_modules"), { recursive: true });
-  symlinkSync(join(repo, "sdk"), join(dir, "node_modules/renox"));
+  mkdirSync(join(dir, "node_modules/@renoxium"), { recursive: true });
+  symlinkSync(join(repo, "sdk"), join(dir, "node_modules/@renoxium/sdk"));
   symlinkSync(join(repo, "sdk/node_modules/zod"), join(dir, "node_modules/zod"));
   return dir;
 }

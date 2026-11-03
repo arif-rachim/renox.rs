@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { app as harness, type TestApp } from "renox/test";
+import { app as harness, type TestApp } from "@renoxium/sdk/test";
 
 const worker = process.env.RENOX_WORKER_PATH;
 const t = worker ? await harness({ project: join(import.meta.dir, "..") }) : (undefined as unknown as TestApp);

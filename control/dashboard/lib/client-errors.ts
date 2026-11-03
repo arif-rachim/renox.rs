@@ -5,7 +5,7 @@
 // (anyone can post to the client-events endpoint): everything here is plain
 // strings that the templates escape.
 
-import type { ActionContext } from "renox";
+import type { ActionContext } from "@renoxium/sdk";
 
 import type { ClientErrorEvent, ClientErrorFrame, ClientErrorGroup, ClientErrorStatus } from "./api.ts";
 import { appParam, problem, refusal, signedIn } from "./guard.ts";

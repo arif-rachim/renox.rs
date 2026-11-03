@@ -1,4 +1,4 @@
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 export async function load({ params }: LoaderContext) {
   return { product: { name: params.id } };
 }

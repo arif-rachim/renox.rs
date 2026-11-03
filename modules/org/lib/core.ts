@@ -15,7 +15,7 @@
 // - Invitations: 32 random bytes, only the SHA-256 stored, single use (one
 //   conditional UPDATE), `invite_days` (7) to accept, for the invited email.
 
-import type { DbStatements } from "renox";
+import type { DbStatements } from "@renoxium/sdk";
 import { auth } from "renox:modules";
 
 export interface OrgCtx {

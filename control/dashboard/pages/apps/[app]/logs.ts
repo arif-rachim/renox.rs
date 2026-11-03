@@ -9,7 +9,7 @@
 // (lib/api.ts), so no request outlives the tenant wall-clock limit. Messages are rendered escaped; they were redacted
 // on the node. A server stack's frames (`fields.frames`, #261) are listed at
 // their original TypeScript position, with the bundled one beside it.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { type LogLine } from "../../../lib/api.ts";
 import { appParam, frame, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";

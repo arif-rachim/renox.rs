@@ -2,7 +2,7 @@
 // and the actions it allows (docs/19-platform-wireframes.md, 3.4); with
 // `hash`, that deployment's validation, permissions, and activation error.
 // POST ?/activate and ?/rollback: lib/deploy-actions.ts.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { deployActions } from "../../../lib/deploy-actions.ts";
 import { appParam, frame, hashParam, notFound, problem, signedIn } from "../../../lib/guard.ts";

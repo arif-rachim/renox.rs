@@ -1,5 +1,5 @@
 // renox test [pattern...] [--seed <file.sql>]...: build the app with a
-// test-only service route, then run `bun test` with `renox/test` preloaded.
+// test-only service route, then run `bun test` with `@renoxium/sdk/test` preloaded.
 // Each test file that calls `app()` gets the same prebuilt renox-worker as
 // `renox dev` on a fresh temporary tenant file (migrations applied, then
 // seeds/*.sql and the --seed files). Exit codes per the CLI contract: 0

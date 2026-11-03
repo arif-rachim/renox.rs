@@ -1,5 +1,5 @@
 // GET /api/products/:id -> one product, or 404
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 import { badRequest, json, notFound, positiveInt, type Product } from "../../../lib/http.ts";
 

@@ -64,7 +64,7 @@ export function listResources(): Resource[] {
       uri: TYPES,
       name: "ctx.d.ts",
       title: "ctx types",
-      description: "The TypeScript view of the ctx contract (docs/contracts/ctx.d.ts) that the `renox` SDK re-exports",
+      description: "The TypeScript view of the ctx contract (docs/contracts/ctx.d.ts) that the SDK `@renoxium/sdk` re-exports",
       mimeType: "text/x-typescript",
     },
     ...docs,

@@ -16,7 +16,7 @@ approved = { tables = "audit__*", network = [], secrets = [], slots = [], hooks 
 name = "i18n"
 version = "1.0.0"
 source = "official"
-hash = "1e4c98b08224e2c45f0820026151de3512e8db3dd33478b79d2e4f4e5ee0827d"
+hash = "c91ad7f525744b571d23550a7aba0ab862159629874d02abf891f37a5c890b81"
 isolation = "shared"
 mount = "/i18n"
 dependencies = []
@@ -27,7 +27,7 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 name = "auth"
 version = "1.0.0"
 source = "official"
-hash = "6e72a7dbd71671756723db07948375c77020004b0798b387075a0300c3ed7885"
+hash = "b6b1aaba1da4cb3ca6c3604806fa2ac1da3332fe199b2fb4a8b9a027de4cd411"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -82,7 +82,7 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "e2e74811f718fd7ee1986e6c09ea6353f9b7dd55fa44c36718fbee9a6c299444"
+hash = "ac7b1e6756ad2a31df88e21c0ba9cd158ea502faebc8b896f39a1f215d364f3f"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
@@ -126,7 +126,7 @@ approved = { tables = "reports__*", network = [], secrets = [], slots = [], hook
 name = "twofa"
 version = "1.0.0"
 source = "official"
-hash = "8b3321162eb21283ea2307bc6ef68d3967a9f75da5ac87d57592cc8bf45dbc39"
+hash = "bdb7c0d207c3c46654d151b4e9367060d7882504bf759f4e01739825bbce7560"
 isolation = "shared"
 mount = "/2fa"
 dependencies = ["auth", "i18n"]

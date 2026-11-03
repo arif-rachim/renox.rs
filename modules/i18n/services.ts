@@ -4,7 +4,7 @@
 // itself (ops.md 1.3.0 section 14, "Locale"): the loader calls
 // `ctx.setLocale(r.locale, r.dir)` with what detectLocale returns.
 
-import type { DbStatements } from "renox";
+import type { DbStatements } from "@renoxium/sdk";
 
 import { type Calendar, calendarOf, type Candidates, digitsOf, dirOf, match, options, pick, type Source, splitTag, tagOf } from "./lib/detect.ts";
 

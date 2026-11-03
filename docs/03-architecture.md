@@ -45,7 +45,7 @@ Tenant developers talk to the control plane; end users talk to the data plane. W
 | Realtime | SSE, WebSocket, pub/sub topics, backpressure | Rust: `axum::extract::ws`, `tokio::sync::broadcast` | `crates/renox-realtime` |
 | Meter | One record per invocation → batched to the control plane | Rust | `crates/renox-meter` |
 | Cell | Wires the above into one worker binary; isolate lifecycle, scheduling, eviction | Rust | `crates/renox-cell` |
-| SDK | `renox` package: `ctx` types, `db`, `authz`, `realtime`, helpers | TypeScript | `sdk/` |
+| SDK | `@renoxium/sdk` package: `ctx` types, `db`, `authz`, `realtime`, helpers | TypeScript | `sdk/` |
 | CLI | `renox new/dev/deploy/...`, local data plane for dev | TypeScript (Bun), compiled binary; embeds the Rust worker for `renox dev` | `cli/` |
 
 ## Request path (SSR)

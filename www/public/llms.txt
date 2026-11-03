@@ -1,6 +1,6 @@
 # Renoxium
 
-> Renoxium is a multi-tenant hosting platform for web applications and functions written in TypeScript. An app is TypeScript functions and HTML pages in folders that are its routes; it runs in a V8 isolate with its own SQLite file, under CPU, memory, wall-clock and network limits enforced by the platform, and it assembles auth, organisations, billing, admin, storage, email and other official modules instead of writing them. The toolkit a developer types is `renox`: the CLI (`renox new`, `dev`, `check`, `test`, `deploy`) and the npm package `renox` (types, helpers, test fakes).
+> Renoxium is a multi-tenant hosting platform for web applications and functions written in TypeScript. An app is TypeScript functions and HTML pages in folders that are its routes; it runs in a V8 isolate with its own SQLite file, under CPU, memory, wall-clock and network limits enforced by the platform, and it assembles auth, organisations, billing, admin, storage, email and other official modules instead of writing them. The toolkit a developer types is `renox`: the CLI (`renox new`, `dev`, `check`, `test`, `deploy`) and the npm package `@renoxium/sdk` (types, helpers, test fakes).
 
 For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.json` into every new app; `renox mcp` is the local MCP server (project status, check and test results, policy explanations, these documents as resources); `mcp.renoxium.com` is the remote one behind OAuth 2.1. The full text of the documents below is at https://renoxium.com/llms-full.txt. Links to github.com are files the site does not render.
 
@@ -9,7 +9,7 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 - [Getting started](https://renoxium.com/docs/getting-started): install the CLI from the repository today, create an app with renox new, run it with renox dev, sign in, deploy it
 - [Developer experience](https://renoxium.com/docs/developer-experience): the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits
 - [renox CLI reference](https://renoxium.com/docs/cli): every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy
-- [The renox SDK](https://renoxium.com/docs/sdk): the `renox` npm package: Handler, Ctx, pages, validate, modules, query builders, renox/fakes and renox/test
+- [The SDK, @renoxium/sdk](https://renoxium.com/docs/sdk): the `@renoxium/sdk` npm package: Handler, Ctx, pages, validate, modules, query builders, @renoxium/sdk/fakes and @renoxium/sdk/test
 - [Example apps](https://github.com/arif-rachim/renox.rs/blob/main/examples/): hello (one function), shop (pages, templates, modules, policies), chat (realtime)
 
 ## App model

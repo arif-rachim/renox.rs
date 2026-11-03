@@ -1,7 +1,7 @@
 // GET /account: the workspace the sign-in belongs to (#427): the tenant of
 // `getTenant` (deploy-api.md section 3), the API the dashboard calls, and
 // the way to the second factors and out.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { frame, problem, signedIn } from "../../lib/guard.ts";
 import { trOf } from "../../lib/i18n.ts";

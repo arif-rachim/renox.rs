@@ -1,5 +1,5 @@
 // Nothing here is a global-state finding.
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 let count = 0;
 count = 1; // top-level initialisation

@@ -3,7 +3,7 @@
 // `createAppFromTemplate`; #326). The API creates the app, uploads the
 // template's artifact and activates it; the page then shows the URL and the
 // CLI commands to work on it locally.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { platformDomain } from "../../lib/api.ts";
 import { frame, problem, signedIn } from "../../lib/guard.ts";

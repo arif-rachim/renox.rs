@@ -2,7 +2,7 @@
 // five queries. With `HX-Target: product-list` (the search box) the cell
 // renders only the product_list fragment, and the loader runs one query for
 // up to 20 matches (B7).
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { auth, i18n, org } from "renox:modules";
 

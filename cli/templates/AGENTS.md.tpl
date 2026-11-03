@@ -4,7 +4,7 @@ Read this first; `CLAUDE.md` points here, and other coding agents read this file
 
 ## What this is
 
-A Renox app: TypeScript functions and HTML pages that Renoxium runs in a V8 isolate with the app's own SQLite file, under CPU, memory, wall-clock and network limits the platform enforces. The SDK is the npm package `renox`; the command-line tool is `renox`. Documentation for models: <https://renoxium.com/llms.txt> (index) and <https://renoxium.com/llms-full.txt> (the full text); for people: <https://renoxium.com/docs>.
+A Renox app: TypeScript functions and HTML pages that Renoxium runs in a V8 isolate with the app's own SQLite file, under CPU, memory, wall-clock and network limits the platform enforces. The SDK is the npm package `@renoxium/sdk`; the command-line tool is `renox`. Documentation for models: <https://renoxium.com/llms.txt> (index) and <https://renoxium.com/llms-full.txt> (the full text); for people: <https://renoxium.com/docs>.
 
 ## Layout: folders are routes
 
@@ -12,7 +12,7 @@ A Renox app: TypeScript functions and HTML pages that Renoxium runs in a V8 isol
 - `pages/<path>.html` with an optional `pages/<path>.ts` (`load`, `actions`) → a server-rendered page; `pages/_layouts/`, `partials/` for `<x-name>` components; htmx fragments.
 - `migrations/NNN_name.sql` (forward-only, numbered from 001), `policies/*.cedar` (authorization), `jobs/*.ts` (scheduled and queued work), `functions/tools/*.ts` (MCP tools of the app), `public/` (static files, served at the root).
 - `renox.toml`: the app name, `[permissions] network` (the only hosts `fetch` may reach) and `secrets` (the secret names the app reads), limits.
-- `tests/*.test.ts`: `bun test` files, run by `renox test` on the real worker with `renox/test` and `renox/fakes`.
+- `tests/*.test.ts`: `bun test` files, run by `renox test` on the real worker with `@renoxium/sdk/test` and `@renoxium/sdk/fakes`.
 
 ## Commands
 

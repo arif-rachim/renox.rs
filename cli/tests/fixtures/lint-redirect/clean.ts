@@ -1,5 +1,5 @@
 // no-unsafe-redirect fixture (#111): nothing here is flagged.
-import { type Ctx, redirect, safeRedirectTarget } from "renox";
+import { type Ctx, redirect, safeRedirectTarget } from "@renoxium/sdk";
 
 export function GET({ url }: Ctx): Response {
   return redirect.safe(url.searchParams.get("next") ?? "/", { allow: ["https://accounts.example.com"] });

@@ -13,10 +13,10 @@ test("renox check fails with file and line on an unsafe redirect, and passes wit
   const dir = mkdtempSync(join(tmpdir(), "renox-redirect-"));
   try {
     cpSync(join(repo, "examples/hello"), dir, { recursive: true, filter: (src) => !src.includes("node_modules") && !src.includes("_spike") });
-    mkdirSync(join(dir, "node_modules"));
-    symlinkSync(join(repo, "sdk"), join(dir, "node_modules/renox"));
+    mkdirSync(join(dir, "node_modules/@renoxium"), { recursive: true });
+    symlinkSync(join(repo, "sdk"), join(dir, "node_modules/@renoxium/sdk"));
     const handler = (target: string): string =>
-      `import { type Ctx, redirect } from "renox";\n\nexport function GET({ url }: Ctx): Response {\n  void redirect;\n  return ${target};\n}\n`;
+      `import { type Ctx, redirect } from "@renoxium/sdk";\n\nexport function GET({ url }: Ctx): Response {\n  void redirect;\n  return ${target};\n}\n`;
     writeFileSync(join(dir, "functions/api/next.ts"), handler(`Response.redirect(url.searchParams.get("next") ?? "/")`));
     const bad = Bun.spawnSync(["bun", main, "check"], { cwd: dir, env: { ...process.env, NO_COLOR: "1" } });
     const stderr = bad.stderr.toString();

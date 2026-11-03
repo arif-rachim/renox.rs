@@ -21,7 +21,7 @@ Two main parts:
 ## Project status
 
 **As of 2026-11-01 (`main` at `c265810`): the code of every phase F0 to F7 is on `main`.** Gates F0 and F1 passed (`docs/14-benchmarks.md`, "F0 results" and "F1 results": GO). Gates F2 to F7 (#49, #61, #68, #74, #79, #86) are open on owner steps and measurements, not on code: the bench hosts for B4, B6, B7, B11, B12, B14 and B18 (#158), the two findings of the B1 run on `node-small` (#342, #343), the booking product repository, the GCC PSP sandbox accounts (#330, #337), the single-host deployment (#366), the first paying tenant. The per-phase table is in `README.md`, "Status"; the open work, the merged batches and the prompt for each open batch are in `docs/25-execution.md`, "Where we are".
-Crates that exist: `renox-gateway`, `renox-runtime`, `renox-template`, `renox-data`, `renox-authz`, `renox-realtime`, `renox-meter`, `renox-cell` (binary `renox-worker`). Also on `main`: `control/api`, `control/dashboard`, `control/billing`; `sdk/` (the npm package `renox`) and `cli/`; sixteen modules under `modules/`; `www/` (the site); `ops/`; `bench/` with the harness, the spikes, the chaos harness and the results.
+Crates that exist: `renox-gateway`, `renox-runtime`, `renox-template`, `renox-data`, `renox-authz`, `renox-realtime`, `renox-meter`, `renox-cell` (binary `renox-worker`). Also on `main`: `control/api`, `control/dashboard`, `control/billing`; `sdk/` (the npm package `@renoxium/sdk`) and `cli/`; sixteen modules under `modules/`; `www/` (the site); `ops/`; `bench/` with the harness, the spikes, the chaos harness and the results.
 See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 
 ## Reading order
@@ -73,7 +73,7 @@ renox.rs/
 │   ├── api/                   deployments, artifacts, route table, secrets, accounts, registry, billing endpoints, the remote MCP
 │   ├── dashboard/             a Renox app (dogfooding): tenants, apps, deployments, logs, usage, security
 │   └── billing/               plans, meter aggregation → invoices
-├── sdk/                       the `renox` npm package for tenant code (types, ctx, helpers, renox/fakes, renox/test); sdk/client is the browser script
+├── sdk/                       the `@renoxium/sdk` npm package for tenant code (types, ctx, helpers, @renoxium/sdk/fakes, @renoxium/sdk/test); sdk/client is the browser script
 ├── cli/                       the `renox` CLI (Bun, compiled to one binary per platform); cli/templates/ is what `renox new` writes
 ├── packages/                  shared TypeScript: artifact-validate
 ├── modules/                   official modules: auth, org, 2fa, billing, tax_gcc, admin, storage, email, booking, reports, whatsapp, notifications, audit, jobs, i18n, gcc

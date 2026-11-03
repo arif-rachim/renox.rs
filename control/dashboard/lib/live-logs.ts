@@ -5,7 +5,7 @@
 // once a second, publishes them, and queues its next run until the page
 // closes or 15 minutes have passed.
 
-import type { DbStatements, Fetch, Secrets } from "renox";
+import type { DbStatements, Fetch, Secrets } from "@renoxium/sdk";
 
 import { Api, apiBase, type LogLine } from "./api.ts";
 import { currentToken } from "./session.ts";

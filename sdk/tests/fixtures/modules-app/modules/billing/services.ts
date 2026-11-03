@@ -1,4 +1,4 @@
-import { defineServices } from "renox";
+import { defineServices } from "@renoxium/sdk";
 import type { ModuleCtx } from "../../.renox/types/modules";
 
 export const { chargeUser } = defineServices({

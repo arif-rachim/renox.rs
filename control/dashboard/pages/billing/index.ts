@@ -10,7 +10,7 @@
 // public/billing.js after Stripe's form), ?/verify (code, then, plan).
 // Card numbers never reach the dashboard or the API: Stripe's form takes them
 // in its own frame and the page sends only the setup id.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { type Api, type ApiFailure, type Billing, type Invoice, needsStepUp, type PaymentSetup, type Plan, type Result } from "../../lib/api.ts";
 import { frame, problem, signedIn, type Problem } from "../../lib/guard.ts";

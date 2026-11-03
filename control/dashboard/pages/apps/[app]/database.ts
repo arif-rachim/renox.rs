@@ -5,7 +5,7 @@
 // fetches the file from it, the dashboard never proxies the bytes.
 // POST ?/restore (generation, at, name): restores the database as of `at`
 // (UTC) into a new app and links to it; the form asks for a confirmation.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { databaseView, exportBackup, getBackups, parseLocal, restoreBackup } from "../../../lib/database.ts";
 import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";

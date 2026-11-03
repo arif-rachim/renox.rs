@@ -110,7 +110,7 @@ export function modulesDts(project: string): { modules: string; ambient: string 
     const block = (lines: string[]) => (lines.length ? `{\n${lines.join("\n")}\n    }` : "Record<never, never>");
     specs.push(`  ${str(e.name)}: {\n    services: ${services};\n    events: ${block(events)};\n    hooks: ${block(hooks)};\n    config: ${block(config)};\n  };`);
   }
-  const modules = `${HEADER}import type { ModuleCtx as ModuleCtxOf, ServicesOf } from "renox";
+  const modules = `${HEADER}import type { ModuleCtx as ModuleCtxOf, ServicesOf } from "@renoxium/sdk";
 
 /** Every installed module, in renox.lock order. */
 export interface Modules {

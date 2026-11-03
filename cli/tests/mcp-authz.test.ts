@@ -19,7 +19,7 @@ const worker = testWorker();
 if (worker) process.env.RENOX_WORKER_PATH = worker;
 const repo = join(import.meta.dir, "../..");
 
-const TOOL = `import { tool } from "renox";
+const TOOL = `import { tool } from "@renoxium/sdk";
 import { z } from "zod";
 export default tool({
   name: "edit_doc",
@@ -33,8 +33,8 @@ export default tool({
 
 function project(): string {
   const dir = app({ ...BASE, "functions/tools/edit-doc.ts": TOOL, "policies/tests/docs.json": '[{"description":"an editor edits","principal":{"type":"User","id":"u1","roles":["editor"]},"action":"doc.edit","expected":"allow"}]\n' });
-  mkdirSync(join(dir, "node_modules"), { recursive: true });
-  symlinkSync(join(repo, "sdk"), join(dir, "node_modules/renox"));
+  mkdirSync(join(dir, "node_modules/@renoxium"), { recursive: true });
+  symlinkSync(join(repo, "sdk"), join(dir, "node_modules/@renoxium/sdk"));
   symlinkSync(join(repo, "sdk/node_modules/zod"), join(dir, "node_modules/zod"));
   return dir;
 }

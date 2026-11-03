@@ -10,7 +10,7 @@ import { COMMON, TEMPLATES, type TemplateName, TSCONFIG } from "../lib/templates
 /**
  * The CLI's own version, read from cli/package.json at build time (bun
  * build --compile inlines it). `renox new` pins the SDK to it: the CLI and
- * the `renox` package release at one version (#376), so an app scaffolded by
+ * the `@renoxium/sdk` package release at one version (#376), so an app scaffolded by
  * release X installs SDK X.
  */
 export const CLI_VERSION: string = cliPackage.version;
@@ -36,7 +36,7 @@ export function newApp(name: string, template: string, parent = process.cwd()): 
         private: true,
         type: "module",
         scripts: { dev: "renox dev", build: "renox build", check: "renox check" },
-        dependencies: { renox: `^${CLI_VERSION}` },
+        dependencies: { "@renoxium/sdk": `^${CLI_VERSION}` },
       },
       null,
       2,

@@ -14,7 +14,7 @@
 // `ctx.setLocale` then sets `<html lang dir>`, the catalog and the filters'
 // formats for the page (ops.md section 14, "Locale").
 
-import { safeRedirectTarget, type ActionContext, type LoaderContext } from "renox";
+import { safeRedirectTarget, type ActionContext, type LoaderContext } from "@renoxium/sdk";
 
 export const LOCALES = ["en", "ar"] as const;
 export type Locale = (typeof LOCALES)[number];

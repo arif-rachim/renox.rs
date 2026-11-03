@@ -1,6 +1,6 @@
 // GET /docs?q=: the published pages by group, or the titles and sections
 // matching `q` (server-side, no script; #326, #428).
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { nav, search } from "../../lib/docs.ts";
 

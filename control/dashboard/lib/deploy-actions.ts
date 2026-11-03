@@ -4,7 +4,7 @@
 // and the API writes the audit row. The action waits for the API's answer,
 // which comes once the owning node has prepared the cell (deploy-api.md
 // section 6), so the page shows the outcome, not a pending state.
-import type { ActionContext } from "renox";
+import type { ActionContext } from "@renoxium/sdk";
 
 import { appParam, hashParam, problem, refusal, signedIn } from "./guard.ts";
 import { trOf } from "./i18n.ts";

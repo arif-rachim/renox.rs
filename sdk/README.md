@@ -1,12 +1,12 @@
-# `renox`: the SDK for tenant code
+# `@renoxium/sdk`: the SDK for tenant code
 
 Types and small helpers for Renox functions. Contract: [`docs/contracts/ops.md`](../docs/contracts/ops.md) version `1.1.0` and [`docs/contracts/ctx.d.ts`](../docs/contracts/ctx.d.ts). The types here are identical to the contract; `tests/contract.test-d.ts` fails the `check` script if they drift.
 
-The package is published to npm as `renox` (below, "Install"); inside this repository the workspace link (`"renox": "workspace:*"`) resolves the same `exports`. It is runtime-neutral: no Bun, Node, or Deno APIs, so the same import works under `renox dev`, in the worker, and in `bun test`.
+The package is published to npm as `@renoxium/sdk` (below, "Install"; npm refuses the unscoped name `renox` as too close to `redux` and `detox`, D28); inside this repository the workspace link (`"@renoxium/sdk": "workspace:*"`) resolves the same `exports`. It is runtime-neutral: no Bun, Node, or Deno APIs, so the same import works under `renox dev`, in the worker, and in `bun test`.
 
 ```ts
 // functions/api/notes/[id].ts
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 export const GET: Handler = async ({ db, params }) => {
   const note = await db.queryOne("select id, title from notes__notes where id = ?", [params.id as string]);
@@ -17,12 +17,12 @@ export const GET: Handler = async ({ db, params }) => {
 ## Install
 
 ```sh
-bun add renox        # or: npm install renox
+bun add @renoxium/sdk        # or: npm install @renoxium/sdk
 ```
 
-`renox new` writes this dependency at the CLI's own version (`"renox": "^<cli version>"`, `cli/src/commands/new.ts`): the CLI and the SDK are released together from one `cli-v<version>` tag, by `.github/workflows/release-cli.yml` (binaries) and `.github/workflows/release-sdk.yml` (this package, `npm publish --provenance`). Keep them at the same version.
+`renox new` writes this dependency at the CLI's own version (`"@renoxium/sdk": "^<cli version>"`, `cli/src/commands/new.ts`): the CLI and the SDK are released together from one `cli-v<version>` tag, by `.github/workflows/release-cli.yml` (binaries) and `.github/workflows/release-sdk.yml` (this package, `npm publish --provenance`). Keep them at the same version.
 
-The package is MIT licensed (`LICENSE`). It ships compiled JavaScript and declarations under `dist/` (`bun run build`, `tsconfig.build.json`), plus this README and the license; `exports` maps `renox`, `renox/kysely`, `renox/drizzle`, `renox/fakes` and `renox/test` to them, so `tsc`, Node and editors resolve it like any published package. `renox/test` is Bun-only (`bun:test`, `bun:sqlite`); the rest has no runtime dependency. `tests/pack.test.ts` packs the package, installs the tarball into a fresh `renox new` app outside the repository, type-checks it and runs a test with `renox/fakes`. Every publish carries npm provenance from the release workflow (`npm view renox --json | jq .dist.attestations`, or the Provenance badge on npmjs.com).
+The package is MIT licensed (`LICENSE`). It ships compiled JavaScript and declarations under `dist/` (`bun run build`, `tsconfig.build.json`), plus this README and the license; `exports` maps `@renoxium/sdk`, `@renoxium/sdk/kysely`, `@renoxium/sdk/drizzle`, `@renoxium/sdk/fakes` and `@renoxium/sdk/test` to them, so `tsc`, Node and editors resolve it like any published package. `@renoxium/sdk/test` is Bun-only (`bun:test`, `bun:sqlite`); the rest has no runtime dependency. `tests/pack.test.ts` packs the package, installs the tarball into a fresh `renox new` app outside the repository, type-checks it and runs a test with `@renoxium/sdk/fakes`. Every publish carries npm provenance from the release workflow (`npm view @renoxium/sdk --json | jq .dist.attestations`, or the Provenance badge on npmjs.com).
 
 ## F1 surface
 
@@ -48,7 +48,7 @@ The package is MIT licensed (`LICENSE`). It ships compiled JavaScript and declar
 
 ```ts
 // pages/products/[id].ts
-import { type Action, type Loader, validate } from "renox";
+import { type Action, type Loader, validate } from "@renoxium/sdk";
 import { z } from "zod";
 
 export const load: Loader = async ({ db, params }) => {
@@ -103,7 +103,7 @@ The op-level types (`Ops`, `FetchRequest`, `FetchResponseHead`, `TxHandle`) are 
 Service signatures are the module's own `services.ts`, inferred by the type checker (`ServicesOf<typeof import(".../services.ts")>`): the leading `ctx` is dropped and the result becomes a promise, so a call with a wrong argument is a type error. Helpers that only add types: `defineServices({...})`, `defineHooks({ hooks, on })`, `on<Payload>(handler)`. Errors: `ModuleUndeclaredError`, `ModuleServiceError` (`module`, `service`, `details.cause_code`), `EventPayloadError`.
 
 ```ts
-import { defineServices } from "renox";
+import { defineServices } from "@renoxium/sdk";
 import type { ModuleCtx } from "../../.renox/types/modules";
 
 export const { chargeUser } = defineServices({
@@ -114,17 +114,17 @@ export const { chargeUser } = defineServices({
 });
 ```
 
-## Query builders: `renox/kysely`, `renox/drizzle` (#237)
+## Query builders: `@renoxium/sdk/kysely`, `@renoxium/sdk/drizzle` (#237)
 
 Thin drivers over `ctx.db` (`docs/06-data.md`, "API layers"): every statement goes to `db.query` or `db.execute` with its `?` parameters in order, so the limits and the module authorizer apply as to raw SQL; there is no second execution path. Both libraries are optional peer dependencies (`kysely` 0.29, `drizzle-orm` 0.45): an app that does not import the subpath does not need them.
 
 ```ts
-import { kysely } from "renox/kysely";
+import { kysely } from "@renoxium/sdk/kysely";
 import type { Tables } from "../.renox/types/db";
 const rows = await kysely<Tables>(ctx).selectFrom("app__products").selectAll().where("id", "=", id).execute();
 await kysely<Tables>(ctx).transaction().execute(async (tx) => { /* one IMMEDIATE transaction, a savepoint when nested */ });
 
-import { drizzle } from "renox/drizzle";
+import { drizzle } from "@renoxium/sdk/drizzle";
 await drizzle(ctx).select().from(products).where(eq(products.id, id));
 await ctx.db.transaction(async (tx) => drizzle({ db: tx }).insert(orders).values(row));
 ```
@@ -155,7 +155,7 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 | `userScope(principal, extra?)` | `{ user_id, ...extra }` for `ctx.db.scoped()`; throws `ForbiddenError` without a user |
 | `ScopedDb`, `ActionName` | The type of `ctx.db.scoped(...)`, and the `<resource>.<verb>` string type |
 
-`renox/test`: `policyCases(dir?)` and `policies()` run the policy test cases of `policies/tests/*.json` as tests (cli README, "Authorization").
+`@renoxium/sdk/test`: `policyCases(dir?)` and `policies()` run the policy test cases of `policies/tests/*.json` as tests (cli README, "Authorization").
 
 ## Reserved, not yet available
 
@@ -164,7 +164,7 @@ Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a
 | Phase | `ctx` fields and exports |
 | --- | --- |
 | F2 | `kv`; streamed `fetch` request bodies; the page export `guard`; `cors` and `frame` options |
-| F4 | query builders (`renox/kysely`, `renox/drizzle`, #237); `auth` and session data come from the `auth` module as services, not ctx fields |
+| F4 | query builders (`@renoxium/sdk/kysely`, `@renoxium/sdk/drizzle`, #237); `auth` and session data come from the `auth` module as services, not ctx fields |
 | F5 | `ws` and `sse` exports' typed helpers (#284); `authz`, `realtime` and `db.scoped()` are typed above |
 | F6 | `schedule` export for jobs; `datasource(name)` (F6–F7) |
 | F7 | `ai`, `domains` |

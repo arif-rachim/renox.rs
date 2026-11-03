@@ -3,7 +3,7 @@
 // cell with its isolate and SQLite, the live hash), the last 24 hours of
 // usage as dot-matrix numbers, recent deployments with promote and rollback,
 // the latest log lines in a console panel.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { deployActions } from "../../../lib/deploy-actions.ts";
 import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";

@@ -7,7 +7,7 @@
 // its downloads, and emails each tenant owner; the dashboard banner of the
 // Modules page shows it (docs/24 section D, "Marketplace module unsigned or
 // permission diff on upgrade").
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { Api, apiBase, type Result } from "../../../lib/api.ts";
 import { frame, signedIn } from "../../../lib/guard.ts";

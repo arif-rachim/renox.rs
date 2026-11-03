@@ -1,7 +1,7 @@
 // GET /products/:id: one product. POST ?/addToCart: adds to the session's
 // cart in the action's transaction; an htmx form gets the product fragment
 // back with the cart badge out of band.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { auth, i18n, org } from "renox:modules";
 

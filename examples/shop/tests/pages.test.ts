@@ -4,7 +4,7 @@
 // checked through the worker in shop.e2e.test.ts.
 import { expect, test } from "bun:test";
 
-import type { ActionContext, Db, LoaderContext } from "renox";
+import type { ActionContext, Db, LoaderContext } from "@renoxium/sdk";
 
 import "./fake-modules.ts";
 import { ctx, fakeDb, shopDb } from "./fake-ctx.ts";

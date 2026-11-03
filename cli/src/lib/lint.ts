@@ -479,7 +479,7 @@ export function lintGlobalState(src: string, file: string): Finding[] {
 
 /** Names whose value comes from the request: query, form, route params, headers, body. */
 const REQUEST_INPUT = new Set(["searchParams", "form", "formData", "params", "query", "headers", "body", "json", "cookies", "referer", "referrer"]);
-/** Calls that make a redirect target safe (`renox` SDK, sdk/src/redirect.ts). */
+/** Calls that make a redirect target safe (the SDK `@renoxium/sdk`, sdk/src/redirect.ts). */
 const REDIRECT_SANITIZERS = new Set(["safeRedirectTarget"]);
 
 /** Tokens of the expression starting at `a`: up to `,` `;` or a closing bracket at depth 0, or a line break that ends the statement. */
@@ -557,7 +557,7 @@ export function lintRedirect(src: string, file: string): Finding[] {
       column,
       rule: "no-unsafe-redirect",
       severity: "error",
-      message: `${what} with a target taken from the request: an open redirect; use redirect.safe(target, { allow }) from "renox"`,
+      message: `${what} with a target taken from the request: an open redirect; use redirect.safe(target, { allow }) from "@renoxium/sdk"`,
     });
   };
   for (let k = 0; k < tokens.length; k++) {
@@ -584,7 +584,7 @@ export function lintRedirect(src: string, file: string): Finding[] {
   return out;
 }
 
-/** Calls that validate a value: `validate(schema, value)` from "renox" (sdk/src/validate.ts) or a schema's own parse. */
+/** Calls that validate a value: `validate(schema, value)` from "@renoxium/sdk" (sdk/src/validate.ts) or a schema's own parse. */
 const BODY_VALIDATORS = new Set(["validate", "parse", "safeParse", "parseAsync", "safeParseAsync", "assert", "is"]);
 /** Names a handler's request goes by: `req` (ctx.req, destructured) and `request`. */
 const REQUEST_NAMES = new Set(["req", "request"]);
@@ -610,7 +610,7 @@ function validatedSpans(tokens: Token[]): Set<number> {
  * `unvalidated-body` (warning in F4/F5): a handler that reads the request
  * body with `req.json()` or `req.formData()` (also `request.…`, `ctx.req.…`)
  * and uses the value without passing it to `validate(schema, value)` from
- * "renox" or a schema's `parse`/`safeParse`. The body read inside a
+ * "@renoxium/sdk" or a schema's `parse`/`safeParse`. The body read inside a
  * validator call (`validate(schema, await req.json())`) is validated; a
  * body assigned to a name is validated when that name is later an argument
  * of a validator in the same file. `validate(schema, req)` reads no body
@@ -661,7 +661,7 @@ export function lintBody(src: string, file: string): Finding[] {
       column,
       rule: "unvalidated-body",
       severity: "warning",
-      message: `${recv.text}.${t.text}() is used without validation: pass it to validate(schema, value) from "renox" (or the schema's parse) before reading its fields`,
+      message: `${recv.text}.${t.text}() is used without validation: pass it to validate(schema, value) from "@renoxium/sdk" (or the schema's parse) before reading its fields`,
     });
   }
   return out;

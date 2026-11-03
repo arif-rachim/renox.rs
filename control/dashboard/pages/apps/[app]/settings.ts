@@ -4,7 +4,7 @@
 // every token, the dashboard's included (D23: the dashboard signs in with a
 // token), so the page says how the owner starts one from a signed-in API
 // session and then shows its progress here, through the tombstone.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";

@@ -7,7 +7,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "renox": "workspace:*",
+    "@renoxium/sdk": "workspace:*",
     "stripe": "23.1.0",
     "zod": "4.6.7"
   }

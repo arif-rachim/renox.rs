@@ -12,7 +12,7 @@
 // mint, is decided by the API. The control API has no read endpoint for
 // operators in 0.3, so the page shows the state of the last action's answer.
 
-import type { Fetch, Secrets } from "renox";
+import type { Fetch, Secrets } from "@renoxium/sdk";
 
 import { Api, apiBase, type ApiFailure, type Result } from "./api.ts";
 import { EN, type Tr } from "./i18n.ts";

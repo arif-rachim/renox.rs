@@ -1,5 +1,5 @@
 // unvalidated-body fixture (#275): every line marked FLAG is a warning.
-import type { Ctx } from "renox";
+import type { Ctx } from "@renoxium/sdk";
 
 export async function POST({ req, db }: Ctx): Promise<Response> {
   const body = await req.json(); // FLAG

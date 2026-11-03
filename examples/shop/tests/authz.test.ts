@@ -10,7 +10,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { app as harness, snapshot, type TestApp } from "renox/test";
+import { app as harness, snapshot, type TestApp } from "@renoxium/sdk/test";
 import { totp } from "../../../sdk/src/totp.ts";
 
 const worker = process.env.RENOX_WORKER_PATH;

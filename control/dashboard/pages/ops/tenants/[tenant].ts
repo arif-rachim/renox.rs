@@ -10,7 +10,7 @@
 // minutes, once; this session signs in with it (replacing the operator's own
 // dashboard sign-in) and every page shows the banner until the time box,
 // ?/end, or the sign-out. POST ?/end (impersonation_id, token) ends it.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { Api, apiBase, type OpsTenant } from "../../../lib/api.ts";
 import { frame, notFound, signedIn } from "../../../lib/guard.ts";

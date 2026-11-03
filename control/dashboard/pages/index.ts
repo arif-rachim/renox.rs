@@ -2,7 +2,7 @@
 // (docs/19-platform-wireframes.md 3.1; #326), then the app list, which is
 // the dashboard's home. The steps: create the first app (from a template),
 // deploy it (`first_deploy_at` of `getTenant`, deploy-api.md 0.5 section 21).
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { frame, signedIn } from "../lib/guard.ts";
 import { trOf } from "../lib/i18n.ts";

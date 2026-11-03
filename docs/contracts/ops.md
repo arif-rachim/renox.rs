@@ -1080,7 +1080,7 @@ The runtime side of `docs/20-ai-agents-mcp.md` section 2 (every row of its table
 
 ```ts
 // functions/tools/create-invoice.ts
-import { tool } from "renox";
+import { tool } from "@renoxium/sdk";
 export default tool({
   name: "create_invoice",
   description: "Create a draft invoice for a customer",

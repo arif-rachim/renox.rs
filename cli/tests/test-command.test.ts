@@ -1,5 +1,5 @@
 // #238: `renox test` runs an app's tests/*.test.ts on the embedded worker
-// with `renox/test`: a fixture module with one service, one page and two
+// with `@renoxium/sdk/test`: a fixture module with one service, one page and two
 // roles has unit, snapshot-per-role, install/upgrade and policy-case tests.
 
 import { expect, test } from "bun:test";
@@ -52,7 +52,7 @@ export const actions = {
 });
 
 const TEST_TS = `import { expect, test } from "bun:test";
-import { app, installModule, policyCases, snapshot } from "renox/test";
+import { app, installModule, policyCases, snapshot } from "@renoxium/sdk/test";
 
 const t = await app();
 
@@ -96,8 +96,8 @@ async function fixtureApp(): Promise<string> {
   write(join(dir, "modules/notes"), notesModule("1.0.0", true));
   write(join(dir, "fixtures/notes-v1"), notesModule("1.0.0", true));
   write(join(dir, "fixtures/notes-v2"), notesModule("2.0.0", false));
-  mkdirSync(join(dir, "node_modules"), { recursive: true });
-  symlinkSync(join(repo, "sdk"), join(dir, "node_modules/renox"));
+  mkdirSync(join(dir, "node_modules/@renoxium"), { recursive: true });
+  symlinkSync(join(repo, "sdk"), join(dir, "node_modules/@renoxium/sdk"));
   const log = console.log;
   console.log = () => {};
   try {

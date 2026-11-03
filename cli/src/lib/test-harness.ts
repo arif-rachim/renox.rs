@@ -1,4 +1,4 @@
-// The engine behind `renox test` and `renox/test` (#238;
+// The engine behind `renox test` and `@renoxium/sdk/test` (#238;
 // docs/12-developer-experience.md, "renox test"): the app's artifact plus a
 // test-only service route, the same prebuilt renox-worker as `renox dev`
 // (rule 5) on a temporary tenant file per test file, seeds, and the module
@@ -102,12 +102,12 @@ async function moduleTestApp(module: string): Promise<string> {
   }
   const app = mkdtempSync(join(tmpdir(), "renox-module-test-"));
   cpSync(src, app, { recursive: true, filter: (p) => !/\/(\.renox|renox\.lock|node_modules)(\/|$)/u.test(p.slice(src.length)) });
-  // The SDK as `node_modules/renox`, as an app has it: module code may import
+  // The SDK as `node_modules/@renoxium/sdk`, as an app has it: module code may import
   // its helpers (auth's passkeys use `verifyAssertion`, #291).
   const sdk = resolve(import.meta.dir, "../../../sdk");
-  if (!existsSync(join(app, "node_modules", "renox")) && existsSync(join(sdk, "package.json"))) {
-    mkdirSync(join(app, "node_modules"), { recursive: true });
-    symlinkSync(sdk, join(app, "node_modules", "renox"), "dir");
+  if (!existsSync(join(app, "node_modules", "@renoxium", "sdk")) && existsSync(join(sdk, "package.json"))) {
+    mkdirSync(join(app, "node_modules", "@renoxium"), { recursive: true });
+    symlinkSync(sdk, join(app, "node_modules", "@renoxium", "sdk"), "dir");
   }
   const toml = readFileSync(join(src, "renox.toml"), "utf8").replace(/"path:([^"]+)"/gu, (_m, rel: string) => JSON.stringify(`path:${relative(app, resolve(src, rel)).split("\\").join("/")}`));
   writeFileSync(join(app, "renox.toml"), toml);

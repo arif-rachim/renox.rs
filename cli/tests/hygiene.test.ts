@@ -44,7 +44,7 @@ function run(dir: string, args: string[]): { code: number; stdout: string; stder
   return { code: p.exitCode ?? -1, stdout: p.stdout.toString(), stderr: p.stderr.toString() };
 }
 
-const handler = (line: string) => `import type { Handler } from "renox";\n\nconst stripe = "${FAKE_STRIPE}";${line}\nexport const GET: Handler = () => Response.json({ n: stripe.length });\n`;
+const handler = (line: string) => `import type { Handler } from "@renoxium/sdk";\n\nconst stripe = "${FAKE_STRIPE}";${line}\nexport const GET: Handler = () => Response.json({ n: stripe.length });\n`;
 
 describe("forbidden files", () => {
   test(".env, .git/, a symlink and id_rsa never reach the artifact (artifact listing)", async () => {

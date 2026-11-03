@@ -9,7 +9,7 @@
 //   - in Arabic, no message of the page's own keys (its template and the
 //     module's layouts) is left in English, and no key is rendered raw (a
 //     key missing from the catalog renders as the key itself);
-//   - both bodies are snapshotted (`renox/test` `snapshot`, after `stable`).
+//   - both bodies are snapshotted (`@renoxium/sdk/test` `snapshot`, after `stable`).
 //
 // The completeness rule of `renox check` (`i18n-missing-key`) guarantees the
 // catalogs; this proves the pages actually render from them.
