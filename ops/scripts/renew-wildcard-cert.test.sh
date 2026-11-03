@@ -6,7 +6,9 @@
 # run with the same certificate does not reload; `renew` is used once a
 # certificate exists; a certificate without the apex, or with another key, is
 # refused and the installed one is kept; the token reaches lego only as a file
-# path, and its value never appears on the command line or in the output.
+# path, and its value never appears on the command line or in the output;
+# by default an active worker is reloaded, an inactive one is not and the run
+# still succeeds, and the "installed" line comes before any reload (#399).
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -99,6 +101,41 @@ else fail "a new certificate: $(cat "$tmp/out")"; fi
 if grep -q "token_file=$tmp/token token_env=$" "$FAKE_LOG"; then pass "lego gets CLOUDFLARE_DNS_API_TOKEN_FILE and no token variable"; else fail "lego's token environment: $(cat "$FAKE_LOG")"; fi
 if CLOUDFLARE_DNS_API_TOKEN=inherited run >"$tmp/out" 2>&1 && tail -n 1 "$FAKE_LOG" | grep -q "token_env=$"; then pass "an inherited CLOUDFLARE_DNS_API_TOKEN is cleared"; else fail "an inherited token variable: $(tail -n 1 "$FAKE_LOG")"; fi
 if grep -rqF "$secret" "$FAKE_LOG" "$tmp/out" "$tmp/certs"; then fail "the token value never appears"; else pass "the token value appears in no argv, environment, output or installed file"; fi
+
+# 8. The default reload (#399), with a fake systemctl on PATH that records its
+# calls and answers is-active from $FAKE_ACTIVE. The first install happens
+# before the worker runs (ops/single-host.md, step 8 before step 9): nothing
+# is reloaded and the run succeeds.
+mkdir -p "$tmp/bin"
+cat > "$tmp/bin/systemctl" <<'SH'
+#!/bin/sh
+echo "$*" >> "$FAKE_SYSTEMCTL_LOG"
+case $1 in
+  is-active) [ "${FAKE_ACTIVE:-0}" = 1 ] ;;
+  reload) [ "${FAKE_RELOAD_FAILS:-0}" != 1 ] ;;
+  *) exit 1 ;;
+esac
+SH
+chmod 0755 "$tmp/bin/systemctl"
+export FAKE_SYSTEMCTL_LOG=$tmp/systemctl.log
+run_default() {
+  PATH=$tmp/bin:$PATH "$renew" --domain renoxium.test --email ops@renoxium.test --token-file "$tmp/token" \
+    --cert-dir "$tmp/certs" --lego-path "$tmp/acme" --lego-bin "$tmp/lego" --owner "$me"
+}
+rm -f "$FAKE_SYSTEMCTL_LOG"
+if FAKE_ACTIVE=0 run_default >"$tmp/out" 2>&1 && head -n 1 "$tmp/out" | grep -q "installed a new certificate" && grep -q "is not active; nothing reloaded" "$tmp/out" \
+  && ! grep -q '^reload' "$FAKE_SYSTEMCTL_LOG"; then
+  pass "an inactive worker: the certificate is installed, the installed line comes first, nothing is reloaded, exit 0"
+else fail "an inactive worker: $(cat "$tmp/out") / $(cat "$FAKE_SYSTEMCTL_LOG" 2>/dev/null)"; fi
+rm -f "$FAKE_SYSTEMCTL_LOG"
+if FAKE_ACTIVE=1 run_default >"$tmp/out" 2>&1 && grep -qx "reload renox-worker.service" "$FAKE_SYSTEMCTL_LOG" && tail -n 1 "$tmp/out" | grep -q "worker reloaded"; then
+  pass "an active worker is reloaded (systemctl reload renox-worker.service) after the installed line"
+else fail "an active worker: $(cat "$tmp/out") / $(cat "$FAKE_SYSTEMCTL_LOG" 2>/dev/null)"; fi
+before=$(sha256sum "$tmp/certs/renoxium.test/fullchain.pem")
+if FAKE_ACTIVE=1 FAKE_RELOAD_FAILS=1 run_default >"$tmp/out" 2>&1; then fail "a failed reload fails the run"
+elif head -n 1 "$tmp/out" | grep -q "installed a new certificate" && grep -q "reload renox-worker.service failed" "$tmp/out" && [[ $(sha256sum "$tmp/certs/renoxium.test/fullchain.pem") != "$before" ]]; then
+  pass "a failed reload fails the run, after the installed line, with the new certificate in place"
+else fail "a failed reload: $(cat "$tmp/out")"; fi
 
 if [[ $failures -ne 0 ]]; then echo "$failures failed" >&2; exit 1; fi
 echo "all passed"
