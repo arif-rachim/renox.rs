@@ -17,6 +17,10 @@ DynamicUser=no
 Slice=renox-free.slice
 ExecStart=/opt/renox/bin/renox-worker --config /etc/renox/worker.toml
 ExecReload=/bin/kill -HUP $MAINPID
+# The replica store's key pair (#417): the worker's restore and erasure purge
+# read the same variables as Litestream (crates/renox-cell/src/replication/
+# purge.rs). Root-only file read by systemd; "-": optional.
+EnvironmentFile=-/etc/renox/secrets/r2-replica.env
 Restart=on-failure
 RestartSec=2s
 # Drain in-flight requests (twice the paid wall-clock limit of 60 s).

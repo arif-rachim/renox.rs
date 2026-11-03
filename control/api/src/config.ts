@@ -42,7 +42,7 @@ export interface Config {
   mail?: MailConfig;
   /** How long a failed erasure step waits before its retry (#308; CONTROL_ERASURE_RETRY_MS, default one hour; the chaos harness shortens it). */
   erasureRetryMs?: number;
-  /** `EXPORT_KMS_KEY_ID` (#308): exports are written with SSE-KMS and this key; unset: plain puts (local mode, logged at start). */
+  /** `EXPORT_KMS_KEY_ID` (#308): optional; exports are written with SSE-KMS and this key. Unset (Cloudflare R2, which has no SSE-KMS, ADR D25): plain puts, logged at start. */
   exportKmsKeyId?: string | null;
   /** `CONTROL_SECURITY_CONTACTS` (#310): the `Contact:` URIs of security.txt, comma separated (default `mailto:security@renoxium.com`). */
   securityContacts?: string[];
@@ -244,7 +244,7 @@ export function loadConfig(env: Env = process.env): Config {
     ? {
         endpoint: env.CONTROL_S3_ENDPOINT,
         bucket: env.CONTROL_S3_BUCKET ?? "renox-artifacts",
-        region: env.CONTROL_S3_REGION ?? "me-central-1",
+        region: env.CONTROL_S3_REGION ?? "auto",
         accessKeyId: env.CONTROL_S3_ACCESS_KEY_ID ?? "",
         secretAccessKey: env.CONTROL_S3_SECRET_ACCESS_KEY ?? "",
       }

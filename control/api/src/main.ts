@@ -81,7 +81,7 @@ setInterval(() => void sweepAbuse(deps).catch((e: unknown) => log.error("abuse s
 setInterval(() => void sweepSafeBrowsing(deps).catch((e: unknown) => log.error("safe browsing sweep failed", { error: String(e) })), 3_600_000);
 setInterval(() => void rescanActive(deps).catch((e: unknown) => log.error("advisory re-scan failed", { error: String(e) })), 3_600_000);
 if (!process.env.RENOX_SAFE_BROWSING_KEY) log.warn("RENOX_SAFE_BROWSING_KEY is not set: hostnames are not checked with Safe Browsing");
-if ((config.exportKmsKeyId ?? null) === null) log.warn("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (local mode only)");
+if ((config.exportKmsKeyId ?? null) === null) log.info("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (R2 has none; the bucket's own encryption at rest applies)");
 
 // The public listener behind a trusted proxy (#366): requests from a listed peer
 // take their client address from the configured header (src/auth/ip.ts).

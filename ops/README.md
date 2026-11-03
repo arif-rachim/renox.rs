@@ -15,7 +15,6 @@ Operational files that the build and CI trust. Owned by code owners (`.github/CO
 | `scripts/fetch-litestream.sh` | Downloads the pinned Litestream, refuses a SHA-256 mismatch before extracting, prints the binary's path |
 | `scripts/verify-units.sh` | `systemd-analyze verify` over `systemd/` (CI lint job) |
 | `security/keys.md` | The key inventory (master key, page session key, backup and export KMS keys, release signing, TLS), custody, rotation procedures and the drill record (#309) |
-| `terraform/` | KMS keys (one per purpose, rotation on) and the export bucket (versioned, exports expire after 7 days, unencrypted puts refused); validated by `.github/workflows/ops.yml`, applied by the owner (#309) |
 | `scripts/*.test.sh` | `fetch-litestream.test.sh` (CI lint job, no network) and `bootstrap-node.test.sh` (CI rust job: a systemd container with the worker just built) |
 | `single-host.md` | The runbook of the single host (#366): worker, control plane, Postgres and the tunnel on one machine behind Cloudflare, from an empty host to live ("Single host" below) |
 | `cloudflared.lock`, `lego.lock` | cloudflared and lego versions and SHA-256 per target (#366) |

@@ -321,5 +321,19 @@ mod tests {
             !y.contains("AWS_SECRET"),
             "credentials never go into the file"
         );
+        // #417: Cloudflare R2, the production replica: region "auto", the
+        // account's endpoint, path style; the token stays in the environment.
+        r.bucket = Some("renoxium-replicas".into());
+        r.region = Some("auto".into());
+        r.endpoint = Some("https://0123456789abcdef.r2.cloudflarestorage.com".into());
+        let y = config_yaml(&r, Path::new("/d/app.db"), "t_a");
+        assert!(
+            y.contains("bucket: \"renoxium-replicas\"")
+                && y.contains("region: \"auto\"")
+                && y.contains("endpoint: \"https://0123456789abcdef.r2.cloudflarestorage.com\"")
+                && y.contains("force-path-style: true")
+                && !y.contains("LITESTREAM_"),
+            "{y}"
+        );
     }
 }

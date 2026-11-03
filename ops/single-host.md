@@ -246,12 +246,22 @@ The worker must own 80 and 443, and `firewall-single-host.sh` must own the nftab
 | What | Where | How often | Keeps |
 | --- | --- | --- | --- |
 | Control database | `renoxium-backups/control-db/<yyyy>/<mm>/control-db-<stamp>.dump.age` | nightly, `renox-backup-db.timer` | 30 days (lifecycle rule and bucket lock) |
-| Tenant files | **not yet on R2**, see below | — | — |
+| Tenant files | `renoxium-replicas/tenants/<database>/` (Litestream, one sidecar per tenant file) | WAL within `sync_interval_ms` (1 s), a snapshot hourly | 24 h of generations (`retention_hours`) |
 | Artifacts | `renoxium-artifacts`; artifacts are content-addressed and re-uploadable by `renox deploy` | on deploy | while referenced |
 
 `backup-control-db.sh` runs `pg_dump --format=custom`, pipes the dump into `age` to the public key, and uploads it with an S3 PUT that curl signs (SigV4, region `auto`). It then reads the object's size back. The R2 secret reaches curl on its standard input. A failing `pg_dump` fails the run and uploads nothing.
 
-**Tenant files to R2: blocked.** The worker refuses an `s3` replica in controlled mode unless its region is in `allowed_regions` (by default the UAE, `me-central-1`) and it names `sse_kms_key_id`. R2 has region `auto` and no KMS (`crates/renox-cell/src/config.rs`, #120). Pointing Litestream at R2 therefore needs a change in `renox-cell`, plus an owner decision on keeping tenant data outside the UAE. #366 records it as a follow-up. Until then a tenant file lives only on the node's disk, so one disk failure loses tenant data. Do not take tenants that need durable data before it is resolved.
+**Tenant files to R2** (#417; ADR D25 dropped the residency rule that blocked it):
+
+1. **Bucket and token (owner, off the host).** In the Cloudflare dashboard create the bucket `renoxium-replicas`, then an R2 API token of its own: *Object Read & Write*, limited to that one bucket (not the artifacts or backups token). Put the pair on the host as `/etc/renox/secrets/r2-replica.env` (`install -m 0600 -o root -g root`), two lines:
+   ```
+   LITESTREAM_ACCESS_KEY_ID=<the token's access key id>
+   LITESTREAM_SECRET_ACCESS_KEY=<the token's secret>
+   ```
+   systemd reads it as root into `renox-litestream@` and `renox-worker` (`EnvironmentFile=`); the worker's restore and erasure purge read the same variables. It is never in `worker.toml`, a command line or a log.
+2. **Worker.** In `/etc/renox/worker.toml` uncomment the `[replication]` block of `ops/worker.toml.example`: `replica = "s3"`, `bucket = "renoxium-replicas"`, `prefix = "tenants"`, `region = "auto"`, `endpoint = "https://<account id>.r2.cloudflarestorage.com"`, `litestream_bin = "/opt/renox/bin/litestream"`. The worker refuses `region = "auto"` without `endpoint`, and the old `allowed_regions` and `sse_kms_key_id` keys. `systemctl restart renox-worker`.
+3. **Check.** Write to a test app, then `journalctl -u 'renox-litestream@*' -n 20` shows the sidecar replicating, and the R2 dashboard lists objects under `tenants/<database>/`.
+4. **Restore drill (a tenant file).** On a test tenant only: note a row, `systemctl stop renox-worker`, move its `app.db` aside (`mv /var/lib/renox/data/<tenant>/app.db /root/app.db.drill`), `systemctl start renox-worker`, and open the app. The worker restores a missing file from its replica before the cell opens it (`litestream restore`, newest generation; `crates/renox-cell/README.md`, "Replication"), then checks it with `PRAGMA quick_check`. The noted row is there and `journalctl -u renox-worker` names the restore. Record the date, the tenant and the time the restore took in `ops/security/keys.md`, "Drill record"; delete `/root/app.db.drill` afterwards. The same path serves `restoreBackup` (deploy API section 14) to a point in time inside the 24 h of retention.
 
 ### Restore drill
 

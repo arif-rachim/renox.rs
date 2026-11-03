@@ -16,6 +16,11 @@ Group=renox
 DynamicUser=no
 Slice=renox-free.slice
 ExecStart=/opt/renox/bin/litestream replicate -config /run/renox/litestream/%i.yml
+# The replica store's key pair (#417, ADR D25): LITESTREAM_ACCESS_KEY_ID and
+# LITESTREAM_SECRET_ACCESS_KEY of the R2 token scoped to renoxium-replicas,
+# from a root-only file systemd reads; never in the config or on a command
+# line. "-": a node with a file replica starts without it.
+EnvironmentFile=-/etc/renox/secrets/r2-replica.env
 Restart=on-failure
 RestartSec=1s
 # Let the last WAL frames ship before the process is killed.

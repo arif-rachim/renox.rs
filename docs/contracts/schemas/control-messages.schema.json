@@ -394,7 +394,7 @@
         "region": {
           "type": "string",
           "pattern": "^[a-z0-9-]{1,32}$",
-          "description": "s3 only: the bucket's region (UAE regions in controlled mode)."
+          "description": "s3 only: the bucket's region (`auto` for Cloudflare R2)."
         }
       }
     },

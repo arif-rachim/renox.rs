@@ -88,14 +88,19 @@ mode = "enforce"
 # launcher = "systemd"
 # run_dir = "/run/renox"
 #
+# Tenant files to Cloudflare R2 (#417, ADR D25): one Litestream sidecar per
+# tenant file writes to the renoxium-replicas bucket. The R2 token (its own,
+# Object Read & Write on that bucket only) reaches Litestream and the worker
+# through /etc/renox/secrets/r2-replica.env (root, 0600:
+# LITESTREAM_ACCESS_KEY_ID and LITESTREAM_SECRET_ACCESS_KEY), read by systemd
+# (EnvironmentFile=). region = "auto" needs the endpoint; there is no KMS key.
+# ops/single-host.md, "Tenant files to R2", has the install step and the
+# restore drill.
 # [replication]
 # enabled = true
 # replica = "s3"
-# bucket = "renox-replica-me-central-1"
-# region = "me-central-1"
+# bucket = "renoxium-replicas"
+# prefix = "tenants"
+# region = "auto"
+# endpoint = "https://@R2_ACCOUNT_ID@.r2.cloudflarestorage.com"
 # litestream_bin = "/opt/renox/bin/litestream"
-#
-# Cloudflare R2 as the replica (the single host, #366) is not possible yet: a
-# controlled worker refuses a region outside allowed_regions (the UAE) and an
-# s3 replica without sse_kms_key_id, and R2 has region "auto" and no KMS.
-# ops/single-host.md, "Backups", has the state and the follow-up.

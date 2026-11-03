@@ -279,22 +279,24 @@ pub struct ProcessSection {
 pub struct ReplicationSection {
     pub enabled: bool,
     /// `file` (a directory: tests, the dev container, one-node setups) or
-    /// `s3` (production, a UAE region).
+    /// `s3` (production: Cloudflare R2, the `renoxium-replicas` bucket).
     pub replica: ReplicaKind,
     /// `file`: the replica root; each database under `<path>/<database>`.
     pub path: Option<PathBuf>,
     /// `s3`: bucket, key prefix (each database under `<prefix>/<database>`),
-    /// region, an endpoint for S3-compatible stores, and the KMS key id the
-    /// bucket encrypts with (#120). Credentials come from the node's
-    /// environment, never from tenant secrets.
+    /// region, and an endpoint for S3-compatible stores (required with
+    /// `region = "auto"`, Cloudflare R2). Credentials come from the node's
+    /// environment (`LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`
+    /// from `/etc/renox/secrets/r2-replica.env`), never from tenant secrets.
     pub bucket: Option<String>,
     pub prefix: String,
     pub region: Option<String>,
     pub endpoint: Option<String>,
-    pub sse_kms_key_id: Option<String>,
-    /// Regions an `s3` replica may use in controlled mode (`docs/21`:
-    /// backups stay in the UAE).
-    pub allowed_regions: Vec<String>,
+    /// Removed with the residency rule (#417, ADR D25): kept only to refuse
+    /// an old key with the reason.
+    pub(crate) sse_kms_key_id: Option<toml::Value>,
+    /// Removed with the residency rule (#417, ADR D25), as above.
+    pub(crate) allowed_regions: Option<toml::Value>,
     pub sync_interval_ms: u64,
     pub retention_hours: u64,
     pub snapshot_interval_secs: u64,
@@ -325,7 +327,7 @@ impl Default for ReplicationSection {
             region: None,
             endpoint: None,
             sse_kms_key_id: None,
-            allowed_regions: vec!["me-central-1".into()],
+            allowed_regions: None,
             sync_interval_ms: 1_000,
             retention_hours: 24,
             snapshot_interval_secs: 3_600,
@@ -782,6 +784,18 @@ impl WorkerConfig {
         {
             *p = base.join(&*p);
         }
+        // #417, ADR D25: no residency rule any more. An old key is refused
+        // with the reason rather than silently ignored.
+        for (key, set) in [
+            ("sse_kms_key_id", c.replication.sse_kms_key_id.is_some()),
+            ("allowed_regions", c.replication.allowed_regions.is_some()),
+        ] {
+            if set {
+                return Err(ConfigError::Invalid(format!(
+                    "replication.{key} was removed (ADR D25: no data-residency rule; R2 has no SSE-KMS); delete the key"
+                )));
+            }
+        }
         if c.replication.enabled {
             let r = &c.replication;
             match r.replica {
@@ -802,21 +816,16 @@ impl WorkerConfig {
                     "replication.sync_interval_ms must be positive".into(),
                 ));
             }
-            // docs/21-uae-gcc-strategy.md: tenant data and its backups stay
-            // in the UAE; a controlled node does not start otherwise.
-            if c.mode == Mode::Controlled && r.replica == ReplicaKind::S3 {
-                let region = r.region.as_deref().unwrap_or("");
-                if !r.allowed_regions.iter().any(|a| a == region) {
-                    return Err(ConfigError::Invalid(format!(
-                        "replication.region {region:?} is not in replication.allowed_regions ({}); backups stay in the UAE",
-                        r.allowed_regions.join(", ")
-                    )));
-                }
-                if r.sse_kms_key_id.is_none() {
-                    return Err(ConfigError::Invalid(
-                        "replication.sse_kms_key_id is required for an s3 replica in controlled mode".into(),
-                    ));
-                }
+            // Cloudflare R2 has region "auto" and no regional AWS endpoint: without
+            // `endpoint`, Litestream and the purge would address
+            // s3.auto.amazonaws.com (replication/purge.rs).
+            if r.replica == ReplicaKind::S3
+                && r.region.as_deref() == Some("auto")
+                && r.endpoint.as_deref().is_none_or(|e| e.trim().is_empty())
+            {
+                return Err(ConfigError::Invalid(
+                    "replication.endpoint is required with region = \"auto\" (Cloudflare R2: https://<account id>.r2.cloudflarestorage.com)".into(),
+                ));
             }
         }
         if !(c.process.child_idle_secs.is_finite() && c.process.child_idle_secs > 0.0) {
@@ -1193,8 +1202,10 @@ mod tests {
         assert!(WorkerConfig::parse(&bad, Path::new("/")).is_err());
     }
 
-    /// #255, `docs/21-uae-gcc-strategy.md`: a controlled node with an s3
-    /// replica outside the allowed regions refuses to start.
+    /// #255, #417: replication parses; a controlled node with a Cloudflare R2
+    /// replica (`region = "auto"` and its endpoint, no KMS key) starts; R2
+    /// without `endpoint` is refused, and so are the keys of the old
+    /// residency rule (ADR D25).
     #[test]
     fn replication_section() {
         let base = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
@@ -1221,29 +1232,36 @@ mod tests {
         assert!(WorkerConfig::parse(&no_path, Path::new("/")).is_err());
 
         let controlled = "mode = \"controlled\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\nlisten = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n[control]\nurl = \"https://c.renox.test\"\nnode_token_file = \"t\"\n[sandbox]\nenabled = true\n";
-        let s3 = |region: &str, kms: &str| {
+        let s3 = |extra: &str| {
             format!(
-                "{controlled}[replication]\nenabled = true\nreplica = \"s3\"\nbucket = \"b\"\nregion = \"{region}\"\n{kms}"
+                "{controlled}[replication]\nenabled = true\nreplica = \"s3\"\nbucket = \"renoxium-replicas\"\n{extra}"
             )
         };
-        let e = WorkerConfig::parse(
-            &s3("eu-west-1", "sse_kms_key_id = \"k\"\n"),
+        let r2 = WorkerConfig::parse(
+            &s3("region = \"auto\"\nendpoint = \"https://0123456789abcdef.r2.cloudflarestorage.com\"\n"),
             Path::new("/srv"),
         )
-        .unwrap_err();
+        .unwrap()
+        .replication;
+        assert_eq!(r2.region.as_deref(), Some("auto"));
+        assert_eq!(
+            r2.endpoint.as_deref(),
+            Some("https://0123456789abcdef.r2.cloudflarestorage.com")
+        );
+        // Any region, no KMS key: there is no residency rule any more.
+        assert!(WorkerConfig::parse(&s3("region = \"eu-west-1\"\n"), Path::new("/srv")).is_ok());
+        let e = WorkerConfig::parse(&s3("region = \"auto\"\n"), Path::new("/srv")).unwrap_err();
         assert!(
-            e.to_string().contains("eu-west-1") && e.to_string().contains("UAE"),
+            e.to_string().contains("replication.endpoint is required"),
             "{e}"
         );
-        let e = WorkerConfig::parse(&s3("me-central-1", ""), Path::new("/srv")).unwrap_err();
-        assert!(e.to_string().contains("sse_kms_key_id"), "{e}");
-        assert!(
-            WorkerConfig::parse(
-                &s3("me-central-1", "sse_kms_key_id = \"k\"\n"),
-                Path::new("/srv")
-            )
-            .is_ok()
-        );
+        for old in [
+            "region = \"auto\"\nendpoint = \"https://x.r2.cloudflarestorage.com\"\nsse_kms_key_id = \"k\"\n",
+            "region = \"me-central-1\"\nallowed_regions = [\"me-central-1\"]\n",
+        ] {
+            let e = WorkerConfig::parse(&s3(old), Path::new("/srv")).unwrap_err();
+            assert!(e.to_string().contains("was removed"), "{e}");
+        }
     }
 
     #[test]

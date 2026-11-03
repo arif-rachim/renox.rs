@@ -1,8 +1,8 @@
 // Object storage for artifacts and sourcemaps (S3-compatible: MinIO locally,
-// the UAE-region bucket in production). Keys are content-addressed and
+// Cloudflare R2 in production, ADR D25). Keys are content-addressed and
 // written once (deploy-api.md section 4). Exports (#308) are written with
-// SSE-KMS (`PutOptions.sseKmsKeyId`): the export bucket refuses any other put
-// (ops/terraform/bucket.tf, DenyUnencryptedPut).
+// SSE-KMS (`PutOptions.sseKmsKeyId`) when `EXPORT_KMS_KEY_ID` is set (an AWS
+// bucket); R2 has no SSE-KMS and encrypts every object at rest itself.
 
 import { S3Client } from "bun";
 import type { S3Config } from "../config.ts";
