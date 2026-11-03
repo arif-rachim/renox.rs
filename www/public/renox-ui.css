@@ -344,7 +344,6 @@ button:active, .button:active { transform: translateY(1px); }
   flex: none;
   inline-size: 1.125rem;
   block-size: 1.125rem;
-  margin-inline-start: -.45rem;
   border-radius: var(--rx-r-icon);
   background:
     radial-gradient(circle, var(--rx-pill-ink) 0 .09em, transparent .11em) .3em .3em / .3em .3em no-repeat,
@@ -354,9 +353,11 @@ button:active, .button:active { transform: translateY(1px); }
     var(--rx-accent);
 }
 .go::before { background-color: var(--rx-ink); }
-button.primary, .button.primary { background: var(--rx-pill); border-color: var(--rx-pill); color: var(--rx-pill-ink); padding-inline-start: .55rem; }
+/* The icon square keeps the same 10px from the pill's edge on the start side as above and below it
+   (a 38px pill, a 1px border, an 18px square: 9px of padding plus the border). */
+button.primary, .button.primary { background: var(--rx-pill); border-color: var(--rx-pill); color: var(--rx-pill-ink); padding-inline-start: .5625rem; }
 button.primary:hover, .button.primary:hover { background: color-mix(in srgb, var(--rx-pill) 85%, var(--rx-paper)); border-color: transparent; color: var(--rx-pill-ink); }
-button.go, .button.go { padding-inline-start: .55rem; }
+button.go, .button.go { padding-inline-start: .5625rem; }
 button.danger, .button.danger { color: var(--rx-bad); border-color: var(--rx-bad); background: transparent; }
 button.danger:hover, .button.danger:hover { background: var(--rx-bad-bg); border-color: var(--rx-bad); }
 button.link { min-block-size: 0; padding: 0; border: 0; background: none; font-weight: 400; color: inherit; }

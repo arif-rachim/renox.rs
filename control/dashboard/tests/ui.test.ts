@@ -57,3 +57,16 @@ test("no physical directions and no other origin in either stylesheet", () => {
     expect(loadsAnything(css)).toBe(false);
   }
 });
+
+/** The icon square of a primary or `.go` pill keeps the same inset from the pill's start edge as from its top (owner review). */
+test("the icon square in a pill button keeps its inset: no negative margin, padding = (height - border*2 - icon) / 2", () => {
+  const before = /\.primary::before, \.go::before \{([^}]*)\}/u.exec(SOURCE)?.[1] ?? "";
+  expect(before).not.toMatch(/margin-inline-start:\s*-/u);
+  const rem = (re: RegExp) => Number(re.exec(SOURCE)?.[1]);
+  const height = rem(/button, \.button \{[^}]*min-block-size: ([\d.]+)rem;/u);
+  const icon = Number(/inline-size: ([\d.]+)rem;/u.exec(before)?.[1]);
+  for (const sel of [/button\.primary, \.button\.primary \{[^}]*padding-inline-start: ([\d.]+)rem;/u, /button\.go, \.button\.go \{ padding-inline-start: ([\d.]+)rem;/u]) {
+    // 16px to the rem; the pill's border is 1px each side.
+    expect(rem(sel) * 16).toBeCloseTo((height * 16 - 2 - icon * 16) / 2, 1);
+  }
+});
