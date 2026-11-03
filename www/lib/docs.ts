@@ -1,98 +1,114 @@
-// The documentation of the site (#326): every markdown file under docs/ and
-// docs/contracts/, bundled as text at build time, with its page slug, and
-// the sidebar in the reading order of AGENTS.md. `tests/pages.test.ts`
-// checks that this list is every file of those directories.
+// The developer documentation of the site (#326, #428): an explicit allowlist
+// of the files under docs/ and the READMEs the site renders, bundled as text
+// at build time, with the navigation grouped as Get started, Guides,
+// Reference and Concepts. Anything not listed here is not published: the
+// business rationale, roadmap, risks, strategy, build and development plans,
+// the execution log, the threat model, the failure modes, the benchmarks and
+// the ADRs stay in the repository. `tests/pages.test.ts` checks that an
+// unlisted file answers 404 and that nothing outside this list is imported.
 //
-// Regenerate the imports when a document is added: one line per file.
+// Add a page: one import line, one entry of PUBLISHED.
 
-import agents from "../../AGENTS.md" with { type: "text" };
-import d0 from "../../docs/00-overview.md" with { type: "text" };
-import d1 from "../../docs/01-business.md" with { type: "text" };
-import d2 from "../../docs/02-comparison.md" with { type: "text" };
-import d3 from "../../docs/03-architecture.md" with { type: "text" };
-import d4 from "../../docs/04-isolation-security.md" with { type: "text" };
-import d5 from "../../docs/05-tenant-lifecycle.md" with { type: "text" };
-import d6 from "../../docs/06-data.md" with { type: "text" };
-import d7 from "../../docs/07-app-model.md" with { type: "text" };
-import d8 from "../../docs/08-template-engine.md" with { type: "text" };
-import d9 from "../../docs/09-htmx-realtime.md" with { type: "text" };
-import d10 from "../../docs/10-modules.md" with { type: "text" };
-import d11 from "../../docs/11-authorization.md" with { type: "text" };
-import d12 from "../../docs/12-developer-experience.md" with { type: "text" };
-import d13 from "../../docs/13-decisions.md" with { type: "text" };
-import d14 from "../../docs/14-benchmarks.md" with { type: "text" };
-import d15 from "../../docs/15-roadmap.md" with { type: "text" };
-import d16 from "../../docs/16-risks.md" with { type: "text" };
-import d17 from "../../docs/17-glossary.md" with { type: "text" };
-import d18 from "../../docs/18-build-plan.md" with { type: "text" };
-import d19 from "../../docs/19-platform-wireframes.md" with { type: "text" };
-import d20 from "../../docs/20-ai-agents-mcp.md" with { type: "text" };
-import d21 from "../../docs/21-uae-gcc-strategy.md" with { type: "text" };
-import d22 from "../../docs/22-development-plan.md" with { type: "text" };
-import d23 from "../../docs/23-failure-modes.md" with { type: "text" };
-import d24 from "../../docs/24-threat-model.md" with { type: "text" };
-import d25 from "../../docs/25-execution.md" with { type: "text" };
-import d26 from "../../docs/contracts/README.md" with { type: "text" };
-import d27 from "../../docs/contracts/artifact.md" with { type: "text" };
-import d28 from "../../docs/contracts/client-events.md" with { type: "text" };
-import d29 from "../../docs/contracts/deploy-api.md" with { type: "text" };
-import d30 from "../../docs/contracts/errors.md" with { type: "text" };
-import d31 from "../../docs/contracts/manifest.md" with { type: "text" };
-import d32 from "../../docs/contracts/meter.md" with { type: "text" };
-import d33 from "../../docs/contracts/ops.md" with { type: "text" };
+import gettingStarted from "../../docs/getting-started.md" with { type: "text" };
+import overview from "../../docs/00-overview.md" with { type: "text" };
+import lifecycle from "../../docs/05-tenant-lifecycle.md" with { type: "text" };
+import data from "../../docs/06-data.md" with { type: "text" };
+import appModel from "../../docs/07-app-model.md" with { type: "text" };
+import templates from "../../docs/08-template-engine.md" with { type: "text" };
+import realtime from "../../docs/09-htmx-realtime.md" with { type: "text" };
+import modules from "../../docs/10-modules.md" with { type: "text" };
+import authorization from "../../docs/11-authorization.md" with { type: "text" };
+import developerExperience from "../../docs/12-developer-experience.md" with { type: "text" };
+import glossary from "../../docs/17-glossary.md" with { type: "text" };
+import agents from "../../docs/20-ai-agents-mcp.md" with { type: "text" };
+import cli from "../../cli/README.md" with { type: "text" };
+import sdk from "../../sdk/README.md" with { type: "text" };
+// A declaration file imported as text: the bundler reads it as text, tsc sees a .d.ts.
+// @ts-expect-error TS2846: imported for its text, not its types.
+import ctxTypesRaw from "../../docs/contracts/ctx.d.ts" with { type: "text" };
+import errors from "../../docs/contracts/errors.md" with { type: "text" };
+import manifest from "../../docs/contracts/manifest.md" with { type: "text" };
+import ops from "../../docs/contracts/ops.md" with { type: "text" };
 
 import { render, type Rendered } from "./markdown.ts";
 
-/** Repository path -> markdown text. */
-export const SOURCES: ReadonlyMap<string, string> = new Map([
-  ["docs/00-overview.md", d0],
-  ["docs/01-business.md", d1],
-  ["docs/02-comparison.md", d2],
-  ["docs/03-architecture.md", d3],
-  ["docs/04-isolation-security.md", d4],
-  ["docs/05-tenant-lifecycle.md", d5],
-  ["docs/06-data.md", d6],
-  ["docs/07-app-model.md", d7],
-  ["docs/08-template-engine.md", d8],
-  ["docs/09-htmx-realtime.md", d9],
-  ["docs/10-modules.md", d10],
-  ["docs/11-authorization.md", d11],
-  ["docs/12-developer-experience.md", d12],
-  ["docs/13-decisions.md", d13],
-  ["docs/14-benchmarks.md", d14],
-  ["docs/15-roadmap.md", d15],
-  ["docs/16-risks.md", d16],
-  ["docs/17-glossary.md", d17],
-  ["docs/18-build-plan.md", d18],
-  ["docs/19-platform-wireframes.md", d19],
-  ["docs/20-ai-agents-mcp.md", d20],
-  ["docs/21-uae-gcc-strategy.md", d21],
-  ["docs/22-development-plan.md", d22],
-  ["docs/23-failure-modes.md", d23],
-  ["docs/24-threat-model.md", d24],
-  ["docs/25-execution.md", d25],
-  ["docs/contracts/README.md", d26],
-  ["docs/contracts/artifact.md", d27],
-  ["docs/contracts/client-events.md", d28],
-  ["docs/contracts/deploy-api.md", d29],
-  ["docs/contracts/errors.md", d30],
-  ["docs/contracts/manifest.md", d31],
-  ["docs/contracts/meter.md", d32],
-  ["docs/contracts/ops.md", d33],
-]);
+export type Group = "Get started" | "Guides" | "Reference" | "Concepts";
+
+export interface Page {
+  /** The repository path, shown nowhere on the page; the "Source on GitHub" link. */
+  path: string;
+  /** The page's slug under /docs/. */
+  slug: string;
+  /** The navigation group. */
+  group: Group;
+  /** The title in the navigation; the page's own title is its first heading. */
+  label: string;
+  /** The markdown of the page. */
+  markdown: string;
+}
+
+/** `ops.md` section 10, "Limits per tier and behaviour on limit", as a page of its own. */
+function limitsOf(contract: string): string {
+  const start = contract.indexOf("## 10. Limits per tier");
+  const end = contract.indexOf("\n## ", start + 1);
+  const body = contract.slice(start, end === -1 ? undefined : end).replace(/^## 10\.\s*/u, "# ");
+  return `${body.trimEnd()}\n\nThese are the defaults the platform enforces; an app may lower a limit in its manifest and never raise it. The full contract of every op, including what each limit does to a request, is [\`ops.md\`](contracts/ops.md) in the repository.\n`;
+}
+
+/** `ctx.d.ts` as a reference page: one code block. */
+const ctxTypes = ctxTypesRaw as unknown as string;
+const ctxPage = `# The \`ctx\` surface\n\nThe TypeScript declarations of everything tenant code gets on \`ctx\` (\`docs/contracts/ctx.d.ts\`, the contract the \`renox\` package implements). Section numbers in the comments refer to the ops contract.\n\n\`\`\`\`ts\n${ctxTypes.trimEnd()}\n\`\`\`\`\n`;
+
+/** The published pages, in navigation order (previous and next follow it). */
+export const PUBLISHED: readonly Page[] = [
+  { path: "docs/getting-started.md", slug: "getting-started", group: "Get started", label: "Getting started", markdown: gettingStarted },
+  { path: "docs/12-developer-experience.md", slug: "developer-experience", group: "Get started", label: "Developer experience", markdown: developerExperience },
+  { path: "docs/07-app-model.md", slug: "app-model", group: "Guides", label: "App model", markdown: appModel },
+  { path: "docs/06-data.md", slug: "data", group: "Guides", label: "Data", markdown: data },
+  { path: "docs/08-template-engine.md", slug: "templates", group: "Guides", label: "Templates", markdown: templates },
+  { path: "docs/09-htmx-realtime.md", slug: "realtime", group: "Guides", label: "Fragments and realtime", markdown: realtime },
+  { path: "docs/10-modules.md", slug: "modules", group: "Guides", label: "Modules", markdown: modules },
+  { path: "docs/11-authorization.md", slug: "authorization", group: "Guides", label: "Authorization", markdown: authorization },
+  { path: "docs/20-ai-agents-mcp.md", slug: "ai-agents-mcp", group: "Guides", label: "AI agents and MCP", markdown: agents },
+  { path: "cli/README.md", slug: "cli", group: "Reference", label: "CLI", markdown: cli },
+  { path: "sdk/README.md", slug: "sdk", group: "Reference", label: "SDK", markdown: sdk },
+  { path: "docs/contracts/ctx.d.ts", slug: "ctx", group: "Reference", label: "ctx types", markdown: ctxPage },
+  { path: "docs/contracts/errors.md", slug: "errors", group: "Reference", label: "Errors", markdown: errors },
+  { path: "docs/contracts/manifest.md", slug: "manifest", group: "Reference", label: "Module manifest", markdown: manifest },
+  { path: "docs/contracts/ops.md", slug: "limits", group: "Reference", label: "Limits", markdown: limitsOf(ops) },
+  { path: "docs/00-overview.md", slug: "overview", group: "Concepts", label: "Overview", markdown: overview },
+  { path: "docs/05-tenant-lifecycle.md", slug: "tenant-lifecycle", group: "Concepts", label: "Tenant lifecycle", markdown: lifecycle },
+  { path: "docs/17-glossary.md", slug: "glossary", group: "Concepts", label: "Glossary", markdown: glossary },
+];
+
+export const GROUPS: readonly Group[] = ["Get started", "Guides", "Reference", "Concepts"];
+
+/** Extra navigation links into a page's section: the guides a developer looks for by name. */
+export const SECTION_LINKS: readonly { group: Group; label: string; slug: string; anchor: string; after: string }[] = [
+  { group: "Get started", label: "Install", slug: "getting-started", anchor: "install", after: "getting-started" },
+  { group: "Get started", label: "Your first app", slug: "getting-started", anchor: "your-first-app", after: "getting-started" },
+  { group: "Get started", label: "Deploy", slug: "getting-started", anchor: "deploy", after: "getting-started" },
+  { group: "Guides", label: "Custom domains", slug: "tenant-lifecycle", anchor: "custom-domains-and-dns", after: "authorization" },
+];
 
 export const REPO = "https://github.com/arif-rachim/renox.rs/blob/main/";
 
-/** `docs/00-overview.md` -> `00-overview`; `docs/contracts/ops.md` -> `contracts-ops`. */
-export const slugOfPath = (path: string): string => path.replace(/^docs\//u, "").replace(/\.md$/u, "").replace(/\//gu, "-");
+/** Repository path -> markdown text, for the link resolver and the tests. */
+export const SOURCES: ReadonlyMap<string, string> = new Map(PUBLISHED.filter((p) => p.slug !== "limits" && p.slug !== "ctx").map((p) => [p.path, p.markdown]));
 
-export interface Doc {
-  path: string;
-  slug: string;
-  title: string;
-}
+const bySlug = new Map(PUBLISHED.map((p) => [p.slug, p]));
+const byPath = new Map(PUBLISHED.filter((p) => p.slug !== "limits").map((p) => [p.path, p]));
 
-const pathOfSlug = new Map([...SOURCES.keys()].map((p) => [slugOfPath(p), p]));
+/** The slug of a published repository path, or null. */
+export const slugOfPath = (path: string): string | null => byPath.get(path)?.slug ?? null;
+
+/** "07 — Tenant application model" -> "Tenant application model"; inline code marks and issue numbers dropped. */
+export const cleanTitle = (title: string): string =>
+  title
+    .replace(/`/gu, "")
+    .replace(/^\d+\s+—\s+/u, "")
+    .replace(/\s*\(#\d+\)\s*$/u, "")
+    .trim();
 
 /** A link target of the document at `from`, as an href of the site. */
 export function resolver(from: string): (target: string) => string {
@@ -106,30 +122,89 @@ export function resolver(from: string): (target: string) => string {
     }
     const resolved = path.startsWith("/") ? path.slice(1) : base.join("/");
     const hash = anchor === undefined ? "" : `#${anchor}`;
-    if (SOURCES.has(resolved)) return `/docs/${slugOfPath(resolved)}${hash}`;
+    const slug = slugOfPath(resolved);
+    if (slug !== null) return `/docs/${slug}${hash}`;
     return `${REPO}${resolved}${hash}`;
   };
 }
 
-/** The rendered document of `slug`, or null. */
-export function doc(slug: string): (Rendered & Doc) | null {
-  const path = pathOfSlug.get(slug);
-  if (path === undefined) return null;
-  const r = render(SOURCES.get(path) as string, resolver(path));
-  return { ...r, path, slug, title: r.title || slug };
+export interface NavItem {
+  group: Group;
+  label: string;
+  href: string;
+  slug: string;
+  current: boolean;
 }
 
-const titleOf = (path: string): string => /^#\s+(.+)$/mu.exec(SOURCES.get(path) ?? "")?.[1]?.replace(/`/gu, "") ?? path;
-
-/** The sidebar: AGENTS.md's reading order, then the contracts. */
-export function sidebar(): Doc[] {
-  const ordered = [...agents.matchAll(/^\d+\.\s+`(docs\/[^`]+\.md)`/gmu)].map((m) => m[1] as string).filter((p) => SOURCES.has(p));
-  const rest = [...SOURCES.keys()].filter((p) => !ordered.includes(p)).sort();
-  return [...ordered, ...rest].map((path) => ({ path, slug: slugOfPath(path), title: titleOf(path) }));
+export interface Doc extends Rendered {
+  path: string;
+  slug: string;
+  group: Group;
+  label: string;
+  /** The on-page contents: the `##` headings. */
+  contents: { text: string; id: string }[];
+  previous: { label: string; href: string } | null;
+  next: { label: string; href: string } | null;
 }
 
-/** Documents whose title contains every word of `q` (case-insensitive). */
-export function search(q: string): Doc[] {
+const rendered = new Map<string, Doc>();
+
+/** The rendered page of `slug`, or null when it is not published. */
+export function doc(slug: string): Doc | null {
+  const page = bySlug.get(slug);
+  if (page === undefined) return null;
+  const cached = rendered.get(slug);
+  if (cached !== undefined) return cached;
+  const r = render(page.markdown, resolver(page.path));
+  const i = PUBLISHED.indexOf(page);
+  const link = (p: Page | undefined) => (p === undefined ? null : { label: p.label, href: `/docs/${p.slug}` });
+  const d: Doc = {
+    ...r,
+    // The page shows no number: "06 — Data" is "Data" in the heading too.
+    html: r.html.replace(/(<h1 id="[^"]+">)\d+\s+—\s+/u, "$1"),
+    title: cleanTitle(r.title || page.label),
+    path: page.path,
+    slug: page.slug,
+    group: page.group,
+    label: page.label,
+    contents: r.headings.filter((h) => h.level === 2).map((h) => ({ text: cleanTitle(h.text), id: h.id })),
+    previous: link(PUBLISHED[i - 1]),
+    next: link(PUBLISHED[i + 1]),
+  };
+  rendered.set(slug, d);
+  return d;
+}
+
+/** The navigation: every page in order, with the section links after their page, grouped; `current` marks `slug`. */
+export function nav(slug: string | null): { group: Group; items: NavItem[] }[] {
+  const items: NavItem[] = [];
+  for (const p of PUBLISHED) {
+    items.push({ group: p.group, label: p.label, href: `/docs/${p.slug}`, slug: p.slug, current: p.slug === slug });
+    for (const s of SECTION_LINKS.filter((s) => s.after === p.slug)) items.push({ group: s.group, label: s.label, href: `/docs/${s.slug}#${s.anchor}`, slug: s.slug, current: false });
+  }
+  return GROUPS.map((group) => ({ group, items: items.filter((i) => i.group === group) }));
+}
+
+export interface Hit {
+  slug: string;
+  title: string;
+  group: Group;
+  /** The matching section, or null when the title matched. */
+  section: { text: string; href: string } | null;
+}
+
+/** Pages whose title, and sections whose heading, contain every word of `q` (case-insensitive). */
+export function search(q: string): Hit[] {
   const words = q.toLowerCase().split(/\s+/u).filter((w) => w !== "");
-  return sidebar().filter((d) => words.every((w) => d.title.toLowerCase().includes(w)));
+  if (words.length === 0) return [];
+  const matches = (s: string) => words.every((w) => s.toLowerCase().includes(w));
+  const hits: Hit[] = [];
+  for (const p of PUBLISHED) {
+    const d = doc(p.slug) as Doc;
+    if (matches(d.title) || matches(p.label)) hits.push({ slug: p.slug, title: d.title, group: p.group, section: null });
+    for (const h of d.headings.filter((h) => h.level > 1)) {
+      if (matches(h.text)) hits.push({ slug: p.slug, title: d.title, group: p.group, section: { text: cleanTitle(h.text), href: `/docs/${p.slug}#${h.id}` } });
+    }
+  }
+  return hits.slice(0, 50);
 }

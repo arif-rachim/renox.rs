@@ -15,11 +15,11 @@ import { DPA_VERSION, TERMS_VERSION } from "../../control/api/src/signup/dpa.ts"
 import { buildArtifact } from "../../cli/src/lib/build.ts";
 import { check } from "../../cli/src/commands/check.ts";
 import { startDev } from "../../cli/src/commands/dev.ts";
-import { doc, search, sidebar, slugOfPath, SOURCES } from "../lib/docs.ts";
+import { doc, nav, PUBLISHED, search, slugOfPath, SOURCES } from "../lib/docs.ts";
 import { render } from "../lib/markdown.ts";
 import { PRICING, withVat } from "../lib/pricing.ts";
 import { contrastFailures, loadsAnything, physicalLines } from "../../packages/ui/lint.ts";
-import { COMPARE, load as homeLoad, NODE, nodeCells, PLATFORMS } from "../pages/index.ts";
+import { dotField, features, load as homeLoad, STATS } from "../pages/index.ts";
 import { load as pricingLoad } from "../pages/pricing.ts";
 
 setDefaultTimeout(120_000);
@@ -27,29 +27,63 @@ const ROOT = join(import.meta.dir, "../..");
 const worker = process.env.RENOX_WORKER_PATH;
 
 describe("documentation", () => {
-  test("the site carries every markdown file of docs/ and docs/contracts/", () => {
+  /** The files of docs/ the site must never serve (#428): internal planning and security material. */
+  const INTERNAL = ["01-business", "02-comparison", "03-architecture", "04-isolation-security", "13-decisions", "14-benchmarks", "15-roadmap", "16-risks", "18-build-plan", "19-platform-wireframes", "21-uae-gcc-strategy", "22-development-plan", "23-failure-modes", "24-threat-model", "25-execution", "contracts-deploy-api"];
+
+  test("the site serves only the allowlist: every other markdown file of docs/ is 404 and not bundled", () => {
+    const published = new Set(PUBLISHED.map((p) => p.path));
     const files = [
       ...readdirSync(join(ROOT, "docs")).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`),
       ...readdirSync(join(ROOT, "docs/contracts")).filter((f) => f.endsWith(".md")).map((f) => `docs/contracts/${f}`),
-    ].sort();
-    expect([...SOURCES.keys()].sort()).toEqual(files);
-    for (const f of files) expect(SOURCES.get(f)).toBe(readFileSync(join(ROOT, f), "utf8"));
+    ];
+    for (const f of files) {
+      const slugs = [f.replace(/^docs\//u, "").replace(/\.md$/u, "").replace(/\//gu, "-"), f.replace(/^docs\/(?:contracts\/)?(?:\d+-)?/u, "").replace(/\.md$/u, "")];
+      if (f === "docs/contracts/ops.md") {
+        // Only its section 10 is a page (/docs/limits); the whole contract is not served.
+        for (const slug of slugs) expect(doc(slug), slug).toBeNull();
+      } else if (published.has(f)) {
+        expect(SOURCES.get(f), f).toBe(readFileSync(join(ROOT, f), "utf8"));
+        expect(doc(slugOfPath(f) as string), f).not.toBeNull();
+      } else {
+        for (const slug of slugs) expect(doc(slug), `${f} must not be served as /docs/${slug}`).toBeNull();
+        expect(slugOfPath(f), f).toBeNull();
+        expect(SOURCES.has(f), f).toBe(false);
+      }
+    }
+    for (const slug of INTERNAL) expect(doc(slug), slug).toBeNull();
+    // What the issue lists as published is published, under a clean slug.
+    expect(PUBLISHED.map((p) => p.slug)).toEqual(["getting-started", "developer-experience", "app-model", "data", "templates", "realtime", "modules", "authorization", "ai-agents-mcp", "cli", "sdk", "ctx", "errors", "manifest", "limits", "overview", "tenant-lifecycle", "glossary"]);
+    // Nothing bundled is internal: the imports of lib/docs.ts are the allowlist.
+    const imports = [...readFileSync(join(import.meta.dir, "../lib/docs.ts"), "utf8").matchAll(/from "\.\.\/\.\.\/([^"]+)" with \{ type: "text" \}/gu)].map((m) => m[1] as string);
+    expect(imports.sort()).toEqual([...new Set(PUBLISHED.map((p) => p.path))].sort());
+    for (const i of imports) expect(INTERNAL.some((x) => i.includes(x.replace("contracts-", "contracts/"))), i).toBe(false);
   });
 
-  test("the sidebar follows AGENTS.md's reading order, then the contracts", () => {
-    const s = sidebar();
-    expect(s.slice(0, 3).map((d) => d.slug)).toEqual(["00-overview", "01-business", "02-comparison"]);
-    expect(s.find((d) => d.slug === "25-execution")).toBeDefined();
-    expect(s.at(-1)?.path.startsWith("docs/contracts/")).toBe(true);
-    expect(s).toHaveLength(SOURCES.size);
+  test("the navigation is grouped, marks the current page, and gives previous and next", () => {
+    expect(nav("data").map((g) => g.group)).toEqual(["Get started", "Guides", "Reference", "Concepts"]);
+    const guides = nav("data").find((g) => g.group === "Guides") as { items: { label: string; current: boolean; href: string }[] };
+    expect(guides.items.filter((i) => i.current).map((i) => i.label)).toEqual(["Data"]);
+    expect(guides.items.map((i) => i.label)).toEqual(["App model", "Data", "Templates", "Fragments and realtime", "Modules", "Authorization", "Custom domains", "AI agents and MCP"]);
+    expect(guides.items.find((i) => i.label === "Custom domains")?.href).toBe("/docs/tenant-lifecycle#custom-domains-and-dns");
+    const d = doc("data") as NonNullable<ReturnType<typeof doc>>;
+    expect(d.title).toBe("Data");
+    expect(d.previous).toEqual({ label: "App model", href: "/docs/app-model" });
+    expect(d.next).toEqual({ label: "Templates", href: "/docs/templates" });
+    expect(d.contents.map((c) => c.text)).toContain("Why SQLite per tenant");
+    expect((doc("getting-started") as NonNullable<ReturnType<typeof doc>>).previous).toBeNull();
+    expect((doc("glossary") as NonNullable<ReturnType<typeof doc>>).next).toBeNull();
+    // Numbers and file names are gone from titles.
+    for (const p of PUBLISHED) expect((doc(p.slug) as NonNullable<ReturnType<typeof doc>>).title).not.toMatch(/^\d|\.md/u);
+    expect((doc("limits") as NonNullable<ReturnType<typeof doc>>).title).toBe("Limits per tier and behaviour on limit");
+    expect((doc("ctx") as NonNullable<ReturnType<typeof doc>>).html).toContain("export type DbErrorCode");
   });
 
-  test("every document renders, and every link to the site lands on a document and its heading", () => {
+  test("every page renders, and every link to the site lands on a page and its heading", () => {
     const ids = new Map<string, Set<string>>();
-    const rendered = sidebar().map((d) => {
-      const r = doc(d.slug);
-      expect(r, d.path).not.toBeNull();
-      ids.set(d.slug, new Set(r?.headings.map((h) => h.id)));
+    const rendered = PUBLISHED.map((p) => {
+      const r = doc(p.slug);
+      expect(r, p.path).not.toBeNull();
+      ids.set(p.slug, new Set(r?.headings.map((h) => h.id)));
       return r as NonNullable<ReturnType<typeof doc>>;
     });
     const broken: string[] = [];
@@ -67,8 +101,15 @@ describe("documentation", () => {
       }
     }
     expect(broken).toEqual([]);
+    for (const [, items] of nav(null).map((g) => [g.group, g.items] as const)) {
+      for (const i of items) {
+        const [slug, anchor] = i.href.replace("/docs/", "").split("#");
+        expect(ids.has(slug as string), i.href).toBe(true);
+        if (anchor !== undefined) expect(ids.get(slug as string)?.has(anchor), i.href).toBe(true);
+      }
+    }
     expect(doc("no-such-doc")).toBeNull();
-    expect(slugOfPath("docs/contracts/ops.md")).toBe("contracts-ops");
+    expect(slugOfPath("docs/contracts/errors.md")).toBe("errors");
   });
 
   test("the repository's link check passes (.github/scripts/check-links.ts)", () => {
@@ -76,13 +117,17 @@ describe("documentation", () => {
     expect(r.exitCode, new TextDecoder().decode(r.stderr)).toBe(0);
   });
 
-  test("search by title", () => {
-    expect(search("threat").map((d) => d.slug)).toEqual(["24-threat-model"]);
+  test("search by title and by section, with the section shown", () => {
+    expect(search("glossary").map((h) => h.slug)).toEqual(["glossary"]);
+    const hits = search("custom domains");
+    expect(hits.some((h) => h.slug === "tenant-lifecycle" && h.section?.href === "/docs/tenant-lifecycle#custom-domains-and-dns")).toBe(true);
+    expect(search("threat model")).toEqual([]);
     expect(search("no such title words")).toEqual([]);
+    expect(search("")).toEqual([]);
   });
 
-  test("the renderer escapes text and passes no raw HTML", () => {
-    const r = render('# T <b>\n\n<script>alert(1)</script>\n\n[x](javascript:alert(1)) `<i>` **b** _e_\n\n| a | b |\n| --- | --- |\n| <img src=x> | 2 |\n');
+  test("the renderer escapes text and passes no raw HTML, and names a code block's language", () => {
+    const r = render('# T <b>\n\n<script>alert(1)</script>\n\n[x](javascript:alert(1)) `<i>` **b** _e_\n\n| a | b |\n| --- | --- |\n| <img src=x> | 2 |\n\n```sh\nls\n```\n');
     expect(r.html).not.toContain("<script");
     expect(r.html).not.toContain("<img");
     expect(r.html).not.toContain("<b>");
@@ -91,6 +136,7 @@ describe("documentation", () => {
     expect(r.html).toContain("<strong>b</strong>");
     expect(r.html).toContain("<em>e</em>");
     expect(r.html).toContain("<td>&lt;img src=x&gt;</td>");
+    expect(r.html).toContain('<pre data-lang="sh"><code class="language-sh">ls</code></pre>');
   });
 });
 
@@ -101,43 +147,34 @@ describe("pricing and legal", () => {
     expect(PRICING.plans.map((p) => ({ id: p.id, name: p.name, price_month: p.price_month, quotas: p.quotas }))).toEqual(PLANS.map((p) => ({ id: p.id, name: p.name, price_month: p.price_month, quotas: { ...p.quotas } })));
     expect(withVat("79.00", "0.05")).toBe("82.95");
     const page = pricingLoad();
-    expect(page.plans[1]).toMatchObject({ name: "Starter", price: "79.00", with_vat: "82.95" });
+    expect(page.plans[1]).toMatchObject({ name: "Starter", price: "79", with_vat: "82.95" });
     expect(page.plans[3]?.quotas[0]).toEqual({ label: "Requests / month", value: "unlimited" });
   });
 
-  test("the landing page's node: a fixed pattern, mostly idle", () => {
-    const cells = nodeCells();
-    expect(cells).toHaveLength(NODE.columns * NODE.rows);
-    const lit = cells.filter((c) => c.cls !== "").length;
-    expect(lit).toBeGreaterThan(0);
-    expect(lit / cells.length).toBeLessThan(0.15);
-    expect(nodeCells()).toEqual(cells);
-  });
-
-  test("the landing page's comparison says what docs/02-comparison.md section B says", () => {
-    // Columns of that table: Vercel, Cloudflare Workers, Deno Deploy, Supabase, Fly.io, Railway / Render, PocketBase, Renox.
-    const DOC_COLUMN: Record<(typeof PLATFORMS)[number], number> = { Renoxium: 7, Vercel: 0, "Cloudflare Workers": 1, Supabase: 3, "Fly.io": 4, "Railway / Render": 5 };
-    const VERDICT: Record<string, string> = { "✅": "yes", "⚠️": "part", "❌": "no" };
-    const doc = readFileSync(join(ROOT, "docs/02-comparison.md"), "utf8");
-    const section = doc.slice(doc.indexOf("## B."), doc.indexOf("## C."));
-    expect(section.length).toBeGreaterThan(0);
-    for (const row of COMPARE) {
-      const line = section.split("\n").find((l) => l.startsWith(`| ${row.doc} |`));
-      expect(line, row.doc).toBeDefined();
-      const cells = (line as string).split("|").slice(2, -1).map((c) => c.trim());
-      PLATFORMS.forEach((p, i) => {
-        const symbol = Object.keys(VERDICT).find((k) => cells[DOC_COLUMN[p]]?.startsWith(k));
-        expect(`${row.doc} / ${p}: ${symbol === undefined ? "?" : VERDICT[symbol]}`).toBe(`${row.doc} / ${p}: ${row.cells[i]?.[0]}`);
-      });
+  test("the landing page's dot fields: a fixed pattern of safe glyphs, a few lit; its numbers are measured ones", () => {
+    const f = features();
+    expect(f.map((x) => x.id)).toEqual(["modules", "runs", "domains", "agents"]);
+    for (const x of f) {
+      expect(x.dots).toMatch(/^[·▪ \n<b>/]+$/u);
+      expect(x.dots.match(/<b>/gu)?.length).toBe(2);
+      expect(x.href.startsWith("/docs/")).toBe(true);
     }
-    // Renoxium meets every need it lists; otherwise the row does not belong on its landing page.
-    expect(COMPARE.every((r) => r.cells[0]?.[0] === "yes")).toBe(true);
+    expect(features()).toEqual(f);
+    expect(dotField(2, 2, [1], [3])).toBe("· ▪\n· <b>▪</b>");
+    // Every stat is a whole number (Doto draws a period as a cross) with its source named.
+    for (const s of STATS) {
+      expect(s.value).toMatch(/^\d+$/u);
+      expect(readFileSync(join(ROOT, s.source), "utf8").length).toBeGreaterThan(0);
+    }
+    const bench = readFileSync(join(ROOT, "docs/14-benchmarks.md"), "utf8");
+    expect(bench).toContain("0.107 MB with 500 tenants");
+    expect(bench).toContain("p99 45.4 ms");
   });
 
   test("the landing page's plan summary is pricing.toml's", () => {
     const home = homeLoad();
     expect(home.currency).toBe(PRICING.currency);
-    expect(home.plans.map((p) => [p.name, p.price])).toEqual(PRICING.plans.map((p) => [p.name, p.price_month]));
+    expect(home.plans.map((p) => [p.name, p.price])).toEqual(PRICING.plans.map((p) => [p.name, p.price_month.replace(/\.00$/u, "")]));
     expect(home.plans[0]).toMatchObject({ name: "Free", free: true, requests: "100,000", apps: "2", db: "100 MB" });
     expect(home.plans.filter((p) => p.free)).toHaveLength(1);
     // An unlimited quota (-1 in pricing.toml) reads "unlimited", never 0.
@@ -190,24 +227,29 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
       const r = await fetch(`${base}${path}`);
       return { status: r.status, text: (await r.text()).replaceAll(' dir="auto"', "") };
     };
-    const overview = await get("/docs/00-overview");
-    expect(overview.status).toBe(200);
-    expect(overview.text).toContain('<a href="/docs/13-decisions" class="">');
-    expect(overview.text).toMatch(/<h1 id="[^"]+">/u);
+    const data = await get("/docs/data");
+    expect(data.status).toBe(200);
+    expect(data.text).toContain('href="/docs/data" class="current"');
+    expect(data.text).toMatch(/<h1 id="[^"]+">Data<\/h1>/u);
+    expect(data.text).toContain('<p class="side-group">Guides</p>');
+    expect(data.text).toContain("On this page");
+    expect(data.text).toContain('href="/docs/templates"');
+    // No file name on the page: the path appears only in the "Source on GitHub" link.
+    expect(data.text.replace(/<a href="https:\/\/github\.com[^"]*">Source on GitHub<\/a>/u, "")).not.toContain("06-data.md");
     expect((await get("/docs/no-such-doc")).status).toBe(404);
-    expect((await get("/docs?q=threat")).text).toContain('href="/docs/24-threat-model"');
+    // The allowlist (#428): internal documents answer 404 under every slug they could have had.
+    for (const path of ["/docs/24-threat-model", "/docs/threat-model", "/docs/13-decisions", "/docs/01-business", "/docs/25-execution", "/docs/contracts-deploy-api", "/docs/deploy-api"]) expect((await get(path)).status, path).toBe(404);
+    expect((await get("/docs?q=custom%20domains")).text).toContain('href="/docs/tenant-lifecycle#custom-domains-and-dns"');
+    expect((await get("/docs?q=threat")).text).toContain("No title or section matches.");
     const home = await get("/");
     expect(home.status).toBe(200);
-    expect(home.text).toMatch(/<h1 id="hero-title">Ship the SaaS\.<br> Skip the plumbing\.<\/h1>/u);
-    // The comparison: one row per need, one cell per platform, each verdict in words for screen readers.
-    expect(home.text).toContain('<h2 id="compare-title">How Renoxium compares</h2>');
-    expect(home.text.match(/<span class="visually-hidden">(?:Yes|Partly|No)<\/span>/gu)?.length).toBe(COMPARE.length * PLATFORMS.length);
-    // The hero's node: one cell per tenant slot, the lit ones marked.
-    expect(home.text.match(/<i class="(?:on|blink b\d|)"><\/i>/gu)?.length).toBe(NODE.columns * NODE.rows);
-    // The behaviour is a file of the site's own, loaded with the request's nonce.
-    expect(home.text).toMatch(/<script src="\/site\.js" nonce="[^"]+"><\/script>/u);
+    expect(home.text).toMatch(/<h1 id="hero-title" class="dot">Deploy\. Run\.<\/h1>/u);
+    expect(home.text).toContain('<pre class="dots" aria-hidden="true">');
+    // No script of the site's own (renox dev injects its own, under /__renox/).
+    expect(home.text.match(/<script[^>]*src="([^"]+)"/gu)?.every((m) => m.includes("/__renox/"))).toBe(true);
+    expect(home.text).not.toContain("site.js");
     expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
-    expect(home.text).toContain("AED 79.00");
+    expect(home.text).toContain("AED</small> 79");
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);

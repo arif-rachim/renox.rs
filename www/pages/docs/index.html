@@ -1,12 +1,29 @@
 <r-layout use="main">
   <r-group slot="title">Documentation · Renoxium</r-group>
-  <h1>Documentation</h1>
-  <form method="get" action="/docs">
-    <label>Search titles <input name="q" :value="q" maxlength="100"></label>
-    <button type="submit">Search</button>
-  </form>
-  <ol>
-    <li r-for="d in docs"><a href="/docs/{{ d.slug }}">{{ d.title }}</a> <span class="muted"><code>{{ d.path }}</code></span></li>
-    <li r-empty="docs">No title matches.</li>
-  </ol>
+  <section class="docs-home">
+    <p class="pill quiet">Developer documentation</p>
+    <h1 class="dot dot-small">Docs</h1>
+    <p class="lede">Install the CLI, build an app from folders that are its routes, add modules, and deploy to hosting that charges only for what it uses.</p>
+    <form method="get" action="/docs" class="docs-search" role="search">
+      <label class="visually-hidden" for="q">Search titles and sections</label>
+      <input id="q" name="q" type="search" :value="q" maxlength="100" placeholder="Search titles and sections">
+      <button type="submit" class="primary">Search</button>
+    </form>
+    <r-group r-if="q">
+      <h2>Results <span class="muted">for “{{ q }}”</span></h2>
+      <ul class="hits">
+        <li r-for="h in hits">
+          <a :href="h.href">{{ h.title }}</a><span r-if="h.section"> <span class="muted">›</span> <a :href="h.href">{{ h.section }}</a></span>
+          <span class="pill quiet">{{ h.group }}</span>
+        </li>
+        <li r-empty="hits" class="muted">No title or section matches.</li>
+      </ul>
+    </r-group>
+    <div class="cards docs-groups" r-if="!q">
+      <div class="card" r-for="g in groups">
+        <h2>{{ g.group }}</h2>
+        <ul class="plain"><li r-for="n in g.items"><a :href="n.href">{{ n.label }}</a></li></ul>
+      </div>
+    </div>
+  </section>
 </r-layout>

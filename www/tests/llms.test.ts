@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { sidebar } from "../lib/docs.ts";
+import { PUBLISHED } from "../lib/docs.ts";
 import { fullSources, llmsFullTxt, llmsTxt, modules, OUT, REPO, ROOT, SITE } from "../scripts/llms.ts";
 
 describe("llms.txt", () => {
@@ -24,20 +24,26 @@ describe("llms.txt", () => {
     expect(lines[0]).toBe("# Renoxium");
     expect(lines[2]?.startsWith("> ")).toBe(true);
     const sections = lines.filter((l) => l.startsWith("## ")).map((l) => l.slice(3));
-    expect(sections).toEqual(["Getting started", "App model", "Modules", "CLI", "MCP for agents", "Contracts", "Optional"]);
+    expect(sections).toEqual(["Getting started", "App model", "Modules", "CLI", "MCP for agents", "Reference", "Optional"]);
     for (const l of lines.filter((l) => l.startsWith("- "))) expect(l).toMatch(/^- \[[^\]]+\]\(https:\/\/[^)]+\): .+$/u);
     // No date, no hash: a regeneration without a document change is a no-op.
     expect(index).not.toMatch(/20\d\d-\d\d-\d\d/u);
   });
 
-  test("every link is a page of the site or a file of the repository", () => {
-    const slugs = new Set(sidebar().map((d) => d.slug));
+  test("every link is a published page of the site or a file of the repository; no internal document appears", () => {
+    const slugs = new Set(PUBLISHED.map((d) => d.slug));
     for (const [, url] of index.matchAll(/\]\((https:\/\/[^)#\s]+)(?:#[^)]*)?\)/gu)) {
       if (url!.startsWith(`${SITE}/docs/`)) expect(slugs.has(url!.slice(`${SITE}/docs/`.length)), url).toBe(true);
       else if (url!.startsWith(REPO)) expect(existsSync(join(ROOT, url!.slice(REPO.length))), url).toBe(true);
       else throw new Error(`unexpected link ${url}`);
     }
     expect(index).toContain(`${SITE}/llms-full.txt`);
+    // The same allowlist as the site (#428): the internal documents and the raw deploy API are not linked.
+    for (const internal of ["01-business", "02-comparison", "03-architecture", "04-isolation-security", "13-decisions", "14-benchmarks", "15-roadmap", "16-risks", "18-build-plan", "19-platform-wireframes", "21-uae-gcc", "22-development-plan", "23-failure-modes", "24-threat-model", "25-execution", "deploy-api"]) {
+      expect(index, internal).not.toContain(internal);
+    }
+    expect(index).toContain(`${SITE}/docs/getting-started`);
+    expect(index).toContain(`${SITE}/docs/limits`);
   });
 
   test("every official module is listed with its module.toml description", () => {
@@ -54,8 +60,11 @@ describe("llms.txt", () => {
       expect(full).toContain(`Source: ${path} (${REPO}${path})`);
       expect(full).toContain(readFileSync(join(ROOT, path), "utf8").trimEnd());
     }
-    for (const excluded of ["docs/01-business.md", "docs/15-roadmap.md", "docs/16-risks.md", "docs/18-build-plan.md", "docs/21-uae-gcc-strategy.md", "docs/22-development-plan.md", "docs/23-failure-modes.md", "docs/24-threat-model.md", "docs/25-execution.md"]) {
+    for (const excluded of ["docs/01-business.md", "docs/02-comparison.md", "docs/03-architecture.md", "docs/04-isolation-security.md", "docs/13-decisions.md", "docs/14-benchmarks.md", "docs/15-roadmap.md", "docs/16-risks.md", "docs/18-build-plan.md", "docs/19-platform-wireframes.md", "docs/21-uae-gcc-strategy.md", "docs/22-development-plan.md", "docs/23-failure-modes.md", "docs/24-threat-model.md", "docs/25-execution.md", "docs/contracts/deploy-api.md"]) {
       expect(full).not.toContain(`Source: ${excluded}`);
     }
+    // Every file of llms-full.txt is a published page.
+    const published = new Set(PUBLISHED.map((p) => p.path));
+    for (const path of fullSources()) if (!path.startsWith("modules/")) expect(published.has(path), path).toBe(true);
   });
 });

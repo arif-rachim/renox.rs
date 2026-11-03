@@ -6,22 +6,23 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 
 ## Getting started
 
-- [Developer experience](https://renoxium.com/docs/12-developer-experience): install the CLI and the SDK, create an app with renox new, run it with renox dev, deploy it
-- [renox CLI reference](https://github.com/arif-rachim/renox.rs/blob/main/cli/README.md): every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy
-- [The renox SDK](https://github.com/arif-rachim/renox.rs/blob/main/sdk/README.md): the `renox` npm package: Handler, Ctx, pages, validate, modules, query builders, renox/fakes and renox/test
+- [Getting started](https://renoxium.com/docs/getting-started): install the CLI from the repository today, create an app with renox new, run it with renox dev, sign in, deploy it
+- [Developer experience](https://renoxium.com/docs/developer-experience): the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits
+- [renox CLI reference](https://renoxium.com/docs/cli): every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy
+- [The renox SDK](https://renoxium.com/docs/sdk): the `renox` npm package: Handler, Ctx, pages, validate, modules, query builders, renox/fakes and renox/test
 - [Example apps](https://github.com/arif-rachim/renox.rs/blob/main/examples/): hello (one function), shop (pages, templates, modules, policies), chat (realtime)
 
 ## App model
 
-- [Tenant application model](https://renoxium.com/docs/07-app-model): folders are routes: functions/, pages/ with loaders and actions, migrations/, policies/, jobs/, public/; renox.toml; the ctx SDK
-- [Template engine](https://renoxium.com/docs/08-template-engine): HTML-first templates with r-* attributes compiled to minijinja, layouts, partials as <x-name>, fragments, render fuel
-- [Partial rendering and realtime](https://renoxium.com/docs/09-htmx-realtime): htmx fragments, morphing and view transitions; SSE and WebSocket routes with topics and authorization
-- [Module system and inter-module communication](https://renoxium.com/docs/10-modules): the module system: manifest, permissions, services, events, hooks, slots, overrides, tables prefixed <module>__
-- [Authorization: RBAC, ABAC, and relations](https://renoxium.com/docs/11-authorization): Cedar policies, guard exports, r-can in templates, db.scoped(), roles and 2FA step-up
+- [Tenant application model](https://renoxium.com/docs/app-model): folders are routes: functions/, pages/ with loaders and actions, migrations/, policies/, jobs/, public/; renox.toml; the ctx SDK
+- [Template engine](https://renoxium.com/docs/templates): HTML-first templates with r-* attributes compiled to minijinja, layouts, partials as <x-name>, fragments, render fuel
+- [Partial rendering and realtime](https://renoxium.com/docs/realtime): htmx fragments, morphing and view transitions; SSE and WebSocket routes with topics and authorization
+- [Module system and inter-module communication](https://renoxium.com/docs/modules): the module system: manifest, permissions, services, events, hooks, slots, overrides, tables prefixed <module>__
+- [Authorization: RBAC, ABAC, and relations](https://renoxium.com/docs/authorization): Cedar policies, guard exports, r-can in templates, db.scoped(), roles and 2FA step-up
 
 ## Modules
 
-- [Module system and inter-module communication](https://renoxium.com/docs/10-modules): how modules are installed (renox add), configured and talk to each other
+- [Module system and inter-module communication](https://renoxium.com/docs/modules): how modules are installed (renox add), configured and talk to each other
 - [twofa](https://github.com/arif-rachim/renox.rs/blob/main/modules/2fa/README.md): Two-step verification: TOTP, passkeys and recovery codes after the password, mfa_verified on the principal, step-up for sensitive actions
 - [admin](https://github.com/arif-rachim/renox.rs/blob/main/modules/admin/README.md): The app's back office: a layout with the admin.sidebar slot, a dashboard with the admin.dashboard slot that other modules fill, users and the admin role, the audit viewer
 - [audit](https://github.com/arif-rachim/renox.rs/blob/main/modules/audit/README.md): Append-only audit trail: audit__events, record and query, the platform's authorization decisions, retention and export
@@ -41,30 +42,30 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 
 ## CLI
 
-- [renox CLI reference](https://github.com/arif-rachim/renox.rs/blob/main/cli/README.md): renox new, dev, build, check, test, add, remove, migrate, deploy, logs, secrets, db, jobs, authz explain, mcp
-- [Installing the CLI and the SDK](https://renoxium.com/docs/12-developer-experience#installing-the-cli): signed binaries for Linux and macOS, the npm package at the same version
+- [renox CLI reference](https://renoxium.com/docs/cli): renox new, dev, build, check, test, add, remove, migrate, deploy, logs, secrets, db, jobs, authz explain, mcp
+- [Installing the CLI and the SDK](https://renoxium.com/docs/developer-experience#installing-the-cli): how the CLI and the SDK are released (not published yet; today the CLI runs from the repository, see Getting started)
 
 ## MCP for agents
 
-- [AI agents and MCP](https://renoxium.com/docs/20-ai-agents-mcp): the platform MCP (local and remote), App MCP tools, in-app agents with ctx.ai, agent security
-- [Build with an AI agent](https://renoxium.com/docs/12-developer-experience#build-with-an-ai-agent): connect Claude Code, Cursor or Codex to renox mcp; the remote MCP and its scopes; what agents may and may not do
-- [renox mcp](https://github.com/arif-rachim/renox.rs/blob/main/cli/README.md#renox-mcp): the local server: tools dev_status, dev_errors, run_check, run_tests, search_docs, authz_explain, list_policies, list_tools; resources docs://, config://effective, routes://
+- [AI agents and MCP](https://renoxium.com/docs/ai-agents-mcp): the platform MCP (local and remote), App MCP tools, in-app agents with ctx.ai, agent security
+- [Build with an AI agent](https://renoxium.com/docs/developer-experience#build-with-an-ai-agent): connect Claude Code, Cursor or Codex to renox mcp; the remote MCP and its scopes; what agents may and may not do
+- [renox mcp](https://renoxium.com/docs/cli#renox-mcp): the local server: tools dev_status, dev_errors, run_check, run_tests, search_docs, authz_explain, list_policies, list_tools; resources docs://, config://effective, routes://
 - [Remote platform MCP](https://github.com/arif-rachim/renox.rs/blob/main/control/api/src/mcp/README.md): mcp.renoxium.com: OAuth 2.1 with PKCE, scopes apps:read, apps:write, deploy, logs:read, secrets:read; confirmation tokens for mutating tools
 
-## Contracts
+## Reference
 
-- [Contracts](https://renoxium.com/docs/contracts-README): the index of the contracts and their versions; the two domains, renoxium.app for tenant apps and renoxium.com for the platform
-- [Contract: runtime ops and the ctx surface](https://renoxium.com/docs/contracts-ops): every op tenant code can call (db, fetch, secrets, log, storage, ai, pdf, realtime, jobs), the limits per tier and what happens at each limit, the error codes
-- [Contract: artifact format and route table](https://renoxium.com/docs/contracts-artifact): what renox build produces and renox deploy uploads: manifest, routes, code, templates, migrations, public files
-- [Contract: module manifest, renox.toml modules, renox.lock](https://renoxium.com/docs/contracts-manifest): what a module declares in module.toml and what the tenant approves
-- [Contract: deploy API](https://renoxium.com/docs/contracts-deploy-api): the control-plane API the CLI, the dashboard and the remote MCP use
-- [Contract: tenant-facing error catalogue](https://renoxium.com/docs/contracts-errors): error codes, HTTP statuses and response bodies
-- [Contract: meter records](https://renoxium.com/docs/contracts-meter): the per-request meter record that usage and billing are computed from
-- [Contract: client events](https://renoxium.com/docs/contracts-client-events): the browser events the renox client script reports
+- [docs/contracts/ctx.d.ts](https://renoxium.com/docs/ctx): the TypeScript declarations of everything tenant code gets on ctx
+- [Contract: tenant-facing error catalogue](https://renoxium.com/docs/errors): error codes, HTTP statuses and response bodies
+- [Contract: module manifest, renox.toml modules, renox.lock](https://renoxium.com/docs/manifest): what a module declares in module.toml and what the tenant approves
+- [Limits](https://renoxium.com/docs/limits): the limits per tier (CPU, wall clock, heap, concurrency, egress) and what happens at each
+- [Contract: runtime ops and the ctx surface](https://github.com/arif-rachim/renox.rs/blob/main/docs/contracts/ops.md): every op tenant code can call (db, fetch, secrets, log, storage, ai, pdf, realtime, jobs) and the error codes; the full contract, in the repository
+- [Contract: artifact format and route table](https://github.com/arif-rachim/renox.rs/blob/main/docs/contracts/artifact.md): what renox build produces and renox deploy uploads: manifest, routes, code, templates, migrations, public files
+- [Contract: meter records](https://github.com/arif-rachim/renox.rs/blob/main/docs/contracts/meter.md): the per-request meter record that usage and billing are computed from
+- [Contract: client events](https://github.com/arif-rachim/renox.rs/blob/main/docs/contracts/client-events.md): the browser events the renox client script reports
 
 ## Optional
 
-- [Overview](https://renoxium.com/docs/00-overview): what Renoxium is, the principles, the expectations
-- [System architecture](https://renoxium.com/docs/03-architecture): control plane, data plane, the request path
-- [Isolation and security](https://renoxium.com/docs/04-isolation-security): the isolation model and the per-tenant limits
-- [Data](https://renoxium.com/docs/06-data): one SQLite file per tenant, the authorizer, migrations, replication
+- [Overview](https://renoxium.com/docs/overview): what Renoxium is, the principles, the expectations
+- [Tenant code lifecycle](https://renoxium.com/docs/tenant-lifecycle): deploy pipeline, routing and cold start, custom domains, secrets, metering, lifecycle states
+- [Data](https://renoxium.com/docs/data): one SQLite file per tenant, the authorizer, migrations, replication
+- [Glossary](https://renoxium.com/docs/glossary): the terms
