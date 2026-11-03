@@ -8,7 +8,7 @@
 // verification is younger than `step_up_minutes`.
 
 import { auth } from "renox:modules";
-import { base64url, fromBase64url, generateTotpSecret, totpUri, verifyAssertion, verifyRegistration, verifyTotp, WebAuthnError } from "renox";
+import { base64url, fromBase64url, generateTotpSecret, totpUri, verifyAssertion, verifyRegistration, verifyTotp, WebAuthnError } from "@renoxium/sdk";
 
 import { qrSvg } from "./qr.ts";
 

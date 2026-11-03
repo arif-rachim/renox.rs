@@ -6,7 +6,7 @@
 // keeps one. A passkey here signs in; a second factor is the 2fa module's
 // (#287), with its own table.
 
-import { base64url, fromBase64url, verifyAssertion, verifyRegistration, WebAuthnError } from "renox";
+import { base64url, fromBase64url, verifyAssertion, verifyRegistration, WebAuthnError } from "@renoxium/sdk";
 
 import { afterLogin, type AuthCtx, now, randomHex, startSession, type User } from "./core.ts";
 

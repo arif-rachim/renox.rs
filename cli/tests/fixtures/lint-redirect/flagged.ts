@@ -1,5 +1,5 @@
 // no-unsafe-redirect fixture (#111): every line marked FLAG is one finding.
-import type { Ctx } from "renox";
+import type { Ctx } from "@renoxium/sdk";
 
 export function GET({ url }: Ctx): Response {
   return Response.redirect(url.searchParams.get("next") ?? "/"); // FLAG

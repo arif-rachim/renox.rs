@@ -20,7 +20,7 @@ export function buildersApp(): Promise<{ base: string; dir: string; stop: () => 
     cpSync(join(import.meta.dir, "fixtures", "builders-app"), dir, { recursive: true });
     const root = resolve(import.meta.dir, "../..");
     mkdirSync(join(dir, "node_modules"), { recursive: true });
-    cpSync(join(root, "sdk"), join(dir, "node_modules", "renox"), { recursive: true, dereference: true, filter: (p) => !p.includes("/node_modules/") && !p.includes("/tests/") });
+    cpSync(join(root, "sdk"), join(dir, "node_modules", "@renoxium", "sdk"), { recursive: true, dereference: true, filter: (p) => !p.includes("/node_modules/") && !p.includes("/tests/") });
     for (const dep of ["kysely", "drizzle-orm"]) cpSync(join(root, "sdk", "node_modules", dep), join(dir, "node_modules", dep), { recursive: true, dereference: true });
     const port = 20000 + Math.floor(Math.random() * 20000);
     const dev = await startDev({ project: dir, port, log: () => {} });

@@ -6,7 +6,7 @@
 // 500 RENOX_INTERNAL, meter status blocked_fetch.
 // If a request is NOT blocked the handler answers 500 with blocked: false, so
 // a policy hole can never look like a pass.
-import { type Handler, isRenoxError } from "renox";
+import { type Handler, isRenoxError } from "@renoxium/sdk";
 
 const TARGETS = {
   metadata: "http://169.254.169.254/latest/meta-data/",

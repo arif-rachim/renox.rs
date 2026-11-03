@@ -2,7 +2,7 @@
 //   -> 201 {"item": {...}, "cart": {"items": n, "total_fils": n}}
 // The body is validated with zod before anything touches the database;
 // stock is checked and the item inserted in one transaction.
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 import { z } from "zod";
 
 import { badRequest, json, notFound } from "../../lib/http.ts";

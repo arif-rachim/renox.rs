@@ -7,7 +7,7 @@
 //
 // A job route needs a `schedule` (artifact.md 1.3, V27). This one only runs
 // when queued: the yearly tick has no payload and does nothing.
-import type { JobContext } from "renox";
+import type { JobContext } from "@renoxium/sdk";
 
 import { filters as pageFilters, lineRow, visible } from "../pages/apps/[app]/logs.ts";
 import { JOB, step, STEP_MS } from "../lib/live-logs.ts";

@@ -13,7 +13,7 @@
 // 24 hours idle, 30 days absolute; the token's own expiry applies as well,
 // since the API refuses an expired token.
 
-import type { DbStatements, Secrets } from "renox";
+import type { DbStatements, Secrets } from "@renoxium/sdk";
 
 export const IDLE_MS = 24 * 3600 * 1000;
 export const ABSOLUTE_MS = 30 * 24 * 3600 * 1000;

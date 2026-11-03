@@ -8,7 +8,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "renox": "workspace:*"
+    "@renoxium/sdk": "workspace:*"
   },
   "devDependencies": {
     "@renox/artifact-validate": "workspace:*",

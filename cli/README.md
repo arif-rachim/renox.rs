@@ -33,7 +33,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox check [--secrets] [--security] [--json] [--strict]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
 | `renox add <module> [--version <range>] [--source …] [--mount <path>] [--yes]` | Installs a module after showing and approving its permissions; writes `renox.toml` and `renox.lock` (below) |
 | `renox remove <module>` | Uninstalls a module; its tables stay |
-| `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs the policy test cases of `policies/tests/*.json`, then `tests/*.test.ts` with `renox/test` on the worker, a fresh tenant file per test file (below) |
+| `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs the policy test cases of `policies/tests/*.json`, then `tests/*.test.ts` with `@renoxium/sdk/test` on the worker, a fresh tenant file per test file (below) |
 | `renox authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]` | Why the app's policies allow or deny one request: the decision, the deciding policies with their text, evaluation errors. Roles and the resource's declared attributes come from the dev tenant file (below, "Authorization") |
 | `renox dev --jobs` | Also runs the app's and modules' scheduled jobs (`jobs/*.ts`, ops.md section 20) and prints `jobs: <job> tick <time>` lines; without it, only queued runs (`ctx.jobs.enqueue`) run |
 | `renox jobs list [--state scheduled\|queued\|running\|dead] [--json]` | The dev app's jobs from `.renox/data/dev/app.db`: next and last runs, the queue, running runs, dead runs with their last error; never a payload (#297) |
@@ -147,7 +147,7 @@ With a `renox.lock`, `renox build` writes an artifact 1.1 (`docs/contracts/artif
 
 `renox migrate` runs `renox-worker migrate <artifact> <db>` (`renox_data::migrate_all`, #228): each module's files under its own prefix, the app's last. It prints what was applied per module and refuses a changed file that already ran (checksum). `renox dev` needs nothing extra: the worker's cell runs the same plan when it opens the artifact. `.renox/types/db.d.ts` includes the module tables, and `TablesOf<"auth">` groups them by prefix.
 
-### `renox test` and `renox/test` (#238)
+### `renox test` and `@renoxium/sdk/test` (#238)
 
 `renox test` builds the app (`src/lib/test-harness.ts`, `prepare`) and writes a test artifact: the app's plus `POST /__renox_test/service`. That function route imports `renox:modules` and calls a service like app code does, so the broker's dependency checks and transaction rules apply. It exists only in the test artifact, never in `renox build` or `renox deploy`. `bun test` then runs with `sdk/src/test.ts` preloaded and `RENOX_TEST_SPEC` pointing at the build.
 
@@ -263,7 +263,7 @@ A problem has the CLI's shape: `code`, `message`, and `file`, `line`, `column`, 
 | Resource | Content |
 | --- | --- |
 | `docs://<path>` | Every `docs/*.md` and `docs/contracts/*.md` (`docs://00-overview.md`, `docs://contracts/ops.md`), Markdown |
-| `types://renox/ctx.d.ts` | The contract's `ctx` types (`docs/contracts/ctx.d.ts`), which the `renox` SDK re-exports |
+| `types://renox/ctx.d.ts` | The contract's `ctx` types (`docs/contracts/ctx.d.ts`), which the SDK `@renoxium/sdk` re-exports |
 | `config://effective` | The resolved `renox.toml`, or `{ ok: false, problems }` |
 | `routes://` | The routes `renox build` would emit, in matching order, and route conflicts |
 | `policies://` (#294) | The app's `policies/app/*.cedar`, `policies/schema.cedarschema` and `policies/tests/*.json`, by path |

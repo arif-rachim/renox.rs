@@ -4,7 +4,7 @@
 // past the shell delay, after which it can no longer answer with a
 // `Response` (ops.md section 14, "Streaming the shell").
 
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { Api, apiBase, type ApiFailure } from "./api.ts";
 import { trOf } from "./i18n.ts";

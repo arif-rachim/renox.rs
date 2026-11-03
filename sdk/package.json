@@ -1,5 +1,5 @@
 {
-  "name": "renox",
+  "name": "@renoxium/sdk",
   "version": "0.1.0",
   "description": "Types and helpers for Renox tenant code: ctx (db, fetch, secrets, log, deadline), handlers, pages, modules, errors, test fakes",
   "license": "MIT",

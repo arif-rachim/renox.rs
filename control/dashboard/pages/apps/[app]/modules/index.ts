@@ -11,7 +11,7 @@
 // refuses if its hash is not the reviewed one; the API refuses an approval
 // that is not the version's own request (docs/24 section D, "Marketplace
 // module unsigned or permission diff on upgrade").
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { type AppModule, type ModulePermissions, type RegistryVersion } from "../../../../lib/api.ts";
 import { appParam, frame, notFound, problem, signedIn } from "../../../../lib/guard.ts";

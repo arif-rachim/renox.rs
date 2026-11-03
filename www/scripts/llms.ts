@@ -98,7 +98,7 @@ const SUMMARY =
   "An app is TypeScript functions and HTML pages in folders that are its routes; it runs in a V8 isolate with its own SQLite file, " +
   "under CPU, memory, wall-clock and network limits enforced by the platform, and it assembles auth, organisations, billing, " +
   "admin, storage, email and other official modules instead of writing them. The toolkit a developer types is `renox`: the CLI " +
-  "(`renox new`, `dev`, `check`, `test`, `deploy`) and the npm package `renox` (types, helpers, test fakes).";
+  "(`renox new`, `dev`, `check`, `test`, `deploy`) and the npm package `@renoxium/sdk` (types, helpers, test fakes).";
 
 const AGENT_NOTE =
   "For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.json` into every new app; `renox mcp` is the " +
@@ -119,7 +119,7 @@ export function llmsTxt(): string {
     [doc("docs/getting-started.md"), "install the CLI from the repository today, create an app with renox new, run it with renox dev, sign in, deploy it"],
     [doc("docs/12-developer-experience.md"), "the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits"],
     [`[renox CLI reference](${site("cli/README.md")})`, "every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy"],
-    [`[The renox SDK](${site("sdk/README.md")})`, "the `renox` npm package: Handler, Ctx, pages, validate, modules, query builders, renox/fakes and renox/test"],
+    [`[The SDK, @renoxium/sdk](${site("sdk/README.md")})`, "the `@renoxium/sdk` npm package: Handler, Ctx, pages, validate, modules, query builders, @renoxium/sdk/fakes and @renoxium/sdk/test"],
     [`[Example apps](${repo("examples/")})`, "hello (one function), shop (pages, templates, modules, policies), chat (realtime)"],
   ]);
   section("App model", DEV_DOCS.filter(([p]) => !/getting-started|12-developer-experience|20-ai-agents-mcp/u.test(p)).map(([p, line]) => [doc(p), line]));

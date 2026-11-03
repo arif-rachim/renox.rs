@@ -5,6 +5,6 @@
     "types": []
   },
   "include": ["src/**/*.ts", "tests/**/*.test-d.ts"],
-  // renox/test is Bun-only (bun:test, bun:sqlite): checked by tsconfig.test.json.
+  // @renoxium/sdk/test is Bun-only (bun:test, bun:sqlite): checked by tsconfig.test.json.
   "exclude": ["src/test.ts"]
 }

@@ -1,6 +1,6 @@
 // GET /api/slow?ms=N: busy-waits N ms of CPU, then answers. B12 drives it at a
 // controlled rate. Under the CPU limit → 200; over it → 503 RENOX_CPU_LIMIT.
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 /** Upper bound on `ms`, well above the paid CPU limit (500 ms). */
 const MAX_MS = 10_000;

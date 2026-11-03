@@ -4,7 +4,7 @@
 // passes through this action once, on its way to the API, and is never
 // logged, stored, or rendered back; a new value is used from the next
 // deploy or rollback (deploy-api.md section 9).
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";

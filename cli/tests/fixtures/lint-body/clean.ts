@@ -1,5 +1,5 @@
 // unvalidated-body fixture (#275): nothing here is flagged.
-import { type Ctx, validate } from "renox";
+import { type Ctx, validate } from "@renoxium/sdk";
 import { z } from "zod";
 
 const Note = z.object({ text: z.string().max(500) });

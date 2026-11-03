@@ -1,7 +1,7 @@
 // GET /api/redirect: helper for /api/ssrf?target=redirect. An allowlisted
 // host (*.redirect.test, mapped to this app by the test) answers with a 302
 // to loopback, so the second hop must be blocked.
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 const LOOPBACK = "http://127.0.0.1/";
 

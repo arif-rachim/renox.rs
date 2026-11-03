@@ -1,7 +1,7 @@
 // POST /signout: deletes the stored token of this session (lib/session.ts).
 // The token itself stays valid at the API until it expires or is revoked
 // (`renox tokens revoke`).
-import type { ActionContext } from "renox";
+import type { ActionContext } from "@renoxium/sdk";
 
 import { signOut } from "../lib/session.ts";
 

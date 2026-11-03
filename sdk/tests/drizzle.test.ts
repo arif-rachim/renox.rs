@@ -1,4 +1,4 @@
-// #237: renox/drizzle, on drizzle's SQLite proxy driver. Unit tests over a
+// #237: @renoxium/sdk/drizzle, on drizzle's SQLite proxy driver. Unit tests over a
 // bun:sqlite Db, then on the real worker (the refusal of a table outside the
 // app's prefix equals the raw path's; docs/23-failure-modes.md F4 row "Query
 // builder still blocked by the authorizer on another module's table").

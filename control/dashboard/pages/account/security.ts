@@ -13,7 +13,7 @@
 // The team's `mfa_required` stays session only in the contract
 // (`setTeamMfaRequired`), so the page shows the requirement and how to
 // change it, and never sends it with a token.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { type Api, type ApiFailure, type MfaStatus, needsStepUp, type Result } from "../../lib/api.ts";
 import { frame, problem, signedIn, type Problem } from "../../lib/guard.ts";

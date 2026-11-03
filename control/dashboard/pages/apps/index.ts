@@ -2,7 +2,7 @@
 // overview; #427): the tenant's name as the hero word, a card row of stats
 // from real data only (apps live, requests today, storage used), and a card
 // per app. POST ?/create: a new app (3.2), `apps:write`.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import type { Api, App } from "../../lib/api.ts";
 import { getBackups } from "../../lib/database.ts";

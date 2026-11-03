@@ -65,7 +65,7 @@ A page that needs a user:
 
 ```ts
 import { auth } from "renox:modules";
-import { redirect } from "renox";
+import { redirect } from "@renoxium/sdk";
 
 export async function load(ctx) {
   const user = await auth.currentUser();

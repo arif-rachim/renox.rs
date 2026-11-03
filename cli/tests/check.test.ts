@@ -17,7 +17,7 @@ const repo = join(import.meta.dir, "../..");
 
 test("exportKind tells functions, plain values, and missing exports apart without running the code", () => {
   const src = `
-    import type { Handler } from "renox";
+    import type { Handler } from "@renoxium/sdk";
     export async function GET() { return new Response("x"); }
     export const POST: Handler = async (ctx) => new Response("y");
     export const PUT = (ctx) => new Response("z");

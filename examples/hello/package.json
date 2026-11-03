@@ -6,6 +6,6 @@
     "check": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "renox": "workspace:*"
+    "@renoxium/sdk": "workspace:*"
   }
 }

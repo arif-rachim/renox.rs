@@ -1,7 +1,7 @@
 // GET /usage: the last 24 hours of every app of the tenant (#427): requests,
 // CPU and egress per app from `usage` (deploy-api.md section 12), and their
 // totals as dot-matrix numbers. The per-hour view is each app's own page.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { frame, problem, signedIn } from "../lib/guard.ts";
 import { bytes, round } from "../lib/view.ts";

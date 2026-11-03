@@ -1,7 +1,7 @@
 // GET /signin, POST /signin: sign in with a tenant token (lib/session.ts).
 // The token is checked against the API (`GET /v1/apps`, `apps:read`) before
 // it is stored, then the browser goes to `next`.
-import { redirect, type ActionContext, type LoaderContext } from "renox";
+import { redirect, type ActionContext, type LoaderContext } from "@renoxium/sdk";
 
 import { Api, apiBase } from "../lib/api.ts";
 import { nextPath } from "../lib/guard.ts";

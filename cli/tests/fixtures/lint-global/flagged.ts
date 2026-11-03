@@ -1,5 +1,5 @@
 // Every write below is a global-state finding (one per marked line).
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 let count = 0;
 let lastUser: string | null = null,

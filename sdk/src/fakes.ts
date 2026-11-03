@@ -1,8 +1,8 @@
-// `renox/fakes` (#323; docs/contracts/ops.md 1.7.0 sections 21-23): stand-ins
+// `@renoxium/sdk/fakes` (#323; docs/contracts/ops.md 1.7.0 sections 21-23): stand-ins
 // for `ctx.storage`, `ctx.ai` and webhook deliveries in a tenant's unit
 // tests, so a handler can be called without a worker.
 //
-//   import { fakeStorage, fakeAi, signWebhook } from "renox/fakes";
+//   import { fakeStorage, fakeAi, signWebhook } from "@renoxium/sdk/fakes";
 //   const ctx = { ...base, storage: fakeStorage(), ai: fakeAi([{ text: "AED 5" }]) };
 //   const req = await signWebhook("stripe", "whsec_test", { id: "evt_1" });
 //

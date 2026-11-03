@@ -1,11 +1,11 @@
-// `renox/kysely`: Kysely over the `db` op (docs/06-data.md, "API layers";
+// `@renoxium/sdk/kysely`: Kysely over the `db` op (docs/06-data.md, "API layers";
 // #237). A thin driver: every compiled query goes to `ctx.db.query` or
 // `execute` with its `?` parameters in order, so the platform's limits and
 // the module authorizer apply exactly as to raw SQL; there is no second
 // execution path. Transactions run through `db.transaction` (a savepoint
 // when one is already current, ops.md section 1). No streaming.
 //
-//   import { kysely } from "renox/kysely";
+//   import { kysely } from "@renoxium/sdk/kysely";
 //   import type { Tables } from "../.renox/types/db";
 //   const rows = await kysely<Tables>(ctx).selectFrom("app__products").selectAll().where("id", "=", id).execute();
 //
@@ -53,7 +53,7 @@ class RenoxConnection implements DatabaseConnection {
   }
 
   async *streamQuery<R>(): AsyncIterableIterator<QueryResult<R>> {
-    throw new Error("renox/kysely: streaming queries are not supported; use execute()");
+    throw new Error("@renoxium/sdk/kysely: streaming queries are not supported; use execute()");
   }
 }
 
@@ -102,7 +102,7 @@ class RenoxDriver implements Driver {
   }
 
   async beginTransaction(connection: DatabaseConnection): Promise<void> {
-    if (!("transaction" in this.db)) throw new Error("renox/kysely: this db is already a transaction; run the queries on it directly");
+    if (!("transaction" in this.db)) throw new Error("@renoxium/sdk/kysely: this db is already a transaction; run the queries on it directly");
     // Kysely runs the transaction's queries on the connection it passes to
     // `beginTransaction`: from here on that connection forwards to the
     // transaction.
@@ -122,7 +122,7 @@ class RenoxDriver implements Driver {
   private async endTx(connection: DatabaseConnection, commit: boolean): Promise<void> {
     const c = connection as RenoxConnection;
     const tx = c.tx;
-    if (tx === undefined) throw new Error("renox/kysely: no open transaction");
+    if (tx === undefined) throw new Error("@renoxium/sdk/kysely: no open transaction");
     c.tx = undefined;
     c.db = this.db;
     await tx.end(commit);

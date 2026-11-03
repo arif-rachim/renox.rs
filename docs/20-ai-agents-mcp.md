@@ -54,7 +54,7 @@ Tenants do not write MCP servers. They declare tools, and the platform exposes `
 
 ```ts
 // functions/tools/create-invoice.ts
-import { tool } from "renox";
+import { tool } from "@renoxium/sdk";
 import { z } from "zod";
 
 export default tool({

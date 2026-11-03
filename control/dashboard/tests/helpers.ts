@@ -8,7 +8,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { FetchBlockedError, type ActionContext, type Ctx, type DbStatements, type ExecuteResult, type LoaderContext, type Param, type Row } from "renox";
+import { FetchBlockedError, type ActionContext, type Ctx, type DbStatements, type ExecuteResult, type LoaderContext, type Param, type Row } from "@renoxium/sdk";
 
 import { logIngest, type StoredLine } from "../../api/src/ingest/logs.ts";
 import { harness, type Harness } from "../../api/tests/helpers.ts";
@@ -172,7 +172,7 @@ const APP = join(import.meta.dir, "..");
 export async function devWithData(stubs: Record<string, unknown>): Promise<{ base: string; stop: () => Promise<void> }> {
   const dir = mkdtempSync(join(tmpdir(), "renox-dashboard-render-"));
   cpSync(APP, dir, { recursive: true, filter: (p) => !/\/(node_modules|\.renox|tests)(\/|$)/u.test(p.slice(APP.length)) });
-  cpSync(join(APP, "node_modules/renox"), join(dir, "node_modules/renox"), { recursive: true, dereference: true });
+  cpSync(join(APP, "node_modules/@renoxium/sdk"), join(dir, "node_modules/@renoxium/sdk"), { recursive: true, dereference: true });
   writeFileSync(join(dir, ".env"), `DASHBOARD_KEY=${SECRETS.DASHBOARD_KEY}\nRENOX_API_URL=${API_ORIGIN}\n`);
   for (const [page, data] of Object.entries(stubs)) {
     const file = join(dir, page);

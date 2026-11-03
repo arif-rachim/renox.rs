@@ -2,7 +2,7 @@
 // link of the sign-up email (deploy-api.md 0.5 section 21, `verifyEmail`;
 // #326). The token is in the URL fragment, which the browser never sends to
 // a server; the page's script copies it into the form and submits it once.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { verifyAccount } from "../../lib/api.ts";
 import { trOf } from "../../lib/i18n.ts";

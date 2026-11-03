@@ -3,7 +3,7 @@
 // "[redacted]" before the line reaches the tenant log sink. The handler cannot
 // see the sink, so it only reports what it attempted; the test reads the sink.
 // The response never contains the secret.
-import type { Handler } from "renox";
+import type { Handler } from "@renoxium/sdk";
 
 export const GET: Handler = ({ secrets, log }) => {
   const value = secrets["FAKE_SECRET"];

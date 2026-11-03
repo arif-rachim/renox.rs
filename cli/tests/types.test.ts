@@ -57,7 +57,7 @@ test("the generated types check a page module with tsc, and reject a wrong param
   writeFileSync(
     join(dir, "tsconfig.json"),
     JSON.stringify({
-      compilerOptions: { strict: true, noEmit: true, allowImportingTsExtensions: true, module: "esnext", moduleResolution: "bundler", target: "es2022", lib: ["es2022", "dom"], paths: { renox: [sdk] }, skipLibCheck: true },
+      compilerOptions: { strict: true, noEmit: true, allowImportingTsExtensions: true, module: "esnext", moduleResolution: "bundler", target: "es2022", lib: ["es2022", "dom"], paths: { "@renoxium/sdk": [sdk] }, skipLibCheck: true },
       include: ["page.ts", ".renox/types/*.d.ts"],
     }),
   );

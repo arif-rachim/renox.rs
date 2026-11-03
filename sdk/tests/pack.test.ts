@@ -1,8 +1,8 @@
-// The published shape of `renox` (#376; docs/12-developer-experience.md,
+// The published shape of `@renoxium/sdk` (#376; docs/12-developer-experience.md,
 // "Installing the CLI"): `npm pack` ships dist/ and nothing of the workspace,
 // and a fresh `renox new` app outside the monorepo installs the tarball,
 // type-checks against its declarations and runs a `bun test` with
-// `renox/fakes`. Everything here is offline: the tarball is a `file:`
+// `@renoxium/sdk/fakes`. Everything here is offline: the tarball is a `file:`
 // dependency, and tsc is the monorepo's own.
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,7 +42,7 @@ describe("the published package (#376)", () => {
     const [info] = JSON.parse(json) as { filename: string; files: { path: string }[] }[];
     expect(info).toBeDefined();
     tarball = join(scratch, info!.filename);
-    expect(tarball.endsWith(`renox-${version}.tgz`)).toBe(true);
+    expect(tarball.endsWith(`renoxium-sdk-${version}.tgz`)).toBe(true);
     expect(existsSync(tarball)).toBe(true);
     files = info!.files.map((f) => f.path).sort();
     const allowed = (p: string) => p === "package.json" || p === "README.md" || p === "LICENSE" || (p.startsWith("dist/") && /\.(js|d\.ts)$/u.test(p));
@@ -55,42 +55,42 @@ describe("the published package (#376)", () => {
     expect(files.some((p) => p.startsWith("src/") || p.startsWith("tests/") || p.includes("node_modules"))).toBe(false);
   });
 
-  test("a renox new app outside the monorepo installs the tarball, type-checks and runs a test with renox/fakes", () => {
+  test("a renox new app outside the monorepo installs the tarball, type-checks and runs a test with @renoxium/sdk/fakes", () => {
     expect(tarball, "needs the tarball of the previous test").not.toBe("");
     // renox new, as a developer would run it (the CLI's `new` writes the app).
     const created = run(["bun", cli, "new", "app", "--template", "hello"], scratch);
     expect(created.code, created.out).toBe(0);
     const app = join(scratch, "app");
     // The app depends on the tarball instead of the registry: the same files a
-    // `bun add renox` would unpack.
+    // `bun add @renoxium/sdk` would unpack.
     const pkg = JSON.parse(readFileSync(join(app, "package.json"), "utf8")) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies.renox).toBe(`^${version}`);
-    pkg.dependencies.renox = `file:${tarball}`;
+    expect(pkg.dependencies["@renoxium/sdk"]).toBe(`^${version}`);
+    pkg.dependencies["@renoxium/sdk"] = `file:${tarball}`;
     writeFileSync(join(app, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
     const installed = run(["bun", "install"], app);
     expect(installed.code, installed.out).toBe(0);
-    expect(existsSync(join(app, "node_modules", "renox", "dist", "index.d.ts"))).toBe(true);
-    expect(existsSync(join(app, "node_modules", "renox", "src"))).toBe(false);
+    expect(existsSync(join(app, "node_modules", "@renoxium", "sdk", "dist", "index.d.ts"))).toBe(true);
+    expect(existsSync(join(app, "node_modules", "@renoxium", "sdk", "src"))).toBe(false);
 
-    // Type-check: the template's handler against `renox`, and a module that
-    // imports `renox/fakes` (the declarations, not the workspace sources).
+    // Type-check: the template's handler against `@renoxium/sdk`, and a module that
+    // imports `@renoxium/sdk/fakes` (the declarations, not the workspace sources).
     mkdirSync(join(app, "lib"), { recursive: true });
     writeFileSync(
       join(app, "lib", "fakes-types.ts"),
-      'import type { Ctx } from "renox";\nimport { fakeStorage } from "renox/fakes";\n\nexport const storage: Ctx["storage"] = fakeStorage("app");\nexport const files = fakeStorage("app").files.size;\n',
+      'import type { Ctx } from "@renoxium/sdk";\nimport { fakeStorage } from "@renoxium/sdk/fakes";\n\nexport const storage: Ctx["storage"] = fakeStorage("app");\nexport const files = fakeStorage("app").files.size;\n',
     );
     // tests/ needs bun-types, which a bare app does not install; tsc covers the app's own code.
     writeFileSync(join(app, "tsconfig.check.json"), JSON.stringify({ extends: "./tsconfig.json", exclude: ["node_modules", ".renox", "tests"] }, null, 2));
     const checked = run([tsc, "--noEmit", "-p", "tsconfig.check.json"], app);
     expect(checked.code, checked.out).toBe(0);
 
-    // Run: `renox/fakes` from the installed package under bun test.
+    // Run: `@renoxium/sdk/fakes` from the installed package under bun test.
     mkdirSync(join(app, "tests"), { recursive: true });
     writeFileSync(
       join(app, "tests", "fakes.test.ts"),
       [
         'import { expect, test } from "bun:test";',
-        'import { fakeStorage } from "renox/fakes";',
+        'import { fakeStorage } from "@renoxium/sdk/fakes";',
         "",
         'test("fakeStorage stores and lists a file", async () => {',
         '  const storage = fakeStorage("app");',

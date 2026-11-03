@@ -237,7 +237,7 @@ function listFiles(dir: string, rel = "", skipped?: Skipped[]): string[] {
 }
 
 /**
- * `renox` (and `renox/<sub>`) resolves from the app, whoever imports it: a
+ * `@renoxium/sdk` (and `@renoxium/sdk/<sub>`) resolves from the app, whoever imports it: a
  * module's tree lives outside the app (a git cache, or `path:` elsewhere)
  * and has no node_modules of its own, so its code uses the app's SDK (#291:
  * auth's passkeys import `verifyAssertion`). Not installed in the app: the
@@ -247,7 +247,7 @@ function appSdk(appRoot: string): BunPlugin {
   return {
     name: "renox-app-sdk",
     setup(build) {
-      build.onResolve({ filter: /^renox(\/[A-Za-z0-9_-]+)?$/u }, (args) => {
+      build.onResolve({ filter: /^@renoxium\/sdk(\/[A-Za-z0-9_-]+)?$/u }, (args) => {
         for (const from of [appRoot, CLI_SDK]) {
           try {
             return { path: Bun.resolveSync(args.path, from) };
@@ -262,7 +262,7 @@ function appSdk(appRoot: string): BunPlugin {
 }
 
 /**
- * The SDK next to this CLI: an app that does not install `renox` itself
+ * The SDK next to this CLI: an app that does not install `@renoxium/sdk` itself
  * (examples/chat) still builds modules that import its helpers.
  */
 const CLI_SDK = resolve(import.meta.dir, "../../../sdk/src");

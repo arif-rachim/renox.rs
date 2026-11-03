@@ -3,7 +3,7 @@
 // totals, and the tenant's monthly quota (docs/19-platform-wireframes.md,
 // 3.13 for one app). The bars are SVG computed here (lib/view.ts): no script,
 // no inline style, so the strict CSP holds.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { type UsageHour } from "../../../lib/api.ts";
 import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";

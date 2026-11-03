@@ -3,7 +3,7 @@
 // A slug outside the allowlist of lib/docs.ts is 404. The markdown renderer
 // escapes every text run and passes no raw HTML (lib/markdown.ts), so the
 // result goes into the page with r-html.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { doc, nav, REPO } from "../../lib/docs.ts";
 

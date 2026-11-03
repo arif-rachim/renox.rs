@@ -10,7 +10,7 @@ Variants: **before** is `examples/shop` at `d07c62f`. **After** is the #332 chan
 
 The list page (B6) keeps its text cards: an `<x-image>` per card would add about 22 KB of `<img>` markup to a 25 KB page and change B6's workload ("25 KB, 100 items, 5 queries").
 
-Method: `renox/test`'s harness starts the worker on a fresh tenant file, then `POST /api/dev/seed`. After 100 warm-up requests, it times 500 sequential `GET /products` and 300 `GET /products/42` in the client, to the last byte. `cpu_ms`, `render_fuel` and `db_rows` come from the meter records. Two runs per variant (raw: `raw/2026-10-31-B6-shop-product-images.json`).
+Method: `@renoxium/sdk/test`'s harness starts the worker on a fresh tenant file, then `POST /api/dev/seed`. After 100 warm-up requests, it times 500 sequential `GET /products` and 300 `GET /products/42` in the client, to the last byte. `cpu_ms`, `render_fuel` and `db_rows` come from the meter records. Two runs per variant (raw: `raw/2026-10-31-B6-shop-product-images.json`).
 
 | Run | List p50 / p99 ms | List `cpu_ms` p50 | List fuel / rows / bytes | Detail p50 / p99 ms | Detail `cpu_ms` p50 | Detail fuel / rows |
 | --- | --- | --- | --- | --- | --- | --- |

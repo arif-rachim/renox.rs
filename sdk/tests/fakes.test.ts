@@ -1,4 +1,4 @@
-// renox/fakes (#323): the storage, AI and webhook stand-ins follow the contract.
+// @renoxium/sdk/fakes (#323): the storage, AI and webhook stand-ins follow the contract.
 import { expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 

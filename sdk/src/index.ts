@@ -1,4 +1,4 @@
-// The `renox` package: types and helpers for tenant code.
+// The `@renoxium/sdk` package: types and helpers for tenant code.
 // Contract: docs/contracts/ops.md (version 1.6.0) and docs/contracts/ctx.d.ts.
 
 export type {

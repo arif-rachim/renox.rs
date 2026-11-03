@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Deployment } from "../lib/api.ts";
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { createApp_, scopedToken, tenant } from "../../api/tests/helpers.ts";
 import { problem } from "../lib/guard.ts";

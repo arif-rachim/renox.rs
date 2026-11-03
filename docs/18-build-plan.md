@@ -10,7 +10,7 @@ This document lists everything we build, in two groups: **platform components** 
 | --- | --- | --- | --- | --- | --- |
 | P1 | `renox-runtime` | `crates/renox-runtime` | Rust | Supabase Edge Runtime / `deno_runtime` (external) | F0–F1 |
 | P2 | `renox-data` | `crates/renox-data` | Rust | `rusqlite`/libSQL (external); `sqlx` for external datasources (F6+) | F1 |
-| P2b | SDK query-builder drivers (`renox/kysely`, `renox/drizzle`) and schema → `db.d.ts` generation | `sdk/`, `cli/` | TypeScript | P2 op contract, P10, P11 | F2 (types), F4+ (drivers) |
+| P2b | SDK query-builder drivers (`@renoxium/sdk/kysely`, `@renoxium/sdk/drizzle`) and schema → `db.d.ts` generation | `sdk/`, `cli/` | TypeScript | P2 op contract, P10, P11 | F2 (types), F4+ (drivers) |
 | P2c | External datasource connectors (Postgres/MySQL pool in the cell, `ctx.datasource`) and `renox db migrate-to postgres` | `crates/renox-data`, `cli/` | Rust + TypeScript | P2, secrets (P12), network allowlist (P1) | F6–F7 |
 | P3 | `renox-gateway` | `crates/renox-gateway` | Rust | `hyper`, `axum`, `rustls` (external) | F1 |
 | P4 | `renox-meter` | `crates/renox-meter` | Rust | — | F1 |
@@ -19,7 +19,7 @@ This document lists everything we build, in two groups: **platform components** 
 | P7 | `renox-realtime` | `crates/renox-realtime` | Rust | — (integrates with P5) | F5 |
 | P8 | `renox-authz` | `crates/renox-authz` | Rust | `cedar-policy` (external); P2 for role storage | F5 |
 | P9 | Module Broker | inside `crates/renox-runtime` (ops) + `crates/renox-data` (outbox) | Rust | P1, P2 | F4 |
-| P10 | SDK (`renox` package) | `sdk/` | TypeScript | Op contracts from P1 (types only) | F1 onward, grows per phase |
+| P10 | SDK (`@renoxium/sdk` package) | `sdk/` | TypeScript | Op contracts from P1 (types only) | F1 onward, grows per phase |
 | P11 | CLI (`renox`) | `cli/` | TypeScript (Bun) | P10; P6 transpiler (as a Wasm build or via the embedded worker); P5 for `renox dev` | F1 onward |
 | P12 | Control plane API | `control/api` | TypeScript (Bun, Hono) | Artifact format and route-table contract from P5/P11; Postgres; object storage | F3 |
 | P13 | Control plane dashboard | `control/dashboard` | Renox app (dogfooding) | P12; P6, P10 | F3 (basic), F7 (full) |

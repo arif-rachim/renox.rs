@@ -15,7 +15,7 @@ The handler does no I/O, so these numbers isolate the runtime's own cost.
 ## How it runs
 
 - **F0 spike:** `_spike/index.ts` exposes the handler as a Supabase Edge Runtime user worker (`Deno.serve`). `bench/spike/edge-runtime/run.sh` (issue #3) points the runtime at that file. Files starting with `_` are not routes.
-- **F1 and later:** `renox dev` routes `functions/api/hello.ts` to `/api/hello` itself; `_spike/` is no longer needed. The local `Handler` type is replaced by `import type { Handler } from "renox"` once the SDK exists.
+- **F1 and later:** `renox dev` routes `functions/api/hello.ts` to `/api/hello` itself; `_spike/` is no longer needed. The local `Handler` type is replaced by `import type { Handler } from "@renoxium/sdk"` once the SDK exists.
 
 ## Checks
 

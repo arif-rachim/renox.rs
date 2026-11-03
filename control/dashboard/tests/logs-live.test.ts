@@ -5,7 +5,7 @@
 // partials/log-rows and queues its next run, closing the page stops it, and
 // a member of another tenant is refused before any subscription.
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import type { CloseContext, JobContext, RealtimeContext } from "renox";
+import type { CloseContext, JobContext, RealtimeContext } from "@renoxium/sdk";
 
 import { assertScoped, createApp_, tenant } from "../../api/tests/helpers.ts";
 import { sse } from "../functions/sse/logs.ts";

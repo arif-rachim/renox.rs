@@ -3,9 +3,9 @@
 // the platform's), whose refusal must equal the raw path's.
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { eq } from "drizzle-orm";
-import { type Ctx, isRenoxError } from "renox";
-import { drizzle } from "renox/drizzle";
-import { kysely } from "renox/kysely";
+import { type Ctx, isRenoxError } from "@renoxium/sdk";
+import { drizzle } from "@renoxium/sdk/drizzle";
+import { kysely } from "@renoxium/sdk/kysely";
 
 interface Tables {
   app__items: { id: number; name: string; qty: number };

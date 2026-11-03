@@ -186,7 +186,7 @@ describe.skipIf(!worker)("auth", () => {
 
 // docs/24-threat-model.md A, "Open redirect via `next`/`return_to`" (#275
 // item 1): every redirect of auth (redirectWith, loginUrl) answers what
-// redirect.safe() of "renox" answers, on the fixture list of #111
+// redirect.safe() of "@renoxium/sdk" answers, on the fixture list of #111
 // (sdk/tests/redirect.test.ts). No worker needed.
 describe("auth redirects go through the redirect.safe() rules", () => {
   // sdk/tests/redirect.test.ts REJECTED, plus the targets #111's check test drives.

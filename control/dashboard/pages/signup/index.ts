@@ -5,7 +5,7 @@
 // action once, to the API, and is never stored, logged or rendered back. The
 // API answers "check your email" whether or not the address has an account,
 // so this page says the same in both cases.
-import type { ActionContext, LoaderContext } from "renox";
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { apiBase, signupAccount } from "../../lib/api.ts";
 import { trOf } from "../../lib/i18n.ts";

@@ -4,7 +4,7 @@
 // original TypeScript position when a private sourcemap matched, and the
 // client-event quota warning (80 % of the daily cap). With `fp`, the group's
 // last events and their frames. POST ?/status: lib/client-errors.ts.
-import type { LoaderContext } from "renox";
+import type { LoaderContext } from "@renoxium/sdk";
 
 import { clientErrorActions, eventRow, FINGERPRINT, groupRow, SPARK, STATUSES } from "../../../lib/client-errors.ts";
 import { trOf } from "../../../lib/i18n.ts";

@@ -71,7 +71,7 @@ Only parameterized statements. String interpolation into SQL is rejected by a li
 | Base | `db.query`, `db.queryOne`, `db.execute`, `db.transaction`, always with `?` parameters | Platform (`renox-data`), F1 |
 | Safety | `db.scoped({ user_id })` adds ownership predicates for tables with declared ownership | Platform, F5 |
 | Types | `renox dev` introspects the SQLite schema into `.renox/types/db.d.ts`; `db.query<Product>` gets table and column completion; a generated `Tables` type is available for builders | Platform, F2 |
-| Query builder (optional) | Drivers for **Kysely** and **Drizzle**, both of which support SQLite and expose a custom-driver interface: `import { drizzle } from "renox/drizzle"`, `import { kysely } from "renox/kysely"`. The driver forwards compiled SQL + parameters to the `db` op, so authorizer and scoping still apply | SDK package, F4+ |
+| Query builder (optional) | Drivers for **Kysely** and **Drizzle**, both of which support SQLite and expose a custom-driver interface: `import { drizzle } from "@renoxium/sdk/drizzle"`, `import { kysely } from "@renoxium/sdk/kysely"`. The driver forwards compiled SQL + parameters to the `db` op, so authorizer and scoping still apply | SDK package, F4+ |
 | Heavy ORMs (Prisma, TypeORM) | Not supported initially | Need a separate engine or Node internals; do not fit the isolate model |
 
 Raw parameterized SQL is the primary path because it is the fastest and the easiest to audit. Builders are a thin layer on top, never a second execution path.

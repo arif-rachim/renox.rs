@@ -38,7 +38,7 @@ const USAGE = `renox <command>
   publish [--dir <tree>] [--dry-run]    sign a module tree (module.sig) and upload it to the registry
   approve <module> [--yes]              show the permission diff of an upgrade and approve it
   jobs list [--state <s>] | run <name> [--module <m>] | retry <id>   the dev app's jobs (scheduled, queued, running, dead)
-  test [pattern...] [--seed <file.sql>] run tests/*.test.ts on the worker with a temporary tenant file per test file (renox/test),
+  test [pattern...] [--seed <file.sql>] run tests/*.test.ts on the worker with a temporary tenant file per test file (@renoxium/sdk/test),
                                         and the policy test cases of policies/tests/*.json
   authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]
                                         why the policies allow or deny a request (roles and resource attributes from the dev database)

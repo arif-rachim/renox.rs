@@ -1,9 +1,9 @@
-// `renox/test` (#238; docs/12-developer-experience.md, "renox test"):
+// `@renoxium/sdk/test` (#238; docs/12-developer-experience.md, "renox test"):
 // helpers for `tests/*.test.ts` of an app or a module, run by `renox test`
 // on the same prebuilt renox-worker as `renox dev`, one temporary tenant
 // file per test file.
 //
-//   import { app, snapshot } from "renox/test";
+//   import { app, snapshot } from "@renoxium/sdk/test";
 //   const t = await app();                         // fresh worker + tenant file for this file
 //   await t.service("notes").add("hello");         // through the broker (a test-only route)
 //   const { html } = await t.as("bob").page("/notes/");
@@ -50,7 +50,7 @@ export interface ModuleChange {
 
 async function harness(): Promise<Harness> {
   const path = process.env.RENOX_TEST_HARNESS ?? join(import.meta.dir, "../../cli/src/lib/test-harness.ts");
-  if (!existsSync(path)) throw new Error("renox/test: run the tests with `renox test` (RENOX_TEST_HARNESS is not set)");
+  if (!existsSync(path)) throw new Error("@renoxium/sdk/test: run the tests with `renox test` (RENOX_TEST_HARNESS is not set)");
   return (await import(path)) as Harness;
 }
 
@@ -59,7 +59,7 @@ async function spec(h: Harness, project: string): Promise<Spec> {
   const file = process.env.RENOX_TEST_SPEC;
   if (file) return JSON.parse(readFileSync(file, "utf8")) as Spec;
   const worker = process.env.RENOX_WORKER_PATH;
-  if (!worker) throw new Error("renox/test: run the tests with `renox test`, or set RENOX_WORKER_PATH");
+  if (!worker) throw new Error("@renoxium/sdk/test: run the tests with `renox test`, or set RENOX_WORKER_PATH");
   return h.prepare(project, [], worker);
 }
 

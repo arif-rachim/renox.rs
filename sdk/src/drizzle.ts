@@ -1,9 +1,9 @@
-// `renox/drizzle`: Drizzle over the `db` op (docs/06-data.md, "API layers";
+// `@renoxium/sdk/drizzle`: Drizzle over the `db` op (docs/06-data.md, "API layers";
 // #237), on drizzle's SQLite proxy driver. Every statement goes to
 // `ctx.db.query` or `execute` with its `?` parameters in order, so the
 // platform's limits and the module authorizer apply exactly as to raw SQL.
 //
-//   import { drizzle } from "renox/drizzle";
+//   import { drizzle } from "@renoxium/sdk/drizzle";
 //   const db = drizzle(ctx, { schema });
 //   await db.select().from(products).where(eq(products.id, id));
 //
@@ -27,7 +27,7 @@ type Method = "run" | "all" | "values" | "get";
 function callback(db: Db | DbStatements) {
   return async (sql: string, params: unknown[], method: Method): Promise<{ rows: unknown[] }> => {
     if (/^\s*(begin|commit|rollback|savepoint|release)\b/iu.test(sql)) {
-      throw new Error("renox/drizzle: transactions go through ctx.db.transaction(async (tx) => drizzle({ db: tx }) ...)");
+      throw new Error("@renoxium/sdk/drizzle: transactions go through ctx.db.transaction(async (tx) => drizzle({ db: tx }) ...)");
     }
     const ps = params as Param[];
     if (method === "run") {

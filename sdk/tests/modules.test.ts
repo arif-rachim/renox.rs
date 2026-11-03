@@ -41,7 +41,7 @@ function tsc(dir: string, extra: string[] = []): { code: number; out: string } {
     join(dir, "tsconfig.json"),
     JSON.stringify({
       extends: resolve(SDK, "../tsconfig.base.json"),
-      compilerOptions: { types: [], paths: { renox: [join(SDK, "src/index.ts")] } },
+      compilerOptions: { types: [], paths: { "@renoxium/sdk": [join(SDK, "src/index.ts")] } },
       files: ["app.ts", "modules/auth/services.ts", "modules/billing/services.ts", ".renox/types/renox-modules.d.ts", ...extra],
     }),
   );

@@ -5,7 +5,7 @@
 // here); then it subscribes the connection to a topic of its own
 // (policies/logs.cedar), records the follower and queues the first run of
 // the follower job. Closing the page deletes the row, which stops the job.
-import type { CloseContext, RealtimeContext } from "renox";
+import type { CloseContext, RealtimeContext } from "@renoxium/sdk";
 
 import { Api, apiBase } from "../../lib/api.ts";
 import { appParam, hashParam } from "../../lib/guard.ts";

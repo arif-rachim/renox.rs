@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Ctx, Db, DbStatements, ExecuteResult, Param, Row } from "renox";
+import type { Ctx, Db, DbStatements, ExecuteResult, Param, Row } from "@renoxium/sdk";
 
 const root = join(import.meta.dir, "..");
 

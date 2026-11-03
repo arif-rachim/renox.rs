@@ -7,7 +7,7 @@
     "llms": "bun scripts/llms.ts"
   },
   "dependencies": {
-    "renox": "workspace:*"
+    "@renoxium/sdk": "workspace:*"
   },
   "devDependencies": {
     "@renox/billing": "workspace:*"

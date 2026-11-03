@@ -8,7 +8,7 @@
 // HTTP status, so a loader can render the failure instead of answering with a
 // `Response` after the streamed shell (ops.md section 14, "Streaming the shell").
 
-import type { Fetch, Secrets } from "renox";
+import type { Fetch, Secrets } from "@renoxium/sdk";
 
 /** The API `renox login` uses by default (cli/src/commands/login.ts). */
 export const DEFAULT_API = "https://api.renoxium.com";
