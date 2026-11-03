@@ -120,6 +120,25 @@ else fail "a failing pg_dump uploaded something"; fi
 # 3. Refusals: credentials readable by the group, an unknown key, a private key as recipient, a wrong secret.
 chmod 0640 "$tmp/r2.env"
 if run >"$tmp/out" 2>&1; then fail "a group-readable credentials file is refused"; elif grep -q "readable by group or others" "$tmp/out"; then pass "a group-readable credentials file is refused"; else fail "group-readable: $(cat "$tmp/out")"; fi
+# The systemd-credential exception (#395) is narrow: 0440 outside
+# $CREDENTIALS_DIRECTORY, 0440 inside it but not owned by root, and 0444
+# inside it are all refused. (Accepted: root 0440 in the unit's own
+# directory, proved through renox-backup-db.service in bootstrap-node.test.sh.)
+write_env
+chmod 0440 "$tmp/r2.env"
+if run >"$tmp/out" 2>&1; then fail "0440 outside CREDENTIALS_DIRECTORY is refused"; elif grep -q "readable by group or others" "$tmp/out"; then pass "0440 outside \$CREDENTIALS_DIRECTORY is refused"; else fail "0440 outside: $(cat "$tmp/out")"; fi
+mkdir -p "$tmp/creds"
+cp "$tmp/r2.env" "$tmp/creds/r2.env"
+chmod 0440 "$tmp/creds/r2.env"
+if [[ $(stat -c %u "$tmp/creds/r2.env") != 0 ]]; then
+  if CREDENTIALS_DIRECTORY=$tmp/creds run --r2-env "$tmp/creds/r2.env" >"$tmp/out" 2>&1; then fail "0440 in CREDENTIALS_DIRECTORY not owned by root is refused"; elif grep -q "readable by group or others" "$tmp/out"; then pass "0440 in \$CREDENTIALS_DIRECTORY but not owned by root is refused"; else fail "0440 not root: $(cat "$tmp/out")"; fi
+else
+  chmod 0444 "$tmp/creds/r2.env"
+  if CREDENTIALS_DIRECTORY=$tmp/creds run --r2-env "$tmp/creds/r2.env" >"$tmp/out" 2>&1; then fail "0444 in CREDENTIALS_DIRECTORY is refused"; elif grep -q "readable by group or others" "$tmp/out"; then pass "0444 (other read) in \$CREDENTIALS_DIRECTORY is refused, even owned by root"; else fail "0444: $(cat "$tmp/out")"; fi
+  chmod 0440 "$tmp/creds/r2.env"
+  if CREDENTIALS_DIRECTORY=$tmp/creds run --r2-env "$tmp/r2.env" >"$tmp/out" 2>&1; then fail "a 0440 file outside the named CREDENTIALS_DIRECTORY is refused"; elif grep -q "readable by group or others" "$tmp/out"; then pass "root 0440 outside the named \$CREDENTIALS_DIRECTORY is refused"; else fail "outside dir: $(cat "$tmp/out")"; fi
+fi
+rm -rf "$tmp/creds"
 write_env
 printf 'EVIL=$(touch %s/pwned)\n' "$tmp" >> "$tmp/r2.env"
 if run >"$tmp/out" 2>&1; then fail "an unknown key is refused"; elif grep -q "unknown key" "$tmp/out" && [[ ! -e $tmp/pwned ]]; then pass "an unknown key is refused and nothing in the file is executed"; else fail "unknown key: $(cat "$tmp/out")"; fi

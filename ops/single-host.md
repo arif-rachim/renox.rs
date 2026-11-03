@@ -60,7 +60,7 @@ This page takes an empty host to live. Every secret it names lives in a root-onl
 | `/var/lib/renox-acme` | root, 0700 | lego's ACME account and certificates |
 | `/etc/nftables.d/renox-single-host.nft` | root, 0644 | `firewall-single-host.sh`'s rules, included from `/etc/nftables.conf` |
 
-The units that read root-only files (`renox-tunnel`, `renox-cert-renew`, `renox-backup-db`) get a copy through systemd's `LoadCredential=`. The copy is visible only to that unit's process, under `$CREDENTIALS_DIRECTORY`. The service users cannot read the files under `/etc/renox` themselves.
+The units that read root-only files (`renox-tunnel`, `renox-cert-renew`, `renox-backup-db`) get a copy through systemd's `LoadCredential=`. The copy is visible only to that unit's process, under `$CREDENTIALS_DIRECTORY`. The service users cannot read the files under `/etc/renox` themselves. systemd 255 makes the copy root-owned 0440, readable by the unit's user through an ACL, when the unit has a `User=` (`renox-backup-db` runs as `postgres`), and 0400 for a root unit; `backup-control-db.sh` accepts group read only for a file in its own `$CREDENTIALS_DIRECTORY`.
 
 ## Cloudflare DNS
 

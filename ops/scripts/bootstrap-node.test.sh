@@ -42,7 +42,9 @@ skip() { echo "SKIP bootstrap-node container test: $*"; exit 0; }
 command -v docker >/dev/null 2>&1 || skip "docker is not installed"
 docker info >/dev/null 2>&1 || skip "no docker daemon reachable"
 
-image=renox-bootstrap-test:24.04
+# The tag names the package list: a new list gets a new tag, so a cached image
+# without the new packages is never reused.
+image=renox-bootstrap-test:24.04-age
 name=renox-bootstrap-test-$$
 ctx=$(mktemp -d)
 cleanup() {
@@ -56,7 +58,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   cat > "$ctx/Dockerfile" <<'DOCKERFILE'
 FROM ubuntu:24.04
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv curl ca-certificates python3 openssl iproute2 \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv curl ca-certificates python3 openssl iproute2 age \
  && rm -rf /var/lib/apt/lists/*
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
@@ -338,6 +340,66 @@ sleep 1
 if [[ $(docker exec "$name" systemctl is-active renox-worker || true) == active && $(docker exec "$name" systemctl show -p MainPID --value renox-worker) == "$pid_before" ]]; then
   pass "the worker survives the reload (same PID, still active)"
 else fail "the worker survives the reload"; fi
+# The runbook's order (#399): the first certificate (step 8) before the worker
+# runs (step 9). The unit installs it and succeeds without reloading anything.
+docker exec "$name" sh -c 'systemctl stop renox-worker && rm -rf /var/lib/renox-acme/certificates /var/lib/renox/data/_certs/_wildcard.renoxium.test /var/lib/renox/data/_certs/renoxium.test'
+since=$(docker exec "$name" date '+%Y-%m-%d %H:%M:%S')
+if docker exec "$name" systemctl start renox-cert-renew.service 2>"$ctx/err"; then
+  out=$(docker exec "$name" journalctl -u renox-cert-renew --no-pager -o cat --since "$since")
+  if grep -q "installed a new certificate" <<< "$out" && grep -q "renox-worker.service is not active; nothing reloaded" <<< "$out" \
+    && docker exec "$name" test -s /var/lib/renox/data/_certs/_wildcard.renoxium.test/fullchain.pem; then
+    pass "renox-cert-renew installs the first certificate while the worker is stopped and succeeds"
+  else fail "renox-cert-renew with the worker stopped: $out"; fi
+else fail "renox-cert-renew with the worker stopped: $(cat "$ctx/err")"; docker exec "$name" journalctl -u renox-cert-renew --no-pager -n 20 >&2 || true; fi
+if [[ $(docker exec "$name" systemctl is-active renox-worker || true) != active ]]; then pass "the renewal did not start the stopped worker"; else fail "the renewal started the worker"; fi
+docker exec "$name" systemctl start renox-worker
+
+# 5d. The backup through its unit (#395): User=postgres gets the R2 file from
+# LoadCredential as root 0440 (systemd 255), which backup-control-db.sh must
+# accept there. A fake pg_dump on the unit's PATH and a fake S3 on loopback;
+# the drop-in only allows that http:// endpoint (RENOX_BACKUP_ALLOW_HTTP), it
+# changes nothing about the credentials.
+docker exec "$name" sh -c 'id -u postgres >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin postgres'
+docker exec -i "$name" tee /usr/local/bin/pg_dump >/dev/null <<'SH'
+#!/bin/sh
+printf 'PGDMP fake dump of %s\n' "$*"
+SH
+docker exec -i "$name" tee /src/s3.py >/dev/null <<'PY'
+import http.server, os, sys, urllib.parse
+STORE = sys.argv[1]
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def signed(self): return self.headers.get("authorization", "").startswith("AWS4-HMAC-SHA256 Credential=RENOXTESTKEY0000000000001/")
+    def f(self): return os.path.join(STORE, urllib.parse.quote(self.path, safe=""))
+    def do_PUT(self):
+        body = self.rfile.read(int(self.headers.get("content-length", "0")))
+        ok = self.signed()
+        if ok: open(self.f(), "wb").write(body)
+        self.send_response(200 if ok else 403); self.send_header("content-length", "0"); self.end_headers()
+    def do_HEAD(self):
+        ok = self.signed() and os.path.exists(self.f())
+        self.send_response(200 if ok else 404)
+        self.send_header("content-length", str(os.path.getsize(self.f())) if ok else "0"); self.end_headers()
+http.server.HTTPServer(("127.0.0.1", 9599), H).serve_forever()
+PY
+docker exec "$name" sh -c 'chmod 0755 /usr/local/bin/pg_dump && mkdir -p /src/s3-store'
+docker exec -d "$name" python3 /src/s3.py /src/s3-store
+docker exec "$name" sh -c 'age-keygen -o /src/backup-age.key 2>/dev/null && age-keygen -y /src/backup-age.key > /etc/renox/backup-age.pub && chmod 0644 /etc/renox/backup-age.pub
+printf "R2_ENDPOINT=http://127.0.0.1:9599\nR2_BUCKET=renoxium-backups\nR2_ACCESS_KEY_ID=RENOXTESTKEY0000000000001\nR2_SECRET_ACCESS_KEY=test-secret-not-real\n" > /etc/renox/secrets/r2-backup.env
+chmod 0600 /etc/renox/secrets/r2-backup.env
+mkdir -p /etc/systemd/system/renox-backup-db.service.d
+printf "[Service]\nEnvironment=RENOX_BACKUP_ALLOW_HTTP=1\n" > /etc/systemd/system/renox-backup-db.service.d/test-http.conf
+systemctl daemon-reload'
+if docker exec "$name" systemctl start renox-backup-db.service 2>"$ctx/err"; then
+  out=$(docker exec "$name" journalctl -u renox-backup-db --no-pager -o cat)
+  obj=$(docker exec "$name" sh -c 'ls /src/s3-store | head -n 1' || true)
+  if grep -q "backup-control-db: renox -> renoxium-backups/control-db/" <<< "$out" && [[ -n $obj ]] \
+    && docker exec "$name" sh -c "age --decrypt --identity /src/backup-age.key '/src/s3-store/$obj' | grep -q 'PGDMP fake dump of'"; then
+    pass "renox-backup-db.service runs as postgres with the R2 file from LoadCredential (systemd's 0440) and uploads a dump that decrypts"
+  else fail "renox-backup-db.service: $out"; fi
+  if grep -q test-secret-not-real <<< "$out"; then fail "the R2 secret never reaches the journal"; else pass "the R2 secret never reaches the journal"; fi
+else fail "renox-backup-db.service runs: $(cat "$ctx/err")"; docker exec "$name" journalctl -u renox-backup-db --no-pager -o cat -n 20 >&2 || true; fi
+docker exec "$name" sh -c 'rm -r /etc/systemd/system/renox-backup-db.service.d && systemctl daemon-reload'
 
 fi
 
