@@ -30,6 +30,9 @@
 //! reason, policies, explanation? }] }`: the engine the cell builds
 //! (`renox_cell::authz::engine_for_check`). No V8, no database.
 //!
+//! `renox-worker --version` (or `-V`): `renox-worker <version>` on stdout,
+//! the version this binary also registers with (#401).
+//!
 //! `renox-worker migrate <artifact dir> <db file>`: the artifact's migration
 //! plan against a local tenant file for `renox migrate` (#235): each
 //! installed module in the manifest's order under its own prefix, then the
@@ -45,7 +48,7 @@ use renox_cell::{Worker, WorkerConfig};
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker --config <worker.toml> --child <tenant> --socket <path> | renox-worker transpile | renox-worker check-policies | renox-worker migrate <artifact dir> <db file>"
+        "usage: renox-worker --version | renox-worker --config <worker.toml> | renox-worker --sandbox-selftest --config <worker.toml> | renox-worker --config <worker.toml> --child <tenant> --socket <path> | renox-worker transpile | renox-worker check-policies | renox-worker migrate <artifact dir> <db file>"
     );
     ExitCode::from(2)
 }
@@ -273,6 +276,10 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
+        ["--version"] | ["-V"] => {
+            println!("renox-worker {}", renox_cell::WORKER_VERSION);
+            ExitCode::SUCCESS
+        }
         ["transpile"] => transpile(),
         ["check-policies"] => check_policies(),
         ["migrate", artifact, db_file] => migrate(artifact, db_file),

@@ -216,7 +216,7 @@ impl Controller {
             "type": "node_register",
             "schema_version": 0,
             "node_id": self.client.node_id(),
-            "worker_version": env!("CARGO_PKG_VERSION"),
+            "worker_version": crate::WORKER_VERSION,
             "region": self.region,
             "max_cells": self.max_cells,
         });

@@ -33,6 +33,11 @@ pub mod telemetry;
 pub mod tiers;
 pub mod worker;
 
+/// The worker's version (#401): the crate version, which a `worker-v*`
+/// release tag must equal (`.github/workflows/release-worker.yml`). Sent as
+/// `worker_version` at registration and printed by `renox-worker --version`.
+pub const WORKER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub use artifact::{ArtifactDir, ArtifactError, ArtifactStore, LocalArtifactStore, Manifest};
 pub use cell::{Cell, CellKey};
 pub use config::WorkerConfig;

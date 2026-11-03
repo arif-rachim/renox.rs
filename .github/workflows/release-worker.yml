@@ -138,7 +138,17 @@ jobs:
             echo "::error::version '$version' is not semver (expected for example 0.1.0)"
             exit 1
           fi
+          # #401: the binary reports the crate version (`renox-worker
+          # --version`, `worker_version` at registration). A release whose
+          # tag differs from it fails here, before the build: bump
+          # crates/renox-cell/Cargo.toml (and Cargo.lock) first, then tag.
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' crates/renox-cell/Cargo.toml | head -n 1)
+          if [[ -n "$version" && "$version" != "$crate" ]]; then
+            echo "::error::release version $version differs from crates/renox-cell/Cargo.toml version $crate; set the crate version to $version before tagging worker-v$version"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "crate=$crate" >> "$GITHUB_OUTPUT"
       - run: rustup show active-toolchain || rustup toolchain install
       # ops/v8-archive.sh checks with sha256sum, which macOS lacks.
       - name: sha256sum on macOS
@@ -184,6 +194,18 @@ jobs:
           cargo build --release --locked -p renox-cell --bin renox-worker \
             --no-default-features --features media,avif,renox-runtime/packaged
           cp target/release/renox-worker target/renox-worker
+      # #401: the built binary reports the crate version, which the Version
+      # step matched against the tag; a mismatch fails the release.
+      - name: Version check
+        env:
+          CRATE_VERSION: ${{ steps.version.outputs.crate }}
+        run: |
+          got=$(target/renox-worker --version)
+          echo "$got" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$got" != "renox-worker $CRATE_VERSION" ]]; then
+            echo "::error::renox-worker --version printed '$got', expected 'renox-worker $CRATE_VERSION'"
+            exit 1
+          fi
       - name: Package
         env:
           VERSION: ${{ steps.version.outputs.version }}
