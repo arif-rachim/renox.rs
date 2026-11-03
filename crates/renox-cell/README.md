@@ -15,7 +15,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `listen` | — | Address of the gateway (plain HTTP in F1; TLS is `Gateway::serve_tls`, wired when certificates arrive from the control plane, F3) |
+| `listen` | — | Address of the gateway: HTTPS with `[tls]`, plain HTTP without. `[::]:<port>` is dual-stack (one IPv6 socket, `IPV6_V6ONLY` off; IPv4 clients count as their IPv4 address in the per-IP limits; `0.0.0.0` when the host has no IPv6, #404); `[tls] http_listen` the same. `renox-worker --version` prints the version (#401) |
 | `data_dir` | — | `<data_dir>/<tenant_id>/app.db` (the tenant file) and `<data_dir>/<tenant_id>/secrets.json` |
 | `artifacts_dir` | — | Artifact directories named by their content hash (`docs/contracts/artifact.md`); also the gateway's static file root |
 | `routes_file` | — | The route table (`docs/contracts/schemas/route-table.schema.json`); re-read on `SIGHUP` |

@@ -497,7 +497,7 @@ impl Worker {
             Some(tls) => Some(load_certificates(tls)?),
             None => None,
         };
-        let listener = TcpListener::bind(config.listen)
+        let listener = bind_listener(config.listen)
             .await
             .map_err(io("bind the listen address"))?;
         let addr = listener
@@ -580,7 +580,7 @@ impl Worker {
         let server = match (&config.tls, &certs) {
             (Some(tls), Some(store)) => {
                 if let Some(http_listen) = tls.http_listen {
-                    let plain = TcpListener::bind(http_listen)
+                    let plain = bind_listener(http_listen)
                         .await
                         .map_err(io("bind tls.http_listen"))?;
                     http_addr = Some(plain.local_addr().map_err(io("read tls.http_listen"))?);
@@ -796,6 +796,38 @@ impl Worker {
         }
         self.manager.meter().flush_and_close().await;
     }
+}
+
+/// Binds a public listener (#404). `[::]:<port>` is dual-stack: one IPv6
+/// socket with `IPV6_V6ONLY` off, so IPv4 clients arrive as v4-mapped
+/// addresses (`::ffff:a.b.c.d`), which the gateway's per-IP limits and
+/// `client_ip` count as the IPv4 address (`renox_gateway::rate_limit`).
+/// On a host without IPv6 the same port is bound on `0.0.0.0` with a
+/// warning. Any other address is bound as given.
+pub async fn bind_listener(addr: SocketAddr) -> std::io::Result<TcpListener> {
+    let SocketAddr::V6(v6) = addr else {
+        return TcpListener::bind(addr).await;
+    };
+    if !v6.ip().is_unspecified() {
+        return TcpListener::bind(addr).await;
+    }
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = match Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP)) {
+        Ok(s) => s,
+        Err(e) => {
+            let v4 = SocketAddr::from(([0, 0, 0, 0], addr.port()));
+            tracing::warn!(%addr, error = %e, fallback = %v4, "no IPv6 on this host; listening on IPv4 only");
+            return TcpListener::bind(v4).await;
+        }
+    };
+    socket.set_only_v6(false)?;
+    // What tokio's own bind sets on Unix: a restart rebinds at once.
+    #[cfg(unix)]
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    TcpListener::from_std(socket.into())
 }
 
 fn load_certificates(tls: &TlsSection) -> Result<Arc<CertStore>, WorkerError> {

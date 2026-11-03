@@ -78,6 +78,9 @@ sha2 = "0.11"
 # rav1e. README, "Images".
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "fs"] }
+# Dual-stack public listeners (`[::]` with IPV6_V6ONLY off, #404). Already
+# in the tree through tokio and hyper-util.
+socket2 = "0.6"
 # The zone of a job's `tz` (ops.md section 20, #297): the system tzdb,
 # already in the tree through other crates.
 jiff = "0.2.38"
