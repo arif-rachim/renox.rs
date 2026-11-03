@@ -22,6 +22,21 @@
 # reloads the worker; renox-control.service (when Bun and the repository's
 # node_modules are on this machine: RENOX_BUN_BIN, default `bun` on PATH)
 # listens on 127.0.0.1 only and refuses 0.0.0.0 behind loopback proxies.
+# HOST-OPS: node.token and platform.key are renox:renox 0400 and the real
+# single-host worker (controlled, sandbox on) starts with them and binds 443
+# and 80 with ip_unprivileged_port_start at 1024, holding only
+# CAP_NET_BIND_SERVICE (#393, #394); renox-cert-renew installs the first
+# certificate while the worker is stopped (#399); renox-backup-db.service runs
+# as postgres with its LoadCredential copy (#395); a challenge written under
+# renox-control.service's sandbox is served by the worker on :80 (#397);
+# production-install.test.sh, when Bun is on this machine (#400).
+# Threat-model rows (docs/24-threat-model.md): "Isolate escape (V8 bug)", the
+# systemd layer (the worker holds CAP_NET_BIND_SERVICE and nothing else,
+# renox-child@ gets none); "Key compromise", the node token and page session
+# key readable by renox only; "Secrets in logs, errors, bundle, responses",
+# the DNS token and the R2 secret never in a unit's journal; "Tenant files or
+# backups read from storage", the control-database backup encrypted to the
+# age public key through its real unit.
 # RENOX_TEST_STUB_WORKER=1 says the worker binary is a stand-in (a local run
 # without a build), so the real config parser is not asked.
 set -euo pipefail
@@ -34,7 +49,9 @@ skip() { echo "SKIP bootstrap-node container test: $*"; exit 0; }
 command -v docker >/dev/null 2>&1 || skip "docker is not installed"
 docker info >/dev/null 2>&1 || skip "no docker daemon reachable"
 
-image=renox-bootstrap-test:24.04
+# The tag names the package list: a new list gets a new tag, so a cached image
+# without the new packages is never reused.
+image=renox-bootstrap-test:24.04-age
 name=renox-bootstrap-test-$$
 ctx=$(mktemp -d)
 cleanup() {
@@ -48,7 +65,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   cat > "$ctx/Dockerfile" <<'DOCKERFILE'
 FROM ubuntu:24.04
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv curl ca-certificates python3 openssl iproute2 \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv curl ca-certificates python3 openssl iproute2 age \
  && rm -rf /var/lib/apt/lists/*
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
@@ -70,6 +87,16 @@ case $state in
   running | degraded) ;;
   *) skip "systemd in the container did not start (state: ${state:-none})" ;;
 esac
+# Two differences between a container and the Ubuntu 24.04 host, undone so
+# the test sees what the host does:
+# - Docker sets net.ipv4.ip_unprivileged_port_start to 0 in the container's
+#   network namespace; Ubuntu keeps 1024, where `renox` cannot bind 443 or 80
+#   without CAP_NET_BIND_SERVICE (#394).
+# - The container's / is a private mount, so systemd's credential directories
+#   (LoadCredential) never appear under /run/credentials; on the host / is
+#   shared (#395).
+docker exec "$name" sysctl -qw net.ipv4.ip_unprivileged_port_start=1024
+docker exec "$name" mount --make-rshared /
 
 docker exec "$name" mkdir -p /src
 docker cp "$here" "$name:/src/ops"
@@ -141,7 +168,9 @@ fi
 
 # 5. The single host (#366). The local-mode worker.toml is set aside so the
 # bootstrap writes the single-host one, then put back for the worker to run.
-docker exec "$name" sh -c 'printf "renox_node_test\n" > /src/node.token && chmod 0600 /src/node.token'
+# A token of the right shape (renox_node_ + 32 base32 characters) that no
+# control plane ever issued: the worker reads it at start (#393).
+docker exec "$name" sh -c 'printf "renox_node_%s\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > /src/node.token && chmod 0600 /src/node.token'
 # Fake cloudflared: proves it got both files through LoadCredential and that
 # its dynamic user cannot read the root-only credentials file directly; then
 # tells systemd it is ready, as the real one does.
@@ -212,16 +241,83 @@ done
 modes=$(docker exec "$name" stat -c '%n %a %U' /etc/renox/control.env /etc/renox/secrets /etc/renox/single-host.env /etc/renox/tunnel/config.yml)
 grep -q '^/etc/renox/control.env 600 root$' <<< "$modes" && grep -q '^/etc/renox/secrets 700 root$' <<< "$modes" && pass "control.env is 0600 root, secrets/ is 0700 root" || fail "modes: $modes"
 if docker exec "$name" id -u renox-control >/dev/null 2>&1; then pass "the renox-control user exists"; else fail "the renox-control user exists"; fi
+# #397: the shared ACME challenge directory and both settings.
+acme=$(docker exec "$name" stat -c '%U:%G %a' /var/lib/renox-acme-challenges 2>&1 || true)
+if [[ $acme == "renox-control:renox 2750" ]]; then pass "/var/lib/renox-acme-challenges is renox-control:renox 2750 (setgid)"; else fail "the challenge dir: $acme"; fi
+grep -q '^acme_dir = "/var/lib/renox-acme-challenges"$' <<< "$toml" && pass "worker.toml: [tls] acme_dir is the shared challenge dir" || fail "worker.toml acme_dir"
+if docker exec "$name" grep -q '^CONTROL_ACME_CHALLENGE_DIR=/var/lib/renox-acme-challenges$' /etc/renox/control.env \
+  && docker exec "$name" grep -q '^CONTROL_ACME_DIRECTORY_URL=https://' /etc/renox/control.env; then
+  pass "control.env: CONTROL_ACME_DIRECTORY_URL and CONTROL_ACME_CHALLENGE_DIR"
+else fail "control.env ACME settings"; fi
+# #393: the worker runs as renox and refuses any group or other bit.
+keys=$(docker exec "$name" stat -c '%n %U:%G %a' /etc/renox/node.token /etc/renox/platform.key 2>&1 || true)
+if grep -q '^/etc/renox/node.token renox:renox 400$' <<< "$keys" && grep -q '^/etc/renox/platform.key renox:renox 400$' <<< "$keys"; then
+  pass "node.token and platform.key are renox:renox 0400"
+else fail "node.token and platform.key modes: $keys"; fi
 if docker exec "$name" sh -c 'ls /etc/systemd/system | grep -q "\.example$"'; then fail "no template is installed as a unit"; else pass "no *.example lands in /etc/systemd/system"; fi
 # renox-control.service is verified in 5c, once Bun is in place.
 units="renox-tunnel.service renox-cert-renew.service renox-cert-renew.timer renox-backup-db.service renox-backup-db.timer"
 # shellcheck disable=SC2086
 if docker exec "$name" sh -c "cd /etc/systemd/system && systemd-analyze verify $units" 2>"$ctx/err"; then pass "the single-host units verify where they are installed"
 else fail "the single-host units verify: $(cat "$ctx/err")"; fi
-# A second run changes no template the owner filled in.
+# A second run changes no template the owner filled in, and corrects the
+# key files an older bootstrap installed root:renox 0640 (#393) without
+# touching their content.
 docker exec "$name" sh -c 'echo "# filled in" >> /etc/renox/control.env'
+sum_before=$(docker exec "$name" sha256sum /etc/renox/platform.key || true)
+docker exec "$name" sh -c 'chown root:renox /etc/renox/node.token /etc/renox/platform.key && chmod 0640 /etc/renox/node.token /etc/renox/platform.key'
 single --control-url http://127.0.0.1:8788 --blocked-addresses 203.0.113.10,127.0.0.1 >/dev/null 2>&1 || true
 if docker exec "$name" grep -q "# filled in" /etc/renox/control.env; then pass "a second run leaves control.env as the owner wrote it"; else fail "a second run leaves control.env"; fi
+keys=$(docker exec "$name" stat -c '%U:%G %a' /etc/renox/node.token /etc/renox/platform.key 2>&1 | sort -u || true)
+if [[ $keys == "renox:renox 400" && $(docker exec "$name" sha256sum /etc/renox/platform.key) == "$sum_before" ]]; then
+  pass "a second run corrects 0640 key files to renox:renox 0400 and keeps the platform key"
+else fail "a second run corrects the key files: $keys"; fi
+
+# 5-worker. The single-host worker as installed (#393, #394): controlled mode,
+# the sandbox on, the installed node.token and platform.key, the real ports
+# 443 and 80 with ip_unprivileged_port_start at 1024. No control plane
+# answers, so the worker runs degraded; it must still start and listen.
+if [[ ${RENOX_TEST_STUB_WORKER:-0} != 1 ]]; then
+  docker exec "$name" systemctl restart renox-worker
+  sleep 4
+  journal=$(docker exec "$name" journalctl -u renox-worker --no-pager -o cat -n 200 || true)
+  if [[ $(docker exec "$name" systemctl is-active renox-worker || true) == active ]] && grep -q '"controlled":true' <<< "$journal"; then
+    pass "renox-worker starts in controlled mode with the installed worker.toml, node.token and platform.key"
+  else fail "renox-worker starts with the installed files: $(tail -n 5 <<< "$journal")"; fi
+  if grep -Eq 'must be 0600|node token file|platform key file' <<< "$journal"; then fail "the worker accepts the installed key files"; else pass "the worker accepts the installed key files (no mode error)"; fi
+  listening=$(docker exec "$name" ss -Htlnp || true)
+  if grep -Eq '0\.0\.0\.0:443 .*renox-worker' <<< "$listening" && grep -Eq '0\.0\.0\.0:80 .*renox-worker' <<< "$listening"; then
+    pass "renox-worker binds 0.0.0.0:443 and 0.0.0.0:80 as renox"
+  else fail "renox-worker binds 443 and 80: $listening $(grep -m1 bind <<< "$journal")"; fi
+  worker_pid=$(docker exec "$name" systemctl show -p MainPID --value renox-worker || true)
+  caps=$(docker exec "$name" awk '/^Cap(Eff|Bnd)/ { print $2 }' "/proc/$worker_pid/status" 2>&1 | sort -u || true)
+  if [[ $caps == 0000000000000400 ]]; then pass "the worker holds CAP_NET_BIND_SERVICE and nothing else (effective and bounding)"; else fail "worker capabilities: $caps"; fi
+  # #397: a challenge written by renox-control.service, under the unit's own
+  # user, ProtectSystem, ReadWritePaths and UMask (only its ExecStart is
+  # replaced by a writer that does what DirChallengeResponder does: a 0644
+  # temp file renamed into place), is served by the worker on port 80 for a
+  # custom domain's Host.
+  docker exec "$name" sh -c 'mkdir -p /etc/systemd/system/renox-control.service.d && cat > /etc/systemd/system/renox-control.service.d/test-challenge.conf <<UNIT
+[Service]
+Type=oneshot
+WorkingDirectory=/
+ExecStart=
+ExecStart=/usr/bin/python3 -c "import os; d=os.environ[\"CONTROL_ACME_CHALLENGE_DIR\"]; t=os.path.join(d, \".renoxtok_-1.tmp\"); open(os.open(t, os.O_CREAT | os.O_WRONLY, 0o644), \"w\").write(\"renoxtok_-1.keyauth\"); os.rename(t, os.path.join(d, \"renoxtok_-1\"))"
+UNIT
+systemctl daemon-reload'
+  if docker exec "$name" systemctl start renox-control.service 2>"$ctx/err"; then
+    file=$(docker exec "$name" stat -c '%U:%G %a' /var/lib/renox-acme-challenges/renoxtok_-1 2>&1 || true)
+    answer=$(docker exec "$name" curl -fsS -H 'Host: dashboard.renoxium.test' http://127.0.0.1/.well-known/acme-challenge/renoxtok_-1 || true)
+    if [[ $file == "renox-control:renox 640" && $answer == renoxtok_-1.keyauth ]]; then
+      pass "a challenge renox-control.service writes (renox-control:renox 0640) is served by the worker on :80"
+    else fail "the shared challenge: file $file, answer ${answer:-none}"; fi
+  else fail "renox-control.service writes a challenge: $(cat "$ctx/err")"; docker exec "$name" journalctl -u renox-control --no-pager -o cat -n 10 >&2 || true; fi
+  docker exec "$name" sh -c 'rm -rf /etc/systemd/system/renox-control.service.d /var/lib/renox-acme-challenges/renoxtok_-1 && systemctl daemon-reload && systemctl reset-failed renox-control.service 2>/dev/null' || true
+else
+  echo "skip the single-host worker start (RENOX_TEST_STUB_WORKER=1)"
+fi
+child_caps=$(docker exec "$name" systemctl show -p AmbientCapabilities --value renox-child@t-test.service || true)
+if [[ -z $child_caps ]]; then pass "renox-child@ gets no ambient capability"; else fail "renox-child@ ambient capabilities: $child_caps"; fi
 # Back to the local-mode worker so it runs without a control plane.
 docker exec "$name" sh -c 'mv /src/local-worker.toml /etc/renox/worker.toml && systemctl restart renox-worker'
 
@@ -264,12 +360,79 @@ sleep 1
 if [[ $(docker exec "$name" systemctl is-active renox-worker || true) == active && $(docker exec "$name" systemctl show -p MainPID --value renox-worker) == "$pid_before" ]]; then
   pass "the worker survives the reload (same PID, still active)"
 else fail "the worker survives the reload"; fi
+# The runbook's order (#399): the first certificate (step 8) before the worker
+# runs (step 9). The unit installs it and succeeds without reloading anything.
+docker exec "$name" sh -c 'systemctl stop renox-worker && rm -rf /var/lib/renox-acme/certificates /var/lib/renox/data/_certs/_wildcard.renoxium.test /var/lib/renox/data/_certs/renoxium.test'
+since=$(docker exec "$name" date '+%Y-%m-%d %H:%M:%S')
+if docker exec "$name" systemctl start renox-cert-renew.service 2>"$ctx/err"; then
+  out=$(docker exec "$name" journalctl -u renox-cert-renew --no-pager -o cat --since "$since")
+  if grep -q "installed a new certificate" <<< "$out" && grep -q "renox-worker.service is not active; nothing reloaded" <<< "$out" \
+    && docker exec "$name" test -s /var/lib/renox/data/_certs/_wildcard.renoxium.test/fullchain.pem; then
+    pass "renox-cert-renew installs the first certificate while the worker is stopped and succeeds"
+  else fail "renox-cert-renew with the worker stopped: $out"; fi
+else fail "renox-cert-renew with the worker stopped: $(cat "$ctx/err")"; docker exec "$name" journalctl -u renox-cert-renew --no-pager -n 20 >&2 || true; fi
+if [[ $(docker exec "$name" systemctl is-active renox-worker || true) != active ]]; then pass "the renewal did not start the stopped worker"; else fail "the renewal started the worker"; fi
+docker exec "$name" systemctl start renox-worker
+
+# 5d. The backup through its unit (#395): User=postgres gets the R2 file from
+# LoadCredential as root 0440 (systemd 255), which backup-control-db.sh must
+# accept there. A fake pg_dump on the unit's PATH and a fake S3 on loopback;
+# the drop-in only allows that http:// endpoint (RENOX_BACKUP_ALLOW_HTTP), it
+# changes nothing about the credentials.
+docker exec "$name" sh -c 'id -u postgres >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin postgres'
+docker exec -i "$name" tee /usr/local/bin/pg_dump >/dev/null <<'SH'
+#!/bin/sh
+printf 'PGDMP fake dump of %s\n' "$*"
+SH
+docker exec -i "$name" tee /src/s3.py >/dev/null <<'PY'
+import http.server, os, sys, urllib.parse
+STORE = sys.argv[1]
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def signed(self): return self.headers.get("authorization", "").startswith("AWS4-HMAC-SHA256 Credential=RENOXTESTKEY0000000000001/")
+    def f(self): return os.path.join(STORE, urllib.parse.quote(self.path, safe=""))
+    def do_PUT(self):
+        body = self.rfile.read(int(self.headers.get("content-length", "0")))
+        ok = self.signed()
+        if ok: open(self.f(), "wb").write(body)
+        self.send_response(200 if ok else 403); self.send_header("content-length", "0"); self.end_headers()
+    def do_HEAD(self):
+        ok = self.signed() and os.path.exists(self.f())
+        self.send_response(200 if ok else 404)
+        self.send_header("content-length", str(os.path.getsize(self.f())) if ok else "0"); self.end_headers()
+http.server.HTTPServer(("127.0.0.1", 9599), H).serve_forever()
+PY
+docker exec "$name" sh -c 'chmod 0755 /usr/local/bin/pg_dump && mkdir -p /src/s3-store'
+docker exec -d "$name" python3 /src/s3.py /src/s3-store
+docker exec "$name" sh -c 'age-keygen -o /src/backup-age.key 2>/dev/null && age-keygen -y /src/backup-age.key > /etc/renox/backup-age.pub && chmod 0644 /etc/renox/backup-age.pub
+printf "R2_ENDPOINT=http://127.0.0.1:9599\nR2_BUCKET=renoxium-backups\nR2_ACCESS_KEY_ID=RENOXTESTKEY0000000000001\nR2_SECRET_ACCESS_KEY=test-secret-not-real\n" > /etc/renox/secrets/r2-backup.env
+chmod 0600 /etc/renox/secrets/r2-backup.env
+mkdir -p /etc/systemd/system/renox-backup-db.service.d
+printf "[Service]\nEnvironment=RENOX_BACKUP_ALLOW_HTTP=1\n" > /etc/systemd/system/renox-backup-db.service.d/test-http.conf
+systemctl daemon-reload'
+if docker exec "$name" systemctl start renox-backup-db.service 2>"$ctx/err"; then
+  out=$(docker exec "$name" journalctl -u renox-backup-db --no-pager -o cat)
+  obj=$(docker exec "$name" sh -c 'ls /src/s3-store | head -n 1' || true)
+  if grep -q "backup-control-db: renox -> renoxium-backups/control-db/" <<< "$out" && [[ -n $obj ]] \
+    && docker exec "$name" sh -c "age --decrypt --identity /src/backup-age.key '/src/s3-store/$obj' | grep -q 'PGDMP fake dump of'"; then
+    pass "renox-backup-db.service runs as postgres with the R2 file from LoadCredential (systemd's 0440) and uploads a dump that decrypts"
+  else fail "renox-backup-db.service: $out"; fi
+  if grep -q test-secret-not-real <<< "$out"; then fail "the R2 secret never reaches the journal"; else pass "the R2 secret never reaches the journal"; fi
+else fail "renox-backup-db.service runs: $(cat "$ctx/err")"; docker exec "$name" journalctl -u renox-backup-db --no-pager -o cat -n 20 >&2 || true; fi
+docker exec "$name" sh -c 'rm -r /etc/systemd/system/renox-backup-db.service.d && systemctl daemon-reload'
 
 fi
 
 # 5c. The control API under its unit, when Bun and node_modules are here.
 bun_bin=${RENOX_BUN_BIN:-$(command -v bun || true)}
 repo=$(cd "$here/.." && pwd)
+# ops/single-host.md step 3 (#400): the production install of the tracked
+# files, on this machine (it needs the npm registry).
+if [[ -n $bun_bin && -x $bun_bin ]]; then
+  if RENOX_BUN_BIN=$bun_bin "$here/scripts/production-install.test.sh" >"$ctx/prod" 2>&1; then
+    pass "bun install --frozen-lockfile --production works on the tracked files (production-install.test.sh)"
+  else fail "production-install.test.sh: $(grep -E '^(FAIL|SKIP)' "$ctx/prod")"; fi
+fi
 if [[ -n $bun_bin && -x $bun_bin && -d $repo/node_modules ]]; then
   # The checkout the runbook puts at /opt/renox/src: the tracked files and the installed node_modules.
   docker exec "$name" install -d -m 0755 /opt/renox/src

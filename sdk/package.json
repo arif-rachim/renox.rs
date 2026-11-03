@@ -59,7 +59,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "prepare": "bun run build",
+    "prepare": "if test -x ../node_modules/.bin/tsc; then bun run build; else echo 'renox: no TypeScript compiler in node_modules (bun install --production), sdk/dist is not built'; fi",
     "check": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p client",
     "test": "bun test"
   },
