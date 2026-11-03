@@ -34,6 +34,11 @@ export interface AppView {
 export async function appViews(db: Db, platformDomain: string, rows: AppRow[]): Promise<AppView[]> {
   if (rows.length === 0) return [];
   const names = rows.map((r) => r.name);
+  // deploy-api.md section 3: the platform hostname and every verified custom domain.
+  const custom = await db.query<{ app: string; hostname: string }>(
+    "select app, hostname from domains where tenant_id = $1 and state = 'verified' and app = any($2::text[]) order by hostname",
+    [rows[0]?.tenant_id, names],
+  );
   const active = new Map(
     (
       await db.query<{ app: string; hash: string }>(
@@ -47,6 +52,6 @@ export async function appViews(db: Db, platformDomain: string, rows: AppRow[]): 
     tenant_id: r.tenant_id,
     created_at: r.created_at,
     active_deployment: active.get(r.name) ?? null,
-    hostnames: [`${r.name}.${platformDomain}`],
+    hostnames: [`${r.name}.${platformDomain}`, ...custom.filter((c) => c.app === r.name).map((c) => c.hostname)],
   }));
 }

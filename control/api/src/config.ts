@@ -70,6 +70,24 @@ export interface Config {
   trustedProxies?: string[];
   /** `CONTROL_CLIENT_IP_HEADER` (#366): the header a trusted proxy puts the client address in (default `CF-Connecting-IP`). */
   clientIpHeader?: string;
+  /**
+   * Cloudflare for SaaS (#419, ADR D25): custom domains are custom hostnames on
+   * this zone. `CONTROL_CF_API_TOKEN`, `CONTROL_CF_ZONE_ID`,
+   * `CONTROL_CF_FALLBACK_ORIGIN`; all three or none. null: `addDomain` answers
+   * 503 `RENOX_UNAVAILABLE`.
+   */
+  cloudflare?: CloudflareConfig | null;
+}
+
+export interface CloudflareConfig {
+  /** `CONTROL_CF_API_TOKEN`: *SSL and Certificates: Edit* on the SaaS zone only. Never logged. */
+  apiToken: string;
+  /** `CONTROL_CF_ZONE_ID`: the zone of the platform domain (32 hex characters). */
+  zoneId: string;
+  /** `CONTROL_CF_FALLBACK_ORIGIN`: the CNAME target of custom domains (`edge.renoxium.app`). */
+  fallbackOrigin: string;
+  /** `CONTROL_CF_API_URL` (tests: a stub on loopback; default `https://api.cloudflare.com/client/v4`). */
+  apiUrl: string;
 }
 
 export type MailConfig =
@@ -93,6 +111,7 @@ export const DEFAULTS = {
   clientIpHeader: "CF-Connecting-IP",
   mailFrom: "Renoxium <no-reply@renoxium.com>",
   resendApiUrl: "https://api.resend.com",
+  cloudflareApiUrl: "https://api.cloudflare.com/client/v4",
 } as const;
 
 export class ConfigError extends Error {}
@@ -142,6 +161,37 @@ function mailConfig(env: Env): MailConfig {
     default:
       throw new ConfigError("CONTROL_MAIL_PROVIDER must be resend or outbox");
   }
+}
+
+/**
+ * The Cloudflare for SaaS keys (#419). All three or none; a refusal names the
+ * variable, never repeats the token.
+ */
+export function cloudflareConfig(env: Env): CloudflareConfig | null {
+  const token = env.CONTROL_CF_API_TOKEN ?? "";
+  const zone = env.CONTROL_CF_ZONE_ID ?? "";
+  const origin = (env.CONTROL_CF_FALLBACK_ORIGIN ?? "").trim().toLowerCase();
+  if (token === "" && zone === "" && origin === "") return null;
+  const missing = [
+    ["CONTROL_CF_API_TOKEN", token],
+    ["CONTROL_CF_ZONE_ID", zone],
+    ["CONTROL_CF_FALLBACK_ORIGIN", origin],
+  ].filter(([, v]) => v === "").map(([k]) => k);
+  if (missing.length > 0) throw new ConfigError(`Cloudflare for SaaS needs ${missing.join(", ")} as well (all three or none)`);
+  if (!/^[A-Za-z0-9_-]{20,200}$/u.test(token)) throw new ConfigError("CONTROL_CF_API_TOKEN is not a Cloudflare API token");
+  if (!/^[0-9a-f]{32}$/u.test(zone)) throw new ConfigError("CONTROL_CF_ZONE_ID must be 32 lower-case hex characters");
+  if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u.test(origin)) throw new ConfigError("CONTROL_CF_FALLBACK_ORIGIN must be a hostname, like edge.renoxium.app");
+  const apiUrl = (env.CONTROL_CF_API_URL ?? DEFAULTS.cloudflareApiUrl).replace(/\/+$/u, "");
+  let url: URL;
+  try {
+    url = new URL(apiUrl);
+  } catch {
+    throw new ConfigError("CONTROL_CF_API_URL is not a URL");
+  }
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "localhost";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new ConfigError("CONTROL_CF_API_URL must be https:// (http:// only to loopback)");
+  if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") throw new ConfigError("CONTROL_CF_API_URL must be an origin and path only");
+  return { apiToken: token, zoneId: zone, fallbackOrigin: origin, apiUrl };
 }
 
 /** True for an address only this host can reach: 127.0.0.0/8, ::1, `localhost`. */
@@ -229,5 +279,6 @@ export function loadConfig(env: Env = process.env): Config {
     securityPolicy: env.CONTROL_SECURITY_POLICY ?? null,
     trustedProxies: proxies,
     clientIpHeader: clientIpHeader(env.CONTROL_CLIENT_IP_HEADER),
+    cloudflare: cloudflareConfig(env),
   };
 }

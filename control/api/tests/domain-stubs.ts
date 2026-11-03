@@ -1,54 +1,75 @@
-// Stubs for the domain tests: a DNS resolver answering from maps, and
-// self-signed certificates made by openssl.
+// StubCloudflare: Cloudflare for SaaS custom hostnames in memory (#419). The
+// domain tests never call Cloudflare. A test moves a hostname through
+// Cloudflare's statuses with `setStatus`, makes the API fail with `failing`,
+// or "loses" a hostname with `forget`.
 
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { IssuedCertificate } from "../src/domains/acme.ts";
-import type { Resolver } from "../src/domains/dns.ts";
+import type { CustomHostname, CustomHostnames } from "../src/domains/cloudflare.ts";
+import { CloudflareError } from "../src/domains/cloudflare.ts";
 
-export class StubResolver implements Resolver {
-  readonly txts = new Map<string, string[]>();
-  readonly cnames = new Map<string, string>();
-  readonly addrs = new Map<string, string[]>();
+export const EDGE = "edge.renoxium.app";
+
+export class StubCloudflare implements CustomHostnames {
+  readonly fallbackOrigin = EDGE;
+  readonly hostnames = new Map<string, CustomHostname>();
+  /** Every call, as `create <hostname>`, `get <id>`, `delete <id>`. */
+  readonly calls: string[] = [];
+  /** Every call fails with an API error (no verdict on any hostname). */
   failing = false;
-  /** TXT lookups made, by name. */
-  readonly txtLookups = new Map<string, number>();
-  /**
-   * How many of the next TXT lookups of a name answer "no record" whatever
-   * is set: a resolver's negative cache of an NXDOMAIN from before the record
-   * existed (#398).
-   */
-  readonly staleNegatives = new Map<string, number>();
-  async txt(name: string): Promise<string[]> {
-    if (this.failing) throw Object.assign(new Error("SERVFAIL"), { code: "ESERVFAIL" });
-    this.txtLookups.set(name, (this.txtLookups.get(name) ?? 0) + 1);
-    const stale = this.staleNegatives.get(name) ?? 0;
-    if (stale > 0) {
-      this.staleNegatives.set(name, stale - 1);
-      return [];
-    }
-    return this.txts.get(name) ?? [];
+  private next = 1;
+
+  private check(): void {
+    if (this.failing) throw new CloudflareError("Cloudflare read failed: HTTP 503", 503);
   }
-  async cname(name: string): Promise<string | null> {
-    if (this.failing) throw Object.assign(new Error("SERVFAIL"), { code: "ESERVFAIL" });
-    return this.cnames.get(name) ?? null;
+
+  async create(hostname: string): Promise<CustomHostname> {
+    this.calls.push(`create ${hostname}`);
+    this.check();
+    const existing = [...this.hostnames.values()].find((h) => h.hostname === hostname);
+    if (existing !== undefined) return { ...existing };
+    const id = `cf-${String(this.next++).padStart(4, "0")}`;
+    const h: CustomHostname = {
+      id,
+      hostname,
+      status: "pending",
+      ssl_status: "pending_validation",
+      verification: [
+        { purpose: "ownership", type: "TXT", name: `_cf-custom-hostname.${hostname}`, value: `own-${id}` },
+        { purpose: "dcv", type: "TXT", name: `_acme-challenge.${hostname}`, value: `dcv-${id}` },
+      ],
+      errors: [],
+    };
+    this.hostnames.set(id, h);
+    return { ...h };
   }
-  async addresses(name: string): Promise<string[]> {
-    if (this.failing) throw Object.assign(new Error("SERVFAIL"), { code: "ESERVFAIL" });
-    return this.addrs.get(name) ?? [];
+
+  async get(id: string): Promise<CustomHostname | null> {
+    this.calls.push(`get ${id}`);
+    this.check();
+    const h = this.hostnames.get(id);
+    return h === undefined ? null : { ...h };
+  }
+
+  async delete(id: string): Promise<void> {
+    this.calls.push(`delete ${id}`);
+    this.check();
+    this.hostnames.delete(id);
+  }
+
+  /** The custom hostname of `hostname`. */
+  of(hostname: string): CustomHostname | undefined {
+    return [...this.hostnames.values()].find((h) => h.hostname === hostname);
+  }
+
+  /** Cloudflare reports `status` for `hostname` from now on; `active` also clears the records. */
+  setStatus(hostname: string, status: string, ssl = status === "active" ? "active" : "pending_validation"): void {
+    const h = this.of(hostname);
+    if (h === undefined) throw new Error(`no custom hostname ${hostname}`);
+    this.hostnames.set(h.id, { ...h, status, ssl_status: ssl, verification: status === "active" ? [] : h.verification });
+  }
+
+  /** Cloudflare no longer knows the hostname (get answers not found). */
+  forget(hostname: string): void {
+    const h = this.of(hostname);
+    if (h !== undefined) this.hostnames.delete(h.id);
   }
 }
-
-/** A self-signed certificate for `hostname` valid `days` days from now, by openssl. */
-export function selfSigned(hostname: string, days: number): IssuedCertificate {
-  const dir = mkdtempSync(join(tmpdir(), "renox-cert-"));
-  execFileSync("openssl", [
-    "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-days", String(days),
-    "-subj", `/CN=${hostname}`, "-addext", `subjectAltName=DNS:${hostname}`,
-    "-keyout", join(dir, "key.pem"), "-out", join(dir, "cert.pem"),
-  ], { stdio: "ignore" });
-  return { chainPem: readFileSync(join(dir, "cert.pem"), "utf8"), keyPem: readFileSync(join(dir, "key.pem"), "utf8") };
-}
-

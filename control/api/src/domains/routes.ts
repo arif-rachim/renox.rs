@@ -1,21 +1,21 @@
-// Domains API (docs/contracts/deploy-api.md section 10): add, list, read,
-// detach, and the node's certificate bundle.
+// Domains API (docs/contracts/deploy-api.md 0.6 section 10): add, list,
+// read, detach. Custom hostnames live at Cloudflare for SaaS (#419); nodes
+// get no certificate.
 
 import type { Hono } from "hono";
 import { operation } from "../audit.ts";
-import { nodeAuth, tenantAuth } from "../auth/middleware.ts";
-import { crossTenant, tenantDb } from "../tenancy/scope.ts";
+import { tenantAuth } from "../auth/middleware.ts";
+import { tenantDb } from "../tenancy/scope.ts";
 import { requireApp } from "../apps/repo.ts";
 import { assertTransition } from "../contract.ts";
-import { ApiError, conflict, notFound } from "../errors.ts";
+import { conflict } from "../errors.ts";
 import { num } from "../db/db.ts";
 import { newTenantRestrictions } from "../tenants/erasure.ts";
 import { jsonBody, pathParam } from "../http.ts";
-import { actorOf, type Deps, type Env } from "../context.ts";
-import { deleteCertificate, loadCertificate } from "./certs.ts";
-import { checkCustomHostname, domainView, domainViews, listDomains, requireDomain, toDomain, DOMAIN_COLUMNS } from "./repo.ts";
-import { claimHostname, stopServing } from "./ownership.ts";
-import { domainService } from "./service.ts";
+import type { Deps, Env } from "../context.ts";
+import { checkCustomHostname, domainView, listDomains, requireDomain, toDomain, DOMAIN_COLUMNS } from "./repo.ts";
+import { claimHostname, deleteHostname, stopServing } from "./ownership.ts";
+import { cnameTarget, requireCloudflare } from "./service.ts";
 
 export function registerDomains(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps/:app/domains", operation(deps, "addDomain"), tenantAuth(deps, "domains:write"), async (c) => {
@@ -29,23 +29,24 @@ export function registerDomains(app: Hono<Env>, deps: Deps): void {
     // until a payment method is confirmed or 7 days pass without a flag.
     const created = (await t.query<{ created_at: unknown }>("select created_at from tenants where id = $1", [tenant]))[0]?.created_at;
     if ((await newTenantRestrictions(t, tenant, num(created), deps.now())).includes("no_custom_domain")) throw conflict("tenant", "no_custom_domain");
-    const row = await claimHostname(t, appName, hostname, deps.now());
-    const [view] = await domainViews(t, tenant, [row]);
-    return c.json(view, 201);
+    // 503 before anything is claimed when Cloudflare for SaaS is not configured.
+    requireCloudflare(deps);
+    const row = await claimHostname(deps, t, appName, hostname, deps.now());
+    return c.json(domainView(row, cnameTarget(deps)), 201);
   });
 
   app.get("/v1/apps/:app/domains", operation(deps, "listDomains"), tenantAuth(deps, "apps:read"), async (c) => {
     const t = tenantDb(deps, c);
     const appName = (await requireApp(t, t.tenantId, pathParam(c, "app", "AppName"))).name;
-    return c.json({ domains: await domainViews(t, t.tenantId, await listDomains(t, t.tenantId, appName)) });
+    const target = cnameTarget(deps);
+    return c.json({ domains: (await listDomains(t, t.tenantId, appName)).map((d) => domainView(d, target)) });
   });
 
   app.get("/v1/apps/:app/domains/:hostname", operation(deps, "getDomain"), tenantAuth(deps, "apps:read"), async (c) => {
     const t = tenantDb(deps, c);
     const appName = (await requireApp(t, t.tenantId, pathParam(c, "app", "AppName"))).name;
     const d = await requireDomain(t, t.tenantId, appName, pathParam(c, "hostname", "Hostname"));
-    const [view] = await domainViews(t, t.tenantId, [d]);
-    return c.json(view);
+    return c.json(domainView(d, cnameTarget(deps)));
   });
 
   // verified -> detached (still owned for 30 days, ownership.ts), pending
@@ -70,29 +71,8 @@ export function registerDomains(app: Hono<Env>, deps: Deps): void {
       return { before: d, after: toDomain(rows[0] as Record<string, unknown>) };
     });
     if (before.state === "verified") await stopServing(deps, hostname);
-    // Released: nobody may be served this certificate again.
-    if (after.state === "released") await deleteCertificate(crossTenant(deps.db, "a certificate belongs to a hostname, whichever tenant held it"), hostname);
-    // A released claim has no certificate any more.
-    const [view] = after.state === "released" ? [domainView({ ...after, cert_state: "none" }, null)] : await domainViews(t, tenant, [after]);
-    return c.json(view);
-  });
-
-  // The node's bundle: chain and key of a verified hostname. Every node
-  // terminates TLS for every hostname, so any registered node may fetch it.
-  app.get("/v1/nodes/:node_id/certificates/:hostname", operation(deps, "fetchCertificate"), nodeAuth(deps), async (c) => {
-    const hostname = pathParam(c, "hostname", "Hostname");
-    const keys = domainService(deps).keys;
-    if (keys === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 60 });
-    const verified = await deps.db.query("select 1 from domains where hostname = $1 and state = 'verified'", [hostname]);
-    if (verified.length === 0) throw notFound();
-    const cert = await loadCertificate(deps.db, keys, hostname);
-    if (cert === null) throw notFound();
-    deps.log.info("certificate bundle served", { request_id: c.get("requestId"), actor: actorOf(c.get("principal")), hostname, version: cert.version });
-    return c.json(
-      { type: "certificate_bundle", schema_version: 0, hostname, version: cert.version, not_after: cert.not_after, chain_pem: cert.chain_pem, key_pem: cert.key_pem },
-      200,
-      { "cache-control": "no-store" },
-    );
+    // Released: the custom hostname is deleted at Cloudflare (retried by the job on failure).
+    if (after.state === "released") await deleteHostname(deps, after);
+    return c.json(domainView(after, cnameTarget(deps)));
   });
 }
-

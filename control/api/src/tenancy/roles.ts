@@ -91,7 +91,6 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   prepareResult: "node",
   fetchArtifact: "node",
   fetchSecrets: "node",
-  fetchCertificate: "node",
   ingestMeters: "node",
   ingestLogs: "node",
   // Usage (src/ingest/routes.ts, #56).

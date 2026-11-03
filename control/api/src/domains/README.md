@@ -1,78 +1,53 @@
-# src/domains — custom domains and certificates (#59)
+# src/domains — custom domains through Cloudflare for SaaS (#59, #419)
 
-The contract is `docs/contracts/deploy-api.md` section 10; the product rules are `docs/05-tenant-lifecycle.md`, "Custom domains and DNS".
+The contract is `docs/contracts/deploy-api.md` 0.6 section 10; the decision is ADR D25 (`docs/13-decisions.md`); the product rules are `docs/05-tenant-lifecycle.md`, "Custom domains and DNS".
+
+Every custom domain, the platform's own included (`renoxium.com`, `www.renoxium.com` and `dashboard.renoxium.com`, attached to the platform tenant through the same `addDomain` path, #396), is a **custom hostname** on the platform domain's Cloudflare zone. Cloudflare proves ownership with its pre-validation TXT record, validates and issues the edge certificate (DCV by TXT), renews it, and sends the traffic through the tunnel's fallback origin (`edge.renoxium.app`) to the worker. The control API orders no certificate, stores no key and runs no DNS lookups; nodes receive no certificate.
 
 | File | What |
 | --- | --- |
-| `routes.ts` | `POST/GET /v1/apps/{app}/domains`, `GET/DELETE …/{hostname}`, and the node's `GET /v1/nodes/{node_id}/certificates/{hostname}` |
-| `repo.ts` | Domain rows and views; the route entries of verified domains |
-| `jobs.ts` | The domain job: TXT verification, DNS checks, certificate orders and renewal |
-| `ownership.ts` | One owner per hostname, the 30-day hold of a detached claim, stop and resume serving (#114) |
-| `reverify.ts` | The TXT re-check every 7 days and before every order (#114); detach only after consecutive misses over a grace period (#398) |
-| `dns.ts` | The resolver interface, the TXT check, the "points at the edge" check |
-| `acme.ts` | A minimal ACME client (RFC 8555, HTTP-01, ES256 account key) |
-| `csr.ts` | Certificate keys (P-256) and the PKCS#10 request |
-| `challenges.ts` | Where HTTP-01 key authorizations go (a directory the workers serve) |
-| `certs.ts` | Certificates and the ACME account key at rest, encrypted with the platform data key |
-| `service.ts` | The per-process parts (resolver, ACME client, responder, edge, keys) and the certificate messages to nodes |
+| `routes.ts` | `POST/GET /v1/apps/{app}/domains`, `GET/DELETE …/{hostname}` |
+| `cloudflare.ts` | The `CustomHostnames` interface and its client (create, get, delete) for `zones/{zone}/custom_hostnames` |
+| `service.ts` | The per-process client from `CONTROL_CF_*`; `configureDomains` replaces it in tests (`StubCloudflare`, `tests/domain-stubs.ts`) |
+| `repo.ts` | Domain rows (with the custom hostname's id and last status), the `Domain` view, the route entries of verified domains |
+| `jobs.ts` | The domain job: the pending poll, the re-checks, custom hostnames for rows that lack one, releases, the route mirror |
+| `ownership.ts` | One owner per hostname, the 30-day hold of a detached claim, the custom hostname's creation and deletion (#114) |
+| `reverify.ts` | The status poll of verified and detached domains; detach only after consecutive misses over a grace period (#398) |
 
 ## Lifecycle
 
-1. **Add.** `POST /v1/apps/{app}/domains {hostname}` creates a `pending` claim and returns the TXT record: `_renox-verify.<hostname>` = `rnx-verify-<26 random base32 characters>`. A hostname of the platform domain (`*.renoxium.app` in the reference deployment, `CONTROL_PLATFORM_DOMAIN`) is refused with 400; a hostname another claim holds (any state but `released`) gets 409 `not available`, without naming the holder.
-2. **Verify.** The job looks the TXT record up every minute (`PENDING_POLL_MS`). A match moves the claim to `verified`. Before that, the hostname has no route entry and no certificate, so every node answers 404 for it (failure mode "Unverified custom domain").
+1. **Add.** `POST /v1/apps/{app}/domains {hostname}` claims the hostname (`pending`) and creates its custom hostname at Cloudflare (DV certificate, TXT validation, TLS 1.2 minimum). The answer carries `cname_target` (the fallback origin), Cloudflare's `status` and `ssl_status`, and `verification`: Cloudflare's ownership TXT (`purpose: ownership`) and the certificate's DCV TXT (`purpose: dcv`). A hostname of the platform domain is refused with 400; a hostname another claim holds (any state but `released`) gets 409 `not available`, without naming the holder. Without `CONTROL_CF_*` the answer is 503 `RENOX_UNAVAILABLE` and nothing is claimed; when Cloudflare refuses or does not answer, a new claim is withdrawn and the answer is 503 too.
+2. **Verify.** The job reads the custom hostname every minute (`PENDING_POLL_MS`). Cloudflare's `active` (the ownership TXT found and the CNAME reaching the zone) moves the claim to `verified`. Before that the hostname has no route entry, so every node answers 404 for it (failure mode "Unverified custom domain").
 3. **Serve.** A verified hostname's route entries mirror those of `<app>.<platform domain>`: same deployment, status, node, tier and secret version. The mirror is recomputed after every domain change and on every job tick, so an activation or a rollback reaches custom domains within one tick (5 s in `main.ts`).
-4. **Point.** Every hour (`DNS_CHECK_MS`) the job checks that the hostname reaches the edge: a CNAME to the edge hostname, or A/AAAA records that are all edge addresses. `dns` is `pending` until the first success, then `ok` or `not_pointing` (the "stopped pointing at Renox" flag). A failed lookup changes nothing.
-5. **Certificate.** A verified domain whose `dns` is `ok` and that has no certificate, or one that expires within 30 days (`RENEW_BEFORE_MS`), gets an ACME order: HTTP-01, the key authorization written to the challenge directory, the worker's `:80` listener (#162) answering it. Renewal is paused while `dns` is not `ok`. A failed order is retried after 1 h, doubled per failure, at most 24 h; a domain that already has a certificate keeps serving it. The certificate is stored encrypted and every node gets `certificate_update` (hostname, version, `not_after`) on its stream; the node fetches the chain and key from `GET /v1/nodes/{node_id}/certificates/{hostname}` (`Cache-Control: no-store`), writes `<cert_dir>/<hostname>/{fullchain,privkey}.pem`, and reloads.
-6. **Detach.** `DELETE` moves `verified` to `detached` (entries removed, `certificate_remove` to every node) and `pending` or `detached` to `released` (the stored certificate is deleted). A released hostname can be claimed again.
+4. **Detach.** `DELETE` moves `verified` to `detached` (entries removed; the custom hostname is kept for the hold) and `pending` or `detached` to `released` (the custom hostname is deleted at Cloudflare; a failed delete is retried by the job). A released hostname can be claimed again.
+
+**Apex domains.** There is no node address to give (the origin is hidden behind the tunnel). Customers use `www.<their domain>` and redirect the apex to it at their DNS provider or registrar, or use CNAME flattening where their DNS provider offers it.
 
 ## Ownership (#114)
 
 `docs/24-threat-model.md` section C, "Custom domain takeover":
 
-- **One owner.** A hostname has at most one claim in any state but `released` (unique index `domains_one_owner`). Of two tenants racing for one hostname exactly one wins; the other gets 409 `not available`, without the owner's name.
-- **Hold.** A detached claim stays owned for 30 days (`HOLD_MS`), then the job releases it and deletes its certificate. Within the hold, a hostname whose CNAME still points at Renox cannot be claimed by another tenant. Its owner can add it again, which re-verifies it, or `DELETE` it again, which releases it at once.
-- **Re-verification.** The TXT record is checked again every 7 days (`REVERIFY_MS`) and before every certificate order. The pre-order check is skipped while the record was seen, or the domain verified, less than 15 minutes ago (`FRESH_TXT_MS`) and no miss is counted, so the first order right after verification does not ask the resolver again (#398). One negative answer does not detach: a resolver may negative-cache the NXDOMAIN it saw before the record existed. A miss is counted (`txt_misses`, `txt_first_miss_at`, migration `0027`) and the record checked again after 15 minutes (`MISS_RECHECK_MS`); a miss before an order also blocks that order until then. Only the third consecutive miss (`DETACH_MISSES`) at least 30 minutes after the first (`DETACH_GRACE_MS`) detaches; any match resets the count. Then the domain moves `verified` → `detached`: serving stops, the tenant's owners and admins get a `domain_detached` email, and an audit row (`detachDomain`, actor `domain-job`) is written. While it is detached for that reason, the record is checked every hour. When the record is back, the domain moves → `verified` (`reverifyDomain`), its entries return, and the stored certificate is announced again under a new version. A failed lookup is not a missing record. **Forcing a re-check:** the owner's `POST /v1/apps/{app}/domains {hostname}` on their own detached claim answers 201 with the same TXT record, moves the claim to `app`, and makes the record due at once, so the next job tick (5 s) checks it instead of waiting up to the hour.
-- **Slugs.** App names are the `<app>.renoxium.app` slugs (`<app>.<platform domain>`) (`src/apps/slugs.ts`). Reserved words are never app names, and a deleted app's name is quarantined for 90 days for every other tenant. Both are enforced by triggers on `apps`, so `createApp` answers 409 `not available`.
-- **Public Suffix List.** `ops/psl/README.md` has the submission checklist and the interim cookie rules.
-
-Versions of `certificate_update` and `certificate_remove` come from one sequence for all hostnames, so a node can order any two messages about one hostname, also across a release and a new claim.
-
-## At rest
-
-Chains, keys and the ACME account key are encrypted with AES-256-GCM under the platform's data key, which is wrapped by the master key like a tenant's (`deploy-api.md` section 9) under the key id `_platform` (no tenant id can start with `_`). The associated data binds each ciphertext to its hostname and version, or to its ACME directory. Keys are never logged and never travel on the node stream.
+- **One owner.** A hostname has at most one claim in any state but `released` (unique index `domains_one_owner`), and a custom hostname belongs to one row (unique index `domains_cf_hostname_id`). Of two tenants racing for one hostname exactly one wins; the other gets 409 `not available`, without the owner's name, and Cloudflare is not asked.
+- **Hold.** A detached claim stays owned for 30 days (`HOLD_MS`), then the job releases it and deletes its custom hostname. Its owner can add it again, which re-checks it, or `DELETE` it again, which releases it at once.
+- **Status poll.** A verified domain's custom hostname is read every hour (`REVERIFY_MS`). `active` is a match. `moved` (the customer's CNAME no longer reaches us), `deleted`, `blocked`, their pending forms and "not found" are misses. One miss never detaches: it is counted (`cf_misses`, `cf_first_miss_at`, migration `0029`) and read again after 15 minutes (`MISS_RECHECK_MS`); only the third consecutive miss (`DETACH_MISSES`) at least 30 minutes after the first (`DETACH_GRACE_MS`) detaches. Any match resets the count. An API error, a timeout, or any other status (for example `pending` while Cloudflare re-validates) is **unknown**: not a miss, nothing changes, retried within the hour (the lesson of #398, kept for the poll). A detached domain: serving stops, the tenant's owners and admins get a `domain_detached` email naming the status, and an audit row (`detachDomain`, actor `domain-job`) is written. It is read every hour; `active` moves it back to `verified` (`reverifyDomain`) and its entries return. **Forcing a re-check:** the owner's `POST /v1/apps/{app}/domains {hostname}` on their own detached claim answers 201 with the same custom hostname, moves the claim to `app`, and makes it due at once.
+- **Slugs.** App names are the `<app>.renoxium.app` slugs (`src/apps/slugs.ts`). Reserved words are never app names, and a deleted app's name is quarantined for 90 days for every other tenant. Both are enforced by triggers on `apps`, so `createApp` answers 409 `not available`.
+- **Erasure.** Erasing a tenant deletes its custom hostnames at Cloudflare before its domain rows (`src/tenants/erasure.ts`, step `records`); a failure keeps the step for the next retry.
 
 ## Configuration
 
-Read by `startDomainJobs` in `main.ts`:
+Read by `loadConfig` (`src/config.ts`), all three or none; a refusal names the variable and never repeats the token:
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `CONTROL_ACME_DIRECTORY_URL` | unset: no certificates are ordered | e.g. `https://acme-staging-v02.api.letsencrypt.org/directory`, then production |
-| `CONTROL_ACME_CHALLENGE_DIR` | unset: no certificates are ordered | The directory the workers serve as `[tls] acme_dir` |
-| `CONTROL_ACME_EMAIL` | unset | ACME account contact |
-| `CONTROL_ACME_CA_FILE` | unset | Extra CA (PEM) for the ACME server's own TLS (Pebble) |
-| `CONTROL_EDGE_HOSTNAME` | `edge.<CONTROL_PLATFORM_DOMAIN>` | The CNAME target tenants use |
-| `CONTROL_EDGE_ADDRESSES` | empty | Comma-separated A/AAAA addresses an apex may point at |
-| `CONTROL_DNS_SERVERS` | the system's | Comma-separated `ip` or `ip:port` for the DNS checks. Set it when the host's provider resolvers time out or answer stale negatives: on `node-small` they did, 1.1.1.1 was unreachable, and Quad9 (`9.9.9.9,149.112.112.112`) worked (#398) |
+| Variable | Meaning |
+| --- | --- |
+| `CONTROL_CF_API_TOKEN` | A Cloudflare API token with *Zone → SSL and Certificates → Edit* on the platform domain's zone only. Sent in the `Authorization` header; never logged |
+| `CONTROL_CF_ZONE_ID` | The zone id (32 hex characters) of the platform domain (`renoxium.app`) |
+| `CONTROL_CF_FALLBACK_ORIGIN` | The CNAME target of custom domains and the zone's fallback origin, `edge.renoxium.app` (a proxied CNAME to the tunnel, set in the Cloudflare dashboard) |
+| `CONTROL_CF_API_URL` | Default `https://api.cloudflare.com/client/v4`; `http://` only to loopback |
 
-`CONTROL_MASTER_KEY` is needed too: without it certificates can be neither stored nor served (the node endpoint answers 503).
+Unset: `addDomain` answers 503 and the job creates nothing (local development and tests without a stub). The `_renox-verify` TXT record, the ACME settings (`CONTROL_ACME_*`), `CONTROL_EDGE_*` and `CONTROL_DNS_SERVERS` are gone (#419).
 
-## Limits of this version
-
-- **Challenge distribution.** HTTP-01 is answered by whichever node the CA reaches, from that node's `acme_dir`. `DirChallengeResponder` writes into one directory, so the control plane and the workers must share it (one host, or a shared volume). Several hosts need the key authorization on every node: a control message or an endpoint the node falls back to; neither is in the contract yet.
-- **Node side.** Fetching bundles on `certificate_update`, writing `cert_dir` and reloading is the node's control client (#55). A node that was offline learns current certificates by fetching the bundle of every custom hostname of its route snapshot; the contract has no certificate snapshot.
-- **No wildcard domains.** The contract's `Hostname` pattern has no `*.` form, and wildcards need DNS-01 (`docs/05-tenant-lifecycle.md`). So the "most specific claim wins" rule between a wildcard and a subdomain (#114) has nothing to apply to yet.
+**Plan and price.** Cloudflare for SaaS on the zone's plan: the first 100 custom hostnames are included, then about $0.10 per hostname per month (the owner records the exact numbers from the dashboard in ADR D25 before enabling).
 
 ## Tests
 
-`tests/domains.test.ts` runs every step with a stub resolver and a stub issuer. `tests/domains-e2e.test.ts` runs the whole path against Pebble (Let's Encrypt's ACME test server), `pebble-challtestsrv` as the DNS server, and two `renox-worker` processes; it is skipped unless both are present:
-
-```sh
-mkdir -p /tmp/pebble && cd /tmp/pebble
-for f in pebble pebble-challtestsrv; do
-  curl -sSL https://github.com/letsencrypt/pebble/releases/download/v2.7.0/$f-linux-amd64.tar.gz | tar xz --strip-components=3 $f-linux-amd64/linux/amd64/$f
-done
-chmod +x pebble pebble-challtestsrv
-cd -
-RENOX_PEBBLE_DIR=/tmp/pebble RENOX_WORKER_PATH=$PWD/target/debug/renox-worker bun test tests/domains-e2e.test.ts
-```
+`tests/domains.test.ts` (add, the 503s, the poll, the route mirror, remove, the client against a fake `fetch`, the configuration) and `tests/domains-ownership.test.ts` (one owner, the hold, the status poll and its miss rule) run against `StubCloudflare`. The test harness (`tests/helpers.ts`) configures a `StubCloudflare` for every test; no test calls Cloudflare.

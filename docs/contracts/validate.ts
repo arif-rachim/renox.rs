@@ -1356,9 +1356,6 @@ const controlMessages: Record<string, Omit<Message, "schema">> = {
   prepare: {},
   prepare_result: {},
   secrets_bundle: {},
-  certificate_update: {},
-  certificate_remove: {},
-  certificate_bundle: {},
   log_batch: {},
   // Node listener (deploy-api.md section 15, 0.3).
   restore_request: {},

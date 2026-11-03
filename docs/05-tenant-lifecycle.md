@@ -54,36 +54,36 @@ Deployment switch: the new isolate is created alongside the old one; new request
 
 ## Custom domains and DNS
 
-Every app gets `<app>.renoxium.app` and per-deployment preview hosts (`<app>-<hash>.renoxium.app`); `renoxium.app` serves tenant apps only, and the platform's own services live on `renoxium.com` (`docs/contracts/README.md`, "Domains"). Tenants attach their own domains without transferring them; Renox never needs to be the registrar or DNS provider. Routing is by hostname (SNI and `Host`), so a custom domain is one more row in the gateway's route table.
+Every app gets `<app>.renoxium.app` and per-deployment preview hosts (`<app>-<hash>.renoxium.app`); `renoxium.app` serves tenant apps only, and the platform's own services live on `renoxium.com` (`docs/contracts/README.md`, "Domains"). Tenants attach their own domains without transferring them; Renoxium never needs to be the registrar or DNS provider. Every custom domain is a **Cloudflare for SaaS** custom hostname on the platform domain's zone (ADR D25): Cloudflare proves ownership, issues and renews the certificate, terminates TLS and forwards the request through the tunnel to the worker, which routes by `Host`. A custom domain is one more row in the gateway's route table.
 
 ### Attaching a domain
 
-| Step | Tenant | Renox |
+| Step | Tenant | Renoxium |
 | --- | --- | --- |
-| 1. Add | Dashboard, `renox domains add www.example.com`, or the MCP tool `add_domain` | Creates a verification token and shows DNS instructions |
-| 2. Verify ownership | `TXT _renox-verify.example.com = rnx-verify-<token>` | Polls until it matches. The hostname is **not served** before verification (prevents domain takeover) |
-| 3. Point traffic | `www` → `CNAME edge.renoxium.app`; apex (`example.com`) → `ALIAS`/`ANAME` where the DNS provider supports it, otherwise `A`/`AAAA` records to Renox anycast IPs | Watches propagation; shows "DNS: ok / pending" |
-| 4. Certificate | Nothing | ACME (Let's Encrypt): HTTP-01 for hostnames, DNS-01 for wildcards; renewal 30 days before expiry; issuance queued to respect rate limits |
-| 5. Live | Opens `https://www.example.com` | Serves with the right certificate; apex ↔ `www` redirect per the tenant's canonical choice |
+| 1. Add | Dashboard, `renox domains add www.example.com`, or the MCP tool `add_domain` | Creates the custom hostname at Cloudflare and shows the records to create (`verification`) and the CNAME target. Without Cloudflare configured: 503 |
+| 2. Verify ownership and point traffic | Cloudflare's ownership TXT (`_cf-custom-hostname.www.example.com`), the certificate's DCV TXT, and `www` → `CNAME edge.renoxium.app` | Reads the custom hostname every minute until Cloudflare reports it `active`. The hostname is **not served** before (prevents domain takeover) |
+| 3. Certificate | Nothing | Cloudflare issues and renews the edge certificate |
+| 4. Live | Opens `https://www.example.com` | Served through Cloudflare and the tunnel |
+
+**Apex domains.** There is no address to give: the origin is behind the tunnel. Use `www.<domain>` and redirect the apex to it at the DNS provider or registrar; CNAME flattening (`ALIAS`/`ANAME`) works where the DNS provider offers it. No A record is offered.
 
 ### Supported cases
 
 | Case | Support |
 | --- | --- |
 | Several domains per app | Yes; one canonical, others 301 |
-| Domain proxied by Cloudflare | Yes; certificates still issued; Cloudflare connects to Renox over TLS |
-| Wildcard (`*.example.com`) for tenants building their own multi-tenant SaaS | Yes; requires DNS-01 via a one-time `CNAME _acme-challenge.example.com → acme.renoxium.app`; one certificate covers all subdomains |
-| Domains owned by the tenant's own customers (Shopify-style `shopbudi.com` → tenant app) | Yes, via the **Domains API** from inside the app: `ctx.domains.add("shopbudi.com", { route: "/stores/budi" })`; the tenant app shows the DNS instructions to its customer; verification and certificates work the same way; metered per domain |
-| Other records (MX, unrelated subdomains) | Untouched; Renox only asks for records of registered hostnames |
-| Buying domains through Renox | Not initially; possible later through a registrar partner |
+| Domain whose own zone is proxied by Cloudflare | Through Cloudflare's Orange-to-Orange rules for SaaS; to verify per customer. The platform's own `renoxium.com` names use DNS-only CNAMEs to `edge.renoxium.app` to stay on the plain path (D25) |
+| Wildcard (`*.example.com`) | Not offered: the contract's `Hostname` has no `*.` form |
+| Domains owned by the tenant's own customers (Shopify-style `shopbudi.com` → tenant app) | Planned, via the **Domains API** from inside the app: `ctx.domains.add("shopbudi.com", { route: "/stores/budi" })`, the same custom hostname path; metered per domain |
+| Other records (MX, unrelated subdomains) | Untouched; Renoxium only asks for records of registered hostnames |
+| Buying domains through Renoxium | Not initially; possible later through a registrar partner |
 
 ### Security
 
-- Verification before serving; the verification record must stay in place (re-checked periodically) or serving stops after a grace period.
-- Certificates and private keys are stored encrypted in the control plane and pushed to gateways; keys never enter a tenant cell.
-- CAA guidance in the instructions (`0 issue "letsencrypt.org"`).
-- HSTS is enabled after the first certificate; tenants may disable it on custom domains (not on `*.renoxium.app`).
-- Domains that stop pointing at Renox are flagged and their renewals paused; serving resumes automatically when DNS points back.
+- Not served before Cloudflare reports the custom hostname active; afterwards it is read every hour, and serving stops only after consecutive negative answers (`moved`, `deleted`, `blocked`) over a grace period. An API error is never taken as a negative answer. Serving resumes automatically when the hostname is active again.
+- No certificate or private key is held by the platform: Cloudflare holds them. Cloudflare sees request content in clear and is a sub-processor (DPA).
+- HSTS is sent on every response that came through the edge over HTTPS (D25); tenants may disable it on custom domains, not on `*.renoxium.app`.
+- A released hostname's custom hostname is deleted at Cloudflare; one owner per hostname and a 30-day hold after removal prevent takeover.
 
 ## Secrets and data access
 

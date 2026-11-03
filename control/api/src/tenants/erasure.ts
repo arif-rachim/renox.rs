@@ -30,6 +30,7 @@ import { requestScope, tenantDb } from "../tenancy/scope.ts";
 import { nodeCall, nodeTarget } from "../workers/failover.ts";
 import { logIngest } from "../ingest/logs.ts";
 import { flagged } from "../signup/friction.ts";
+import { domainService } from "../domains/service.ts";
 
 export type ErasureState = "pending" | "erasing" | "done" | "failed";
 
@@ -137,13 +138,28 @@ async function step(deps: Deps, db: Db, tenantId: string, s: Step, now: number):
       }
       return true;
     }
-    case "records":
+    case "records": {
+      // #419: the tenant's custom hostnames are deleted at Cloudflare before
+      // their rows go; a failure keeps the step for the next retry.
+      const hostnames = await db.query<{ id: string; cf_hostname_id: string }>("select id, cf_hostname_id from domains where tenant_id = $1 and cf_hostname_id is not null", [tenantId]);
+      const cf = domainService(deps).cloudflare;
+      if (hostnames.length > 0 && cf === null) return false;
+      for (const h of hostnames) {
+        try {
+          await cf?.delete(h.cf_hostname_id);
+        } catch (e) {
+          deps.log.warn("erasure: cloudflare custom hostname not deleted", { tenant_id: tenantId, domain: h.id, error: e instanceof Error ? e.message : String(e) });
+          return false;
+        }
+        await db.query("update domains set cf_hostname_id = null where tenant_id = $1 and id = $2", [tenantId, h.id]);
+      }
       await db.transaction(async (tx) => {
         for (const sql of RECORD_DELETES) await tx.query(sql, [tenantId]);
       });
       // deploy-api.md 0.4 section 3: the tenant's log lines go too.
       await logIngest(deps).store.dropTenant(tenantId);
       return true;
+    }
   }
 }
 
