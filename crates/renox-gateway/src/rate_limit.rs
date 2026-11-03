@@ -177,6 +177,25 @@ mod tests {
         assert!(matches!(l.check_at(b, t0), RateDecision::Limited { .. }));
     }
 
+    /// #404: on a dual-stack listener (`[::]`, `IPV6_V6ONLY` off) an IPv4
+    /// client arrives as `::ffff:a.b.c.d`. It shares the IPv4 address's
+    /// bucket (docs/24-threat-model.md A, "Request flood from one client":
+    /// a client cannot double its budget by the family it arrives on), and
+    /// is not lumped into one /64 with every other IPv4 client.
+    #[test]
+    fn v4_mapped_addresses_count_as_the_ipv4_address() {
+        let l = limiter(1.0, 1);
+        let t0 = Instant::now();
+        let mapped: IpAddr = "::ffff:192.0.2.1".parse().unwrap();
+        let v4: IpAddr = "192.0.2.1".parse().unwrap();
+        assert_eq!(bucket_key(mapped), v4);
+        assert_eq!(l.check_at(mapped, t0), RateDecision::Allow);
+        assert!(matches!(l.check_at(v4, t0), RateDecision::Limited { .. }));
+        // Another IPv4 client behind the same mapping prefix is unaffected.
+        let other: IpAddr = "::ffff:192.0.2.2".parse().unwrap();
+        assert_eq!(l.check_at(other, t0), RateDecision::Allow);
+    }
+
     #[test]
     fn table_is_bounded() {
         let l = limiter(1000.0, 1);

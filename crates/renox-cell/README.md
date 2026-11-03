@@ -15,7 +15,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `listen` | — | Address of the gateway (plain HTTP in F1; TLS is `Gateway::serve_tls`, wired when certificates arrive from the control plane, F3) |
+| `listen` | — | Address of the gateway: HTTPS with `[tls]`, plain HTTP without. `[::]:<port>` is dual-stack (one IPv6 socket, `IPV6_V6ONLY` off; IPv4 clients count as their IPv4 address in the per-IP limits; `0.0.0.0` when the host has no IPv6, #404); `[tls] http_listen` the same. `renox-worker --version` prints the version (#401) |
 | `data_dir` | — | `<data_dir>/<tenant_id>/app.db` (the tenant file) and `<data_dir>/<tenant_id>/secrets.json` |
 | `artifacts_dir` | — | Artifact directories named by their content hash (`docs/contracts/artifact.md`); also the gateway's static file root |
 | `routes_file` | — | The route table (`docs/contracts/schemas/route-table.schema.json`); re-read on `SIGHUP` |
@@ -163,6 +163,8 @@ With `[replication] enabled = true` (#255, `docs/06-data.md` "Replication and ba
 
 With `[process] enabled = true` (#254, `docs/04-isolation-security.md` "Isolation hierarchy") the worker is a **supervisor**: the free tier shares its process, and each tenant whose route entry says `process = "own"` (controlled mode; the control plane writes it for every `paid` tenant, `docs/contracts/deploy-api.md` section 8) or that `own_tenants` lists (local mode) runs in a child `renox-worker --config <worker.toml> --child <tenant> --socket <run_dir>/children/<tenant>.sock` of its own.
 
+With `[process]` off (the default, and the single host's choice for now) every tenant runs in the worker's process, whatever its entry says. A controlled worker then logs one warning per tenant whose active entry on the node asks for `process = "own"` (#403), and `RouteState::own_process_ignored` lists them; the heartbeat cannot carry that list until the deploy API's `heartbeat` message has a field for it (comment on #403).
+
 ```
                        ┌──────────────── renox-worker (supervisor) ─────────────────┐
 client ── TLS ──► gateway ──► Supervisor ──► shared CellManager: free tenants       │
@@ -189,7 +191,7 @@ With `[sandbox] enabled = true` (#253, ADR D6, `docs/04-isolation-security.md` "
 
 | Mechanism | When | What it allows |
 | --- | --- | --- |
-| Landlock (file system) | In `main`, after the config is read and before the async runtime starts a thread (Landlock reaches only threads created after it) | Read and execute: `artifacts_dir`, the binary's dir. Read and write: `data_dir` (with the spool), `meters_dir`, `logs_dir`, the temp dir, `/dev/null`. Read: the route table file, `[tls]` dirs, the platform key, the node token, `extra_read_paths`, and the few system files name resolution and the runtime need (`SYSTEM_READ` in `src/sandbox/mod.rs`: `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, the shared libraries, `/proc/self`, CPU and cgroup information). Nothing else: not `/etc/passwd`, not `/root`, not another tenant's files outside `data_dir` |
+| Landlock (file system) | In `main`, after the config is read and before the async runtime starts a thread (Landlock reaches only threads created after it) | Read and execute: `artifacts_dir`, the binary's dir. Read and write: `data_dir` (with the spool), `artifacts_dir` (the worker downloads and unpacks artifacts there, #392), `meters_dir`, `logs_dir`, the temp dir, `[tls] cert_dir` in controlled mode (custom-domain certificates, #391), `/dev/null`. A child (#254) keeps `artifacts_dir` read and execute and `cert_dir` read-only. Read: the route table file, `[tls]` dirs (`cert_dir` only in local mode), the platform key, the node token, `extra_read_paths`, and the few system files name resolution and the runtime need (`SYSTEM_READ` in `src/sandbox/mod.rs`: `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, the shared libraries, `/proc/self`, CPU and cgroup information). Nothing else: not `/etc/passwd`, not `/root`, not another tenant's files outside `data_dir` |
 | Landlock (network, ABI 4, Linux 6.7) | Same | TCP `bind` to the configured listeners; TCP `connect` to 443, 53, the control plane's port and `extra_connect_ports` only, so the metadata address `169.254.169.254:80` is refused even without the `fetch` op |
 | seccomp | In `Worker::start`, once the listeners are bound, with `TSYNC` (every thread) and `no_new_privs` | The syscalls in `sandbox/syscalls.<arch>.txt` plus `extra_syscalls`. Any other kills the process (`enforce`) or is logged by the kernel (`audit`) |
 
@@ -317,6 +319,19 @@ Scheduled and queued jobs (`docs/contracts/ops.md` 1.6.0 section 20) ride on the
 
 Tests: `tests/jobs.rs`, `src/scheduler/mod.rs` (cron and zones, the lease), `renox-runtime` `src/ops/jobs.rs` (coalescing, listing, retry and cancel states).
 
+## Custom-domain certificates (#59, #391)
+
+A controlled worker with `[tls]` installs the certificates of custom domains itself (`src/control/certs.rs`; `docs/contracts/deploy-api.md` section 10, `control/api/src/domains/README.md` "Node side"):
+
+- **`certificate_update`** on the stream: `GET /v1/nodes/{node_id}/certificates/{hostname}` with the node token (retried 1 s, 2 s, 4 s on a failed fetch), then the checks below, then `<cert_dir>/<hostname>/{fullchain,privkey}.pem` written the way `ops/scripts/renew-wildcard-cert.sh` writes them (directory `0750`, key `0640`, chain `0644`, each through a dot-file and a rename, the key first), plus `.renox-control` with the version, and the `CertStore` reloaded in process. New handshakes use it; open connections keep theirs. No SIGHUP, no restart.
+- **Checks** before anything is written: the bundle names the hostname asked for; the chain has the leaf and its issuer; the leaf is current, for server authentication, names the hostname, and is signed by the next certificate (webpki, anchored at the chain's last certificate: the bundle came over the authenticated control channel); the key matches the leaf. A refused bundle leaves the installed certificate in use.
+- **`certificate_remove`**: the hostname's directory is deleted, only if it carries `.renox-control`, and the store reloaded.
+- **Order**: per hostname, a message no newer than the last one applied is ignored (one version sequence on the control plane).
+- **Reconnect**: after the first route snapshot of every connection, the bundle of each hostname of the snapshot is fetched, except hostnames an operator certificate covers (a `_wildcard.<parent>` directory, or a directory without the marker); marked directories of hostnames no longer in the snapshot are removed. The wildcard and apex directories of the renewal script are never touched.
+- Private keys never reach a log line or an error message.
+
+Tests: `src/control/certs.rs` (checks, file format, ownership), `tests/certificates.rs` (update, refused renewal, stale message, removal, reconnect, against `tests/support/fake_control.rs`), `control/api/tests/domains-e2e.test.ts` (Pebble, a real controlled worker).
+
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).
+Route updates by pub/sub (F3). Request bodies are collected before dispatch (responses stream, above).

@@ -454,6 +454,8 @@ impl Worker {
         });
         if let Some(state) = &route_state {
             state.set_manager(manager.clone());
+            // #403: `process = "own"` without the supervisor is warned about.
+            state.set_process_enabled(config.process.enabled);
             // The last table this node applied: served until the control
             // plane answers (#98); replaced by its first snapshot.
             let file = SnapshotFile::in_data_dir(&config.data_dir);
@@ -495,7 +497,7 @@ impl Worker {
             Some(tls) => Some(load_certificates(tls)?),
             None => None,
         };
-        let listener = TcpListener::bind(config.listen)
+        let listener = bind_listener(config.listen)
             .await
             .map_err(io("bind the listen address"))?;
         let addr = listener
@@ -578,7 +580,7 @@ impl Worker {
         let server = match (&config.tls, &certs) {
             (Some(tls), Some(store)) => {
                 if let Some(http_listen) = tls.http_listen {
-                    let plain = TcpListener::bind(http_listen)
+                    let plain = bind_listener(http_listen)
                         .await
                         .map_err(io("bind tls.http_listen"))?;
                     http_addr = Some(plain.local_addr().map_err(io("read tls.http_listen"))?);
@@ -663,16 +665,44 @@ impl Worker {
                     controller.set_node_listener(url, token);
                 }
                 // `prepare` (#96) from the stream.
-                if let Some(store) = &s3_for_prepare {
-                    let preparer = Arc::new(Preparer {
+                let preparer = s3_for_prepare.as_ref().map(|store| {
+                    Arc::new(Preparer {
                         client: controller.client.clone(),
                         manager: manager.clone(),
                         store: store.clone(),
                         routes: controller.routes.clone(),
                         data_dir: config.data_dir.clone(),
                         tiers: tiers.clone(),
-                    });
-                    controller.on_message(Arc::new(move |m| preparer.handle(m)));
+                    })
+                });
+                // Certificates of custom domains (#59, #391): installed in
+                // `[tls] cert_dir` and loaded in process.
+                let cert_sync = match (&config.tls, &certs) {
+                    (Some(tls), Some(store)) => Some(crate::control::certs::CertSync::new(
+                        controller.client.clone(),
+                        tls.cert_dir.clone(),
+                        store.clone(),
+                    )),
+                    _ => None,
+                };
+                if let Some(sync) = &cert_sync {
+                    let (sync, routes) = (sync.clone(), controller.routes.clone());
+                    controller.on_connect(Arc::new(move || {
+                        let hostnames = routes.entries().into_iter().map(|e| e.hostname).collect();
+                        let sync = sync.clone();
+                        tokio::spawn(async move { sync.sync_all(hostnames).await });
+                    }));
+                }
+                if preparer.is_some() || cert_sync.is_some() {
+                    controller.on_message(Arc::new(move |m| {
+                        if cert_sync.as_ref().is_some_and(|c| c.handle(&m)) {
+                            return;
+                        }
+                        match &preparer {
+                            Some(p) => p.handle(m),
+                            None => tracing::debug!("control message without a handler; ignored"),
+                        }
+                    }));
                 }
                 controller.start();
                 Some(controller)
@@ -766,6 +796,38 @@ impl Worker {
         }
         self.manager.meter().flush_and_close().await;
     }
+}
+
+/// Binds a public listener (#404). `[::]:<port>` is dual-stack: one IPv6
+/// socket with `IPV6_V6ONLY` off, so IPv4 clients arrive as v4-mapped
+/// addresses (`::ffff:a.b.c.d`), which the gateway's per-IP limits and
+/// `client_ip` count as the IPv4 address (`renox_gateway::rate_limit`).
+/// On a host without IPv6 the same port is bound on `0.0.0.0` with a
+/// warning. Any other address is bound as given.
+pub async fn bind_listener(addr: SocketAddr) -> std::io::Result<TcpListener> {
+    let SocketAddr::V6(v6) = addr else {
+        return TcpListener::bind(addr).await;
+    };
+    if !v6.ip().is_unspecified() {
+        return TcpListener::bind(addr).await;
+    }
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = match Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP)) {
+        Ok(s) => s,
+        Err(e) => {
+            let v4 = SocketAddr::from(([0, 0, 0, 0], addr.port()));
+            tracing::warn!(%addr, error = %e, fallback = %v4, "no IPv6 on this host; listening on IPv4 only");
+            return TcpListener::bind(v4).await;
+        }
+    };
+    socket.set_only_v6(false)?;
+    // What tokio's own bind sets on Unix: a restart rebinds at once.
+    #[cfg(unix)]
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    TcpListener::from_std(socket.into())
 }
 
 fn load_certificates(tls: &TlsSection) -> Result<Arc<CertStore>, WorkerError> {

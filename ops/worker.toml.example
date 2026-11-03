@@ -4,7 +4,10 @@
 # crates/renox-cell/README.md, "Configuration".
 
 mode = "controlled"
-listen = "0.0.0.0:443"
+# Dual-stack (#404): one IPv6 socket with IPV6_V6ONLY off serves IPv4 and
+# IPv6 clients; per-IP limits count an IPv4 client as its IPv4 address. A
+# host without IPv6 falls back to 0.0.0.0. "0.0.0.0:443" listens on IPv4 only.
+listen = "[::]:443"
 node_id = "@NODE_ID@"
 data_dir = "/var/lib/renox/data"
 artifacts_dir = "/var/lib/renox/artifacts"
@@ -24,6 +27,7 @@ fetch_blocked_addresses = [@BLOCKED_ADDRESSES@]
 
 [tls]
 cert_dir = "/var/lib/renox/data/_certs"
+
 http_listen = "0.0.0.0:80"
 # Where the control plane writes the ACME HTTP-01 challenges of custom domains
 # (its CONTROL_ACME_CHALLENGE_DIR); answered on http_listen at

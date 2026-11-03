@@ -24,7 +24,8 @@
 //!    gap, and every `resync_interval_ms` with `If-None-Match` (304:
 //!    unchanged).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use renox_gateway::{RouteEntry, RouteStatus, RouteTable};
@@ -128,6 +129,12 @@ pub struct RouteState {
     snapshot_file: OnceLock<SnapshotFile>,
     /// Deployments being prepared (#96): no route entry names them yet.
     expected: Mutex<HashMap<Key, DeploymentMeta>>,
+    /// `[process] enabled` (#254). Off: an entry's `process = "own"` cannot
+    /// be honoured (#403).
+    process_enabled: AtomicBool,
+    /// Tenants of this node whose active entry asks for `own` while
+    /// `[process]` is off, each warned about once.
+    own_ignored: Mutex<BTreeSet<String>>,
 }
 
 impl RouteState {
@@ -139,7 +146,54 @@ impl RouteState {
             manager: OnceLock::new(),
             snapshot_file: OnceLock::new(),
             expected: Mutex::new(HashMap::new()),
+            process_enabled: AtomicBool::new(false),
+            own_ignored: Mutex::new(BTreeSet::new()),
         }
+    }
+
+    /// Whether this worker runs the process tiers (`[process] enabled`).
+    pub fn set_process_enabled(&self, enabled: bool) {
+        self.process_enabled.store(enabled, Ordering::SeqCst);
+        self.check_process_placement();
+    }
+
+    /// #403: the tenants of this node whose active entry asks for
+    /// `process = "own"` while `[process]` is off: they run in the shared
+    /// process. Empty when the process tiers run.
+    pub fn own_process_ignored(&self) -> Vec<String> {
+        self.own_ignored
+            .lock()
+            .expect("routes lock")
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Recomputes [`Self::own_process_ignored`] and logs one warning per
+    /// tenant that newly asks for an isolation this worker does not give.
+    fn check_process_placement(&self) {
+        let wanted: BTreeSet<String> = if self.process_enabled.load(Ordering::SeqCst) {
+            BTreeSet::new()
+        } else {
+            let t = self.table.lock().expect("routes lock");
+            t.entries
+                .values()
+                .filter(|e| {
+                    e.node_id == self.node_id
+                        && e.status == RouteStatus::Active
+                        && e.process == ProcessKind::Own
+                })
+                .map(|e| e.tenant_id.clone())
+                .collect()
+        };
+        let mut known = self.own_ignored.lock().expect("routes lock");
+        for tenant in wanted.difference(&known) {
+            tracing::warn!(
+                tenant_id = %tenant,
+                "route entry asks for process = \"own\" but [process] is off on this worker; the tenant runs in the shared process"
+            );
+        }
+        *known = wanted;
     }
 
     /// The manager that drains cells whose entry is no longer active. Set
@@ -290,6 +344,7 @@ impl RouteState {
         if let Some(m) = self.manager.get() {
             m.sync_routes(&entries);
         }
+        self.check_process_placement();
         tracing::debug!(entries = entries.len(), "route table applied");
     }
 }
@@ -414,6 +469,42 @@ mod tests {
         assert!(gw.lookup("a.renox.app").is_none());
         let e = gw.suspended("a.renox.app").unwrap();
         assert_eq!(e.display_name.as_deref(), Some("Hello Shop"));
+    }
+
+    /// #403: an entry asking for `own` while `[process]` is off is reported
+    /// (and warned about once), so the console does not show an isolation
+    /// that does not exist; with `[process]` on, nothing is reported.
+    #[test]
+    fn own_process_without_the_supervisor_is_reported() {
+        let gw = Arc::new(RouteTable::new());
+        let s = RouteState::new("node-1", gw);
+        let mut own = entry("a.renox.app", 'a', RouteStatus::Active, "node-1", 1);
+        own.process = ProcessKind::Own;
+        let mut elsewhere = entry("b.renox.app", 'b', RouteStatus::Active, "node-2", 1);
+        elsewhere.tenant_id = "t_other".into();
+        elsewhere.process = ProcessKind::Own;
+        let mut shared = entry("c.renox.app", 'c', RouteStatus::Active, "node-1", 1);
+        shared.tenant_id = "t_shared".into();
+        s.apply_snapshot(Snapshot {
+            version: 1,
+            entries: vec![own.clone(), elsewhere, shared],
+        });
+        assert_eq!(s.own_process_ignored(), vec!["t_hello".to_string()]);
+        s.set_process_enabled(true);
+        assert!(s.own_process_ignored().is_empty());
+        s.set_process_enabled(false);
+        assert_eq!(s.own_process_ignored(), vec!["t_hello".to_string()]);
+        // Back to shared: no longer reported.
+        let mut back = own;
+        back.process = ProcessKind::Shared;
+        back.version = 2;
+        assert!(s.apply_delta(Delta {
+            prev_version: 1,
+            version: 2,
+            upserts: vec![back],
+            removals: vec![],
+        }));
+        assert!(s.own_process_ignored().is_empty());
     }
 
     #[test]

@@ -3,13 +3,15 @@
 // hostname is 404 at the gateway (docs/23-failure-modes.md "Unverified
 // custom domain").
 //
-// Real parts: the control API (in process) with its DNS resolver and ACME
-// client; Pebble (Let's Encrypt's ACME test server) and pebble-challtestsrv
-// as the local DNS server; two renox-worker processes, one with TLS (#162)
-// whose `:80` listener answers the HTTP-01 challenge from `acme_dir`, and
-// one plain to read the route table. The test plays the node's control
-// client (#55): it writes the route snapshot and the certificate bundles
-// into the workers' files and sends SIGHUP.
+// Real parts: the control API (in process, its node endpoints on a real
+// listener) with its DNS resolver and ACME client; Pebble (Let's Encrypt's
+// ACME test server) and pebble-challtestsrv as the local DNS server; two
+// renox-worker processes. The TLS one (#162) is a controlled node (#55): its
+// `:80` listener answers the HTTP-01 challenge from `acme_dir`, it follows
+// the control stream, and on `certificate_update` it fetches the bundle,
+// writes `cert_dir` and reloads its certificates itself (#391): nothing is
+// written into its directory by the test and it gets no SIGHUP. The plain
+// one reads a route file the test writes from the route snapshot.
 //
 // Needs RENOX_PEBBLE_DIR (a directory with `pebble` and
 // `pebble-challtestsrv`, src/domains/README.md) and RENOX_WORKER_PATH;
@@ -17,7 +19,7 @@
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:tls";
@@ -97,7 +99,7 @@ async function plainStatus(port: number, host: string, path: string): Promise<nu
 }
 
 describe.skipIf(!enabled)("custom domain end to end with Pebble and a TLS worker", () => {
-  test("add -> verify -> certificate issued -> served by SNI; unverified hostname is 404", async () => {
+  test("add -> verify -> certificate issued -> the controlled worker installs it and serves it by SNI; unverified hostname is 404", async () => {
     const root = mkdtempSync(join(tmpdir(), "renox-domains-e2e-"));
     const [dnsPort, dnsMgmt, acmePort, acmeMgmt, httpPort, tlsPort, plainPort] = (await Promise.all(Array.from({ length: 7 }, freePort))) as [number, number, number, number, number, number, number];
 
@@ -121,22 +123,33 @@ describe.skipIf(!enabled)("custom domain end to end with Pebble and a TLS worker
       renameSync(join(root, ".routes.tmp"), join(root, "routes.json"));
     };
     writeRoutes([]);
-    const config = (name: string, listen: number, tls: string): string => {
-      const text = `listen = "127.0.0.1:${listen}"\ndata_dir = "data-${name}"\nartifacts_dir = "artifacts"\nroutes_file = "routes.json"\nmeters_dir = "meters-${name}"\nlogs_dir = "logs-${name}"\n${tls}`;
+    const config = (name: string, listen: number, rest: string, routes = `routes_file = "routes.json"\n`): string => {
+      const text = `listen = "127.0.0.1:${listen}"\ndata_dir = "data-${name}"\nartifacts_dir = "artifacts"\n${routes}meters_dir = "meters-${name}"\nlogs_dir = "logs-${name}"\n${rest}`;
       writeFileSync(join(root, `${name}.toml`), text);
       return join(root, `${name}.toml`);
     };
-    const tlsWorker = spawn([WORKER as string, "--config", config("tls", tlsPort, `\n[tls]\ncert_dir = "certs"\nhttp_listen = "127.0.0.1:${httpPort}"\nacme_dir = "acme"\n`)]);
     const plainWorker = spawn([WORKER as string, "--config", config("plain", plainPort, "")]);
-    for (const [what, port] of [["DNS", dnsMgmt], ["Pebble", acmePort], ["TLS worker", tlsPort], ["ACME listener", httpPort], ["plain worker", plainPort]] as const) await waitFor(what, tcpOpen(port));
 
-    // The control plane.
+    // The control plane, its node endpoints on a real listener for the controlled worker.
     const h = await harness();
     const token = await tenant(h, "t_shop", "paid");
     await createApp_(h, token, "hello");
     const node = await registeredNode(h, "node-1");
     expect((await upload(h, token, "hello", hello)).status).toBe(201);
     expect((await h.request("POST", "/v1/apps/hello/activate", { token, json: { hash } })).status).toBe(200);
+    const api = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (req, srv) => h.app.fetch(req, srv), idleTimeout: 0 });
+    writeFileSync(join(root, "node.token"), node, { mode: 0o600 });
+    spawn([
+      WORKER as string,
+      "--config",
+      config(
+        "tls",
+        tlsPort,
+        `node_id = "node-1"\nfetch_blocked_addresses = ["203.0.113.250"]\n[control]\nurl = "http://127.0.0.1:${api.port}"\nnode_token_file = "${join(root, "node.token")}"\n[sandbox]\nallow_unsandboxed = true\n[tls]\ncert_dir = "certs"\nhttp_listen = "127.0.0.1:${httpPort}"\nacme_dir = "acme"\n`,
+        `mode = "controlled"\n`,
+      ),
+    ]);
+    for (const [what, port] of [["DNS", dnsMgmt], ["Pebble", acmePort], ["TLS worker", tlsPort], ["ACME listener", httpPort], ["plain worker", plainPort]] as const) await waitFor(what, tcpOpen(port));
     const pebbleCa = await Bun.file(join(root, "pebble.crt")).text();
     const keys = new EnvMasterKey(Buffer.alloc(32, 9).toString("base64"));
     const directoryUrl = `https://127.0.0.1:${acmePort}/dir`;
@@ -147,22 +160,12 @@ describe.skipIf(!enabled)("custom domain end to end with Pebble and a TLS worker
       edge: { hostname: "edge.renox.test", addresses: ["127.0.0.1"] },
       keys,
     });
-    // What the node's control client does: route snapshot to the route file, bundles to cert_dir, SIGHUP.
+    // The plain worker reads a route file: the snapshot is written there and the worker gets SIGHUP.
+    // The controlled TLS worker needs nothing from the test.
     const syncNode = async (): Promise<void> => {
       const snap = (await (await h.request("GET", "/v1/nodes/node-1/routes", { token: node })).json()) as RouteSnapshot;
       writeRoutes(snap.entries.map((e) => ({ hostname: e.hostname, tenant_id: e.tenant_id, deployment_hash: e.deployment_hash, status: e.status, updated_at: e.updated_at })));
-      for (const e of snap.entries) {
-        const res = await h.request("GET", `/v1/nodes/node-1/certificates/${e.hostname}`, { token: node });
-        if (res.status !== 200) continue;
-        const b = (await res.json()) as { chain_pem: string; key_pem: string };
-        const dir = join(root, "certs", e.hostname);
-        mkdirSync(dir, { recursive: true });
-        for (const [name, pem] of [["fullchain.pem", b.chain_pem], ["privkey.pem", b.key_pem]] as const) {
-          writeFileSync(join(dir, `.${name}.tmp`), pem, { mode: 0o600 });
-          renameSync(join(dir, `.${name}.tmp`), join(dir, name));
-        }
-      }
-      for (const w of [tlsWorker, plainWorker]) w.kill("SIGHUP");
+      plainWorker.kill("SIGHUP");
       await Bun.sleep(300);
     };
 
@@ -187,13 +190,32 @@ describe.skipIf(!enabled)("custom domain end to end with Pebble and a TLS worker
     // The verified hostname is served, the pending one is still 404.
     expect(await plainStatus(plainPort, "www.shop.test", "/api/hello")).toBe(200);
     expect(await plainStatus(plainPort, "pending.shop.test", "/api/hello")).toBe(404);
-    // The TLS worker presents the issued certificate for the SNI name; it chains to Pebble's root.
+    // The controlled TLS worker got certificate_update on its stream, fetched the bundle with its
+    // node token, wrote cert_dir and reloaded (#391): it serves the custom hostname over TLS with the
+    // issued certificate, which chains to Pebble's root.
     const pebbleRoot = await (await fetch(`https://127.0.0.1:${acmeMgmt}/roots/0`, { tls: { ca: [pebbleCa] } } as RequestInit)).text();
-    const r = await https(tlsPort, "www.shop.test", "www.shop.test", "/api/hello", pebbleRoot);
-    expect(r.san).toBe("DNS:www.shop.test");
-    expect(r.authorized).toBe(true);
-    expect(r.status).toBe(200);
+    let r: { authorized: boolean; san: string; status: number } | undefined;
+    await waitFor("the worker to serve www.shop.test over TLS", async () => {
+      r = await https(tlsPort, "www.shop.test", "www.shop.test", "/api/hello", pebbleRoot);
+      return r.status === 200;
+    });
+    expect(r).toMatchObject({ san: "DNS:www.shop.test", authorized: true, status: 200 });
+    // Written by the worker in the renew-wildcard-cert.sh layout, marked as the control plane's.
+    expect(existsSync(join(root, "certs", "www.shop.test", "fullchain.pem"))).toBe(true);
+    expect(existsSync(join(root, "certs", "www.shop.test", "privkey.pem"))).toBe(true);
+    expect(readFileSync(join(root, "certs", "www.shop.test", ".renox-control"), "utf8")).toMatch(/^[0-9]+$/u);
     // No certificate for the pending hostname: the handshake is refused.
     await expect(https(tlsPort, "pending.shop.test", "pending.shop.test", "/", pebbleRoot)).rejects.toThrow();
+    // Detach: certificate_remove reaches the worker, the handshake for the hostname is refused again.
+    expect((await h.request("DELETE", "/v1/apps/hello/domains/www.shop.test", { token })).status).toBeLessThan(300);
+    await waitFor("the worker to drop www.shop.test", async () => {
+      try {
+        await https(tlsPort, "www.shop.test", "www.shop.test", "/", pebbleRoot);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    api.stop(true);
   }, 120_000);
 });

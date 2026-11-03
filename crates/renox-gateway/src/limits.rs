@@ -507,6 +507,21 @@ pub fn body_too_large(request_id: &str, request_headers: &HeaderMap) -> Response
 mod tests {
     use super::*;
 
+    /// #404: the per-IP connection cap counts a v4-mapped peer of a
+    /// dual-stack listener as its IPv4 address.
+    #[test]
+    fn connection_cap_counts_v4_mapped_peers_as_ipv4() {
+        let l = ConnectionLimiter::new(1);
+        let mapped: IpAddr = "::ffff:198.51.100.7".parse().unwrap();
+        let v4: IpAddr = "198.51.100.7".parse().unwrap();
+        let held = l.try_acquire(mapped).expect("first connection");
+        assert_eq!(l.open(v4), 1);
+        assert!(l.try_acquire(v4).is_none(), "same client over IPv4");
+        assert!(l.try_acquire(mapped).is_none(), "same client, mapped");
+        drop(held);
+        assert!(l.try_acquire(v4).is_some());
+    }
+
     #[test]
     fn overrides_only_lower_the_limit() {
         let l = GatewayLimits::default();

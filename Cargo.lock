@@ -8684,7 +8684,7 @@ dependencies = [
 
 [[package]]
 name = "renox-cell"
-version = "0.0.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -8722,6 +8722,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "socket2 0.6.5",
  "subtle",
  "tokio",
  "tokio-rustls",
