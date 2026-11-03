@@ -8,7 +8,7 @@ import type { LoaderContext } from "@renoxium/sdk";
 import { deployActions } from "../../../lib/deploy-actions.ts";
 import { appParam, frame, notFound, problem, signedIn } from "../../../lib/guard.ts";
 import { trOf } from "../../../lib/i18n.ts";
-import { ago, bytes, clock, deploymentRows, round, shortHash } from "../../../lib/view.ts";
+import { ago, bytes, clock, deploymentRows, figure, round, shortHash } from "../../../lib/view.ts";
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -64,9 +64,9 @@ export async function load(ctx: LoaderContext) {
     deployments_problem: deployments.ok ? null : await problem(ctx, deployments),
     usage: usage.ok
       ? {
-          requests: round(usage.value.total.requests),
-          cpu: `${round(usage.value.total.cpu_ms)} ms`,
-          egress: bytes(usage.value.total.egress_bytes),
+          requests: figure(round(usage.value.total.requests)),
+          cpu: figure(`${round(usage.value.total.cpu_ms)} ms`),
+          egress: figure(bytes(usage.value.total.egress_bytes)),
           over: usage.value.quota.over.join(", "),
         }
       : null,

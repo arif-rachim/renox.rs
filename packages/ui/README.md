@@ -58,13 +58,13 @@ An app re-themes by overriding tokens in its own layer, never by editing a copy 
 | `.frame`, `.side`, `.side-group`, `.side-title`, `main` | Side navigation and the main column; `a.current` carries the accent dot; `.side-group` is a small mono heading |
 | `.hero`, `.lede`, `.actions` | A centred hero on a faint grid; its subtitle; its buttons |
 | `.dot`, `.dot-small` | A dot-matrix headline, uppercase, `clamp(48–96 px)`; a smaller one |
-| `.stat` with `.value` and `.caption` | A big dot-matrix number over a small sans caption. Only true, measured numbers |
+| `.stat` with `.value` and `.caption` | A big dot-matrix number over a small sans caption; a unit goes in `<small>` inside the value and keeps its own case in the text face (`45 ms`, never `45 MS`). Only true, measured numbers |
 | `.pill` (`.ok`, `.warn`, `.bad`, `.quiet`, `.live`), `.tag` | A small monospace label in a hairline capsule; the states; a live dot |
 | `.flow`, `.flow-start`, `.flow-end`, `.flow-tile`, `.line`, `.pt` | A diagram: the tile with the mark in the centre, thin lines to pill tags on both sides; `.flow-small` for an app page |
-| `.dots` | A decorative `<pre>` of glyphs (`· ▪ + :`); `<b>` is a lit cell. `aria-hidden` |
+| `.dots` | A decorative field of cells drawn as an inline SVG: `circle.dot-idle`, `rect.cell`, `rect.lit` (coral, a slow pulse). `aria-hidden`; drawn rather than typed, so it is not text to be read |
 | `button`, `.button`, `.primary`, `.go`, `.danger`, `button.link` | Pills: the black primary with a coral icon square; a white pill with a dark icon square; quiet; red outline; text |
 | `label`, `input`, `select`, `textarea`, `fieldset` | Fields; a radio or checkbox in a fieldset gets a soft card with its description |
-| `table.list` | A hairline table; `tr.bad` marks a failing row |
+| `table.list` | A hairline table with quiet sentence-case headers; `th.n` and `td.n` right-align figures; `tr.bad` marks a failing row |
 | `.notice`, `.problem`, `.warning`, `.problem-inline` | Messages with a start-edge rule in the state's colour |
 | `.banner`, `.banner.impersonation` | A full-width bar above the page |
 | `.ok`, `.bad`, `.warn` | State text |

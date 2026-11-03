@@ -41,9 +41,9 @@
       <h2><r-t key="dash.overview.last_24h" /></h2>
       <r-group r-if="usage">
         <div class="cards">
-          <div class="card stat"><b class="value">{{ usage.requests }}</b><span class="caption"><r-t key="dash.overview.requests" /></span></div>
-          <div class="card stat"><b class="value">{{ usage.cpu }}</b><span class="caption">CPU</span></div>
-          <div class="card stat"><b class="value">{{ usage.egress }}</b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
+          <div class="card stat"><b class="value">{{ usage.requests.n }}</b><span class="caption"><r-t key="dash.overview.requests" /></span></div>
+          <div class="card stat"><b class="value">{{ usage.cpu.n }} <small>{{ usage.cpu.unit }}</small></b><span class="caption">CPU</span></div>
+          <div class="card stat"><b class="value">{{ usage.egress.n }} <small>{{ usage.egress.unit }}</small></b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
         </div>
         <p><span class="problem-inline" r-if="usage.over"><r-t key="dash.overview.over_quota" /> {{ usage.over }}. </span><a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
       </r-group>

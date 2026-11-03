@@ -410,7 +410,8 @@ form > label > input, form > label > select, form > label > textarea { inline-si
 .list th, .list td { padding: .6rem var(--rx-3); text-align: start; vertical-align: top; border-block-end: 1px solid var(--rx-rule); }
 .list th:first-child, .list td:first-child { padding-inline-start: 0; }
 .list th:last-child, .list td:last-child { padding-inline-end: 0; }
-.list thead th { padding-block: .45rem; font: 500 .6875rem/1.5 var(--rx-font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--rx-muted); white-space: nowrap; }
+.list thead th { padding-block: .45rem; font: 500 .8125rem/1.5 var(--rx-font-sans); color: var(--rx-muted); white-space: nowrap; }
+.list th.n, .list td.n { text-align: end; }
 .list tbody th { font-weight: 500; color: var(--rx-ink-2); }
 .list td { font-variant-numeric: tabular-nums; }
 .list .n { text-align: end; }
@@ -478,6 +479,9 @@ form > label > input, form > label > select, form > label > textarea { inline-si
    (any columns, a `.card` each) share the shape. Each column draws its end
    and bottom rule; the negative margins tuck the outer ones under the border. */
 .stats, .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0; margin-block: 0 var(--rx-5); overflow: hidden; }
+/* Numbers over their names wrap as a row: a short last row stretches across instead of leaving empty cells. */
+.stats { display: flex; flex-wrap: wrap; }
+.stats > div { flex: 1 1 11rem; }
 .stats > div, .cards > * { min-inline-size: 0; padding: var(--rx-5); border-inline-end: 1px solid var(--rx-rule); border-block-end: 1px solid var(--rx-rule); margin-inline-end: -1px; margin-block-end: -1px; }
 .stats > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: .15rem; }
 .stats dt { font-size: .8125rem; color: var(--rx-muted); }
@@ -495,7 +499,8 @@ form > label > input, form > label > select, form > label > textarea { inline-si
    numbers that are true and measured. */
 .stat { display: flex; flex-direction: column; gap: var(--rx-2); text-align: start; }
 .stat .value, .stat > b { font-family: var(--rx-font-dot); font-weight: 900; font-size: clamp(2.25rem, 4vw, 3.25rem); line-height: 1; letter-spacing: .02em; text-transform: uppercase; color: var(--rx-ink); font-variant-numeric: tabular-nums; }
-.stat .value small { font-size: .5em; letter-spacing: .04em; }
+/* A unit is read, not displayed: the text face, its own case (ms, not MS), smaller. */
+.stat .value small { font: 500 .4em/1 var(--rx-font-sans); letter-spacing: 0; text-transform: none; color: var(--rx-ink-2); }
 .stat .caption, .stat > span { font-size: .875rem; color: var(--rx-muted); }
 :lang(ar) .stat .value, :lang(ar) .stat > b { font-family: var(--rx-font-sans); font-weight: 800; letter-spacing: 0; }
 
@@ -548,34 +553,23 @@ form > label > input, form > label > select, form > label > textarea { inline-si
 .flow-small .flow-tile i { inline-size: 2.5rem; block-size: 2.5rem; gap: .35rem; padding: .55rem; }
 .flow-small .flow-side { gap: var(--rx-2); max-inline-size: 14rem; }
 
-/* Dot art: a decorative field of small glyphs forming a shape; the lit cells
-   are coral. Static text in a <pre>, aria-hidden; the only motion is a slow
-   CSS pulse of the lit cells, which prefers-reduced-motion stops. */
-.dots {
-  margin: 0;
-  padding: 0;
-  font: 500 .75rem/1.25 var(--rx-font-mono);
-  letter-spacing: .35em;
-  color: var(--rx-idle);
-  background: none;
-  border: 0;
-  border-radius: 0;
-  white-space: pre;
-  overflow: hidden;
-  user-select: none;
-  direction: ltr;
-}
-.dots b { font-weight: inherit; color: var(--rx-accent); animation: rx-pulse 6s ease-in-out infinite; }
-.dots b:nth-of-type(2n) { animation-delay: -2s; }
-.dots b:nth-of-type(3n) { animation-delay: -4s; }
-.dots i { font-style: normal; color: var(--rx-muted); }
+/* Dot art: a decorative field of cells forming a shape, drawn as an inline
+   SVG (circles for idle dots, rounded squares for the cells of a node, the lit
+   ones in coral). aria-hidden; the only motion is a slow CSS pulse of the lit
+   cells, which prefers-reduced-motion stops. */
+.dots { display: block; margin: 0; }
+.dots svg { display: block; inline-size: 100%; block-size: auto; overflow: visible; }
+.dots .dot-idle { fill: var(--rx-idle); }
+.dots .cell { fill: color-mix(in srgb, var(--rx-ink) 22%, var(--rx-paper)); }
+.dots .lit { fill: var(--rx-accent); animation: rx-pulse 6s ease-in-out infinite; }
+.dots .lit:nth-of-type(2n) { animation-delay: -2s; }
 @keyframes rx-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
 /* Segmented links: ranges, filters, an app's sections. */
 .tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: var(--rx-sunken); border-radius: var(--rx-r-pill); }
 .tabs a { padding: .25rem .8rem; font-size: .8125rem; color: var(--rx-ink-2); text-decoration: none; border-radius: var(--rx-r-pill); }
 .tabs a:hover { color: var(--rx-ink); }
-.tabs a.current { background: var(--rx-surface); color: var(--rx-ink); font-weight: 500; box-shadow: 0 1px 2px rgb(20 20 20 / .08); }
+.tabs a.current { background: var(--rx-surface); color: var(--rx-ink); font-weight: 500; }
 
 .review { padding: var(--rx-5); margin-block-end: var(--rx-5); border-color: var(--rx-ink); }
 
@@ -599,7 +593,8 @@ form > label > input, form > label > select, form > label > textarea { inline-si
 /* Bar charts drawn as <svg><rect>: cells stacked into columns. */
 .chart { margin: 0 0 var(--rx-5); padding: var(--rx-4) var(--rx-5); }
 .chart figcaption { margin-block-end: var(--rx-2); font-size: .8125rem; font-weight: 500; color: var(--rx-ink-2); }
-.chart svg { display: block; inline-size: 100%; block-size: 5.5rem; }
+/* The baseline is drawn, so an hour, or a day, with nothing in it reads as zero, not as missing. */
+.chart svg { display: block; inline-size: 100%; block-size: 5.5rem; border-block-end: 1px solid var(--rx-rule-strong); }
 .chart rect { fill: var(--rx-rule-strong); }
 .chart rect:hover { fill: var(--rx-accent); }
 
@@ -649,7 +644,6 @@ meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; accent-col
     --rx-shadow: 0 1px 2px rgb(0 0 0 / .4), 0 12px 32px -16px rgb(0 0 0 / .8);
   }
   .banner.impersonation { color: #1a0d0c; }
-  .tabs a.current { box-shadow: none; }
 }
 
 /* 9. Small screens --------------------------------------------------------- */
@@ -672,7 +666,7 @@ meter { inline-size: 6rem; block-size: .5rem; vertical-align: middle; accent-col
   main { padding: var(--rx-5) var(--rx-4) var(--rx-7); }
   .hero { padding: var(--rx-6) var(--rx-3) var(--rx-6); }
   .list { display: block; overflow-x: auto; }
-  .stats, .cards { grid-template-columns: 1fr; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
   .flow { flex-direction: column; gap: var(--rx-4); }
   .flow-side { max-inline-size: none; inline-size: 100%; }
   .flow-side .line { flex: 1 1 1rem; }

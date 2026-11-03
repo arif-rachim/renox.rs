@@ -1,14 +1,16 @@
 <r-layout use="main">
   <r-group slot="title">Documentation · Renoxium</r-group>
   <section class="docs-home">
-    <p class="pill quiet">Developer documentation</p>
-    <h1 class="dot dot-small">Docs</h1>
-    <p class="lede">Install the CLI, build an app from folders that are its routes, add modules, and deploy to hosting that charges only for what it uses.</p>
-    <form method="get" action="/docs" class="docs-search" role="search">
-      <label class="visually-hidden" for="q">Search titles and sections</label>
-      <input id="q" name="q" type="search" :value="q" maxlength="100" placeholder="Search titles and sections">
-      <button type="submit" class="primary">Search</button>
-    </form>
+    <div class="hero">
+      <p class="pill quiet">Developer documentation</p>
+      <h1 class="dot dot-small">Docs</h1>
+      <p class="lede">Install the CLI, build an app from folders that are its routes, add modules, and deploy to hosting that charges only for what it uses.</p>
+      <form method="get" action="/docs" class="docs-search" role="search">
+        <label class="visually-hidden" for="q">Search titles and sections</label>
+        <input id="q" name="q" type="search" :value="q" maxlength="100" placeholder="Search titles and sections">
+        <button type="submit" class="primary">Search</button>
+      </form>
+    </div>
     <r-group r-if="q">
       <h2>Results <span class="muted">for “{{ q }}”</span></h2>
       <ul class="hits">

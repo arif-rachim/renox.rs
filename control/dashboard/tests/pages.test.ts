@@ -160,6 +160,8 @@ describe("deployments (3.3, 3.4): promote and rollback", () => {
     // Promote a, then b: b live, a superseded and promotable, b can roll back.
     expect(data(await deploymentsActions.activate(actionCtx(d, "/apps/hello/deployments", "activate", { hash: a }, { params: HELLO }))).notice).toBe(`${a.slice(0, 7)} is live.`);
     expect(data(await deploymentsActions.activate(actionCtx(d, "/apps/hello/deployments", "activate", { hash: b }, { params: HELLO }))).notice).toBe(`${b.slice(0, 7)} is live.`);
+    // No row carries a note, so the notes column is not drawn.
+    expect(data(await deploymentsLoad(ctx())).has_notes).toBe(false);
     rows = data(await deploymentsLoad(ctx())).deployments as typeof rows;
     expect(rows.map((r) => [r.state, r.can_activate, r.can_rollback])).toEqual([
       ["active", false, true],

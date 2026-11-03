@@ -7,9 +7,9 @@
     </div>
     <x-problem :problem="problem" r-if="problem" />
     <div class="cards" r-if="stats">
-      <div class="card stat"><b class="value">{{ stats.apps_live }}</b><span class="caption"><r-t key="dash.apps.stat_live" /></span></div>
-      <div class="card stat"><b class="value">{{ stats.requests_today }}</b><span class="caption"><r-t key="dash.apps.stat_requests" /></span></div>
-      <div class="card stat"><b class="value">{{ stats.storage }}</b><span class="caption"><r-t key="dash.apps.stat_storage" /></span></div>
+      <div class="card stat"><b class="value">{{ stats.apps_live.n }}</b><span class="caption"><r-t key="dash.apps.stat_live" /></span></div>
+      <div class="card stat"><b class="value">{{ stats.requests_today.n }}</b><span class="caption"><r-t key="dash.apps.stat_requests" /></span></div>
+      <div class="card stat"><b class="value">{{ stats.storage.n }} <small r-if="stats.storage.unit">{{ stats.storage.unit }}</small></b><span class="caption"><r-t key="dash.apps.stat_storage" /></span></div>
     </div>
     <div class="cards app-cards" r-if="!problem">
       <article class="card app-card" r-for="a in apps">

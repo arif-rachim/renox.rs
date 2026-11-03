@@ -8,15 +8,17 @@ import type { Api, App } from "../../lib/api.ts";
 import { getBackups } from "../../lib/database.ts";
 import { frame, problem, signedIn } from "../../lib/guard.ts";
 import { trOf } from "../../lib/i18n.ts";
-import { bytes, round, shortHash } from "../../lib/view.ts";
+import { bytes, figure, round, shortHash } from "../../lib/view.ts";
 
 /** How many apps the stats are summed over: one usage and one backups call each. */
 const STATS_APPS = 20;
 
+type Figure = ReturnType<typeof figure>;
+
 export interface Stats {
-  apps_live: string;
-  requests_today: string;
-  storage: string;
+  apps_live: Figure;
+  requests_today: Figure;
+  storage: Figure;
 }
 
 /** The stats of the card row: real numbers, or "—" where a call failed. Whole numbers, as the dot face asks. */
@@ -32,9 +34,9 @@ export async function stats(api: Api, apps: App[], now: number): Promise<Stats> 
   const requests = sum(usages, (u) => u.total.requests);
   const storage = sum(backups, (b) => b.db.size_bytes);
   return {
-    apps_live: String(live),
-    requests_today: requests === null ? "—" : round(requests),
-    storage: storage === null ? "—" : bytes(storage).replace(/\.\d+/u, ""),
+    apps_live: figure(String(live)),
+    requests_today: figure(requests === null ? "—" : round(requests)),
+    storage: figure(storage === null ? "—" : bytes(storage).replace(/\.\d+/u, "")),
   };
 }
 

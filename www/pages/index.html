@@ -40,7 +40,57 @@
       <p r-if="f.items"><span class="pill" r-for="i in f.items">{{ i }}</span></p>
       <p><a class="button go" :href="f.href">{{ f.link }}</a></p>
     </div>
-    <pre class="dots" aria-hidden="true" r-html="f.dots"></pre>
+    <figure class="feature-figure">
+      <div class="dots" aria-hidden="true" r-html="f.dots"></div>
+
+      <!-- Interface fragments: the product's own screens and files, cropped, with sample data (data-ui). -->
+      <div class="ui-frag" data-ui r-if="f.id == 'modules'">
+        <p class="ui-frag-title">Modules <span class="muted">· shop</span></p>
+        <table class="list">
+          <thead><tr><th>Module</th><th>Version</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><code>auth</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
+            <tr><td><code>org</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
+            <tr><td><code>billing</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
+            <tr><td><code>admin</code></td><td>1.0.0</td><td><span class="pill ok">enabled</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="ui-frag" data-ui r-if="f.id == 'runs'">
+        <p class="ui-frag-title">shop <span class="pill ok">● live</span></p>
+        <dl class="ui-frag-facts">
+          <div><dt>Isolate</dt><dd>own V8 heap, CPU limit per request</dd></div>
+          <div><dt>Database</dt><dd><code>shop</code> · one SQLite file</dd></div>
+          <div><dt>Backup</dt><dd>replicated continuously</dd></div>
+          <div><dt>Idle</dt><dd>evicted, the file closed</dd></div>
+        </dl>
+      </div>
+
+      <div class="ui-frag" data-ui r-if="f.id == 'domains'">
+        <p class="ui-frag-title">Records for <code>www.shop.ae</code></p>
+        <table class="list">
+          <thead><tr><th>Type</th><th>Name</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>CNAME</td><td><code>www.shop.ae</code></td><td><code>renoxium.app</code></td></tr>
+            <tr><td>TXT</td><td><code>_cf-custom-hostname.www</code></td><td><span class="muted">ownership</span></td></tr>
+            <tr><td>TXT</td><td><code>_acme-challenge.www</code></td><td><span class="muted">certificate</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="ui-frag" data-ui r-if="f.id == 'agents'">
+        <p class="ui-frag-title"><code>.mcp.json</code> <span class="muted">· written by renox new</span></p>
+        <pre data-lang="json">{
+  "mcpServers": {
+    "renox": {
+      "command": "renox",
+      "args": ["mcp", "--project", "."]
+    }
+  }
+}</pre>
+      </div>
+    </figure>
   </section>
 
   <!-- Pricing teaser in dirhams, from pricing.toml (the pricing page's source). -->

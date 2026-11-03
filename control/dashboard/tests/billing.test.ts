@@ -93,6 +93,8 @@ describe("usage and billing", () => {
     expect(v.owner_only).toBe(true);
     expect(v.billing).toBeNull();
     expect(v.problem).toBeNull();
+    // A member still sees what the plans cost, rather than one sentence on an empty screen.
+    expect((v.plans as { name: string; price: string }[]).map((p) => p.price)).toContain("79.00 AED");
   });
 
   test("card setup asks for a code past the window, then shows Stripe's form; the card saved, a paid plan goes through", async () => {
