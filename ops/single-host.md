@@ -44,7 +44,8 @@ This page takes an empty host to live. Every secret it names lives in a root-onl
 
 | Path | Owner, mode | What |
 | --- | --- | --- |
-| `/opt/renox/src` | root, 0755 | A checkout of this repository at the deployed tag, with `bun install --frozen-lockfile --production` run in it |
+| `/opt/renox/src` | root, 0755 | A checkout of this repository at the deployed commit, with `bun install --frozen-lockfile` run in it (step 3); runs the control API |
+| `~<operator>/renox-deploy` | the operator, 0755 | A second checkout of the same commit, owned by the operator's own user, for `renox deploy` of the platform's apps (step 3); never `/opt/renox/src` |
 | `/opt/renox/bin/{renox-worker,litestream,cloudflared,lego,bun}` | root, 0755 | Each verified by SHA-256 (`bootstrap-node.sh`, `*.lock`) |
 | `/opt/renox/bin/{renew-wildcard-cert.sh,backup-control-db.sh}` | root, 0755 | From `ops/scripts/`, installed by `bootstrap-node.sh --single-host` |
 | `/etc/renox/worker.toml` | root:renox, 0640 | The worker (`ops/worker.toml.example`) |
@@ -121,9 +122,16 @@ The worker's own addresses go into `fetch_blocked_addresses` (`ops/worker.toml.e
 
 All commands as root on the host unless the step says otherwise.
 
-1. **Base.** Ubuntu 24.04 with current updates. sshd with key authentication only (port 22, or another port: the firewall step takes it). Then: `apt-get install -y postgresql nftables age curl openssl git`.
+1. **Base.** Ubuntu 24.04 with current updates. sshd with key authentication only (port 22, or another port: the firewall step takes it). A host that already runs something (a web server, ufw, Docker) is cleared first: "A host that is not empty" below. Then: `apt-get install -y postgresql nftables age curl openssl git jq`. If the provider's resolvers or its IPv6 egress are unreliable, apply "Host networking" below now.
 2. **Firewall.** `ops/scripts/firewall-single-host.sh --dry-run` shows the rules, then run it without `--dry-run`. When sshd runs on another port, pass it: `--ssh-port 49222` (both runs). It refuses to change anything unless sshd listens on that port (Ubuntu 24.04 starts it through `ssh.socket`, which counts) and the SSH session you run it from arrived on it; only that one port is opened for SSH. Keep a second SSH session open while you run it the first time.
-3. **Source and Bun.** Check out the deployed tag into `/opt/renox/src`. Install Bun 1.4.4 (the version CI uses): download `bun-linux-x64.zip` and `SHASUMS256.txt` from the `bun-v1.4.4` release and compare with `sha256sum`. Then `install -m 0755 bun /opt/renox/bin/bun`, and run `/opt/renox/bin/bun install --frozen-lockfile --production` in `/opt/renox/src`.
+3. **Source and Bun.** There is no application release tag: the only tags are the worker's (`worker-v*`, used in step 5). Deploy a reviewed commit of `main`, the one whose CI is green, and write its SHA down in the change log (`git -C /opt/renox/src rev-parse HEAD`); an upgrade is a checkout of a newer reviewed commit. Check it out into `/opt/renox/src` (root-owned). Install Bun 1.4.4 (the version CI uses): download `bun-linux-x64.zip` and `SHASUMS256.txt` from the `bun-v1.4.4` release and compare with `sha256sum`. Then `install -m 0755 bun /opt/renox/bin/bun`, and run `/opt/renox/bin/bun install --frozen-lockfile` in `/opt/renox/src`.
+
+   `--production` installs cleanly since #400 (the SDK's `prepare` skips its build when the dev toolchain is absent, which the host does not need), but the control API cannot start from such a tree yet: `control/api/src/main.ts` imports `@electric-sql/pglite`, which `control/api/package.json` lists as a dev dependency. Until #400's last item moves it, install without `--production`. `ops/scripts/production-install.test.sh` checks both.
+
+   **Deploy checkout.** `renox deploy` of the platform's own apps (step 10) does not run from `/opt/renox/src`: that tree is root's, and the CLI writes `.renox/` next to `renox.toml`. As the operator's own user, clone the same commit into a directory of your own (`~/renox-deploy`), run `/opt/renox/bin/bun install --frozen-lockfile` there (it builds `sdk/dist`, which `control/dashboard` and `www` import), and point the CLI at the installed worker, which it runs for `renox-worker check-policies` before every deploy:
+   ```
+   export RENOX_WORKER_PATH=/opt/renox/bin/renox-worker
+   ```
 4. **Postgres.** The distribution's Postgres listens on `localhost` only (check `listen_addresses` in `/etc/postgresql/16/main/postgresql.conf`). Create the role and the database:
    ```
    sudo -u postgres psql -c "create role renox_control login password '<openssl rand -hex 24>'"

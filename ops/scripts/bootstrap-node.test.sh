@@ -419,6 +419,13 @@ fi
 # 5c. The control API under its unit, when Bun and node_modules are here.
 bun_bin=${RENOX_BUN_BIN:-$(command -v bun || true)}
 repo=$(cd "$here/.." && pwd)
+# ops/single-host.md step 3 (#400): the production install of the tracked
+# files, on this machine (it needs the npm registry).
+if [[ -n $bun_bin && -x $bun_bin ]]; then
+  if RENOX_BUN_BIN=$bun_bin "$here/scripts/production-install.test.sh" >"$ctx/prod" 2>&1; then
+    pass "bun install --frozen-lockfile --production works on the tracked files (production-install.test.sh)"
+  else fail "production-install.test.sh: $(grep -E '^(FAIL|SKIP)' "$ctx/prod")"; fi
+fi
 if [[ -n $bun_bin && -x $bun_bin && -d $repo/node_modules ]]; then
   # The checkout the runbook puts at /opt/renox/src: the tracked files and the installed node_modules.
   docker exec "$name" install -d -m 0755 /opt/renox/src
