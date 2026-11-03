@@ -30,6 +30,28 @@ Exit code 0 when every test passed, 2 when one failed.
 
 ### Installing the CLI
 
+On Linux or macOS (x64 or arm64):
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.0/install.sh | sh
+export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
+renox --version                          # renox 0.1.0 (renox-worker 0.3.0)
+renox new demo --template hello && cd demo && bun install && renox dev
+```
+
+`bun install` in the new app pulls the SDK `@renoxium/sdk` from npm at the CLI's version; it needs Bun 1.4 or later (the `renox` binary itself does not need Bun).
+
+**Windows.** There is no native Windows build in 0.1 (`renox-worker` runs on Linux and macOS only), and `install.sh` stops with these steps when it runs under Git Bash, MSYS2 or Cygwin. Use WSL 2, which is a Linux machine:
+
+1. In PowerShell as administrator: `wsl --install -d Ubuntu`, then restart Windows.
+2. Open Ubuntu from the Start menu and create the Linux user it asks for.
+3. In that Ubuntu terminal: `sudo apt-get update && sudo apt-get install -y curl unzip`, then `curl -fsSL https://bun.sh/install | bash` for Bun, and open a new terminal.
+4. Run the install line above, inside Ubuntu. Keep your apps in the Linux file system (`~/apps/...`), not under `/mnt/c/...`: file watching for `renox dev` and file access are much slower across the Windows drive.
+
+`renox dev` listens on `localhost:8787` inside WSL; WSL 2 forwards localhost to Windows, so `http://localhost:8787` opens in a Windows browser.
+
+**Upgrading.** Run the install line again: it replaces `renox` and `renox-worker` in `~/.renox/bin` in place (`RENOX_VERSION=<version>` picks a version; without it, the newest `cli-v*` release). `renox --version` prints the CLI version and the worker it pins. That worker is the one `renox dev`, `renox test` and the template transpile of `renox build` run on your machine; production runs its own worker version, managed by the platform, so a CLI release does not change what runs your deployed app. `renox deploy` uploads an artifact that the production worker validates on its own (`docs/contracts/artifact.md`).
+
 The CLI is released as standalone binaries (`bun build --compile`, so no Bun is needed) for Linux and macOS on x64 and arm64. A `cli-v<version>` tag runs `.github/workflows/release-cli.yml`, which publishes `renox-<version>-<os>-<arch>` with a `.sha256` for each binary, `install.sh`, and `worker-version.txt`. That file holds the `renox-worker` version the CLI is tested against: `WORKER_VERSION` in `cli/scripts/fetch-worker.ts`, whose release must exist before the CLI release. `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh` (source: `cli/scripts/install.sh`) installs into `~/.renox/bin`. It installs `renox` and the pinned `renox-worker` for the platform, and installs a file only when its SHA-256 matches. Override with `RENOX_VERSION`, `RENOX_INSTALL_DIR` and `RENOX_RELEASE_BASE`, or skip the worker with `RENOX_NO_WORKER=1`. `renox new`, `renox check`, and `renox build` of an app without `templates/` run without the worker; `renox dev` and the template transpile of `renox build` find the installed worker beside `renox`.
 
 Releases are signed (#129; `docs/24-threat-model.md` F, "Tampered release"). Every `cli-v*` and `worker-v*` release also carries `SHA256SUMS`, a sigstore bundle `<asset>.sigstore.json` per file (cosign keyless signature from the release workflow's OIDC identity, logged in Rekor), and SLSA v1 build provenance (`renox-<version>.provenance.sigstore.json`, `renox-worker-<version>.provenance.sigstore.json`). The release workflow verifies all of them with cosign in a fresh container before it publishes. With `cosign` installed, `install.sh` also checks each file's signature and installs nothing that fails; `RENOX_REQUIRE_SIGNATURE=1` refuses to install without a verified signature. To verify a download by hand:

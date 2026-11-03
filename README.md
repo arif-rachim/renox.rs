@@ -202,13 +202,13 @@ The Rust job caches `target/` (`Swatinem/rust-cache`) and compiler outputs (`scc
 
 ### Prebuilt `renox-worker`
 
-`renox dev` and `renox test` run a prebuilt worker, so tenant developers never build Rust (`docs/12-developer-experience.md`, rule 5). `.github/workflows/release-worker.yml` builds it on a `worker-v*` tag (or by hand from the Actions tab) and attaches `renox-worker-<version>-<target>` and its `.sha256` to the GitHub Release `worker-v<version>` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each build runs natively on its own runner and links a V8 archive checked against `ops/v8-checksums.txt`. Releases up to `worker-v0.1.0` carry the Linux x86_64 binary only; the two macOS targets ship from the next tag after #212 landed the CPU-clock wall-time cross-check.
+`renox dev` and `renox test` run a prebuilt worker, so tenant developers never build Rust (`docs/12-developer-experience.md`, rule 5). `.github/workflows/release-worker.yml` builds it on a `worker-v*` tag (or by hand from the Actions tab) and attaches `renox-worker-<version>-<target>` and its `.sha256` to the GitHub Release `worker-v<version>` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each build runs natively on its own runner and links a V8 archive checked against `ops/v8-checksums.txt`. Releases up to `worker-v0.1.0` carry the Linux x86_64 binary only; from `worker-v0.3.0` on, every release carries all four targets, signed. The CLI pins `worker-v0.3.0` (`WORKER_VERSION` in `cli/scripts/fetch-worker.ts`).
 
 ```
-gh release download worker-v0.1.0 --pattern 'renox-worker-0.1.0-x86_64-unknown-linux-gnu*'
-sha256sum -c renox-worker-0.1.0-x86_64-unknown-linux-gnu.sha256
-chmod +x renox-worker-0.1.0-x86_64-unknown-linux-gnu
-export RENOX_WORKER_PATH=$PWD/renox-worker-0.1.0-x86_64-unknown-linux-gnu
+gh release download worker-v0.3.0 --pattern 'renox-worker-0.3.0-x86_64-unknown-linux-gnu*'
+sha256sum -c renox-worker-0.3.0-x86_64-unknown-linux-gnu.sha256
+chmod +x renox-worker-0.3.0-x86_64-unknown-linux-gnu
+export RENOX_WORKER_PATH=$PWD/renox-worker-0.3.0-x86_64-unknown-linux-gnu
 ```
 
 `RENOX_WORKER_PATH` tells the CLI which worker binary to run instead of downloading one. Platform developers point it at their own build: `cargo build --release --bin renox-worker`, then `export RENOX_WORKER_PATH=$PWD/target/release/renox-worker`.

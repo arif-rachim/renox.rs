@@ -32,9 +32,12 @@ export const CODE = "RENOX_CLI_WORKER_UNVERIFIED";
  * both together. A target without an entry has no released worker yet.
  */
 export const PINNED_WORKER: { version: string; sha256: Readonly<Record<string, string>> } = {
-  version: "0.1.0",
+  version: "0.3.0",
   sha256: {
-    "x86_64-unknown-linux-gnu": "ccfc6ec259e271c258269cae42dcb6d28c681384988ea71fa8d7a34749e5c234",
+    "x86_64-unknown-linux-gnu": "581f967a4e725ce38498dfac2e4fefdaceab3b0aeb988b5bf59803ce845ab805",
+    "aarch64-unknown-linux-gnu": "923c67f62f7ef6c8a40b9504bf0aaf11157617b0cba580b940549728557098ee",
+    "x86_64-apple-darwin": "60368601809636e8a8c6b531139aa7b5fd4cf750fa3caeb0b26d0c37f8bd945f",
+    "aarch64-apple-darwin": "e9ca33b1c26b86260517068399c194ff78af69bcf6239b79542b3a658b34253c",
   },
 };
 

@@ -22,8 +22,15 @@ import { run as migrate } from "./commands/migrate.ts";
 import { run as test } from "./commands/test.ts";
 import { run as publish } from "./commands/publish.ts";
 import { run as approve } from "./commands/approve.ts";
+import { CLI_VERSION } from "./commands/new.ts";
+import { PINNED_WORKER } from "./worker/verify.ts";
+
+/** `renox --version`: the CLI and the renox-worker release it pins (the one `renox dev` runs; production runs its own). */
+const VERSION_LINE = `renox ${CLI_VERSION} (renox-worker ${PINNED_WORKER.version})`;
 
 const USAGE = `renox <command>
+
+  --version                             print the CLI version and the pinned renox-worker version
 
   new <name> [--template blank|hello]   create an app
   build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
@@ -71,6 +78,10 @@ async function main(argv: string[]): Promise<number> {
   if (!fn) {
     if (cmd === undefined || cmd === "--help" || cmd === "help") {
       console.log(USAGE);
+      return EXIT.OK;
+    }
+    if (cmd === "--version" || cmd === "-V" || cmd === "version") {
+      console.log(VERSION_LINE);
       return EXIT.OK;
     }
     console.error(`renox: unknown command ${JSON.stringify(cmd)}\n\n${USAGE}`);

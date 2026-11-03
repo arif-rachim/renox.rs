@@ -2,6 +2,19 @@
 
 One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`, `mcp` (P21), and against the control plane `login`, `tokens`, `deploy`, `logs`, `secrets`, `db`. Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
 
+## Install
+
+Linux and macOS, x64 and arm64 (on Windows, use WSL 2: `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.0/install.sh | sh
+renox --version        # renox 0.1.0 (renox-worker 0.3.0)
+```
+
+The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed). Running it again upgrades in place. Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
+
+## From the repository
+
 ```
 bun cli/src/main.ts <command>        # from the repository
 bun run --cwd cli compile            # single binary: cli/dist/renox
@@ -26,7 +39,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 
 | Command | What it does |
 | --- | --- |
-| `renox new <name> [--template blank\|hello]` | Creates `<name>/` with `renox.toml`, `package.json` (depends on `renox` at this CLI's own version, `^<cli version>`: the SDK is published at the same version, #376), `tsconfig.json`, `.gitignore`, the agent files `AGENTS.md`, `CLAUDE.md` and `.mcp.json` (the app model and rules in short, and `renox mcp --project .` registered for Claude Code and Cursor, #377; `cli/templates/`), and the template's files (`cli/templates/<template>/`; `hello` mirrors `examples/hello`, `blank` has `GET /api/health`). Refuses a non-empty folder |
+| `renox new <name> [--template blank\|hello]` | Creates `<name>/` with `renox.toml`, `package.json` (depends on `@renoxium/sdk` at this CLI's own version, `^<cli version>`: the SDK is published at the same version, #376), `tsconfig.json`, `.gitignore`, the agent files `AGENTS.md`, `CLAUDE.md` and `.mcp.json` (the app model and rules in short, and `renox mcp --project .` registered for Claude Code and Cursor, #377; `cli/templates/`), and the template's files (`cli/templates/<template>/`; `hello` mirrors `examples/hello`, `blank` has `GET /api/health`). Refuses a non-empty folder |
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`, version 1) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Leaves forbidden files out of `public/` and fails on a secret in what it ships (step 5 and the secret scan below). Prints the hash. An app with templates needs the `renox-worker` binary (see "Templates") |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact. WebSocket and SSE routes are proxied unbuffered (below, "Realtime, tools and jobs") |
 | `renox dev --worker <path>` | Runs another `renox-worker` binary: it must have the pinned release's sha256 or carry a sigstore signature (`<path>.sigstore.json`) and the release's provenance bundle beside it that `cosign` verifies; otherwise `RENOX_CLI_WORKER_UNVERIFIED`, exit code 3 (#129) |
