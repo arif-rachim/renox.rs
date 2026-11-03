@@ -46,6 +46,8 @@ export const EXTRA_ROUTES: Record<string, string> = {
   // The signed download of an export (src/tenants/backups.ts): the signature
   // is the credential; a bare or foreign id is 404.
   "GET /v1/exports/:id": "downloadExport",
+  // #396: the platform-tenant flag, operator only (control/api/README.md).
+  "POST /v1/ops/tenants/:tenant_id/platform": "setTenantPlatform",
   "POST /v1/account/signup": "signup",
   "POST /v1/account/verify": "verifyEmail",
   "POST /v1/account/verify/resend": "resendVerification",

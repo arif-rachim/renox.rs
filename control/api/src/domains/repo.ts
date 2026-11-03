@@ -42,10 +42,13 @@ export interface DomainRow {
   detach_reason: "removed" | "unverified" | null;
   txt_checked_at: number | null;
   next_txt_check_at: number | null;
+  /** Consecutive TXT misses of a verified domain (#398). */
+  txt_misses: number;
+  txt_first_miss_at: number | null;
 }
 
 export const DOMAIN_COLUMNS =
-  "id, hostname, tenant_id, app, state, verify_token, dns, cert_state, created_at, verified_at, last_checked_at, next_check_at, cert_retry_at, cert_failures, detached_at, detach_reason, txt_checked_at, next_txt_check_at";
+  "id, hostname, tenant_id, app, state, verify_token, dns, cert_state, created_at, verified_at, last_checked_at, next_check_at, cert_retry_at, cert_failures, detached_at, detach_reason, txt_checked_at, next_txt_check_at, txt_misses, txt_first_miss_at";
 
 export function toDomain(r: Record<string, unknown>): DomainRow {
   return {
@@ -67,6 +70,8 @@ export function toDomain(r: Record<string, unknown>): DomainRow {
     detach_reason: (r.detach_reason ?? null) as DomainRow["detach_reason"],
     txt_checked_at: numOrNull(r.txt_checked_at),
     next_txt_check_at: numOrNull(r.next_txt_check_at),
+    txt_misses: numOrNull(r.txt_misses) ?? 0,
+    txt_first_miss_at: numOrNull(r.txt_first_miss_at),
   };
 }
 

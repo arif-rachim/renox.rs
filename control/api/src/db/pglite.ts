@@ -1,5 +1,11 @@
 import { PGlite } from "@electric-sql/pglite";
 import type { Db, Row } from "./db.ts";
+import { tagStage } from "../log.ts";
+
+/** Marks a failed statement with the stage `db` for the unhandled-error log (#402). */
+const db = (err: unknown): never => {
+  throw tagStage(err, "db");
+};
 
 interface PgliteLike {
   query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -9,13 +15,13 @@ interface PgliteLike {
 function wrap(pg: PgliteLike, root: PGlite): Db {
   return {
     async query<T extends Row>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
-      return (await pg.query<T>(sql, [...params])).rows;
+      return (await pg.query<T>(sql, [...params]).catch(db)).rows;
     },
     transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
       return root.transaction((tx) => fn(wrap(tx as unknown as PgliteLike, root)));
     },
     async exec(sql: string): Promise<void> {
-      await pg.exec(sql);
+      await pg.exec(sql).catch(db);
     },
     async listen(channel: string, onPayload: (payload: string) => void) {
       return root.listen(channel, onPayload);

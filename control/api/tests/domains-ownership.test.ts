@@ -9,7 +9,7 @@ import { QUARANTINE_MS, RESERVED_SLUGS, slugState } from "../src/apps/slugs.ts";
 import { MemoryChallengeResponder } from "../src/domains/challenges.ts";
 import { tick } from "../src/domains/jobs.ts";
 import { HOLD_MS, isUniqueViolation } from "../src/domains/ownership.ts";
-import { RECHECK_MS, REVERIFY_MS } from "../src/domains/reverify.ts";
+import { DETACH_GRACE_MS, DETACH_MISSES, FRESH_TXT_MS, MISS_RECHECK_MS, RECHECK_MS, REVERIFY_MS } from "../src/domains/reverify.ts";
 import { configureDomains } from "../src/domains/service.ts";
 import { EnvMasterKey } from "../src/secrets/crypto.ts";
 import { SESSION_COOKIE } from "../src/auth/sessions.ts";
@@ -177,6 +177,15 @@ describe("re-verification", () => {
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("verified");
     e.h.clock.now += 1;
+    // #398: DETACH_MISSES consecutive misses over at least DETACH_GRACE_MS.
+    const firstMiss = e.h.clock.now;
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("verified");
+    e.h.clock.now += MISS_RECHECK_MS;
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("verified");
+    expect(e.h.mailer.last(e.a.email, "domain_detached")).toBeUndefined();
+    e.h.clock.now = firstMiss + DETACH_GRACE_MS;
     await tick(e.h.deps);
     expect(await stateOf(e)).toMatchObject({ state: "detached", detach_reason: "unverified" });
     expect(await entries(e)).toEqual([]);
@@ -215,7 +224,7 @@ describe("re-verification", () => {
     e.resolver.failing = false;
   });
 
-  test("checked before every certificate order: a missing record detaches instead of ordering", async () => {
+  test("checked before every certificate order: a missing record blocks the order and, after the grace period, detaches", async () => {
     const e = await setup();
     const record = await verifiedA(e);
     const notAfter = (await e.h.db.query<{ not_after: unknown }>("select not_after from certificates"))[0]?.not_after;
@@ -223,9 +232,123 @@ describe("re-verification", () => {
     // Inside the renewal window but before the 7-day re-check is due.
     await e.h.db.query("update domains set next_txt_check_at = $1", [Number(notAfter) + REVERIFY_MS]);
     e.h.clock.now = Number(notAfter) - 29 * 86_400_000;
+    const firstMiss = e.h.clock.now;
     await tick(e.h.deps);
     expect(e.issuer.orders).toEqual([HOST]);
+    expect((await stateOf(e))?.state).toBe("verified");
+    // The next ticks neither order nor look the record up again before MISS_RECHECK_MS.
+    const lookups = e.resolver.txtLookups.get(record);
+    await tick(e.h.deps);
+    expect(e.resolver.txtLookups.get(record)).toBe(lookups);
+    for (let i = 1; i < DETACH_MISSES; i++) {
+      e.h.clock.now = firstMiss + i * MISS_RECHECK_MS;
+      await tick(e.h.deps);
+    }
+    expect(e.h.clock.now - firstMiss).toBeGreaterThanOrEqual(DETACH_GRACE_MS);
+    expect(e.issuer.orders).toEqual([HOST]);
     expect((await stateOf(e))?.state).toBe("detached");
+  });
+
+  /**
+   * #398, docs/24-threat-model.md C "Custom domain takeover" (periodic
+   * re-verification must not detach a legitimate owner): the host's resolver
+   * negative-caches the NXDOMAIN from before the record existed. One answer
+   * saw the record (the domain verified); the stale negatives that follow
+   * must neither detach it nor stop its first certificate.
+   */
+  test("stale negative right after verification: the first order skips the re-check, later misses do not detach", async () => {
+    const e = await setup();
+    const body = (await (await add(e, e.a, "alpha")).json()) as { verification: { record_name: string; record_value: string } };
+    const record = body.verification.record_name;
+    e.resolver.txts.set(record, [body.verification.record_value]);
+    e.resolver.cnames.set(HOST, "edge.renox.app");
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("verified");
+    // Verified seconds ago: the order did not look the record up again.
+    expect(e.resolver.txtLookups.get(record)).toBe(1);
+    expect(e.issuer.orders).toEqual([HOST]);
+
+    // Two stale negatives at the 7-day re-check, then the record is seen again.
+    e.resolver.staleNegatives.set(record, DETACH_MISSES - 1);
+    e.h.clock.now += REVERIFY_MS;
+    await tick(e.h.deps);
+    e.h.clock.now += DETACH_GRACE_MS; // past the grace period, but only DETACH_MISSES - 1 misses
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("verified");
+    const [mid] = await e.h.db.query<{ txt_misses: number }>("select txt_misses from domains where hostname = $1", [HOST]);
+    expect(Number(mid?.txt_misses)).toBe(DETACH_MISSES - 1);
+    e.h.clock.now += MISS_RECHECK_MS;
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("verified");
+    const [after] = await e.h.db.query<{ txt_misses: number; txt_first_miss_at: unknown }>("select txt_misses, txt_first_miss_at from domains where hostname = $1", [HOST]);
+    expect(Number(after?.txt_misses)).toBe(0);
+    expect(after?.txt_first_miss_at).toBeNull();
+    expect(e.h.mailer.last(e.a.email, "domain_detached")).toBeUndefined();
+    expect((await auditRows(e.h)).filter((r) => r.action === "detachDomain")).toEqual([]);
+  });
+
+  test("three quick misses do not detach before the grace period has passed", async () => {
+    const e = await setup();
+    const record = await verifiedA(e);
+    e.resolver.txts.delete(record);
+    e.h.clock.now += REVERIFY_MS;
+    const firstMiss = e.h.clock.now;
+    // Force the checks as fast as the job allows them.
+    for (let i = 0; i < DETACH_MISSES + 2; i++) {
+      await e.h.db.query("update domains set next_txt_check_at = $1", [e.h.clock.now]);
+      await tick(e.h.deps);
+      e.h.clock.now += 60_000;
+    }
+    expect(e.h.clock.now - firstMiss).toBeLessThan(DETACH_GRACE_MS);
+    expect((await stateOf(e))?.state).toBe("verified");
+    e.h.clock.now = firstMiss + DETACH_GRACE_MS;
+    await e.h.db.query("update domains set next_txt_check_at = $1", [e.h.clock.now]);
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("detached");
+  });
+
+  test("the pre-order re-check runs again once the last sighting is older than FRESH_TXT_MS", async () => {
+    const e = await setup();
+    const record = await verifiedA(e);
+    const before = e.resolver.txtLookups.get(record) ?? 0;
+    // A new order (the certificate is dropped) minutes after verification: no lookup.
+    await e.h.db.query("delete from certificates");
+    await e.h.db.query("update domains set cert_state = 'none'");
+    e.h.clock.now += FRESH_TXT_MS - 1;
+    await tick(e.h.deps);
+    expect(e.issuer.orders).toEqual([HOST, HOST]);
+    expect(e.resolver.txtLookups.get(record) ?? 0).toBe(before);
+    // Later: the order looks the record up first.
+    await e.h.db.query("delete from certificates");
+    await e.h.db.query("update domains set cert_state = 'none'");
+    e.h.clock.now += FRESH_TXT_MS;
+    await tick(e.h.deps);
+    expect(e.issuer.orders).toEqual([HOST, HOST, HOST]);
+    expect(e.resolver.txtLookups.get(record) ?? 0).toBe(before + 1);
+  });
+
+  test("POST …/domains on the owner's own detached claim forces a re-check at the next tick", async () => {
+    const e = await setup();
+    const record = await verifiedA(e);
+    const token = (await e.h.db.query<{ verify_token: string }>("select verify_token from domains where hostname = $1", [HOST]))[0]?.verify_token as string;
+    e.resolver.txts.delete(record);
+    e.h.clock.now += REVERIFY_MS;
+    const firstMiss = e.h.clock.now;
+    for (let i = 0; i < DETACH_MISSES; i++) {
+      e.h.clock.now = firstMiss + i * MISS_RECHECK_MS;
+      await tick(e.h.deps);
+    }
+    expect((await stateOf(e))?.state).toBe("detached");
+    e.resolver.txts.set(record, [token]);
+    // Without the POST the next check is up to RECHECK_MS away.
+    e.h.clock.now += 1_000;
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("detached");
+    const res = await add(e, e.a, "alpha");
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { verification: { record_value: string } }).verification.record_value).toBe(token);
+    await tick(e.h.deps);
+    expect((await stateOf(e))?.state).toBe("verified");
   });
 });
 

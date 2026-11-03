@@ -106,6 +106,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   downloadExport: "public",
   // Operator actions (src/ops/tenants.ts, section 17; #259).
   setTenantTier: "operator",
+  // #396: the platform-tenant flag (src/ops/platform.ts); not in deploy-api.yaml (control/api/README.md).
+  setTenantPlatform: "operator",
   moveTenant: "operator",
   // deploy-api.md 0.3.1 section 17: the read of operator data (ops:read), implemented by #296.
   getOpsTenant: "operator",
