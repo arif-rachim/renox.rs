@@ -108,15 +108,15 @@ jobs:
           echo "renox ${version:-0.0.0-dev (dry run)}; sdk/package.json $sdk; npm $npm_version" | tee -a "$GITHUB_STEP_SUMMARY"
       - run: bun install --frozen-lockfile
       # `npm pack` runs `prepare` (bun run build): the tarball holds a fresh
-      # build. The acceptance of #376: dist/ JS and declarations, no src/,
-      # tests or node_modules.
+      # build. The acceptance of #376: dist/ JS and declarations, README.md
+      # and LICENSE, no src/, tests or node_modules.
       - name: Build and pack
         run: |
           cd sdk
           bun run build
           npm pack --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/pack.json"
           jq -r '.[0].files[].path' "$RUNNER_TEMP/pack.json" | sort > "$RUNNER_TEMP/files.txt"
-          bad=$(grep -vE '^(package\.json|README\.md|dist/.*\.(js|d\.ts))$' "$RUNNER_TEMP/files.txt" || true)
+          bad=$(grep -vE '^(package\.json|README\.md|LICENSE|dist/.*\.(js|d\.ts))$' "$RUNNER_TEMP/files.txt" || true)
           if [[ -n "$bad" ]]; then
             echo "::error::the tarball ships files outside dist/: $(tr '\n' ' ' <<< "$bad")"
             exit 1
@@ -125,6 +125,7 @@ jobs:
             grep -qx "dist/$f.js" "$RUNNER_TEMP/files.txt" && grep -qx "dist/$f.d.ts" "$RUNNER_TEMP/files.txt" \
               || { echo "::error::dist/$f.js or dist/$f.d.ts is missing from the tarball"; exit 1; }
           done
+          grep -qx LICENSE "$RUNNER_TEMP/files.txt" || { echo "::error::LICENSE is missing from the tarball"; exit 1; }
           {
             echo "tarball: $(jq -r '.[0].filename' "$RUNNER_TEMP/pack.json"), $(jq -r '.[0].size' "$RUNNER_TEMP/pack.json") bytes, $(wc -l < "$RUNNER_TEMP/files.txt") files"
             echo '```'; cat "$RUNNER_TEMP/files.txt"; echo '```'

@@ -33,7 +33,7 @@ describe("the published package (#376)", () => {
   let tarball = "";
   let files: string[] = [];
 
-  test("npm pack ships dist/ and README.md only: no src/, tests or node_modules", () => {
+  test("npm pack ships dist/, README.md and LICENSE only: no src/, tests or node_modules", () => {
     expect(Bun.which("npm")).not.toBeNull();
     // `npm pack` runs `prepare` (bun run build), so the tarball holds a fresh build.
     const r = run(["npm", "pack", "--json", "--pack-destination", scratch], sdk);
@@ -45,8 +45,9 @@ describe("the published package (#376)", () => {
     expect(tarball.endsWith(`renox-${version}.tgz`)).toBe(true);
     expect(existsSync(tarball)).toBe(true);
     files = info!.files.map((f) => f.path).sort();
-    const allowed = (p: string) => p === "package.json" || p === "README.md" || (p.startsWith("dist/") && /\.(js|d\.ts)$/u.test(p));
+    const allowed = (p: string) => p === "package.json" || p === "README.md" || p === "LICENSE" || (p.startsWith("dist/") && /\.(js|d\.ts)$/u.test(p));
     expect(files.filter((p) => !allowed(p))).toEqual([]);
+    expect(files).toContain("LICENSE");
     for (const sub of ["index", "kysely", "drizzle", "fakes", "test"]) {
       expect(files).toContain(`dist/${sub}.js`);
       expect(files).toContain(`dist/${sub}.d.ts`);
