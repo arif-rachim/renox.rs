@@ -27,7 +27,14 @@ fetch_blocked_addresses = [@BLOCKED_ADDRESSES@]
 
 [tls]
 cert_dir = "/var/lib/renox/data/_certs"
-http_listen = "[::]:80"
+
+http_listen = "0.0.0.0:80"
+# Where the control plane writes the ACME HTTP-01 challenges of custom domains
+# (its CONTROL_ACME_CHALLENGE_DIR); answered on http_listen at
+# /.well-known/acme-challenge/<token>. On the single host (#397)
+# bootstrap-node.sh --single-host creates it as renox-control:renox 2750
+# (setgid), outside /var/lib/renox, which renox-control cannot traverse.
+acme_dir = "/var/lib/renox-acme-challenges"
 
 # The wildcard certificate of *.renoxium.app and renoxium.app is written into
 # cert_dir by ops/scripts/renew-wildcard-cert.sh (#366), which then reloads the

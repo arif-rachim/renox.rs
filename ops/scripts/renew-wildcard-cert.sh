@@ -2,7 +2,7 @@
 # The wildcard certificate of the tenant app domain (#366, ops/single-host.md):
 # `*.renoxium.app` and `renoxium.app` in one certificate, from Let's Encrypt
 # by DNS-01 with lego's Cloudflare provider, installed where the worker's
-# CertStore loads it, then the worker is told to reload (SIGHUP through
+# CertStore loads it, then a running worker is told to reload (SIGHUP through
 # `systemctl reload renox-worker`, crates/renox-cell/src/worker.rs).
 #
 #   ops/scripts/renew-wildcard-cert.sh --domain renoxium.app --email ops@renoxium.com \
@@ -21,8 +21,11 @@
 #   --days <n>           renew when fewer than n days are left (30)
 #   --staging            Let's Encrypt's staging directory (a dry run of the setup)
 #   --owner <user:group> owner of the installed files (renox:renox)
-#   --reload-cmd <cmd>   run after a new certificate was installed
-#                        (default: systemctl reload renox-worker.service)
+#   --reload-cmd <cmd>   run after a new certificate was installed, instead of
+#                        the default: `systemctl reload renox-worker.service`
+#                        when that unit is active, nothing when it is not (the
+#                        worker loads cert_dir when it starts, so the first
+#                        install, before the worker runs, succeeds: #399)
 #
 # Writes into the format of crates/renox-gateway/src/tls.rs:
 #   <cert_dir>/_wildcard.<domain>/{fullchain,privkey}.pem   for *.<domain>
@@ -41,7 +44,8 @@ lego_bin=/opt/renox/bin/lego
 days=30
 staging=0
 owner=renox:renox
-reload_cmd="systemctl reload renox-worker.service"
+reload_cmd=""
+worker_unit=renox-worker.service
 
 die() { echo "renew-wildcard-cert: $*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n $2 ]] || die "$1 needs a value"; }
@@ -126,10 +130,20 @@ install_into "$cert_dir/$domain"
 
 expiry=$(openssl x509 -in "$crt" -noout -enddate | cut -d= -f2)
 if [[ $changed -eq 1 ]]; then
-  # The reload command is the operator's own (a flag or the default), split on spaces.
-  read -r -a reload <<< "$reload_cmd"
-  "${reload[@]}"
-  echo "renew-wildcard-cert: installed a new certificate for $wildcard and $domain (expires $expiry); worker reloaded"
+  # The files are in place: say so first, so the journal records the install
+  # even when the reload that follows fails (#399).
+  echo "renew-wildcard-cert: installed a new certificate for $wildcard and $domain (expires $expiry)"
+  if [[ -n $reload_cmd ]]; then
+    # The operator's own command, split on spaces.
+    read -r -a reload <<< "$reload_cmd"
+    "${reload[@]}" || die "the certificate is installed, but the reload command failed: $reload_cmd"
+    echo "renew-wildcard-cert: worker reloaded ($reload_cmd)"
+  elif systemctl is-active --quiet "$worker_unit"; then
+    systemctl reload "$worker_unit" || die "the certificate is installed, but systemctl reload $worker_unit failed"
+    echo "renew-wildcard-cert: worker reloaded"
+  else
+    echo "renew-wildcard-cert: $worker_unit is not active; nothing reloaded, the worker loads the certificate when it starts"
+  fi
 else
   echo "renew-wildcard-cert: certificate for $wildcard and $domain unchanged (expires $expiry)"
 fi

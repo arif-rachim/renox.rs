@@ -13,8 +13,22 @@ export class StubResolver implements Resolver {
   readonly cnames = new Map<string, string>();
   readonly addrs = new Map<string, string[]>();
   failing = false;
+  /** TXT lookups made, by name. */
+  readonly txtLookups = new Map<string, number>();
+  /**
+   * How many of the next TXT lookups of a name answer "no record" whatever
+   * is set: a resolver's negative cache of an NXDOMAIN from before the record
+   * existed (#398).
+   */
+  readonly staleNegatives = new Map<string, number>();
   async txt(name: string): Promise<string[]> {
     if (this.failing) throw Object.assign(new Error("SERVFAIL"), { code: "ESERVFAIL" });
+    this.txtLookups.set(name, (this.txtLookups.get(name) ?? 0) + 1);
+    const stale = this.staleNegatives.get(name) ?? 0;
+    if (stale > 0) {
+      this.staleNegatives.set(name, stale - 1);
+      return [];
+    }
     return this.txts.get(name) ?? [];
   }
   async cname(name: string): Promise<string | null> {

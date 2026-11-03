@@ -56,12 +56,78 @@ bun ../../cli/src/main.ts dev --port 8790
 
 `renox dev` runs it like any app. A control API on `localhost` cannot be reached from it: tenant `fetch` blocks loopback and private addresses for the dashboard as for everyone (`tests/dashboard.e2e.test.ts` proves the refusal). To use a local control API, publish it under a public HTTPS hostname (a tunnel), set `RENOX_API_URL` to it in `.env`, and add its host to `network` in `renox.toml` for the session.
 
-## Deploy as the first internal tenant
+## Deploy as the platform tenant
 
-1. Sign up the platform's own tenant and its owner (`POST /v1/account/signup` with `tenant_id`, then verify the email), and sign in with `renox login`.
-2. `renox secrets set DASHBOARD_KEY --app dashboard` (a random 32-byte value), then `renox deploy` from this folder.
-3. Attach the dashboard hostname (`CONTROL_DASHBOARD_URL` of the API, default `https://dashboard.renoxium.com`) to the app: `POST /v1/apps/dashboard/domains` (`domains:write`; the CLI has no `domains` command yet).
-4. The node that runs it lists the control plane's node-facing addresses in `fetch_blocked_addresses`, not the public API address (D23).
+The dashboard and the site (`www/`) run as apps of one ordinary tenant, the platform tenant, under their reserved names `dashboard` and `www`. Only the tenant an operator has marked (`control/api/README.md`, "Platform tenant") may take a reserved name, or attach a custom domain in its first 7 days. This is the path used on `node-small` (#396). The commands run on the owner's workstation with `curl`, `jq` and the `renox` CLI. `API` is the public control API; the operator call runs on the host.
+
+```sh
+API=https://api.renoxium.com
+OWNER=owner@renoxium.com
+read -rs PW                      # the owner's password, kept out of the shell history
+```
+
+1. **Sign up** the tenant and its owner. The answer is 202 `{"status": "check_email"}`:
+
+   ```sh
+   jq -n --arg e "$OWNER" --arg p "$PW" '{email: $e, password: $p, tenant_id: "renoxium", tenant_name: "Renoxium", dpa_accepted: true}' |
+     curl -fsS -X POST "$API/v1/account/signup" -H 'content-type: application/json' --data-binary @-
+   ```
+
+2. **Verify the address.** The mail links to `https://dashboard.renoxium.com/signup/verify#token=…`. That page does not exist yet, and the token is in the URL fragment, which a browser never sends to a server. Copy everything after `#token=` (single use, 24 hours) and post it. The answer is 200 `{"user_id": …, "email_verified": true, "tenant_id": "renoxium"}`:
+
+   ```sh
+   curl -fsS -X POST "$API/v1/account/verify" -H 'content-type: application/json' -d '{"token": "<the value after #token=>"}'
+   ```
+
+3. **Log in** for an API session (cookie jar and CSRF value). This session approves the CLI in the next step. If the answer has `"mfa": "verify"`, pass `POST /v1/account/mfa/verify` first:
+
+   ```sh
+   jq -n --arg e "$OWNER" --arg p "$PW" '{email: $e, password: $p}' |
+     curl -fsS -c jar.txt -X POST "$API/v1/account/login" -H 'content-type: application/json' --data-binary @- > login.json
+   CSRF=$(jq -r .csrf login.json)
+   ```
+
+4. **Approve `renox login`.** In a second terminal, `renox login --api "$API"` prints `Open https://dashboard.renoxium.com/device and enter the code XXXX-XXXX` and then polls (every 5 s, for 15 minutes). There is no `/device` page yet, so approve the code with the session while it polls:
+
+   ```sh
+   curl -fsS -b jar.txt -X POST "$API/v1/account/device/approve" \
+     -H 'content-type: application/json' -H "x-renox-csrf: $CSRF" -d '{"user_code": "XXXX-XXXX"}'
+   ```
+
+   The answer is `{"approved": true}`, and `renox login` prints `Signed in to renoxium`. The token has every scope of the owner role. Then end the session: `curl -fsS -b jar.txt -X POST "$API/v1/account/logout" -H "x-renox-csrf: $CSRF"; rm jar.txt login.json`.
+
+5. **Mark the platform tenant** with the operator token, on the host. The answer has `"changed": true`, and the audit row keeps the reason:
+
+   ```sh
+   curl -fsS -X POST http://127.0.0.1:8787/v1/ops/tenants/renoxium/platform \
+     -H "authorization: Bearer $RENOX_OP_TOKEN" -H 'content-type: application/json' \
+     -d '{"platform": true, "reason": "bootstrap: the platform tenant runs dashboard and www"}'
+   ```
+
+6. **Deploy under the reserved names.** Create the dashboard app and its `DASHBOARD_KEY` before the first deploy, so the first activation already pins the key. `renox deploy` creates `www` itself, from `renox.toml`:
+
+   ```sh
+   TOKEN=$(jq -r .token ~/.config/renox/credentials.json)
+   curl -fsS -X POST "$API/v1/apps" -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"name": "dashboard"}'
+   openssl rand -base64 32 | tr -d '\n' | renox secrets set DASHBOARD_KEY --app dashboard
+   (cd control/dashboard && renox deploy)
+   (cd www && renox deploy)
+   ```
+
+   Both answer on the wildcard first: `https://dashboard.renoxium.app/` and `https://www.renoxium.app/`.
+
+7. **Point DNS at the node, then attach.** Create the `renoxium.com` records of `ops/single-host.md` ("Cloudflare DNS": `renoxium.com` and `dashboard.renoxium.com` A/AAAA, `www.renoxium.com` CNAME, all DNS only). Wait until every name answers the node's address from outside, for example `dig +short dashboard.renoxium.com @9.9.9.9`. Only then attach each hostname. A domain whose DNS does not point at the edge yet gets no certificate. After verification it is checked again only hourly (`DNS_CHECK_MS`). Every address the records carry must be in the API's `CONTROL_EDGE_ADDRESSES`, the IPv6 one too if there is an AAAA record:
+
+   ```sh
+   for pair in dashboard:dashboard.renoxium.com www:renoxium.com www:www.renoxium.com; do
+     curl -fsS -X POST "$API/v1/apps/${pair%%:*}/domains" -H "authorization: Bearer $TOKEN" \
+       -H 'content-type: application/json' -d "{\"hostname\": \"${pair#*:}\"}" | jq .verification
+   done
+   ```
+
+8. **The `_renox-verify` TXT records.** Each answer names a record: `_renox-verify.<hostname>` TXT `rnx-verify-…`. Create the three in Cloudflare and keep them for good: they are re-checked every 7 days, and a domain is detached after 3 misses spread over at least 30 minutes. The job looks them up every minute. Then `GET $API/v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `dns: ok`, and `certificate.state: issued` (HTTP-01 on port 80 of the node). Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`.
+
+If the host's resolvers answer stale negatives, set `CONTROL_DNS_SERVERS` (`control/api/src/domains/README.md`; on `node-small`, `9.9.9.9,149.112.112.112`). A domain that was detached anyway comes back when you repeat its `POST …/domains` call: it answers 201 with the same record and is checked at the next tick. The node that runs the dashboard lists the control plane's node-facing addresses in `fetch_blocked_addresses`, not the public API address (D23).
 
 The deployment is recorded in the F3 review (#61).
 

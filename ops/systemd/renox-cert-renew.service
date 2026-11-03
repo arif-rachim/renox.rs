@@ -1,7 +1,9 @@
 # Renews the wildcard certificate of the tenant app domain (#366,
 # ops/scripts/renew-wildcard-cert.sh): *.renoxium.app and renoxium.app by
 # DNS-01 with lego's Cloudflare provider, then `systemctl reload
-# renox-worker` (SIGHUP). Started by renox-cert-renew.timer.
+# renox-worker` (SIGHUP) when the worker is active; before the worker first
+# starts, the certificate is only installed (#399). Started by
+# renox-cert-renew.timer.
 # The Cloudflare API token (Zone:DNS:Edit on the one zone) stays in a
 # root-only file and reaches the script through LoadCredential (%d).
 [Unit]

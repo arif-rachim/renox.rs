@@ -24,7 +24,7 @@ import { notAfterOf, storeCertificate } from "./certs.ts";
 import { pointsAtEdge, txtMatches } from "./dns.ts";
 import { DOMAIN_COLUMNS, jobDb, syncRoutes, toDomain, type DomainRow } from "./repo.ts";
 import { releaseExpired } from "./ownership.ts";
-import { reverify, txtBeforeOrder } from "./reverify.ts";
+import { MISS_RECHECK_MS, reverify, txtBeforeOrder } from "./reverify.ts";
 import { configureDomains, domainService, domainServiceFromEnv, listenCertificates, sendCertificateMessage } from "./service.ts";
 
 /** How often a pending domain's TXT record is looked up. */
@@ -106,8 +106,10 @@ async function order(deps: Deps, db: Db, d: DomainRow, now: number): Promise<voi
   );
   if (claimed.length === 0) return;
   // deploy-api.md section 10: the TXT record is re-checked before every order (#114).
+  // A miss (or a failed lookup) blocks this order only; the order waits for
+  // the next TXT check rather than looking the record up every tick (#398).
   if (!(await txtBeforeOrder(deps, d, now))) {
-    await db.query("update domains set cert_retry_at = null, cert_state = case when cert_state = 'issuing' then 'none' else cert_state end where id = $1", [d.id]);
+    await db.query("update domains set cert_retry_at = $2, cert_state = case when cert_state = 'issuing' then 'none' else cert_state end where id = $1", [d.id, now + MISS_RECHECK_MS]);
     return;
   }
   try {

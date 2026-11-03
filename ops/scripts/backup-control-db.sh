@@ -8,7 +8,8 @@
 #     --recipients /etc/renox/backup-age.pub --r2-env /etc/renox/secrets/r2-backup.env
 #
 # The R2 file (root-only, passed by renox-backup-db.service through
-# LoadCredential) holds four lines, read without being sourced:
+# LoadCredential) holds four lines, read without being sourced. It must be
+# 0600 or 0400, or a systemd credential (root, 0440, in $CREDENTIALS_DIRECTORY):
 #   R2_ENDPOINT=https://<account id>.r2.cloudflarestorage.com
 #   R2_BUCKET=renoxium-backups
 #   R2_ACCESS_KEY_ID=…
@@ -47,7 +48,7 @@ while [[ $# -gt 0 ]]; do
     --prefix) need_value "$@"; prefix=$2; shift 2 ;;
     --work-dir) need_value "$@"; work_parent=$2; shift 2 ;;
     --pg-dump) need_value "$@"; pg_dump_bin=$2; shift 2 ;;
-    -h | --help) sed -n '2,32p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h | --help) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -61,9 +62,22 @@ command -v age >/dev/null 2>&1 || die "age is not installed (apt-get install age
 command -v "$pg_dump_bin" >/dev/null 2>&1 || die "$pg_dump_bin is not installed (postgresql-client)"
 
 # The R2 credentials: owner-only file, four known keys, nothing executed.
+# One exception (#395): systemd 255 hands a credential to a unit with
+# User=postgres as root-owned 0440 (read for the unit's user through an ACL)
+# in the unit's private $CREDENTIALS_DIRECTORY, which no other unit or user
+# can see. Group read is accepted there and only there: the file sits
+# directly in that directory, belongs to root, and has no write or other bit.
 [[ -n $r2_env && -f $r2_env ]] || die "--r2-env must name the R2 credentials file"
 mode=$(stat -L -c %a "$r2_env")
-[[ $mode =~ ^[0-7]?[0-7]00$ ]] || die "the R2 credentials file is readable by group or others (mode $mode): chmod 0600 it"
+systemd_credential() {
+  [[ -n ${CREDENTIALS_DIRECTORY:-} && -d $CREDENTIALS_DIRECTORY ]] || return 1
+  [[ $mode =~ ^[0-7]?[04][04]0$ ]] || return 1
+  [[ $(stat -L -c %u "$r2_env") == 0 ]] || return 1
+  [[ $(dirname "$(realpath -e "$r2_env")") == "$(realpath -e "$CREDENTIALS_DIRECTORY")" ]]
+}
+if [[ ! $mode =~ ^[0-7]?[0-7]00$ ]] && ! systemd_credential; then
+  die "the R2 credentials file is readable by group or others (mode $mode): chmod 0600 it, or pass it through LoadCredential"
+fi
 endpoint="" bucket="" key_id="" secret=""
 while IFS= read -r line || [[ -n $line ]]; do
   [[ -z $line || $line == \#* ]] && continue

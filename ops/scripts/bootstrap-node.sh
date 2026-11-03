@@ -23,7 +23,8 @@
 # Single host (#366, ops/single-host.md): the worker and the control plane on
 # one machine. --single-host also installs cloudflared and lego (both SHA-256
 # verified, ops/cloudflared.lock and ops/lego.lock), the certificate and
-# backup scripts, the `renox-control` user, and the templates of
+# backup scripts, the `renox-control` user, the shared ACME challenge
+# directory /var/lib/renox-acme-challenges, and the templates of
 # /etc/renox/control.env (0600), /etc/renox/single-host.env and
 # /etc/renox/tunnel/config.yml, each written once. It enables only the worker:
 # the control plane, the tunnel and the timers need the owner's secrets first.
@@ -200,13 +201,21 @@ if [[ ! -f $etc_dir/worker.toml ]]; then
 else
   echo "/etc/renox/worker.toml exists; left unchanged"
 fi
+# The node token and the platform key: renox:renox 0400. The worker runs as
+# `renox` and refuses either file with any group or other bit
+# (crates/renox-cell/src/control/http.rs, src/pages/keys.rs), so root:renox
+# 0640 never starts it (#393). A file an older bootstrap installed is
+# corrected in place; its content is never touched.
 if [[ -n $node_token_file && ! -f $etc_dir/node.token ]]; then
-  install -m 0640 -o root -g renox "$node_token_file" "$etc_dir/node.token"
+  install -m 0400 -o renox -g renox "$node_token_file" "$etc_dir/node.token"
 fi
 if [[ ! -f $etc_dir/platform.key ]]; then
   head -c 32 /dev/urandom > "$tmp/platform.key"
-  install -m 0640 -o root -g renox "$tmp/platform.key" "$etc_dir/platform.key"
+  install -m 0400 -o renox -g renox "$tmp/platform.key" "$etc_dir/platform.key"
 fi
+for f in "$etc_dir/node.token" "$etc_dir/platform.key"; do
+  if [[ -f $f ]]; then chown renox:renox "$f" && chmod 0400 "$f"; fi
+done
 
 # 5. Units, slices, timers, polkit rule (the *.example files are templates, not units).
 for f in "$here"/systemd/*.service "$here"/systemd/*.slice "$here"/systemd/*.target "$here"/systemd/*.timer; do
@@ -234,6 +243,13 @@ if [[ $single_host -eq 1 ]]; then
   if ! id -u renox-control >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/renox-control --no-create-home --shell /usr/sbin/nologin renox-control
   fi
+  # The ACME HTTP-01 challenges of custom domains (#397): renox-control writes
+  # them (CONTROL_ACME_CHALLENGE_DIR), the worker serves them on port 80
+  # ([tls] acme_dir). Its own directory, not under /var/lib/renox (the
+  # worker's StateDirectory, 0750 renox, which renox-control cannot
+  # traverse); setgid, so each file gets the group renox, which the worker
+  # reads with renox-control's UMask=0027.
+  install -d -m 2750 -o renox-control -g renox /var/lib/renox-acme-challenges
   install -d -m 0700 -o root -g root "$etc_dir/secrets"
   install -d -m 0755 -o root -g root "$etc_dir/tunnel"
   write_once() {
