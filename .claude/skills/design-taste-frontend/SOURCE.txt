@@ -1,0 +1,22 @@
+design-taste-frontend (tasteskill v2), vendored unchanged from
+https://github.com/Leonxlnx/taste-skill (skills/taste-skill) at commit
+12af471f627f866411b4bd785b19646d3672784c (2026-10-25), MIT licence (LICENSE).
+Site: https://www.tasteskill.dev
+
+Every file except this one and LICENSE is upstream's. To update: copy
+skills/taste-skill from a newer upstream commit over this folder and change
+the commit above.
+
+The scripts need Node 22+ and a Chrome or Chromium. They write their working
+files to .taste-skill/ in the project root (ignored by git). In a cloud session
+running as root, Chromium needs --no-sandbox, which inspect.mjs does not pass;
+point CHROME_PATH at a wrapper:
+
+  printf '#!/bin/sh\nexec /opt/pw-browsers/chromium-1243/chrome-linux64/chrome --no-sandbox "$@"\n' > ~/.taste-skill/chrome
+  chmod +x ~/.taste-skill/chrome
+  CHROME_PATH=~/.taste-skill/chrome node .claude/skills/design-taste-frontend/scripts/inspect.mjs <url>
+
+Its house rules (no monospace labels, no hairlines, no pill badges, no
+eyebrows, no shadows at rest) conflict with parts of renox-ui v2 (ADR D27).
+ADR D27 binds Renoxium's own pages; apply the skill's rules there only where
+they do not contradict it.
