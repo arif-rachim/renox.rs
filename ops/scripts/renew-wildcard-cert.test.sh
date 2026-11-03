@@ -9,6 +9,8 @@
 # path, and its value never appears on the command line or in the output;
 # by default an active worker is reloaded, an inactive one is not and the run
 # still succeeds, and the "installed" line comes before any reload (#399).
+# Threat-model row (docs/24-threat-model.md): "Secrets in logs, errors,
+# bundle, responses" (the DNS token).
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

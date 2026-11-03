@@ -8,7 +8,11 @@
 # nothing; a group-readable credentials file, an unknown key in it and a
 # private age key in the recipients file are refused; the secret never
 # appears in curl's argv or in the output; a server refusing the upload fails
-# the backup.
+# the backup. A group-readable file is accepted only as a systemd credential:
+# root 0440 directly in $CREDENTIALS_DIRECTORY (#395); the other 0440 and 0444
+# cases are refused. Threat-model rows (docs/24-threat-model.md): "Secrets in
+# logs, errors, bundle, responses" and "Tenant files or backups read from
+# storage".
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

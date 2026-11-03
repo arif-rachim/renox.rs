@@ -30,6 +30,13 @@
 # as postgres with its LoadCredential copy (#395); a challenge written under
 # renox-control.service's sandbox is served by the worker on :80 (#397);
 # production-install.test.sh, when Bun is on this machine (#400).
+# Threat-model rows (docs/24-threat-model.md): "Isolate escape (V8 bug)", the
+# systemd layer (the worker holds CAP_NET_BIND_SERVICE and nothing else,
+# renox-child@ gets none); "Key compromise", the node token and page session
+# key readable by renox only; "Secrets in logs, errors, bundle, responses",
+# the DNS token and the R2 secret never in a unit's journal; "Tenant files or
+# backups read from storage", the control-database backup encrypted to the
+# age public key through its real unit.
 # RENOX_TEST_STUB_WORKER=1 says the worker binary is a stand-in (a local run
 # without a build), so the real config parser is not asked.
 set -euo pipefail
