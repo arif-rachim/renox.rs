@@ -1,8 +1,8 @@
-# cloudflared on the single host (#366, ops/single-host.md "Tunnel"): the
-# control API is published as api.renoxium.com and mcp.renoxium.com through an
-# outbound connection to Cloudflare. No inbound port, no origin certificate.
-# Installed as /etc/renox/tunnel/config.yml (root, 0644; it holds no secret);
-# renox-tunnel.service passes it to cloudflared through LoadCredential.
+# cloudflared on the single host (#366, #420, ADR D25; ops/single-host.md):
+# the host's only way in. Every public name reaches it through this outbound
+# tunnel; nothing listens on 80 or 443 and the host's address is never
+# published. Installed as /etc/renox/tunnel/config.yml (root, 0644; it holds no
+# secret); renox-tunnel.service passes it to cloudflared through LoadCredential.
 #
 # The tunnel's credentials file (`cloudflared tunnel create` writes
 # <tunnel id>.json) is a secret: it lives at /etc/renox/tunnel/credentials.json
@@ -10,8 +10,8 @@
 # LoadCredential, as `--credentials-file`. It is never put here, in the
 # repository, or in a log line.
 #
-# Replace @TUNNEL_ID@ with the id `cloudflared tunnel create renoxium-control`
-# printed (a UUID; not a secret).
+# Replace @TUNNEL_ID@ with the id `cloudflared tunnel create renoxium` printed
+# (a UUID; not a secret).
 tunnel: "@TUNNEL_ID@"
 # Updates come from ops/cloudflared.lock and ops/scripts/fetch-cloudflared.sh, never by itself.
 no-autoupdate: true
@@ -19,6 +19,11 @@ no-autoupdate: true
 metrics: 127.0.0.1:20241
 loglevel: info
 
+# Every rule keeps the visitor's Host header: no `httpHostHeader` anywhere.
+# The worker routes by Host, realtime checks Origin against it, and the
+# control API builds its URLs from it. Chunked encoding stays on
+# (`disableChunkedEncoding` is never set), so streamed responses and
+# text/event-stream are passed through as they are written, not buffered.
 ingress:
   # The control API's public listener: CONTROL_LISTEN_HOST=127.0.0.1, CONTROL_LISTEN_PORT=8787.
   # cloudflared sets CF-Connecting-IP to the client's address; the API believes
@@ -27,5 +32,17 @@ ingress:
     service: http://127.0.0.1:8787
   - hostname: mcp.renoxium.com
     service: http://127.0.0.1:8787
-  # Everything else, including the node listener (8788), is never published.
-  - service: http_status:404
+  # Tenant apps: <app>.renoxium.app and the apex (its security.txt and the
+  # redirect to renoxium.com), plain HTTP/1.1 to the worker's socket
+  # (listen = "unix:/run/renox-edge/worker.sock"). The worker believes
+  # CF-Connecting-IP only from this process's uid (renox-tunnel, #414).
+  - hostname: "*.renoxium.app"
+    service: unix:/run/renox-edge/worker.sock
+  - hostname: renoxium.app
+    service: unix:/run/renox-edge/worker.sock
+  # Everything else: the Cloudflare for SaaS custom hostnames (customers'
+  # domains and the platform's own renoxium.com, www and dashboard), which
+  # arrive through the fallback origin edge.renoxium.app with their own Host.
+  # The worker answers 404 for a Host it has no route for. The node listener
+  # (8788) and the operator listener are never published.
+  - service: unix:/run/renox-edge/worker.sock

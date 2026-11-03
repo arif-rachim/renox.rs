@@ -4,10 +4,13 @@
 # crates/renox-cell/README.md, "Configuration".
 
 mode = "controlled"
-# Dual-stack (#404): one IPv6 socket with IPV6_V6ONLY off serves IPv4 and
-# IPv6 clients; per-IP limits count an IPv4 client as its IPv4 address. A
-# host without IPv6 falls back to 0.0.0.0. "0.0.0.0:443" listens on IPv4 only.
-listen = "[::]:443"
+# Tunnel-only (#414, #420, ADR D25): plain HTTP/1.1 on a unix socket that only
+# cloudflared reaches; TLS, certificates and HTTP/2 end at Cloudflare's edge.
+# There is no [tls], no port 80 and no public port: the firewall leaves only
+# SSH open. The directory comes from /etc/tmpfiles.d/renox-edge.conf
+# (bootstrap-node.sh). "127.0.0.1:8080" serves plain HTTP on TCP instead
+# (local tests; never behind the tunnel, where any local process could reach it).
+listen = "unix:/run/renox-edge/worker.sock"
 node_id = "@NODE_ID@"
 data_dir = "/var/lib/renox/data"
 artifacts_dir = "/var/lib/renox/artifacts"
@@ -25,20 +28,6 @@ idle_timeout_secs = 600
 # public addresses (D23).
 fetch_blocked_addresses = [@BLOCKED_ADDRESSES@]
 
-[tls]
-cert_dir = "/var/lib/renox/data/_certs"
-
-http_listen = "0.0.0.0:80"
-# Where the control plane writes the ACME HTTP-01 challenges of custom domains
-# (its CONTROL_ACME_CHALLENGE_DIR); answered on http_listen at
-# /.well-known/acme-challenge/<token>. On the single host (#397)
-# bootstrap-node.sh --single-host creates it as renox-control:renox 2750
-# (setgid), outside /var/lib/renox, which renox-control cannot traverse.
-acme_dir = "/var/lib/renox-acme-challenges"
-
-# The wildcard certificate of *.renoxium.app and renoxium.app is written into
-# cert_dir by ops/scripts/renew-wildcard-cert.sh (#366), which then reloads the
-# worker (SIGHUP); custom domains get theirs by HTTP-01 on http_listen.
 [control]
 # https:// to the control plane's node listener; on the single host the
 # listener on loopback, plain HTTP: "http://127.0.0.1:8788" (#366).
@@ -48,17 +37,15 @@ region = "@REGION@"
 max_cells = 2000
 health_listen = "@HEALTH_LISTEN@"
 
-# Client addresses behind a proxy or Cloudflare Tunnel (#414, ADR D25). Only a
-# trusted peer's CF-Connecting-IP names the client; every other peer keeps its
-# socket address, and the forwarding headers never reach tenant code. Both lists
-# are empty by default (nobody trusted). Behind cloudflared the worker listens on
-# a unix socket and trusts cloudflared's user, never a loopback range that any
-# local process can reach:
-#   listen = "unix:/run/renox-edge/worker.sock"
-# [gateway]
-# trusted_socket_users = ["renox-tunnel"]
-# socket_group = "renox-edge"
-# trusted_proxies = []                       # CIDR ranges of trusted TCP peers
+# Client addresses behind Cloudflare Tunnel (#414, ADR D25). Only cloudflared's
+# user (renox-tunnel, uid read from the socket with SO_PEERCRED) may name the
+# client in CF-Connecting-IP; any other local process that reaches the socket
+# (a tenant child, another service) counts as 127.0.0.1 and its forwarding
+# headers are dropped. The socket is mode 0660 in the group renox-edge.
+# trusted_proxies (CIDR ranges of trusted TCP peers) stays empty here.
+[gateway]
+trusted_socket_users = ["renox-tunnel"]
+socket_group = "renox-edge"
 # client_ip_header = "CF-Connecting-IP"
 # max_connections_per_trusted_peer = 10000
 

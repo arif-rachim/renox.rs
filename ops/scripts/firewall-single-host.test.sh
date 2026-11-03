@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Container test of firewall-single-host.sh (#366): an ubuntu:24.04 container
+# Container test of firewall-single-host.sh (#366, #420): an ubuntu:24.04 container
 # with NET_ADMIN (its own network namespace, so the host's firewall is never
 # touched) runs the script; a second container on the same network probes it.
 #
@@ -7,9 +7,9 @@
 #
 # Proves: the script refuses without an sshd, with sshd on another port only,
 # and from a session on a port it does not open, and leaves no rules behind
-# when it refuses; --dry-run loads nothing; once applied, 22, 80 and 443 answer
-# from outside while 8787 and 5432 (listening on every interface on purpose)
-# do not; a second run is a no-op (same ruleset, one table, one include line);
+# when it refuses; --dry-run loads nothing; once applied, only 22 answers from
+# outside while 80, 443, 8787 and 5432 (listening on every interface on
+# purpose) do not: the single host is tunnel-only (ADR D25); a second run is a no-op (same ruleset, one table, one include line);
 # --ssh-port opens that port instead of 22 (a bad value is refused, a session
 # on 22 is refused, and after the switch 22 is closed from outside).
 #
@@ -102,10 +102,9 @@ docker exec --detach "$client" sh -c "sleep 30 | nc $server 22" >/dev/null
 sleep 1
 if fw -e SSH_CONNECTION="198.51.100.7 50000 10.0.0.2 22" >/dev/null 2>"$ctx/err"; then pass "sshd on 22 and the session on 22: applied"
 else fail "applied: $(cat "$ctx/err")"; fi
-for p in 22 80 443; do
-  if reach "$p"; then pass "port $p reachable from outside"; else fail "port $p reachable from outside"; fi
-done
-for p in 8787 5432; do
+if reach 22; then pass "port 22 reachable from outside"; else fail "port 22 reachable from outside"; fi
+# Tunnel-only (#420): 80 and 443 are closed like every other port.
+for p in 80 443 8787 5432; do
   if reach "$p"; then fail "port $p closed from outside"; else pass "port $p closed from outside (listener on 0.0.0.0)"; fi
 done
 if on sh -c 'nc -z -w 2 127.0.0.1 8787 2>/dev/null'; then pass "loopback still reaches 8787 (cloudflared's path)"; else fail "loopback reaches 8787"; fi
@@ -123,7 +122,7 @@ if on nft -c -f /etc/nftables.d/renox-single-host.nft; then pass "the persisted 
 # 7. --ssh-port: sshd on 49222 only, the session on 49222.
 docker exec "$client" pkill -x nc >/dev/null 2>&1 || true
 before=$(on nft list ruleset 2>/dev/null | sha256sum)
-for bad in 0 65536 abc "" 443; do
+for bad in 0 65536 abc ""; do
   if fw --ssh-port "$bad" >/dev/null 2>"$ctx/err"; then fail "--ssh-port '$bad': refused"
   elif grep -q "ssh-port" "$ctx/err"; then pass "--ssh-port '$bad': refused"
   else fail "--ssh-port '$bad': refused ($(cat "$ctx/err"))"; fi
@@ -139,7 +138,7 @@ else fail "--ssh-port 49222 applied: $(cat "$ctx/err")"; fi
 if reach 49222; then pass "port 49222 reachable from outside"; else fail "port 49222 reachable from outside"; fi
 if reach 22; then fail "port 22 closed from outside after --ssh-port 49222"; else pass "port 22 closed from outside after --ssh-port 49222"; fi
 for p in 80 443; do
-  if reach "$p"; then pass "port $p still reachable with --ssh-port 49222"; else fail "port $p still reachable with --ssh-port 49222"; fi
+  if reach "$p"; then fail "port $p closed with --ssh-port 49222"; else pass "port $p closed with --ssh-port 49222"; fi
 done
 if on grep -q 'tcp dport 49222 accept' /etc/nftables.d/renox-single-host.nft; then pass "the persisted file carries port 49222"; else fail "the persisted file carries port 49222"; fi
 
