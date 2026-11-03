@@ -9,6 +9,10 @@
 // "not available", the same answer as for a name in use; another trigger
 // quarantines the name of every deleted app. This module holds the list and
 // the read side.
+//
+// The platform tenant (#396; the `platform` flag on tenants, set only by the
+// operator endpoint in src/ops/platform.ts) may take reserved names: it runs
+// `dashboard` and `www`. Quarantine applies to it like to everyone.
 
 import type { Db } from "../db/db.ts";
 
@@ -25,9 +29,19 @@ export const QUARANTINE_MS = 90 * 86_400_000;
 
 export type SlugState = "available" | "reserved" | "quarantined";
 
-/** Whether `tenantId` may create an app named `name` at `now` (ignoring names in use). */
+/**
+ * Whether `tenantId` may create an app named `name` at `now` (ignoring names
+ * in use). A reserved name is available to the platform tenant only (#396,
+ * migrations/0028_platform_tenant.sql).
+ */
 export async function slugState(db: Db, name: string, tenantId: string, now: number): Promise<SlugState> {
-  if (RESERVED_SLUGS.includes(name)) return "reserved";
+  if (RESERVED_SLUGS.includes(name) && !(await isPlatformTenant(db, tenantId))) return "reserved";
   const rows = await db.query("select 1 from quarantined_slugs where slug = $1 and tenant_id <> $2 and until > $3", [name, tenantId, now]);
   return rows.length > 0 ? "quarantined" : "available";
+}
+
+/** Is `tenantId` the platform tenant (#396)? */
+export async function isPlatformTenant(db: Db, tenantId: string): Promise<boolean> {
+  const rows = await db.query<{ platform: boolean }>("select platform from tenants where id = $1", [tenantId]);
+  return rows[0]?.platform === true;
 }
