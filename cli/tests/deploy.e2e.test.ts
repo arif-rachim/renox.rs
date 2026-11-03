@@ -7,11 +7,11 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { testWorker } from "./worker-env.ts";
 
@@ -63,9 +63,11 @@ function shop(version: string): string {
   const src = join(repo, "examples/shop");
   cpSync(src, dir, { recursive: true, filter: (p) => !p.includes("node_modules") && !p.includes(".renox") && !p.includes("screenshots") });
   mkdirSync(join(dir, "node_modules"));
+  // An entry is a link (`zod`) or a scope folder of links (`@renoxium/sdk`):
+  // realpath covers both, and a scope folder's relative links still resolve
+  // from its real place.
   for (const name of readdirSync(join(src, "node_modules"))) {
-    const link = join(src, "node_modules", name);
-    symlinkSync(realpathSync(resolve(dirname(link), readlinkSync(link))), join(dir, "node_modules", name));
+    symlinkSync(realpathSync(join(src, "node_modules", name)), join(dir, "node_modules", name));
   }
   writeFileSync(join(dir, "functions/api/e2e-version.ts"), `export const GET = () => new Response(${JSON.stringify(version)});\n`);
   return dir;
