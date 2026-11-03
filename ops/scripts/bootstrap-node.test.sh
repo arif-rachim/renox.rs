@@ -234,6 +234,19 @@ done
 modes=$(docker exec "$name" stat -c '%n %a %U' /etc/renox/control.env /etc/renox/secrets /etc/renox/single-host.env /etc/renox/tunnel/config.yml)
 grep -q '^/etc/renox/control.env 600 root$' <<< "$modes" && grep -q '^/etc/renox/secrets 700 root$' <<< "$modes" && pass "control.env is 0600 root, secrets/ is 0700 root" || fail "modes: $modes"
 if docker exec "$name" id -u renox-control >/dev/null 2>&1; then pass "the renox-control user exists"; else fail "the renox-control user exists"; fi
+# #397: the shared ACME challenge directory and both settings.
+acme=$(docker exec "$name" stat -c '%U:%G %a' /var/lib/renox-acme-challenges 2>&1 || true)
+if [[ $acme == "renox-control:renox 2750" ]]; then pass "/var/lib/renox-acme-challenges is renox-control:renox 2750 (setgid)"; else fail "the challenge dir: $acme"; fi
+grep -q '^acme_dir = "/var/lib/renox-acme-challenges"$' <<< "$toml" && pass "worker.toml: [tls] acme_dir is the shared challenge dir" || fail "worker.toml acme_dir"
+if docker exec "$name" grep -q '^CONTROL_ACME_CHALLENGE_DIR=/var/lib/renox-acme-challenges$' /etc/renox/control.env \
+  && docker exec "$name" grep -q '^CONTROL_ACME_DIRECTORY_URL=https://' /etc/renox/control.env; then
+  pass "control.env: CONTROL_ACME_DIRECTORY_URL and CONTROL_ACME_CHALLENGE_DIR"
+else fail "control.env ACME settings"; fi
+# #393: the worker runs as renox and refuses any group or other bit.
+keys=$(docker exec "$name" stat -c '%n %U:%G %a' /etc/renox/node.token /etc/renox/platform.key 2>&1 || true)
+if grep -q '^/etc/renox/node.token renox:renox 400$' <<< "$keys" && grep -q '^/etc/renox/platform.key renox:renox 400$' <<< "$keys"; then
+  pass "node.token and platform.key are renox:renox 0400"
+else fail "node.token and platform.key modes: $keys"; fi
 if docker exec "$name" sh -c 'ls /etc/systemd/system | grep -q "\.example$"'; then fail "no template is installed as a unit"; else pass "no *.example lands in /etc/systemd/system"; fi
 # renox-control.service is verified in 5c, once Bun is in place.
 units="renox-tunnel.service renox-cert-renew.service renox-cert-renew.timer renox-backup-db.service renox-backup-db.timer"
