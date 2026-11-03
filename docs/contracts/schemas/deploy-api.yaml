@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renoxium deploy API
-  version: 0.6.0
+  version: 0.6.1
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -1019,7 +1019,7 @@ paths:
                 one:
                   value:
                     domains:
-                      - { hostname: www.example.com, app: hello, state: verified, status: active, ssl_status: active, cname_target: edge.renoxium.app, verification: [], created_at: 1793318700000, verified_at: 1793318760000, last_checked_at: 1793318760000 }
+                      - { hostname: www.example.com, app: hello, state: verified, status: active, ssl_status: active, cname_target: renoxium.app, verification: [], created_at: 1793318700000, verified_at: 1793318760000, last_checked_at: 1793318760000 }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -5082,7 +5082,7 @@ components:
         state: pending
         status: pending
         ssl_status: pending_validation
-        cname_target: edge.renoxium.app
+        cname_target: renoxium.app
         verification:
           - { purpose: ownership, type: TXT, name: _cf-custom-hostname.www.example.com, value: 5cc07c04-ea62-4a5a-95f0-419334a875a4 }
           - { purpose: dcv, type: TXT, name: _acme-challenge.www.example.com, value: ca3-574923932a82475cb8592200f1a2a23d }
@@ -5096,7 +5096,7 @@ components:
         state: verified
         status: active
         ssl_status: active
-        cname_target: edge.renoxium.app
+        cname_target: renoxium.app
         verification: []
         created_at: 1793318700000
         verified_at: 1793318760000
@@ -5108,7 +5108,7 @@ components:
         state: detached
         status: active
         ssl_status: active
-        cname_target: edge.renoxium.app
+        cname_target: renoxium.app
         verification: []
         created_at: 1793318700000
         verified_at: 1793318760000

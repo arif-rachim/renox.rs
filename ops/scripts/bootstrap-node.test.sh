@@ -237,7 +237,7 @@ if [[ $(docker exec "$name" id -gn renox-tunnel 2>&1 || true) == renox-edge ]]; 
 if docker exec "$name" grep -qx 'd /run/renox-edge 0750 renox renox-edge -' /etc/tmpfiles.d/renox-edge.conf; then pass "/run/renox-edge comes from tmpfiles (renox:renox-edge 0750)"; else fail "the tmpfiles entry of /run/renox-edge"; fi
 edge=$(docker exec "$name" stat -c '%U:%G %a' /run/renox-edge 2>&1 || true)
 if [[ $edge == "renox:renox-edge 750" ]]; then pass "/run/renox-edge is renox:renox-edge 0750"; else fail "/run/renox-edge: $edge"; fi
-if docker exec "$name" grep -q '^CONTROL_CF_FALLBACK_ORIGIN=edge.renoxium.app$' /etc/renox/control.env && ! docker exec "$name" grep -q 'CONTROL_ACME\|CONTROL_DNS_SERVERS\|CONTROL_EDGE' /etc/renox/control.env; then
+if docker exec "$name" grep -q '^CONTROL_CF_FALLBACK_ORIGIN=renoxium.app$' /etc/renox/control.env && ! docker exec "$name" grep -q 'CONTROL_ACME\|CONTROL_DNS_SERVERS\|CONTROL_EDGE' /etc/renox/control.env; then
   pass "control.env: CONTROL_CF_* (#419), no ACME, DNS or edge-address settings"
 else fail "control.env Cloudflare settings"; fi
 if docker exec "$name" test -e /var/lib/renox-acme-challenges || docker exec "$name" test -e /opt/renox/bin/lego; then fail "no ACME directory and no lego (ADR D25)"; else pass "no ACME directory and no lego (ADR D25)"; fi

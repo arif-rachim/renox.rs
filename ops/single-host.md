@@ -14,7 +14,7 @@ This page takes an empty host to live ("Install, in order"), and an existing hos
 ```
  visitors ──► Cloudflare edge (TLS, HTTP/2, DDoS, certificates)
                  *.renoxium.app, renoxium.app        api.renoxium.com, mcp.renoxium.com
-                 custom hostnames (Cloudflare for SaaS, fallback origin edge.renoxium.app)
+                 custom hostnames (Cloudflare for SaaS, fallback origin renoxium.app)    
                          │ the tunnel: outbound from the host, no inbound port
                          ▼
  ┌──────────────────────────── node-small ─────────────────────────────────────┐
@@ -38,7 +38,7 @@ This page takes an empty host to live ("Install, in order"), and an existing hos
 - **HTTPS as the visitor saw it.** `cloudflared` sends `X-Forwarded-Proto: https`; from the trusted peer the worker adds HSTS and CSP `upgrade-insecure-requests` and expects `https://` origins on client events (#418).
 - **Cloudflare's limits.** A response with no byte for about 100 s is cut (524): the platform's streams send a keep-alive every 15 s. A request body above 100 MB is refused at the edge. `text/event-stream` and chunked responses are not buffered, because the ingress never sets `disableChunkedEncoding`. `cloudflared` keeps `Host` (no `httpHostHeader`): routing and the realtime `Origin` check depend on it.
 - **Public origin of the MCP.** The API sees `http://127.0.0.1:8787`, not `https://mcp.renoxium.com`. `CONTROL_MCP_URL=https://mcp.renoxium.com` (in `control.env.example`) gives the platform MCP its OAuth issuer, resource and `Origin` check.
-- **Custom domains.** Cloudflare for SaaS on the `renoxium.app` zone: the control API creates a custom hostname per domain (`CONTROL_CF_*`), Cloudflare validates ownership with its TXT record and issues the certificate, and the traffic reaches the worker through the fallback origin `edge.renoxium.app` and the tunnel's catch-all rule (`control/api/src/domains/README.md`). Customers' apexes: "use `www`, redirect the apex".
+- **Custom domains.** Cloudflare for SaaS on the `renoxium.app` zone: the control API creates a custom hostname per domain (`CONTROL_CF_*`), Cloudflare validates ownership with its TXT record and issues the certificate, and the traffic reaches the worker through the fallback origin, the zone apex `renoxium.app` (ADR D26: there is no separate `edge` name), and the tunnel's catch-all rule (`control/api/src/domains/README.md`). Customers point their hostname at `renoxium.app` with a CNAME. Customers' apexes: "use `www`, redirect the apex".
 - **No privileged port.** The worker holds no capability (`renox-worker.service`); `renox-child@` units neither.
 - **Loopback only.** Both control listeners bind `127.0.0.1`. With loopback-only trusted proxies, `control/api` refuses a public `CONTROL_LISTEN_HOST` at start (exit 78, not restarted). The firewall drops every inbound port but SSH even if a listener is misconfigured.
 - **Accepted trade-off (beta).** Tenant code runs on the same machine as Postgres and the platform key. The layers between them are the V8 isolate, seccomp and Landlock (`[sandbox]`, #253), separate users and slices, and tenant `fetch` refusing loopback, private ranges and `fetch_blocked_addresses`. The control plane moves to its own host before the first paying tenant ("Splitting the control plane off" below).
@@ -73,22 +73,21 @@ Both zones are on Cloudflare DNS. "Proxied" is the orange cloud (through Cloudfl
 
 | Record | Type | Value | Proxy | Why |
 | --- | --- | --- | --- | --- |
-| `renoxium.app` | CNAME (flattened at the apex) | `<tunnel id>.cfargotunnel.com` | Proxied | The apex: the platform's `security.txt` and the redirect to `renoxium.com`. Created by `cloudflared tunnel route dns` |
+| `renoxium.app` | CNAME (flattened at the apex) | `<tunnel id>.cfargotunnel.com` | Proxied | The apex: the platform's `security.txt` and the redirect to `renoxium.com`, **and** the Cloudflare for SaaS fallback origin and CNAME target of every custom domain (`CONTROL_CF_FALLBACK_ORIGIN`, ADR D26). Created by `cloudflared tunnel route dns` |
 | `*.renoxium.app` | CNAME | `<tunnel id>.cfargotunnel.com` | Proxied | Every app, `<app>.renoxium.app`, through the tunnel to the worker |
-| `edge.renoxium.app` | CNAME | `<tunnel id>.cfargotunnel.com` | Proxied | The Cloudflare for SaaS **fallback origin** and the CNAME target of every custom domain (`CONTROL_CF_FALLBACK_ORIGIN`) |
 | `_psl.renoxium.app` | TXT | the PSL pull request URL | — | Only when the Public Suffix List entry is submitted (`ops/psl/README.md`) |
 
 No A or AAAA record names the host, and there are no CAA or `_acme-challenge` records: Cloudflare issues every certificate. `.app` is on the HSTS preload list; Cloudflare's edge certificate covers `renoxium.app` and `*.renoxium.app` (Universal SSL).
 
-**Cloudflare for SaaS** (SSL/TLS → Custom Hostnames on the `renoxium.app` zone): enabled, fallback origin `edge.renoxium.app` (Active). Custom hostnames are created by the control API only; do not add them by hand.
+**Cloudflare for SaaS** (SSL/TLS → Custom Hostnames on the `renoxium.app` zone): enabled, fallback origin `renoxium.app` (Active). There is no `edge.renoxium.app` record (ADR D26). Custom hostnames are created by the control API only; do not add them by hand.
 
 ### `renoxium.com` (the company and the platform's services)
 
 | Record | Type | Value | Proxy | Why |
 | --- | --- | --- | --- | --- |
-| `renoxium.com` | CNAME (flattened at the apex) | `edge.renoxium.app` | DNS only | The site (`www/`), a custom hostname of the platform tenant (ADR D25: the platform dogfoods the customer path) |
-| `www.renoxium.com` | CNAME | `edge.renoxium.app` | DNS only | Same app, second custom hostname |
-| `dashboard.renoxium.com` | CNAME | `edge.renoxium.app` | DNS only | The dashboard (`control/dashboard`), a custom hostname of the platform tenant |
+| `renoxium.com` | CNAME (flattened at the apex) | `renoxium.app` | DNS only | The site (`www/`), a custom hostname of the platform tenant (ADR D25: the platform dogfoods the customer path) |
+| `www.renoxium.com` | CNAME | `renoxium.app` | DNS only | Same app, second custom hostname |
+| `dashboard.renoxium.com` | CNAME | `renoxium.app` | DNS only | The dashboard (`control/dashboard`), a custom hostname of the platform tenant |
 | `_cf-custom-hostname.<name>` and `_acme-challenge.<name>` for the three names above | TXT | from each `addDomain` answer (`verification`) | — | Cloudflare's ownership and certificate validation records; keep them |
 | `api.renoxium.com` | CNAME | `<tunnel id>.cfargotunnel.com` | Proxied | Created by `cloudflared tunnel route dns`; the control API through the tunnel |
 | `mcp.renoxium.com` | CNAME | `<tunnel id>.cfargotunnel.com` | Proxied | Same tunnel, the platform MCP (`docs/20-ai-agents-mcp.md`) |
@@ -99,7 +98,7 @@ No A or AAAA record names the host, and there are no CAA or `_acme-challenge` re
 | `resend._domainkey.renoxium.com` | TXT | from Resend's console | — | Resend DKIM for `no-reply@renoxium.com` |
 | `_dmarc.renoxium.com` | TXT | `v=DMARC1; p=none; rua=mailto:dmarc@renoxium.com` | — | Start with `p=none`; move to `p=quarantine` once the reports show only Zoho and Resend |
 
-The three platform names stay **DNS only**: a grey CNAME to `edge.renoxium.app` keeps them on the plain Cloudflare for SaaS path, so the Orange-to-Orange rules of a proxied customer zone do not apply (to verify at the cut-over and record in ADR D25).
+The three platform names stay **DNS only**: a grey CNAME to `renoxium.app` keeps them on the plain Cloudflare for SaaS path, so the Orange-to-Orange rules of a proxied customer zone do not apply (to verify at the cut-over and record in ADR D25).
 
 The worker's own public addresses still go into `fetch_blocked_addresses` (`ops/worker.toml.example`), so tenant code cannot call the node through its public address. The dashboard reaches `api.renoxium.com` through Cloudflare's addresses (ADR D23), like any client.
 
@@ -109,12 +108,12 @@ The worker's own public addresses still go into `fetch_blocked_addresses` (`ops/
    ```
    cloudflared tunnel login                     # opens the browser; writes ~/.cloudflared/cert.pem (keep it off the host)
    cloudflared tunnel create renoxium           # prints the tunnel id, writes ~/.cloudflared/<id>.json
-   for name in api.renoxium.com mcp.renoxium.com renoxium.app '*.renoxium.app' edge.renoxium.app; do
+   for name in api.renoxium.com mcp.renoxium.com renoxium.app '*.renoxium.app'; do
      cloudflared tunnel route dns renoxium "$name"
    done
    ```
    `<id>.json` is the tunnel's credentials. Copy it to the host as `/etc/renox/tunnel/credentials.json` (`install -m 0600 -o root -g root`) over SSH, never through a chat or a ticket. (An existing host keeps its tunnel, `renoxium-control`: "Cut-over of an existing host".)
-2. **Cloudflare for SaaS.** On the `renoxium.app` zone: SSL/TLS → Custom Hostnames → enable, fallback origin `edge.renoxium.app`. Check the plan's included custom hostnames and the price per hostname above it (understood: 100 included, then about $0.10 per hostname per month) and record the numbers in ADR D25. Then an API token: My Profile → API Tokens → Create Token → Custom. Permissions: *Zone → SSL and Certificates → Edit*. Zone resources: *Include → Specific zone → renoxium.app*. Nothing else. It goes into `control.env` as `CONTROL_CF_API_TOKEN`, with `CONTROL_CF_ZONE_ID` (the zone's overview page) and `CONTROL_CF_FALLBACK_ORIGIN=edge.renoxium.app`. The DNS-edit token of the old layout is no longer needed: revoke it.
+2. **Cloudflare for SaaS.** On the `renoxium.app` zone: SSL/TLS → Custom Hostnames → enable, fallback origin `renoxium.app` (the apex record of step 1; ADR D26). If Cloudflare refuses the apex as fallback origin, route one other name of the zone through the tunnel, use it here and in `CONTROL_CF_FALLBACK_ORIGIN`, and record it in ADR D26. Check the plan's included custom hostnames and the price per hostname above it (understood: 100 included, then about $0.10 per hostname per month) and record the numbers in ADR D25. Then an API token: My Profile → API Tokens → Create Token → Custom. Permissions: *Zone → SSL and Certificates → Edit*. Zone resources: *Include → Specific zone → renoxium.app*. Nothing else. It goes into `control.env` as `CONTROL_CF_API_TOKEN`, with `CONTROL_CF_ZONE_ID` (the zone's overview page) and `CONTROL_CF_FALLBACK_ORIGIN=renoxium.app`. The DNS-edit token of the old layout is no longer needed: revoke it.
 3. **R2.** Three buckets in the owner's Cloudflare account: `renoxium-artifacts` (the control API's artifact store), `renoxium-backups` and `renoxium-replicas` (tenant files, #417). On `renoxium-backups`, add a lifecycle rule that deletes objects under `control-db/` after 30 days, and a bucket lock rule that keeps them for 30 days, so the host's key cannot delete a backup early. Then three R2 API tokens with *Object Read & Write*, each limited to its one bucket. The artifacts pair goes into `control.env` (`CONTROL_S3_*`); the backup pair into `/etc/renox/secrets/r2-backup.env`, in the four-line format of `ops/scripts/backup-control-db.sh`; the replicas pair into `/etc/renox/secrets/r2-replica.env` ("Backups", "Tenant files to R2").
 4. **Backup key.** On the owner's workstation: `age-keygen -o renoxium-backup.key`. It prints the public key (`age1…`). The private key file goes into the owner's password manager and an offline copy (`ops/security/keys.md`); only the public key goes to the host as `/etc/renox/backup-age.pub`.
 5. **Mail (#385).** Every platform email (verification, password reset, new-device and new-token notices, invitations, billing, abuse takedowns, break-glass) goes through Resend:
@@ -168,8 +167,8 @@ All commands as root on the host unless the step says otherwise.
     4. Run `renox login --api https://api.renoxium.com` and, while it polls, approve its code with `POST /v1/account/device/approve` and that session.
     5. On the host, with the operator token, mark the tenant: `POST http://127.0.0.1:8787/v1/ops/tenants/renoxium/platform {"platform": true, "reason": …}`.
     6. Create the app `dashboard`, set its `DASHBOARD_KEY`, then `renox deploy` in `control/dashboard` and in `www/` (no renamed apps, no edited `renox.toml`). Both answer at once on `https://dashboard.renoxium.app/` and `https://www.renoxium.app/`.
-    7. Attach each hostname with `POST /v1/apps/<app>/domains`: `dashboard.renoxium.com` to `dashboard`, `renoxium.com` and `www.renoxium.com` to `www`. Each answer names the records to create (`verification`) and the CNAME target (`edge.renoxium.app`).
-    8. In the `renoxium.com` zone create the three DNS-only CNAMEs to `edge.renoxium.app` (the apex flattened) and every TXT record of the answers, and keep them.
+    7. Attach each hostname with `POST /v1/apps/<app>/domains`: `dashboard.renoxium.com` to `dashboard`, `renoxium.com` and `www.renoxium.com` to `www`. Each answer names the records to create (`verification`) and the CNAME target (`renoxium.app`).
+    8. In the `renoxium.com` zone create the three DNS-only CNAMEs to `renoxium.app` (the apex flattened) and every TXT record of the answers, and keep them.
 
     The job reads each custom hostname every minute. `GET /v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `status: active`, `ssl_status: active`. Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`. A domain detached by the status poll (three negative answers over at least 30 minutes; an API error never counts) comes back when you repeat its `POST …/domains`: it answers 201 with the same custom hostname and is read at the next tick.
 10. **Backups.** `/etc/renox/backup-age.pub` and `/etc/renox/secrets/r2-backup.env` in place, then `systemctl start renox-backup-db.service` once. Check its journal line (`backup-control-db: renox -> renoxium-backups/control-db/…`), then `systemctl enable --now renox-backup-db.timer`. Then "Tenant files to R2" (steps 1 to 4 under "Backups"), and run both restore drills once.
@@ -287,8 +286,13 @@ In production the worker does this itself before it opens a missing or corrupt f
 
 For a host installed with the old DNS-only layout (the worker's own TLS on 443, ACME on 80, `renox-cert-renew`, `_renox-verify` TXT records), such as `node-small` in November 2026. The new worker has no TLS, so the old and new layouts cannot overlap: the cut-over is a **short maintenance window**, acceptable while there is no paying tenant (owner's plan on #420). The owner runs it, with the DNS steps; a session does not. Read the whole section first.
 
+**Before you start.**
+- **The worker release.** The new layout needs a worker without inbound TLS: `worker-v0.3.0` or newer (`crates/renox-cell` 0.3.0, #422 and #424). `worker-v0.2.x` still terminates TLS and refuses the new `worker.toml`. Check that the release exists and is signed before step 0; `--worker-version` in step 1 is its version without the `worker-v` prefix.
+- **The platform apps' names.** A host installed before #396 may run the platform's apps under stopgap names (on `node-small`: `renoxium-dashboard` and `renoxium-www`, under the tenant `renoxium` raised to `paid` by hand). Keep those names through the cut-over: list them with `GET /v1/apps` and use them wherever this section says `<dashboard app>` or `<www app>`. Moving to the reserved names `dashboard` and `www` (install step 9) is a separate change after the cut-over: mark the tenant as the platform tenant, deploy under the new names, move each domain (remove it from the old app, add it to the new one; the custom hostname is created again), then delete the old apps.
+- **No `edge.renoxium.app`.** ADR D26: the fallback origin and the CNAME target are the zone apex. If an earlier plan made you create an `edge` record, delete it after step 4.
+
 **Step 0, the day before.**
-- Lower the TTL of every DNS-only record the worker serves to 60 s: `renoxium.app`, `*.renoxium.app`, `edge.renoxium.app`, `renoxium.com`, `www.renoxium.com`, `dashboard.renoxium.com`. Note the current records (names, types, values) for the rollback.
+- Lower the TTL of every DNS-only record the worker serves to 60 s: `renoxium.app`, `*.renoxium.app`, `renoxium.com`, `www.renoxium.com`, `dashboard.renoxium.com`. Note the current records (names, types, values) for the rollback.
 - Take a control-database backup: `systemctl start renox-backup-db.service`, and note the object key from its journal line.
 - Copy aside for the rollback: `cp -a /etc/renox /root/rollback-etc-renox`, `cp -a /opt/renox/bin/renox-worker /root/rollback-renox-worker`, `git -C /opt/renox/src rev-parse HEAD > /root/rollback-commit`.
 - Set up Cloudflare for SaaS and its token (owner list, step 2) and the R2 replicas bucket and token (owner list, step 3); prepare the new `control.env` values (`CONTROL_CF_*`) and the new `worker.toml` (from `ops/worker.toml.example` of the new commit: the unix socket, `[gateway] trusted_socket_users`, `socket_group`, no `[tls]`).
@@ -297,7 +301,7 @@ For a host installed with the old DNS-only layout (the worker's own TLS on 443, 
 1. `systemctl stop renox-worker`.
 2. Check out the new reviewed commit in `/opt/renox/src` and the deploy checkout, `bun install --frozen-lockfile`.
 3. Run `ops/scripts/bootstrap-node.sh --single-host --no-enable --upgrade --worker-version <new> …` with the same other flags: it installs the new worker and units, the group `renox-edge`, the user `renox-tunnel` and `/run/renox-edge`. It does not overwrite `worker.toml` or `control.env`.
-4. Replace `/etc/renox/worker.toml` with the new one (the old one with `[tls]` would be refused at start), and edit `/etc/renox/control.env`: add `CONTROL_CF_API_TOKEN`, `CONTROL_CF_ZONE_ID`, `CONTROL_CF_FALLBACK_ORIGIN=edge.renoxium.app`; remove `CONTROL_EDGE_HOSTNAME`, `CONTROL_EDGE_ADDRESSES`, `CONTROL_ACME_*` and `CONTROL_DNS_SERVERS`.
+4. Replace `/etc/renox/worker.toml` with the new one (the old one with `[tls]` would be refused at start), and edit `/etc/renox/control.env`: add `CONTROL_CF_API_TOKEN`, `CONTROL_CF_ZONE_ID`, `CONTROL_CF_FALLBACK_ORIGIN=renoxium.app`; remove `CONTROL_EDGE_HOSTNAME`, `CONTROL_EDGE_ADDRESSES`, `CONTROL_ACME_*` and `CONTROL_DNS_SERVERS`.
 5. `systemctl daemon-reload && systemctl restart renox-control`. The migrations run at start (0029 drops the certificate tables and adds the Cloudflare columns; forward-only). Check `curl -fsS http://127.0.0.1:8787/v1/healthz`.
 
 **Step 2, the tunnel.**
@@ -305,11 +309,11 @@ For a host installed with the old DNS-only layout (the worker's own TLS on 443, 
 2. `systemctl restart renox-tunnel renox-worker`. Check `stat -c '%F %U:%G %a' /run/renox-edge/worker.sock`.
 
 **Step 3, DNS.**
-1. Make `renoxium.app`, `*.renoxium.app` and `edge.renoxium.app` proxied CNAMEs to the tunnel: `cloudflared tunnel route dns renoxium-control '<name>'` for each from the owner's workstation (or replace the A/AAAA records in the dashboard).
-2. Enable the Cloudflare for SaaS fallback origin `edge.renoxium.app` and wait until it shows Active.
-3. The platform's domains: their rows from the old layout stay `verified` (served meanwhile), and the domain job creates a custom hostname for each within a minute of the restart (a pending custom hostname is not a miss). Read the records to create with `GET /v1/apps/dashboard/domains/dashboard.renoxium.com` and `GET /v1/apps/www/domains/{renoxium.com,www.renoxium.com}` as the platform tenant (`verification`), create those TXT records in the `renoxium.com` zone, and change the three records to DNS-only CNAMEs to `edge.renoxium.app` (the apex by CNAME flattening). Remove the old `_renox-verify` TXT records; nothing reads them any more.
+1. Make `renoxium.app` and `*.renoxium.app` proxied CNAMEs to the tunnel (no `edge.renoxium.app`, ADR D26): `cloudflared tunnel route dns renoxium-control '<name>'` for each from the owner's workstation (or replace the A/AAAA records in the dashboard).
+2. Enable the Cloudflare for SaaS fallback origin `renoxium.app` and wait until it shows Active. It can only become Active after step 1 made the apex proxied. If Cloudflare refuses the apex, see owner list step 2.
+3. The platform's domains: their rows from the old layout stay `verified` (served meanwhile), and the domain job creates a custom hostname for each within a minute of the restart (a pending custom hostname is not a miss). Read the records to create with `GET /v1/apps/<dashboard app>/domains/dashboard.renoxium.com` and `GET /v1/apps/<www app>/domains/{renoxium.com,www.renoxium.com}` as the platform tenant (`verification`; the app names as in "Before you start"), create those TXT records in the `renoxium.com` zone, and change the three records to DNS-only CNAMEs to `renoxium.app` (the apex by CNAME flattening). Remove the old `_renox-verify` TXT records; nothing reads them any more.
 
-**Step 4, check from outside, through Cloudflare.** Every app name (`https://<app>.renoxium.app/` for each app of `GET /v1/ops/nodes/node-small`'s tenants), `https://renoxium.com/`, `https://www.renoxium.com/`, `https://dashboard.renoxium.com/` (sign in), `https://api.renoxium.com/v1/healthz`, `https://mcp.renoxium.com/`. Each answers through Cloudflare (`cf-ray` header, Cloudflare's certificate), with `strict-transport-security`. A request log line in `journalctl -u renox-worker` shows the visitor's address, not `127.0.0.1`. `GET /v1/apps/<app>/domains/<hostname>` shows `status: active` for the three platform domains. Record the Orange-to-Orange result for the grey `renoxium.com` records in ADR D25. If any check fails and cannot be fixed within the window: **Rollback**.
+**Step 4, check from outside, through Cloudflare.** Every app name (`https://<app>.renoxium.app/` for each app of `GET /v1/ops/nodes/node-small`'s tenants), `https://renoxium.com/`, `https://www.renoxium.com/`, `https://dashboard.renoxium.com/` (sign in), `https://api.renoxium.com/v1/healthz`, `https://mcp.renoxium.com/`. Each answers through Cloudflare (`cf-ray` header, Cloudflare's certificate), with `strict-transport-security`. A request log line in `journalctl -u renox-worker` shows the visitor's address, not `127.0.0.1`. `GET /v1/apps/<app>/domains/<hostname>` shows `status: active` for the three platform domains. Record the Orange-to-Orange result for the grey `renoxium.com` records in ADR D25, and whether Cloudflare accepted the apex as fallback origin in ADR D26. If any check fails and cannot be fixed within the window: **Rollback**.
 
 **Step 5, only after step 4 passed.**
 1. Close 80 and 443: run `ops/scripts/firewall-single-host.sh` of the new commit (same `--ssh-port`). From outside, `nc -z` on 80 and 443 fails and 22 still answers.

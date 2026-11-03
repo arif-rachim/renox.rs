@@ -80,11 +80,11 @@ describe("mail texts from the config (#364)", () => {
 });
 
 describe("the CNAME target and the labels a person reads (#364)", () => {
-  test("the custom-domain CNAME target is the Cloudflare fallback origin, edge.<platform domain> without one (#419)", async () => {
+  test("the custom-domain CNAME target is the Cloudflare fallback origin, the platform domain itself without one (#419, ADR D26)", async () => {
     const h = await harness();
     h.deps.config.platformDomain = loadConfig({}).platformDomain;
     configureDomains(h.deps, { cloudflare: null });
-    expect(cnameTarget(h.deps)).toBe("edge.renoxium.app");
+    expect(cnameTarget(h.deps)).toBe("renoxium.app");
     const cf = loadConfig({ CONTROL_CF_API_TOKEN: "abcdefghij0123456789_-xy", CONTROL_CF_ZONE_ID: "0123456789abcdef0123456789abcdef", CONTROL_CF_FALLBACK_ORIGIN: "Edge.Example.Test" }).cloudflare;
     expect(cf?.fallbackOrigin).toBe("edge.example.test");
   });

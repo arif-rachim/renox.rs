@@ -42,7 +42,8 @@ ingress:
     service: unix:/run/renox-edge/worker.sock
   # Everything else: the Cloudflare for SaaS custom hostnames (customers'
   # domains and the platform's own renoxium.com, www and dashboard), which
-  # arrive through the fallback origin edge.renoxium.app with their own Host.
+  # arrive through the fallback origin, the apex renoxium.app (ADR D26), with
+  # their own Host.
   # The worker answers 404 for a Host it has no route for. The node listener
   # (8788) and the operator listener are never published.
   - service: unix:/run/renox-edge/worker.sock

@@ -2,8 +2,8 @@
 // section 10). Every custom domain is a custom hostname on the platform
 // domain's zone: Cloudflare proves ownership with its pre-validation TXT
 // record, validates and issues the edge certificate (DCV by TXT) and serves
-// the hostname through the fallback origin (`edge.<platform domain>`, the
-// tunnel). The control plane only creates, reads and deletes the hostname.
+// the hostname through the fallback origin (the zone apex, `<platform domain>`,
+// a proxied record to the tunnel; ADR D26). The control plane only creates, reads and deletes the hostname.
 //
 // The API token (*SSL and Certificates: Edit* on the zone) is sent in the
 // Authorization header and appears in no log line, error message or answer.

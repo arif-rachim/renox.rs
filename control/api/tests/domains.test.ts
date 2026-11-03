@@ -267,10 +267,10 @@ describe("CONTROL_CF_* (#419)", () => {
   const ZONE = "0123456789abcdef0123456789abcdef";
   test("all three or none; refusals name the variable and never echo the token", () => {
     expect(cloudflareConfig({})).toBeNull();
-    expect(cloudflareConfig({ CONTROL_CF_API_TOKEN: TOKEN, CONTROL_CF_ZONE_ID: ZONE, CONTROL_CF_FALLBACK_ORIGIN: "edge.renoxium.app" })).toEqual({
+    expect(cloudflareConfig({ CONTROL_CF_API_TOKEN: TOKEN, CONTROL_CF_ZONE_ID: ZONE, CONTROL_CF_FALLBACK_ORIGIN: "renoxium.app" })).toEqual({
       apiToken: TOKEN,
       zoneId: ZONE,
-      fallbackOrigin: "edge.renoxium.app",
+      fallbackOrigin: "renoxium.app",
       apiUrl: "https://api.cloudflare.com/client/v4",
     });
     const refuse = (env: Record<string, string>, want: string) => {
@@ -284,10 +284,10 @@ describe("CONTROL_CF_* (#419)", () => {
       expect(msg).not.toContain(TOKEN);
     };
     refuse({ CONTROL_CF_API_TOKEN: TOKEN }, "CONTROL_CF_ZONE_ID, CONTROL_CF_FALLBACK_ORIGIN");
-    refuse({ CONTROL_CF_API_TOKEN: `${TOKEN} x`, CONTROL_CF_ZONE_ID: ZONE, CONTROL_CF_FALLBACK_ORIGIN: "edge.renoxium.app" }, "CONTROL_CF_API_TOKEN is not");
-    refuse({ CONTROL_CF_API_TOKEN: TOKEN, CONTROL_CF_ZONE_ID: "zone", CONTROL_CF_FALLBACK_ORIGIN: "edge.renoxium.app" }, "CONTROL_CF_ZONE_ID");
+    refuse({ CONTROL_CF_API_TOKEN: `${TOKEN} x`, CONTROL_CF_ZONE_ID: ZONE, CONTROL_CF_FALLBACK_ORIGIN: "renoxium.app" }, "CONTROL_CF_API_TOKEN is not");
+    refuse({ CONTROL_CF_API_TOKEN: TOKEN, CONTROL_CF_ZONE_ID: "zone", CONTROL_CF_FALLBACK_ORIGIN: "renoxium.app" }, "CONTROL_CF_ZONE_ID");
     refuse({ CONTROL_CF_API_TOKEN: TOKEN, CONTROL_CF_ZONE_ID: ZONE, CONTROL_CF_FALLBACK_ORIGIN: "https://edge" }, "CONTROL_CF_FALLBACK_ORIGIN");
-    refuse({ CONTROL_CF_API_TOKEN: TOKEN, CONTROL_CF_ZONE_ID: ZONE, CONTROL_CF_FALLBACK_ORIGIN: "edge.renoxium.app", CONTROL_CF_API_URL: "http://cf.example" }, "CONTROL_CF_API_URL");
+    refuse({ CONTROL_CF_API_TOKEN: TOKEN, CONTROL_CF_ZONE_ID: ZONE, CONTROL_CF_FALLBACK_ORIGIN: "renoxium.app", CONTROL_CF_API_URL: "http://cf.example" }, "CONTROL_CF_API_URL");
   });
 });
 

@@ -24,7 +24,7 @@ The reference deployment (#363) uses two domains, split on purpose:
 
 | Domain | Serves |
 | --- | --- |
-| `renoxium.app` (the **platform domain**) | Tenant apps only: `<app>.renoxium.app`, preview hosts `<app>-<hash>.renoxium.app`, `edge.renoxium.app`, the CNAME target of every custom domain and the Cloudflare for SaaS fallback origin (ADR D25). On the Public Suffix List (`ops/psl/`). |
+| `renoxium.app` (the **platform domain**) | Tenant apps only: `<app>.renoxium.app`, preview hosts `<app>-<hash>.renoxium.app`. The apex `renoxium.app` is also the CNAME target of every custom domain and the Cloudflare for SaaS fallback origin (ADR D25, D26; there is no `edge.renoxium.app`). On the Public Suffix List (`ops/psl/`). |
 | `renoxium.com` | The company and the platform's own services: the site at `renoxium.com`, `dashboard.renoxium.com`, `api.renoxium.com`, `mcp.renoxium.com`, `docs.renoxium.com`; mail (`security@`, `abuse@`, `support@renoxium.com`). |
 
 Why: a tenant's phishing page must never cost the company domain its reputation, its mail deliverability or the dashboard's cookies (`docs/24-threat-model.md` C, "Shared-domain reputation" and "Custom domain takeover"). `renoxium.app` and `renoxium.com` share the brand but are separate registrable domains, so a block or a bad reputation on one does not reach the other. `renox.rs` is not used by the platform (it is only the repository's name). Rule: **a platform service never lives under the platform domain.** The reserved slugs of `control/api/src/apps/slugs.ts` (`api`, `dashboard`, `www`, and the rest) stay as defence in depth, so no tenant can claim such a name even if an operator puts a service there by mistake.
