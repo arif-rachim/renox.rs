@@ -22,7 +22,9 @@ name: Release SDK
 # What a tag must satisfy: sdk/package.json and cli/package.json carry the
 # same version, and it equals the tag's. The owner's first publish of the
 # name is a manual step (the PR of #376 lists it); this workflow takes over
-# from the second version.
+# from the second version. A version npm already has (0.1.0, published by
+# hand for #431) is not published again: the tag's run skips the upload
+# with a notice, and the dry run checks a throwaway prerelease of it.
 on:
   push:
     tags:
@@ -136,9 +138,32 @@ jobs:
         run: |
           cd sdk
           bun test tests/pack.test.ts
+      # A version that is already on the registry is never published again
+      # (npm refuses it, and from npm 11 its dry run too). That happens when
+      # a release's SDK went out first, as 0.1.0 did by hand (#431), and on
+      # every pull request until sdk/package.json moves to the next version.
+      - name: Already on the registry?
+        id: registry
+        run: |
+          name=$(jq -r .name sdk/package.json)
+          version=$(jq -r .version sdk/package.json)
+          # 404 (no such package or version) and a network error both read as
+          # "not published"; the publish below fails loudly if that is wrong.
+          found=$(npm view "$name@$version" version 2>/dev/null || true)
+          if [[ "$found" == "$version" ]]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "$name@$version is already on npm" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       # Everything the publish does, up to the upload: metadata, files,
       # access, and the provenance attestation (OIDC) where a token exists.
+      # When the version is already published, the dry run uses a throwaway
+      # prerelease of it, so the rest is still checked; package.json is
+      # restored afterwards and nothing is committed.
       - name: npm publish --dry-run --provenance
+        env:
+          ALREADY_PUBLISHED: ${{ steps.registry.outputs.published }}
         run: |
           cd sdk
           flags=(--provenance)
@@ -146,9 +171,18 @@ jobs:
             echo "::notice::pull request from a fork: no OIDC token, so the dry run skips --provenance"
             flags=()
           fi
+          if [[ "$ALREADY_PUBLISHED" == "true" ]]; then
+            cp package.json "$RUNNER_TEMP/package.json.orig"
+            trap 'cp "$RUNNER_TEMP/package.json.orig" package.json' EXIT
+            dry="$(jq -r .version package.json)-dryrun.$GITHUB_RUN_ID"
+            npm pkg set version="$dry"
+            # npm 11 refuses a prerelease without a dist-tag, even in a dry run.
+            flags+=(--tag dryrun)
+            echo "::notice::this version is already on npm; the dry run uses $dry"
+          fi
           npm publish --dry-run --access public "${flags[@]}"
       - name: Publish
-        if: steps.version.outputs.version != ''
+        if: steps.version.outputs.version != '' && steps.registry.outputs.published != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -165,3 +199,12 @@ jobs:
           fi
           npm publish --provenance --access public
           echo "published @renoxium/sdk@$VERSION with provenance: https://www.npmjs.com/package/@renoxium/sdk/v/$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      # A release tag whose SDK version is already on npm (the CLI part of
+      # the release still runs in release-cli.yml): nothing to upload.
+      - name: Skip the publish of a version npm already has
+        if: steps.version.outputs.version != '' && steps.registry.outputs.published == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "::notice::@renoxium/sdk@$VERSION is already on npm; not published again (the next version publishes from its cli-v tag)"
+          echo "@renoxium/sdk@$VERSION already on npm: publish skipped" >> "$GITHUB_STEP_SUMMARY"
