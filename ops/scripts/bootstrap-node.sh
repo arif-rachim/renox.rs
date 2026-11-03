@@ -200,13 +200,21 @@ if [[ ! -f $etc_dir/worker.toml ]]; then
 else
   echo "/etc/renox/worker.toml exists; left unchanged"
 fi
+# The node token and the platform key: renox:renox 0400. The worker runs as
+# `renox` and refuses either file with any group or other bit
+# (crates/renox-cell/src/control/http.rs, src/pages/keys.rs), so root:renox
+# 0640 never starts it (#393). A file an older bootstrap installed is
+# corrected in place; its content is never touched.
 if [[ -n $node_token_file && ! -f $etc_dir/node.token ]]; then
-  install -m 0640 -o root -g renox "$node_token_file" "$etc_dir/node.token"
+  install -m 0400 -o renox -g renox "$node_token_file" "$etc_dir/node.token"
 fi
 if [[ ! -f $etc_dir/platform.key ]]; then
   head -c 32 /dev/urandom > "$tmp/platform.key"
-  install -m 0640 -o root -g renox "$tmp/platform.key" "$etc_dir/platform.key"
+  install -m 0400 -o renox -g renox "$tmp/platform.key" "$etc_dir/platform.key"
 fi
+for f in "$etc_dir/node.token" "$etc_dir/platform.key"; do
+  if [[ -f $f ]]; then chown renox:renox "$f" && chmod 0400 "$f"; fi
+done
 
 # 5. Units, slices, timers, polkit rule (the *.example files are templates, not units).
 for f in "$here"/systemd/*.service "$here"/systemd/*.slice "$here"/systemd/*.target "$here"/systemd/*.timer; do

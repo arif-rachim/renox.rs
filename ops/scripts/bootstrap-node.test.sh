@@ -22,6 +22,14 @@
 # reloads the worker; renox-control.service (when Bun and the repository's
 # node_modules are on this machine: RENOX_BUN_BIN, default `bun` on PATH)
 # listens on 127.0.0.1 only and refuses 0.0.0.0 behind loopback proxies.
+# HOST-OPS: node.token and platform.key are renox:renox 0400 and the real
+# single-host worker (controlled, sandbox on) starts with them and binds 443
+# and 80 with ip_unprivileged_port_start at 1024, holding only
+# CAP_NET_BIND_SERVICE (#393, #394); renox-cert-renew installs the first
+# certificate while the worker is stopped (#399); renox-backup-db.service runs
+# as postgres with its LoadCredential copy (#395); a challenge written under
+# renox-control.service's sandbox is served by the worker on :80 (#397);
+# production-install.test.sh, when Bun is on this machine (#400).
 # RENOX_TEST_STUB_WORKER=1 says the worker binary is a stand-in (a local run
 # without a build), so the real config parser is not asked.
 set -euo pipefail
@@ -141,7 +149,9 @@ fi
 
 # 5. The single host (#366). The local-mode worker.toml is set aside so the
 # bootstrap writes the single-host one, then put back for the worker to run.
-docker exec "$name" sh -c 'printf "renox_node_test\n" > /src/node.token && chmod 0600 /src/node.token'
+# A token of the right shape (renox_node_ + 32 base32 characters) that no
+# control plane ever issued: the worker reads it at start (#393).
+docker exec "$name" sh -c 'printf "renox_node_%s\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > /src/node.token && chmod 0600 /src/node.token'
 # Fake cloudflared: proves it got both files through LoadCredential and that
 # its dynamic user cannot read the root-only credentials file directly; then
 # tells systemd it is ready, as the real one does.
@@ -218,10 +228,64 @@ units="renox-tunnel.service renox-cert-renew.service renox-cert-renew.timer reno
 # shellcheck disable=SC2086
 if docker exec "$name" sh -c "cd /etc/systemd/system && systemd-analyze verify $units" 2>"$ctx/err"; then pass "the single-host units verify where they are installed"
 else fail "the single-host units verify: $(cat "$ctx/err")"; fi
-# A second run changes no template the owner filled in.
+# A second run changes no template the owner filled in, and corrects the
+# key files an older bootstrap installed root:renox 0640 (#393) without
+# touching their content.
 docker exec "$name" sh -c 'echo "# filled in" >> /etc/renox/control.env'
+sum_before=$(docker exec "$name" sha256sum /etc/renox/platform.key || true)
+docker exec "$name" sh -c 'chown root:renox /etc/renox/node.token /etc/renox/platform.key && chmod 0640 /etc/renox/node.token /etc/renox/platform.key'
 single --control-url http://127.0.0.1:8788 --blocked-addresses 203.0.113.10,127.0.0.1 >/dev/null 2>&1 || true
 if docker exec "$name" grep -q "# filled in" /etc/renox/control.env; then pass "a second run leaves control.env as the owner wrote it"; else fail "a second run leaves control.env"; fi
+keys=$(docker exec "$name" stat -c '%U:%G %a' /etc/renox/node.token /etc/renox/platform.key 2>&1 | sort -u || true)
+if [[ $keys == "renox:renox 400" && $(docker exec "$name" sha256sum /etc/renox/platform.key) == "$sum_before" ]]; then
+  pass "a second run corrects 0640 key files to renox:renox 0400 and keeps the platform key"
+else fail "a second run corrects the key files: $keys"; fi
+
+# 5-worker. The single-host worker as installed (#393, #394): controlled mode,
+# the sandbox on, the installed node.token and platform.key, the real ports
+# 443 and 80 with ip_unprivileged_port_start at 1024. No control plane
+# answers, so the worker runs degraded; it must still start and listen.
+if [[ ${RENOX_TEST_STUB_WORKER:-0} != 1 ]]; then
+  docker exec "$name" systemctl restart renox-worker
+  sleep 4
+  journal=$(docker exec "$name" journalctl -u renox-worker --no-pager -o cat -n 200 || true)
+  if [[ $(docker exec "$name" systemctl is-active renox-worker || true) == active ]] && grep -q '"controlled":true' <<< "$journal"; then
+    pass "renox-worker starts in controlled mode with the installed worker.toml, node.token and platform.key"
+  else fail "renox-worker starts with the installed files: $(tail -n 5 <<< "$journal")"; fi
+  if grep -Eq 'must be 0600|node token file|platform key file' <<< "$journal"; then fail "the worker accepts the installed key files"; else pass "the worker accepts the installed key files (no mode error)"; fi
+  listening=$(docker exec "$name" ss -Htlnp || true)
+  if grep -Eq '0\.0\.0\.0:443 .*renox-worker' <<< "$listening" && grep -Eq '0\.0\.0\.0:80 .*renox-worker' <<< "$listening"; then
+    pass "renox-worker binds 0.0.0.0:443 and 0.0.0.0:80 as renox"
+  else fail "renox-worker binds 443 and 80: $listening $(grep -m1 bind <<< "$journal")"; fi
+  worker_pid=$(docker exec "$name" systemctl show -p MainPID --value renox-worker || true)
+  caps=$(docker exec "$name" awk '/^Cap(Eff|Bnd)/ { print $2 }' "/proc/$worker_pid/status" 2>&1 | sort -u || true)
+  if [[ $caps == 0000000000000400 ]]; then pass "the worker holds CAP_NET_BIND_SERVICE and nothing else (effective and bounding)"; else fail "worker capabilities: $caps"; fi
+  # #397: a challenge written by renox-control.service, under the unit's own
+  # user, ProtectSystem, ReadWritePaths and UMask (only its ExecStart is
+  # replaced by a writer that does what DirChallengeResponder does: a 0644
+  # temp file renamed into place), is served by the worker on port 80 for a
+  # custom domain's Host.
+  docker exec "$name" sh -c 'mkdir -p /etc/systemd/system/renox-control.service.d && cat > /etc/systemd/system/renox-control.service.d/test-challenge.conf <<UNIT
+[Service]
+Type=oneshot
+WorkingDirectory=/
+ExecStart=
+ExecStart=/usr/bin/python3 -c "import os; d=os.environ[\"CONTROL_ACME_CHALLENGE_DIR\"]; t=os.path.join(d, \".renoxtok_-1.tmp\"); open(os.open(t, os.O_CREAT | os.O_WRONLY, 0o644), \"w\").write(\"renoxtok_-1.keyauth\"); os.rename(t, os.path.join(d, \"renoxtok_-1\"))"
+UNIT
+systemctl daemon-reload'
+  if docker exec "$name" systemctl start renox-control.service 2>"$ctx/err"; then
+    file=$(docker exec "$name" stat -c '%U:%G %a' /var/lib/renox-acme-challenges/renoxtok_-1 2>&1 || true)
+    answer=$(docker exec "$name" curl -fsS -H 'Host: dashboard.renoxium.test' http://127.0.0.1/.well-known/acme-challenge/renoxtok_-1 || true)
+    if [[ $file == "renox-control:renox 640" && $answer == renoxtok_-1.keyauth ]]; then
+      pass "a challenge renox-control.service writes (renox-control:renox 0640) is served by the worker on :80"
+    else fail "the shared challenge: file $file, answer ${answer:-none}"; fi
+  else fail "renox-control.service writes a challenge: $(cat "$ctx/err")"; docker exec "$name" journalctl -u renox-control --no-pager -o cat -n 10 >&2 || true; fi
+  docker exec "$name" sh -c 'rm -rf /etc/systemd/system/renox-control.service.d /var/lib/renox-acme-challenges/renoxtok_-1 && systemctl daemon-reload && systemctl reset-failed renox-control.service 2>/dev/null' || true
+else
+  echo "skip the single-host worker start (RENOX_TEST_STUB_WORKER=1)"
+fi
+child_caps=$(docker exec "$name" systemctl show -p AmbientCapabilities --value renox-child@t-test.service || true)
+if [[ -z $child_caps ]]; then pass "renox-child@ gets no ambient capability"; else fail "renox-child@ ambient capabilities: $child_caps"; fi
 # Back to the local-mode worker so it runs without a control plane.
 docker exec "$name" sh -c 'mv /src/local-worker.toml /etc/renox/worker.toml && systemctl restart renox-worker'
 

@@ -46,6 +46,8 @@ This page takes an empty host to live. Every secret it names lives in a root-onl
 | `/opt/renox/bin/{renox-worker,litestream,cloudflared,lego,bun}` | root, 0755 | Each verified by SHA-256 (`bootstrap-node.sh`, `*.lock`) |
 | `/opt/renox/bin/{renew-wildcard-cert.sh,backup-control-db.sh}` | root, 0755 | From `ops/scripts/`, installed by `bootstrap-node.sh --single-host` |
 | `/etc/renox/worker.toml` | root:renox, 0640 | The worker (`ops/worker.toml.example`) |
+| `/etc/renox/node.token`, `/etc/renox/platform.key` | renox:renox, 0400 | The node token (`renox_node_…`, step 6) and the page session key (32 random bytes, written once by `bootstrap-node.sh`). The worker runs as `renox` and refuses either file with any group or other bit |
+| `/var/lib/renox-acme-challenges` | renox-control:renox, 2750 (setgid) | ACME HTTP-01 challenges of custom domains: the control API writes them (`CONTROL_ACME_CHALLENGE_DIR`, `UMask=0027` gives 0640 files of group `renox`), the worker serves them on port 80 (`[tls] acme_dir`). Created by `bootstrap-node.sh --single-host` |
 | `/etc/renox/control.env` | root, 0600 | Every setting and secret of the control API (`ops/systemd/control.env.example`); systemd reads it as root |
 | `/etc/renox/single-host.env` | root, 0644 | Domain and ACME address of the certificate timer (no secret) |
 | `/etc/renox/tunnel/config.yml` | root, 0644 | `ops/cloudflared/config.yml.example` with the tunnel id |
@@ -133,14 +135,14 @@ All commands as root on the host unless the step says otherwise.
      --blocked-addresses <public IPv4>,<public IPv6>,127.0.0.1 \
      --node-token-file /root/node.token.placeholder
    ```
-   This installs the worker, Litestream, cloudflared and lego (each SHA-256 verified), the units and timers, the `renox-control` user, and the templates `/etc/renox/control.env`, `single-host.env` and `tunnel/config.yml`. It enables nothing yet. Every template is written once; a second run leaves your edits alone.
-6. **Control plane.** Fill in `/etc/renox/control.env`: every `@…@` value, the mail keys, and the artifacts bucket. Then:
+   This installs the worker, Litestream, cloudflared and lego (each SHA-256 verified), the units and timers, the `renox-control` user, the shared ACME challenge directory `/var/lib/renox-acme-challenges` (renox-control:renox 2750), `/etc/renox/platform.key` (renox:renox 0400), and the templates `/etc/renox/control.env`, `single-host.env` and `tunnel/config.yml`. It enables nothing yet. Every template is written once; a second run leaves your edits alone, and sets `node.token` and `platform.key` back to renox:renox 0400 if an older bootstrap left them root:renox 0640 (the worker refuses those).
+6. **Control plane.** Fill in `/etc/renox/control.env`: every `@…@` value, the mail keys, and the artifacts bucket. `CONTROL_ACME_DIRECTORY_URL` (Let's Encrypt production) and `CONTROL_ACME_CHALLENGE_DIR=/var/lib/renox-acme-challenges` are already set; `CONTROL_DNS_SERVERS` is "Host networking" below. Then:
    ```
    systemctl enable --now renox-control.service
    curl -fsS http://127.0.0.1:8787/v1/healthz && curl -fsS http://127.0.0.1:8788/v1/healthz
    ss -tlnp | grep -E ':878[78]'          # both on 127.0.0.1 only
    ```
-   Issue the node's token with the operator token (`POST /v1/admin/nodes` on `127.0.0.1:8787`, body `{"node_id": "node-small"}`), and write the `token` of the answer to `/etc/renox/node.token` (root:renox, 0640).
+   Issue the node's token with the operator token (`POST /v1/admin/nodes` on `127.0.0.1:8787`, body `{"node_id": "node-small"}`), and write the `token` of the answer to `/etc/renox/node.token`, owned by the worker's user and readable by it only: `install -m 0400 -o renox -g renox <file> /etc/renox/node.token`, then remove the file you wrote it to. The worker refuses a token or platform key file with any group or other bit (`node token file has mode 640; it must be 0600`).
 7. **Tunnel.** Put the tunnel id into `/etc/renox/tunnel/config.yml`, the credentials file in place (step 1 of the owner list), then `systemctl enable --now renox-tunnel.service`. From outside: `curl -fsS https://api.renoxium.com/v1/healthz`.
 8. **Wildcard certificate.** Set `RENOX_APP_DOMAIN` and `RENOX_ACME_EMAIL` in `/etc/renox/single-host.env`. Try the setup against Let's Encrypt's staging directory first; it installs nothing and reloads nothing:
    ```
@@ -163,8 +165,59 @@ All commands as root on the host unless the step says otherwise.
 | From another machine: `nc -z <node> 5432`, `8787`, `8788` | all refused or timed out |
 | `curl -fsS https://api.renoxium.com/v1/healthz` | 200 through the tunnel |
 | `curl -sI https://<app>.renoxium.app/` | the wildcard certificate (`openssl s_client -servername <app>.renoxium.app -connect <node>:443`) |
-| `journalctl -u renox-cert-renew -n 5` | `installed a new certificate` or `unchanged`, never an error |
+| `journalctl -u renox-cert-renew -n 5` | `installed a new certificate` (then `worker reloaded`, or `not active; nothing reloaded` before step 9) or `unchanged`, never an error |
+| `stat -c '%U:%G %a' /etc/renox/node.token /etc/renox/platform.key /var/lib/renox-acme-challenges` | `renox:renox 400` twice, `renox-control:renox 2750` |
 | `journalctl -u renox-backup-db -n 5` | last night's object key and size |
+
+### Signing in before the dashboard exists
+
+Step 10 deploys the dashboard as the platform tenant's app, so that tenant's sign-up, email verification and first `renox login` happen before any dashboard is up. The links the API sends point at the dashboard: `https://dashboard.renoxium.com/signup/verify#token=…` and the device page that `renox login` prints. Do the same three calls against the API instead, from the operator's workstation or the deploy checkout, with a cookie jar that is deleted afterwards:
+
+```
+api=https://api.renoxium.com
+jar=$(mktemp) && chmod 0600 "$jar"
+
+# 1. Verify the email. The token is the part after "#token=" in the link of the
+#    verification mail: the URL fragment, which never reaches a server.
+curl -fsS -c "$jar" -H 'content-type: application/json' -d '{"token": "<token from the link>"}' "$api/v1/account/verify"
+
+# 2. Sign in. The answer holds the session's CSRF value; mutating calls send it as X-Renox-CSRF.
+read -rs -p 'password: ' pw; echo
+csrf=$(jq -n --arg e '<owner email>' --arg p "$pw" '{email: $e, password: $p}' \
+  | curl -fsS -c "$jar" -b "$jar" -H 'content-type: application/json' --data-binary @- "$api/v1/account/login" | jq -r .csrf)
+unset pw
+
+# 3. In a second terminal, `renox login` prints "Open … and enter the code BCDF-GHJK" and polls.
+#    Approve that code with the session while it waits:
+curl -fsS -b "$jar" -H "X-Renox-CSRF: $csrf" -H 'content-type: application/json' \
+  -d '{"user_code": "BCDF-GHJK"}' "$api/v1/account/device/approve"
+rm -f "$jar"
+```
+
+`renox login` then stores its token (90 days, the user's role) and `renox deploy` works from the deploy checkout. The session cookie is `__Host-` and `Secure`, so the calls must go to the `https://` API through the tunnel, not to `127.0.0.1:8787`. A user with a second factor gets an MFA state at login and must complete it (`/v1/account/mfa/…`) before the approval is accepted.
+
+### Host networking
+
+- **DNS.** The control API resolves customers' domains for the ownership and edge checks with the system resolver unless `CONTROL_DNS_SERVERS` names others (comma-separated `ip` or `ip:port`, `control/api/src/domains/README.md`). A VPS provider's resolvers can time out or keep stale negative answers for a record that was just created, which delays a domain by an hour per failed check. Set public resolvers in `control.env`, for example Quad9:
+  ```
+  CONTROL_DNS_SERVERS=9.9.9.9,149.112.112.112
+  ```
+- **IPv6 egress.** If the host has an IPv6 address but its IPv6 egress is unreliable (on `node-small`, connections to Cloudflare and R2 over IPv6 were reset), outbound calls by the control API, cloudflared, lego and the backup fail at random. Make the resolver library prefer IPv4 for every program by adding this line to `/etc/gai.conf`:
+  ```
+  precedence ::ffff:0:0/96  100
+  ```
+  It changes the order of addresses returned by `getaddrinfo`, nothing else: IPv6 still works where IPv4 is absent, and inbound IPv6 (the AAAA records of the tables above) is unaffected. Restart the services afterwards. Leave the AAAA records out of DNS if inbound IPv6 is unreliable too.
+
+### A host that is not empty
+
+The worker must own 80 and 443, and `firewall-single-host.sh` must own the nftables ruleset. On a host that already serves something, in this order:
+
+1. **Keep a way in.** A second SSH session open, and the provider's console at hand.
+2. **Maintenance page, if the host serves a live site.** Point the site's DNS at a page served elsewhere (for example a Cloudflare-proxied record with a static page) and wait for the old record's TTL, so visitors do not hit a closed port while you work.
+3. **Stop and disable the old listeners on 80 and 443**: `ss -tlnp '( sport = :80 or sport = :443 )'` names them. For nginx: `systemctl disable --now nginx`, then `apt-get purge nginx nginx-common` once the site no longer needs it. Same for apache2, caddy or anything else in that list.
+4. **Docker.** Stop and remove its containers, then `systemctl disable --now docker.service docker.socket containerd.service`. Docker adds its own iptables-nft tables (`nft list tables` shows `ip filter`, `ip nat` and others) that would stay next to the single host's rules and can forward ports past them: after Docker is stopped, remove them (`nft delete table ip nat` and so on for each table that is not `inet renox_single_host`), or reboot once Docker is disabled.
+5. **ufw.** `ufw disable` and `systemctl disable ufw`; it writes its own tables too, and two firewalls on one host make step 2 unreadable.
+6. Then continue with step 1 of the install. The firewall step (2) checks SSH before it changes anything; step 9 is when 80 and 443 answer again.
 
 ## Backups
 

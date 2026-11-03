@@ -72,7 +72,8 @@ Every node is set up from this directory by `scripts/bootstrap-node.sh`; nothing
 | `/opt/renox/bin/litestream` | root, 0755 | The Litestream of `litestream.lock` |
 | `/opt/renox/worker-version` | root, 0644 | The installed worker version; `bootstrap-node.sh` refuses another without `--upgrade` |
 | `/etc/renox/worker.toml` | root:renox, 0640 | From `worker.toml.example`, written once |
-| `/etc/renox/node.token`, `platform.key` | root:renox, 0640 | The node token (`renox_node_…`) and the platform key (32 random bytes, generated once) |
+| `/etc/renox/node.token`, `platform.key` | renox:renox, 0400 | The node token (`renox_node_…`) and the platform key (32 random bytes, generated once). The worker runs as `renox` and refuses either file with any group or other bit; `bootstrap-node.sh` sets both to renox:renox 0400 on every run (#393) |
+| `/var/lib/renox-acme-challenges` | renox-control:renox, 2750 | Single host only: the ACME HTTP-01 challenges the control API writes (`CONTROL_ACME_CHALLENGE_DIR`) and the worker serves (`[tls] acme_dir`); setgid, so every file has the group `renox` (#397) |
 | `/var/lib/renox/data/<tenant>/app.db` | renox, 0750 | Tenant files; `_certs/` for TLS |
 | `/var/lib/renox/{artifacts,meters,logs,spool,replica}` | renox, 0750 | Artifact cache, meter batches, tenant logs, the control-plane spool, the `file` replica of tests and single-node setups |
 | `/run/renox/` | renox, 0750 | Runtime: `children/<tenant>.sock` (#254), `litestream/<db>.yml` (#255); kept across a worker restart |
