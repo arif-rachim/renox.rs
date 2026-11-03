@@ -317,6 +317,19 @@ Scheduled and queued jobs (`docs/contracts/ops.md` 1.6.0 section 20) ride on the
 
 Tests: `tests/jobs.rs`, `src/scheduler/mod.rs` (cron and zones, the lease), `renox-runtime` `src/ops/jobs.rs` (coalescing, listing, retry and cancel states).
 
+## Custom-domain certificates (#59, #391)
+
+A controlled worker with `[tls]` installs the certificates of custom domains itself (`src/control/certs.rs`; `docs/contracts/deploy-api.md` section 10, `control/api/src/domains/README.md` "Node side"):
+
+- **`certificate_update`** on the stream: `GET /v1/nodes/{node_id}/certificates/{hostname}` with the node token (retried 1 s, 2 s, 4 s on a failed fetch), then the checks below, then `<cert_dir>/<hostname>/{fullchain,privkey}.pem` written the way `ops/scripts/renew-wildcard-cert.sh` writes them (directory `0750`, key `0640`, chain `0644`, each through a dot-file and a rename, the key first), plus `.renox-control` with the version, and the `CertStore` reloaded in process. New handshakes use it; open connections keep theirs. No SIGHUP, no restart.
+- **Checks** before anything is written: the bundle names the hostname asked for; the chain has the leaf and its issuer; the leaf is current, for server authentication, names the hostname, and is signed by the next certificate (webpki, anchored at the chain's last certificate: the bundle came over the authenticated control channel); the key matches the leaf. A refused bundle leaves the installed certificate in use.
+- **`certificate_remove`**: the hostname's directory is deleted, only if it carries `.renox-control`, and the store reloaded.
+- **Order**: per hostname, a message no newer than the last one applied is ignored (one version sequence on the control plane).
+- **Reconnect**: after the first route snapshot of every connection, the bundle of each hostname of the snapshot is fetched, except hostnames an operator certificate covers (a `_wildcard.<parent>` directory, or a directory without the marker); marked directories of hostnames no longer in the snapshot are removed. The wildcard and apex directories of the renewal script are never touched.
+- Private keys never reach a log line or an error message.
+
+Tests: `src/control/certs.rs` (checks, file format, ownership), `tests/certificates.rs` (update, refused renewal, stale message, removal, reconnect, against `tests/support/fake_control.rs`), `control/api/tests/domains-e2e.test.ts` (Pebble, a real controlled worker).
+
 ## Not here yet
 
-Artifact fetch from object storage and the disk cache (#55), route updates by pub/sub (F3), TLS certificates from the control plane (F3). Request bodies are collected before dispatch (responses stream, above).
+Route updates by pub/sub (F3). Request bodies are collected before dispatch (responses stream, above).

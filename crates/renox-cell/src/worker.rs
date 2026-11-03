@@ -663,16 +663,44 @@ impl Worker {
                     controller.set_node_listener(url, token);
                 }
                 // `prepare` (#96) from the stream.
-                if let Some(store) = &s3_for_prepare {
-                    let preparer = Arc::new(Preparer {
+                let preparer = s3_for_prepare.as_ref().map(|store| {
+                    Arc::new(Preparer {
                         client: controller.client.clone(),
                         manager: manager.clone(),
                         store: store.clone(),
                         routes: controller.routes.clone(),
                         data_dir: config.data_dir.clone(),
                         tiers: tiers.clone(),
-                    });
-                    controller.on_message(Arc::new(move |m| preparer.handle(m)));
+                    })
+                });
+                // Certificates of custom domains (#59, #391): installed in
+                // `[tls] cert_dir` and loaded in process.
+                let cert_sync = match (&config.tls, &certs) {
+                    (Some(tls), Some(store)) => Some(crate::control::certs::CertSync::new(
+                        controller.client.clone(),
+                        tls.cert_dir.clone(),
+                        store.clone(),
+                    )),
+                    _ => None,
+                };
+                if let Some(sync) = &cert_sync {
+                    let (sync, routes) = (sync.clone(), controller.routes.clone());
+                    controller.on_connect(Arc::new(move || {
+                        let hostnames = routes.entries().into_iter().map(|e| e.hostname).collect();
+                        let sync = sync.clone();
+                        tokio::spawn(async move { sync.sync_all(hostnames).await });
+                    }));
+                }
+                if preparer.is_some() || cert_sync.is_some() {
+                    controller.on_message(Arc::new(move |m| {
+                        if cert_sync.as_ref().is_some_and(|c| c.handle(&m)) {
+                            return;
+                        }
+                        match &preparer {
+                            Some(p) => p.handle(m),
+                            None => tracing::debug!("control message without a handler; ignored"),
+                        }
+                    }));
                 }
                 controller.start();
                 Some(controller)
