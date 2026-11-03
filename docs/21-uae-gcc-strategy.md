@@ -7,11 +7,11 @@ The primary market is small and medium businesses in the United Arab Emirates, r
 | Factor | Implication |
 | --- | --- |
 | High SME density (SMEs are the large majority of registered companies, concentrated in Dubai, Abu Dhabi, Sharjah) | Large addressable base of retail, F&B, services, clinics, salons, fitness, real-estate brokers, tourism, consulting |
-| High willingness to pay: SMEs commonly spend AED 200–1,000/month on SaaS | Direct vertical SaaS is viable, not only the agency channel; margins support UAE-region hosting costs |
+| High willingness to pay: SMEs commonly spend AED 200–1,000/month on SaaS | Direct vertical SaaS is viable, not only the agency channel; margins support the hosting costs |
 | English-first business environment with Arabic as the official language | English product and docs work from day one; Arabic/RTL is required for customer-facing apps and legal documents |
 | Premium devices (high iPhone share) and 5G | Offline/PWA is not a priority; polish, speed, Apple Pay, and passkeys are |
 | Large agency ecosystem used to paid tooling | A partner program can start early (F4) |
-| Strong expectation that data stays in the UAE | A UAE production region is both a compliance need and a selling point |
+| Some buyers expect data to stay in the UAE | Renoxium does not promise it (D25); sectors where the law requires residency are checked before signing (section 10) |
 
 ## 2. Distribution
 
@@ -23,7 +23,7 @@ The primary market is small and medium businesses in the United Arab Emirates, r
 
 Dogfooding products (replace the open question in `15-roadmap.md`): **booking for salons/clinics** (competes with Fresha-class products) and **QR ordering for F&B** (competes with Foodics-class ordering). Both have dense SME populations, clear payments, and proven demand.
 
-Positioning: *the factory for custom SME applications in the UAE: bilingual, local payments, data kept in the country, built and hosted in days.* Real competitors are generic suites (Zoho, Odoo), website builders plus agencies, and "build from scratch", not the vertical incumbents.
+Positioning: *the factory for custom SME applications in the UAE: bilingual, local payments, AED pricing, built and hosted in days.* Real competitors are generic suites (Zoho, Odoo), website builders plus agencies, and "build from scratch", not the vertical incumbents.
 
 ## 3. Market realities and what they change
 
@@ -35,8 +35,8 @@ Positioning: *the factory for custom SME applications in the UAE: bilingual, loc
 | Identity | **UAE PASS** national digital identity with OAuth-style login for residents — **verify** onboarding requirements for private providers | Optional "Login with UAE PASS" provider in `auth`; strong differentiator for clinics, services, property |
 | Marketplaces and delivery | Noon, Amazon.ae, Namshi; Talabat, Deliveroo, Careem for F&B; Aramex, Careem/Quiqup for parcels | `marketplace-sync` (Noon, Amazon.ae), `delivery-gcc` (Aramex, Careem; Talabat/Deliveroo order ingestion) |
 | VAT | 5% VAT with TRN on tax invoices; corporate tax 9% with small-business relief; national e-invoicing (Peppol-based, accredited service providers) rolling out in phases from 2026 with SMEs in later phases — **verify** dates and thresholds | `tax-gcc` module: compliant tax invoices (TRN, VAT breakdown, AED), credit notes, VAT period reports, adapter interface for Peppol/ASP; ZATCA adapter later for Saudi |
-| Data protection | Federal PDPL (Decree-Law 45/2021) plus separate regimes in DIFC and ADGM; health data must stay in-country; general expectation of in-country hosting | UAE production region; PDPL-aligned DPA; data classification per tenant; in-country guarantee tier for health data |
-| Hosting | No low-cost VPS providers with UAE data centers; options are AWS me-central-1 (Dubai), Azure UAE North/Central, Oracle and Alibaba Dubai regions, or local colocation (Khazna, e&, du) | Node cost 2–3x the original assumption; unit economics recomputed in §6 |
+| Data protection | Federal PDPL (Decree-Law 45/2021) plus separate regimes in DIFC and ADGM; the law requires health data to be stored in the UAE | PDPL-aligned DPA with its sub-processor list; data classification per tenant; no health-data tenants; no residency promise (D25) |
+| Hosting | No low-cost VPS providers with UAE data centers | No country requirement (D25): nodes run where cost and network quality are best, behind Cloudflare's edge, which has points of presence in the UAE |
 | Addresses | No postal codes in common use; areas/communities, Makani numbers (Dubai), P.O. Boxes | Emirate/area address component; no postal-code validation |
 | Calendar and formats | Saturday–Sunday weekend; Hijri calendar in some contexts; Ramadan hours; DD/MM/YYYY; AED with fils | `i18n`: optional Hijri display, seasonal opening hours in `booking`, AED formatting, Arabic plural rules |
 | Business entities | Mainland vs free zones; trade license number and TRN appear on invoices | Trade license and TRN fields in `org`/`billing`; both printed on tax invoices |
@@ -80,14 +80,14 @@ See the matrices in `02-comparison.md` for the framework/platform view.
 
 | Factor | Earlier assumption | UAE |
 | --- | --- | --- |
-| 8 GB node cost | ~$40/month (budget VPS) | ~$100–150/month (AWS/Azure UAE region, reserved) |
+| 8 GB node cost | ~$40/month (budget VPS) | ~$40–150/month: no UAE region is required since D25, so a budget VPS behind Cloudflare is allowed |
 | Starter tier | ~$4–7 | AED 49–99 (~$13–27) |
 | Pro tier | ~$20–35 | AED 199–399 (~$54–108) |
 | Vertical SaaS (booking, F&B ordering) | — | AED 149–499/month per business, in line with incumbents |
 | Idle tenants per node | ≥ 1,000 | Unchanged; density does not depend on region |
 | Conversion needed to break even per node | ~5% to Starter | ~3% to Starter, or ~1% to a vertical product |
 
-Infrastructure costs rise 2–3x; prices rise 3–5x. Margins improve, provided no expensive operational components are added; SQLite per tenant remains the right call here.
+Prices rise 3–5x; infrastructure costs rise only where a buyer pays for a specific region. Margins improve, provided no expensive operational components are added; SQLite per tenant remains the right call here.
 
 ## 7. Company, tax, and compliance for Renox itself
 
@@ -96,16 +96,16 @@ Infrastructure costs rise 2–3x; prices rise 3–5x. Margins improve, provided 
 | Legal entity | UAE free-zone technology license (for example DMCC, IFZA, DTEC) to invoice in AED, sign contracts, and open a local bank account; incorporation and banking can take 1–3 months | Start in parallel with F1 |
 | VAT | Register with the FTA when turnover crosses the threshold; non-resident digital services to UAE consumers are also in scope — **verify** | Before first paid tenant |
 | PDPL | DPA template (the draft at `www/pages/legal/dpa.html` and the dashboard's `/legal/dpa`, its version recorded on the tenant at sign-up, #326; legal review pending), records of processing, data classification, breach procedure; DIFC/ADGM variants for tenants established there | F6 |
-| Health data | In-country guarantee tier; no health-data tenants before it exists | F7 |
+| Health data | No health-data tenants | Always |
 | Payments | Renox never holds funds; all through PSPs licensed by the Central Bank of the UAE | Always |
 | E-invoicing | Design `tax-gcc` around an adapter so SME-phase obligations can be met through an accredited provider when the SME phase begins — **verify** timeline | F7 |
 | Support | English first, Arabic available; WhatsApp Business support channel; working hours GST (UTC+4), Sat–Sun weekend | F7 |
 
 ## 8. Infrastructure adjustments
 
-- Production region: UAE (AWS me-central-1 or Azure UAE North to start; local colocation when volume justifies). Documented as a hard requirement in `03-architecture.md` and `06-data.md`.
-- Static assets and image variants behind a CDN with a UAE point of presence.
-- Backups (Litestream) to object storage **in the UAE**; no cross-border replication by default.
+- Production region: one region chosen for cost and network quality; no country requirement (D25, `03-architecture.md`).
+- Every request goes through Cloudflare's edge (Tunnel, Cloudflare for SaaS for custom domains), which has points of presence in the UAE.
+- Backups (Litestream) to Cloudflare R2.
 - Saudi Arabia expansion later requires in-country hosting and ZATCA e-invoicing from day one; the region and tax modules are designed to allow it, but it is not scheduled.
 
 ## 9. Risks specific to the UAE
@@ -124,5 +124,5 @@ Infrastructure costs rise 2–3x; prices rise 3–5x. Margins improve, provided 
 - UAE PASS onboarding process and eligibility for private-sector service providers.
 - Adoption and merchant availability of Aani and Jaywan.
 - VAT obligations for a non-resident provider before the UAE entity exists.
-- Data residency requirements by sector beyond health (for example education, financial services).
-- Pricing of reserved capacity and egress in AWS me-central-1 vs Azure UAE North, and availability of local colocation for bare-metal nodes.
+- Check which sectors legally require residency (health, and for example education, financial services) before signing a tenant there.
+- Cloudflare for SaaS plan limits and price per custom hostname (recorded in D25), and the cost of a second node.

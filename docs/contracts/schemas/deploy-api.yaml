@@ -20,7 +20,7 @@ info:
     identifier: LicenseRef-Renox-Proprietary
 servers:
   - url: https://api.renoxium.com
-    description: Production (UAE region)
+    description: Production
   - url: http://localhost:8787
     description: Local compose stack (control/docker-compose.yml)
 tags:

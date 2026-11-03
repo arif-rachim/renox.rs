@@ -358,7 +358,7 @@ The rows, with fixed messages and guidance, are in [`errors.md`](errors.md) ("Co
 
 ## 14. Backups, export, restore, import (0.3)
 
-Each tenant database (section 3, "Databases") is replicated by a Litestream sidecar on its owning node (#255, `docs/06-data.md` "Replication and backup tiers"): WAL frames go to a replica (`file` for tests and the dev container, `s3` in a UAE region in production) within the node's sync interval (1 s by default), with a snapshot every hour and 24 hours of retention by default. A **generation** is one continuous WAL history; a restore can reach any time inside a generation's range.
+Each tenant database (section 3, "Databases") is replicated by a Litestream sidecar on its owning node (#255, `docs/06-data.md` "Replication and backup tiers"): WAL frames go to a replica (`file` for tests and the dev container, `s3` on Cloudflare R2 in production) within the node's sync interval (1 s by default), with a snapshot every hour and 24 hours of retention by default. A **generation** is one continuous WAL history; a restore can reach any time inside a generation's range.
 
 | Operation | Path | Permission | Audit row (`action`, target) | Errors |
 | --- | --- | --- | --- | --- |

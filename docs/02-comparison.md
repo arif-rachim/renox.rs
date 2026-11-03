@@ -33,7 +33,7 @@ Conclusion: the combination "TypeScript + HTML-first + batteries-included + modu
 | Built-in HTML-first SSR | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Installed auth/billing/admin modules | ❌ | ❌ | ❌ | ⚠️ auth, storage | ❌ | ❌ | ⚠️ auth, admin | ✅ |
 | UAE local payments, BNPL, FTA tax invoices | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ GCC modules |
-| AED pricing, data in the UAE | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | n/a | ✅ |
+| AED pricing | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | n/a | ✅ |
 | Node compatibility | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ | n/a | ✅ via Deno |
 
 Supabase and Cloudflare are the closest architectural comparables (isolates + per-tenant DB). The difference is in the application model (SSR + modules) and the market (local pricing and payments).
