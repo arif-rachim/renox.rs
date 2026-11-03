@@ -9,7 +9,17 @@
 //!
 //! Skipped, with the reason, on a kernel without seccomp
 //! (`/proc/sys/kernel/seccomp` absent) or without Landlock.
+//!
+//! Issue #392: a controlled worker under `mode = "enforce"` activates a
+//! deployment through the control plane: the artifact is downloaded into
+//! an `artifacts_dir` outside `data_dir` (the `ops/worker.toml.example`
+//! layout), prepared and served.
 #![cfg(target_os = "linux")]
+
+#[path = "support/fake_control.rs"]
+mod fake;
+#[path = "support/control_stack.rs"]
+mod stack;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -231,5 +241,135 @@ async fn a_tenant_with_a_database_is_served_under_enforce() {
     let _ = child.kill();
     let _ = child.wait();
     assert!(root.join("data/t_sandboxed/app.db").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// #392 (docs/23-failure-modes.md section 3, "Artifact fetch fails"): under
+/// Landlock `enforce`, `prepare` downloads the artifact into an
+/// `artifacts_dir` outside `data_dir`, and the route that follows is served.
+/// Before the fix every activation failed with `stage=fetch` and "permission
+/// denied".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_controlled_worker_activates_through_the_control_plane_under_enforce() {
+    if no_seccomp() {
+        return;
+    }
+    let root = scratch("controlled");
+    let control = fake::FakeControl::start().await;
+    control
+        .state
+        .lock()
+        .unwrap()
+        .artifacts
+        .insert(stack::HELLO_HASH.into(), stack::tar_of(&stack::hello_dir()));
+    let token_file = root.join("node.token");
+    std::fs::write(&token_file, stack::token("renox_node_")).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    // artifacts_dir beside data_dir, not inside it: the layout of
+    // ops/worker.toml.example and bootstrap-node.sh.
+    let text = format!(
+        "mode = \"controlled\"\nlisten = \"127.0.0.1:{port}\"\nnode_id = \"node-sbx-1\"\ndata_dir = \"var/data\"\nartifacts_dir = \"var/artifacts\"\nmeters_dir = \"var/meters\"\nlogs_dir = \"var/logs\"\nfetch_blocked_addresses = [\"203.0.113.250\"]\n[control]\nurl = \"{}\"\nnode_token_file = \"{}\"\n[sandbox]\nenabled = true\nmode = \"enforce\"\n",
+        control.url(),
+        token_file.display()
+    );
+    std::fs::write(root.join("worker.toml"), text).unwrap();
+    // The worker's temp dir is read-write under Landlock; `root` sits in the
+    // test's temp dir, so the worker gets one of its own, beside `var/`.
+    // Otherwise every directory of this test would be writable through it.
+    std::fs::create_dir_all(root.join("tmp")).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_renox-worker"))
+        .env_remove("RENOX_TEST_SANDBOX")
+        .env("TMPDIR", root.join("tmp"))
+        .arg("--config")
+        .arg(root.join("worker.toml"))
+        .stderr(std::fs::File::create(root.join("worker.log")).unwrap())
+        .spawn()
+        .unwrap();
+    let log = || std::fs::read_to_string(root.join("worker.log")).unwrap_or_default();
+    let start = Instant::now();
+    while control.state.lock().unwrap().registrations.is_empty()
+        || !control.requests().iter().any(|r| r.ends_with("/stream"))
+    {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the sandboxed worker exited ({status}):\n{}", log());
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "the worker did not connect:\n{}",
+            log()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // deploy-api.md section 6 step 4: prepare on the owning node.
+    control.send(serde_json::json!({
+        "type": "prepare", "schema_version": 0, "activation_id": "act_0000000000000000000000000a",
+        "tenant_id": "t_sandboxed", "app": "hello", "deployment_hash": stack::HELLO_HASH,
+        "tier": "free", "secrets_version": 0,
+        "probe": { "path": "/api/hello", "timeout_ms": 10000 }, "deadline_ms": 60000,
+    }));
+    let start = Instant::now();
+    let result = loop {
+        if let Some(r) = control
+            .state
+            .lock()
+            .unwrap()
+            .prepare_results
+            .first()
+            .cloned()
+        {
+            break r;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "no prepare_result:\n{}",
+            log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert_eq!(result["ok"], true, "{result}\n{}", log());
+    assert!(root.join("var/artifacts").join(stack::HELLO_HASH).is_dir());
+    // Step 5: the route follows; the prepared cell serves it.
+    {
+        let mut st = control.state.lock().unwrap();
+        st.route_version = 1;
+        st.entries = vec![fake::entry(
+            "hello.sandboxed.test",
+            "t_sandboxed",
+            "hello",
+            stack::HELLO_HASH,
+            "node-sbx-1",
+            1,
+        )];
+    }
+    control.send(serde_json::json!({ "type": "resync", "schema_version": 0, "route_version": 1 }));
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let start = Instant::now();
+    loop {
+        let (status, _) = http(addr, "hello.sandboxed.test", "/api/hello").await;
+        if status == 200 {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "status {status}:\n{}",
+            log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the worker must still run"
+    );
+    assert!(log().contains("seccomp allowlist applied"), "{}", log());
+    let _ = child.kill();
+    let _ = child.wait();
     let _ = std::fs::remove_dir_all(&root);
 }
