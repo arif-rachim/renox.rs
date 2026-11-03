@@ -6,6 +6,7 @@
 
 import { S3Client } from "bun";
 import type { S3Config } from "../config.ts";
+import { tagStage } from "../log.ts";
 
 export interface ObjectStore {
   /** Writes `key` unless it exists; returns whether this call wrote it. */
@@ -94,6 +95,19 @@ export async function signedPut(config: S3Config, key: string, bytes: Uint8Array
   return fetch(url, { method: "PUT", headers: h, body });
 }
 
+/**
+ * Runs one object-store call; a failure is marked with the stage
+ * `object_store.<op>` (#402), which the error handler answers with 503 and
+ * `Retry-After` instead of 500, and logs with its cause chain.
+ */
+export async function storeCall<T>(op: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw tagStage(err, `object_store.${op}`);
+  }
+}
+
 export class S3ObjectStore implements ObjectStore {
   private readonly client: S3Client;
   private readonly config: S3Config;
@@ -107,30 +121,38 @@ export class S3ObjectStore implements ObjectStore {
       secretAccessKey: config.secretAccessKey,
     });
   }
-  async putIfAbsent(key: string, bytes: Uint8Array): Promise<"created" | "exists"> {
-    // Content-addressed: a concurrent writer of the same key writes the same bytes.
-    if (await this.client.exists(key)) return "exists";
-    await this.client.write(key, bytes);
-    return "created";
-  }
-  async put(key: string, bytes: Uint8Array, options: PutOptions = {}): Promise<void> {
-    if (options.sseKmsKeyId === undefined) {
+  putIfAbsent(key: string, bytes: Uint8Array): Promise<"created" | "exists"> {
+    return storeCall("put", async () => {
+      // Content-addressed: a concurrent writer of the same key writes the same bytes.
+      if (await this.client.exists(key)) return "exists";
       await this.client.write(key, bytes);
-      return;
-    }
-    const res = await signedPut(this.config, key, bytes, sseHeaders(options));
-    if (!res.ok) throw new Error(`put ${key}: ${res.status}`);
-    await res.arrayBuffer();
+      return "created";
+    });
   }
-  async get(key: string): Promise<Uint8Array | null> {
-    if (!(await this.client.exists(key))) return null;
-    return new Uint8Array(await this.client.file(key).arrayBuffer());
+  put(key: string, bytes: Uint8Array, options: PutOptions = {}): Promise<void> {
+    return storeCall("put", async () => {
+      if (options.sseKmsKeyId === undefined) {
+        await this.client.write(key, bytes);
+        return;
+      }
+      const res = await signedPut(this.config, key, bytes, sseHeaders(options));
+      if (!res.ok) throw Object.assign(new Error(`put ${key}: ${res.status}`), { status: res.status });
+      await res.arrayBuffer();
+    });
+  }
+  get(key: string): Promise<Uint8Array | null> {
+    return storeCall("get", async () => {
+      if (!(await this.client.exists(key))) return null;
+      return new Uint8Array(await this.client.file(key).arrayBuffer());
+    });
   }
   exists(key: string): Promise<boolean> {
-    return this.client.exists(key);
+    return storeCall("exists", () => this.client.exists(key));
   }
-  async delete(key: string): Promise<void> {
-    await this.client.delete(key);
+  delete(key: string): Promise<void> {
+    return storeCall("delete", async () => {
+      await this.client.delete(key);
+    });
   }
   presign(key: string, seconds: number): string {
     return this.client.presign(key, { expiresIn: seconds, method: "GET" });

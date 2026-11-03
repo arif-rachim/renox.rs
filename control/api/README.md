@@ -183,6 +183,18 @@ Not done yet (#308 stays open for them): deleting the database's Litestream gene
 
 Not done yet (#310 stays open for it): the operator console's break-glass form, the active list and the banner inside the impersonated session (`control/dashboard/pages/ops/**`).
 
+## Platform tenant (#396)
+
+The platform runs its own apps on itself: `control/dashboard` as the app `dashboard`, `www/` as `www`. Both names are reserved slugs (`src/apps/slugs.ts`, `reserved_slugs()` in migration `0005`), and the tenant that owns them is created by an ordinary sign-up, so it starts as a new free tenant without custom domains (deploy-api.md 0.5 section 21). One flag lifts both rules for that tenant only:
+
+- **The flag.** `tenants.platform` (migration `0028_platform_tenant.sql`). At most one tenant holds it (unique index `tenants_one_platform`).
+- **Set only by an operator.** `POST /v1/ops/tenants/{tenant_id}/platform` with `{"platform": true | false, "reason": "<10 to 500 characters>"}` and an operator token with `ops:write` (the bootstrap `renox_op_` token or an operator account's), like `setTenantTier`. It answers `{tenant_id, action: "setTenantPlatform", changed, platform, audit_id}`. Errors: 400 for a bad body (an unknown property, a non-boolean, a reason out of range), 401 without a token, 403 for a tenant token or session, 404 for an unknown tenant, 409 `platform: another tenant is the platform tenant`. Every call writes a `setTenantPlatform` audit row with the operator, the reason, the requested value and the result (`changed`, `unchanged`, `refused`). The tenant's tier and process do not change.
+- **What it grants.** Reserved names can be taken (`createApp`, and `renox deploy`, which creates the app named in `renox.toml`): the `apps_slug_available` trigger skips the reserved check for that tenant. A quarantined name stays refused, as for everyone. `newTenantRestrictions` answers `[]` (no `reduced_quotas`, no `no_custom_domain`), so `addDomain` works in the first 7 days and `getTenant.restrictions` is empty.
+- **What it does not grant.** Nothing for any other tenant: their reserved names stay 409 `not available` through the API and in the database, and their restrictions stay. Clearing the flag removes nothing that exists (apps with reserved names stay), but no new reserved name can be taken.
+- **Not in the contract.** `setTenantPlatform` is not in `deploy-api.yaml`. It is listed in `ROUTE_PERMISSIONS` as `operator` and in `test/idor/idor.test.ts` `EXTRA_ROUTES`.
+
+Tests: `tests/platform-tenant.test.ts`. The bootstrap that uses it: `control/dashboard/README.md`, "Deploy as the platform tenant", and `ops/single-host.md` step 10.
+
 ## Module registry (#324)
 
 deploy API 0.5 section 19, `src/registry/routes.ts`, migration `0017_registry.sql`.
@@ -252,3 +264,5 @@ Client events arrive as log lines with `source: client` (client-events.md sectio
 ## Logs
 
 One JSON object per line on stdout: `ts`, `level`, `msg`, and fields. Each request writes one line: `request_id`, `method`, `route` (the pattern, not the URL), `action` (the operationId), `status`, `actor`, and `ms`. Bodies, headers and secret values are never logged. Any string shaped like a Renox token is masked before a line is written.
+
+An error a handler does not turn into an API error writes one more line (#402): `msg` is `unhandled error`, or `upstream storage error` when the object store failed. Its fields are `request_id`, `method`, `route`, `stage` (`db` for a failed statement, `object_store.put` / `get` / `exists` / `delete` for the artifact store, `handler` otherwise), `error` (the message), `error_name`, `error_code` when the error has one (a socket code, an S3 code, a driver code), `sqlstate` for a Postgres error (from `code` in PGlite, from `errno` in Bun's client), and `detail`: name, code, message, the first stack lines, and the `cause` chain (up to 5 levels, `AggregateError` members included). Besides Renox tokens, signed-URL parameters, `Bearer`/`Basic` values and URL userinfo are masked. The response never carries any of it: a failure of the object store answers **503 `RENOX_UNAVAILABLE` with `Retry-After: 5`** (the CLI retries it, `renox deploy` waits `Retry-After`), everything else 500 `RENOX_INTERNAL`.

@@ -239,9 +239,11 @@ async function busyReason(db: Db, tenantId: string): Promise<string | null> {
  * without an abuse flag or an anomaly (src/signup/friction.ts).
  */
 export async function newTenantRestrictions(db: Db, tenantId: string, createdAt: number, now: number): Promise<string[]> {
-  // Only a free tenant starts restricted (section 21); an operator's paid tier has none.
-  const tier = (await db.query<{ tier: string }>("select tier from tenants where id = $1", [tenantId]))[0]?.tier;
-  if (tier !== undefined && tier !== "free") return [];
+  // Only a free tenant starts restricted (section 21); an operator's paid tier has none,
+  // and neither has the platform tenant (#396, src/ops/platform.ts).
+  const t = (await db.query<{ tier: string; platform: boolean }>("select tier, platform from tenants where id = $1", [tenantId]))[0];
+  if (t?.platform === true) return [];
+  if (t !== undefined && t.tier !== "free") return [];
   const pm = await db.query<Record<string, unknown>>("select payment_method from tenant_billing where tenant_id = $1", [tenantId]);
   if (pm[0]?.payment_method !== undefined && pm[0]?.payment_method !== null) return [];
   // #123: 7 days lift them only without an abuse flag or an anomaly in the last 7 days.
