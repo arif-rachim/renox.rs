@@ -326,7 +326,7 @@ async fn security_headers_on_every_response() {
         for (name, value) in SECURITY_HEADERS {
             assert_eq!(resp.headers()[name], value, "{host}{path} {name}");
         }
-        // HSTS is only sent on TLS connections (#23).
+        // HSTS only for visitors the trusted edge says came over HTTPS (#418).
         assert!(!resp.headers().contains_key("strict-transport-security"));
     }
 }
@@ -429,4 +429,56 @@ async fn serve_over_tcp() {
     assert!(out.starts_with("HTTP/1.1 200"), "{out}");
     assert!(out.ends_with("tenant=t_a"));
     assert_eq!(cell.last().0.client_ip.to_string(), "127.0.0.1");
+}
+
+/// #418, ADR D25: the worker serves no TLS, so HSTS and CSP
+/// `upgrade-insecure-requests` follow the trusted edge's
+/// `X-Forwarded-Proto: https`. From an untrusted peer the same header changes
+/// nothing (`docs/04-isolation-security.md`, "HSTS"; `docs/24-threat-model.md`
+/// A, "Forged client-IP header"), and a tenant cannot set HSTS itself.
+#[tokio::test]
+async fn hsts_and_csp_upgrade_follow_the_trusted_edge() {
+    let dir = tempfile::tempdir().unwrap();
+    let routes = Arc::new(RouteTable::new());
+    routes
+        .upsert(entry("a.test", "t_a", HASH_A, RouteStatus::Active))
+        .unwrap();
+    let mut config = GatewayConfig::new(dir.path());
+    config.client_ip.trusted_proxies = vec![renox_gateway::IpNet::parse("127.0.0.1/32").unwrap()];
+    let app = Gateway::new(config, routes).router(FakeDispatcher::new());
+    let get = |peer: &str, proto: Option<&str>| {
+        let mut req = request_from("a.test", "/fn", peer.parse().unwrap());
+        if let Some(p) = proto {
+            req.headers_mut()
+                .insert("x-forwarded-proto", p.parse().unwrap());
+        }
+        req
+    };
+    let edge = app
+        .clone()
+        .oneshot(get("127.0.0.1:4000", Some("https")))
+        .await
+        .unwrap();
+    assert_eq!(
+        edge.headers()["strict-transport-security"],
+        "max-age=31536000; includeSubDomains"
+    );
+    let csp = edge.headers()["content-security-policy"].to_str().unwrap();
+    assert!(csp.contains("upgrade-insecure-requests"), "{csp}");
+    for (peer, proto) in [
+        ("192.0.2.9:4000", Some("https")),
+        ("127.0.0.1:4000", Some("http")),
+        ("127.0.0.1:4000", None),
+    ] {
+        let resp = app.clone().oneshot(get(peer, proto)).await.unwrap();
+        assert!(
+            !resp.headers().contains_key("strict-transport-security"),
+            "{peer} {proto:?}"
+        );
+        let csp = resp.headers()["content-security-policy"].to_str().unwrap();
+        assert!(
+            !csp.contains("upgrade-insecure-requests"),
+            "{peer} {proto:?}"
+        );
+    }
 }

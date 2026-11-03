@@ -33,7 +33,8 @@ Node worker (one Rust process tree per node)
 | Wall-clock per request | Deadline in context; I/O cancelled | 30 s / 60 s |
 | Memory | V8 heap limit per isolate + cgroup per process | 128 MB / 512 MB |
 | Concurrent requests | Semaphore per deployment | 50 / 500 |
-| Gateway input (per client, before any tenant code) | hyper header limits, body limit before dispatch, header read and idle timeouts, connection cap per client IP (`crates/renox-gateway`, `limits.rs`) | Headers 16 KB and 100 per request (431); body 1 MB, webhooks 5 MB (413 `RENOX_BODY_TOO_LARGE`); request head and TLS handshake 10 s; idle connection 60 s; 100 connections per IP (503) |
+| Gateway input (per client, before any tenant code) | hyper header limits, body limit before dispatch, header read and idle timeouts, connection cap per client IP, the client being the trusted edge's `CF-Connecting-IP` (`crates/renox-gateway`, `limits.rs`, `client_ip.rs`) | Headers 16 KB and 100 per request (431); body 1 MB, webhooks 5 MB (413 `RENOX_BODY_TOO_LARGE`); request head 10 s; idle connection 60 s; 100 connections per IP (503) |
+| Cloudflare's edge (ADR D25), in front of every app | Enforced by Cloudflare, not configurable per app | A response that sends no byte for about 100 s is cut (524): a streamed response or SSE must write at least every 100 s (the platform's own streams send a keep-alive every 15 s); a request body above 100 MB is refused at the edge (Free and Pro plans), above every body limit of the worker; streamed and `text/event-stream` responses pass through without buffering; WebSocket upgrades pass through the tunnel |
 | Outbound network | Allowlist in the `fetch` op; private/loopback/link-local/metadata ranges blocked; egress byte limit | Declared hosts only |
 | Filesystem | None; only the platform storage API | — |
 | Bundle size and versions | Validated at deploy | 20 MB, 50 versions retained |

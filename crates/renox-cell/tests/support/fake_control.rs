@@ -2,8 +2,8 @@
 //! which has neither Postgres nor Bun (`support/control_stack.rs` needs
 //! both). It speaks the node side of `docs/contracts/deploy-api.md`
 //! sections 6-10 with plain HTTP/1.1 (`Connection: close`): registration,
-//! heartbeats, the route snapshot, the SSE stream, artifacts, certificate
-//! bundles, prepare results, and the ingest endpoints. Tests set its state
+//! heartbeats, the route snapshot, the SSE stream, artifacts, prepare
+//! results, and the ingest endpoints. Tests set its state
 //! and push messages onto the stream; it records every request line.
 
 #![allow(dead_code)]
@@ -23,8 +23,6 @@ pub struct State {
     /// `$defs/route_snapshot` entries and version.
     pub route_version: u64,
     pub entries: Vec<Value>,
-    /// hostname → `certificate_bundle`.
-    pub certs: HashMap<String, Value>,
     /// hash → tar bytes.
     pub artifacts: HashMap<String, Vec<u8>>,
     pub prepare_results: Vec<Value>,
@@ -151,12 +149,6 @@ impl FakeControl {
                     (200, "application/json", reply.to_string().into_bytes())
                 }
                 ("GET", ["v1", "nodes", _, "stream"]) => return self.stream(s).await,
-                ("GET", ["v1", "nodes", _, "certificates", host]) => {
-                    match self.state.lock().unwrap().certs.get(*host) {
-                        Some(b) => (200, "application/json", b.to_string().into_bytes()),
-                        None => (404, "application/json", b"{}".to_vec()),
-                    }
-                }
                 ("GET", ["v1", "nodes", _, "artifacts", hash]) => {
                     match self.state.lock().unwrap().artifacts.get(*hash) {
                         Some(t) => (200, "application/x-tar", t.clone()),

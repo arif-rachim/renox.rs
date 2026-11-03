@@ -179,10 +179,11 @@ pub struct Target<'a> {
     pub known_hashes: &'a [String],
     /// `manifest.client.events` (default `true`).
     pub enabled: bool,
-    /// The request host (lowercase, no port) and whether it came over TLS,
-    /// for the same-origin check.
+    /// The request host (lowercase, no port) and whether the visitor used
+    /// HTTPS (a trusted proxy's `X-Forwarded-Proto: https`, #418), for the
+    /// same-origin check.
     pub host: &'a str,
-    pub tls: bool,
+    pub https: bool,
     pub client_ip: IpAddr,
 }
 
@@ -303,7 +304,7 @@ impl ClientEvents {
         if !target.enabled {
             return Err(DropReason::Disabled);
         }
-        if !same_origin(req.headers(), target.host, target.tls) {
+        if !same_origin(req.headers(), target.host, target.https) {
             return Err(DropReason::Invalid);
         }
         if !self.admit_ip(target.tenant_id, target.client_ip) {
@@ -435,16 +436,18 @@ fn no_content() -> Response<Body> {
 }
 
 /// No `Origin`, or one naming the request's own scheme and host. The
-/// port is not compared: the gateway sits behind the node's listener and
-/// sees the host without it.
-fn same_origin(headers: &HeaderMap, host: &str, tls: bool) -> bool {
+/// scheme is `https` when the trusted edge says so (behind `cloudflared`
+/// every browser report says `https://…`), `http` otherwise (`renox dev`).
+/// The port is not compared: the gateway sits behind the edge and sees the
+/// host without it.
+fn same_origin(headers: &HeaderMap, host: &str, https: bool) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else {
         return true;
     };
     let Ok(origin) = origin.to_str() else {
         return false;
     };
-    let scheme = if tls { "https://" } else { "http://" };
+    let scheme = if https { "https://" } else { "http://" };
     let Some(authority) = origin.strip_prefix(scheme) else {
         return false;
     };

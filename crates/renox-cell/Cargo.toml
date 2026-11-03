@@ -121,6 +121,3 @@ opentelemetry_sdk = { version = "0.33", default-features = false, features = ["t
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "process"] }
 # tests/pages.rs compiles the page templates of its test artifact.
 renox-template = { path = "../renox-template" }
-# tests/tls_worker.rs: certificates and a TLS client.
-rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

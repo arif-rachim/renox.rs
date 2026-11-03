@@ -252,6 +252,47 @@ async fn invalid_bodies_are_dropped() {
     assert_eq!(s.cell.count(), 0);
 }
 
+/// #418, ADR D25: behind `cloudflared` every browser report says
+/// `Origin: https://<host>` while the worker serves plain HTTP. From the
+/// trusted edge with `X-Forwarded-Proto: https` it is same-origin and
+/// accepted; the same report from an untrusted peer (which cannot claim
+/// HTTPS) is `invalid`, and `http://` stays accepted for `renox dev`.
+#[tokio::test]
+async fn an_https_origin_through_the_trusted_edge_is_same_origin() {
+    let s = setup_with(
+        |c| {
+            c.client_ip.trusted_proxies = vec![renox_gateway::IpNet::parse("192.0.2.10").unwrap()];
+        },
+        None,
+    );
+    let mut edge = post_events(&example("client-events.js.error.valid.json"));
+    edge.headers_mut()
+        .insert("origin", "https://a.test".parse().unwrap());
+    edge.headers_mut()
+        .insert("x-forwarded-proto", "https".parse().unwrap());
+    edge.headers_mut()
+        .insert("cf-connecting-ip", "198.51.100.20".parse().unwrap());
+    assert_204(&send(&s, edge).await);
+    assert_eq!(s.gw.stats().client_events.accepted, 1);
+    assert_eq!(s.sink.take()[0].fields.get("code"), None);
+
+    let untrusted = setup();
+    let mut forged = post_events(&example("client-events.js.error.valid.json"));
+    forged
+        .headers_mut()
+        .insert("origin", "https://a.test".parse().unwrap());
+    forged
+        .headers_mut()
+        .insert("x-forwarded-proto", "https".parse().unwrap());
+    assert_204(&send(&untrusted, forged).await);
+    assert_eq!(untrusted.gw.stats().client_events.dropped_invalid, 1);
+    let mut dev = post_events(&example("client-events.js.error.valid.json"));
+    dev.headers_mut()
+        .insert("origin", "http://a.test".parse().unwrap());
+    assert_204(&send(&untrusted, dev).await);
+    assert_eq!(untrusted.gw.stats().client_events.accepted, 1);
+}
+
 /// Rule CE1: a body over 32 KB → 204 and `body_size`, declared or not; 21
 /// events → `batch_size`.
 #[tokio::test]

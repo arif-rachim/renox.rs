@@ -15,7 +15,7 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `listen` | — | Where the gateway listens: `unix:<path>` (production behind `cloudflared`, ADR D25: plain HTTP/1.1 on a unix socket, mode 0660 in `[gateway] socket_group`, 0600 without; a stale socket file is replaced, any other file refuses the start; the directory becomes read-write under Landlock), or a TCP address: HTTPS with `[tls]`, plain HTTP without. `[::]:<port>` is dual-stack (one IPv6 socket, `IPV6_V6ONLY` off; IPv4 clients count as their IPv4 address in the per-IP limits; `0.0.0.0` when the host has no IPv6, #404); `[tls] http_listen` the same. `renox-worker --version` prints the version (#401) |
+| `listen` | — | Where the gateway listens: `unix:<path>` (production behind `cloudflared`, ADR D25: plain HTTP/1.1 on a unix socket, mode 0660 in `[gateway] socket_group`, 0600 without; a stale socket file is replaced, any other file refuses the start; the directory becomes read-write under Landlock), or a TCP address, plain HTTP/1.1 too (no TLS since #418). `[::]:<port>` is dual-stack (one IPv6 socket, `IPV6_V6ONLY` off; IPv4 clients count as their IPv4 address in the per-IP limits; `0.0.0.0` when the host has no IPv6, #404). `renox-worker --version` prints the version (#401) |
 | `data_dir` | — | `<data_dir>/<tenant_id>/app.db` (the tenant file) and `<data_dir>/<tenant_id>/secrets.json` |
 | `artifacts_dir` | — | Artifact directories named by their content hash (`docs/contracts/artifact.md`); also the gateway's static file root |
 | `routes_file` | — | The route table (`docs/contracts/schemas/route-table.schema.json`); re-read on `SIGHUP` |
@@ -29,7 +29,6 @@ cargo test -p renox-cell        # tests/two_tenants.rs links V8
 | `platform_key_file` | — | The node's platform key (mode 0600, ≥ 32 bytes); page session and CSRF keys are derived from it per tenant ("Sessions and CSRF"). Unset: a random key per process |
 | `[gateway]` | 100 / 200 / 100 | `rate_limit_per_ip` (req/s), `rate_limit_burst`, `max_connections_per_ip`: the gateway's per-client limits (`renox-gateway` README). Benchmarks that send all load from one address raise them |
 | `[gateway]` client address | `[]` / `[]` / `CF-Connecting-IP` / 10,000 / none | `trusted_proxies` (CIDR ranges of TCP peers), `trusted_socket_users` (user names or uids of `unix:` socket peers, resolved from `/etc/passwd` when the config is read; production `["renox-tunnel"]`), `client_ip_header`, `max_connections_per_trusted_peer`, `socket_group` (production `renox-edge`). Only from a trusted peer does `client_ip_header` name the client (one address; repeated, multi-value or malformed falls back to the peer); every other peer keeps its socket address, a unix peer counts as `127.0.0.1`. Every forwarding header (`CF-Connecting-IP`, `X-Forwarded-*`, `True-Client-IP`, `X-Real-IP`, `Forwarded`) is removed before tenant code runs, which reads `x-renox-client-ip`. Empty lists trust nobody: never trust loopback where `renox dev` or other local processes connect (#414, `renox-gateway` README, "Client address") |
-| `[gateway]` HTTP/2 | 100 / 200 / 2,000 | `h2_max_resets_per_second` (resets per connection in any one second), `h2_max_resets_per_ip_per_second` (the same over all of a client IP's connections, IPv6 by /64), `h2_max_control_frames_per_second` (`PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY` per connection): the HTTP/2 flood budgets of #166 (`renox-gateway` README, "Protocol limits"). Over a budget the connection is closed. `0` is refused with the key's name (#260) |
 | `[tenant_tiers]` | — | `tenant_id = "free" \| "paid"` (F1 stand-in for the control plane) |
 | `[tiers.free]`, `[tiers.paid]` | see "Tiers" | Overrides of single tier fields |
 | `[replication]` | off | `enabled`, `replica` (`file` \| `s3`), `path` (file), `bucket`, `prefix`, `region`, `endpoint`, `sse_kms_key_id` (s3), `allowed_regions` (`["me-central-1"]`), `sync_interval_ms` (1000), `retention_hours` (24), `snapshot_interval_secs` (3600), `stop_grace_ms` (3000), `litestream_bin` (`litestream` on `PATH`): "Replication" |
@@ -168,7 +167,7 @@ With `[process]` off (the default, and the single host's choice for now) every t
 
 ```
                        ┌──────────────── renox-worker (supervisor) ─────────────────┐
-client ── TLS ──► gateway ──► Supervisor ──► shared CellManager: free tenants       │
+client ─ Cloudflare ─ cloudflared ─► gateway ──► Supervisor ──► shared CellManager: free tenants       │
                        │           │                                                │
                        └───────────┼────────────────────────────────────────────────┘
                                    │ HTTP/1 over <run_dir>/children/<tenant>.sock
@@ -192,7 +191,7 @@ With `[sandbox] enabled = true` (#253, ADR D6, `docs/04-isolation-security.md` "
 
 | Mechanism | When | What it allows |
 | --- | --- | --- |
-| Landlock (file system) | In `main`, after the config is read and before the async runtime starts a thread (Landlock reaches only threads created after it) | Read and execute: `artifacts_dir`, the binary's dir. Read and write: `data_dir` (with the spool), `artifacts_dir` (the worker downloads and unpacks artifacts there, #392), `meters_dir`, `logs_dir`, the temp dir, `[tls] cert_dir` in controlled mode (custom-domain certificates, #391), `/dev/null`. A child (#254) keeps `artifacts_dir` read and execute and `cert_dir` read-only. Read: the route table file, `[tls]` dirs (`cert_dir` only in local mode), the platform key, the node token, `extra_read_paths`, and the few system files name resolution and the runtime need (`SYSTEM_READ` in `src/sandbox/mod.rs`: `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, the shared libraries, `/proc/self`, CPU and cgroup information). Nothing else: not `/etc/passwd`, not `/root`, not another tenant's files outside `data_dir` |
+| Landlock (file system) | In `main`, after the config is read and before the async runtime starts a thread (Landlock reaches only threads created after it) | Read and execute: `artifacts_dir`, the binary's dir. Read and write: `data_dir` (with the spool), `artifacts_dir` (the worker downloads and unpacks artifacts there, #392), `meters_dir`, `logs_dir`, the temp dir, the directory of a `unix:` listen socket (#414), `/dev/null`. A child (#254) keeps `artifacts_dir` read and execute and gets no access to the listen socket's directory. Read: the route table file, the platform key, the node token, `extra_read_paths`, and the few system files name resolution and the runtime need (`SYSTEM_READ` in `src/sandbox/mod.rs`: `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, the shared libraries, `/proc/self`, CPU and cgroup information). Nothing else: not `/etc/passwd`, not `/root`, not another tenant's files outside `data_dir` |
 | Landlock (network, ABI 4, Linux 6.7) | Same | TCP `bind` to the configured listeners; TCP `connect` to 443, 53, the control plane's port and `extra_connect_ports` only, so the metadata address `169.254.169.254:80` is refused even without the `fetch` op |
 | seccomp | In `Worker::start`, once the listeners are bound, with `TSYNC` (every thread) and `no_new_privs` | The syscalls in `sandbox/syscalls.<arch>.txt` plus `extra_syscalls`. Any other kills the process (`enforce`) or is logged by the kernel (`audit`) |
 
@@ -320,18 +319,9 @@ Scheduled and queued jobs (`docs/contracts/ops.md` 1.6.0 section 20) ride on the
 
 Tests: `tests/jobs.rs`, `src/scheduler/mod.rs` (cron and zones, the lease), `renox-runtime` `src/ops/jobs.rs` (coalescing, listing, retry and cancel states).
 
-## Custom-domain certificates (#59, #391)
+## Behind Cloudflare (ADR D25, #418)
 
-A controlled worker with `[tls]` installs the certificates of custom domains itself (`src/control/certs.rs`; `docs/contracts/deploy-api.md` section 10, `control/api/src/domains/README.md` "Node side"):
-
-- **`certificate_update`** on the stream: `GET /v1/nodes/{node_id}/certificates/{hostname}` with the node token (retried 1 s, 2 s, 4 s on a failed fetch), then the checks below, then `<cert_dir>/<hostname>/{fullchain,privkey}.pem` written the way `ops/scripts/renew-wildcard-cert.sh` writes them (directory `0750`, key `0640`, chain `0644`, each through a dot-file and a rename, the key first), plus `.renox-control` with the version, and the `CertStore` reloaded in process. New handshakes use it; open connections keep theirs. No SIGHUP, no restart.
-- **Checks** before anything is written: the bundle names the hostname asked for; the chain has the leaf and its issuer; the leaf is current, for server authentication, names the hostname, and is signed by the next certificate (webpki, anchored at the chain's last certificate: the bundle came over the authenticated control channel); the key matches the leaf. A refused bundle leaves the installed certificate in use.
-- **`certificate_remove`**: the hostname's directory is deleted, only if it carries `.renox-control`, and the store reloaded.
-- **Order**: per hostname, a message no newer than the last one applied is ignored (one version sequence on the control plane).
-- **Reconnect**: after the first route snapshot of every connection, the bundle of each hostname of the snapshot is fetched, except hostnames an operator certificate covers (a `_wildcard.<parent>` directory, or a directory without the marker); marked directories of hostnames no longer in the snapshot are removed. The wildcard and apex directories of the renewal script are never touched.
-- Private keys never reach a log line or an error message.
-
-Tests: `src/control/certs.rs` (checks, file format, ownership), `tests/certificates.rs` (update, refused renewal, stale message, removal, reconnect, against `tests/support/fake_control.rs`), `control/api/tests/domains-e2e.test.ts` (Pebble, a real controlled worker).
+The worker terminates no TLS, holds no certificate and has no `[tls]` section (a config that still has one is refused with the reason) and no port 80 listener. In production it listens on `unix:/run/renox-edge/worker.sock` and `cloudflared` forwards every app name and custom domain to it as plain HTTP/1.1, keeping `Host`. Custom domains are Cloudflare for SaaS custom hostnames (`control/api/src/domains/README.md`); the control stream carries no certificate messages. HSTS, CSP `upgrade-insecure-requests` and the client-event origin follow the trusted edge's `X-Forwarded-Proto` (`renox-gateway` README, "No TLS, no HTTP/2"). Outbound TLS stays: tenant `fetch`, the control-plane client, S3 and OTLP use rustls.
 
 ## Not here yet
 

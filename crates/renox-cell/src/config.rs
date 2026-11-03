@@ -14,7 +14,7 @@ use crate::tiers::{TierName, TierOverride, Tiers};
 #[serde(deny_unknown_fields)]
 pub struct WorkerConfig {
     /// Where the gateway listens: a TCP address (`127.0.0.1:8080`; plain
-    /// HTTP without `[tls]`, HTTPS with it), or `unix:<path>`, the
+    /// HTTP/1.1, local development and tests), or `unix:<path>`, the
     /// production layout behind `cloudflared` (ADR D25, #414): plain
     /// HTTP/1.1 on a unix socket whose trusted peer is chosen by uid
     /// (`[gateway] trusted_socket_users`).
@@ -66,9 +66,12 @@ pub struct WorkerConfig {
     /// on restart). F3 delivers the node key (#54, #55).
     #[serde(default)]
     pub platform_key_file: Option<PathBuf>,
-    /// HTTPS (#162). Absent: `listen` serves plain HTTP.
+    /// Removed (#418, ADR D25): TLS ends at Cloudflare's edge and the worker
+    /// serves plain HTTP/1.1. Kept only to refuse an old `[tls]` section
+    /// with a message that says why, instead of serving plain HTTP where
+    /// HTTPS was configured.
     #[serde(default)]
-    pub tls: Option<TlsSection>,
+    tls: Option<toml::Value>,
     /// `local` (F1: route table file, artifacts directory, `secrets.json`,
     /// files for meters and logs) or `controlled` (F3, #55: everything from
     /// and to the control plane of `[control]`).
@@ -446,32 +449,6 @@ fn default_max_cells() -> u32 {
     1000
 }
 
-/// `[tls]`: the gateway serves HTTPS on `listen` with certificates chosen
-/// by SNI from `cert_dir` (`crates/renox-gateway/src/tls.rs`), and the plain
-/// listener on `http_listen` answers only ACME HTTP-01 challenges
-/// (`docs/contracts/deploy-api.md` section 10) and redirects everything
-/// else to HTTPS with 308. SIGHUP (or [`crate::Worker::reload_certificates`])
-/// reloads `cert_dir` without dropping connections.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TlsSection {
-    /// `<cert_dir>/<hostname>/{fullchain,privkey}.pem` and
-    /// `<cert_dir>/_wildcard.<domain>/…`.
-    pub cert_dir: PathBuf,
-    /// The plain-HTTP listener (production `0.0.0.0:80`). Absent: none.
-    #[serde(default)]
-    pub http_listen: Option<SocketAddr>,
-    /// `GET /.well-known/acme-challenge/<token>` on the plain listener is
-    /// answered with the file `<acme_dir>/<token>` (the key authorization
-    /// the ACME client of #59 writes there). Absent: every challenge is 404.
-    #[serde(default)]
-    pub acme_dir: Option<PathBuf>,
-    /// The port in redirect `Location`s. Default: the port `listen` is
-    /// bound to; 443 is left out of the URL.
-    #[serde(default)]
-    pub https_port: Option<u16>,
-}
-
 /// `listen`: a TCP address or `unix:<path>` (#414).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "String")]
@@ -534,12 +511,6 @@ pub struct GatewaySection {
     pub rate_limit_burst: u32,
     /// Open connections per client IP.
     pub max_connections_per_ip: usize,
-    /// HTTP/2 resets per connection in any one second (#166, #260).
-    pub h2_max_resets_per_second: u32,
-    /// HTTP/2 resets per client IP (IPv6 by /64) in any one second.
-    pub h2_max_resets_per_ip_per_second: u32,
-    /// HTTP/2 control frames per connection per second (token bucket).
-    pub h2_max_control_frames_per_second: u32,
     /// `[gateway.security_txt]`: the platform's security.txt (#121, #364).
     pub security_txt: SecurityTxtSection,
     /// TCP peers (CIDR ranges or addresses) whose `client_ip_header` names
@@ -635,7 +606,6 @@ impl SecurityTxtSection {
 impl Default for GatewaySection {
     fn default() -> Self {
         let rate = renox_gateway::RateLimitConfig::default();
-        let protocol = renox_gateway::ProtocolLimits::default();
         GatewaySection {
             rate_limit_per_ip: rate.requests_per_second,
             rate_limit_burst: rate.burst,
@@ -648,9 +618,6 @@ impl Default for GatewaySection {
             socket_group: None,
             trusted_socket_uids: Vec::new(),
             socket_gid: None,
-            h2_max_resets_per_second: protocol.h2_max_resets_per_second,
-            h2_max_resets_per_ip_per_second: protocol.h2_max_resets_per_ip_per_second,
-            h2_max_control_frames_per_second: protocol.h2_max_control_frames_per_second,
             security_txt: SecurityTxtSection::default(),
         }
     }
@@ -765,27 +732,6 @@ impl WorkerConfig {
         {
             if p.is_relative() {
                 *p = base.join(&*p);
-            }
-        }
-        // A zero budget would close every HTTP/2 connection at its first reset or PING.
-        for (key, value) in [
-            (
-                "h2_max_resets_per_second",
-                c.gateway.h2_max_resets_per_second,
-            ),
-            (
-                "h2_max_resets_per_ip_per_second",
-                c.gateway.h2_max_resets_per_ip_per_second,
-            ),
-            (
-                "h2_max_control_frames_per_second",
-                c.gateway.h2_max_control_frames_per_second,
-            ),
-        ] {
-            if value == 0 {
-                return Err(ConfigError::Invalid(format!(
-                    "gateway.{key} must be at least 1"
-                )));
             }
         }
         if let Listen::Unix(p) = &mut c.listen
@@ -916,20 +862,10 @@ impl WorkerConfig {
                 }
             }
         }
-        if let Some(tls) = &mut c.tls {
-            for p in std::iter::once(&mut tls.cert_dir).chain(tls.acme_dir.as_mut()) {
-                if p.is_relative() {
-                    *p = base.join(&*p);
-                }
-            }
-            if tls
-                .http_listen
-                .is_some_and(|h| Some(h) == c.listen.tcp() && h.port() != 0)
-            {
-                return Err(ConfigError::Invalid(
-                    "tls.http_listen must differ from listen".into(),
-                ));
-            }
+        if c.tls.is_some() {
+            return Err(ConfigError::Invalid(
+                "[tls] was removed (ADR D25, #418): TLS ends at Cloudflare's edge; serve plain HTTP behind cloudflared with listen = \"unix:/run/renox-edge/worker.sock\" (ops/single-host.md)".into(),
+            ));
         }
         if !(c.gateway.rate_limit_per_ip.is_finite() && c.gateway.rate_limit_per_ip > 0.0) {
             return Err(ConfigError::Invalid(
@@ -983,9 +919,6 @@ mod tests {
         assert_eq!(c.tier_table().free.cpu_ms, 50);
         assert_eq!(c.gateway.rate_limit_per_ip, 100.0);
         assert_eq!(c.gateway.max_connections_per_ip, 100);
-        assert_eq!(c.gateway.h2_max_resets_per_second, 100);
-        assert_eq!(c.gateway.h2_max_resets_per_ip_per_second, 200);
-        assert_eq!(c.gateway.h2_max_control_frames_per_second, 2000);
     }
 
     /// #364: `[gateway.security_txt]` defaults to the reference deployment
@@ -1032,50 +965,6 @@ mod tests {
                 base
             )
             .is_err()
-        );
-    }
-
-    /// #260: the three HTTP/2 flood knobs of #166 parse, default to the
-    /// gateway's `ProtocolLimits`, and refuse 0 with the key's name.
-    #[test]
-    fn gateway_h2_flood_keys() {
-        let base = Path::new("/srv/renox");
-        let min = "listen = \"127.0.0.1:0\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nroutes_file = \"r.json\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\n";
-        let with = |extra: &str| format!("{min}{extra}");
-        let d = WorkerConfig::parse(min, base).unwrap();
-        assert_eq!(
-            (
-                d.gateway.h2_max_resets_per_second,
-                d.gateway.h2_max_resets_per_ip_per_second,
-                d.gateway.h2_max_control_frames_per_second
-            ),
-            (100, 200, 2000)
-        );
-        let c = WorkerConfig::parse(
-            &with("[gateway]\nh2_max_resets_per_second = 50\nh2_max_resets_per_ip_per_second = 80\nh2_max_control_frames_per_second = 500\n"),
-            base,
-        )
-        .unwrap();
-        assert_eq!(
-            (
-                c.gateway.h2_max_resets_per_second,
-                c.gateway.h2_max_resets_per_ip_per_second,
-                c.gateway.h2_max_control_frames_per_second
-            ),
-            (50, 80, 500)
-        );
-        for key in [
-            "h2_max_resets_per_second",
-            "h2_max_resets_per_ip_per_second",
-            "h2_max_control_frames_per_second",
-        ] {
-            let err = WorkerConfig::parse(&with(&format!("[gateway]\n{key} = 0\n")), base)
-                .unwrap_err()
-                .to_string();
-            assert!(err.contains(&format!("gateway.{key}")), "{err}");
-        }
-        assert!(
-            WorkerConfig::parse(&with("[gateway]\nh2_max_resets_per_second = -1\n"), base).is_err()
         );
     }
 
@@ -1157,26 +1046,33 @@ mod tests {
         assert_eq!(lookup_id("other", "svc:x:991:991::/:/bin/false\n"), None);
     }
 
+    /// #418, ADR D25: an old `[tls]` section is refused with the reason,
+    /// and so are the removed HTTP/2 keys of `[gateway]`.
     #[test]
-    fn tls_section() {
+    fn tls_and_h2_keys_are_refused() {
         let base = "listen = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
-        let c = WorkerConfig::parse(base, Path::new("/srv")).unwrap();
-        assert!(c.tls.is_none());
-        let text = format!(
-            "{base}[tls]\ncert_dir = \"certs\"\nhttp_listen = \"0.0.0.0:80\"\nacme_dir = \"/var/acme\"\n"
+        assert!(WorkerConfig::parse(base, Path::new("/srv")).is_ok());
+        let err = WorkerConfig::parse(
+            &format!("{base}[tls]\ncert_dir = \"certs\"\n"),
+            Path::new("/srv"),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("[tls] was removed") && err.contains("unix:"),
+            "{err}"
         );
-        let tls = WorkerConfig::parse(&text, Path::new("/srv"))
-            .unwrap()
-            .tls
-            .unwrap();
-        assert_eq!(tls.cert_dir, Path::new("/srv/certs"));
-        assert_eq!(tls.acme_dir.as_deref(), Some(Path::new("/var/acme")));
-        assert_eq!(tls.http_listen, Some("0.0.0.0:80".parse().unwrap()));
-        assert_eq!(tls.https_port, None);
-        let same = format!("{base}[tls]\ncert_dir = \"c\"\nhttp_listen = \"0.0.0.0:443\"\n");
-        assert!(WorkerConfig::parse(&same, Path::new("/")).is_err());
-        let unknown = format!("{base}[tls]\ncert_dir = \"c\"\nkey = \"k\"\n");
-        assert!(WorkerConfig::parse(&unknown, Path::new("/")).is_err());
+        for key in [
+            "h2_max_resets_per_second",
+            "h2_max_resets_per_ip_per_second",
+            "h2_max_control_frames_per_second",
+        ] {
+            assert!(
+                WorkerConfig::parse(&format!("{base}[gateway]\n{key} = 10\n"), Path::new("/srv"))
+                    .is_err(),
+                "{key}"
+            );
+        }
     }
 
     #[test]
