@@ -26,7 +26,7 @@ export interface Entry {
 }
 
 export const checks: readonly Entry[] = [
-  { package: "stripe", version: "23.0.1", kind: "official", run: stripe },
+  { package: "stripe", version: "23.1.0", kind: "official", run: stripe },
   { package: "checkout-sdk-node", version: "5.8.0", kind: "official", run: checkout },
   { package: "telr", version: "hand-written", kind: "hand-written", run: telr },
   { package: "paytabs", version: "hand-written", kind: "hand-written", run: paytabs },
@@ -34,8 +34,8 @@ export const checks: readonly Entry[] = [
   { package: "arctic", version: "3.7.0", kind: "official", run: arctic },
   { package: "@oslojs/crypto+@oslojs/encoding", version: "1.0.1+1.1.0", kind: "official", run: oslojs },
   { package: "whatsapp-cloud-api", version: "hand-written", kind: "hand-written", run: whatsapp },
-  { package: "resend", version: "6.35.0", kind: "official", run: resend },
-  { package: "nodemailer", version: "10.2.1", kind: "official", run: nodemailer },
+  { package: "resend", version: "6.37.0", kind: "official", run: resend },
+  { package: "nodemailer", version: "10.3.1", kind: "official", run: nodemailer },
   { package: "zod", version: "4.6.7", kind: "official", run: zod },
   { package: "date-fns", version: "4.4.0", kind: "official", run: dateFns },
   { package: "intl", version: "built-in", kind: "built-in", run: intl },

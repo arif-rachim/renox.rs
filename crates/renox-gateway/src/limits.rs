@@ -8,10 +8,10 @@
 //! | `max_header_bytes` | `Http1Guard` and hyper read buffer (HTTP/1.1), `SETTINGS_MAX_HEADER_LIST_SIZE` (HTTP/2) | 431 with a request id, connection closed |
 //! | `max_headers` | `Http1Guard` and hyper parser (HTTP/1.1) | 431 with a request id, connection closed |
 //! | `max_body_bytes_*` | [`check_body`] before dispatch | 413 `RENOX_BODY_TOO_LARGE` |
-//! | `header_read_timeout` | hyper (HTTP/1.1 request head), TLS handshake | connection closed |
+//! | `header_read_timeout` | hyper (HTTP/1.1 request head) | connection closed |
 //! | `idle_timeout` | [`IdleTimeout`] around the socket | connection closed |
-//! | `max_connections_per_ip` | [`ConnectionLimiter`] at accept | 503 and close (plain HTTP), close (TLS) |
-//! | `protocol.h2_max_resets_per_ip_per_second` | [`IpResetLimiter`], counted by `H2FloodBudget` | HTTP/2 connection closed |
+//! | `max_connections_per_ip` | [`ConnectionLimiter`] at accept | 503 and close |
+//! | `max_connections_per_trusted_peer` | a second [`ConnectionLimiter`] for trusted proxies (`client_ip.rs`) | 503 and close |
 
 use std::collections::HashMap;
 use std::io;
@@ -27,13 +27,10 @@ use http_body_util::{BodyExt, LengthLimitError, Limited};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::{Instant, Sleep};
 
-use crate::protocol::SlidingWindow;
-
 /// Gateway input limits, configured from the worker config (#29).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GatewayLimits {
-    /// Request line plus headers, in bytes (HTTP/1.1); header list size
-    /// (HTTP/2). hyper's floor is 8 KiB.
+    /// Request line plus headers, in bytes. hyper's floor is 8 KiB.
     pub max_header_bytes: usize,
     /// Number of request headers (HTTP/1.1).
     pub max_headers: usize,
@@ -42,13 +39,16 @@ pub struct GatewayLimits {
     /// Body limit for webhook routes. No F1 route kind maps to it yet; the
     /// route kind arrives with the manifest change that adds it.
     pub max_body_bytes_webhook: u64,
-    /// Time a client has to send a complete request head (and, on TLS, to
-    /// complete the handshake).
+    /// Time a client has to send a complete request head.
     pub header_read_timeout: Duration,
     /// A connection with no bytes read or written for this long is closed.
     pub idle_timeout: Duration,
     /// Open connections per client IP (IPv6 by /64).
     pub max_connections_per_ip: usize,
+    /// Open connections per trusted proxy (#414): `cloudflared` carries
+    /// every visitor over its connections, so it is not capped like one
+    /// client. Per-request limits still key on the client address.
+    pub max_connections_per_trusted_peer: usize,
 }
 
 impl Default for GatewayLimits {
@@ -61,6 +61,7 @@ impl Default for GatewayLimits {
             header_read_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_secs(60),
             max_connections_per_ip: 100,
+            max_connections_per_trusted_peer: 10_000,
         }
     }
 }
@@ -268,122 +269,6 @@ impl Drop for ConnectionGuard {
     }
 }
 
-/// HTTP/2 stream resets per client IP (IPv6 by /64), summed over all of its
-/// connections (#166): one [`SlidingWindow`] per IP, kept while the IP has
-/// an open HTTP/2 connection or a reset within the last second, so closing
-/// and reopening connections does not start a fresh budget.
-#[derive(Debug)]
-pub struct IpResetLimiter {
-    max: u32,
-    state: Mutex<IpResetState>,
-}
-
-#[derive(Debug)]
-struct IpResetState {
-    entries: HashMap<IpAddr, IpResetEntry>,
-    /// Sweep idle entries when the map grows past this.
-    sweep_at: usize,
-}
-
-#[derive(Debug)]
-struct IpResetEntry {
-    connections: usize,
-    window: SlidingWindow,
-}
-
-/// One HTTP/2 connection's handle on its IP's reset budget; released on
-/// drop.
-#[derive(Debug)]
-pub struct IpResetSlot {
-    limiter: Arc<IpResetLimiter>,
-    key: IpAddr,
-}
-
-const IP_RESET_SWEEP_MIN: usize = 1024;
-
-impl IpResetLimiter {
-    pub fn new(max_per_second: u32) -> Arc<Self> {
-        Arc::new(Self {
-            max: max_per_second,
-            state: Mutex::new(IpResetState {
-                entries: HashMap::new(),
-                sweep_at: IP_RESET_SWEEP_MIN,
-            }),
-        })
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, IpResetState> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// A handle for a new HTTP/2 connection from `ip`.
-    pub fn slot(self: &Arc<Self>, ip: IpAddr) -> IpResetSlot {
-        let key = crate::rate_limit::bucket_key(ip);
-        let now = std::time::Instant::now();
-        let mut state = self.lock();
-        if state.entries.len() >= state.sweep_at {
-            // Entries without connections and without a recent reset carry
-            // no budget; the map stays bounded by the open connections plus
-            // the IPs that reset a stream in the last second.
-            state
-                .entries
-                .retain(|_, e| e.connections > 0 || !e.window.is_idle(now));
-            state.sweep_at = (state.entries.len() * 2).max(IP_RESET_SWEEP_MIN);
-        }
-        let max = self.max;
-        state
-            .entries
-            .entry(key)
-            .or_insert_with(|| IpResetEntry {
-                connections: 0,
-                window: SlidingWindow::new(max, now),
-            })
-            .connections += 1;
-        IpResetSlot {
-            limiter: self.clone(),
-            key,
-        }
-    }
-
-    /// IPs with state (open HTTP/2 connections or recent resets).
-    pub fn tracked(&self) -> usize {
-        self.lock().entries.len()
-    }
-}
-
-impl IpResetSlot {
-    /// Resets this IP may still have now.
-    pub fn remaining(&self, now: std::time::Instant) -> usize {
-        let mut state = self.limiter.lock();
-        state
-            .entries
-            .get_mut(&self.key)
-            .map_or(usize::MAX, |e| e.window.remaining(now))
-    }
-
-    /// Records one reset for this IP; `false` over the budget.
-    pub fn hit(&self, now: std::time::Instant) -> bool {
-        let mut state = self.limiter.lock();
-        state
-            .entries
-            .get_mut(&self.key)
-            .is_none_or(|e| e.window.hit(now))
-    }
-}
-
-impl Drop for IpResetSlot {
-    fn drop(&mut self) {
-        let now = std::time::Instant::now();
-        let mut state = self.limiter.lock();
-        if let Some(e) = state.entries.get_mut(&self.key) {
-            e.connections -= 1;
-            if e.connections == 0 && e.window.is_idle(now) {
-                state.entries.remove(&self.key);
-            }
-        }
-    }
-}
-
 /// The response written on a connection refused at the per-IP cap, with its
 /// own request id.
 pub fn connection_limit_response() -> Vec<u8> {
@@ -561,25 +446,5 @@ mod tests {
         drop(a);
         assert_eq!(l.open(ip), 1);
         assert!(l.try_acquire(ip).is_some());
-    }
-
-    #[test]
-    fn ip_reset_state_outlives_a_reconnect_then_goes() {
-        let l = IpResetLimiter::new(2);
-        let ip: IpAddr = "2001:db8::1".parse().unwrap();
-        let now = std::time::Instant::now();
-        let a = l.slot(ip);
-        assert!(a.hit(now) && a.hit(now));
-        drop(a);
-        // Same /64, new connection: the budget is still spent.
-        let b = l.slot("2001:db8::2".parse().unwrap());
-        assert!(!b.hit(now));
-        assert_eq!(l.tracked(), 1);
-        drop(b);
-        // A closed connection without recent resets leaves nothing behind.
-        for i in 0..IP_RESET_SWEEP_MIN as u32 {
-            drop(l.slot(IpAddr::from(std::net::Ipv4Addr::from(i))));
-        }
-        assert!(l.tracked() <= 2, "{}", l.tracked());
     }
 }

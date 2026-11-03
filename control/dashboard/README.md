@@ -116,18 +116,18 @@ read -rs PW                      # the owner's password, kept out of the shell h
 
    Both answer on the wildcard first: `https://dashboard.renoxium.app/` and `https://www.renoxium.app/`.
 
-7. **Point DNS at the node, then attach.** Create the `renoxium.com` records of `ops/single-host.md` ("Cloudflare DNS": `renoxium.com` and `dashboard.renoxium.com` A/AAAA, `www.renoxium.com` CNAME, all DNS only). Wait until every name answers the node's address from outside, for example `dig +short dashboard.renoxium.com @9.9.9.9`. Only then attach each hostname. A domain whose DNS does not point at the edge yet gets no certificate. After verification it is checked again only hourly (`DNS_CHECK_MS`). Every address the records carry must be in the API's `CONTROL_EDGE_ADDRESSES`, the IPv6 one too if there is an AAAA record:
+7. **Attach the platform's own domains (ADR D25).** `renoxium.com`, `www.renoxium.com` and `dashboard.renoxium.com` are Cloudflare for SaaS custom hostnames of the platform tenant, added like any customer's domain. The control API needs `CONTROL_CF_*` (`control/api/src/domains/README.md`); without it the answer is 503:
 
    ```sh
    for pair in dashboard:dashboard.renoxium.com www:renoxium.com www:www.renoxium.com; do
      curl -fsS -X POST "$API/v1/apps/${pair%%:*}/domains" -H "authorization: Bearer $TOKEN" \
-       -H 'content-type: application/json' -d "{\"hostname\": \"${pair#*:}\"}" | jq .verification
+       -H 'content-type: application/json' -d "{\"hostname\": \"${pair#*:}\"}" | jq '{cname_target, verification}'
    done
    ```
 
-8. **The `_renox-verify` TXT records.** Each answer names a record: `_renox-verify.<hostname>` TXT `rnx-verify-…`. Create the three in Cloudflare and keep them for good: they are re-checked every 7 days, and a domain is detached after 3 misses spread over at least 30 minutes. The job looks them up every minute. Then `GET $API/v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `dns: ok`, and `certificate.state: issued` (HTTP-01 on port 80 of the node). Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`.
+8. **The records.** In the `renoxium.com` zone create, for each name, the `verification` TXT records each answer lists (`purpose: ownership` and `dcv`) and a **DNS-only (grey)** CNAME to `edge.renoxium.app` (the apex by CNAME flattening). The job reads the custom hostnames every minute; `GET $API/v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `status: active`, `ssl_status: active`. Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`.
 
-If the host's resolvers answer stale negatives, set `CONTROL_DNS_SERVERS` (`control/api/src/domains/README.md`; on `node-small`, `9.9.9.9,149.112.112.112`). A domain that was detached anyway comes back when you repeat its `POST …/domains` call: it answers 201 with the same record and is checked at the next tick. The node that runs the dashboard lists the control plane's node-facing addresses in `fetch_blocked_addresses`, not the public API address (D23).
+A domain that was detached comes back when you repeat its `POST …/domains` call: it answers 201 with the same custom hostname and is read at the next tick. The node that runs the dashboard lists the control plane's node-facing addresses in `fetch_blocked_addresses`, not the public API address (D23).
 
 The deployment is recorded in the F3 review (#61).
 

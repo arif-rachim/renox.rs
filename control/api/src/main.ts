@@ -67,8 +67,8 @@ const nodeApp = createApp(deps, [], "node");
 await routeService(deps).publisher.listen();
 // Node health and drained routes (deploy-api.md sections 7-8).
 setInterval(() => void sweep(deps).catch((e: unknown) => log.error("sweep failed", { error: String(e) })), 5_000);
-// Custom domains: verification, DNS checks, certificates (src/domains/README.md).
-await startDomainJobs(deps);
+// Custom domains through Cloudflare for SaaS: the status poll (src/domains/README.md).
+startDomainJobs(deps);
 // Tenant erasures (#308): due steps retried every minute (each erasure's own retry is hourly).
 // Break-glass impersonations past their 60 minutes end with an audit row and the owner's email (#310).
 setInterval(() => void endExpiredImpersonations(deps).catch((e: unknown) => log.error("impersonation sweep failed", { error: String(e) })), 30_000);
@@ -81,7 +81,7 @@ setInterval(() => void sweepAbuse(deps).catch((e: unknown) => log.error("abuse s
 setInterval(() => void sweepSafeBrowsing(deps).catch((e: unknown) => log.error("safe browsing sweep failed", { error: String(e) })), 3_600_000);
 setInterval(() => void rescanActive(deps).catch((e: unknown) => log.error("advisory re-scan failed", { error: String(e) })), 3_600_000);
 if (!process.env.RENOX_SAFE_BROWSING_KEY) log.warn("RENOX_SAFE_BROWSING_KEY is not set: hostnames are not checked with Safe Browsing");
-if ((config.exportKmsKeyId ?? null) === null) log.warn("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (local mode only)");
+if ((config.exportKmsKeyId ?? null) === null) log.info("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (R2 has none; the bucket's own encryption at rest applies)");
 
 // The public listener behind a trusted proxy (#366): requests from a listed peer
 // take their client address from the configured header (src/auth/ip.ts).

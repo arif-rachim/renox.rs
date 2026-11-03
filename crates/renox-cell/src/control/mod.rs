@@ -20,9 +20,7 @@
 //! | `prepare` before activation (#96) | [`prepare`], [`crate::health_probe`] |
 //! | Meters ([`renox_meter::BatchPoster`]) | [`MeterPoster`] |
 //! | Artifacts | [`crate::artifact_s3`] |
-//! | Custom-domain certificates (#59, #391) | [`certs`] |
 
-pub mod certs;
 pub mod degraded;
 pub mod health;
 pub mod http;
@@ -70,13 +68,8 @@ pub struct Registered {
     pub callback_token: Option<String>,
 }
 
-/// What the stream delivered that is not a route message: `prepare` (#96)
-/// and certificate messages (#59).
+/// What the stream delivered that is not a route message: `prepare` (#96).
 pub type MessageHandler = Arc<dyn Fn(Value) + Send + Sync>;
-
-/// Called after every (re)connect, once the first route snapshot of the
-/// connection is applied (the certificate sync of #391).
-pub type ConnectHandler = Arc<dyn Fn() + Send + Sync>;
 
 /// [`BatchPoster`] for `POST /v1/ingest/meters`.
 #[derive(Clone)]
@@ -118,7 +111,6 @@ pub struct Controller {
     /// `resync_interval_ms` from the last registration (#97).
     resync_every: AtomicU64,
     others: std::sync::Mutex<Option<MessageHandler>>,
-    on_connect: std::sync::Mutex<Option<ConnectHandler>>,
     tasks: std::sync::Mutex<Vec<JoinHandle<()>>>,
     /// The node listener's URL announced at registration and the callback
     /// token it accepts (deploy-api.md 0.3 section 15).
@@ -162,7 +154,6 @@ impl Controller {
             resync: Notify::new(),
             resync_every: AtomicU64::new(60_000),
             others: std::sync::Mutex::new(None),
-            on_connect: std::sync::Mutex::new(None),
             tasks: std::sync::Mutex::new(Vec::new()),
             node_listener: std::sync::Mutex::new(None),
             disk: std::sync::Mutex::new(None),
@@ -180,14 +171,9 @@ impl Controller {
         *self.node_listener.lock().expect("controller lock") = Some((url, token));
     }
 
-    /// Where `prepare` and certificate messages go.
+    /// Where `prepare` messages go.
     pub fn on_message(&self, handler: MessageHandler) {
         *self.others.lock().expect("controller lock") = Some(handler);
-    }
-
-    /// What runs after every (re)connect, once the snapshot is applied.
-    pub fn on_connect(&self, handler: ConnectHandler) {
-        *self.on_connect.lock().expect("controller lock") = Some(handler);
     }
 
     /// Whether the node is registered with the control plane right now.
@@ -287,10 +273,6 @@ impl Controller {
                     )));
                 self.fetch_snapshot(false).await?;
                 self.health.recover("control_plane");
-                let connected = self.on_connect.lock().expect("controller lock").clone();
-                if let Some(h) = connected {
-                    h();
-                }
                 self.follow_stream(&mut backoff).await
             }
             .await;

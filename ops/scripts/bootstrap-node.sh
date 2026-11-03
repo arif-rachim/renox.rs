@@ -20,20 +20,20 @@
 #   --config <file>          install this worker.toml instead of the example
 #   --no-enable              install everything but do not enable or start the target
 #
-# Single host (#366, ops/single-host.md): the worker and the control plane on
-# one machine. --single-host also installs cloudflared and lego (both SHA-256
-# verified, ops/cloudflared.lock and ops/lego.lock), the certificate and
-# backup scripts, the `renox-control` user, the shared ACME challenge
-# directory /var/lib/renox-acme-challenges, and the templates of
-# /etc/renox/control.env (0600), /etc/renox/single-host.env and
-# /etc/renox/tunnel/config.yml, each written once. It enables only the worker:
-# the control plane, the tunnel and the timers need the owner's secrets first.
+# Single host (#366, #420, ops/single-host.md): the worker and the control
+# plane on one machine, tunnel-only (ADR D25). --single-host also installs
+# cloudflared (SHA-256 verified, ops/cloudflared.lock), the backup script, the
+# `renox-control` user, and the templates of /etc/renox/control.env (0600) and
+# /etc/renox/tunnel/config.yml, each written once. Every node gets the group
+# `renox-edge`, the user `renox-tunnel` (cloudflared, the one peer the worker's
+# socket trusts, #414) and /run/renox-edge by tmpfiles. It enables only
+# the worker: the control plane, the tunnel and the timers need the owner's
+# secrets first.
 # The control URL is then the node listener on loopback, plain HTTP
 # (http://127.0.0.1:8788), and --blocked-addresses must name that address and
 # at least one public address of the node.
 #   --single-host
 #   --cloudflared-bin <file> install this binary instead of ops/scripts/fetch-cloudflared.sh
-#   --lego-bin <file>        install this binary instead of ops/scripts/fetch-lego.sh
 #
 # RENOX_RELEASE_BASE replaces https://github.com/<repo>/releases/download, as in
 # cli/scripts/fetch-worker.ts (layout <base>/worker-v<version>/<asset>).
@@ -55,7 +55,6 @@ config_file=""
 enable=1
 single_host=0
 cloudflared_bin=""
-lego_bin=""
 
 die() { echo "bootstrap-node: $*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n $2 ]] || die "$1 needs a value"; }
@@ -76,7 +75,6 @@ while [[ $# -gt 0 ]]; do
     --no-enable) enable=0; shift ;;
     --single-host) single_host=1; shift ;;
     --cloudflared-bin) need_value "$@"; cloudflared_bin=$2; shift 2 ;;
-    --lego-bin) need_value "$@"; lego_bin=$2; shift 2 ;;
     -h | --help) sed -n '2,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) die "unknown option $1" ;;
   esac
@@ -136,7 +134,7 @@ fi
 install -d -m 0755 /opt/renox "$bin_dir"
 install -d -m 0750 -o root -g renox "$etc_dir"
 install -d -m 0750 -o renox -g renox "$state_dir"
-for d in data artifacts meters logs spool replica data/_certs; do
+for d in data artifacts meters logs spool replica; do
   install -d -m 0750 -o renox -g renox "$state_dir/$d"
 done
 
@@ -217,6 +215,21 @@ for f in "$etc_dir/node.token" "$etc_dir/platform.key"; do
   if [[ -f $f ]]; then chown renox:renox "$f" && chmod 0400 "$f"; fi
 done
 
+# The worker's socket behind cloudflared (#414, ADR D25): /run/renox-edge,
+# renox:renox-edge 0750, made at every boot by systemd-tmpfiles. The worker
+# creates worker.sock in it (0660, group renox-edge: [gateway] socket_group)
+# and trusts only the renox-tunnel uid on it ([gateway] trusted_socket_users).
+# The group and cloudflared's user exist on every node: renox-worker.service
+# names the group and worker.toml.example the user (a name the worker cannot
+# resolve stops it at start).
+if ! getent group renox-edge >/dev/null 2>&1; then groupadd --system renox-edge; fi
+if ! id -u renox-tunnel >/dev/null 2>&1; then
+  useradd --system --gid renox-edge --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin renox-tunnel
+fi
+install -d -m 0755 /etc/tmpfiles.d
+printf 'd /run/renox-edge 0750 renox renox-edge -\n' > /etc/tmpfiles.d/renox-edge.conf
+if command -v systemd-tmpfiles >/dev/null 2>&1; then systemd-tmpfiles --create /etc/tmpfiles.d/renox-edge.conf || true; fi
+
 # 5. Units, slices, timers, polkit rule (the *.example files are templates, not units).
 for f in "$here"/systemd/*.service "$here"/systemd/*.slice "$here"/systemd/*.target "$here"/systemd/*.timer; do
   install -m 0644 "$f" "$unit_dir/$(basename "$f")"
@@ -232,24 +245,10 @@ if [[ $single_host -eq 1 ]]; then
   else
     install -m 0755 "$("$here/scripts/fetch-cloudflared.sh" "$target" "$tmp/cloudflared")" "$bin_dir/cloudflared"
   fi
-  if [[ -n $lego_bin ]]; then
-    [[ -f $lego_bin ]] || die "--lego-bin $lego_bin does not exist"
-    install -m 0755 "$lego_bin" "$bin_dir/lego"
-  else
-    install -m 0755 "$("$here/scripts/fetch-lego.sh" "$target" "$tmp/lego")" "$bin_dir/lego"
-  fi
-  install -m 0755 "$here/scripts/renew-wildcard-cert.sh" "$bin_dir/renew-wildcard-cert.sh"
   install -m 0755 "$here/scripts/backup-control-db.sh" "$bin_dir/backup-control-db.sh"
   if ! id -u renox-control >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/renox-control --no-create-home --shell /usr/sbin/nologin renox-control
   fi
-  # The ACME HTTP-01 challenges of custom domains (#397): renox-control writes
-  # them (CONTROL_ACME_CHALLENGE_DIR), the worker serves them on port 80
-  # ([tls] acme_dir). Its own directory, not under /var/lib/renox (the
-  # worker's StateDirectory, 0750 renox, which renox-control cannot
-  # traverse); setgid, so each file gets the group renox, which the worker
-  # reads with renox-control's UMask=0027.
-  install -d -m 2750 -o renox-control -g renox /var/lib/renox-acme-challenges
   install -d -m 0700 -o root -g root "$etc_dir/secrets"
   install -d -m 0755 -o root -g root "$etc_dir/tunnel"
   write_once() {
@@ -257,7 +256,6 @@ if [[ $single_host -eq 1 ]]; then
     if [[ -f $dest ]]; then echo "$dest exists; left unchanged"; else install -m "$mode" -o root -g root "$src" "$dest"; fi
   }
   write_once "$here/systemd/control.env.example" "$etc_dir/control.env" 0600
-  write_once "$here/systemd/single-host.env.example" "$etc_dir/single-host.env" 0644
   write_once "$here/cloudflared/config.yml.example" "$etc_dir/tunnel/config.yml" 0644
 fi
 systemctl daemon-reload
@@ -273,6 +271,6 @@ if [[ $enable -eq 1 ]]; then
 fi
 echo "renox node ready: renox-worker $worker_version, litestream $(awk '$1 == "version" { print $2 }' "$here/litestream.lock")"
 if [[ $single_host -eq 1 ]]; then
-  echo "single host: cloudflared $(awk '$1 == "version" { print $2 }' "$here/cloudflared.lock"), lego $(awk '$1 == "version" { print $2 }' "$here/lego.lock") installed;"
+  echo "single host: cloudflared $(awk '$1 == "version" { print $2 }' "$here/cloudflared.lock") installed;"
   echo "  fill in /etc/renox/control.env and the files under /etc/renox/secrets and /etc/renox/tunnel, then follow ops/single-host.md"
 fi

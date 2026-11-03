@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# The single host's inbound firewall (#366, ops/single-host.md): nftables,
-# inbound TCP 22, 80 and 443 only (plus loopback, replies to our own
-# connections, and the ICMP that IPv4 and IPv6 need). Postgres (5432) and the
-# control API (8787, 8788) listen on loopback and are never reachable from
-# outside even if a listener is misconfigured. Outbound is not restricted:
-# the tunnel, R2, ACME and the mail provider are reached from here.
+# The single host's inbound firewall (#366, #420, ops/single-host.md): nftables,
+# inbound TCP on the SSH port only (plus loopback, replies to our own
+# connections, and the ICMP that IPv4 and IPv6 need). Every public name reaches
+# the host through the outbound Cloudflare Tunnel (ADR D25), so 80 and 443 are
+# closed. Postgres (5432), the control API (8787, 8788) and the worker (a unix
+# socket) are never reachable from outside even if a listener is
+# misconfigured. Outbound is not restricted: the tunnel, R2 and the mail
+# provider are reached from here.
 #
 #   sudo ops/scripts/firewall-single-host.sh [--dry-run] [--no-ssh] [--ssh-port <n>]
 #
@@ -49,11 +51,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ $ssh_port =~ ^[0-9]{1,5}$ && $ssh_port -ge 1 && $ssh_port -le 65535 ]] || die "--ssh-port must be a port number from 1 to 65535, not '$ssh_port'"
-[[ $ssh_port != 80 && $ssh_port != 443 ]] || die "--ssh-port $ssh_port is the worker's port; sshd cannot share it"
 
 root=${RENOX_FIREWALL_ROOT:-}
 table=renox_single_host
-open_tcp="$ssh_port, 80, 443"
+open_tcp="$ssh_port"
 
 [[ $(id -u) -eq 0 ]] || die "run as root (it loads nftables rules)"
 command -v nft >/dev/null 2>&1 || die "nft is not installed (apt-get install nftables)"
@@ -118,7 +119,6 @@ table inet ${table} {
     ct state invalid drop
     # The SSH port (${ssh_port}) first: SSH is never closed by these rules.
     tcp dport ${ssh_port} accept
-    tcp dport { 80, 443 } accept
     ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded, parameter-problem } accept
     ip6 nexthdr ipv6-icmp icmpv6 type { echo-request, destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
   }

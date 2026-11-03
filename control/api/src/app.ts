@@ -58,7 +58,7 @@ export type Surface = "public" | "node" | "combined";
 
 /**
  * The node-facing paths (`renox_node_` tokens: route tables, secret bundles,
- * artifacts, certificates, meter and log ingestion). Compared on the path the
+ * artifacts, meter and log ingestion). Compared on the path the
  * router matches, lower-cased and with repeated slashes collapsed, so no
  * spelling of a node path reaches a handler on the public surface.
  */

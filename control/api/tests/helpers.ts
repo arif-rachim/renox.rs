@@ -16,6 +16,8 @@ import { behindProxies, TrustedProxies } from "../src/auth/ip.ts";
 import { guardDb } from "../src/tenancy/scope.ts";
 import { CSRF_HEADER, csrfOf, SESSION_COOKIE } from "../src/auth/sessions.ts";
 import { routeService } from "../src/routes/service.ts";
+import { configureDomains } from "../src/domains/service.ts";
+import { StubCloudflare } from "./domain-stubs.ts";
 
 let shared: Promise<Db> | undefined;
 
@@ -120,6 +122,8 @@ export async function harness(modules: RouteModule[] = [], opts: { prepare?: "no
   const header = opts.clientIpHeader ?? "CF-Connecting-IP";
   const app = createApp(deps, modules);
   if (opts.prepare !== "node") routeService(deps).prepare = async () => ({ ok: true });
+  // #419: custom domains go to an in-memory Cloudflare for SaaS; no test calls Cloudflare.
+  configureDomains(deps, { cloudflare: new StubCloudflare() });
   const request: Harness["request"] = (method, path, init = {}) => {
     const headers: Record<string, string> = { ...init.headers };
     if (init.token !== undefined) headers.authorization = `Bearer ${init.token}`;

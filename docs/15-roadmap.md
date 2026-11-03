@@ -40,7 +40,7 @@ F3 (control plane) depends only on F1's artifact format and route table contract
 | Question | Options | Decide by |
 | --- | --- | --- |
 | Target node size | 8 GB vs 16 GB; affects warm isolate count and tiers | After B3 |
-| UAE region provider | AWS me-central-1 vs Azure UAE North vs local colocation; cost of reserved capacity and egress | F1 |
+| Hosting provider | Cost per node, network quality to Cloudflare's edge, and egress; no country requirement since D25 | Before the second node |
 | Pricing model | Per request + CPU-ms (Cloudflare style), flat per tenant with quotas, or hybrid; AED tiers in `01-business.md` are hypotheses. Data available from `deploy-api.md` 0.5 section 20: the plans with their quotas (`listPlans`), usage per dimension and period (`getBilling`), and `meters_hourly` per tenant (section 11); the plan numbers there are proposals (Open 18) | F7, after unit-economics data from F3 meters; the decision stays the owner's |
 | Bring-your-own Postgres | From the start, or only on the top tier | F6 |
 | Second region (Saudi Arabia) | Requires in-country hosting and ZATCA e-invoicing; not before UAE traction | After first external customers |

@@ -9,19 +9,16 @@
 // that is not verified has no entry, so every node answers 404 for it
 // (docs/23-failure-modes.md, "Unverified custom domain").
 
-import { randomBytes } from "node:crypto";
 import { num, numOrNull, type Db } from "../db/db.ts";
-import { base32, ulid } from "../ids.ts";
+import { ulid } from "../ids.ts";
 import { invalid, notFound } from "../errors.ts";
 import type { Deps } from "../context.ts";
 import { entriesWhere, lockRoutes, removeEntry, upsertEntry, type RouteEntry } from "../routes/table.ts";
 import { routeService } from "../routes/service.ts";
 import { crossTenant } from "../tenancy/scope.ts";
-import { verifyName } from "./dns.ts";
+import type { CustomHostname, VerificationRecord } from "./cloudflare.ts";
 
 export type DomainState = "pending" | "verified" | "detached" | "released";
-export type DnsState = "pending" | "ok" | "not_pointing";
-export type CertState = "none" | "issuing" | "issued" | "failed";
 
 export interface DomainRow {
   id: string;
@@ -29,26 +26,31 @@ export interface DomainRow {
   tenant_id: string;
   app: string;
   state: DomainState;
-  verify_token: string;
-  dns: DnsState;
-  cert_state: CertState;
   created_at: number;
   verified_at: number | null;
   last_checked_at: number | null;
+  /** When the job reads this row's custom hostname next. */
   next_check_at: number;
-  cert_retry_at: number | null;
-  cert_failures: number;
   detached_at: number | null;
   detach_reason: "removed" | "unverified" | null;
-  txt_checked_at: number | null;
-  next_txt_check_at: number | null;
-  /** Consecutive TXT misses of a verified domain (#398). */
-  txt_misses: number;
-  txt_first_miss_at: number | null;
+  /** The Cloudflare custom hostname (#419); null until it is created. */
+  cf_hostname_id: string | null;
+  cf_status: string;
+  cf_ssl_status: string;
+  cf_verification: VerificationRecord[];
+  cf_checked_at: number | null;
+  /** Consecutive negative answers for a verified domain (#398 rule). */
+  cf_misses: number;
+  cf_first_miss_at: number | null;
 }
 
 export const DOMAIN_COLUMNS =
-  "id, hostname, tenant_id, app, state, verify_token, dns, cert_state, created_at, verified_at, last_checked_at, next_check_at, cert_retry_at, cert_failures, detached_at, detach_reason, txt_checked_at, next_txt_check_at, txt_misses, txt_first_miss_at";
+  "id, hostname, tenant_id, app, state, created_at, verified_at, last_checked_at, next_check_at, detached_at, detach_reason, cf_hostname_id, cf_status, cf_ssl_status, cf_verification, cf_checked_at, cf_misses, cf_first_miss_at";
+
+const records = (v: unknown): VerificationRecord[] => {
+  const parsed = typeof v === "string" ? (JSON.parse(v) as unknown) : v;
+  return Array.isArray(parsed) ? (parsed as VerificationRecord[]) : [];
+};
 
 export function toDomain(r: Record<string, unknown>): DomainRow {
   return {
@@ -57,29 +59,38 @@ export function toDomain(r: Record<string, unknown>): DomainRow {
     tenant_id: r.tenant_id as string,
     app: r.app as string,
     state: r.state as DomainState,
-    verify_token: r.verify_token as string,
-    dns: r.dns as DnsState,
-    cert_state: r.cert_state as CertState,
     created_at: num(r.created_at),
     verified_at: numOrNull(r.verified_at),
     last_checked_at: numOrNull(r.last_checked_at),
     next_check_at: num(r.next_check_at),
-    cert_retry_at: numOrNull(r.cert_retry_at),
-    cert_failures: Number(r.cert_failures ?? 0),
     detached_at: numOrNull(r.detached_at),
     detach_reason: (r.detach_reason ?? null) as DomainRow["detach_reason"],
-    txt_checked_at: numOrNull(r.txt_checked_at),
-    next_txt_check_at: numOrNull(r.next_txt_check_at),
-    txt_misses: numOrNull(r.txt_misses) ?? 0,
-    txt_first_miss_at: numOrNull(r.txt_first_miss_at),
+    cf_hostname_id: (r.cf_hostname_id ?? null) as string | null,
+    cf_status: (r.cf_status ?? "unknown") as string,
+    cf_ssl_status: (r.cf_ssl_status ?? "unknown") as string,
+    cf_verification: records(r.cf_verification),
+    cf_checked_at: numOrNull(r.cf_checked_at),
+    cf_misses: numOrNull(r.cf_misses) ?? 0,
+    cf_first_miss_at: numOrNull(r.cf_first_miss_at),
   };
 }
 
-/** The platform's view of domains, for the domain job: every tenant's rows. */
-export const jobDb = (deps: Deps): Db => crossTenant(deps.db, "the domain job checks and orders for every tenant's domains");
+/**
+ * Stores what Cloudflare reported for a row's custom hostname (bound to the
+ * row's tenant). A released claim of the same hostname whose deletion at
+ * Cloudflare failed gives its id up first: Cloudflare answered the new claim
+ * with the same custom hostname.
+ */
+export async function recordHostname(deps: Deps, db: Db, d: Pick<DomainRow, "id" | "tenant_id">, h: CustomHostname, now: number): Promise<void> {
+  await jobDb(deps).query("update domains set cf_hostname_id = null where cf_hostname_id = $1 and state = 'released'", [h.id]);
+  await db.query(
+    "update domains set cf_hostname_id = $3, cf_status = $4, cf_ssl_status = $5, cf_verification = $6::jsonb, cf_errors = $7::jsonb, cf_checked_at = $8, last_checked_at = $8 where tenant_id = $1 and id = $2",
+    [d.tenant_id, d.id, h.id, h.status, h.ssl_status, JSON.stringify(h.verification), JSON.stringify(h.errors), now],
+  );
+}
 
-/** `rnx-verify-` and 26 random base32 characters (130 bits). */
-export const newVerifyToken = (): string => `rnx-verify-${base32(randomBytes(17)).slice(0, 26)}`;
+/** The platform's view of domains, for the domain job: every tenant's rows. */
+export const jobDb = (deps: Deps): Db => crossTenant(deps.db, "the domain job reads every tenant's custom hostnames at Cloudflare");
 
 export const newDomainId = (now: number): string => `dom_${ulid(now).toLowerCase()}`;
 
@@ -105,30 +116,20 @@ export async function listDomains(db: Db, tenantId: string, app: string): Promis
   return rows.map(toDomain);
 }
 
-/** The `Domain` schema of the contract. */
-export function domainView(d: DomainRow, notAfter: number | null): Record<string, unknown> {
+/** The `Domain` schema of the contract (deploy-api.md 0.6 section 10). */
+export function domainView(d: DomainRow, cnameTarget: string): Record<string, unknown> {
   return {
     hostname: d.hostname,
     app: d.app,
     state: d.state,
-    verification: { record_type: "TXT", record_name: verifyName(d.hostname), record_value: d.verify_token },
-    dns: d.dns,
-    certificate: { state: d.cert_state, not_after: d.cert_state === "none" ? null : notAfter },
+    status: d.cf_status,
+    ssl_status: d.cf_ssl_status,
+    cname_target: cnameTarget,
+    verification: d.cf_verification,
     created_at: d.created_at,
     verified_at: d.verified_at,
     last_checked_at: d.last_checked_at,
   };
-}
-
-/** Views of `rows` with their certificates' expiry (one tenant's rows only). */
-export async function domainViews(db: Db, tenantId: string, rows: DomainRow[]): Promise<Record<string, unknown>[]> {
-  if (rows.length === 0) return [];
-  const certs = await db.query<{ hostname: string; not_after: unknown }>(
-    "select c.hostname, c.not_after from certificates c join domains d on d.hostname = c.hostname where d.tenant_id = $1 and d.state <> 'released' and c.hostname = any($2::text[])",
-    [tenantId, rows.map((r) => r.hostname)],
-  );
-  const notAfter = new Map(certs.map((c) => [c.hostname, num(c.not_after)]));
-  return rows.map((r) => domainView(r, notAfter.get(r.hostname) ?? null));
 }
 
 const same = (a: RouteEntry, b: Omit<RouteEntry, "version" | "updated_at">): boolean =>

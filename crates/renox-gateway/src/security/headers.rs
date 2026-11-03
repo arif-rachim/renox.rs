@@ -31,9 +31,10 @@ fn directive(out: &mut Vec<String>, name: &str, base: &[&str], extra: &[String])
     out.push(parts.join(" "));
 }
 
-/// The CSP value. `tls` adds `upgrade-insecure-requests` (never on the
-/// plain-HTTP `renox dev` listener, where it would break `localhost`).
-pub fn csp_value(cfg: &SecurityConfig, nonce: &str, tls: bool) -> String {
+/// The CSP value. `https` (the visitor came over HTTPS through the trusted
+/// edge, #418) adds `upgrade-insecure-requests` (never on the plain-HTTP
+/// `renox dev` listener, where it would break `localhost`).
+pub fn csp_value(cfg: &SecurityConfig, nonce: &str, https: bool) -> String {
     let csp = &cfg.csp;
     let n = format!("'nonce-{nonce}'");
     let mut d = vec!["default-src 'self'".to_string()];
@@ -53,7 +54,7 @@ pub fn csp_value(cfg: &SecurityConfig, nonce: &str, tls: bool) -> String {
     d.push("base-uri 'self'".into());
     d.push("form-action 'self'".into());
     d.push("frame-ancestors 'none'".into());
-    if tls {
+    if https {
         d.push("upgrade-insecure-requests".into());
     }
     d.push(format!("report-uri {CSP_REPORT_PATH}"));
@@ -75,15 +76,15 @@ pub fn permissions_policy(cfg: &SecurityConfig) -> String {
 
 /// Every protection header, in order, for one response. Not configurable:
 /// `X-Content-Type-Options`, `X-Frame-Options`, `Cross-Origin-Opener-Policy`
-/// (and HSTS, which the caller adds on TLS).
-pub fn header_set(cfg: &SecurityConfig, nonce: &str, tls: bool) -> Vec<(&'static str, String)> {
+/// (and HSTS, which the caller adds for HTTPS visitors).
+pub fn header_set(cfg: &SecurityConfig, nonce: &str, https: bool) -> Vec<(&'static str, String)> {
     let csp_name = if cfg.csp.report_only {
         "content-security-policy-report-only"
     } else {
         "content-security-policy"
     };
     vec![
-        (csp_name, csp_value(cfg, nonce, tls)),
+        (csp_name, csp_value(cfg, nonce, https)),
         (
             "reporting-endpoints",
             format!("{CSP_REPORT_GROUP}=\"{CSP_REPORT_PATH}\""),
@@ -98,10 +99,10 @@ pub fn header_set(cfg: &SecurityConfig, nonce: &str, tls: bool) -> Vec<(&'static
 
 /// Sets the protection headers on a response, replacing any value tenant
 /// code set for these names (and the CSP header of the other mode).
-pub fn apply(headers: &mut HeaderMap, cfg: &SecurityConfig, nonce: &str, tls: bool) {
+pub fn apply(headers: &mut HeaderMap, cfg: &SecurityConfig, nonce: &str, https: bool) {
     headers.remove("content-security-policy");
     headers.remove("content-security-policy-report-only");
-    for (name, value) in header_set(cfg, nonce, tls) {
+    for (name, value) in header_set(cfg, nonce, https) {
         if let Ok(v) = HeaderValue::from_str(&value) {
             headers.insert(name, v);
         }

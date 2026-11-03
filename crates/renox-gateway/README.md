@@ -4,16 +4,15 @@ The data plane's front door (P3, `docs/03-architecture.md` Gateway row): hostnam
 
 ## Request path
 
-Below the HTTP parser, the **protocol guards** (see "Protocol limits") refuse an HTTP/1 request with ambiguous framing before hyper parses it, and close an HTTP/2 connection that is over its reset or control-frame budget. Then, per request:
+Below the HTTP parser, the **protocol guard** (see "Protocol limits") refuses an HTTP/1 request with ambiguous framing, an h2c upgrade or the HTTP/2 preface before hyper parses it. Then, per request:
 
 1. A ULID request id is assigned (`src/request_id.rs`). It is on every response, including the fixed `503` at the connection cap and the guard's `400` and `431`, which are written below hyper.
 2. **Rate limit**: token bucket per client IP (IPv6 by /64). Over the limit → `429` with `Retry-After` and an empty body (no error code: under a flood the gateway spends no bytes on a body; `docs/contracts/errors.md` "Open" 2). The cell is not called and nothing is metered.
-3. **Host**: the URI authority (HTTP/2 `:authority`) or the single `Host` header, with the port and a trailing dot removed and lower-cased. Missing, repeated, not a DNS hostname (IP literals included), or an authority and a `Host` header naming different hosts → `400`.
+3. **Host**: the URI authority (absolute-form) or the single `Host` header, with the port and a trailing dot removed and lower-cased. Missing, repeated, not a DNS hostname (IP literals included), or an authority and a `Host` header naming different hosts → `400`.
 4. **Route table** lookup (`docs/contracts/artifact.md` section 5). No entry, or only `draining` entries → `404 Not found`; no cell is touched.
-5. **SNI / Host** (TLS only, `src/host_check.rs`): the SNI name of the connection and the request's host must resolve to the same tenant, otherwise `421` `RENOX_HOST_MISMATCH` (JSON body, or the default page when `Accept` prefers HTML). Two hostnames of one tenant may share a connection (HTTP/2 coalescing under one certificate); browsers retry a 421 on a new connection.
-6. **Deployment security** (#47, `src/security/`): `<hash>/manifest.json` is read once per hash for `artifact.version`, the `security` object, and `client.events`. **Platform paths** under `/__renox/` are answered next, before preflights and static files, and never reach the cell (see "Client events"). A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) is answered here: `204` with the `Access-Control-*` headers for a listed origin, method, and headers, else `403` with none; it never reaches the cell.
-7. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's public index (`public.json` in artifact version 1, `public/manifest.json` in version 0) is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
-8. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`, with a fresh CSP nonce in `RequestCtx.csp_nonce`. Per-route rate-limit buckets need route matching and are enforced by the cell (`crates/renox-cell/src/ratelimit.rs`).
+5. **Deployment security** (#47, `src/security/`): `<hash>/manifest.json` is read once per hash for `artifact.version`, the `security` object, and `client.events`. **Platform paths** under `/__renox/` are answered next, before preflights and static files, and never reach the cell (see "Client events"). A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) is answered here: `204` with the `Access-Control-*` headers for a listed origin, method, and headers, else `403` with none; it never reaches the cell.
+6. **Static files**: a `GET`/`HEAD` whose percent-decoded path is a key of the deployment's public index (`public.json` in artifact version 1, `public/manifest.json` in version 0) is served from `<artifact_root>/<deployment_hash>/public/` with `ETag` = the manifest's `sha256`, the manifest's `Content-Type`, and `Cache-Control: public, max-age=31536000, immutable` when the file name carries a content hash (`app.3f2a9c1b.js`, `logo-5d41402abc4b2a76.png`), `public, max-age=0, must-revalidate` otherwise. `If-None-Match` → `304`. The request path is never joined onto the filesystem: only manifest keys are, and those are checked against the artifact path rules. Static hits are counted (`Gateway::stats`) and not metered to the tenant quota.
+7. **Body limit** (see "Input limits"), then everything else goes to the `CellDispatcher`, with a fresh CSP nonce in `RequestCtx.csp_nonce`. Per-route rate-limit buckets need route matching and are enforced by the cell (`crates/renox-cell/src/ratelimit.rs`).
 9. Every response, whatever produced it, gets the protection headers (below) and `x-renox-request-id`; responses to a listed CORS origin get `Access-Control-Allow-Origin` (and `-Credentials`), and every `Access-Control-*` header tenant code set is removed.
 
 ## `CellDispatcher` and `RequestCtx`
@@ -29,7 +28,7 @@ pub struct RequestCtx {
     pub deployment_hash: String,  // the active deployment of the hostname
     pub request_id: String,       // ULID, also in x-renox-request-id
     pub deadline: Instant,        // accept time + wall-clock limit (30 s default)
-    pub client_ip: IpAddr,        // TCP peer; IPv4-mapped IPv6 shown as IPv4
+    pub client_ip: IpAddr,        // the client (see "Client address"); IPv4-mapped IPv6 shown as IPv4
     pub csp_nonce: String,        // this request's CSP nonce (#47): the renderer's and the header's
 }
 ```
@@ -38,9 +37,19 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 
 - the original method, URI, and body;
 - hop-by-hop headers removed (`Connection` and the headers it names, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`, `Upgrade`);
+- the forwarding headers removed (`CF-Connecting-IP`, `CF-Connecting-IPv6`, `True-Client-IP`, `X-Real-IP`, `X-Forwarded-For`, `-Proto`, `-Host`, `-Port`, `Forwarded`, and the configured client-IP header), from every peer;
 - every client-sent `x-renox-*` header removed except `x-renox-csrf` (the page CSRF token, which the cell checks and removes before tenant code, #41), then `x-renox-request-id` and `x-renox-client-ip` set, so tenant code can trust those two (`docs/contracts/ops.md` section 6).
 
 `deadline` is the one clock for the request (`docs/03-architecture.md`, "Deadlines"): the cell, ops, queries, and fetches all derive their timeouts from it.
+
+## Client address
+
+`src/client_ip.rs` (#414, ADR D25). Behind Cloudflare every request reaches the worker from `cloudflared`, so the socket peer is the edge. `GatewayConfig.client_ip` (`ClientIpConfig`) says which peers may name the client in `header` (default `CF-Connecting-IP`):
+
+- a TCP peer inside `trusted_proxies` (CIDR list, empty by default; `Gateway::serve`);
+- a unix-socket peer whose uid, read with `SO_PEERCRED` at accept, is in `trusted_socket_uids` (`Gateway::serve_unix`; the production layout, where `cloudflared` reaches `unix:/run/renox-edge/worker.sock` as `renox-tunnel`).
+
+From a trusted peer, a header with exactly one address names the client (v4-mapped IPv6 as IPv4); missing, repeated, comma-separated or malformed falls back to the peer. Any other peer keeps its socket address whatever it sends; an untrusted unix peer counts as `127.0.0.1`. The derived address feeds the token bucket, client events, `RequestCtx.client_ip`, `x-renox-client-ip` and the `ClientAddr` request extension (which also says whether a trusted proxy sent `X-Forwarded-Proto: https`). The forwarding headers are removed before dispatch from every peer. Connection caps run before any header is read: a trusted peer gets `limits.max_connections_per_trusted_peer` (10,000), every other peer `max_connections_per_ip`. Empty lists trust nobody, on purpose: `renox dev` connects from loopback and copies the browser's headers. Proof: `tests/client_ip.rs` (`docs/24-threat-model.md` A, "Forged client-IP header", "Local process forges the client-IP header").
 
 ## Route table
 
@@ -66,7 +75,7 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | `headers.referrer_policy` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | `headers.permissions_allow`: those features become `(self)` |
 | `Cross-Origin-Opener-Policy` | `same-origin` | — |
-| `Strict-Transport-Security` | TLS responses only (below) | — |
+| `Strict-Transport-Security` | Only when the trusted edge says the visitor used HTTPS (see "No TLS, no HTTP/2") | — |
 
 **Nonce.** 128 random bits (base64), fresh per request, in `RequestCtx.csp_nonce`. The cell hands it to the renderer, which puts it on every `<script>` and `<style>` the compiler emitted (`renox-template`), so the page's tags and the header carry the same value. `upgrade-insecure-requests` is left out on plain HTTP, where it would break the `renox dev` listener on `localhost`.
 
@@ -76,15 +85,12 @@ The cell implements `dispatch` (an `async fn` in the impl is fine). The gateway 
 
 `renox check --security` prints the same set per route (`cli/src/check/security.ts`); both test suites assert the same default CSP string.
 
-## TLS
+## No TLS, no HTTP/2 (ADR D25, #418)
 
-`CertStore::load(&TlsConfig { cert_dir })` reads `cert_dir/<hostname>/fullchain.pem` + `privkey.pem`; a directory `_wildcard.<domain>` serves `*.<domain>` (one label: `x.wild.test`, not `wild.test` or `a.b.wild.test`). `Gateway::serve_tls(listener, certs, dispatcher)` terminates TLS with `rustls` (ring provider): TLS 1.3 preferred, 1.2 minimum, ALPN `h2` then `http/1.1`, handshake timeout 10 s.
+The gateway serves plain HTTP/1.1 only. TLS, certificates (Cloudflare for SaaS for custom domains), HTTP/2 and its flood defences end at Cloudflare's edge, which reaches the worker through `cloudflared` on a unix socket (`Gateway::serve_unix`, see "Client address"). There is no certificate store, no SNI and no `RENOX_HOST_MISMATCH` any more. Behind the edge:
 
-- The certificate is chosen by SNI: exact name first, then the wildcard of the parent domain. No SNI, or an SNI with no certificate, fails the handshake; there is no default certificate, so a client never sees another tenant's certificate.
-- `certs.reload()` re-reads the directory and swaps the map (`ArcSwap`): new handshakes see the new set, established connections are untouched. An entry that fails to load is reported in `LoadReport::failed` (directory name and reason, never key material) and the name keeps its previous certificate.
-- Responses on TLS connections get `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Plain-HTTP responses never carry it (the header is removed if tenant code set it).
-
-Certificates are issued and pushed by the control plane from F3 (ACME, #59); keys never enter a tenant cell.
+- **HTTPS as the visitor saw it** comes from the trusted proxy's `X-Forwarded-Proto: https` (`ClientAddr.forwarded_https`). Then the response gets `Strict-Transport-Security: max-age=31536000; includeSubDomains` and CSP `upgrade-insecure-requests`, and `/__renox/events` expects an `https://` `Origin`. From any other peer the header is ignored and removed, so a `renox dev` listener or a forged header never turns them on.
+- **Cloudflare's limits** bind every app: a response that sends no byte for about 100 s is cut by the edge (524), so the platform's streams send a `: keep-alive` comment every 15 s (realtime SSE, `crates/renox-realtime`; log follow and the node stream, `control/api`), and a tenant's own streamed responses must write within that time; a request body above 100 MB (Free and Pro plans) is refused at the edge, above the worker's own body limits (`max_body_bytes_*`, 1 MiB and 5 MiB); `cloudflared` does not buffer `text/event-stream` or chunked responses as long as `disableChunkedEncoding` stays off (`ops/cloudflared/config.yml.example`).
 
 ## Input limits
 
@@ -92,21 +98,22 @@ Certificates are issued and pushed by the control plane from F3 (ACME, #59); key
 
 | Field | Default | Mechanism | Over the limit |
 | --- | --- | --- | --- |
-| `max_header_bytes` | 16 KiB | HTTP/1.1: the protocol guard counts head bytes (hyper's read buffer has the same size; its floor is 8 KiB). HTTP/2: `SETTINGS_MAX_HEADER_LIST_SIZE` | 431 with `x-renox-request-id`, connection closed |
-| `max_headers` | 100 | The protocol guard counts header lines (HTTP/1.1; hyper's parser has the same limit; on HTTP/2 the header list size bounds the count) | 431 with `x-renox-request-id`, connection closed |
+| `max_header_bytes` | 16 KiB | The protocol guard counts head bytes (hyper's read buffer has the same size; its floor is 8 KiB) | 431 with `x-renox-request-id`, connection closed |
+| `max_headers` | 100 | The protocol guard counts header lines (hyper's parser has the same limit) | 431 with `x-renox-request-id`, connection closed |
 | `max_body_bytes_default` | 1 MiB | Checked after routing, before dispatch: a declared `Content-Length` over the limit is refused before any body byte is read; a body of unknown length (chunked) is read at most up to the limit | 413 `RENOX_BODY_TOO_LARGE` (`errors.md` body: JSON, or the default HTML page when `Accept` prefers HTML) |
 | `max_body_bytes_webhook` | 5 MiB | Same, for webhook routes. F1 manifests have only function routes, so it is not used yet | 413 |
-| `header_read_timeout` | 10 s | hyper's HTTP/1.1 head timer (also between keep-alive requests); the TLS handshake gets the same budget | connection closed |
+| `header_read_timeout` | 10 s | hyper's HTTP/1.1 head timer (also between keep-alive requests) | connection closed |
 | `idle_timeout` | 60 s | `IdleTimeout` around the socket: no byte read or written for this long while waiting on the socket | connection closed |
-| `max_connections_per_ip` | 100 | `ConnectionLimiter` at accept (IPv6 by /64) | plain HTTP: fixed `503` + `Retry-After: 1`, closed; TLS: closed before the handshake |
+| `max_connections_per_ip` | 100 | `ConnectionLimiter` at accept (IPv6 by /64) | fixed `503` + `Retry-After: 1`, closed |
+| `max_connections_per_trusted_peer` | 10,000 | A second `ConnectionLimiter` for trusted proxies (see "Client address") | fixed `503`, closed |
 
-The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.x only (no h2c, no cleartext upgrade), TLS uses HTTP/2 when ALPN negotiated `h2`. A sniffing step would read the first bytes before the head timer starts. Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
+Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
 
 ## Protocol limits
 
-`src/protocol.rs` and `src/host_check.rs` (#107; `docs/24-threat-model.md` section C). The gateway is the only HTTP parser between the internet and a cell, so a request that two parsers could read differently is refused here, before routing, and never reaches the `CellDispatcher`.
+`src/protocol.rs` (#107; `docs/24-threat-model.md` section C). The gateway is the only HTTP parser between the internet and a cell, so a request that two parsers could read differently is refused here, before routing, and never reaches the `CellDispatcher`.
 
-**HTTP/1.x guard.** `Http1Guard` wraps every HTTP/1 connection (plain, and TLS without ALPN `h2`) and checks the raw bytes before hyper sees them. hyper alone accepts several of these cases: it drops `Content-Length` when `Transfer-Encoding` is also present, merges equal duplicate lengths, and accepts bare LF. The guard follows the body framing (`Content-Length` or `chunked`) to find each next request head on a keep-alive connection. It refuses:
+**HTTP/1.x guard.** `Http1Guard` wraps every connection and checks the raw bytes before hyper sees them. hyper alone accepts several of these cases: it drops `Content-Length` when `Transfer-Encoding` is also present, merges equal duplicate lengths, and accepts bare LF. The guard follows the body framing (`Content-Length` or `chunked`) to find each next request head on a keep-alive connection. It refuses:
 
 | Refused | Why |
 | --- | --- |
@@ -123,19 +130,9 @@ The protocol is chosen up front instead of sniffed: plain HTTP is HTTP/1.x only 
 
 A refused first request on a connection gets a fixed `400 Bad Request` with `connection: close`. A violation later on the connection closes it without a response, because a response to an earlier request may still be in flight. A head longer than the header limit is left to hyper, which answers `431`.
 
-**HTTP/2.** `H2FloodBudget` wraps every HTTP/2 connection and reads the frame headers in both directions (#166). It closes the connection when the client goes over one of three budgets:
-
-- **Resets per connection**, a sliding window (at most N in any one-second interval, so no double budget around a window boundary). It counts the client's `RST_STREAM` frames (rapid reset, CVE-2023-44487) and the server's `RST_STREAM` frames with an error code other than `NO_ERROR`, `INTERNAL_ERROR` (a failed response body, the server's own fault), or `CANCEL`: resets the client provoked with a malformed frame on an open stream ("MadeYouReset"). A provoked reset over the budget is never written; the write stops before it.
-- **Resets per client IP** (IPv6 by /64), the same count summed over all of the IP's HTTP/2 connections (`IpResetLimiter` in `src/limits.rs`). Its state lives while the IP has an open HTTP/2 connection or a reset in the last second, so reconnecting does not refill it.
-- **Control frames**: `PING`, `SETTINGS`, `WINDOW_UPDATE`, and `PRIORITY` (CVE-2019-9512, -9515, -9517, -9513), a token bucket per connection.
-
-hyper's own reset limits are not rates: `max_pending_accept_reset_streams` only covers streams reset before the server accepted them, and `max_local_error_reset_streams` is a lifetime total. Two floods are left to h2 0.4.20, which refuses them with `GOAWAY ENHANCE_YOUR_CALM`; a test pins each (`tests/protocol.rs`): `CONTINUATION` (more than `max(5, 1.25 × header list size / frame size)` frames in one header block, CVE-2024-27316 class) and empty non-final `DATA` (more than 100 per connection, CVE-2019-9518).
-
-**SNI / Host** is described under "Request path", step 5. The SNI is taken from the TLS session (`TlsSni` request extension). On plain HTTP there is no SNI and no check.
-
 **Static assets.** `StaticFiles` keys a static response by `(deployment_hash, path)`. The deployment hash is the content hash of the artifact, chosen by the hostname's route entry, so the key implies the tenant and hostname. No request header other than `If-None-Match` (which only turns a 200 into a 304) changes the response. The gateway never sets `Vary`. `public/manifest.json` has no precompressed variants, so there is no `Accept-Encoding` negotiation until a contract adds variants.
 
-Every knob, its default, and where it is set. `GatewayConfig.protocol` is `ProtocolLimits`. The other HTTP/1 knobs come from `GatewayConfig.limits` (see "Input limits"). Only the three HTTP/2 flood budgets are in `worker.toml` (`[gateway]`, #260); the worker uses the defaults for the rest.
+Every knob, its default, and where it is set. The knobs come from `GatewayConfig.limits` (see "Input limits"); the worker uses the defaults (the HTTP/2 flood budgets of #166 and #260 left with HTTP/2, #418).
 
 | Knob | Default | Config key | Mechanism |
 | --- | --- | --- | --- |
@@ -148,25 +145,12 @@ Every knob, its default, and where it is set. `GatewayConfig.protocol` is `Proto
 | HTTP/1 invalid header lines | refused | fixed | hyper `ignore_invalid_headers(false)`, and the guard |
 | HTTP/1 framing rules (table above) | on | fixed | `Http1Guard` |
 | h2c / cleartext upgrade | refused | fixed | plain listener is HTTP/1 only; `Upgrade: h2c` refused by the guard; `Upgrade` stripped before dispatch |
-| HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` | 128 | `protocol.h2_max_concurrent_streams` | hyper `http2::Builder::max_concurrent_streams` |
-| HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` | 16 KiB | `limits.max_header_bytes` | hyper `max_header_list_size` |
-| HTTP/2 resets per connection, any one second | 100 | `protocol.h2_max_resets_per_second`; `worker.toml` `[gateway] h2_max_resets_per_second` | `H2FloodBudget`, sliding window over client `RST_STREAM` and provoked server resets: over it, the connection is closed |
-| HTTP/2 resets per client IP, any one second | 200 | `protocol.h2_max_resets_per_ip_per_second`; `worker.toml` `[gateway] h2_max_resets_per_ip_per_second` | `H2FloodBudget` with `IpResetLimiter`, same count over all connections of the IP (IPv6 /64): over it, the connection is closed |
-| HTTP/2 control frames per connection | 2,000 burst, 2,000 per second | `protocol.h2_max_control_frames_per_second`; `worker.toml` `[gateway] h2_max_control_frames_per_second` | `H2FloodBudget`, token bucket over `PING`, `SETTINGS`, `WINDOW_UPDATE`, `PRIORITY`: over it, the connection is closed |
-| HTTP/2 `CONTINUATION` frames per header block | `max(5, 1.25 × header list size / frame size)` (5 with the defaults) | not exposed | h2 0.4.20: over it, `GOAWAY ENHANCE_YOUR_CALM` |
-| HTTP/2 empty non-final `DATA` frames per connection | 100 | not exposed | h2 0.4.20 (`MAX_RECV_EMPTY_DATA_FRAMES`): over it, `GOAWAY ENHANCE_YOUR_CALM` |
-| HTTP/2 resets before accept | 20 | `protocol.h2_max_pending_accept_reset_streams` | hyper / `h2`: over it, `GOAWAY ENHANCE_YOUR_CALM` |
-| HTTP/2 server resets caused by client errors | 1,024 | `protocol.h2_max_local_error_reset_streams` | hyper / `h2`: over it, `GOAWAY ENHANCE_YOUR_CALM` |
-| HTTP/2 keep-alive `PING` interval | 30 s | `protocol.h2_keep_alive_interval` | hyper `keep_alive_interval` |
-| HTTP/2 keep-alive `PING` timeout | 20 s | `protocol.h2_keep_alive_timeout` | hyper `keep_alive_timeout` |
-| HTTP/2 frame size, window sizes, send buffer | hyper defaults (16 KiB frames, 1 MiB stream / connection windows, 400 KiB send buffer) | not exposed | hyper `http2::Builder` |
-| SNI / Host consistency | on (TLS) | fixed | `host_check::consistent`; 421 `RENOX_HOST_MISMATCH` |
 
-`Gateway::stats()` counts `protocol_refused` (connections closed by either guard) and `host_mismatch` (421 responses).
+`Gateway::stats()` counts `protocol_refused` (connections closed by the guard).
 
 ## WebSocket upgrades (#281)
 
-Upgrades are enabled on HTTP/1.1 (`serve_connection(..).with_upgrades()`); HTTP/2 extended CONNECT (RFC 8441) is not offered, so a browser on an h2 connection opens a separate HTTP/1.1 connection for a WebSocket. `src/upgrade.rs`:
+Upgrades are enabled on HTTP/1.1 (`serve_connection(..).with_upgrades()`); `cloudflared` carries WebSocket upgrades through the tunnel as HTTP/1.1 `Upgrade` requests (tests/upgrade.rs drives one over a plain HTTP/1.1 front). `src/upgrade.rs`:
 
 - A request with `Connection: upgrade` and `Upgrade: websocket` is checked before dispatch: `GET` over HTTP/1.1 (else 405 `Allow: GET`), `Sec-WebSocket-Version: 13` (else 426 with `Sec-WebSocket-Version: 13`), a `Sec-WebSocket-Key` of 16 base64 bytes (else 400). A refused handshake never reaches the cell.
 - An accepted handshake reaches the cell like any request (hop-by-hop headers removed) with a `WsUpgrade` in its extensions. The cell decides: route kind `ws`, the principal and `guard`, the connection caps (`Origin` is #118). It answers `WsUpgrade::accept()` (101 with `Sec-WebSocket-Accept`) and takes the connection with `WsUpgrade::upgraded()`, or answers anything else and the connection stays HTTP/1.
@@ -207,10 +191,10 @@ The CSP carries `report-uri /__renox/events?kind=csp; report-to renox-csp`, and 
 | `rate_limit.burst` | 200 | Bucket size |
 | `rate_limit.max_tracked_clients` | 100,000 | When reached, fully refilled buckets are dropped |
 | `limits` | see "Input limits" | Header, body, timeout, and connection limits |
-| `protocol` | see "Protocol limits" | HTTP/2 stream, reset, and control-frame limits |
 | `client_events` | see "Client events" | `/__renox/events` limits (`ClientEventLimits`) |
+| `client_ip` | trusts nobody | Which peers may name the client (`ClientIpConfig`: `trusted_proxies`, `trusted_socket_uids`, `header`); see "Client address" |
 | `security_txt` | `None` | The platform's `/.well-known/security.txt` (RFC 9116, #121), answered before route lookup on its hosts only. `well_known::Settings::build` makes it from `worker.toml` `[gateway.security_txt]` (#364): `hosts` (default `renoxium.app`, the platform domain's apex), `contacts` (default `mailto:security@renoxium.com`), `canonical` (default `https://<first host>/.well-known/security.txt`), `policy`; a file RFC 9116 refuses is an error. The worker sets it in controlled mode |
 
 ## Tests
 
-`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/protocol.rs` sends hand-written bytes (smuggling, h2c), drives an `h2` client (rapid reset, `:authority`) and hand-written HTTP/2 frames (per-IP resets, provoked resets, control-frame floods), and checks SNI vs `Host` over TLS; `tests/tls.rs` generates certificates with `rcgen` and connects with a `rustls` client; `tests/client_events.rs` posts the contract's examples to `/__renox/events` and checks the request id on every response kind.
+`cargo test -p renox-gateway`. `tests/gateway.rs` drives the router in memory with `tower::ServiceExt::oneshot` and a fake dispatcher that records calls; `tests/limits.rs` uses raw TCP clients against `Gateway::serve`; `tests/protocol.rs` sends hand-written bytes (smuggling, h2c, the HTTP/2 preface); `tests/client_ip.rs` drives TCP and unix-socket peers with forged forwarding headers; `tests/client_events.rs` posts the contract's examples to `/__renox/events` and checks the request id on every response kind.

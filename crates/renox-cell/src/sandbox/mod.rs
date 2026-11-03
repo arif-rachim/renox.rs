@@ -80,11 +80,12 @@ pub struct Profile {
     pub mode: SandboxMode,
     /// Read and execute: the artifacts dir and the worker binary's dir.
     pub read_exec: Vec<PathBuf>,
-    /// Read only: [`SYSTEM_READ`], the route table file, TLS and ACME dirs,
-    /// the platform key and node token, `extra_read_paths`.
+    /// Read only: [`SYSTEM_READ`], the route table file, the platform key and
+    /// node token, `extra_read_paths`.
     pub read_only: Vec<PathBuf>,
     /// Read and write: data (with the spool), artifacts (#392), meters,
-    /// logs, the temp dir, `cert_dir` in controlled mode (#391), `/dev/null`.
+    /// logs, the temp dir, the directory of a `unix:` listen socket (#414),
+    /// `/dev/null`.
     pub read_write: Vec<PathBuf>,
     /// Ports `connect` may reach (Landlock ABI 4).
     pub connect_ports: Vec<u16>,
@@ -106,15 +107,6 @@ impl Profile {
             read_only.push(config.routes_file.clone());
         }
         read_only.extend(config.platform_key_file.clone());
-        // A controlled worker installs the certificates of custom domains
-        // itself (#391): `cert_dir` is read-write for it, read-only otherwise.
-        let writes_certs = config.mode == Mode::Controlled;
-        if let Some(tls) = &config.tls {
-            if !writes_certs {
-                read_only.push(tls.cert_dir.clone());
-            }
-            read_only.extend(tls.acme_dir.clone());
-        }
         if let Some(control) = &config.control {
             read_only.push(control.node_token_file.clone());
         }
@@ -145,9 +137,6 @@ impl Profile {
             // (`PrivateTmp` on a node).
             std::env::temp_dir(),
         ];
-        if writes_certs && let Some(tls) = &config.tls {
-            read_write.push(tls.cert_dir.clone());
-        }
         read_write.extend(SYSTEM_READ_WRITE.iter().map(PathBuf::from));
 
         let mut connect_ports = DEFAULT_CONNECT_PORTS.to_vec();
@@ -160,14 +149,13 @@ impl Profile {
         connect_ports.sort_unstable();
         connect_ports.dedup();
 
-        let mut bind_ports = vec![config.listen.port()];
-        bind_ports.extend(
-            config
-                .tls
-                .as_ref()
-                .and_then(|t| t.http_listen)
-                .map(|a| a.port()),
-        );
+        // A `unix:` listen socket is created in its directory (#414).
+        if let crate::config::Listen::Unix(sock) = &config.listen
+            && let Some(dir) = sock.parent()
+        {
+            read_write.push(dir.to_path_buf());
+        }
+        let mut bind_ports: Vec<u16> = config.listen.port().into_iter().collect();
         bind_ports.extend(
             config
                 .control
@@ -458,7 +446,7 @@ mod tests {
     #[test]
     fn profile_holds_only_the_worker_dirs() {
         let c = config(
-            "mode = \"controlled\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\n[control]\nurl = \"https://10.0.0.5:8788\"\nnode_token_file = \"node.token\"\nhealth_listen = \"10.0.0.6:9090\"\n[tls]\ncert_dir = \"certs\"\nhttp_listen = \"0.0.0.0:80\"\n[sandbox]\nenabled = true\nextra_connect_ports = [80]\nextra_read_paths = [\"/etc/ssl/extra\"]\n",
+            "mode = \"controlled\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\n[control]\nurl = \"https://10.0.0.5:8788\"\nnode_token_file = \"node.token\"\nhealth_listen = \"10.0.0.6:9090\"\n[sandbox]\nenabled = true\nextra_connect_ports = [80]\nextra_read_paths = [\"/etc/ssl/extra\"]\n",
         );
         let p = Profile::from_config(&c, Some(Path::new("/opt/renox/bin")));
         assert_eq!(
@@ -473,12 +461,10 @@ mod tests {
                 PathBuf::from("/srv/m"),
                 PathBuf::from("/srv/l"),
                 std::env::temp_dir(),
-                PathBuf::from("/srv/certs"),
                 PathBuf::from("/dev/null")
             ]
         );
         assert!(p.read_only.contains(&PathBuf::from("/srv/node.token")));
-        assert!(!p.read_only.contains(&PathBuf::from("/srv/certs")));
         assert!(p.read_only.contains(&PathBuf::from("/etc/ssl/extra")));
         // docs/24-threat-model.md "Isolate escape (V8 bug)": no account
         // database, no SSH keys, nothing else under /etc.
@@ -493,34 +479,33 @@ mod tests {
             );
         }
         assert_eq!(p.connect_ports, [53, 80, 443, 8788]);
-        assert_eq!(p.bind_ports, [80, 443, 9090]);
+        assert_eq!(p.bind_ports, [443, 9090]);
     }
 
-    /// #392 and #391: the worker writes artifacts and, in controlled mode,
-    /// certificates; a tenant's child process reads and executes artifacts
-    /// and writes neither (docs/24-threat-model.md "Isolate escape (V8
-    /// bug)": an escaped child cannot plant code or a certificate).
+    /// #392 and #414: the worker writes artifacts and creates its `unix:`
+    /// listen socket; a tenant's child process reads and executes artifacts
+    /// and writes neither (docs/24-threat-model.md "Isolate escape (V8 bug)"
+    /// and "Local process forges the client-IP header": an escaped child
+    /// cannot plant code or replace the socket `cloudflared` connects to).
+    /// The socket takes no bind port.
     #[test]
-    fn children_keep_artifacts_read_exec_and_never_write_certificates() {
-        let c = config(
-            "mode = \"controlled\"\nnode_id = \"n1\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\n[control]\nurl = \"https://10.0.0.5:8788\"\nnode_token_file = \"node.token\"\n[tls]\ncert_dir = \"certs\"\n[sandbox]\nenabled = true\n",
-        );
+    fn children_keep_artifacts_read_exec_and_never_touch_the_listen_socket() {
+        let text = "listen = \"unix:/run/renox-edge/worker.sock\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\nmode = \"controlled\"\nnode_id = \"n1\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\n[control]\nurl = \"https://10.0.0.5:8788\"\nnode_token_file = \"node.token\"\n[sandbox]\nenabled = true\n";
+        let c = WorkerConfig::parse(text, Path::new("/srv")).unwrap();
         let worker = Profile::from_config(&c, None);
         assert!(worker.read_write.contains(&PathBuf::from("/srv/a")));
-        assert!(worker.read_write.contains(&PathBuf::from("/srv/certs")));
+        assert!(
+            worker
+                .read_write
+                .contains(&PathBuf::from("/run/renox-edge"))
+        );
+        assert!(worker.bind_ports.is_empty(), "{:?}", worker.bind_ports);
         let child = crate::supervisor::child::child_profile(&c, "t_shop", None);
         assert!(child.read_exec.contains(&PathBuf::from("/srv/a")));
-        for never in ["/srv/a", "/srv/certs", "/srv/d"] {
+        for never in ["/srv/a", "/run/renox-edge", "/srv/d"] {
             assert!(!child.read_write.contains(&PathBuf::from(never)), "{never}");
         }
         assert!(child.read_write.contains(&PathBuf::from("/srv/d/t_shop")));
-        // A local worker does not write certificates.
-        let local = Profile::from_config(
-            &config("routes_file = \"r.json\"\n[tls]\ncert_dir = \"certs\"\n"),
-            None,
-        );
-        assert!(!local.read_write.contains(&PathBuf::from("/srv/certs")));
-        assert!(local.read_only.contains(&PathBuf::from("/srv/certs")));
     }
 
     #[test]

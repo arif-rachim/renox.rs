@@ -5,7 +5,7 @@ Tenant data lives in SQLite, one file per tenant, on the same node as the tenant
 | Layer | Database | Reason |
 | --- | --- | --- |
 | Control plane | Postgres | Cross-tenant queries, analytics, billing transactions, mature tooling |
-| Tenant data, default | SQLite per tenant (`rusqlite` / libSQL), WAL, Litestream to UAE-region object storage | File-level isolation, zero idle cost, microsecond latency, per-tenant backup, data stays in the UAE |
+| Tenant data, default | SQLite per tenant (`rusqlite` / libSQL), WAL, Litestream to object storage (Cloudflare R2) | File-level isolation, zero idle cost, microsecond latency, per-tenant backup |
 | Tenant data, higher tier | SQLite with a synchronous replica (libSQL / LiteFS) on a second node | Automatic failover, RPO near zero |
 | Large tenants | Managed or bring-your-own Postgres | Heavy write load, hundreds of GB |
 

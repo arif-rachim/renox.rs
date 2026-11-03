@@ -33,7 +33,8 @@ Node worker (one Rust process tree per node)
 | Wall-clock per request | Deadline in context; I/O cancelled | 30 s / 60 s |
 | Memory | V8 heap limit per isolate + cgroup per process | 128 MB / 512 MB |
 | Concurrent requests | Semaphore per deployment | 50 / 500 |
-| Gateway input (per client, before any tenant code) | hyper header limits, body limit before dispatch, header read and idle timeouts, connection cap per client IP (`crates/renox-gateway`, `limits.rs`) | Headers 16 KB and 100 per request (431); body 1 MB, webhooks 5 MB (413 `RENOX_BODY_TOO_LARGE`); request head and TLS handshake 10 s; idle connection 60 s; 100 connections per IP (503) |
+| Gateway input (per client, before any tenant code) | hyper header limits, body limit before dispatch, header read and idle timeouts, connection cap per client IP, the client being the trusted edge's `CF-Connecting-IP` (`crates/renox-gateway`, `limits.rs`, `client_ip.rs`) | Headers 16 KB and 100 per request (431); body 1 MB, webhooks 5 MB (413 `RENOX_BODY_TOO_LARGE`); request head 10 s; idle connection 60 s; 100 connections per IP (503) |
+| Cloudflare's edge (ADR D25), in front of every app | Enforced by Cloudflare, not configurable per app | A response that sends no byte for about 100 s is cut (524): a streamed response or SSE must write at least every 100 s (the platform's own streams send a keep-alive every 15 s); a request body above 100 MB is refused at the edge (Free and Pro plans), above every body limit of the worker; streamed and `text/event-stream` responses pass through without buffering; WebSocket upgrades pass through the tunnel |
 | Outbound network | Allowlist in the `fetch` op; private/loopback/link-local/metadata ranges blocked; egress byte limit | Declared hosts only |
 | Filesystem | None; only the platform storage API | — |
 | Bundle size and versions | Validated at deploy | 20 MB, 50 versions retained |
@@ -89,7 +90,7 @@ Browser-facing protections are enforced by the gateway and the template engine, 
 | --- | --- | --- |
 | CORS | Closed: only the app's own origins. SSR + htmx pages need no CORS at all | `[security.cors] origins = ["https://partner.example"]`, `methods`, `headers`, `credentials`; overridable per function via `export const cors = {...}` |
 | CSP | Strict: `default-src 'self'`; scripts and styles from `'self'` plus a per-request nonce that the template engine injects into every `<script>`/`<style>` it emits; htmx, Alpine, and islands bundles are allowed; `frame-ancestors 'none'`; `object-src 'none'`; `upgrade-insecure-requests` | `[security.csp] script_src += ["https://js.stripe.com", "https://checkout.tabby.ai"]` and the same for `img_src`, `connect_src`, `frame_src`, `font_src`. `unsafe-inline` and `unsafe-eval` are refused unless `allow_unsafe = true` is set explicitly and is flagged in the dashboard. Report-only mode is available; violation reports go to `/__renox/events?kind=csp` on the app's own origin, under the client-event limits and privacy rules (`docs/contracts/client-events.md` sections 6–8) |
-| HSTS | On, `max-age=31536000; includeSubDomains`; preload on request | Cannot be disabled on `*.renoxium.app` (the platform domain) |
+| HSTS | On, `max-age=31536000; includeSubDomains`, on every response to a request that reached the worker through the trusted edge over HTTPS (`X-Forwarded-Proto: https` from a trusted peer, D25); preload on request | Cannot be disabled on `*.renoxium.app` (the platform domain) |
 | Clickjacking | `X-Frame-Options: DENY` + `frame-ancestors 'none'` | Per page: `export const frame = { ancestors: ["https://host.example"] }` for embeddable widgets |
 | Other headers | `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying camera/microphone/geolocation by default, `Cross-Origin-Opener-Policy: same-origin` | `[security.headers]` |
 | CSRF | Token required for every non-GET action; htmx sends it automatically via a header; double-submit cookie pattern bound to the session | Webhook routes and API-key/JWT-authenticated functions are exempt automatically |
@@ -98,7 +99,7 @@ Browser-facing protections are enforced by the gateway and the template engine, 
 | Rate limiting | Per IP, per user, and per route at the gateway; stricter buckets for login, registration, password reset, and webhooks | `[security.ratelimit]` per route |
 | Input validation | `validate(req, Schema)` (zod/valibot) before handler bodies; file uploads limited by size and type | Per handler |
 | Output escaping | Templates auto-escape; raw HTML only via explicit `r-html`; URLs in `:href` are checked for `javascript:` | — |
-| TLS | Automatic certificates (ACME) for `*.renoxium.app` (one wildcard, DNS-01) and custom domains; TLS 1.2+; OCSP stapling | — |
+| TLS | Terminated at Cloudflare's edge (D25): the edge certificate of `*.renoxium.app`, and Cloudflare for SaaS certificates for custom domains; the worker serves plain HTTP/1.1 to `cloudflared` only, on a unix socket | — |
 
 All of these are measured by `renox check --security`, which reports the effective headers for each route and fails on `unsafe-inline` without an explicit opt-in.
 

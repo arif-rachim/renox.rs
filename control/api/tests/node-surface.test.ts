@@ -66,8 +66,8 @@ describe("node-facing paths on the public surface", () => {
     const { h, app } = await surfaces();
     const token = await nodeToken(h, "node-surface-1");
     const nodeRoutes = app.combined.routes.filter((r) => r.method !== "ALL" && isNodePath(r.path) && !r.path.endsWith("/spy"));
-    // registerWorkers, registerNodeArtifacts, registerPrepareResults, registerIngest, registerLogIngest, certificates, secret bundles.
-    expect(nodeRoutes.length).toBeGreaterThanOrEqual(9);
+    // registerWorkers, registerNodeArtifacts, registerPrepareResults, registerIngest, registerLogIngest, secret bundles (no certificates since #419).
+    expect(nodeRoutes.length).toBeGreaterThanOrEqual(8);
     for (const r of nodeRoutes) {
       const path = r.path.replace(/:[a-z_]+/gu, "x");
       await expectNotFound(await send(app.public, r.method, path, token, r.method === "GET" ? undefined : {}));

@@ -25,7 +25,7 @@ Renox is a multi-tenant hosting platform: tenants deploy web applications and fu
 - Not a framework meant to be used without Renox hosting (although `renox dev` runs locally). The value is hosting + modules.
 - Not a Next.js replacement for large React teams. Renox fills the gap "complete business apps, assembled from modules, run cheaply".
 - Not a general-purpose JavaScript runtime. Only the supported application patterns (pages, functions, ws, modules).
-- Not a multi-region managed database. One region (UAE) at the start; GCC expansion is designed for but not scheduled (`21-uae-gcc-strategy.md`).
+- Not a multi-region managed database. One region at the start, behind Cloudflare's edge (D25); the market is the UAE and GCC expansion is designed for but not scheduled (`21-uae-gcc-strategy.md`).
 
 ## Design principles
 

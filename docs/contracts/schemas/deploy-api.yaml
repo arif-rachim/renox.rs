@@ -1,4 +1,4 @@
-# Renoxium deploy API, contract version 0.5 (F7).
+# Renoxium deploy API, contract version 0.6 (F7).
 # Prose: docs/contracts/deploy-api.md. Checked by `bun run docs/contracts/validate.ts`:
 #   - every operation has request and response examples, and every JSON
 #     example validates against its schema (the JSON Schema subset of validate.ts);
@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renoxium deploy API
-  version: 0.5.3
+  version: 0.6.0
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -20,7 +20,7 @@ info:
     identifier: LicenseRef-Renox-Proprietary
 servers:
   - url: https://api.renoxium.com
-    description: Production (UAE region)
+    description: Production
   - url: http://localhost:8787
     description: Local compose stack (control/docker-compose.yml)
 tags:
@@ -974,7 +974,7 @@ paths:
     post:
       operationId: addDomain
       tags: [domains]
-      summary: Attach a custom domain (#59, #114); returns the TXT record to create
+      summary: Attach a custom domain through Cloudflare for SaaS (#419, ADR D25); returns the records to create
       x-renox-scope: domains:write
       requestBody:
         required: true
@@ -998,6 +998,7 @@ paths:
         "403": { $ref: "#/components/responses/TokenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
     get:
       operationId: listDomains
       tags: [domains]
@@ -1018,7 +1019,7 @@ paths:
                 one:
                   value:
                     domains:
-                      - { hostname: www.example.com, app: hello, state: verified, verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }, dns: ok, certificate: { state: issued, not_after: 1801094400000 }, created_at: 1793318700000, verified_at: 1793318760000, last_checked_at: 1793318760000 }
+                      - { hostname: www.example.com, app: hello, state: verified, status: active, ssl_status: active, cname_target: edge.renoxium.app, verification: [], created_at: 1793318700000, verified_at: 1793318760000, last_checked_at: 1793318760000 }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -1029,7 +1030,7 @@ paths:
     get:
       operationId: getDomain
       tags: [domains]
-      summary: Domain state, DNS check and certificate
+      summary: Domain state and its Cloudflare custom hostname status
       x-renox-scope: apps:read
       responses:
         "200":
@@ -1334,8 +1335,8 @@ paths:
       tags: [nodes]
       summary: Control messages for one node as Server-Sent Events
       description: >-
-        One `message` event per control message (route_delta, resync, prepare,
-        certificate_update, certificate_remove). The first event after connect is
+        One `message` event per control message (route_delta, resync, prepare).
+        The first event after connect is
         always `resync` with the current route version. `: keep-alive` every 15 s.
       security:
         - nodeToken: []
@@ -1351,8 +1352,6 @@ paths:
                     - { $ref: "control-messages.schema.json#/$defs/route_delta" }
                     - { $ref: "control-messages.schema.json#/$defs/resync" }
                     - { $ref: "control-messages.schema.json#/$defs/prepare" }
-                    - { $ref: "control-messages.schema.json#/$defs/certificate_update" }
-                    - { $ref: "control-messages.schema.json#/$defs/certificate_remove" }
               examples:
                 connect:
                   value: "event: message\ndata: {\"type\":\"resync\",\"schema_version\":0,\"version\":42}\n\nevent: message\ndata: {\"type\":\"route_delta\",\"schema_version\":0,\"prev_version\":42,\"version\":43,\"upserts\":[{\"hostname\":\"hello.renoxium.app\",\"tenant_id\":\"t_hello\",\"app\":\"hello\",\"deployment_hash\":\"2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6\",\"status\":\"active\",\"updated_at\":1793318500000,\"version\":43,\"tier\":\"free\",\"node_id\":\"node-dxb-01\",\"secrets_version\":2}],\"removals\":[]}\n\n"
@@ -1484,28 +1483,6 @@ paths:
               schema: { $ref: "control-messages.schema.json#/$defs/secrets_bundle" }
               examples:
                 shop: { value: { type: secrets_bundle, schema_version: 0, tenant_id: t_shop, app: shop, deployment_hash: "2b91fc0592294b5d6d0c56500b8c5b38af26ed6c9f75198c497c2f529cdbd8f6", version: 3, secrets: { STRIPE_KEY: sk_test_exampleexample } } }
-        "401": { $ref: "#/components/responses/Unauthenticated" }
-        "403": { $ref: "#/components/responses/TokenScope" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
-  /v1/nodes/{node_id}/certificates/{hostname}:
-    parameters:
-      - $ref: "#/components/parameters/NodeId"
-      - $ref: "#/components/parameters/Hostname"
-    get:
-      operationId: fetchCertificate
-      tags: [nodes]
-      summary: Certificate chain and key for a verified hostname (#59)
-      security:
-        - nodeToken: []
-      responses:
-        "200":
-          description: The bundle, sent with Cache-Control no-store.
-          content:
-            application/json:
-              schema: { $ref: "control-messages.schema.json#/$defs/certificate_bundle" }
-              examples:
-                www: { value: { type: certificate_bundle, schema_version: 0, hostname: www.example.com, version: 2, not_after: 1801094400000, chain_pem: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n", key_pem: "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n" } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -4136,27 +4113,33 @@ components:
     Domain:
       type: object
       additionalProperties: false
-      required: [hostname, app, state, verification, dns, certificate, created_at, verified_at, last_checked_at]
+      required: [hostname, app, state, status, ssl_status, cname_target, verification, created_at, verified_at, last_checked_at]
+      description: >-
+        A custom domain served through Cloudflare for SaaS (ADR D25). `status` and
+        `ssl_status` are the custom hostname's as Cloudflare last reported them
+        (`unknown` before the first answer); `verification` lists the records the
+        customer creates: Cloudflare's ownership (pre-validation) TXT and the DCV
+        records of the edge certificate, empty once Cloudflare needs none.
+        The customer points the hostname at `cname_target` with a CNAME.
       properties:
         hostname: { $ref: "#/components/schemas/Hostname" }
         app: { $ref: "#/components/schemas/AppName" }
         state: { $ref: "#/components/schemas/DomainState" }
+        status: { type: string, pattern: "^[a-z_]{1,40}$" }
+        ssl_status: { type: string, pattern: "^[a-z_]{1,40}$" }
+        cname_target: { $ref: "#/components/schemas/Hostname" }
         verification:
-          type: object
-          additionalProperties: false
-          required: [record_type, record_name, record_value]
-          properties:
-            record_type: { const: TXT }
-            record_name: { type: string, pattern: "^_renox-verify\\." }
-            record_value: { type: string, pattern: "^rnx-verify-[0-9a-z]{26}$" }
-        dns: { enum: [pending, ok, not_pointing] }
-        certificate:
-          type: object
-          additionalProperties: false
-          required: [state, not_after]
-          properties:
-            state: { enum: [none, issuing, issued, failed] }
-            not_after: { type: [integer, "null"], minimum: 0 }
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [purpose, type, name, value]
+            properties:
+              purpose: { enum: [ownership, dcv] }
+              type: { enum: [TXT, CNAME, HTTP] }
+              name: { type: string, minLength: 1, maxLength: 300 }
+              value: { type: string, minLength: 1, maxLength: 4096 }
         created_at: { $ref: "#/components/schemas/UnixMs" }
         verified_at: { type: [integer, "null"], minimum: 0 }
         last_checked_at: { type: [integer, "null"], minimum: 0 }
@@ -5097,9 +5080,12 @@ components:
         hostname: www.example.com
         app: hello
         state: pending
-        verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }
-        dns: pending
-        certificate: { state: none, not_after: null }
+        status: pending
+        ssl_status: pending_validation
+        cname_target: edge.renoxium.app
+        verification:
+          - { purpose: ownership, type: TXT, name: _cf-custom-hostname.www.example.com, value: 5cc07c04-ea62-4a5a-95f0-419334a875a4 }
+          - { purpose: dcv, type: TXT, name: _acme-challenge.www.example.com, value: ca3-574923932a82475cb8592200f1a2a23d }
         created_at: 1793318700000
         verified_at: null
         last_checked_at: null
@@ -5108,9 +5094,10 @@ components:
         hostname: www.example.com
         app: hello
         state: verified
-        verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }
-        dns: ok
-        certificate: { state: issued, not_after: 1801094400000 }
+        status: active
+        ssl_status: active
+        cname_target: edge.renoxium.app
+        verification: []
         created_at: 1793318700000
         verified_at: 1793318760000
         last_checked_at: 1793318760000
@@ -5119,9 +5106,10 @@ components:
         hostname: www.example.com
         app: hello
         state: detached
-        verification: { record_type: TXT, record_name: _renox-verify.www.example.com, record_value: rnx-verify-01jbq40000000000000000abcd }
-        dns: ok
-        certificate: { state: issued, not_after: 1801094400000 }
+        status: active
+        ssl_status: active
+        cname_target: edge.renoxium.app
+        verification: []
         created_at: 1793318700000
         verified_at: 1793318760000
         last_checked_at: 1793318800000

@@ -34,7 +34,7 @@ export const COMPARE: readonly { need: string; doc: string; cells: readonly Cell
   { need: "Server-rendered HTML, built in", doc: "Built-in HTML-first SSR", cells: [["yes"], ["no"], ["no"], ["no"], ["no"], ["no"]] },
   { need: "Sign-in, billing and admin as modules", doc: "Installed auth/billing/admin modules", cells: [["yes"], ["no"], ["no"], ["part", "auth, storage"], ["no"], ["no"]] },
   { need: "UAE payments and FTA tax invoices", doc: "UAE local payments, BNPL, FTA tax invoices", cells: [["yes"], ["no"], ["no"], ["no"], ["no"], ["no"]] },
-  { need: "Prices in AED", doc: "AED pricing, data in the UAE", cells: [["yes"], ["no"], ["no"], ["no"], ["no"], ["no"]] },
+  { need: "Prices in AED", doc: "AED pricing", cells: [["yes"], ["no"], ["no"], ["no"], ["no"], ["no"]] },
 ];
 const WORD: Record<Verdict, string> = { yes: "Yes", part: "Partly", no: "No" };
 

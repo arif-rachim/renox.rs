@@ -14,9 +14,6 @@
     { "$ref": "#/$defs/prepare" },
     { "$ref": "#/$defs/prepare_result" },
     { "$ref": "#/$defs/secrets_bundle" },
-    { "$ref": "#/$defs/certificate_update" },
-    { "$ref": "#/$defs/certificate_remove" },
-    { "$ref": "#/$defs/certificate_bundle" },
     { "$ref": "#/$defs/log_batch" },
     { "$ref": "#/$defs/restore_request" },
     { "$ref": "#/$defs/restore_result" },
@@ -325,47 +322,6 @@
         }
       }
     },
-    "certificate_update": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "schema_version", "hostname", "version", "not_after"],
-      "description": "A certificate for hostname was issued or renewed; the node fetches it with GET /v1/nodes/{node_id}/certificates/{hostname} and reloads its certificate store. Keys never travel on the stream.",
-      "properties": {
-        "$comment": { "type": "string" },
-        "type": { "const": "certificate_update" },
-        "schema_version": { "$ref": "#/$defs/schema_version" },
-        "hostname": { "$ref": "#/$defs/hostname" },
-        "version": { "type": "integer", "minimum": 1 },
-        "not_after": { "$ref": "#/$defs/unix_ms" }
-      }
-    },
-    "certificate_remove": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "schema_version", "hostname", "version"],
-      "properties": {
-        "$comment": { "type": "string" },
-        "type": { "const": "certificate_remove" },
-        "schema_version": { "$ref": "#/$defs/schema_version" },
-        "hostname": { "$ref": "#/$defs/hostname" },
-        "version": { "type": "integer", "minimum": 1 }
-      }
-    },
-    "certificate_bundle": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "schema_version", "hostname", "version", "not_after", "chain_pem", "key_pem"],
-      "properties": {
-        "$comment": { "type": "string" },
-        "type": { "const": "certificate_bundle" },
-        "schema_version": { "$ref": "#/$defs/schema_version" },
-        "hostname": { "$ref": "#/$defs/hostname" },
-        "version": { "type": "integer", "minimum": 1 },
-        "not_after": { "$ref": "#/$defs/unix_ms" },
-        "chain_pem": { "type": "string", "pattern": "^-----BEGIN CERTIFICATE-----\\n", "maxLength": 65536 },
-        "key_pem": { "type": "string", "pattern": "^-----BEGIN PRIVATE KEY-----\\n", "maxLength": 16384 }
-      }
-    },
     "log_line": {
       "type": "object",
       "additionalProperties": false,
@@ -438,7 +394,7 @@
         "region": {
           "type": "string",
           "pattern": "^[a-z0-9-]{1,32}$",
-          "description": "s3 only: the bucket's region (UAE regions in controlled mode)."
+          "description": "s3 only: the bucket's region (`auto` for Cloudflare R2)."
         }
       }
     },

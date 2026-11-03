@@ -13,9 +13,12 @@ use crate::tiers::{TierName, TierOverride, Tiers};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkerConfig {
-    /// Address the gateway listens on: plain HTTP without `[tls]` (local
-    /// development, F1), HTTPS with it (production `0.0.0.0:443`).
-    pub listen: SocketAddr,
+    /// Where the gateway listens: a TCP address (`127.0.0.1:8080`; plain
+    /// HTTP/1.1, local development and tests), or `unix:<path>`, the
+    /// production layout behind `cloudflared` (ADR D25, #414): plain
+    /// HTTP/1.1 on a unix socket whose trusted peer is chosen by uid
+    /// (`[gateway] trusted_socket_users`).
+    pub listen: Listen,
     /// `<data_dir>/<tenant_id>/app.db` and `secrets.json`.
     pub data_dir: PathBuf,
     /// Artifact directories named by their hash.
@@ -63,9 +66,12 @@ pub struct WorkerConfig {
     /// on restart). F3 delivers the node key (#54, #55).
     #[serde(default)]
     pub platform_key_file: Option<PathBuf>,
-    /// HTTPS (#162). Absent: `listen` serves plain HTTP.
+    /// Removed (#418, ADR D25): TLS ends at Cloudflare's edge and the worker
+    /// serves plain HTTP/1.1. Kept only to refuse an old `[tls]` section
+    /// with a message that says why, instead of serving plain HTTP where
+    /// HTTPS was configured.
     #[serde(default)]
-    pub tls: Option<TlsSection>,
+    tls: Option<toml::Value>,
     /// `local` (F1: route table file, artifacts directory, `secrets.json`,
     /// files for meters and logs) or `controlled` (F3, #55: everything from
     /// and to the control plane of `[control]`).
@@ -273,22 +279,24 @@ pub struct ProcessSection {
 pub struct ReplicationSection {
     pub enabled: bool,
     /// `file` (a directory: tests, the dev container, one-node setups) or
-    /// `s3` (production, a UAE region).
+    /// `s3` (production: Cloudflare R2, the `renoxium-replicas` bucket).
     pub replica: ReplicaKind,
     /// `file`: the replica root; each database under `<path>/<database>`.
     pub path: Option<PathBuf>,
     /// `s3`: bucket, key prefix (each database under `<prefix>/<database>`),
-    /// region, an endpoint for S3-compatible stores, and the KMS key id the
-    /// bucket encrypts with (#120). Credentials come from the node's
-    /// environment, never from tenant secrets.
+    /// region, and an endpoint for S3-compatible stores (required with
+    /// `region = "auto"`, Cloudflare R2). Credentials come from the node's
+    /// environment (`LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`
+    /// from `/etc/renox/secrets/r2-replica.env`), never from tenant secrets.
     pub bucket: Option<String>,
     pub prefix: String,
     pub region: Option<String>,
     pub endpoint: Option<String>,
-    pub sse_kms_key_id: Option<String>,
-    /// Regions an `s3` replica may use in controlled mode (`docs/21`:
-    /// backups stay in the UAE).
-    pub allowed_regions: Vec<String>,
+    /// Removed with the residency rule (#417, ADR D25): kept only to refuse
+    /// an old key with the reason.
+    pub(crate) sse_kms_key_id: Option<toml::Value>,
+    /// Removed with the residency rule (#417, ADR D25), as above.
+    pub(crate) allowed_regions: Option<toml::Value>,
     pub sync_interval_ms: u64,
     pub retention_hours: u64,
     pub snapshot_interval_secs: u64,
@@ -319,7 +327,7 @@ impl Default for ReplicationSection {
             region: None,
             endpoint: None,
             sse_kms_key_id: None,
-            allowed_regions: vec!["me-central-1".into()],
+            allowed_regions: None,
             sync_interval_ms: 1_000,
             retention_hours: 24,
             snapshot_interval_secs: 3_600,
@@ -443,30 +451,54 @@ fn default_max_cells() -> u32 {
     1000
 }
 
-/// `[tls]`: the gateway serves HTTPS on `listen` with certificates chosen
-/// by SNI from `cert_dir` (`crates/renox-gateway/src/tls.rs`), and the plain
-/// listener on `http_listen` answers only ACME HTTP-01 challenges
-/// (`docs/contracts/deploy-api.md` section 10) and redirects everything
-/// else to HTTPS with 308. SIGHUP (or [`crate::Worker::reload_certificates`])
-/// reloads `cert_dir` without dropping connections.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TlsSection {
-    /// `<cert_dir>/<hostname>/{fullchain,privkey}.pem` and
-    /// `<cert_dir>/_wildcard.<domain>/…`.
-    pub cert_dir: PathBuf,
-    /// The plain-HTTP listener (production `0.0.0.0:80`). Absent: none.
-    #[serde(default)]
-    pub http_listen: Option<SocketAddr>,
-    /// `GET /.well-known/acme-challenge/<token>` on the plain listener is
-    /// answered with the file `<acme_dir>/<token>` (the key authorization
-    /// the ACME client of #59 writes there). Absent: every challenge is 404.
-    #[serde(default)]
-    pub acme_dir: Option<PathBuf>,
-    /// The port in redirect `Location`s. Default: the port `listen` is
-    /// bound to; 443 is left out of the URL.
-    #[serde(default)]
-    pub https_port: Option<u16>,
+/// `listen`: a TCP address or `unix:<path>` (#414).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "String")]
+pub enum Listen {
+    Tcp(SocketAddr),
+    Unix(PathBuf),
+}
+
+impl TryFrom<String> for Listen {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, String> {
+        match s.strip_prefix("unix:") {
+            Some("") => Err("listen = \"unix:\" needs a socket path".into()),
+            Some(path) => Ok(Listen::Unix(PathBuf::from(path))),
+            None => s
+                .parse()
+                .map(Listen::Tcp)
+                .map_err(|_| format!("listen {s:?} is neither ip:port nor unix:<path>")),
+        }
+    }
+}
+
+impl Listen {
+    /// The TCP port, if TCP.
+    pub fn port(&self) -> Option<u16> {
+        match self {
+            Listen::Tcp(a) => Some(a.port()),
+            Listen::Unix(_) => None,
+        }
+    }
+
+    /// The TCP address, if TCP.
+    pub fn tcp(&self) -> Option<SocketAddr> {
+        match self {
+            Listen::Tcp(a) => Some(*a),
+            Listen::Unix(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Listen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Listen::Tcp(a) => write!(f, "{a}"),
+            Listen::Unix(p) => write!(f, "unix:{}", p.display()),
+        }
+    }
 }
 
 /// `[gateway]`: the per-client limits of `renox-gateway` (README of that
@@ -481,14 +513,71 @@ pub struct GatewaySection {
     pub rate_limit_burst: u32,
     /// Open connections per client IP.
     pub max_connections_per_ip: usize,
-    /// HTTP/2 resets per connection in any one second (#166, #260).
-    pub h2_max_resets_per_second: u32,
-    /// HTTP/2 resets per client IP (IPv6 by /64) in any one second.
-    pub h2_max_resets_per_ip_per_second: u32,
-    /// HTTP/2 control frames per connection per second (token bucket).
-    pub h2_max_control_frames_per_second: u32,
     /// `[gateway.security_txt]`: the platform's security.txt (#121, #364).
     pub security_txt: SecurityTxtSection,
+    /// TCP peers (CIDR ranges or addresses) whose `client_ip_header` names
+    /// the client (#414). Empty (the default): no TCP peer is trusted.
+    /// Never list loopback where untrusted local processes run; production
+    /// uses the unix socket and `trusted_socket_users` instead (ADR D25).
+    pub trusted_proxies: Vec<String>,
+    /// Users (names or numeric uids) whose connections to a `unix:` listen
+    /// socket are trusted proxies (#414): production `["renox-tunnel"]`,
+    /// the static user of `cloudflared`. Names are resolved from
+    /// `/etc/passwd` when the config is read, before the sandbox applies.
+    pub trusted_socket_users: Vec<String>,
+    /// The header a trusted proxy names the client in.
+    pub client_ip_header: String,
+    /// Open connections per trusted proxy (#414).
+    pub max_connections_per_trusted_peer: usize,
+    /// The group of a `unix:` listen socket (name or numeric gid); the
+    /// socket is mode 0660 in it, so only its members (the worker and
+    /// `cloudflared`, group `renox-edge` in production) can connect.
+    /// Absent: mode 0600, the worker's own user only.
+    pub socket_group: Option<String>,
+    /// Resolved from `trusted_socket_users` by `WorkerConfig::parse`.
+    #[serde(skip)]
+    pub trusted_socket_uids: Vec<u32>,
+    /// Resolved from `socket_group` by `WorkerConfig::parse`.
+    #[serde(skip)]
+    pub socket_gid: Option<u32>,
+}
+
+impl GatewaySection {
+    /// The gateway's client-address rule (#414), from the parsed section.
+    pub fn client_ip(&self) -> Result<renox_gateway::ClientIpConfig, String> {
+        let trusted_proxies = self
+            .trusted_proxies
+            .iter()
+            .map(|n| renox_gateway::IpNet::parse(n))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("gateway.trusted_proxies: {e}"))?;
+        let header = axum::http::HeaderName::from_bytes(self.client_ip_header.trim().as_bytes())
+            .map_err(|_| {
+                format!(
+                    "gateway.client_ip_header {:?} is not a header name",
+                    self.client_ip_header
+                )
+            })?;
+        Ok(renox_gateway::ClientIpConfig {
+            trusted_proxies,
+            trusted_socket_uids: self.trusted_socket_uids.clone(),
+            header,
+        })
+    }
+}
+
+/// A user's uid: a number, or a name looked up in `passwd` (the text of
+/// `/etc/passwd`). The worker has no NSS dependency; system users of a
+/// node (`renox-tunnel`) are local.
+pub fn lookup_id(name: &str, db: &str) -> Option<u32> {
+    let name = name.trim();
+    if let Ok(id) = name.parse::<u32>() {
+        return Some(id);
+    }
+    db.lines()
+        .map(|l| l.split(':').collect::<Vec<_>>())
+        .find(|f| f.len() > 2 && f[0] == name)
+        .and_then(|f| f[2].parse().ok())
 }
 
 /// `[gateway.security_txt]` (#364): the hosts that serve the platform's
@@ -519,14 +608,18 @@ impl SecurityTxtSection {
 impl Default for GatewaySection {
     fn default() -> Self {
         let rate = renox_gateway::RateLimitConfig::default();
-        let protocol = renox_gateway::ProtocolLimits::default();
         GatewaySection {
             rate_limit_per_ip: rate.requests_per_second,
             rate_limit_burst: rate.burst,
             max_connections_per_ip: renox_gateway::GatewayLimits::default().max_connections_per_ip,
-            h2_max_resets_per_second: protocol.h2_max_resets_per_second,
-            h2_max_resets_per_ip_per_second: protocol.h2_max_resets_per_ip_per_second,
-            h2_max_control_frames_per_second: protocol.h2_max_control_frames_per_second,
+            trusted_proxies: Vec::new(),
+            trusted_socket_users: Vec::new(),
+            client_ip_header: renox_gateway::client_ip::CF_CONNECTING_IP.into(),
+            max_connections_per_trusted_peer: renox_gateway::GatewayLimits::default()
+                .max_connections_per_trusted_peer,
+            socket_group: None,
+            trusted_socket_uids: Vec::new(),
+            socket_gid: None,
             security_txt: SecurityTxtSection::default(),
         }
     }
@@ -643,26 +736,40 @@ impl WorkerConfig {
                 *p = base.join(&*p);
             }
         }
-        // A zero budget would close every HTTP/2 connection at its first reset or PING.
-        for (key, value) in [
-            (
-                "h2_max_resets_per_second",
-                c.gateway.h2_max_resets_per_second,
-            ),
-            (
-                "h2_max_resets_per_ip_per_second",
-                c.gateway.h2_max_resets_per_ip_per_second,
-            ),
-            (
-                "h2_max_control_frames_per_second",
-                c.gateway.h2_max_control_frames_per_second,
-            ),
-        ] {
-            if value == 0 {
-                return Err(ConfigError::Invalid(format!(
-                    "gateway.{key} must be at least 1"
-                )));
+        if let Listen::Unix(p) = &mut c.listen
+            && p.is_relative()
+        {
+            *p = base.join(&*p);
+        }
+        // #414: user and group names are resolved now, before Landlock hides
+        // `/etc/passwd` and `/etc/group` from the worker.
+        if !c.gateway.trusted_socket_users.is_empty() || c.gateway.socket_group.is_some() {
+            let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+            let group = std::fs::read_to_string("/etc/group").unwrap_or_default();
+            let mut uids = Vec::new();
+            for user in &c.gateway.trusted_socket_users {
+                uids.push(lookup_id(user, &passwd).ok_or_else(|| {
+                    ConfigError::Invalid(format!(
+                        "gateway.trusted_socket_users: no user {user:?} on this host"
+                    ))
+                })?);
             }
+            c.gateway.trusted_socket_uids = uids;
+            if let Some(g) = &c.gateway.socket_group {
+                c.gateway.socket_gid = Some(lookup_id(g, &group).ok_or_else(|| {
+                    ConfigError::Invalid(format!(
+                        "gateway.socket_group: no group {g:?} on this host"
+                    ))
+                })?);
+            }
+        }
+        if let Err(e) = c.gateway.client_ip() {
+            return Err(ConfigError::Invalid(e));
+        }
+        if c.gateway.max_connections_per_trusted_peer == 0 {
+            return Err(ConfigError::Invalid(
+                "gateway.max_connections_per_trusted_peer must be at least 1".into(),
+            ));
         }
         if let Err(e) = c
             .gateway
@@ -676,6 +783,18 @@ impl WorkerConfig {
             && p.is_relative()
         {
             *p = base.join(&*p);
+        }
+        // #417, ADR D25: no residency rule any more. An old key is refused
+        // with the reason rather than silently ignored.
+        for (key, set) in [
+            ("sse_kms_key_id", c.replication.sse_kms_key_id.is_some()),
+            ("allowed_regions", c.replication.allowed_regions.is_some()),
+        ] {
+            if set {
+                return Err(ConfigError::Invalid(format!(
+                    "replication.{key} was removed (ADR D25: no data-residency rule; R2 has no SSE-KMS); delete the key"
+                )));
+            }
         }
         if c.replication.enabled {
             let r = &c.replication;
@@ -697,21 +816,16 @@ impl WorkerConfig {
                     "replication.sync_interval_ms must be positive".into(),
                 ));
             }
-            // docs/21-uae-gcc-strategy.md: tenant data and its backups stay
-            // in the UAE; a controlled node does not start otherwise.
-            if c.mode == Mode::Controlled && r.replica == ReplicaKind::S3 {
-                let region = r.region.as_deref().unwrap_or("");
-                if !r.allowed_regions.iter().any(|a| a == region) {
-                    return Err(ConfigError::Invalid(format!(
-                        "replication.region {region:?} is not in replication.allowed_regions ({}); backups stay in the UAE",
-                        r.allowed_regions.join(", ")
-                    )));
-                }
-                if r.sse_kms_key_id.is_none() {
-                    return Err(ConfigError::Invalid(
-                        "replication.sse_kms_key_id is required for an s3 replica in controlled mode".into(),
-                    ));
-                }
+            // Cloudflare R2 has region "auto" and no regional AWS endpoint: without
+            // `endpoint`, Litestream and the purge would address
+            // s3.auto.amazonaws.com (replication/purge.rs).
+            if r.replica == ReplicaKind::S3
+                && r.region.as_deref() == Some("auto")
+                && r.endpoint.as_deref().is_none_or(|e| e.trim().is_empty())
+            {
+                return Err(ConfigError::Invalid(
+                    "replication.endpoint is required with region = \"auto\" (Cloudflare R2: https://<account id>.r2.cloudflarestorage.com)".into(),
+                ));
             }
         }
         if !(c.process.child_idle_secs.is_finite() && c.process.child_idle_secs > 0.0) {
@@ -757,20 +871,10 @@ impl WorkerConfig {
                 }
             }
         }
-        if let Some(tls) = &mut c.tls {
-            for p in std::iter::once(&mut tls.cert_dir).chain(tls.acme_dir.as_mut()) {
-                if p.is_relative() {
-                    *p = base.join(&*p);
-                }
-            }
-            if tls
-                .http_listen
-                .is_some_and(|h| h == c.listen && h.port() != 0)
-            {
-                return Err(ConfigError::Invalid(
-                    "tls.http_listen must differ from listen".into(),
-                ));
-            }
+        if c.tls.is_some() {
+            return Err(ConfigError::Invalid(
+                "[tls] was removed (ADR D25, #418): TLS ends at Cloudflare's edge; serve plain HTTP behind cloudflared with listen = \"unix:/run/renox-edge/worker.sock\" (ops/single-host.md)".into(),
+            ));
         }
         if !(c.gateway.rate_limit_per_ip.is_finite() && c.gateway.rate_limit_per_ip > 0.0) {
             return Err(ConfigError::Invalid(
@@ -824,9 +928,6 @@ mod tests {
         assert_eq!(c.tier_table().free.cpu_ms, 50);
         assert_eq!(c.gateway.rate_limit_per_ip, 100.0);
         assert_eq!(c.gateway.max_connections_per_ip, 100);
-        assert_eq!(c.gateway.h2_max_resets_per_second, 100);
-        assert_eq!(c.gateway.h2_max_resets_per_ip_per_second, 200);
-        assert_eq!(c.gateway.h2_max_control_frames_per_second, 2000);
     }
 
     /// #364: `[gateway.security_txt]` defaults to the reference deployment
@@ -876,70 +977,111 @@ mod tests {
         );
     }
 
-    /// #260: the three HTTP/2 flood knobs of #166 parse, default to the
-    /// gateway's `ProtocolLimits`, and refuse 0 with the key's name.
+    /// #414: `listen = "unix:…"`, the client-address keys of `[gateway]`,
+    /// users and groups resolved by name or number, and the refusals.
     #[test]
-    fn gateway_h2_flood_keys() {
-        let base = Path::new("/srv/renox");
-        let min = "listen = \"127.0.0.1:0\"\ndata_dir = \"d\"\nartifacts_dir = \"a\"\nroutes_file = \"r.json\"\nmeters_dir = \"m\"\nlogs_dir = \"l\"\n";
-        let with = |extra: &str| format!("{min}{extra}");
-        let d = WorkerConfig::parse(min, base).unwrap();
-        assert_eq!(
-            (
-                d.gateway.h2_max_resets_per_second,
-                d.gateway.h2_max_resets_per_ip_per_second,
-                d.gateway.h2_max_control_frames_per_second
-            ),
-            (100, 200, 2000)
-        );
+    fn unix_listen_and_client_ip_keys() {
+        let rest = "data_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
         let c = WorkerConfig::parse(
-            &with("[gateway]\nh2_max_resets_per_second = 50\nh2_max_resets_per_ip_per_second = 80\nh2_max_control_frames_per_second = 500\n"),
-            base,
+            &format!("listen = \"127.0.0.1:8080\"\n{rest}"),
+            Path::new("/srv"),
         )
         .unwrap();
-        assert_eq!(
+        assert_eq!(c.listen, Listen::Tcp("127.0.0.1:8080".parse().unwrap()));
+        let ip = c.gateway.client_ip().unwrap();
+        assert!(ip.trusted_proxies.is_empty() && ip.trusted_socket_uids.is_empty());
+        assert_eq!(ip.header.as_str(), "cf-connecting-ip");
+        assert_eq!(c.gateway.max_connections_per_trusted_peer, 10_000);
+
+        let text = format!(
+            "listen = \"unix:run/worker.sock\"\n{rest}[gateway]\ntrusted_proxies = [\"127.0.0.1/32\", \"::1\"]\ntrusted_socket_users = [\"root\", \"4242\"]\nsocket_group = \"0\"\nclient_ip_header = \"True-Client-IP\"\nmax_connections_per_trusted_peer = 50\n"
+        );
+        let c = WorkerConfig::parse(&text, Path::new("/srv")).unwrap();
+        assert_eq!(c.listen, Listen::Unix("/srv/run/worker.sock".into()));
+        assert_eq!(c.listen.to_string(), "unix:/srv/run/worker.sock");
+        assert_eq!(c.listen.port(), None);
+        assert_eq!(c.gateway.trusted_socket_uids, vec![0, 4242]);
+        assert_eq!(c.gateway.socket_gid, Some(0));
+        let ip = c.gateway.client_ip().unwrap();
+        assert_eq!(ip.trusted_proxies.len(), 2);
+        assert_eq!(ip.header.as_str(), "true-client-ip");
+        assert_eq!(ip.trusted_socket_uids, vec![0, 4242]);
+
+        for (bad, why) in [
+            ("listen = \"unix:\"\n", "socket path"),
+            ("listen = \"localhost\"\n", "neither"),
             (
-                c.gateway.h2_max_resets_per_second,
-                c.gateway.h2_max_resets_per_ip_per_second,
-                c.gateway.h2_max_control_frames_per_second
+                "listen = \"127.0.0.1:1\"\n[gateway]\ntrusted_proxies = [\"10.0.0.1/8\"]\n",
+                "trusted_proxies",
             ),
-            (50, 80, 500)
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\ntrusted_socket_users = [\"no-such-user-renox\"]\n",
+                "trusted_socket_users",
+            ),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\nsocket_group = \"no-such-group-renox\"\n",
+                "socket_group",
+            ),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\nclient_ip_header = \"bad header\"\n",
+                "client_ip_header",
+            ),
+            (
+                "listen = \"127.0.0.1:1\"\n[gateway]\nmax_connections_per_trusted_peer = 0\n",
+                "max_connections_per_trusted_peer",
+            ),
+        ] {
+            // `[gateway]` must follow the top-level keys.
+            let (top, table) = bad
+                .split_once("[gateway]")
+                .map_or((bad, ""), |(a, b)| (a, b));
+            let text = if table.is_empty() {
+                format!("{top}{rest}")
+            } else {
+                format!("{top}{rest}[gateway]{table}")
+            };
+            let err = WorkerConfig::parse(&text, Path::new("/srv"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(why), "{bad}: {err}");
+        }
+        assert_eq!(
+            lookup_id(
+                "svc",
+                "root:x:0:0::/:/bin/sh\nsvc:x:991:991::/:/usr/sbin/nologin\n"
+            ),
+            Some(991)
+        );
+        assert_eq!(lookup_id("other", "svc:x:991:991::/:/bin/false\n"), None);
+    }
+
+    /// #418, ADR D25: an old `[tls]` section is refused with the reason,
+    /// and so are the removed HTTP/2 keys of `[gateway]`.
+    #[test]
+    fn tls_and_h2_keys_are_refused() {
+        let base = "listen = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+        assert!(WorkerConfig::parse(base, Path::new("/srv")).is_ok());
+        let err = WorkerConfig::parse(
+            &format!("{base}[tls]\ncert_dir = \"certs\"\n"),
+            Path::new("/srv"),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("[tls] was removed") && err.contains("unix:"),
+            "{err}"
         );
         for key in [
             "h2_max_resets_per_second",
             "h2_max_resets_per_ip_per_second",
             "h2_max_control_frames_per_second",
         ] {
-            let err = WorkerConfig::parse(&with(&format!("[gateway]\n{key} = 0\n")), base)
-                .unwrap_err()
-                .to_string();
-            assert!(err.contains(&format!("gateway.{key}")), "{err}");
+            assert!(
+                WorkerConfig::parse(&format!("{base}[gateway]\n{key} = 10\n"), Path::new("/srv"))
+                    .is_err(),
+                "{key}"
+            );
         }
-        assert!(
-            WorkerConfig::parse(&with("[gateway]\nh2_max_resets_per_second = -1\n"), base).is_err()
-        );
-    }
-
-    #[test]
-    fn tls_section() {
-        let base = "listen = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
-        let c = WorkerConfig::parse(base, Path::new("/srv")).unwrap();
-        assert!(c.tls.is_none());
-        let text = format!(
-            "{base}[tls]\ncert_dir = \"certs\"\nhttp_listen = \"0.0.0.0:80\"\nacme_dir = \"/var/acme\"\n"
-        );
-        let tls = WorkerConfig::parse(&text, Path::new("/srv"))
-            .unwrap()
-            .tls
-            .unwrap();
-        assert_eq!(tls.cert_dir, Path::new("/srv/certs"));
-        assert_eq!(tls.acme_dir.as_deref(), Some(Path::new("/var/acme")));
-        assert_eq!(tls.http_listen, Some("0.0.0.0:80".parse().unwrap()));
-        assert_eq!(tls.https_port, None);
-        let same = format!("{base}[tls]\ncert_dir = \"c\"\nhttp_listen = \"0.0.0.0:443\"\n");
-        assert!(WorkerConfig::parse(&same, Path::new("/")).is_err());
-        let unknown = format!("{base}[tls]\ncert_dir = \"c\"\nkey = \"k\"\n");
-        assert!(WorkerConfig::parse(&unknown, Path::new("/")).is_err());
     }
 
     #[test]
@@ -1060,8 +1202,10 @@ mod tests {
         assert!(WorkerConfig::parse(&bad, Path::new("/")).is_err());
     }
 
-    /// #255, `docs/21-uae-gcc-strategy.md`: a controlled node with an s3
-    /// replica outside the allowed regions refuses to start.
+    /// #255, #417: replication parses; a controlled node with a Cloudflare R2
+    /// replica (`region = "auto"` and its endpoint, no KMS key) starts; R2
+    /// without `endpoint` is refused, and so are the keys of the old
+    /// residency rule (ADR D25).
     #[test]
     fn replication_section() {
         let base = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
@@ -1088,29 +1232,36 @@ mod tests {
         assert!(WorkerConfig::parse(&no_path, Path::new("/")).is_err());
 
         let controlled = "mode = \"controlled\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\nlisten = \"0.0.0.0:443\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n[control]\nurl = \"https://c.renox.test\"\nnode_token_file = \"t\"\n[sandbox]\nenabled = true\n";
-        let s3 = |region: &str, kms: &str| {
+        let s3 = |extra: &str| {
             format!(
-                "{controlled}[replication]\nenabled = true\nreplica = \"s3\"\nbucket = \"b\"\nregion = \"{region}\"\n{kms}"
+                "{controlled}[replication]\nenabled = true\nreplica = \"s3\"\nbucket = \"renoxium-replicas\"\n{extra}"
             )
         };
-        let e = WorkerConfig::parse(
-            &s3("eu-west-1", "sse_kms_key_id = \"k\"\n"),
+        let r2 = WorkerConfig::parse(
+            &s3("region = \"auto\"\nendpoint = \"https://0123456789abcdef.r2.cloudflarestorage.com\"\n"),
             Path::new("/srv"),
         )
-        .unwrap_err();
+        .unwrap()
+        .replication;
+        assert_eq!(r2.region.as_deref(), Some("auto"));
+        assert_eq!(
+            r2.endpoint.as_deref(),
+            Some("https://0123456789abcdef.r2.cloudflarestorage.com")
+        );
+        // Any region, no KMS key: there is no residency rule any more.
+        assert!(WorkerConfig::parse(&s3("region = \"eu-west-1\"\n"), Path::new("/srv")).is_ok());
+        let e = WorkerConfig::parse(&s3("region = \"auto\"\n"), Path::new("/srv")).unwrap_err();
         assert!(
-            e.to_string().contains("eu-west-1") && e.to_string().contains("UAE"),
+            e.to_string().contains("replication.endpoint is required"),
             "{e}"
         );
-        let e = WorkerConfig::parse(&s3("me-central-1", ""), Path::new("/srv")).unwrap_err();
-        assert!(e.to_string().contains("sse_kms_key_id"), "{e}");
-        assert!(
-            WorkerConfig::parse(
-                &s3("me-central-1", "sse_kms_key_id = \"k\"\n"),
-                Path::new("/srv")
-            )
-            .is_ok()
-        );
+        for old in [
+            "region = \"auto\"\nendpoint = \"https://x.r2.cloudflarestorage.com\"\nsse_kms_key_id = \"k\"\n",
+            "region = \"me-central-1\"\nallowed_regions = [\"me-central-1\"]\n",
+        ] {
+            let e = WorkerConfig::parse(&s3(old), Path::new("/srv")).unwrap_err();
+            assert!(e.to_string().contains("was removed"), "{e}");
+        }
     }
 
     #[test]

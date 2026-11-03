@@ -1,34 +1,23 @@
-// Domain ownership, re-verification and slug quarantine (#114;
+// Domain ownership, the status poll and slug quarantine (#114, #419;
 // docs/24-threat-model.md section C, "Custom domain takeover" and
-// "Shared-domain reputation"; deploy-api.md section 10).
+// "Shared-domain reputation"; deploy-api.md 0.6 section 10). Cloudflare is
+// StubCloudflare (tests/domain-stubs.ts).
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
-import { checkMessage } from "../src/contract.ts";
 import { QUARANTINE_MS, RESERVED_SLUGS, slugState } from "../src/apps/slugs.ts";
-import { MemoryChallengeResponder } from "../src/domains/challenges.ts";
 import { tick } from "../src/domains/jobs.ts";
 import { HOLD_MS, isUniqueViolation } from "../src/domains/ownership.ts";
-import { DETACH_GRACE_MS, DETACH_MISSES, FRESH_TXT_MS, MISS_RECHECK_MS, RECHECK_MS, REVERIFY_MS } from "../src/domains/reverify.ts";
+import { DETACH_GRACE_MS, DETACH_MISSES, MISS_RECHECK_MS, RECHECK_MS, REVERIFY_MS, verdictOf } from "../src/domains/reverify.ts";
 import { configureDomains } from "../src/domains/service.ts";
-import { EnvMasterKey } from "../src/secrets/crypto.ts";
 import { SESSION_COOKIE } from "../src/auth/sessions.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { selfSigned, StubResolver } from "./domain-stubs.ts";
-import { assertScoped, auditRows, createApp_, harness, PASSWORD, registeredNode, sseReader, signup, TEST_MASTER_KEY, type Harness } from "./helpers.ts";
-import type { CertificateIssuer } from "../src/domains/acme.ts";
+import { StubCloudflare } from "./domain-stubs.ts";
+import { assertScoped, auditRows, createApp_, harness, PASSWORD, registeredNode, signup, type Harness } from "./helpers.ts";
 
 afterEach(assertScoped);
 
 const HOST = "www.example.com";
-
-class CountingIssuer implements CertificateIssuer {
-  readonly orders: string[] = [];
-  async issue(hostname: string) {
-    this.orders.push(hostname);
-    return selfSigned(hostname, 90);
-  }
-}
 
 interface Tenant {
   id: string;
@@ -52,8 +41,7 @@ interface Env {
   h: Harness;
   a: Tenant;
   b: Tenant;
-  resolver: StubResolver;
-  issuer: CountingIssuer;
+  cf: StubCloudflare;
   node: string;
 }
 
@@ -65,26 +53,23 @@ async function setup(): Promise<Env> {
   const files = helloArtifact((m) => ((m.app as Record<string, unknown>).name = "alpha"));
   expect((await upload(h, a.token, "alpha", files)).status).toBe(201);
   expect((await h.request("POST", "/v1/apps/alpha/activate", { token: a.token, json: { hash: contentHash(files) } })).status).toBe(200);
-  const resolver = new StubResolver();
-  const issuer = new CountingIssuer();
-  configureDomains(h.deps, { resolver, issuer, responder: new MemoryChallengeResponder(), edge: { hostname: "edge.renox.app", addresses: [] }, keys: new EnvMasterKey(TEST_MASTER_KEY) });
-  return { h, a, b, resolver, issuer, node };
+  const cf = new StubCloudflare();
+  configureDomains(h.deps, { cloudflare: cf });
+  return { h, a, b, cf, node };
 }
 
 const add = (e: Env, t: Tenant, app: string, hostname = HOST) => e.h.request("POST", `/v1/apps/${app}/domains`, { token: t.token, json: { hostname } });
 const stateOf = async (e: Env, hostname = HOST) =>
   (await e.h.db.query<{ state: string; tenant_id: string; detach_reason: string | null }>("select state, tenant_id, detach_reason from domains where hostname = $1 and state <> 'released'", [hostname]))[0];
 const entries = async (e: Env, hostname = HOST) => e.h.db.query("select deployment_hash from route_entries where hostname = $1", [hostname]);
+const misses = async (e: Env) => (await e.h.db.query<{ cf_misses: unknown; cf_first_miss_at: unknown }>("select cf_misses, cf_first_miss_at from domains where hostname = $1 and state <> 'released'", [HOST]))[0];
 
-/** A verified domain of tenant A's app with a certificate. */
-async function verifiedA(e: Env): Promise<string> {
-  const body = (await (await add(e, e.a, "alpha")).json()) as { verification: { record_name: string; record_value: string } };
-  e.resolver.txts.set(body.verification.record_name, [body.verification.record_value]);
-  e.resolver.cnames.set(HOST, "edge.renox.app");
+/** A verified domain of tenant A's app. */
+async function verifiedA(e: Env): Promise<void> {
+  expect((await add(e, e.a, "alpha")).status).toBe(201);
+  e.cf.setStatus(HOST, "active");
   await tick(e.h.deps);
   expect((await stateOf(e))?.state).toBe("verified");
-  expect(e.issuer.orders).toEqual([HOST]);
-  return body.verification.record_name;
 }
 
 describe("one owner per hostname", () => {
@@ -105,7 +90,7 @@ describe("one owner per hostname", () => {
     const e = await setup();
     expect((await add(e, e.a, "alpha")).status).toBe(201);
     await expect(
-      e.h.db.query("insert into domains (id, hostname, tenant_id, app, state, verify_token, created_at, next_check_at) values ('dom_x', $1, 't-b', 'beta', 'pending', 'rnx-verify-00000000000000000000000000', 0, 0)", [HOST]),
+      e.h.db.query("insert into domains (id, hostname, tenant_id, app, state, created_at, next_check_at) values ('dom_x', $1, 't-b', 'beta', 'pending', 0, 0)", [HOST]),
     ).rejects.toThrow();
   });
 
@@ -132,16 +117,17 @@ describe("removal keeps ownership for 30 days", () => {
     expect(await stateOf(e)).toMatchObject({ state: "detached", detach_reason: "removed" });
     expect(await entries(e)).toEqual([]);
     const detachedAt = e.h.clock.now;
-    // The CNAME still points at Renox: inside the window nobody else may take it.
+    // The CNAME still points at Renoxium: inside the window nobody else may take it.
     e.h.clock.now = detachedAt + HOLD_MS - 1;
     await tick(e.h.deps);
     expect((await add(e, e.b, "beta")).status).toBe(409);
-    // A removed domain is not re-verified on its own, even though its record is still there.
+    // A removed domain is not re-verified on its own, even though Cloudflare still reports it active.
     expect((await stateOf(e))?.state).toBe("detached");
     e.h.clock.now = detachedAt + HOLD_MS;
     await tick(e.h.deps);
     expect(await stateOf(e)).toBeUndefined();
-    expect(await e.h.db.query("select hostname from certificates")).toEqual([]);
+    // Released: the custom hostname is deleted at Cloudflare.
+    expect(e.cf.of(HOST)).toBeUndefined();
     expect((await auditRows(e.h)).filter((r) => r.action === "releaseDomain")).toMatchObject([{ tenant_id: "t-a", actor: "domain-job" }]);
     expect((await add(e, e.b, "beta")).status).toBe(201);
   });
@@ -150,7 +136,7 @@ describe("removal keeps ownership for 30 days", () => {
     const e = await setup();
     await verifiedA(e);
     await e.h.request("DELETE", `/v1/apps/alpha/domains/${HOST}`, { token: e.a.token });
-    // Taken back: detached until the job sees the record, then verified and served.
+    // Taken back: detached until the job reads the custom hostname, then verified and served.
     const back = await add(e, e.a, "alpha");
     expect(back.status).toBe(201);
     expect(((await back.json()) as { state: string }).state).toBe("detached");
@@ -165,19 +151,24 @@ describe("removal keeps ownership for 30 days", () => {
   });
 });
 
-describe("re-verification", () => {
-  test("TXT removed: serving stops within one interval, owner emailed, audited; restored: serving resumes", async () => {
-    const e = await setup();
-    const record = await verifiedA(e);
-    const stream = sseReader(await e.h.request("GET", "/v1/nodes/node-1/stream", { token: e.node }));
-    await stream.next();
+describe("the status poll (#398 rule)", () => {
+  test("verdicts: active is a match; moved, deleted, blocked or not found a miss; anything else unknown", () => {
+    const h = (status: string) => ({ id: "x", hostname: HOST, status, ssl_status: "active", verification: [], errors: [] });
+    expect(verdictOf(h("active"))).toBe("match");
+    for (const s of ["moved", "deleted", "blocked", "pending_deletion", "pending_blocked"]) expect(verdictOf(h(s))).toBe("miss");
+    expect(verdictOf(null)).toBe("miss");
+    for (const s of ["pending", "test_pending", "unknown", "provisioned"]) expect(verdictOf(h(s))).toBe("unknown");
+  });
 
-    e.resolver.txts.delete(record);
+  /** docs/24-threat-model.md C "Custom domain takeover": a hostname that stopped pointing at us stops being served. */
+  test("moved: serving stops after consecutive misses over the grace period, owner emailed, audited; active again: serving resumes", async () => {
+    const e = await setup();
+    await verifiedA(e);
+    e.cf.setStatus(HOST, "moved");
     e.h.clock.now += REVERIFY_MS - 1;
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("verified");
     e.h.clock.now += 1;
-    // #398: DETACH_MISSES consecutive misses over at least DETACH_GRACE_MS.
     const firstMiss = e.h.clock.now;
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("verified");
@@ -189,149 +180,96 @@ describe("re-verification", () => {
     await tick(e.h.deps);
     expect(await stateOf(e)).toMatchObject({ state: "detached", detach_reason: "unverified" });
     expect(await entries(e)).toEqual([]);
-    const types: string[] = [];
-    for (let i = 0; i < 2; i++) types.push(((await stream.next()).data as { type: string }).type);
-    expect(types.sort()).toEqual(["certificate_remove", "route_delta"]);
     const mail = e.h.mailer.last(e.a.email, "domain_detached");
     expect(mail?.subject).toContain(HOST);
-    expect((await auditRows(e.h)).filter((r) => r.action === "detachDomain")).toMatchObject([{ tenant_id: "t-a", actor: "domain-job", target: { hostname: HOST, reason: "txt record missing" } }]);
+    expect(mail?.text).toContain('"moved"');
+    expect((await auditRows(e.h)).filter((r) => r.action === "detachDomain")).toMatchObject([{ tenant_id: "t-a", actor: "domain-job", target: { hostname: HOST, reason: "cloudflare status moved" } }]);
     // Still owned: another tenant cannot take it while it is detached.
     expect((await add(e, e.b, "beta")).status).toBe(409);
 
     // Back within the hour.
-    e.resolver.txts.set(record, [(await e.h.db.query<{ verify_token: string }>("select verify_token from domains where hostname = $1", [HOST]))[0]?.verify_token as string]);
+    e.cf.setStatus(HOST, "active");
     e.h.clock.now += RECHECK_MS;
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("verified");
     expect(await entries(e)).toHaveLength(1);
-    const back: { type: string }[] = [];
-    for (let i = 0; i < 2; i++) back.push((await stream.next()).data as { type: string });
-    const update = back.find((m) => m.type === "certificate_update");
-    expect(checkMessage<{ version: number }>("certificate_update", update).version).toBeGreaterThan(2);
     expect((await auditRows(e.h)).filter((r) => r.action === "reverifyDomain")).toMatchObject([{ tenant_id: "t-a", actor: "domain-job" }]);
-    // The stored certificate was reused; no new order.
-    expect(e.issuer.orders).toEqual([HOST]);
-    await stream.close();
   });
 
-  test("a failed lookup is not a missing record", async () => {
+  /** The #398 lesson for the poll: an API error is unknown, never a miss. */
+  test("Cloudflare errors for hours never detach and are not counted", async () => {
     const e = await setup();
     await verifiedA(e);
-    e.resolver.failing = true;
-    e.h.clock.now += REVERIFY_MS;
-    await tick(e.h.deps);
-    expect((await stateOf(e))?.state).toBe("verified");
-    e.resolver.failing = false;
-  });
-
-  test("checked before every certificate order: a missing record blocks the order and, after the grace period, detaches", async () => {
-    const e = await setup();
-    const record = await verifiedA(e);
-    const notAfter = (await e.h.db.query<{ not_after: unknown }>("select not_after from certificates"))[0]?.not_after;
-    e.resolver.txts.delete(record);
-    // Inside the renewal window but before the 7-day re-check is due.
-    await e.h.db.query("update domains set next_txt_check_at = $1", [Number(notAfter) + REVERIFY_MS]);
-    e.h.clock.now = Number(notAfter) - 29 * 86_400_000;
-    const firstMiss = e.h.clock.now;
-    await tick(e.h.deps);
-    expect(e.issuer.orders).toEqual([HOST]);
-    expect((await stateOf(e))?.state).toBe("verified");
-    // The next ticks neither order nor look the record up again before MISS_RECHECK_MS.
-    const lookups = e.resolver.txtLookups.get(record);
-    await tick(e.h.deps);
-    expect(e.resolver.txtLookups.get(record)).toBe(lookups);
-    for (let i = 1; i < DETACH_MISSES; i++) {
-      e.h.clock.now = firstMiss + i * MISS_RECHECK_MS;
+    e.cf.failing = true;
+    for (let i = 0; i < 6; i++) {
+      e.h.clock.now += REVERIFY_MS;
       await tick(e.h.deps);
     }
-    expect(e.h.clock.now - firstMiss).toBeGreaterThanOrEqual(DETACH_GRACE_MS);
-    expect(e.issuer.orders).toEqual([HOST]);
-    expect((await stateOf(e))?.state).toBe("detached");
+    expect((await stateOf(e))?.state).toBe("verified");
+    expect(Number((await misses(e))?.cf_misses)).toBe(0);
+    expect(await entries(e)).toHaveLength(1);
+    e.cf.failing = false;
   });
 
-  /**
-   * #398, docs/24-threat-model.md C "Custom domain takeover" (periodic
-   * re-verification must not detach a legitimate owner): the host's resolver
-   * negative-caches the NXDOMAIN from before the record existed. One answer
-   * saw the record (the domain verified); the stale negatives that follow
-   * must neither detach it nor stop its first certificate.
-   */
-  test("stale negative right after verification: the first order skips the re-check, later misses do not detach", async () => {
+  test("one negative answer, then active: no detach, the count is reset", async () => {
     const e = await setup();
-    const body = (await (await add(e, e.a, "alpha")).json()) as { verification: { record_name: string; record_value: string } };
-    const record = body.verification.record_name;
-    e.resolver.txts.set(record, [body.verification.record_value]);
-    e.resolver.cnames.set(HOST, "edge.renox.app");
-    await tick(e.h.deps);
-    expect((await stateOf(e))?.state).toBe("verified");
-    // Verified seconds ago: the order did not look the record up again.
-    expect(e.resolver.txtLookups.get(record)).toBe(1);
-    expect(e.issuer.orders).toEqual([HOST]);
-
-    // Two stale negatives at the 7-day re-check, then the record is seen again.
-    e.resolver.staleNegatives.set(record, DETACH_MISSES - 1);
+    await verifiedA(e);
+    e.cf.setStatus(HOST, "moved");
     e.h.clock.now += REVERIFY_MS;
     await tick(e.h.deps);
-    e.h.clock.now += DETACH_GRACE_MS; // past the grace period, but only DETACH_MISSES - 1 misses
+    expect(Number((await misses(e))?.cf_misses)).toBe(1);
+    e.cf.setStatus(HOST, "active");
+    e.h.clock.now += DETACH_GRACE_MS;
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("verified");
-    const [mid] = await e.h.db.query<{ txt_misses: number }>("select txt_misses from domains where hostname = $1", [HOST]);
-    expect(Number(mid?.txt_misses)).toBe(DETACH_MISSES - 1);
-    e.h.clock.now += MISS_RECHECK_MS;
-    await tick(e.h.deps);
-    expect((await stateOf(e))?.state).toBe("verified");
-    const [after] = await e.h.db.query<{ txt_misses: number; txt_first_miss_at: unknown }>("select txt_misses, txt_first_miss_at from domains where hostname = $1", [HOST]);
-    expect(Number(after?.txt_misses)).toBe(0);
-    expect(after?.txt_first_miss_at).toBeNull();
+    const after = await misses(e);
+    expect(Number(after?.cf_misses)).toBe(0);
+    expect(after?.cf_first_miss_at).toBeNull();
     expect(e.h.mailer.last(e.a.email, "domain_detached")).toBeUndefined();
     expect((await auditRows(e.h)).filter((r) => r.action === "detachDomain")).toEqual([]);
   });
 
+  test("an error between misses neither counts nor resets; a pending status is not a miss", async () => {
+    const e = await setup();
+    await verifiedA(e);
+    e.cf.setStatus(HOST, "pending");
+    e.h.clock.now += REVERIFY_MS;
+    await tick(e.h.deps);
+    expect(Number((await misses(e))?.cf_misses)).toBe(0);
+    e.cf.setStatus(HOST, "deleted");
+    e.h.clock.now += REVERIFY_MS;
+    await tick(e.h.deps);
+    e.cf.failing = true;
+    e.h.clock.now += MISS_RECHECK_MS;
+    await tick(e.h.deps);
+    expect(Number((await misses(e))?.cf_misses)).toBe(1);
+    e.cf.failing = false;
+  });
+
   test("three quick misses do not detach before the grace period has passed", async () => {
     const e = await setup();
-    const record = await verifiedA(e);
-    e.resolver.txts.delete(record);
+    await verifiedA(e);
+    e.cf.forget(HOST);
     e.h.clock.now += REVERIFY_MS;
     const firstMiss = e.h.clock.now;
-    // Force the checks as fast as the job allows them.
+    // Force the reads as fast as the job allows them.
     for (let i = 0; i < DETACH_MISSES + 2; i++) {
-      await e.h.db.query("update domains set next_txt_check_at = $1", [e.h.clock.now]);
+      await e.h.db.query("update domains set next_check_at = $1 where state = 'verified'", [e.h.clock.now]);
       await tick(e.h.deps);
       e.h.clock.now += 60_000;
     }
     expect(e.h.clock.now - firstMiss).toBeLessThan(DETACH_GRACE_MS);
     expect((await stateOf(e))?.state).toBe("verified");
     e.h.clock.now = firstMiss + DETACH_GRACE_MS;
-    await e.h.db.query("update domains set next_txt_check_at = $1", [e.h.clock.now]);
+    await e.h.db.query("update domains set next_check_at = $1 where state = 'verified'", [e.h.clock.now]);
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("detached");
   });
 
-  test("the pre-order re-check runs again once the last sighting is older than FRESH_TXT_MS", async () => {
+  test("POST …/domains on the owner's own detached claim forces a read at the next tick", async () => {
     const e = await setup();
-    const record = await verifiedA(e);
-    const before = e.resolver.txtLookups.get(record) ?? 0;
-    // A new order (the certificate is dropped) minutes after verification: no lookup.
-    await e.h.db.query("delete from certificates");
-    await e.h.db.query("update domains set cert_state = 'none'");
-    e.h.clock.now += FRESH_TXT_MS - 1;
-    await tick(e.h.deps);
-    expect(e.issuer.orders).toEqual([HOST, HOST]);
-    expect(e.resolver.txtLookups.get(record) ?? 0).toBe(before);
-    // Later: the order looks the record up first.
-    await e.h.db.query("delete from certificates");
-    await e.h.db.query("update domains set cert_state = 'none'");
-    e.h.clock.now += FRESH_TXT_MS;
-    await tick(e.h.deps);
-    expect(e.issuer.orders).toEqual([HOST, HOST, HOST]);
-    expect(e.resolver.txtLookups.get(record) ?? 0).toBe(before + 1);
-  });
-
-  test("POST …/domains on the owner's own detached claim forces a re-check at the next tick", async () => {
-    const e = await setup();
-    const record = await verifiedA(e);
-    const token = (await e.h.db.query<{ verify_token: string }>("select verify_token from domains where hostname = $1", [HOST]))[0]?.verify_token as string;
-    e.resolver.txts.delete(record);
+    await verifiedA(e);
+    e.cf.setStatus(HOST, "moved");
     e.h.clock.now += REVERIFY_MS;
     const firstMiss = e.h.clock.now;
     for (let i = 0; i < DETACH_MISSES; i++) {
@@ -339,14 +277,15 @@ describe("re-verification", () => {
       await tick(e.h.deps);
     }
     expect((await stateOf(e))?.state).toBe("detached");
-    e.resolver.txts.set(record, [token]);
-    // Without the POST the next check is up to RECHECK_MS away.
+    e.cf.setStatus(HOST, "active");
+    // Without the POST the next read is up to RECHECK_MS away.
     e.h.clock.now += 1_000;
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("detached");
     const res = await add(e, e.a, "alpha");
     expect(res.status).toBe(201);
-    expect(((await res.json()) as { verification: { record_value: string } }).verification.record_value).toBe(token);
+    // The same custom hostname: Cloudflare is not asked to create another.
+    expect(e.cf.calls.filter((c) => c.startsWith("create"))).toEqual([`create ${HOST}`]);
     await tick(e.h.deps);
     expect((await stateOf(e))?.state).toBe("verified");
   });

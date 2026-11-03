@@ -67,9 +67,9 @@ Same as above through step 4; the handler returns a `Response`, which is streame
 2. The `open` handler runs in the isolate once (auth, subscribe). The connection itself is owned by tokio.
 3. Incoming messages invoke the `message` handler; outgoing messages are fanned out by the pub/sub component without touching the isolate.
 
-## Region and data residency
+## Region and edge
 
-Production runs in a UAE cloud region (AWS me-central-1 or Azure UAE North to start; local colocation later). Tenant files, backups, artifacts, logs, and the control-plane Postgres all stay in the UAE by default. Cross-border replication is opt-in per tenant and off for regulated data. Static assets and image variants are served through a CDN with a UAE point of presence. Rationale and compliance details: `21-uae-gcc-strategy.md`.
+Production runs in one region, on the hosts named in the sub-processor list of the DPA (`www/pages/legal/dpa.html`); the market is the UAE and the GCC, but Renoxium makes no promise that tenant data stays in a given country (D25). Every public request reaches the platform through Cloudflare: Cloudflare terminates TLS at its edge (customers' custom domains through Cloudflare for SaaS) and forwards plain HTTP/1.1 through a Cloudflare Tunnel to the worker, whose host has no inbound port open but SSH. Cloudflare therefore sees request content in clear, and is a sub-processor. Tenant files are replicated by Litestream to Cloudflare R2; control-plane backups and artifacts are in R2 as well. Rationale: D25 in `13-decisions.md`.
 
 ## Cross-cutting concerns
 

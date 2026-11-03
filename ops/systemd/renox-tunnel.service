@@ -1,21 +1,28 @@
-# Cloudflare Tunnel for the control API on the single host (#366,
-# ops/single-host.md "Tunnel"): api.renoxium.com and mcp.renoxium.com ->
-# http://127.0.0.1:8787 (ops/cloudflared/config.yml.example). Outbound only.
-# The tunnel credentials stay in a root-only file; systemd hands a copy to
-# this unit's dynamic user through LoadCredential (%d), never in the
-# environment or on a command line anyone else can read.
+# Cloudflare Tunnel, the single host's only way in (#366, #420, ADR D25;
+# ops/single-host.md): api.renoxium.com and mcp.renoxium.com -> the control
+# API on 127.0.0.1:8787, every app name and custom domain -> the worker's
+# socket unix:/run/renox-edge/worker.sock (ops/cloudflared/config.yml.example).
+# Outbound only. It runs as renox-tunnel, a static user in the group
+# renox-edge: the group lets it open the socket, and its uid is the one peer
+# the worker trusts to name the client in CF-Connecting-IP ([gateway]
+# trusted_socket_users, #414). The tunnel credentials stay in a root-only
+# file; systemd hands a copy to this unit through LoadCredential (%d), never
+# in the environment or on a command line anyone else can read.
 [Unit]
 Description=Renoxium control API tunnel (cloudflared)
 Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
-After=network-online.target renox-control.service
+After=network-online.target renox-control.service renox-worker.service
 Wants=network-online.target
 
 [Service]
 Type=notify
-DynamicUser=yes
+User=renox-tunnel
+Group=renox-edge
+DynamicUser=no
 ExecStart=/opt/renox/bin/cloudflared --no-autoupdate --config %d/config.yml tunnel run --credentials-file %d/credentials.json
-# /etc/renox is root:renox 0750, which the dynamic user cannot traverse: both
-# files reach it as credentials (read by systemd as root, copied 0400).
+# /etc/renox is root:renox 0750, which renox-tunnel cannot traverse: both
+# files reach it as credentials (read by systemd as root, readable by the
+# unit's user only).
 LoadCredential=config.yml:/etc/renox/tunnel/config.yml
 LoadCredential=credentials.json:/etc/renox/tunnel/credentials.json
 Restart=on-failure

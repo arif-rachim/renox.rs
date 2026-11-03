@@ -23,13 +23,18 @@
     },
     {
       "file": "src/domains/jobs.ts",
-      "contains": "select ${DOMAIN_COLUMNS} from domains where state = $1",
+      "contains": "select ${DOMAIN_COLUMNS} from domains where state = 'pending'",
       "reason": "DOMAIN_COLUMNS is a constant column list"
     },
     {
       "file": "src/domains/jobs.ts",
-      "contains": "select ${DOMAIN_COLUMNS.split(\", \").map((c) => `d.${c}`)",
-      "reason": "DOMAIN_COLUMNS is a constant column list, prefixed with the table alias"
+      "contains": "select ${DOMAIN_COLUMNS} from domains where state <> 'released' and cf_hostname_id is null",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
+    },
+    {
+      "file": "src/domains/ownership.ts",
+      "contains": "select ${DOMAIN_COLUMNS} from domains where state = 'released' and cf_hostname_id is not null",
+      "reason": "DOMAIN_COLUMNS is a constant column list"
     },
     {
       "file": "src/domains/ownership.ts",
@@ -38,7 +43,7 @@
     },
     {
       "file": "src/domains/ownership.ts",
-      "contains": "insert into domains (id, hostname, tenant_id, app, state, verify_token",
+      "contains": "insert into domains (id, hostname, tenant_id, app, state, created_at",
       "reason": "DOMAIN_COLUMNS is a constant column list"
     },
     {

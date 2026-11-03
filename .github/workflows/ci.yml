@@ -154,11 +154,10 @@ jobs:
           shellcheck --severity=warning ops/scripts/*.sh
           ops/scripts/fetch-litestream.test.sh
           ops/scripts/move-to-microvm.test.sh
-          # The single host (#366): pinned fetchers, the certificate and backup
-          # scripts (fakes, no network), the firewall in two containers.
+          # The single host (#366, #420): the pinned cloudflared fetcher, the
+          # backup script (fakes, no network), the tunnel-only firewall (only
+          # SSH open) in two containers.
           ops/scripts/fetch-cloudflared.test.sh
-          ops/scripts/fetch-lego.test.sh
-          ops/scripts/renew-wildcard-cert.test.sh
           command -v age >/dev/null || sudo apt-get install -y --no-install-recommends age
           ops/scripts/backup-control-db.test.sh
           ops/scripts/firewall-single-host.test.sh

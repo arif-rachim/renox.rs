@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { mailOwner } from "../src/abuse/takedown.ts";
 import { tierMail } from "../src/billing/sweep.ts";
-import { domainServiceFromEnv } from "../src/domains/service.ts";
+import { cnameTarget, configureDomains } from "../src/domains/service.ts";
 import { DEFAULTS, loadConfig } from "../src/config.ts";
 import { securityTxt } from "../src/well-known.ts";
 import { harness, signup } from "./helpers.ts";
@@ -80,11 +80,13 @@ describe("mail texts from the config (#364)", () => {
 });
 
 describe("the CNAME target and the labels a person reads (#364)", () => {
-  test("the custom-domain CNAME target is edge.<platform domain>, edge.renoxium.app by default; CONTROL_EDGE_HOSTNAME overrides it", async () => {
+  test("the custom-domain CNAME target is the Cloudflare fallback origin, edge.<platform domain> without one (#419)", async () => {
     const h = await harness();
     h.deps.config.platformDomain = loadConfig({}).platformDomain;
-    expect(domainServiceFromEnv(h.deps, {}).edge.hostname).toBe("edge.renoxium.app");
-    expect(domainServiceFromEnv(h.deps, { CONTROL_EDGE_HOSTNAME: "edge.example.test" }).edge.hostname).toBe("edge.example.test");
+    configureDomains(h.deps, { cloudflare: null });
+    expect(cnameTarget(h.deps)).toBe("edge.renoxium.app");
+    const cf = loadConfig({ CONTROL_CF_API_TOKEN: "abcdefghij0123456789_-xy", CONTROL_CF_ZONE_ID: "0123456789abcdef0123456789abcdef", CONTROL_CF_FALLBACK_ORIGIN: "Edge.Example.Test" }).cloudflare;
+    expect(cf?.fallbackOrigin).toBe("edge.example.test");
   });
 
   test("the TOTP issuer and the passkey relying party's name are Renoxium; the rp id is the dashboard's host", async () => {

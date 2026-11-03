@@ -114,20 +114,19 @@ impl LogSink for SpoolLogSink {
 
 /// The sandbox profile of `tenant`'s child: the worker's, with the data
 /// dir narrowed to the tenant's own (and the spool in controlled mode).
-/// The artifacts dir stays read and execute only, and `cert_dir` read-only:
-/// only the worker downloads artifacts (#392) and installs certificates
-/// (#391).
+/// The artifacts dir stays read and execute only: only the worker downloads
+/// artifacts (#392). The directory of the worker's `unix:` listen socket is
+/// not the child's at all (#414): a child neither creates nor replaces the
+/// socket `cloudflared` connects to.
 pub fn child_profile(config: &WorkerConfig, tenant: &str, exe_dir: Option<&Path>) -> Profile {
     let mut p = Profile::from_config(config, exe_dir);
-    let cert_dir = config.tls.as_ref().map(|t| t.cert_dir.clone());
+    let socket_dir = match &config.listen {
+        crate::config::Listen::Unix(sock) => sock.parent().map(Path::to_path_buf),
+        crate::config::Listen::Tcp(_) => None,
+    };
     p.read_write.retain(|d| {
-        d != &config.data_dir && d != &config.artifacts_dir && Some(d) != cert_dir.as_ref()
+        d != &config.data_dir && d != &config.artifacts_dir && Some(d) != socket_dir.as_ref()
     });
-    if let Some(dir) = cert_dir
-        && !p.read_only.contains(&dir)
-    {
-        p.read_only.push(dir);
-    }
     p.read_write.push(config.data_dir.join(tenant));
     if config.mode == Mode::Controlled {
         p.read_write.push(config.data_dir.join("spool"));
