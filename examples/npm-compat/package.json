@@ -11,9 +11,9 @@
     "arctic": "3.7.0",
     "checkout-sdk-node": "5.8.0",
     "date-fns": "4.4.0",
-    "nodemailer": "10.2.1",
-    "resend": "6.35.0",
-    "stripe": "23.0.1",
+    "nodemailer": "10.3.1",
+    "resend": "6.37.0",
+    "stripe": "23.1.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
