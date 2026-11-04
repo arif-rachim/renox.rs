@@ -222,7 +222,7 @@
       "we_create": "We create",
       "we_create_after": "and deploy the template to it, then show the commands to work on it locally.",
       "about_shop": "Products, a cart and checkout, server-rendered pages",
-      "about_hello": "One function: GET /api/hello",
+      "about_hello": "One function (GET /api/hello) and a home page: the same app as `renox new --template hello`",
       "about_booking": "Services, staff and slots (coming with the booking module)",
       "about_invoices": "FTA tax invoices (coming with the tax module)",
       "err_template": "Choose a template.",

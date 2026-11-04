@@ -6,6 +6,7 @@ import type { LoaderContext } from "@renoxium/sdk";
 
 import { frame, signedIn } from "../lib/guard.ts";
 import { trOf } from "../lib/i18n.ts";
+import { DOCS_URL, INSTALL_URL } from "../lib/install.ts";
 
 const home = (): Response => new Response(null, { status: 303, headers: { location: "/apps" } });
 
@@ -24,6 +25,8 @@ export async function load(ctx: LoaderContext) {
   const tr = trOf(ctx);
   return {
     ...frame(ctx, api, "apps"),
+    install_url: INSTALL_URL,
+    docs_url: DOCS_URL,
     steps: [
       { done: true, text: tr("dash.home.step_verify"), href: null },
       { done: has, text: tr("dash.home.step_create"), href: has ? null : "/apps/new" },

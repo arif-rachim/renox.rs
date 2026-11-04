@@ -95,12 +95,13 @@ describe("the first app", () => {
       [false, null],
     ]);
     const fresh = data(await newLoad(loaderCtx(d, "/apps/new")));
-    expect(fresh.templates.map((t: { id: string }) => t.id)).toEqual(["shop", "hello", "booking", "invoices"]);
+    // #447: only the starters `renox new --template` also writes.
+    expect(fresh.templates.map((t: { id: string }) => t.id)).toEqual(["hello"]);
     // #364: the platform domain shown for the new app is configuration, renoxium.app by default.
     expect(fresh.platform_domain).toBe("renoxium.app");
     expect(data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "Bad Name", template: "hello" }))).form_error).toContain("lower-case");
-    // shop is not built on this control plane: the page says so.
-    expect(data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "my-shop", template: "shop" }))).form_error).toContain("not available");
+    // shop is not offered (the CLI has no such template): refused before the API is called.
+    expect(data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "my-shop", template: "shop" }))).form_error).toBeTruthy();
     const made = data(await newActions.create(actionCtx(d, "/apps/new", "create", { name: "first-site", template: "hello" })));
     expect(made.created).toMatchObject({ app: "first-site", template: "hello", url: "https://first-site.renox.app" });
     expect(made.created.hash).toMatch(/^[0-9a-f]{64}$/u);
@@ -119,8 +120,8 @@ test("the legal pages carry the versions sign-up records", () => {
 // The templates rendered by the worker (`renox dev`).
 test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow, the checklist and the legal pages", async () => {
   const dev = await devWithData({
-    "pages/apps/new.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", platform_domain: "apps.example.test", templates: [{ id: "shop", name: "Shop", about: "A shop" }], created: null, form_error: null, action_problem: null, name: "", template: "shop" },
-    "pages/index.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", steps: [{ done: true, text: "Verify your email address", href: null }, { done: false, text: "Create your first app from a template", href: "/apps/new" }] },
+    "pages/apps/new.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", platform_domain: "apps.example.test", templates: [{ id: "hello", name: "Hello", about: "One function" }], created: null, form_error: null, action_problem: null, name: "", template: "hello", install_url: "https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh" },
+    "pages/index.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", install_url: "https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh", docs_url: "https://renoxium.com/docs", steps: [{ done: true, text: "Verify your email address", href: null }, { done: false, text: "Create your first app from a template", href: "/apps/new" }] },
   });
   try {
     const page = async (path: string) => (await (await fetch(`${dev.base}${path}`)).text()).replaceAll(' dir="auto"', "");
@@ -135,7 +136,7 @@ test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow
     expect(v).toContain("/install.sh | sh");
     expect(v).not.toContain("bunx renox");
     const newApp = await page("/apps/new");
-    expect(newApp).toContain('name="template" value="shop" checked');
+    expect(newApp).toContain('name="template" value="hello" checked');
     expect(newApp).toContain("<code>&lt;name&gt;.apps.example.test</code>");
     const home = await page("/");
     expect(home).toContain('<a href="/apps/new">Create your first app from a template</a>');

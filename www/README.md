@@ -25,4 +25,4 @@ The public site of Renoxium, served at `renoxium.com` (#326): a `renox` app depl
 - the pricing page equals the billing plans;
 - the legal pages carry the recorded versions.
 
-**Deploy.** From this directory: `bunx renox deploy`. There is no database, no network and no secrets.
+**Deploy.** From this directory: `renox deploy` (the CLI from the `cli-v*` release, `docs/getting-started.md`). There is no database, no network and no secrets.

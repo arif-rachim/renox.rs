@@ -8,24 +8,27 @@ import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { platformDomain } from "../../lib/api.ts";
 import { frame, problem, signedIn } from "../../lib/guard.ts";
 import { trOf, type Tr } from "../../lib/i18n.ts";
+import { INSTALL_URL } from "../../lib/install.ts";
 
-/** deploy-api.yaml `createAppFromTemplate` `template`; what each one is comes from `dash.new.about_<id>`. */
-export const TEMPLATES = [
-  { id: "shop", name: "Shop" },
-  { id: "hello", name: "Blank" },
-  { id: "booking", name: "Booking" },
-  { id: "invoices", name: "Invoices" },
-] as const;
+/**
+ * The starters offered here (#447): only those the API can create
+ * (deploy-api.yaml `createAppFromTemplate` `template`) **and** `renox new
+ * --template` can write, because the page then tells the user to run that
+ * command. Today that is `hello`; `shop`, `booking` and `invoices` come back
+ * when the CLI has them (tests/copy.test.ts compares the lists). What each
+ * one is comes from `dash.new.about_<id>`.
+ */
+export const TEMPLATES = [{ id: "hello", name: "Hello" }] as const;
 
 const templates = (tr: Tr) => TEMPLATES.map((t) => ({ ...t, about: tr(`dash.new.about_${t.id}`) }));
 const NAME = /^[a-z][a-z0-9-]{0,49}$/u;
 
-const quiet = { created: null as null | { app: string; url: string; hash: string; template: string }, form_error: null as string | null, action_problem: null as unknown, name: "", template: "shop" };
+const quiet = { created: null as null | { app: string; url: string; hash: string; template: string }, form_error: null as string | null, action_problem: null as unknown, name: "", template: "hello" };
 
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
   if (api instanceof Response) return api;
-  return { ...frame(ctx, api, "apps"), platform_domain: platformDomain(ctx.secrets), templates: templates(trOf(ctx)), ...quiet };
+  return { ...frame(ctx, api, "apps"), platform_domain: platformDomain(ctx.secrets), templates: templates(trOf(ctx)), install_url: INSTALL_URL, ...quiet };
 }
 
 export const actions = {
@@ -35,7 +38,7 @@ export const actions = {
     const name = String(ctx.form.get("name") ?? "").trim();
     const template = String(ctx.form.get("template") ?? "");
     const tr = trOf(ctx);
-    const base = { ...quiet, platform_domain: platformDomain(ctx.secrets) };
+    const base = { ...quiet, platform_domain: platformDomain(ctx.secrets), install_url: INSTALL_URL };
     if (!NAME.test(name)) return { ...base, name, template, form_error: tr("dash.apps.err_name") };
     if (!TEMPLATES.some((t) => t.id === template)) return { ...base, name, form_error: tr("dash.new.err_template") };
     const r = await api.createAppFromTemplate(name, template);

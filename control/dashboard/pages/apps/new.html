@@ -5,11 +5,14 @@
       <h1>{{ created.app }} <r-t key="dash.new.is_live" /></h1>
       <p class="notice"><r-t key="dash.new.deployed_from" /> {{ created.template }} <r-t key="dash.new.template_link" /> <a :href="created.url">{{ created.url }}</a></p>
       <h2><r-t key="dash.new.locally" /></h2>
-      <ol>
-        <li><code>bunx renox new {{ created.app }} --template {{ created.template }}</code></li>
-        <li><code>bunx renox dev</code></li>
-        <li><code>bunx renox deploy</code></li>
-      </ol>
+      <pre data-lang="sh">curl -fsSL {{ install_url }} | sh
+renox new {{ created.app }} --template {{ created.template }}
+cd {{ created.app }}
+bun install
+renox dev
+renox login
+renox deploy</pre>
+      <p class="muted small"><r-t key="dash.install.windows" /></p>
       <p><a href="/apps/{{ created.app }}"><r-t key="dash.common.open" /> {{ created.app }}</a></p>
     </r-group>
     <r-group r-if="!created">
