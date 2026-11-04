@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 
 import type { Deployment, UsageHour } from "../lib/api.ts";
 import { parseLogEvents } from "../lib/api.ts";
-import { CHART, deploymentRows, hourlyBars, percent } from "../lib/view.ts";
+import { CHART, deploymentRows, figure, hourlyBars, percent } from "../lib/view.ts";
 
 const H = 3_600_000;
 const hour = (start: number, requests: number): UsageHour => ({ hour_start: start, requests, cpu_ms: 0, wall_ms: 0, egress_bytes: 0, fetch_sent_bytes: 0, db_ms: 0, db_rows: 0, render_fuel: 0 });
@@ -38,4 +38,11 @@ test("log events: only `log` events with a valid line; comments, other events an
   const line = { ts: 1, tenant_id: "t", deployment_hash: "a".repeat(64), request_id: null, module: "m", level: "info", message: "hi", fields: null, source: "server" };
   const body = `: keep-alive\n\nevent: log\nid: 1-0\ndata: ${JSON.stringify(line)}\n\nevent: other\ndata: {}\n\nevent: log\ndata: {not json\n\r\nevent: log\r\ndata: ${JSON.stringify({ ...line, message: "crlf" })}\r\n\r\n`;
   expect(parseLogEvents(body).map((l) => l.message)).toEqual(["hi", "crlf"]);
+});
+
+test("a figure for the dot face keeps its unit apart, so the unit is not set in capitals", () => {
+  expect(figure("0 ms")).toEqual({ n: "0", unit: "ms" });
+  expect(figure("12.5 KB")).toEqual({ n: "12.5", unit: "KB" });
+  expect(figure("1,284")).toEqual({ n: "1,284", unit: "" });
+  expect(figure("—")).toEqual({ n: "—", unit: "" });
 });

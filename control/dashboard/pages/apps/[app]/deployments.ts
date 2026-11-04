@@ -23,7 +23,7 @@ export async function load(ctx: LoaderContext) {
     selected === null ? null : api.getDeployment(name, selected),
     selected === null ? null : api.getAdvisories(name, selected),
   ]);
-  if (!list.ok) return { ...base, problem: await problem(ctx, list), deployments: [], detail: null, detail_problem: null };
+  if (!list.ok) return { ...base, problem: await problem(ctx, list), deployments: [], has_notes: false, detail: null, detail_problem: null };
   let detail = null;
   let detailProblem = null;
   if (one !== null) {
@@ -51,7 +51,9 @@ export async function load(ctx: LoaderContext) {
       };
     }
   }
-  return { ...base, problem: null, deployments: deploymentRows(list.value.deployments, now, tr), detail, detail_problem: detailProblem };
+  const rows = deploymentRows(list.value.deployments, now, tr);
+  // The notes column only when a row has a note (a violation count or an activation error).
+  return { ...base, problem: null, deployments: rows, has_notes: rows.some((r) => r.error !== null), detail, detail_problem: detailProblem };
 }
 
 export const actions = { activate: deployActions.activate, rollback: deployActions.rollback };

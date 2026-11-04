@@ -24,3 +24,6 @@ perf.data*
 .DS_Store
 .idea/
 .vscode/
+
+# taste-skill working files (.claude/skills/design-taste-frontend)
+.taste-skill/

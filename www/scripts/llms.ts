@@ -44,7 +44,7 @@ const title = (path: string): string =>
 
 /** The developer-facing documents, in reading order, with the line llms.txt shows for each. */
 export const DEV_DOCS: readonly [path: string, line: string][] = [
-  ["docs/getting-started.md", "install the CLI from the repository, renox new, renox dev, renox login, renox deploy, what to read next"],
+  ["docs/getting-started.md", "install the CLI with one line (or run it from the repository), renox new, renox dev, renox login, renox deploy, what to read next"],
   ["docs/07-app-model.md", "folders are routes: functions/, pages/ with loaders and actions, migrations/, policies/, jobs/, public/; renox.toml; the ctx SDK"],
   ["docs/08-template-engine.md", "HTML-first templates with r-* attributes compiled to minijinja, layouts, partials as <x-name>, fragments, render fuel"],
   ["docs/09-htmx-realtime.md", "htmx fragments, morphing and view transitions; SSE and WebSocket routes with topics and authorization"],
@@ -116,7 +116,7 @@ export function llmsTxt(): string {
   };
   const doc = (path: string): string => `[${title(path)}](${site(path)})`;
   section("Getting started", [
-    [doc("docs/getting-started.md"), "install the CLI from the repository today, create an app with renox new, run it with renox dev, sign in, deploy it"],
+    [doc("docs/getting-started.md"), "install the CLI with one line, create an app with renox new, run it with renox dev, sign in, deploy it"],
     [doc("docs/12-developer-experience.md"), "the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits"],
     [`[renox CLI reference](${site("cli/README.md")})`, "every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy"],
     [`[The SDK, @renoxium/sdk](${site("sdk/README.md")})`, "the `@renoxium/sdk` npm package: Handler, Ctx, pages, validate, modules, query builders, @renoxium/sdk/fakes and @renoxium/sdk/test"],
@@ -129,7 +129,7 @@ export function llmsTxt(): string {
   ]);
   section("CLI", [
     [`[renox CLI reference](${site("cli/README.md")})`, "renox new, dev, build, check, test, add, remove, migrate, deploy, logs, secrets, db, jobs, authz explain, mcp"],
-    [`[Installing the CLI and the SDK](${site("docs/12-developer-experience.md")}#installing-the-cli)`, "how the CLI and the SDK are released (not published yet; today the CLI runs from the repository, see Getting started)"],
+    [`[Installing the CLI and the SDK](${site("docs/12-developer-experience.md")}#installing-the-cli)`, "the one-line install of the signed CLI binaries, the SDK @renoxium/sdk on npm at the same version, WSL 2, verifying, upgrading"],
   ]);
   section("MCP for agents", [
     [doc("docs/20-ai-agents-mcp.md"), "the platform MCP (local and remote), App MCP tools, in-app agents with ctx.ai, agent security"],

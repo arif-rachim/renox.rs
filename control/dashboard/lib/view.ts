@@ -105,6 +105,12 @@ export function hourlyBars(hours: UsageHour[], to: number, slots: number, value:
   });
 }
 
+/** "12.5 KB" -> { n: "12.5", unit: "KB" }: a figure for the dot face, its unit set apart in the text face (renox-ui `.stat .value small`). */
+export function figure(text: string): { n: string; unit: string } {
+  const m = /^(\S+)\s+([A-Za-z]+)$/u.exec(text);
+  return m === null ? { n: text, unit: "" } : { n: m[1] as string, unit: m[2] as string };
+}
+
 export const round = (n: number): string => (Number.isInteger(n) ? n.toLocaleString("en-US") : n.toLocaleString("en-US", { maximumFractionDigits: 1 }));
 
 /** "38%" of a quota, capped for the meter width. */

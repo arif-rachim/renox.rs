@@ -28,7 +28,21 @@ main p, main li { font-size: 1.0625rem; }
 .feature h2 { font-size: clamp(1.75rem, 3.2vw, 2.5rem); letter-spacing: -.03em; max-inline-size: 22ch; }
 .feature p { max-inline-size: 56ch; color: var(--rx-ink-2); }
 .feature .pill { margin-inline-end: var(--rx-2); margin-block-end: var(--rx-2); }
-.feature .dots { justify-self: center; font-size: 1rem; letter-spacing: .5em; line-height: 1.5; }
+.feature-figure { position: relative; display: grid; place-items: center; margin: 0; min-block-size: 18rem; }
+/* The field of cells sits behind the fragment and is clipped to the figure. */
+.feature-figure .dots { position: absolute; inset: 0; overflow: hidden; }
+.feature-figure .dots svg { inline-size: 100%; block-size: 100%; }
+/* An interface fragment: the dashboard's own panel conventions inside it. */
+[data-ui].ui-frag { position: relative; inline-size: min(100%, 26rem); min-block-size: 13rem; padding: var(--rx-4) var(--rx-5); background: var(--rx-surface); border: 1px solid var(--rx-rule); border-radius: var(--rx-r-control); }
+[data-ui] .ui-frag-title { display: flex; align-items: center; gap: var(--rx-2); margin: 0 0 var(--rx-3); font-size: .9375rem; font-weight: 500; }
+[data-ui] .list { margin: 0; font-size: .875rem; }
+[data-ui] .list td, [data-ui] .list th { font-size: .875rem; }
+[data-ui] pre { margin: 0; font-size: .8125rem; }
+[data-ui] .ui-frag-facts { margin: 0; }
+[data-ui] .ui-frag-facts div { display: grid; grid-template-columns: 6rem 1fr; gap: var(--rx-3); padding-block: .5rem; border-block-end: 1px solid var(--rx-rule); }
+[data-ui] .ui-frag-facts div:last-child { border-block-end: 0; }
+[data-ui] .ui-frag-facts dt { font-size: .875rem; color: var(--rx-muted); }
+[data-ui] .ui-frag-facts dd { margin: 0; font-size: .875rem; }
 
 /* The pricing teaser and the pricing page: a plan per column. */
 .plans-row .stat .caption strong { color: var(--rx-ink); }
@@ -42,6 +56,7 @@ ul.plain li { padding-block: .2rem; font-size: .9375rem; border-block-end: 1px s
 ul.plain li:last-child { border-block-end: 0; }
 .plan ul.plain li .muted { display: inline-block; min-inline-size: 9rem; }
 
+.legal { margin-inline: auto; }
 .closing { text-align: center; }
 .closing .lede { margin-inline: auto; }
 .closing .actions { display: flex; justify-content: center; }
@@ -90,7 +105,7 @@ ul.plain li:last-child { border-block-end: 0; }
   .home-hero { padding-block-start: var(--rx-5); }
   .feature { grid-template-columns: 1fr; gap: var(--rx-4); }
   .feature:nth-of-type(even) > .feature-text { order: 0; }
-  .feature .dots { font-size: .8125rem; letter-spacing: .35em; }
+  .feature-figure { min-block-size: 15rem; }
   .docs { grid-template-columns: 1fr; gap: var(--rx-4); }
   .docs-nav { position: static; padding-block-start: 0; }
   .doc-pager { flex-wrap: wrap; }

@@ -97,6 +97,8 @@ test.skipIf(!worker)(
       expect(page.status).toBe(200);
       const html = await page.text();
       expect(html).toContain('<h1 class="dot dot-small">Sign in</h1>');
+      // The sign-in page does not offer "Sign in" again in its own top bar (owner review).
+      expect(html).not.toContain('class="button primary" href="/signin"');
       expect(html).toContain(`127.0.0.1:${local.port}`);
       expect(html).toContain('name="next" value="/apps/shop"');
       expect(page.headers.get("content-security-policy")).toContain("script-src");

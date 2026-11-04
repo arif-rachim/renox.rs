@@ -6,7 +6,7 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 
 ## Getting started
 
-- [Getting started](https://renoxium.com/docs/getting-started): install the CLI from the repository today, create an app with renox new, run it with renox dev, sign in, deploy it
+- [Getting started](https://renoxium.com/docs/getting-started): install the CLI with one line, create an app with renox new, run it with renox dev, sign in, deploy it
 - [Developer experience](https://renoxium.com/docs/developer-experience): the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits
 - [renox CLI reference](https://renoxium.com/docs/cli): every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy
 - [The SDK, @renoxium/sdk](https://renoxium.com/docs/sdk): the `@renoxium/sdk` npm package: Handler, Ctx, pages, validate, modules, query builders, @renoxium/sdk/fakes and @renoxium/sdk/test
@@ -43,7 +43,7 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 ## CLI
 
 - [renox CLI reference](https://renoxium.com/docs/cli): renox new, dev, build, check, test, add, remove, migrate, deploy, logs, secrets, db, jobs, authz explain, mcp
-- [Installing the CLI and the SDK](https://renoxium.com/docs/developer-experience#installing-the-cli): how the CLI and the SDK are released (not published yet; today the CLI runs from the repository, see Getting started)
+- [Installing the CLI and the SDK](https://renoxium.com/docs/developer-experience#installing-the-cli): the one-line install of the signed CLI binaries, the SDK @renoxium/sdk on npm at the same version, WSL 2, verifying, upgrading
 
 ## MCP for agents
 

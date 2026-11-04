@@ -64,20 +64,14 @@ renox dev</code></pre>
 
       <h2>Card row with stats</h2>
       <div class="cards">
-        <div class="card stat"><b class="value">0.1 <small>MB</small></b><span class="caption">held by an idle app on the node</span></div>
+        <div class="card stat"><b class="value">107 <small>KB</small></b><span class="caption">held by an idle app on the node</span></div>
         <div class="card stat"><b class="value">45 <small>ms</small></b><span class="caption">cold start, p99, hello function</span></div>
         <div class="card stat"><b class="value">1</b><span class="caption">command to deploy</span></div>
         <div class="card card-text"><p>Numbers in a card row are true and measured. The caption says what was measured and where.</p><p><a class="button go" href="#">Sign up</a></p></div>
       </div>
 
       <h2>Dot art</h2>
-      <pre class="dots" aria-hidden="true">· · · · · · · · · · · · · · · · · · · · · · · ·
-· · ▪ ▪ · · · <b>▪</b> ▪ · · · ▪ ▪ · · · ▪ <b>▪</b> · · · ▪ ·
-· · ▪ <b>▪</b> · · · ▪ ▪ · · · ▪ ▪ · · · ▪ ▪ · · · ▪ ·
-· · · · · · · · · · · · · · · · · · · · · · · ·
-· · ▪ ▪ · · · ▪ ▪ · · · <b>▪</b> ▪ · · · ▪ ▪ · · · <b>▪</b> ·
-· · ▪ ▪ · · · ▪ <b>▪</b> · · · ▪ ▪ · · · ▪ ▪ · · · ▪ ·
-· · · · · · · · · · · · · · · · · · · · · · · ·</pre>
+      <div class="dots" aria-hidden="true"><svg viewBox="0 0 240 80" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle class="dot-idle" cx="10" cy="10" r="1.6"/><circle class="dot-idle" cx="30" cy="10" r="1.6"/><circle class="dot-idle" cx="50" cy="10" r="1.6"/><circle class="dot-idle" cx="70" cy="10" r="1.6"/><circle class="dot-idle" cx="90" cy="10" r="1.6"/><circle class="dot-idle" cx="110" cy="10" r="1.6"/><circle class="dot-idle" cx="130" cy="10" r="1.6"/><circle class="dot-idle" cx="150" cy="10" r="1.6"/><circle class="dot-idle" cx="170" cy="10" r="1.6"/><circle class="dot-idle" cx="190" cy="10" r="1.6"/><circle class="dot-idle" cx="210" cy="10" r="1.6"/><circle class="dot-idle" cx="230" cy="10" r="1.6"/><circle class="dot-idle" cx="10" cy="30" r="1.6"/><rect class="lit" x="24" y="24" width="12" height="12" rx="2"/><rect class="cell" x="44" y="24" width="12" height="12" rx="2"/><circle class="dot-idle" cx="70" cy="30" r="1.6"/><circle class="dot-idle" cx="90" cy="30" r="1.6"/><circle class="dot-idle" cx="110" cy="30" r="1.6"/><circle class="dot-idle" cx="130" cy="30" r="1.6"/><rect class="cell" x="144" y="24" width="12" height="12" rx="2"/><rect class="cell" x="164" y="24" width="12" height="12" rx="2"/><circle class="dot-idle" cx="190" cy="30" r="1.6"/><circle class="dot-idle" cx="210" cy="30" r="1.6"/><circle class="dot-idle" cx="230" cy="30" r="1.6"/><circle class="dot-idle" cx="10" cy="50" r="1.6"/><rect class="cell" x="24" y="44" width="12" height="12" rx="2"/><rect class="cell" x="44" y="44" width="12" height="12" rx="2"/><circle class="dot-idle" cx="70" cy="50" r="1.6"/><circle class="dot-idle" cx="90" cy="50" r="1.6"/><circle class="dot-idle" cx="110" cy="50" r="1.6"/><circle class="dot-idle" cx="130" cy="50" r="1.6"/><rect class="cell" x="144" y="44" width="12" height="12" rx="2"/><rect class="lit" x="164" y="44" width="12" height="12" rx="2"/><circle class="dot-idle" cx="190" cy="50" r="1.6"/><circle class="dot-idle" cx="210" cy="50" r="1.6"/><circle class="dot-idle" cx="230" cy="50" r="1.6"/><circle class="dot-idle" cx="10" cy="70" r="1.6"/><circle class="dot-idle" cx="30" cy="70" r="1.6"/><circle class="dot-idle" cx="50" cy="70" r="1.6"/><circle class="dot-idle" cx="70" cy="70" r="1.6"/><circle class="dot-idle" cx="90" cy="70" r="1.6"/><circle class="dot-idle" cx="110" cy="70" r="1.6"/><circle class="dot-idle" cx="130" cy="70" r="1.6"/><circle class="dot-idle" cx="150" cy="70" r="1.6"/><circle class="dot-idle" cx="170" cy="70" r="1.6"/><circle class="dot-idle" cx="190" cy="70" r="1.6"/><circle class="dot-idle" cx="210" cy="70" r="1.6"/><circle class="dot-idle" cx="230" cy="70" r="1.6"/></svg></div>
 
       <h2 id="components">Pills and buttons</h2>
       <p><span class="pill">request</span> <span class="pill">isolate</span> <span class="pill">sqlite</span> <span class="pill"><code>2e84bef</code></span> <span class="pill ok live">live</span> <span class="pill">superseded</span> <span class="pill warn">● attention</span> <span class="pill bad">✗ failed</span> <span class="tag">3</span></p>
@@ -93,7 +87,7 @@ renox dev</code></pre>
 
       <h2 id="app">Tables</h2>
       <table class="list">
-        <thead><tr><th>Version</th><th>Deployed</th><th>State</th><th>Size</th><th></th></tr></thead>
+        <thead><tr><th>Version</th><th>Deployed</th><th>State</th><th class="n">Size</th><th></th></tr></thead>
         <tbody>
           <tr><td><span class="pill"><code>2e84bef</code></span></td><td>3m ago</td><td><span class="pill ok live">live</span></td><td class="n">1.2 MB</td><td><button>Roll back</button></td></tr>
           <tr><td><span class="pill"><code>6e58237</code></span></td><td>1d ago</td><td><span class="pill">superseded</span></td><td class="n">1.2 MB</td><td><button>Promote</button></td></tr>

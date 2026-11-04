@@ -5,14 +5,27 @@
  * properties only, for the Arabic pages (#336).
  */
 
+/* Titles and figures at the sizes of a working screen, not a landing page:
+   an h1 of 28px (the dot word 32px) and figures of 36px at most. */
+main h1 { font-size: 1.75rem; }
+.stat .value, .stat > b { font-size: 2.25rem; }
 /* The hero of a page: a pill, then the page's one dot word. Sentence case elsewhere. */
 .page-hero { margin-block-end: var(--rx-5); }
-.page-hero .dot { text-align: start; margin-block: var(--rx-2) var(--rx-2); }
+.page-hero .dot { font-size: 2rem; text-align: start; margin-block: var(--rx-2) var(--rx-2); }
+/* The usage charts' bars are the screen's data: they carry the one hue (app rule: colour on data, not chrome). */
+.chart rect { fill: color-mix(in srgb, var(--rx-accent) 78%, var(--rx-surface)); }
+.chart rect:hover { fill: var(--rx-accent); }
 .page-hero .lede { margin-block: 0; }
 .signin .page-hero { text-align: center; }
 .signin .page-hero .dot { text-align: center; }
 .signin .page-hero .lede { margin-inline: auto; }
 .signin .panel form > label > input { max-inline-size: none; }
+/* A page without the side navigation (sign-in, sign-up, verification): its
+   column sits in the middle of the frame, under the centred top bar. */
+.frame:not(:has(.side)) main > .narrow { margin-inline: auto; }
+/* A form in a narrow column stacks: each field full width, the button under the last one. */
+.narrow form > label { display: flex; }
+.narrow form { margin-block-end: var(--rx-4); }
 
 /* An app's sections: the path above, the segmented links below. */
 .subnav { margin-block-end: var(--rx-5); }
@@ -70,4 +83,6 @@ table.logs { padding: var(--rx-2) var(--rx-4); background: var(--rx-sunken); bor
   table.logs td.msg { grid-column: 1 / -1; order: 1; }
   table.logs td:nth-child(3), table.logs td:nth-child(4) { order: 2; grid-column: 1 / -1; font-size: .75rem; color: var(--rx-muted); word-break: break-all; }
   .subnav .tabs { display: flex; flex-wrap: wrap; }
+  /* A phone title stays at 24-28px. */
+  main h1, .page-hero .dot { font-size: 1.5rem; }
 }

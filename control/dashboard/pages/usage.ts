@@ -4,7 +4,7 @@
 import type { LoaderContext } from "@renoxium/sdk";
 
 import { frame, problem, signedIn } from "../lib/guard.ts";
-import { bytes, round } from "../lib/view.ts";
+import { bytes, figure, round } from "../lib/view.ts";
 
 const DAY_MS = 24 * 3600 * 1000;
 /** How many apps are read: one usage call each. */
@@ -26,6 +26,6 @@ export async function load(ctx: LoaderContext) {
     ...base,
     tenant_id: list.value.apps[0]?.tenant_id ?? null,
     apps: rows.map((r) => ({ name: r.name, requests: round(r.total.requests), cpu: `${round(r.total.cpu_ms)} ms`, egress: bytes(r.total.egress_bytes) })),
-    totals: { requests: round(sum((t) => t.requests)), cpu: `${round(Math.round(sum((t) => t.cpu_ms) / 1000))} s`, egress: bytes(sum((t) => t.egress_bytes)).replace(/\.\d+/u, "") },
+    totals: { requests: figure(round(sum((t) => t.requests))), cpu: figure(`${round(Math.round(sum((t) => t.cpu_ms) / 1000))} s`), egress: figure(bytes(sum((t) => t.egress_bytes)).replace(/\.\d+/u, "")) },
   };
 }

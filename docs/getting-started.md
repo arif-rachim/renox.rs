@@ -4,7 +4,15 @@ From an empty folder to an app at `https://<app>.renoxium.app`: install the CLI,
 
 ## Install
 
-The CLI is not on npm yet, and there is no packaged `renox` binary yet. What works today is the CLI from the repository, run with [Bun](https://bun.sh) 1.4 or later:
+The CLI is released as a signed binary for Linux and macOS on x64 and arm64; on Windows it runs inside WSL 2. One line installs `renox`, and the `renox-worker` it is tested against, into `~/.renox/bin`, and installs a file only when its SHA-256 matches:
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
+```
+
+`renox --version` prints the CLI's version and the worker it pins. The SDK is the npm package `@renoxium/sdk`: `bun install` in an app made by `renox new` pulls it at the CLI's version. Verifying the signatures, the WSL 2 steps and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
+
+To run the CLI from a clone of the repository instead (to work on the platform itself), with [Bun](https://bun.sh) 1.4 or later:
 
 ```sh
 git clone https://github.com/arif-rachim/renox.rs
@@ -13,10 +21,6 @@ bun install
 bun cli/scripts/fetch-worker.ts        # the signed renox-worker release for your platform
 alias renox="bun $PWD/cli/src/main.ts"
 ```
-
-`fetch-worker.ts` downloads the `renox-worker` release the CLI is tested against (it refuses a download whose SHA-256 does not match) into `cli/bin/<platform>-<arch>/`, where `renox dev` finds it. To get one binary instead of the alias, `bun run --cwd cli compile` writes `cli/dist/renox`.
-
-Outside this repository, the CLI installs with one line on Linux and macOS (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh`; on Windows, inside WSL 2), and `bun install` in an app made by `renox new` pulls the SDK `@renoxium/sdk` at the same version; the details, the WSL 2 steps and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
 
 ## Your first app
 

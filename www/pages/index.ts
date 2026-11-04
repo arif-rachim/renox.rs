@@ -25,32 +25,40 @@ export interface Feature {
   dots: string;
 }
 
-/** Cells lighting up on a node: a fixed field of glyphs, `lit` cells in the accent. Only `·`, `▪`, `<b>` and newlines. */
+/**
+ * Cells lighting up on a node, drawn as an inline SVG: a dot per idle slot,
+ * a rounded square per cell of a node, the `lit` cells in the accent. Only
+ * <svg>, <circle> and <rect> with fixed attributes: the markup is built here
+ * from numbers, never from input, so it is safe for r-html.
+ */
 export function dotField(columns: number, rows: number, cells: readonly number[], lit: readonly number[]): string {
+  const P = 20;
   const on = new Set(cells);
   const hot = new Set(lit);
-  const lines: string[] = [];
+  const marks: string[] = [];
   for (let r = 0; r < rows; r++) {
-    const row: string[] = [];
     for (let c = 0; c < columns; c++) {
       const i = r * columns + c;
-      row.push(hot.has(i) ? "<b>▪</b>" : on.has(i) ? "▪" : "·");
+      const [x, y] = [c * P + P / 2, r * P + P / 2];
+      if (hot.has(i)) marks.push(`<rect class="lit" x="${x - 6}" y="${y - 6}" width="12" height="12" rx="2"/>`);
+      else if (on.has(i)) marks.push(`<rect class="cell" x="${x - 6}" y="${y - 6}" width="12" height="12" rx="2"/>`);
+      else marks.push(`<circle class="dot-idle" cx="${x}" cy="${y}" r="1.6"/>`);
     }
-    lines.push(row.join(" "));
   }
-  return lines.join("\n");
+  return `<svg viewBox="0 0 ${columns * P} ${rows * P}" xmlns="http://www.w3.org/2000/svg" focusable="false">${marks.join("")}</svg>`;
 }
 
-const COLS = 18;
-const ROWS = 7;
-/** Four nodes of 2 × 2 cells, like the mark, with one lit cell each; the lit ones differ per field. */
-const NODES = [20, 21, 38, 39, 25, 26, 43, 44, 30, 31, 48, 49, 74, 75, 92, 93, 79, 80, 97, 98, 84, 85, 102, 103];
+const COLS = 24;
+const ROWS = 14;
+/** The cells of six 2 x 2 nodes on the field, like the mark: their top-left slots. */
+const NODE_AT: readonly [col: number, row: number][] = [[2, 2], [9, 1], [17, 3], [4, 9], [12, 8], [19, 10]];
+const NODES = NODE_AT.flatMap(([c, r]) => [r * COLS + c, r * COLS + c + 1, (r + 1) * COLS + c, (r + 1) * COLS + c + 1]);
 
 export const FEATURES: readonly Omit<Feature, "dots">[] = [
   {
     id: "modules",
-    head: "Sign-in, teams, billing and admin",
-    muted: "as installed modules, not rewrites.",
+    head: "Sign-in, teams, billing:",
+    muted: "installed, not rewritten.",
     text: "renox add auth brings the login, register and account pages with passwords and passkeys; org brings organisations with roles and invitations; billing brings plans, checkouts and invoices; admin brings the back office. Each module keeps its tables under its own prefix and asks for its permissions at install.",
     items: ["auth", "org", "billing", "admin", "storage", "email"],
     link: "Read about modules",
@@ -58,8 +66,8 @@ export const FEATURES: readonly Omit<Feature, "dots">[] = [
   },
   {
     id: "runs",
-    head: "One isolate and one SQLite file per app,",
-    muted: "under limits the platform enforces.",
+    head: "One isolate, one SQLite file",
+    muted: "for every app.",
     text: "Your code runs in a V8 isolate with its own CPU, memory and wall-clock limits, and reads its own SQLite file in the same process. An idle app holds nothing but bookkeeping, so the Free plan can be free and a paid plan pays for what runs.",
     items: ["isolate", "sqlite", "cpu limit", "backup"],
     link: "How an app runs",
@@ -68,7 +76,7 @@ export const FEATURES: readonly Omit<Feature, "dots">[] = [
   {
     id: "domains",
     head: "Your own domain,",
-    muted: "a certificate issued at the edge.",
+    muted: "TLS at the edge.",
     text: "Every app answers at <app>.renoxium.app. Attach a custom domain with one CNAME to renoxium.app: ownership is verified, the certificate is issued and renewed at Cloudflare's edge, and TLS ends near your visitors.",
     items: ["cname", "tls", "hsts"],
     link: "Custom domains",
@@ -76,8 +84,8 @@ export const FEATURES: readonly Omit<Feature, "dots">[] = [
   },
   {
     id: "agents",
-    head: "Built to be driven by a coding agent",
-    muted: "as well as by you.",
+    head: "Built for coding agents,",
+    muted: "and for you.",
     text: "renox new writes an AGENTS.md and registers renox mcp, a local MCP server with the docs, your project's routes and the results of renox check and renox test. Every app can be an MCP server of its own, and the remote platform MCP works behind OAuth.",
     items: ["renox mcp", "app mcp", "ctx.ai"],
     link: "AI agents and MCP",
@@ -85,7 +93,9 @@ export const FEATURES: readonly Omit<Feature, "dots">[] = [
   },
 ];
 
-const LIT: Record<string, number[]> = { modules: [20, 43], runs: [25, 97], domains: [30, 84], agents: [74, 48] };
+/** One lit cell in two of the nodes, different for each section (the slot index on the field). */
+const at = (c: number, r: number): number => r * COLS + c;
+const LIT: Record<string, number[]> = { modules: [at(2, 2), at(13, 9)], runs: [at(10, 2), at(5, 10)], domains: [at(18, 4), at(20, 10)], agents: [at(9, 1), at(4, 9)] };
 
 export function features(): Feature[] {
   return FEATURES.map((f) => ({ ...f, dots: dotField(COLS, ROWS, NODES, LIT[f.id] ?? []) }));

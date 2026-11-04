@@ -155,12 +155,16 @@ describe("pricing and legal", () => {
     const f = features();
     expect(f.map((x) => x.id)).toEqual(["modules", "runs", "domains", "agents"]);
     for (const x of f) {
-      expect(x.dots).toMatch(/^[·▪ \n<b>/]+$/u);
-      expect(x.dots.match(/<b>/gu)?.length).toBe(2);
+      // Drawn, not typed: an inline SVG of circles and rects only, two of them lit.
+      expect(x.dots.startsWith("<svg ")).toBe(true);
+      expect(x.dots.replace(/<svg [^>]*>|<\/svg>|<circle [^>]*\/>|<rect [^>]*\/>/gu, "")).toBe("");
+      expect(x.dots.match(/class="lit"/gu)?.length).toBe(2);
       expect(x.href.startsWith("/docs/")).toBe(true);
     }
     expect(features()).toEqual(f);
-    expect(dotField(2, 2, [1], [3])).toBe("· ▪\n· <b>▪</b>");
+    expect(dotField(2, 1, [], [1])).toBe('<svg viewBox="0 0 40 20" xmlns="http://www.w3.org/2000/svg" focusable="false"><circle class="dot-idle" cx="10" cy="10" r="1.6"/><rect class="lit" x="24" y="4" width="12" height="12" rx="2"/></svg>');
+    // Every feature headline stays short enough for two lines on a phone (taste review, #428).
+    for (const x of f) expect(`${x.head} ${x.muted}`.length, x.id).toBeLessThanOrEqual(52);
     // Every stat is a whole number (Doto draws a period as a cross) with its source named.
     for (const s of STATS) {
       expect(s.value).toMatch(/^\d+$/u);
@@ -244,7 +248,9 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     const home = await get("/");
     expect(home.status).toBe(200);
     expect(home.text).toMatch(/<h1 id="hero-title" class="dot">Deploy\. Run\.<\/h1>/u);
-    expect(home.text).toContain('<pre class="dots" aria-hidden="true">');
+    expect(home.text).toContain('<div class="dots" aria-hidden="true"><svg ');
+    // Four interface fragments of the product (data-ui), one per feature section.
+    expect(home.text.match(/class="ui-frag" data-ui/gu)?.length).toBe(4);
     // No script of the site's own (renox dev injects its own, under /__renox/).
     expect(home.text.match(/<script[^>]*src="([^"]+)"/gu)?.every((m) => m.includes("/__renox/"))).toBe(true);
     expect(home.text).not.toContain("site.js");

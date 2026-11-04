@@ -20,7 +20,7 @@
       <x-csrf />
       <button type="submit" class="link"><r-t key="dash.nav.sign_out" /></button>
     </form>
-    <a class="button primary" href="/signin" r-if="!signed_in"><r-t key="dash.common.sign_in" /></a>
+    <a class="button primary" href="/signin" r-if="!signed_in && here != 'signin'"><r-t key="dash.common.sign_in" /></a>
   </header>
   <p class="banner impersonation" role="alert" r-if="impersonation"><r-t key="dash.banner.access" /> <code>{{ impersonation.tenant_id }}</code> (<r-t key="dash.banner.break_glass" /> <code>{{ impersonation.impersonation_id }}</code>) <r-t key="dash.banner.until" /> {{ impersonation.until }}. <r-t key="dash.banner.audited" /></p>
   <div class="frame">

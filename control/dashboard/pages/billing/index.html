@@ -5,7 +5,15 @@
     <x-problem :problem="problem" r-if="problem" />
     <p class="notice" r-if="notice">{{ notice }}</p>
     <p class="muted" r-if="no_tenant"><r-t key="dash.billing.no_tenant" /> <a href="/apps/new"><r-t key="dash.billing.create_one" /></a>.</p>
-    <p class="muted" r-if="owner_only"><r-t key="dash.billing.owner_only" /></p>
+    <r-group r-if="owner_only">
+      <p class="notice"><r-t key="dash.billing.owner_only" /></p>
+      <h2><r-t key="dash.billing.plans" /></h2>
+      <table class="list">
+        <thead><tr><th><r-t key="dash.billing.plan" /></th><th class="n"><r-t key="dash.billing.per_month" /></th></tr></thead>
+        <tbody><tr r-for="p in plans"><td>{{ p.name }}</td><td class="n">{{ p.price }}</td></tr></tbody>
+      </table>
+      <p class="muted"><r-t key="dash.billing.plans_note" /></p>
+    </r-group>
 
     <div id="step-up" r-if="step_up">
       <h2><r-t key="dash.common.confirm_you" /></h2>

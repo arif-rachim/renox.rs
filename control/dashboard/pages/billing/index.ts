@@ -60,16 +60,19 @@ function shown(b: Billing, plans: Plan[]) {
   };
 }
 
+const planRows = (plans: Plan[]) => plans.map((p) => ({ name: p.name ?? p.id, price: `${p.price_month} AED` }));
+
 const invoiceRows = (items: Invoice[]) =>
   items.map((i) => ({ id: i.id, issued: clock(i.issued_at).slice(0, 10), total: `${i.total} ${i.currency}`, status: i.status, pdf: `/billing/invoices/${encodeURIComponent(i.id)}` }));
 
 async function page(ctx: LoaderContext | ActionContext, api: Api, view: View) {
-  const base = { ...frame(ctx, api, "billing"), section: "billing", owner_only: false, no_tenant: false, billing: null, invoices: [] as ReturnType<typeof invoiceRows>, has_invoices: false, ...view };
+  const base = { ...frame(ctx, api, "billing"), section: "billing", owner_only: false, plans: [] as ReturnType<typeof planRows>, no_tenant: false, billing: null, invoices: [] as ReturnType<typeof invoiceRows>, has_invoices: false, ...view };
   const tenant = await tenantOf(api);
   if (!tenant.ok) return { ...base, problem: view.problem ?? (await problem(ctx, tenant)) };
   if (tenant.value === null) return { ...base, no_tenant: true };
   const [b, plans, inv] = await Promise.all([api.getBilling(tenant.value), api.listPlans(), api.listInvoices(tenant.value)]);
-  if (!b.ok) return notOwner(b) ? { ...base, owner_only: true } : { ...base, problem: view.problem ?? (await problem(ctx, b)) };
+  // A member's token: billing is the owner's, but the plans and their prices are anyone's to read.
+  if (!b.ok) return notOwner(b) ? { ...base, owner_only: true, plans: plans.ok ? planRows(plans.value.plans) : [] } : { ...base, problem: view.problem ?? (await problem(ctx, b)) };
   const invoices = inv.ok ? invoiceRows(inv.value.items) : [];
   return { ...base, billing: shown(b.value, plans.ok ? plans.value.plans : []), invoices, has_invoices: invoices.length > 0 };
 }
