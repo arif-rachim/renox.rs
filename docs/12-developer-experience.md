@@ -34,9 +34,9 @@ Exit code 0 when every test passed, 2 when one failed.
 On Linux or macOS (x64 or arm64):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.1 (renox-worker 0.3.0)
+renox --version                          # renox 0.1.2 (renox-worker 0.3.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -58,7 +58,7 @@ The CLI is released as standalone binaries (`bun build --compile`, so no Bun is 
 Releases are signed (#129; `docs/24-threat-model.md` F, "Tampered release"). Every `cli-v*` and `worker-v*` release also carries `SHA256SUMS`, a sigstore bundle `<asset>.sigstore.json` per file (cosign keyless signature from the release workflow's OIDC identity, logged in Rekor), and SLSA v1 build provenance (`renox-<version>.provenance.sigstore.json`, `renox-worker-<version>.provenance.sigstore.json`). The release workflow verifies all of them with cosign in a fresh container before it publishes. With `cosign` installed, `install.sh` also checks each file's signature and installs nothing that fails; `RENOX_REQUIRE_SIGNATURE=1` refuses to install without a verified signature. To verify a download by hand:
 
 ```sh
-v=0.1.1; a=renox-$v-linux-x64
+v=0.1.2; a=renox-$v-linux-x64
 sha256sum -c --ignore-missing SHA256SUMS
 cosign verify-blob --bundle $a.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-cli\.yml@refs/tags/cli-v' \
@@ -112,7 +112,7 @@ Target from save to browser update: under 300 ms for a single file. Discarding t
 - `--types-only` runs only the type check; `--no-types` skips it; `--json` carries the findings like the others.
 - `renox deploy` runs the same check before it builds anything: a type error stops it with exit code 2 and nothing is uploaded; `--skip-types` deploys anyway, with a warning. `run_check` over `renox mcp` returns the type findings, so a coding agent sees them.
 
-The type check of `examples/shop` takes about 0.6 s with TypeScript 7 (measured on the CI container, `cli/tests/check-types.test.ts`).
+The type check of `examples/shop` takes about 0.6 s with TypeScript 7 (636 ms measured on 2026-11-04 in a 4-vCPU container; `cli/tests/check-types.test.ts` fails above 5 s).
 
 ## Debugging
 
