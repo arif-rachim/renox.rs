@@ -1,4 +1,5 @@
-// renox new <name> [--template blank|hello]
+// renox new <name> [--template blank|hello]: writes the app, then prints the
+// steps to a live app and the docs URL (#449).
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -35,7 +36,7 @@ export function newApp(name: string, template: string, parent = process.cwd()): 
         name,
         private: true,
         type: "module",
-        scripts: { dev: "renox dev", build: "renox build", check: "renox check" },
+        scripts: { dev: "renox dev", build: "renox build", check: "renox check", test: "renox test", deploy: "renox deploy" },
         dependencies: { "@renoxium/sdk": `^${CLI_VERSION}` },
       },
       null,
@@ -47,9 +48,26 @@ export function newApp(name: string, template: string, parent = process.cwd()): 
   for (const [rel, content] of Object.entries(files)) {
     const p = join(dir, rel);
     mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, content);
+    writeFileSync(p, content.replaceAll("{{APP}}", name));
   }
   return dir;
+}
+
+export const DOCS_URL = "https://renoxium.com/docs";
+
+/** What `renox new` prints after writing the app (#449): every step to a live app, in order. */
+export function nextSteps(name: string): string {
+  return [
+    `Created ${name}/. Next:`,
+    "",
+    `  cd ${name}`,
+    "  bun install        # the @renoxium/sdk types and test helpers",
+    "  renox dev          # http://localhost:8787, reloads on save",
+    "  renox login        # once: approve the sign-in in the dashboard",
+    "  renox deploy       # prints the live URL",
+    "",
+    `Docs: ${DOCS_URL}`,
+  ].join("\n");
 }
 
 export function run(args: string[]): number {
@@ -60,8 +78,7 @@ export function run(args: string[]): number {
     console.error("usage: renox new <name> [--template blank|hello]");
     return EXIT.USER;
   }
-  const dir = newApp(name, template);
-  console.log(`created ${name}/ from the ${template} template\n  cd ${name} && renox dev`);
-  void dir;
+  newApp(name, template);
+  console.log(nextSteps(name));
   return 0;
 }

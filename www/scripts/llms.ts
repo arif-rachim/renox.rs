@@ -20,7 +20,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { cleanTitle, slugOfPath } from "../lib/docs.ts";
+import { cleanTitle, repoUrl, slugOfPath } from "../lib/docs.ts";
 
 export const ROOT = resolve(import.meta.dir, "../..");
 /** The site: published documents are pages under /docs/<slug> (lib/docs.ts). */
@@ -31,9 +31,10 @@ export const REPO = "https://github.com/arif-rachim/renox.rs/blob/main/";
 /** The site's page of a published path, or its file in the repository. */
 const site = (path: string): string => {
   const slug = slugOfPath(path);
-  return slug === null ? `${REPO}${path}` : `${SITE}/docs/${slug}`;
+  return slug === null ? repoUrl(path) : `${SITE}/docs/${slug}`;
 };
-const repo = (path: string): string => `${REPO}${path}`;
+/** A directory is under /tree/, a file under /blob/ (#449: /blob/main/examples/ answers 400). */
+const repo = (path: string): string => repoUrl(path);
 
 const read = (path: string): string => readFileSync(join(ROOT, path), "utf8");
 /** The document's first heading, without inline code marks, numbers and issue numbers. */

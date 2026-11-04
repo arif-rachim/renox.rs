@@ -1,0 +1,53 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`renox --help groups the commands 1`] = `
+"renox 0.0.0 (renox-worker 0.0.0): build and deploy Renoxium apps
+
+Usage: renox <command> [options]    renox <command> --help for one command
+
+Start:
+  new <name> [--template blank|hello]
+
+Develop:
+  dev [--port 8787] [--jobs]
+  dev --worker <path>
+  build [--out <dir>]
+  check [--json] [--strict] [--secrets] [--security] [--types-only | --no-types]
+  test [pattern...] [--seed <file.sql>]... [-u]
+  migrate [--db <file>]
+  jobs list [--state <s>] [--json]
+  jobs run <name> [--module <m>]
+  jobs retry <id>
+  authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]
+  mcp [--project <dir>]
+
+Deploy and operate:
+  login [--api <url>] [--with-token]
+  deploy [--json] [--skip-types]
+  deploy --rollback [<hash>] [--app <name>] [--json]
+  logs [--follow] [--since <t>] [--source all|server|client] [--deployment <hash>] [--app <name>] [--json] [--raw]
+  secrets set <NAME> [--app <name>]
+  secrets list [--app <name>]
+  secrets rm <NAME> [--app <name>]
+  tokens list
+  tokens create <name> --scope <s>... [--expires-days <n>]
+  tokens revoke <id>
+  db export [--out <file>] [--app <name>]
+  db import <file> [--app <name>]
+  db restore --at <time> --as <new-app> [--app <name>]
+
+Modules:
+  add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]
+  remove <module>
+  approve <module> [--yes]
+  publish [--dir <tree>] [--dry-run]
+
+Other:
+  --version                              the CLI version and the renox-worker it pins
+  --help, help [<command>]               this text, or one command's
+
+Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
+Environment: RENOX_TOKEN and RENOX_API_URL override the credentials of renox login; RENOX_WORKER_PATH
+overrides the renox-worker binary of dev and test (not verified: for a worker you built).
+Docs: https://renoxium.com/docs"
+`;

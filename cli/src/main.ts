@@ -24,51 +24,13 @@ import { run as publish } from "./commands/publish.ts";
 import { run as approve } from "./commands/approve.ts";
 import { CLI_VERSION } from "./commands/new.ts";
 import { PINNED_WORKER } from "./worker/verify.ts";
+import { commandHelp, HELP, overview, suggest, unknownFlag } from "./lib/usage.ts";
 
 /** `renox --version`: the CLI and the renox-worker release it pins (the one `renox dev` runs; production runs its own). */
 const VERSION_LINE = `renox ${CLI_VERSION} (renox-worker ${PINNED_WORKER.version})`;
 
-const USAGE = `renox <command>
-
-  --version                             print the CLI version and the pinned renox-worker version
-
-  new <name> [--template blank|hello]   create an app
-  build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
-  dev [--port 8787]                     run the app on the local worker, rebuild on change
-  dev --worker <path>                   run another renox-worker; it must be the pinned release or carry
-                                        a sigstore signature and provenance that cosign verifies
-  check [--secrets] [--security] [--json] [--strict]
-                                        validate config, routes, templates, manifest, modules and renox.lock; lint SQL, fetch, global state;
-                                        scan for secrets; --security prints the effective headers per route; --json prints the report as JSON;
-                                        --strict fails on a drifted template override
-  migrate [--db <file>]                 run the migrations of the installed modules (lock order) and the app's on the dev database
-  publish [--dir <tree>] [--dry-run]    sign a module tree (module.sig) and upload it to the registry
-  approve <module> [--yes]              show the permission diff of an upgrade and approve it
-  jobs list [--state <s>] | run <name> [--module <m>] | retry <id>   the dev app's jobs (scheduled, queued, running, dead)
-  test [pattern...] [--seed <file.sql>] run tests/*.test.ts on the worker with a temporary tenant file per test file (@renoxium/sdk/test),
-                                        and the policy test cases of policies/tests/*.json
-  authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]
-                                        why the policies allow or deny a request (roles and resource attributes from the dev database)
-  add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]
-                                        install a module: resolve it, show the permissions it asks for, write renox.toml and renox.lock
-  remove <module>                       uninstall a module (its tables stay: migrations are forward-only)
-  mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
-  login [--api <url>] [--with-token]    sign in to the control plane (device code; --with-token reads a token from stdin)
-  tokens list | create <name> --scope <s>... [--expires-days n] | revoke <id>
-                                        manage tenant tokens (the value is shown once)
-  deploy [--json]                       build, upload, validate and activate the app; prints the live URL
-  deploy --rollback [<hash>] [--app <name>]
-                                        switch back to the previous (or the named) deployment
-  logs [--follow] [--since <t>] [--source all|server|client] [--deployment <hash>] [--app <name>] [--json] [--raw]
-                                        the app's log lines (--follow keeps streaming)
-  secrets set <NAME> | list | rm <NAME> [--app <name>]
-                                        app secrets; set reads the value from stdin and never prints it
-  db export [--out <file>] | import <file> | restore --at <time> --as <new-app> [--app <name>]
-                                        download the database (sha256 checked), import into a staging app, restore into a new app
-
-Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
-Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev (not verified: for a worker you built);
-RENOX_TOKEN and RENOX_API_URL override the credentials saved by login.`;
+/** The whole help, grouped (lib/usage.ts, #449). */
+const USAGE = overview(VERSION_LINE.replace(/^renox /u, ""));
 
 const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, jobs, test, mcp, publish, approve, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), db: (a) => db(a) };
 
@@ -76,15 +38,33 @@ async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   const fn = cmd ? COMMANDS[cmd] : undefined;
   if (!fn) {
-    if (cmd === undefined || cmd === "--help" || cmd === "help") {
-      console.log(USAGE);
+    if (cmd === undefined || cmd === "--help" || cmd === "-h" || cmd === "help") {
+      // `renox help deploy` is `renox deploy --help`.
+      const topic = cmd === "help" ? rest[0] : undefined;
+      console.log(topic !== undefined && topic in HELP ? commandHelp(topic) : USAGE);
       return EXIT.OK;
     }
     if (cmd === "--version" || cmd === "-V" || cmd === "version") {
       console.log(VERSION_LINE);
       return EXIT.OK;
     }
-    console.error(`renox: unknown command ${JSON.stringify(cmd)}\n\n${USAGE}`);
+    // #449: a suggestion and the way to the list, not the whole help.
+    const near = suggest(cmd, Object.keys(COMMANDS));
+    console.error(`renox: unknown command ${JSON.stringify(cmd)}${near === null ? "" : `. Did you mean "${near}"?`}\nRun \`renox --help\` for the list of commands.`);
+    return EXIT.USER;
+  }
+  // #449: `renox <command> --help` (or -h) prints the command's usage; an
+  // unknown flag is named before anything runs.
+  const name = cmd as string;
+  const passThrough = HELP[name]?.passThrough === true;
+  if ((!passThrough && (rest.includes("--help") || rest.includes("-h"))) || (passThrough && rest[0] === "--help")) {
+    console.log(commandHelp(name));
+    return EXIT.OK;
+  }
+  const bad = unknownFlag(name, rest);
+  if (bad !== null) {
+    const near = suggest(bad, HELP[name]?.flags ?? []);
+    console.error(`renox ${name}: unknown flag ${bad}${near === null ? "" : ` (did you mean ${near}?)`}\n\n${commandHelp(name)}`);
     return EXIT.USER;
   }
   // Ctrl-C: `renox dev` stops its worker first and returns 130 itself.

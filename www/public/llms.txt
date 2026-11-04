@@ -10,7 +10,7 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 - [Developer experience](https://renoxium.com/docs/developer-experience): the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits
 - [renox CLI reference](https://renoxium.com/docs/cli): every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy
 - [The SDK, @renoxium/sdk](https://renoxium.com/docs/sdk): the `@renoxium/sdk` npm package: Handler, Ctx, pages, validate, modules, query builders, @renoxium/sdk/fakes and @renoxium/sdk/test
-- [Example apps](https://github.com/arif-rachim/renox.rs/blob/main/examples/): hello (one function), shop (pages, templates, modules, policies), chat (realtime)
+- [Example apps](https://github.com/arif-rachim/renox.rs/tree/main/examples/): hello (one function), shop (pages, templates, modules, policies), chat (realtime)
 
 ## App model
 

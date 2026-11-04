@@ -238,7 +238,6 @@ $ renox deploy
 ```
 
 Measured times are B15's (`bench/scenarios/B15/run.sh`).
-```
 
 - **Deploy.** `renox build` (with the secret scan), then the artifact directory as a gzip tar with `x-renox-artifact-hash` to `POST /v1/apps/{app}/deployments` (the app is created on the first deploy), the source maps of `.renox/sourcemaps/<hash>/` to the private `PUT …/sourcemaps` (a failure there is a warning, not an error), and `POST /v1/apps/{app}/activate`, which answers once the owning node has migrated, loaded and probed the new cell. The live URL is the app's first hostname. An upload is idempotent by hash, so it is retried on a network failure, a 5xx or a 429; activation and rollback are retried on 503 and 429. At most 4 attempts, waiting `Retry-After` (capped at 30 s) or 1, 2, 4 s. A rejected upload prints every violation (`rule=… path=… reason=…`); a failed activation prints the stage (`migrate` with module, file and the SQLite message; `probe` with the status) and the old deployment keeps serving.
 - **Rollback.** `renox deploy --rollback` is a pointer switch to the most recently superseded deployment (`POST /v1/apps/{app}/rollback`); no build, upload or migration. It prints the command that undoes it.

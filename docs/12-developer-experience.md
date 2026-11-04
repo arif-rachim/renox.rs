@@ -4,16 +4,17 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 
 | Command | Purpose |
 | --- | --- |
-| `renox new <name>` | Project from a template (`shop`, `saas`, `blank`) |
+| `renox new <name>` | Project from a template: `hello` (a function, a home page and a test) or `blank` (one health route); prints the next steps |
 | `renox dev` | Local server: hot reload, error overlay, type generation, local dashboard |
 | `renox add <module>` | Add a module, update `renox.lock`, show requested permissions |
 | `renox migrate` | Run migrations for all modules in dependency order |
-| `renox check` | Type check TS, validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL, scan for secrets (`--secrets`: only the secret scan) |
+| `renox check` | Type check the TypeScript with the app's own `typescript` (see "Type safety"), validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL, scan for secrets (`--secrets`: only the secret scan) |
 | `renox test` | Run TS tests in the production runtime, including policy test cases and per-role template snapshots |
 | `renox deploy` | Bundle, upload, validate, activate; `--rollback <hash>` |
 | `renox logs --follow` | Tenant logs |
 | `renox authz explain` | Explain a policy decision |
-| `renox db shell` / `renox db export` | Open the local SQLite file; export a tenant's file from production |
+| `renox db export` / `import` / `restore` | Download the production database; import a file into a staging app; restore a point in time into a new app. The local database of `renox dev` is `.renox/data/dev/app.db`, a plain SQLite file any SQLite client opens |
+| `renox <command> --help` | The usage of any command; an unknown command or flag is named, with a suggestion |
 
 ### `renox test`
 

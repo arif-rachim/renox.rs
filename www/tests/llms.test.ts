@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { PUBLISHED } from "../lib/docs.ts";
+import { PUBLISHED, REPO_TREE } from "../lib/docs.ts";
 import { fullSources, llmsFullTxt, llmsTxt, modules, OUT, REPO, ROOT, SITE } from "../scripts/llms.ts";
 
 describe("llms.txt", () => {
@@ -35,6 +35,8 @@ describe("llms.txt", () => {
     for (const [, url] of index.matchAll(/\]\((https:\/\/[^)#\s]+)(?:#[^)]*)?\)/gu)) {
       if (url!.startsWith(`${SITE}/docs/`)) expect(slugs.has(url!.slice(`${SITE}/docs/`.length)), url).toBe(true);
       else if (url!.startsWith(REPO)) expect(existsSync(join(ROOT, url!.slice(REPO.length))), url).toBe(true);
+      // #449: a directory is under /tree/ (GitHub answers 400 for /blob/<dir>/).
+      else if (url!.startsWith(REPO_TREE)) expect(existsSync(join(ROOT, url!.slice(REPO_TREE.length))), url).toBe(true);
       else throw new Error(`unexpected link ${url}`);
     }
     expect(index).toContain(`${SITE}/llms-full.txt`);
