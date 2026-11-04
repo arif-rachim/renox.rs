@@ -252,13 +252,43 @@ function appSdk(appRoot: string): BunPlugin {
           try {
             return { path: Bun.resolveSync(args.path, from) };
           } catch {
-            // Not installed there: the next place.
+            // Not installed there (or a compiled `renox`, where Bun.resolveSync
+            // does not search node_modules, #448): the package's exports map.
+            const found = fromExports(args.path, from);
+            if (found !== null) return { path: found };
           }
         }
         return undefined;
       });
     },
   };
+}
+
+/**
+ * `@renoxium/sdk[/<sub>]` through the `exports` of the nearest
+ * node_modules/@renoxium/sdk/package.json above `from` (the `default`
+ * condition, as the bundler would pick for the browser target); null when
+ * there is none. Used where Bun.resolveSync cannot search node_modules: in a
+ * compiled `renox` (#448), an official module extracted outside the app
+ * imports the app's SDK through this.
+ */
+export function fromExports(spec: string, from: string): string | null {
+  const sub = spec === "@renoxium/sdk" ? "." : `./${spec.slice("@renoxium/sdk/".length)}`;
+  for (let dir = resolve(from); ; dir = dirname(dir)) {
+    const pkgDir = join(dir, "node_modules", "@renoxium", "sdk");
+    const pkgFile = join(pkgDir, "package.json");
+    if (existsSync(pkgFile)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgFile, "utf8")) as { exports?: Record<string, string | Record<string, string>>; main?: string };
+        const entry = pkg.exports?.[sub];
+        const target = typeof entry === "string" ? entry : (entry?.default ?? entry?.import ?? (sub === "." ? pkg.main : undefined));
+        if (target !== undefined && existsSync(join(pkgDir, target))) return join(pkgDir, target);
+      } catch {
+        // An unreadable package.json: keep looking further up.
+      }
+    }
+    if (dirname(dir) === dir) return null;
+  }
 }
 
 /**

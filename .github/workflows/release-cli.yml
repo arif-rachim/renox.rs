@@ -32,6 +32,8 @@ on:
     paths:
       - ".github/workflows/release-cli.yml"
       - "cli/scripts/install.sh"
+      - "cli/scripts/compile.ts"
+      - "cli/scripts/smoke.sh"
   workflow_dispatch:
     inputs:
       version:
@@ -139,7 +141,8 @@ jobs:
           mkdir dist
           for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
             name="renox-$v-$t"
-            (cd cli && bun build --compile --minify --target="bun-$t" src/main.ts --outfile "../dist/$name")
+            # #448: the official modules and the test harness are embedded (cli/scripts/compile.ts).
+            (cd cli && bun scripts/compile.ts --target "bun-$t" --outfile "../dist/$name")
             (cd dist && sha256sum "$name" > "$name.sha256")
           done
           echo "$WORKER" > dist/worker-version.txt
@@ -222,6 +225,28 @@ jobs:
             exit 1
           fi
           test ! -e "$RUNNER_TEMP/tampered/renox"
+
+      # #448: the first hour with the compiled linux-x64 binary, from a
+      # directory outside the checkout: new, bun install, check, build, test
+      # (one renox process at most), add auth, dev and a request to
+      # /api/hello. The app installs this commit's SDK (packed): the npm
+      # release of the same version is published by release-sdk.yml only
+      # after the tag.
+      - name: First-hour smoke test of the linux-x64 binary
+        if: steps.worker.outputs.available == '1'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          WORKER: ${{ steps.version.outputs.worker }}
+        run: |
+          v=${VERSION:-0.0.0-dev}
+          bin="$RUNNER_TEMP/smoke-bin"
+          mkdir -p "$bin" "$RUNNER_TEMP/smoke-sdk"
+          cp "dist/renox-$v-linux-x64" "$bin/renox"
+          cp "$RUNNER_TEMP/release/worker-v$WORKER/renox-worker-$WORKER-x86_64-unknown-linux-gnu" "$bin/renox-worker"
+          chmod +x "$bin/renox" "$bin/renox-worker"
+          (cd sdk && bun run build && bun pm pack --destination "$RUNNER_TEMP/smoke-sdk")
+          (cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/cli/scripts/smoke.sh" "$bin/renox" "$RUNNER_TEMP"/smoke-sdk/*.tgz)
+          echo "first-hour smoke test of renox-$v-linux-x64: ok" | tee -a "$GITHUB_STEP_SUMMARY"
 
   release:
     needs: build

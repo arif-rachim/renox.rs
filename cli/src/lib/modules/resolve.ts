@@ -16,6 +16,7 @@ import { type Manifest, type ModuleProblem, configValueProblem, moduleNameProble
 import { isRange, satisfies } from "./semver.ts";
 import { type ModuleSig } from "../sign.ts";
 import { cachedTree } from "./registry.ts";
+import { officialModulesDir } from "./official.ts";
 
 /** One `renox.toml [modules]` entry. */
 export interface InstallSpec {
@@ -47,8 +48,8 @@ export interface ResolvedModule {
  */
 const CATALOG_DIRS: Readonly<Record<string, string>> = { twofa: "2fa" };
 
-/** The official modules shipped with this CLI (manifest.md Open 1: the repository's modules/). */
-export const OFFICIAL_MODULES = resolvePath(import.meta.dir, "../../../../modules");
+/** The official modules shipped with this CLI (manifest.md Open 1): the repository's modules/, or the copy a compiled `renox` carries (#448). */
+export { officialModulesDir } from "./official.ts";
 
 /** Where a module tree comes from, after the `git:` ref is resolved to a commit. */
 export interface TreeSource {
@@ -84,7 +85,7 @@ function git(args: string[], cwd?: string): string {
  * present), absent = the official module of this CLI.
  */
 export function fetchTree(project: string, name: string, source: string | undefined): TreeSource {
-  if (source === undefined || source === "official") return { tree: join(OFFICIAL_MODULES, CATALOG_DIRS[name] ?? name), source: "official" };
+  if (source === undefined || source === "official") return { tree: join(officialModulesDir(), CATALOG_DIRS[name] ?? name), source: "official" };
   if (source.startsWith("path:")) return { tree: resolvePath(project, source.slice("path:".length)), source };
   if (source.startsWith("git:")) {
     const spec = source.slice("git:".length);
