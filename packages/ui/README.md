@@ -58,7 +58,7 @@ An app re-themes by overriding tokens in its own layer, never by editing a copy 
 | `.frame`, `.side`, `.side-group`, `.side-title`, `main` | Side navigation and the main column; `a.current` carries the accent dot; `.side-group` is a small mono heading |
 | `.hero`, `.lede`, `.actions` | A centred hero on a faint grid; its subtitle; its buttons |
 | `.dot`, `.dot-small` | A dot-matrix headline, uppercase, `clamp(48–96 px)`; a smaller one |
-| `.stat` with `.value` and `.caption` | A big dot-matrix number over a small sans caption; a unit goes in `<small>` inside the value and keeps its own case in the text face (`45 ms`, never `45 MS`). Only true, measured numbers |
+| `.stat` with `.value` and `.caption` | A big dot-matrix number over a small sans caption; a unit goes in `<small>` inside the value, right after the number with no space (`45<small>ms</small>`; the gap is in the CSS, a Doto space is too wide), and keeps its own case in the text face (`45 ms`, never `45 MS`); a currency before the number is `<small class="pre">`. Only true, measured numbers |
 | `.pill` (`.ok`, `.warn`, `.bad`, `.quiet`, `.live`), `.tag` | A small monospace label in a hairline capsule; the states; a live dot |
 | `.flow`, `.flow-start`, `.flow-end`, `.flow-tile`, `.line`, `.pt` | A diagram: the tile with the mark in the centre, thin lines to pill tags on both sides; `.flow-small` for an app page |
 | `.dots` | A decorative field of cells drawn as an inline SVG: `circle.dot-idle`, `rect.cell`, `rect.lit` (coral, a slow pulse). `aria-hidden`; drawn rather than typed, so it is not text to be read |

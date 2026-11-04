@@ -407,6 +407,8 @@ fieldset > label > .muted { grid-column: 2; font-size: .875rem; }
 form > label, form > fieldset, form > p, x-form > label { margin-block-end: var(--rx-4); }
 form > label > input, form > label > select, form > label > textarea { inline-size: 100%; max-inline-size: 28rem; }
 .row > label > input, .filters > label > input, .filters > label > select { inline-size: auto; }
+/* In a row the fields and the button share one bottom edge: no field margin there. */
+.row > label, .filters > label, .row > fieldset { margin-block-end: 0; }
 
 /* Tables: hairlines between rows; a quiet header in sentence case. */
 .list { inline-size: 100%; border-collapse: collapse; margin-block: var(--rx-2) var(--rx-5); font-size: .875rem; }
@@ -503,7 +505,9 @@ form > label > input, form > label > select, form > label > textarea { inline-si
 .stat { display: flex; flex-direction: column; gap: var(--rx-2); text-align: start; }
 .stat .value, .stat > b { font-family: var(--rx-font-dot); font-weight: 900; font-size: clamp(2.25rem, 4vw, 3.25rem); line-height: 1; letter-spacing: .02em; text-transform: uppercase; color: var(--rx-ink); font-variant-numeric: tabular-nums; }
 /* A unit is read, not displayed: the text face, its own case (ms, not MS), smaller. */
-.stat .value small { font: 500 .4em/1 var(--rx-font-sans); letter-spacing: 0; text-transform: none; color: var(--rx-ink-2); }
+.stat .value small { margin-inline-start: .3em; font: 500 .4em/1 var(--rx-font-sans); letter-spacing: 0; text-transform: none; color: var(--rx-ink-2); }
+/* A unit before the number (a currency) keeps its gap on the other side. */
+.stat .value small.pre { margin-inline: 0 .3em; }
 .stat .caption, .stat > span { font-size: .875rem; color: var(--rx-muted); }
 :lang(ar) .stat .value, :lang(ar) .stat > b { font-family: var(--rx-font-sans); font-weight: 800; letter-spacing: 0; }
 

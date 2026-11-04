@@ -28,25 +28,27 @@
       <button type="submit" class="primary"><r-t key="dash.common.verify" /></button>
     </form>
 
-    <div class="cols">
-      <form id="token-create" class="panel stack" hidden>
-        <h2><r-t key="dash.tokens.create" /></h2>
-        <label><r-t key="dash.common.name" /> <input name="name" required maxlength="64" placeholder="github-actions" spellcheck="false"></label>
-        <fieldset>
-          <legend><r-t key="dash.device.scopes" /></legend>
-          <div id="token-scopes" class="checks"></div>
-        </fieldset>
+    <form id="token-create" class="panel stack token-create" hidden>
+      <h2><r-t key="dash.tokens.create" /></h2>
+      <div class="row">
+        <label class="grow"><r-t key="dash.common.name" /> <input name="name" required maxlength="64" placeholder="github-actions" spellcheck="false"></label>
         <label><r-t key="dash.tokens.days" /> <input name="days" type="number" min="1" max="365" value="30" required></label>
-        <button type="submit" class="primary"><r-t key="dash.tokens.create" /></button>
-      </form>
-      <div class="panel" id="token-list-panel" hidden>
-        <h2><r-t key="dash.tokens.list" /></h2>
-        <table class="list">
-          <thead><tr><th><r-t key="dash.common.name" /></th><th><r-t key="dash.device.scopes" /></th><th><r-t key="dash.tokens.expires" /></th><th><r-t key="dash.tokens.last_used" /></th><th><r-t key="dash.common.actions" /></th></tr></thead>
+      </div>
+      <fieldset>
+        <legend><r-t key="dash.device.scopes" /></legend>
+        <div id="token-scopes" class="checks"></div>
+      </fieldset>
+      <p><button type="submit" class="primary"><r-t key="dash.tokens.create" /></button></p>
+    </form>
+    <div class="panel" id="token-list-panel" hidden>
+      <h2><r-t key="dash.tokens.list" /></h2>
+      <div class="table-scroll">
+        <table class="list tokens">
+          <thead><tr><th><r-t key="dash.common.name" /></th><th><r-t key="dash.device.scopes" /></th><th><r-t key="dash.tokens.expires" /></th><th><r-t key="dash.tokens.last_used" /></th><th class="end"><r-t key="dash.common.actions" /></th></tr></thead>
           <tbody id="token-rows"></tbody>
         </table>
-        <p class="muted" id="token-empty" hidden><r-t key="dash.tokens.empty" /></p>
       </div>
+      <p class="muted" id="token-empty" hidden><r-t key="dash.tokens.empty" /></p>
     </div>
 
     <div hidden id="account-msgs">

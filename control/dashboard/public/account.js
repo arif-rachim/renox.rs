@@ -486,13 +486,28 @@
       $("token-empty").hidden = live.length > 0;
       for (const t of live) {
         const tr = document.createElement("tr");
-        const cells = [t.name, t.scopes.join(" "), utc(t.expires_at), t.last_used_at === null ? msg("never") : utc(t.last_used_at)];
-        for (const text of cells) {
+        const name = document.createElement("td");
+        name.textContent = t.name;
+        // The scopes as chips that wrap inside their cell, not one word per line.
+        const scopes = document.createElement("td");
+        scopes.className = "scopes";
+        for (const s of t.scopes) {
+          const code = document.createElement("code");
+          code.textContent = s;
+          scopes.append(code, " ");
+        }
+        tr.append(name, scopes);
+        const heads = [...document.querySelectorAll("table.tokens thead th")].map((th) => th.textContent.trim());
+        for (const [i, text] of [utc(t.expires_at), t.last_used_at === null ? msg("never") : utc(t.last_used_at)].entries()) {
           const td = document.createElement("td");
+          td.className = "when";
+          // The column's name, shown before the date when the rows stack on a phone.
+          td.dataset.label = heads[2 + i] || "";
           td.textContent = text;
           tr.append(td);
         }
         const td = document.createElement("td");
+        td.className = "end";
         const b = document.createElement("button");
         b.type = "button";
         b.className = "danger";
