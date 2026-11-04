@@ -189,6 +189,8 @@ pre {
   word-break: break-word;
 }
 pre code { padding: 0; background: none; }
+/* Room at the end of every line for the language pill, so it never covers the code. */
+pre[data-lang] { padding-inline-end: 3.75rem; }
 pre[data-lang]::before {
   content: attr(data-lang);
   position: absolute;

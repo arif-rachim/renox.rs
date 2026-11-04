@@ -20,6 +20,12 @@ main h1 { font-size: 1.75rem; }
 .signin .page-hero .dot { text-align: center; }
 .signin .page-hero .lede { margin-inline: auto; }
 .signin .panel form > label > input { max-inline-size: none; }
+/* A page without the side navigation (sign-in, sign-up, verification): its
+   column sits in the middle of the frame, under the centred top bar. */
+.frame:not(:has(.side)) main > .narrow { margin-inline: auto; }
+/* A form in a narrow column stacks: each field full width, the button under the last one. */
+.narrow form > label { display: flex; }
+.narrow form { margin-block-end: var(--rx-4); }
 
 /* An app's sections: the path above, the segmented links below. */
 .subnav { margin-block-end: var(--rx-5); }

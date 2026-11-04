@@ -14,6 +14,7 @@ export function load(ctx: LoaderContext) {
   if (lang !== null) return lang;
   const { url, secrets } = ctx;
   return {
+    here: "signin",
     next: nextPath(url.searchParams.get("next")),
     api_host: new URL(apiBase(secrets)).host,
     configured: (secrets[KEY_SECRET]?.length ?? 0) >= 32,
@@ -29,8 +30,8 @@ export const actions = {
     const token = typeof raw === "string" ? raw.trim() : "";
     const next = nextPath(String(form.get("next") ?? url.searchParams.get("next") ?? ""));
     const tr = trOf(ctx);
-    if (!TOKEN_PATTERN.test(token)) return { next, error: tr("dash.signin.not_token") };
-    if ((secrets[KEY_SECRET]?.length ?? 0) < 32) return { next, error: tr("dash.signin.set_secret", { secret: KEY_SECRET }) };
+    if (!TOKEN_PATTERN.test(token)) return { here: "signin", next, error: tr("dash.signin.not_token") };
+    if ((secrets[KEY_SECRET]?.length ?? 0) < 32) return { here: "signin", next, error: tr("dash.signin.set_secret", { secret: KEY_SECRET }) };
     const check = await new Api(fetch, token, apiBase(secrets)).listApps();
     if (!check.ok) {
       const error =
@@ -39,7 +40,7 @@ export const actions = {
           : check.status === 403
             ? tr("dash.signin.no_scope")
             : tr("dash.problem.unreachable_short", { code: check.code });
-      return { next, error };
+      return { here: "signin", next, error };
     }
     await signIn(db, secrets, session.id, token, Date.now());
     return redirect.safe(next, { fallback: "/apps" });
