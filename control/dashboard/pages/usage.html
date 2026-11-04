@@ -16,9 +16,9 @@
       <tbody>
         <tr r-for="a in apps">
           <td><a href="/apps/{{ a.name }}">{{ a.name }}</a></td>
-          <td class="n">{{ a.requests }}</td>
-          <td class="n">{{ a.cpu }}</td>
-          <td class="n">{{ a.egress }}</td>
+          <td class="n"><span>{{ a.requests }}</span></td>
+          <td class="n"><span>{{ a.cpu }}</span></td>
+          <td class="n"><span>{{ a.egress }}</span></td>
           <td><a href="/apps/{{ a.name }}/usage"><r-t key="dash.usage_all.per_hour" /></a></td>
         </tr>
         <tr r-empty="apps"><td colspan="5"><r-t key="dash.usage_all.empty" /></td></tr>

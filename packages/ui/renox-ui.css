@@ -420,6 +420,15 @@ form > label > input, form > label > select, form > label > textarea { inline-si
 .list tbody th { font-weight: 500; color: var(--rx-ink-2); }
 .list td { font-variant-numeric: tabular-nums; }
 .list .n { text-align: end; }
+/* The template engine marks a cell that shows user text dir="auto", so Latin
+   text keeps its order on an Arabic page. Such a cell resolves to ltr there,
+   which would flip its own start, end and inline padding: put them back to the
+   row's sides. A number cell keeps its value in a span (the cell stays rtl). */
+[dir="rtl"] .list td[dir="auto"]:dir(ltr),
+[dir="rtl"] :is(h1, h2, h3, p, li, dd, .value)[dir="auto"]:dir(ltr) { text-align: end; }
+[dir="rtl"] .list td[dir="auto"]:dir(ltr):first-child { padding-inline: var(--rx-3) 0; }
+[dir="rtl"] .list td[dir="auto"]:dir(ltr):last-child { padding-inline: 0 var(--rx-3); }
+[dir="rtl"] .list td[dir="auto"]:dir(ltr):first-child:last-child { padding-inline: 0; }
 .list tbody tr:last-child td { border-block-end: 0; }
 .list code { padding: 0; background: none; }
 .list tr.bad td { color: var(--rx-bad); }

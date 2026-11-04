@@ -503,7 +503,10 @@
           td.className = "when";
           // The column's name, shown before the date when the rows stack on a phone.
           td.dataset.label = heads[2 + i] || "";
-          td.textContent = text;
+          // A <bdi> keeps "2026-11-04 15:49 UTC" in order on an Arabic page.
+          const bdi = document.createElement("bdi");
+          bdi.textContent = text;
+          td.append(bdi);
           tr.append(td);
         }
         const td = document.createElement("td");

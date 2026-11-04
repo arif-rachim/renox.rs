@@ -78,7 +78,7 @@ table.logs { padding: var(--rx-2) var(--rx-4); background: var(--rx-sunken); bor
 @media (max-width: 40rem) {
   table.logs, table.logs tbody { display: block; }
   table.logs tr { display: grid; grid-template-columns: auto 1fr; gap: .15rem var(--rx-3); padding-block: var(--rx-2); border-block-end: 1px solid var(--rx-rule); }
-  table.logs td { display: block; padding: 0; border: 0; }
+  table.logs td, [dir="rtl"] table.logs.list td[dir="auto"]:dir(ltr):nth-child(n) { display: block; padding: 0; border: 0; }
   /* The message right under its time; the id and source after it. */
   table.logs td.msg { grid-column: 1 / -1; order: 1; }
   table.logs td:nth-child(3), table.logs td:nth-child(4) { order: 2; grid-column: 1 / -1; font-size: .75rem; color: var(--rx-muted); word-break: break-all; }
@@ -124,6 +124,9 @@ table.logs { padding: var(--rx-2) var(--rx-4); background: var(--rx-sunken); bor
   .top { gap: var(--rx-2) var(--rx-3); padding-inline-start: var(--rx-3); }
   .top > a[href="/account"], .top > .pill { display: none; }
 }
+/* Inline code moves to the next line whole instead of splitting (an isolated
+   Latin run split over two lines reads backwards on an Arabic page). */
+main p code, main li code { display: inline-block; max-inline-size: 100%; overflow-wrap: anywhere; vertical-align: baseline; }
 /* A section heading with its link at the end of the same line. */
 .section-head { margin-block: var(--rx-5) var(--rx-3); }
 .section-head h2 { margin: 0; }
