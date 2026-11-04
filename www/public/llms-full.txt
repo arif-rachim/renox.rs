@@ -26,7 +26,7 @@ alias renox="bun $PWD/cli/src/main.ts"
 
 `fetch-worker.ts` downloads the `renox-worker` release the CLI is tested against (it refuses a download whose SHA-256 does not match) into `cli/bin/<platform>-<arch>/`, where `renox dev` finds it. To get one binary instead of the alias, `bun run --cwd cli compile` writes `cli/dist/renox`.
 
-When the first CLI release is published, the install becomes one line (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh`) and `bun add @renoxium/sdk` installs the SDK at the same version; the details are in [Developer experience](12-developer-experience.md#installing-the-cli).
+Outside this repository, the CLI installs with one line on Linux and macOS (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.0/install.sh | sh`; on Windows, inside WSL 2), and `bun install` in an app made by `renox new` pulls the SDK `@renoxium/sdk` at the same version; the details, the WSL 2 steps and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
 
 ## Your first app
 
@@ -778,6 +778,28 @@ Exit code 0 when every test passed, 2 when one failed.
 
 ### Installing the CLI
 
+On Linux or macOS (x64 or arm64):
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.0/install.sh | sh
+export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
+renox --version                          # renox 0.1.0 (renox-worker 0.3.0)
+renox new demo --template hello && cd demo && bun install && renox dev
+```
+
+`bun install` in the new app pulls the SDK `@renoxium/sdk` from npm at the CLI's version; it needs Bun 1.4 or later (the `renox` binary itself does not need Bun).
+
+**Windows.** There is no native Windows build in 0.1 (`renox-worker` runs on Linux and macOS only), and `install.sh` stops with these steps when it runs under Git Bash, MSYS2 or Cygwin. Use WSL 2, which is a Linux machine:
+
+1. In PowerShell as administrator: `wsl --install -d Ubuntu`, then restart Windows.
+2. Open Ubuntu from the Start menu and create the Linux user it asks for.
+3. In that Ubuntu terminal: `sudo apt-get update && sudo apt-get install -y curl unzip`, then `curl -fsSL https://bun.sh/install | bash` for Bun, and open a new terminal.
+4. Run the install line above, inside Ubuntu. Keep your apps in the Linux file system (`~/apps/...`), not under `/mnt/c/...`: file watching for `renox dev` and file access are much slower across the Windows drive.
+
+`renox dev` listens on `localhost:8787` inside WSL; WSL 2 forwards localhost to Windows, so `http://localhost:8787` opens in a Windows browser.
+
+**Upgrading.** Run the install line again: it replaces `renox` and `renox-worker` in `~/.renox/bin` in place (`RENOX_VERSION=<version>` picks a version; without it, the newest `cli-v*` release). `renox --version` prints the CLI version and the worker it pins. That worker is the one `renox dev`, `renox test` and the template transpile of `renox build` run on your machine; production runs its own worker version, managed by the platform, so a CLI release does not change what runs your deployed app. `renox deploy` uploads an artifact that the production worker validates on its own (`docs/contracts/artifact.md`).
+
 The CLI is released as standalone binaries (`bun build --compile`, so no Bun is needed) for Linux and macOS on x64 and arm64. A `cli-v<version>` tag runs `.github/workflows/release-cli.yml`, which publishes `renox-<version>-<os>-<arch>` with a `.sha256` for each binary, `install.sh`, and `worker-version.txt`. That file holds the `renox-worker` version the CLI is tested against: `WORKER_VERSION` in `cli/scripts/fetch-worker.ts`, whose release must exist before the CLI release. `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v<version>/install.sh | sh` (source: `cli/scripts/install.sh`) installs into `~/.renox/bin`. It installs `renox` and the pinned `renox-worker` for the platform, and installs a file only when its SHA-256 matches. Override with `RENOX_VERSION`, `RENOX_INSTALL_DIR` and `RENOX_RELEASE_BASE`, or skip the worker with `RENOX_NO_WORKER=1`. `renox new`, `renox check`, and `renox build` of an app without `templates/` run without the worker; `renox dev` and the template transpile of `renox build` find the installed worker beside `renox`.
 
 Releases are signed (#129; `docs/24-threat-model.md` F, "Tampered release"). Every `cli-v*` and `worker-v*` release also carries `SHA256SUMS`, a sigstore bundle `<asset>.sigstore.json` per file (cosign keyless signature from the release workflow's OIDC identity, logged in Rekor), and SLSA v1 build provenance (`renox-<version>.provenance.sigstore.json`, `renox-worker-<version>.provenance.sigstore.json`). The release workflow verifies all of them with cosign in a fresh container before it publishes. With `cosign` installed, `install.sh` also checks each file's signature and installs nothing that fails; `RENOX_REQUIRE_SIGNATURE=1` refuses to install without a verified signature. To verify a download by hand:
@@ -1050,6 +1072,19 @@ Source: cli/README.md (https://github.com/arif-rachim/renox.rs/blob/main/cli/REA
 
 One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, P11): `new`, `build`, `dev`, `check`, `mcp` (P21), and against the control plane `login`, `tokens`, `deploy`, `logs`, `secrets`, `db`. Bun, no runtime dependencies (the TOML parser, transpiler, bundler, and file watcher are Bun's own; the JSON Schema checks use `src/lib/schema.ts` against `docs/contracts/schemas`).
 
+## Install
+
+Linux and macOS, x64 and arm64 (on Windows, use WSL 2: `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.0/install.sh | sh
+renox --version        # renox 0.1.0 (renox-worker 0.3.0)
+```
+
+The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed). Running it again upgrades in place. Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
+
+## From the repository
+
 ```
 bun cli/src/main.ts <command>        # from the repository
 bun run --cwd cli compile            # single binary: cli/dist/renox
@@ -1074,7 +1109,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 
 | Command | What it does |
 | --- | --- |
-| `renox new <name> [--template blank\|hello]` | Creates `<name>/` with `renox.toml`, `package.json` (depends on `renox` at this CLI's own version, `^<cli version>`: the SDK is published at the same version, #376), `tsconfig.json`, `.gitignore`, the agent files `AGENTS.md`, `CLAUDE.md` and `.mcp.json` (the app model and rules in short, and `renox mcp --project .` registered for Claude Code and Cursor, #377; `cli/templates/`), and the template's files (`cli/templates/<template>/`; `hello` mirrors `examples/hello`, `blank` has `GET /api/health`). Refuses a non-empty folder |
+| `renox new <name> [--template blank\|hello]` | Creates `<name>/` with `renox.toml`, `package.json` (depends on `@renoxium/sdk` at this CLI's own version, `^<cli version>`: the SDK is published at the same version, #376), `tsconfig.json`, `.gitignore`, the agent files `AGENTS.md`, `CLAUDE.md` and `.mcp.json` (the app model and rules in short, and `renox mcp --project .` registered for Claude Code and Cursor, #377; `cli/templates/`), and the template's files (`cli/templates/<template>/`; `hello` mirrors `examples/hello`, `blank` has `GET /api/health`). Refuses a non-empty folder |
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`, version 1) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Leaves forbidden files out of `public/` and fails on a secret in what it ships (step 5 and the secret scan below). Prints the hash. An app with templates needs the `renox-worker` binary (see "Templates") |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact. WebSocket and SSE routes are proxied unbuffered (below, "Realtime, tools and jobs") |
 | `renox dev --worker <path>` | Runs another `renox-worker` binary: it must have the pinned release's sha256 or carry a sigstore signature (`<path>.sigstore.json`) and the release's provenance bundle beside it that `cosign` verifies; otherwise `RENOX_CLI_WORKER_UNVERIFIED`, exit code 3 (#129) |

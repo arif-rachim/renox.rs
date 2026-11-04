@@ -190,6 +190,8 @@ exports[`messages and exit codes unknown command 1`] = `
 
 renox <command>
 
+  --version                             print the CLI version and the pinned renox-worker version
+
   new <name> [--template blank|hello]   create an app
   build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
   dev [--port 8787]                     run the app on the local worker, rebuild on change
