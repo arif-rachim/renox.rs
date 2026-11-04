@@ -1,0 +1,66 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="dash.tokens.title" /> · <r-t key="dash.brand" /></r-group>
+  <section id="account" :data-api="api" :data-grantable="grantable_json" data-page="tokens">
+    <div class="page-hero">
+      <p class="pill quiet"><r-t key="dash.nav.account" /></p>
+      <h1 class="dot dot-small"><r-t key="dash.tokens.title" /></h1>
+      <p class="lede"><r-t key="dash.tokens.lede" /></p>
+    </div>
+    <div class="problem" role="alert" id="account-error" hidden><p><strong></strong></p></div>
+    <p class="notice" role="status" id="account-notice" hidden></p>
+    <noscript><p class="problem"><r-t key="dash.account.needs_js" /></p></noscript>
+
+    <div class="panel stack" id="api-signin" hidden>
+      <p><r-t key="dash.device.api_signin" /></p>
+      <p><a class="button primary" href="/signin?next=%2Faccount%2Ftokens"><r-t key="dash.common.sign_in" /></a></p>
+    </div>
+
+    <div class="panel stack" id="token-new" hidden>
+      <h2><r-t key="dash.tokens.new_value" /></h2>
+      <p><r-t key="dash.tokens.once" /></p>
+      <p class="row"><code id="token-value"></code> <button type="button" id="token-copy"><r-t key="dash.tokens.copy" /></button></p>
+    </div>
+
+    <form id="step-up" class="panel stack" hidden>
+      <h2><r-t key="dash.common.confirm_you" /></h2>
+      <p><r-t key="dash.common.enter_code" /></p>
+      <label><r-t key="dash.common.code" /> <input name="code" autocomplete="one-time-code" maxlength="24" spellcheck="false" required></label>
+      <button type="submit" class="primary"><r-t key="dash.common.verify" /></button>
+    </form>
+
+    <div class="cols">
+      <form id="token-create" class="panel stack" hidden>
+        <h2><r-t key="dash.tokens.create" /></h2>
+        <label><r-t key="dash.common.name" /> <input name="name" required maxlength="64" placeholder="github-actions" spellcheck="false"></label>
+        <fieldset>
+          <legend><r-t key="dash.device.scopes" /></legend>
+          <div id="token-scopes" class="checks"></div>
+        </fieldset>
+        <label><r-t key="dash.tokens.days" /> <input name="days" type="number" min="1" max="365" value="30" required></label>
+        <button type="submit" class="primary"><r-t key="dash.tokens.create" /></button>
+      </form>
+      <div class="panel" id="token-list-panel" hidden>
+        <h2><r-t key="dash.tokens.list" /></h2>
+        <table class="list">
+          <thead><tr><th><r-t key="dash.common.name" /></th><th><r-t key="dash.device.scopes" /></th><th><r-t key="dash.tokens.expires" /></th><th><r-t key="dash.tokens.last_used" /></th><th><r-t key="dash.common.actions" /></th></tr></thead>
+          <tbody id="token-rows"></tbody>
+        </table>
+        <p class="muted" id="token-empty" hidden><r-t key="dash.tokens.empty" /></p>
+      </div>
+    </div>
+
+    <div hidden id="account-msgs">
+      <span data-k="revoke"><r-t key="dash.tokens.revoke" /></span>
+      <span data-k="revoked"><r-t key="dash.tokens.revoked" /></span>
+      <span data-k="confirm_revoke"><r-t key="dash.tokens.confirm_revoke" /></span>
+      <span data-k="never"><r-t key="dash.tokens.never" /></span>
+      <span data-k="copied"><r-t key="dash.tokens.copied" /></span>
+      <span data-k="no_scope"><r-t key="dash.device.no_scope" /></span>
+      <span data-k="bad_code"><r-t key="dash.account.bad_code" /></span>
+      <span data-k="too_many"><r-t key="dash.account.too_many" /></span>
+      <span data-k="unreachable"><r-t key="dash.account.unreachable" /></span>
+      <span data-k="failed"><r-t key="dash.account.failed" /></span>
+    </div>
+    <script src="/account.js" defer></script>
+  </section>
+</r-layout>

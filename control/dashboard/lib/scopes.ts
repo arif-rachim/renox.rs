@@ -25,3 +25,11 @@ export const GRANTABLE_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read
 
 /** The lifetime of the dashboard's own token, in days: the API's smallest unit. */
 export const DASHBOARD_TOKEN_DAYS = 1;
+
+/** control/api/src/tenancy/roles.ts `MATRIX` for the token scopes: what each role may grant a token or a device (#446). */
+export const ROLE_GRANTABLE: Readonly<Record<"owner" | "admin" | "developer" | "viewer", readonly (typeof GRANTABLE_SCOPES)[number][]>> = {
+  owner: GRANTABLE_SCOPES,
+  admin: GRANTABLE_SCOPES,
+  developer: ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read", "tokens:write", "registry:read"],
+  viewer: ["apps:read", "logs:read", "secrets:read", "registry:read"],
+};

@@ -10,6 +10,8 @@ The F3 subset of `docs/19-platform-wireframes.md`:
 | --- | --- | --- |
 | `/signin`, `/signout` | — | Sign in with email and password, the second factor (authenticator code, recovery code or passkey) or its set-up when the role requires one; a token for operators below it; sign out deletes the sign-in (below, #445) |
 | `/forgot-password`, `/reset-password#token=` | — | Ask for the reset mail; set a new password from its link (#445) |
+| `/device[?code=]` | — | Approve or deny a `renox login` request: the code (prefilled from the link the CLI prints), the device's name, when it asked and when the code expires, and the scopes (the role's, narrowable). Browser-direct with the API session, because only a person in a browser may approve a device (#446) |
+| `/account/tokens` | — | Create a token (name, scopes, expiry; the value shown once, in this browser only), list the active ones with their last use, revoke. Browser-direct with the API session, so the step-up rule applies and the dashboard's own token never holds `tokens:write` (#446) |
 | `/apps` | 3.1 Org overview, 3.2 New app | The overview (#427): the tenant's id as the hero word, a card row of stats from real data (apps live, requests today, database storage used; `pages/apps/index.ts` `stats`, one usage and one backups call per app, at most 20), a card per app with its state and live hash as pills; create an app (`apps:write`) |
 | `/usage` | 3.13 | The last 24 hours of every app: requests, CPU and egress per app and their totals (#427) |
 | `/account` | — | The workspace of the sign-in (`getTenant`), the API the dashboard calls, the way to the second factors and out (#427) |

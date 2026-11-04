@@ -134,6 +134,9 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   startDeviceLogin: "public",
   pollDeviceLogin: "public",
   approveDeviceLogin: "tokens:write",
+  // #446: the dashboard's /device page (proposed for deploy-api.md; see the PR).
+  getDeviceLogin: "tokens:write",
+  denyDeviceLogin: "tokens:write",
   acceptInvitation: "account",
   // Second factors (src/auth/mfa.ts, #293), in the contract from deploy-api.md 0.4 section 18.
   getMfa: "account",

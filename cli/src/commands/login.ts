@@ -153,11 +153,24 @@ interface DeviceStart {
   interval: number;
 }
 
+/** The dashboard's /device page with the code filled in (`?code=`), so the person only checks and approves. */
+export function deviceUrl(verificationUri: string, userCode: string): string {
+  try {
+    const u = new URL(verificationUri);
+    u.searchParams.set("code", userCode);
+    return u.toString();
+  } catch {
+    return verificationUri;
+  }
+}
+
 export async function login(api: string, io: Io): Promise<Credentials> {
   const started = await post(io, `${api}/v1/account/device`, { name: `renox CLI on ${hostname()}`.slice(0, 64) });
   if (started.status !== 201) throw new EnvironmentError(`the control plane answered ${started.status} to the login request`);
   const d = (await started.json()) as DeviceStart;
-  io.out(`Open ${d.verification_uri} and enter the code ${d.user_code}`);
+  // #446: the link opens the dashboard's /device page with the code filled in.
+  io.out(`Open ${deviceUrl(d.verification_uri, d.user_code)}`);
+  io.out(`and check that it shows the code ${d.user_code}, then approve.`);
   io.out("Waiting for approval…");
   let interval = Math.max(1, d.interval) * 1000;
   const deadline = Date.now() + d.expires_in * 1000;
@@ -170,6 +183,9 @@ export async function login(api: string, io: Io): Promise<Credentials> {
       continue;
     }
     if (res.status === 404) break;
+    if (res.status === 403 && JSON.stringify(await errorBody(res)).includes("access_denied")) {
+      throw new UserError("the login request was denied in the dashboard", { hint: "run `renox login` again if that was a mistake" });
+    }
     if (res.status !== 201) throw new EnvironmentError(`the control plane answered ${res.status} while waiting for approval`);
     const t = (await res.json()) as { token: string; id: string; tenant_id: string; expires_at: number };
     return { api, token: t.token, tenant_id: t.tenant_id, token_id: t.id, expires_at: t.expires_at };

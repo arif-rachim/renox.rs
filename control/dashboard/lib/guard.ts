@@ -60,7 +60,7 @@ export async function signedIn(ctx: Context): Promise<Api | Response> {
 }
 
 /** The side navigation's items (pages/_layouts/main.html); `ops` only when the console is on. */
-export type Nav = "apps" | "usage" | "billing" | "account" | "security" | "ops";
+export type Nav = "apps" | "usage" | "billing" | "account" | "security" | "tokens" | "ops";
 
 /**
  * What every signed-in page hands the layout (#427): the sign-in, the

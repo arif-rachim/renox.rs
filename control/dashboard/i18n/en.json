@@ -18,7 +18,9 @@
       "main": "Dashboard",
       "account": "Account",
       "security": "Security",
-      "ops": "Ops"
+      "ops": "Ops",
+      "tokens": "Tokens",
+      "docs": "Docs"
     },
     "banner": {
       "access": "Operator access to tenant",
@@ -653,6 +655,42 @@
       "done": "Your password is changed and every other sign-in has ended. Sign in with the new password.",
       "err_used": "This link was already used or has expired. Ask for a new one.",
       "err_mismatch": "The two passwords are not the same."
+    },
+    "device": {
+      "title": "Approve a sign-in",
+      "lede": "A renox CLI asks to sign in to your workspace. Approve it only if you started it yourself, just now.",
+      "api_signin": "Your browser's sign-in to the Renoxium API has ended. Sign in with your password to continue; you come back here.",
+      "code": "Code",
+      "device": "Device",
+      "asked": "Asked at",
+      "expires": "Code expires",
+      "check": "Check that this code is the one your terminal shows.",
+      "scopes": "Scopes",
+      "scopes_note": "The token lasts 90 days. Leave out what the CLI does not need.",
+      "approve": "Approve",
+      "deny": "Deny",
+      "approved": "Approved. Go back to your terminal: renox login finishes there.",
+      "denied": "Denied. The terminal stops waiting and gets no token.",
+      "not_found": "No waiting sign-in has this code. It may have expired (15 minutes) or been used: run renox login again.",
+      "no_scope": "Choose at least one scope."
+    },
+    "tokens": {
+      "title": "Tokens",
+      "lede": "Tokens let the CLI, CI and scripts call the Renoxium API for this workspace. Give each one only the scopes it needs.",
+      "new_value": "Your new token",
+      "once": "Copy it now: it is shown once and is not stored anywhere you can read it again.",
+      "copy": "Copy",
+      "copied": "Copied.",
+      "create": "Create a token",
+      "days": "Expires after (days, at most 365)",
+      "list": "Active tokens",
+      "expires": "Expires",
+      "last_used": "Last used",
+      "empty": "No active tokens.",
+      "revoke": "Revoke",
+      "revoked": "The token is revoked.",
+      "confirm_revoke": "Revoke this token? Anything that uses it stops working:",
+      "never": "never"
     }
   }
 }

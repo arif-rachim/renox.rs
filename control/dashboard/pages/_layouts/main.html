@@ -14,6 +14,7 @@
     <a class="brand" href="/apps">Renoxium</a>
     <span class="pill quiet" r-if="tenant_id">{{ tenant_id }}</span>
     <span class="spacer"></span>
+    <a href="https://renoxium.com/docs" r-if="!signed_in"><r-t key="dash.nav.docs" /></a>
     <nav class="lang" :aria-label="'dash.nav.language' | t"><a href="?lang=en" lang="en">English</a> <a href="?lang=ar" lang="ar">العربية</a></nav>
     <a href="/account" r-if="signed_in"><r-t key="dash.nav.account" /></a>
     <form method="post" action="/signout" class="inline" r-if="signed_in">
@@ -30,7 +31,9 @@
       <a href="/billing" :class="{ current: nav == 'billing' }"><r-t key="dash.nav.billing" /></a>
       <a href="/account" :class="{ current: nav == 'account' }"><r-t key="dash.nav.account" /></a>
       <a href="/account/security" :class="{ current: nav == 'security' }"><r-t key="dash.nav.security" /></a>
+      <a href="/account/tokens" :class="{ current: nav == 'tokens' }"><r-t key="dash.nav.tokens" /></a>
       <a href="/ops/registry" :class="{ current: nav == 'ops' }" r-if="ops_on"><r-t key="dash.nav.ops" /></a>
+      <a href="https://renoxium.com/docs" class="docs-link"><r-t key="dash.nav.docs" /></a>
     </nav>
     <main>
       <slot name="nav" />

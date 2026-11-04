@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 
 import { totp } from "../../../sdk/src/totp.ts";
 import { assertScoped, harness, PASSWORD, signup, type Harness } from "../../api/tests/helpers.ts";
-import { ROLE_SCOPES } from "../lib/scopes.ts";
+import { ROLE_GRANTABLE, ROLE_SCOPES } from "../lib/scopes.ts";
 import { devWithData } from "./helpers.ts";
 import { loadPlaywright, type PwBrowser } from "./playwright.ts";
 
@@ -41,7 +41,18 @@ beforeAll(async () => {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const apiUrl = `http://localhost:${api.port}`;
   (h.deps.config as { dashboardUrl: string }).dashboardUrl = `http://localhost:${port}`;
-  dev = await devWithData({}, { port, env: { RENOX_API_URL: apiUrl } });
+  // #446: /device and /account/tokens only check the dashboard sign-in, which
+  // needs the server-side hop the worker refuses here; their loaders are
+  // stubbed with what the real loader returns. Every other page is live.
+  const frame = { signed_in: true, impersonation: null, api_host: new URL(apiUrl).host, ops_on: false, nav: "tokens" };
+  const grantable_json = JSON.stringify(ROLE_GRANTABLE);
+  dev = await devWithData(
+    {
+      "pages/device.ts": { ...frame, api: apiUrl, code: "", grantable_json, signin_href: "/signin?next=%2Fdevice" },
+      "pages/account/tokens.ts": { ...frame, api: apiUrl, grantable_json },
+    },
+    { port, env: { RENOX_API_URL: apiUrl } },
+  );
   browser = await pw!.chromium.launch();
 });
 
@@ -206,5 +217,100 @@ describe.skipIf(skip)("account pages in Chromium", () => {
     expect((await h.request("POST", "/v1/account/login", { json: { email: "forgot@example.test", password: "a brand new password" } })).status).toBe(200);
     expect(errors).toEqual([]);
     await ctx.close();
+  });
+});
+
+// #446: /device and /account/tokens (loaders stubbed above); the browser's API
+// session comes from a real password sign-in on /signin.
+describe.skipIf(skip)("device approval and tokens in Chromium", () => {
+  const pages = { get base() {
+    return dev.base;
+  } };
+
+  /** A browser context signed in to the API with the password (its POST to /signin caught). */
+  async function signedInPage(email: string, tenant: string) {
+    await signup(h, email, tenant);
+    const s = await page();
+    await s.p.goto(`${pages.base}/signin`);
+    await s.p.fill('#password-form [name="email"]', email);
+    await s.p.fill('#password-form [name="password"]', PASSWORD);
+    await s.p.click('#password-form button[type="submit"]');
+    await s.posted;
+    return s;
+  }
+
+  test("renox login: the device page shows the device's name and the scopes, Approve gives the CLI its token", async () => {
+    const { login } = await import("../../../cli/src/commands/login.ts");
+    const s = await signedInPage("cli@example.test", "t-cli");
+    const lines: string[] = [];
+    const io = { fetch: (u: string, i?: RequestInit) => fetch(u, i), sleep: (ms: number) => Bun.sleep(Math.min(ms, 200)), out: (l: string) => void lines.push(l), readStdin: async () => "", env: {} };
+    const pending = login(`http://localhost:${api.port}`, io);
+    await Bun.sleep(300);
+    const url = /Open (\S+)/u.exec(lines[0] ?? "")?.[1] ?? "";
+    expect(url).toMatch(/\/device\?code=[A-Z]{4}-[A-Z]{4}$/u);
+    const code = new URL(url).searchParams.get("code") ?? "";
+    await s.p.goto(`${pages.base}/device`);
+    await s.p.fill('#device-code [name="code"]', code.toLowerCase());
+    await s.p.click('#device-code button[type="submit"]');
+    await s.p.waitForSelector("#device-request:not([hidden])");
+    expect(await s.p.textContent("#device-user-code")).toBe(code);
+    expect(await s.p.textContent("#device-name")).toStartWith("renox CLI on ");
+    expect(await s.p.locator('#device-scopes input[name="scope"]').count()).toBe(10);
+    expect(await s.p.isChecked('#device-scopes input[value="registry:publish"]')).toBe(true);
+    await s.p.click('#device-scopes input[value="registry:publish"]');
+    await s.p.click("#device-approve");
+    await s.p.waitForSelector("#device-approved:not([hidden])");
+    const creds = await pending;
+    expect(creds.tenant_id).toBe("t-cli");
+    expect((await h.request("GET", "/v1/apps", { token: creds.token })).status).toBe(200);
+    const [row] = await h.db.query<{ scopes: string[] }>("select scopes from tokens where name like 'renox CLI on %' order by created_at desc limit 1");
+    expect(row?.scopes).not.toContain("registry:publish");
+    expect(row?.scopes).toContain("deploy");
+    expect(s.errors).toEqual([]);
+    await s.ctx.close();
+  });
+
+  test("Deny stops renox login at once with a user error", async () => {
+    const { login } = await import("../../../cli/src/commands/login.ts");
+    const s = await signedInPage("deny-cli@example.test", "t-deny-cli");
+    const lines: string[] = [];
+    const io = { fetch: (u: string, i?: RequestInit) => fetch(u, i), sleep: (ms: number) => Bun.sleep(Math.min(ms, 200)), out: (l: string) => void lines.push(l), readStdin: async () => "", env: {} };
+    const pending = login(`http://localhost:${api.port}`, io).catch((e: unknown) => e as Error);
+    await Bun.sleep(300);
+    const code = new URL(/Open (\S+)/u.exec(lines[0] ?? "")?.[1] ?? "http://x").searchParams.get("code") ?? "";
+    await s.p.goto(`${pages.base}/device`);
+    await s.p.fill('#device-code [name="code"]', code);
+    await s.p.click('#device-code button[type="submit"]');
+    await s.p.waitForSelector("#device-request:not([hidden])");
+    await s.p.click("#device-deny");
+    await s.p.waitForSelector("#device-denied:not([hidden])");
+    expect(((await pending) as Error).message).toBe("the login request was denied in the dashboard");
+    await s.ctx.close();
+  });
+
+  test("Tokens: create shows the value once, the list shows it, revoke ends it", async () => {
+    const s = await signedInPage("tok@example.test", "t-tok");
+    await s.p.goto(`${pages.base}/account/tokens`);
+    await s.p.waitForSelector("#token-create:not([hidden])");
+    await s.p.fill('#token-create [name="name"]', "github-actions");
+    await s.p.fill('#token-create [name="days"]', "7");
+    await s.p.click('#token-create button[type="submit"]');
+    await s.p.waitForSelector("#token-new:not([hidden])");
+    const value = (await s.p.textContent("#token-value")) ?? "";
+    expect(value).toMatch(/^renox_pat_[a-z2-7]{32}$/u);
+    expect((await h.request("GET", "/v1/apps", { token: value })).status).toBe(200);
+    await s.p.waitForSelector("#token-rows tr");
+    expect(await s.p.textContent("#token-rows")).toContain("github-actions");
+    const [row] = await h.db.query<{ id: string }>("select id from tokens where name = 'github-actions'");
+    (s.p as unknown as { on(e: "dialog", f: (d: { accept(): Promise<void> }) => void): void }).on("dialog", (d) => void d.accept());
+    await s.p.click(`#token-rows button[data-token="${row?.id}"]`);
+    await s.p.waitForSelector("#account-notice:not([hidden])");
+    expect((await h.request("GET", "/v1/apps", { token: value })).status).toBe(401);
+    // Reloaded, the page never shows the value again.
+    await s.p.goto(`${pages.base}/account/tokens`);
+    await s.p.waitForSelector("#token-create:not([hidden])");
+    expect(await s.p.textContent("body")).not.toContain(value);
+    expect(s.errors).toEqual([]);
+    await s.ctx.close();
   });
 });

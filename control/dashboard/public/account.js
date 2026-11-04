@@ -350,7 +350,198 @@
     });
   }
 
-  const pages = { signin: signinPage, signup: signupPage, verify: verifyPage, forgot: forgotPage, reset: resetPage };
+  // ------------------------------------------------------------ device approval and tokens (#446)
+
+  const utc = (ms) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+
+  /** The browser's API session (its CSRF value and role), or the sign-in box when it has ended. */
+  async function apiSession() {
+    const r = await call("GET", "/v1/account");
+    if (!r.ok) {
+      if (r.status === 401) show("api-signin");
+      else error(failure(r));
+      return false;
+    }
+    state.csrf = r.body.csrf;
+    state.role = r.body.role;
+    state.tenant = r.body.tenant_id;
+    return true;
+  }
+
+  /** Scope checkboxes: the scopes the role may grant, `checked` preselected. */
+  function scopeBoxes(boxId, checked) {
+    const box = $(boxId);
+    box.textContent = "";
+    let grantable = [];
+    try {
+      grantable = JSON.parse(root.dataset.grantable || "{}")[state.role] || [];
+    } catch (e) {
+      grantable = [];
+    }
+    for (const scope of grantable) {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "scope";
+      input.value = scope;
+      input.checked = checked === null || checked.includes(scope);
+      const code = document.createElement("code");
+      code.textContent = scope;
+      label.append(input, " ", code);
+      box.append(label);
+    }
+  }
+  const chosen = (boxId) => [...$(boxId).querySelectorAll('input[name="scope"]:checked')].map((i) => i.value);
+
+  /** Runs `fn`; when the API asks for a recent second factor, asks for a code first and runs it again. */
+  let pendingStepUp = null;
+  async function withStepUp(fn) {
+    const r = await fn();
+    if (r && r.status === 403 && reasonOf(r, "mfa") === "step_up_required") {
+      pendingStepUp = fn;
+      show("step-up");
+      $("step-up").elements.code.focus();
+      return null;
+    }
+    return r;
+  }
+  function stepUpForm(after) {
+    const form = $("step-up");
+    if (!form) return;
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      error("");
+      const code = form.elements.code.value.trim();
+      const method = /^\d{6,8}$/.test(code.replace(/\s/g, "")) ? "totp" : "recovery";
+      const r = await call("POST", "/v1/account/mfa/verify", { method, code }, state.csrf);
+      if (!r.ok) return error(r.status === 401 ? msg("bad_code") : failure(r));
+      form.elements.code.value = "";
+      hide("step-up");
+      const fn = pendingStepUp;
+      pendingStepUp = null;
+      if (fn) after(await fn());
+    });
+  }
+
+  async function devicePage() {
+    if (!(await apiSession())) {
+      hide("device-code");
+      return;
+    }
+    let code = "";
+    const lookup = async (raw) => {
+      error("");
+      code = raw.trim().toUpperCase();
+      if (/^[A-Z]{8}$/.test(code)) code = code.slice(0, 4) + "-" + code.slice(4);
+      const r = await call("GET", "/v1/account/device/" + encodeURIComponent(code));
+      if (!r.ok) return error(r.status === 404 ? msg("not_found") : failure(r));
+      $("device-user-code").textContent = r.body.user_code;
+      $("device-name").textContent = r.body.name;
+      $("device-asked").textContent = utc(r.body.created_at);
+      $("device-expires").textContent = utc(r.body.expires_at);
+      scopeBoxes("device-scopes", null);
+      hide("device-code");
+      show("device-request");
+    };
+    $("device-code").addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      lookup($("device-code").elements.code.value);
+    });
+    const done = (r) => {
+      if (!r) return;
+      if (!r.ok) return error(r.status === 404 ? msg("not_found") : failure(r));
+      hide("device-request");
+      show("device-approved");
+    };
+    $("device-request").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      error("");
+      const scopes = chosen("device-scopes");
+      if (scopes.length === 0) return error(msg("no_scope"));
+      busy($("device-request"), true);
+      done(await withStepUp(() => call("POST", "/v1/account/device/approve", { user_code: code, scopes }, state.csrf)));
+      busy($("device-request"), false);
+    });
+    $("device-deny").addEventListener("click", async () => {
+      error("");
+      const r = await call("POST", "/v1/account/device/deny", { user_code: code }, state.csrf);
+      if (!r.ok) return error(r.status === 404 ? msg("not_found") : failure(r));
+      hide("device-request");
+      show("device-denied");
+    });
+    stepUpForm(done);
+    if (root.dataset.code) lookup(root.dataset.code);
+  }
+
+  async function tokensPage() {
+    if (!(await apiSession())) return;
+    show("token-create", "token-list-panel");
+    scopeBoxes("token-scopes", ["apps:read", "deploy", "logs:read"]);
+    const list = async () => {
+      const r = await call("GET", "/v1/tokens");
+      if (!r.ok) return error(failure(r));
+      const rows = $("token-rows");
+      rows.textContent = "";
+      const live = r.body.tokens.filter((t) => t.revoked_at === null && t.expires_at > Date.now());
+      $("token-empty").hidden = live.length > 0;
+      for (const t of live) {
+        const tr = document.createElement("tr");
+        const cells = [t.name, t.scopes.join(" "), utc(t.expires_at), t.last_used_at === null ? msg("never") : utc(t.last_used_at)];
+        for (const text of cells) {
+          const td = document.createElement("td");
+          td.textContent = text;
+          tr.append(td);
+        }
+        const td = document.createElement("td");
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "danger";
+        b.textContent = msg("revoke");
+        b.dataset.token = t.id;
+        b.addEventListener("click", async () => {
+          if (!window.confirm(msg("confirm_revoke") + " " + t.name)) return;
+          const res = await withStepUp(() => call("DELETE", "/v1/tokens/" + encodeURIComponent(t.id), undefined, state.csrf));
+          after(res, msg("revoked"));
+        });
+        td.append(b);
+        tr.append(td);
+        rows.append(tr);
+      }
+    };
+    const after = async (r, text) => {
+      if (!r) return;
+      if (!r.ok) return error(failure(r));
+      if (r.body && r.body.token) {
+        $("token-value").textContent = r.body.token;
+        show("token-new");
+        $("token-create").reset();
+        scopeBoxes("token-scopes", ["apps:read", "deploy", "logs:read"]);
+      } else if (text) notice(text);
+      await list();
+    };
+    $("token-create").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      error("");
+      hide("token-new");
+      const f = $("token-create").elements;
+      const scopes = chosen("token-scopes");
+      if (scopes.length === 0) return error(msg("no_scope"));
+      const body = { name: f.name.value.trim(), scopes, expires_in_days: Number(f.days.value) };
+      after(await withStepUp(() => call("POST", "/v1/tokens", body, state.csrf)));
+    });
+    $("token-copy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("token-value").textContent);
+        notice(msg("copied"));
+      } catch (e) {
+        // No clipboard permission: the value stays selectable on the page.
+      }
+    });
+    stepUpForm((r) => after(r, msg("revoked")));
+    await list();
+  }
+
+  const pages = { signin: signinPage, signup: signupPage, verify: verifyPage, forgot: forgotPage, reset: resetPage, device: devicePage, tokens: tokensPage };
   window.renoxAccount = { call, error, notice, msg, show, hide, failure, reasonOf, busy, b64u, unb64u, state };
   if (pages[PAGE]) pages[PAGE]();
 })();

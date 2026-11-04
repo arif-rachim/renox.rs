@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 
 import { ACTIONS } from "../../api/src/auth/tokens.ts";
 import { MATRIX, ROLES } from "../../api/src/tenancy/roles.ts";
-import { DASHBOARD_SCOPES, DASHBOARD_TOKEN_DAYS, GRANTABLE_SCOPES, ROLE_SCOPES } from "../lib/scopes.ts";
+import { DASHBOARD_SCOPES, DASHBOARD_TOKEN_DAYS, GRANTABLE_SCOPES, ROLE_GRANTABLE, ROLE_SCOPES } from "../lib/scopes.ts";
 
 test("each role gets the dashboard scopes the API's matrix gives it, no more", () => {
   for (const role of ROLES) {
@@ -27,4 +27,10 @@ test("the Tokens and device pages offer exactly the API's token scopes", () => {
 test("the CSP lets the browser reach the production API (renox.toml connect_src)", async () => {
   const toml = Bun.TOML.parse(await Bun.file(new URL("../renox.toml", import.meta.url)).text()) as { security: { csp: { connect_src: string[] } } };
   expect(toml.security.csp.connect_src).toContain("https://api.renoxium.com");
+});
+
+test("what each role may grant on the Tokens and device pages is the API's matrix", () => {
+  for (const role of ROLES) {
+    expect([role, [...ROLE_GRANTABLE[role]].sort()]).toEqual([role, GRANTABLE_SCOPES.filter((s) => MATRIX[s].includes(role)).sort()]);
+  }
 });
