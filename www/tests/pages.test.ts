@@ -261,7 +261,7 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect(home.text.match(/<script[^>]*src="([^"]+)"/gu)?.every((m) => m.includes("/__renox/"))).toBe(true);
     expect(home.text).not.toContain("site.js");
     expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
-    expect(home.text).toContain("AED</small> 79");
+    expect(home.text).toContain("AED</small>79");
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);
