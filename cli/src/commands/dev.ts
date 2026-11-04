@@ -455,6 +455,8 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         const { stack, ...rest } = l.fields ?? {};
         const f = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : "";
         log(`[${l.level}] ${l.message}${f}`);
+        // #444: a handler that returned something other than a Response: the fix.
+        if (rest.reason === "handler_result") log(`    hint: ${handlerResultHint(String(rest.name ?? ""))}`);
         // Server stacks point at the TypeScript sources (.renox/sourcemaps/<hash>/).
         if (typeof stack === "string" && stack) log(symbols.stack(stack).replace(/^/gmu, "    "));
       } catch {
@@ -580,6 +582,14 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       if (!exited) worker.kill("SIGKILL");
     },
   };
+}
+
+/** #444: what to do when a function handler resolved to `name` instead of a Response. */
+export function handlerResultHint(name: string): string {
+  if (name === "undefined") return "did you forget `return`? Return a Response, e.g. Response.json(value) or new Response(body, { status })";
+  if (name === "object" || name === "array") return "use Response.json(value) to send it as JSON";
+  if (name === "string") return "use new Response(text) (with a content-type header) to send it as text";
+  return "return a Response, e.g. Response.json(value) or new Response(body, { status })";
 }
 
 /**

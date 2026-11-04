@@ -4702,19 +4702,16 @@ fn finish_dispatch(
                 {
                     f.insert("details".into(), d);
                 }
-                "handler threw"
+                "handler threw".to_string()
             } else {
-                f.insert(
-                    "cause_message".into(),
-                    format!(
-                        "handler returned {} instead of a Response",
-                        o.name.clone().unwrap_or_default()
-                    )
-                    .into(),
-                );
-                "handler did not return a Response"
+                // #444 (ops.md section 6): what came back, by type name only;
+                // `renox dev` prints the fix next to it.
+                let name = o.name.clone().unwrap_or_else(|| "unknown".into());
+                f.insert("reason".into(), "handler_result".into());
+                f.insert("name".into(), name.clone().into());
+                format!("{route_name} returned {name}, not a Response")
             };
-            log_line(ctx, "error", Some(&flight.ctx.request_id), message, f);
+            log_line(ctx, "error", Some(&flight.ctx.request_id), &message, f);
             let status = if o.code.as_deref() == Some("RENOX_FETCH_BLOCKED") {
                 MeterStatus::BlockedFetch
             } else {
