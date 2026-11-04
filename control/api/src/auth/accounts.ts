@@ -515,9 +515,13 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
 
   // #446: what the dashboard's /device page shows before Approve or Deny: the
   // name `renox login` sent and the code's times. Nothing about the device code.
-  app.get("/v1/account/device/:user_code", operation(deps, "getDeviceLogin"), tenantAuth(deps, "tokens:write"), async (c) => {
-    const d = await pendingDevice(c, c.req.param("user_code"));
-    return c.json({ user_code: c.req.param("user_code").trim().toUpperCase(), name: d.name ?? "renox login", created_at: num(d.created_at), expires_at: num(d.expires_at) });
+  // The user code travels in the body, like approve and deny, so it never
+  // lands in a request log's path.
+  app.post("/v1/account/device/lookup", operation(deps, "getDeviceLogin"), tenantAuth(deps, "tokens:write"), async (c) => {
+    const body = await objectBody(c);
+    if (typeof body.user_code !== "string") throw notFound();
+    const d = await pendingDevice(c, body.user_code);
+    return c.json({ user_code: body.user_code.trim().toUpperCase(), name: d.name ?? "renox login", created_at: num(d.created_at), expires_at: num(d.expires_at) });
   });
 
   app.post("/v1/account/device/deny", operation(deps, "denyDeviceLogin"), tenantAuth(deps, "tokens:write"), async (c) => {

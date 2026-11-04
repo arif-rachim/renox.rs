@@ -433,7 +433,7 @@
       error("");
       code = raw.trim().toUpperCase();
       if (/^[A-Z]{8}$/.test(code)) code = code.slice(0, 4) + "-" + code.slice(4);
-      const r = await call("GET", "/v1/account/device/" + encodeURIComponent(code));
+      const r = await call("POST", "/v1/account/device/lookup", { user_code: code }, state.csrf);
       if (!r.ok) return error(r.status === 404 ? msg("not_found") : failure(r));
       $("device-user-code").textContent = r.body.user_code;
       $("device-name").textContent = r.body.name;

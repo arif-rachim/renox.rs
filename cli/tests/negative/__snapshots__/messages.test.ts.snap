@@ -67,6 +67,7 @@ exports[`messages and exit codes schema error 1`] = `
   "stderr": 
 "renox.toml:2  error  app.name: does not match ^[a-z][a-z0-9-]{0,62}$
   renox.toml:6: limits.cpu_ms: above 500
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -100,6 +101,7 @@ exports[`messages and exit codes two syntax errors 1`] = `
   functions/api/a.ts:1:27: Unexpected ;
   functions/api/b.ts:1:20: Unexpected )
   hint: fix the errors above, then save again
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -111,6 +113,7 @@ exports[`messages and exit codes unclosed bracket 1`] = `
   "stderr": 
 "functions/api/[id.ts  error  segment "[id" has an unbalanced or misplaced bracket
   hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -122,6 +125,7 @@ exports[`messages and exit codes space in a name 1`] = `
   "stderr": 
 "functions/api/my notes.ts  error  segment "my notes" contains a space
   hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -133,6 +137,7 @@ exports[`messages and exit codes uppercase parameter 1`] = `
   "stderr": 
 "functions/api/[Id].ts  error  parameter [Id] must be lowercase ([id])
   hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -144,6 +149,7 @@ exports[`messages and exit codes files differing only in case 1`] = `
   "stderr": 
 "functions/about.ts  error  differs only in case from functions/About.ts: on a case-insensitive file system (macOS, Windows) they are one file
   hint: rename one of them
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -164,6 +170,7 @@ exports[`messages and exit codes two files for one route 1`] = `
   "exit": 2,
   "stderr": 
 "functions/a/index.ts  error  maps to /a, as functions/a.ts does; keep one
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -177,6 +184,7 @@ exports[`messages and exit codes several route problems at once 1`] = `
   functions/[x.ts: segment "[x" has an unbalanced or misplaced bracket
   functions/b c.ts: segment "b c" contains a space
   hint: a segment is [name] (parameter), [...name] (catch-all, last only), or a static name of letters, digits, and . _ ~ -; parameter names are lowercase
+tsconfig.json:1:1  warning  types  types not checked: no tsconfig.json (renox new writes one; copy it from the template)
 renox check: 1 error(s)"
 ,
 }
@@ -187,48 +195,7 @@ exports[`messages and exit codes unknown command 1`] = `
   "exit": 1,
   "stderr": 
 "renox: unknown command "deploy-now"
-
-renox <command>
-
-  --version                             print the CLI version and the pinned renox-worker version
-
-  new <name> [--template blank|hello]   create an app
-  build [--out <dir>]                   build the artifact into .renox/artifact/<hash>/
-  dev [--port 8787]                     run the app on the local worker, rebuild on change
-  dev --worker <path>                   run another renox-worker; it must be the pinned release or carry
-                                        a sigstore signature and provenance that cosign verifies
-  check [--secrets] [--security] [--json] [--strict]
-                                        validate config, routes, templates, manifest, modules and renox.lock; lint SQL, fetch, global state;
-                                        scan for secrets; --security prints the effective headers per route; --json prints the report as JSON;
-                                        --strict fails on a drifted template override
-  migrate [--db <file>]                 run the migrations of the installed modules (lock order) and the app's on the dev database
-  publish [--dir <tree>] [--dry-run]    sign a module tree (module.sig) and upload it to the registry
-  approve <module> [--yes]              show the permission diff of an upgrade and approve it
-  jobs list [--state <s>] | run <name> [--module <m>] | retry <id>   the dev app's jobs (scheduled, queued, running, dead)
-  test [pattern...] [--seed <file.sql>] run tests/*.test.ts on the worker with a temporary tenant file per test file (@renoxium/sdk/test),
-                                        and the policy test cases of policies/tests/*.json
-  authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]
-                                        why the policies allow or deny a request (roles and resource attributes from the dev database)
-  add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]
-                                        install a module: resolve it, show the permissions it asks for, write renox.toml and renox.lock
-  remove <module>                       uninstall a module (its tables stay: migrations are forward-only)
-  mcp [--project <dir>]                 local MCP server on stdio for coding agents (docs, check, dev status)
-  login [--api <url>] [--with-token]    sign in to the control plane (device code; --with-token reads a token from stdin)
-  tokens list | create <name> --scope <s>... [--expires-days n] | revoke <id>
-                                        manage tenant tokens (the value is shown once)
-  deploy [--json]                       build, upload, validate and activate the app; prints the live URL
-  deploy --rollback [<hash>] [--app <name>]
-                                        switch back to the previous (or the named) deployment
-  logs [--follow] [--since <t>] [--source all|server|client] [--deployment <hash>] [--app <name>] [--json] [--raw]
-                                        the app's log lines (--follow keeps streaming)
-  secrets set <NAME> | list | rm <NAME> [--app <name>]
-                                        app secrets; set reads the value from stdin and never prints it
-  db export [--out <file>] | import <file> | restore --at <time> --as <new-app> [--app <name>]
-                                        download the database (sha256 checked), import into a staging app, restore into a new app
-
-Exit codes: 0 ok, 1 user error, 2 validation error, 3 environment error, 130 interrupted.
-Environment: RENOX_WORKER_PATH overrides the renox-worker binary used by dev (not verified: for a worker you built);
-RENOX_TOKEN and RENOX_API_URL override the credentials saved by login."
+Run \`renox --help\` for the list of commands."
 ,
 }
 `;
@@ -236,7 +203,15 @@ RENOX_TOKEN and RENOX_API_URL override the credentials saved by login."
 exports[`messages and exit codes unknown build flag 1`] = `
 {
   "exit": 1,
-  "stderr": "usage: renox build [--out <dir>]",
+  "stderr": 
+"renox build: unknown flag --fast
+
+usage: renox build [--out <dir>]
+
+Build the artifact into .renox/artifact/<hash>/.
+
+Docs: https://renoxium.com/docs/cli"
+,
 }
 `;
 

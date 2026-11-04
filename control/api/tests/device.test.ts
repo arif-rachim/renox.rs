@@ -22,18 +22,18 @@ describe("renox login from the dashboard's /device page", () => {
     const h = await harness();
     const owner = await signup(h, "dev@example.test", "t-dev");
     const d = await start(h, "laptop (linux x64)");
-    const got = await h.request("GET", `/v1/account/device/${d.user_code.toLowerCase()}`, { session: owner });
+    const got = await h.request("POST", "/v1/account/device/lookup", { session: owner, json: { user_code: d.user_code.toLowerCase() } });
     expect(got.status).toBe(200);
     const body = (await got.json()) as Record<string, unknown>;
     expect(body).toEqual({ user_code: d.user_code, name: "laptop (linux x64)", created_at: h.clock.now, expires_at: h.clock.now + 900_000 });
     expect(JSON.stringify(body)).not.toContain(d.device_code);
     const tok = await h.request("POST", "/v1/tokens", { session: owner, json: { name: "ci", scopes: ["tokens:write"], expires_in_days: 1 } });
     const { token } = (await tok.json()) as { token: string };
-    expect((await h.request("GET", `/v1/account/device/${d.user_code}`, { token })).status).toBe(403);
-    expect((await h.request("GET", "/v1/account/device/BBBB-BBBB", { session: owner })).status).toBe(404);
-    expect((await h.request("GET", `/v1/account/device/${d.user_code}`)).status).toBe(401);
+    expect((await h.request("POST", "/v1/account/device/lookup", { token, json: { user_code: d.user_code } })).status).toBe(403);
+    expect((await h.request("POST", "/v1/account/device/lookup", { session: owner, json: { user_code: "BBBB-BBBB" } })).status).toBe(404);
+    expect((await h.request("POST", "/v1/account/device/lookup", { json: { user_code: d.user_code } })).status).toBe(401);
     h.clock.now += 901_000;
-    expect((await h.request("GET", `/v1/account/device/${d.user_code}`, { session: owner })).status).toBe(404);
+    expect((await h.request("POST", "/v1/account/device/lookup", { session: owner, json: { user_code: d.user_code } })).status).toBe(404);
   });
 
   test("deny: the CLI's next poll is told access_denied at once; the code can no longer be approved", async () => {

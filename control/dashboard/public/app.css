@@ -86,3 +86,6 @@ table.logs { padding: var(--rx-2) var(--rx-4); background: var(--rx-sunken); bor
   /* A phone title stays at 24-28px. */
   main h1, .page-hero .dot { font-size: 1.5rem; }
 }
+/* #446: scope checkboxes on /device and /account/tokens, one chip each. */
+.checks { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+.checks label { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0; }
