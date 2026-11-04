@@ -70,10 +70,14 @@ bun install
 ```
 
 ```
++ bun-types@1.4.4
++ typescript@7.0.2
 + @renoxium/sdk@0.1.2
 
-1 package installed
+6 packages installed
 ```
+
+`typescript` is what `renox check` type checks your code with.
 
 Run it:
 
@@ -136,13 +140,15 @@ renox deploy
 ```
 
 ```
-  Bundling… 2 routes, 1 modules, 1 templates
-  Uploading 0.1 MB → api.renoxium.com
+Bundling… 2 routes, 1 modules, 2 templates               0.2s
+  Created app my-app
+  Uploading 0.0 MB → api.renoxium.com                      0.0s
   Validating… ✓ manifest ✓ routes ✓ templates ✓ permissions ✓ bundle (validated)
-  Activating… ✓ migrations ✓ cell ✓ probe
-  Live: https://my-app.renoxium.app   (<hash>)
-  Rollback: renox deploy --rollback <previous hash>
+  Activating… ✓ migrations ✓ cell ✓ probe                  0.1s
+  Live: https://my-app.renoxium.app  (10db4d689fa2)        total 0.6s
 ```
+
+`renox deploy` first type checks the app (as `renox check` does) and stops on a type error. The next deploy also prints `Rollback: renox deploy --rollback <previous hash>`.
 
 The first deploy creates the app under the name in `renox.toml`; the app names are global, so pick another name in `renox.toml` if it is taken. Every deploy is kept: `renox deploy --rollback` switches back to the previous one without a build or an upload. Then:
 
