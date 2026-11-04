@@ -16,7 +16,18 @@ Read it before picking up an issue. The rules in `AGENTS.md` still apply; this d
 | Label `security` | The issue is a security control, test, or review from `docs/24-threat-model.md` | Reviewed with the PR security section filled in |
 | Label `parallel-safe` | The issue has no unmerged dependency once its "Blocked by" list is closed | Any agent may start it as soon as the blockers are closed |
 
-Issue bodies always have the same sections: **Context**, **Goal**, **Scope** (in / out), **Steps**, **Acceptance criteria** (checkboxes), **Dependencies** (blocked by / blocks), **Files** (owned / must not touch), **Branch**. A small model should be able to complete the issue from the body plus the documents it links.
+Issue bodies always have the same sections: **Context**, **Goal**, **Scope** (in / out), **Steps**, **Acceptance criteria** (checkboxes), **Dependencies** (blocked by / blocks), **Files** (owned / must not touch), **Branch**, **Resolved when**. A small model should be able to complete the issue from the body plus the documents it links.
+
+### Definition of done (every issue)
+
+An issue is resolved, and may be closed, only when all four hold. Every issue body ends with them under "Resolved when":
+
+1. Every acceptance criterion is ticked with evidence in the PR: a test name, a command with its output, or a URL with its status.
+2. Manual checks state who ran them and their result.
+3. If users only see the change after a release (CLI, SDK or worker version), the issue closes after that release is out and checked, not at merge.
+4. An issue closed with criteria left open gets a comment naming what moved and to which issue.
+
+Closing an issue at merge through `Closes #n` is fine only when rule 3 does not apply; otherwise the PR says `Refs #n` and the owner closes it after the release check.
 
 ## 2. Dependency rules that make parallel work safe
 
