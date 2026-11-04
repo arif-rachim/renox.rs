@@ -169,11 +169,17 @@ const APP = join(import.meta.dir, "..");
  * and the renderer are the real ones. The rest of each page module (its
  * actions, its other exports) is kept as it is.
  */
-export async function devWithData(stubs: Record<string, unknown>): Promise<{ base: string; stop: () => Promise<void> }> {
+export async function devWithData(
+  stubs: Record<string, unknown>,
+  opts: { env?: Record<string, string>; toml?: (text: string) => string; port?: number } = {},
+): Promise<{ base: string; stop: () => Promise<void> }> {
   const dir = mkdtempSync(join(tmpdir(), "renox-dashboard-render-"));
   cpSync(APP, dir, { recursive: true, filter: (p) => !/\/(node_modules|\.renox|tests)(\/|$)/u.test(p.slice(APP.length)) });
   cpSync(join(APP, "node_modules/@renoxium/sdk"), join(dir, "node_modules/@renoxium/sdk"), { recursive: true, dereference: true });
-  writeFileSync(join(dir, ".env"), `DASHBOARD_KEY=${SECRETS.DASHBOARD_KEY}\nRENOX_API_URL=${API_ORIGIN}\n`);
+  const env = { DASHBOARD_KEY: SECRETS.DASHBOARD_KEY, RENOX_API_URL: API_ORIGIN, ...opts.env };
+  writeFileSync(join(dir, ".env"), Object.entries(env).map(([k, v]) => `${k}=${v}\n`).join(""));
+  // #445: a browser test points the page's CSP at a local API.
+  if (opts.toml) writeFileSync(join(dir, "renox.toml"), opts.toml(readFileSync(join(dir, "renox.toml"), "utf8")));
   for (const [page, data] of Object.entries(stubs)) {
     const file = join(dir, page);
     const source = readFileSync(file, "utf8");
@@ -186,7 +192,7 @@ export async function devWithData(stubs: Record<string, unknown>): Promise<{ bas
         `void liveLoad;\nexport async function load(ctx) {\n  if (/(?:^|;\\s*)renox_lang=ar(?:;|$)/u.test(ctx.headers.get("cookie") ?? "")) ctx.setLocale("ar", "rtl");\n  return JSON.parse(${JSON.stringify(JSON.stringify(data))});\n}\n`,
     );
   }
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  const port = opts.port ?? 20000 + Math.floor(Math.random() * 20000);
   const dev = await startDev({ project: dir, port, log: () => {} });
   return { base: `http://localhost:${port}`, stop: () => dev.stop() };
 }

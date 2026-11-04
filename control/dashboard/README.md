@@ -8,7 +8,8 @@ The F3 subset of `docs/19-platform-wireframes.md`:
 
 | Page | Wireframe | What it does |
 | --- | --- | --- |
-| `/signin`, `/signout` | — | Sign in with a tenant token; sign out deletes it (below) |
+| `/signin`, `/signout` | — | Sign in with email and password, the second factor (authenticator code, recovery code or passkey) or its set-up when the role requires one; a token for operators below it; sign out deletes the sign-in (below, #445) |
+| `/forgot-password`, `/reset-password#token=` | — | Ask for the reset mail; set a new password from its link (#445) |
 | `/apps` | 3.1 Org overview, 3.2 New app | The overview (#427): the tenant's id as the hero word, a card row of stats from real data (apps live, requests today, database storage used; `pages/apps/index.ts` `stats`, one usage and one backups call per app, at most 20), a card per app with its state and live hash as pills; create an app (`apps:write`) |
 | `/usage` | 3.13 | The last 24 hours of every app: requests, CPU and egress per app and their totals (#427) |
 | `/account` | — | The workspace of the sign-in (`getTenant`), the API the dashboard calls, the way to the second factors and out (#427) |
@@ -31,7 +32,7 @@ Every page works without JavaScript except the Live log view and adding a passke
 
 The dashboard is an ordinary tenant. It calls the API at its public hostname, `api.renoxium.com`, declared in `renox.toml` `[permissions] network`, with `ctx.fetch` under every tenant rule (allowlist, DNS in Rust, blocked ranges, `fetch_blocked_addresses`). There is no exemption, no `internal` flag, no node token.
 
-The credential is the signed-in user's own **tenant token** (`renox_pat_…`), forwarded on every API call, so the user acts with exactly their scopes and role (`control/api/README.md`, "Roles"). The dashboard does not proxy the API's password login: the API's per-IP sign-in buckets would see the node's address for every user (D23, Consequences). A user gets a token from `renox login` or, for the dashboard only:
+The credential is the signed-in user's own **tenant token** (`renox_pat_…`), forwarded on every API call, so the user acts with exactly their scopes and role (`control/api/README.md`, "Roles"). The dashboard does not proxy the API's sign-up, login, verification or password reset: the API's per-IP buckets would see the node's address for every user (D23, Consequences). **The browser does those itself** (`public/account.js`, #445): it calls the API with `credentials: "include"` and the CSRF header the API returns, and the API answers CORS for the dashboard's origin only (`control/api/src/cors.ts`). After a password sign-in (and the second factor), the browser creates a one-day token named `dashboard` with the role's scopes of `lib/scopes.ts` (never `tokens:write` or `registry:publish`) and posts it to `/signin`, which checks and stores it like a pasted one. The dashboard never sees a password, a code, or the API session; the renox.toml CSP names the API in `connect-src`. Operators and automation can still paste a token (under "Sign in with a token"):
 
 ```sh
 renox tokens create dashboard --scope apps:read --scope apps:write --scope deploy --scope logs:read --scope secrets:read --scope secrets:write --expires-days 7

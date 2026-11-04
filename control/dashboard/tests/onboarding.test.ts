@@ -16,7 +16,6 @@ import { actions as newActions, load as newLoad } from "../pages/apps/new.ts";
 import { load as homeLoad } from "../pages/index.ts";
 import { actions as signinActions } from "../pages/signin.ts";
 import { actions as signupActions, load as signupLoad } from "../pages/signup/index.ts";
-import { actions as verifyActions } from "../pages/signup/verify.ts";
 import { actionCtx, dash, devWithData, loaderCtx } from "./helpers.ts";
 
 setDefaultTimeout(60_000);
@@ -43,31 +42,43 @@ afterAll(() => {
 const SIGNUP = { email: "owner@first.ae", password: "correct horse battery staple", tenant_id: "t_first", tenant_name: "First LLC", dpa: "yes" };
 
 describe("sign-up and verification", () => {
-  test("the DPA must be accepted before the API is called; sign-up records its version; the emailed link verifies", async () => {
+  // #445 (ADR D23): the browser calls `signup` and `verifyEmail` itself
+  // (public/account.js); the dashboard server never proxies them. The API side
+  // of the flow is what the browser sends, with the dashboard's Origin.
+  test("the dashboard server sends nothing to the API for sign-up; the browser's calls record the DPA version and the emailed link verifies once", async () => {
     const d = await dash();
-    expect(data(signupLoad(loaderCtx(d, "/signup")))).toMatchObject({ sent: false, error: null });
+    expect(data(signupLoad(loaderCtx(d, "/signup")))).toMatchObject({ api: "https://api.renoxium.com", error: null });
     const before = d.calls.sent.length;
-    const refused = data(await signupActions.default(actionCtx(d, "/signup", "default", { ...SIGNUP, dpa: "" })));
-    expect(refused).toMatchObject({ sent: false, error: expect.stringContaining("data processing agreement") });
-    expect(data(await signupActions.default(actionCtx(d, "/signup", "default", { ...SIGNUP, password: "short" }))).error).toContain("12 characters");
+    // A form posted without the page's script is refused with a message, and nothing reaches the API.
+    const refused = data(await signupActions.default(actionCtx(d, "/signup", "default", SIGNUP)));
+    expect(refused.error).toContain("JavaScript");
     expect(d.calls.sent.length).toBe(before);
-    const ok = data(await signupActions.default(actionCtx(d, "/signup", "default", SIGNUP)));
-    expect(ok).toMatchObject({ sent: true, error: null, email: "owner@first.ae" });
-    const sent = d.calls.sent.at(-1);
-    expect(sent?.authorization).toBeNull();
-    expect(JSON.parse(sent?.body ?? "{}")).toMatchObject({ email: "owner@first.ae", tenant_id: "t_first", dpa_accepted: true });
-    expect(JSON.stringify(ok)).not.toContain(SIGNUP.password);
+    expect(JSON.stringify(refused)).not.toContain(SIGNUP.password);
+    // What public/account.js sends, from the dashboard's origin.
+    const origin = new URL(d.h.deps.config.dashboardUrl).origin;
+    const signup = await d.h.request("POST", "/v1/account/signup", { headers: { origin }, json: { email: SIGNUP.email, password: SIGNUP.password, tenant_id: SIGNUP.tenant_id, tenant_name: SIGNUP.tenant_name, dpa_accepted: true } });
+    expect(signup.status).toBe(202);
+    expect(signup.headers.get("access-control-allow-origin")).toBe(origin);
     expect((await d.h.db.query<{ dpa_version: string }>("select dpa_version from tenants where id = 't_first'"))[0]?.dpa_version).toBe(DPA_VERSION);
-    // The email links to this page with the token in the fragment.
+    // The email links to the verify page with the token in the fragment.
     const mail = d.h.mailer.last("owner@first.ae", "verify_email")?.text ?? "";
     expect(mail).toMatch(/\/signup\/verify#token=[a-z2-7]{32}/u);
     const token = mailToken(d.h, "owner@first.ae", "verify_email");
-    expect(data(await verifyActions.default(actionCtx(d, "/signup/verify", "default", { token: "nope" }))).error).toContain("not complete");
-    expect(data(await verifyActions.default(actionCtx(d, "/signup/verify", "default", { token })))).toMatchObject({ verified: true, tenant_id: "t_first" });
+    const verified = await d.h.request("POST", "/v1/account/verify", { headers: { origin }, json: { token } });
+    expect(verified.status).toBe(200);
+    expect(await verified.json()).toMatchObject({ email_verified: true, tenant_id: "t_first" });
     // A used link.
-    expect(data(await verifyActions.default(actionCtx(d, "/signup/verify", "default", { token }))).error).toContain("already used");
+    expect((await d.h.request("POST", "/v1/account/verify", { headers: { origin }, json: { token } })).status).toBe(404);
     // A taken workspace id.
-    expect(data(await signupActions.default(actionCtx(d, "/signup", "default", { ...SIGNUP, email: "other@first.ae" }))).error).toContain("taken");
+    expect((await d.h.request("POST", "/v1/account/signup", { headers: { origin }, json: { email: "other@first.ae", password: SIGNUP.password, tenant_id: "t_first", dpa_accepted: true } })).status).toBe(409);
+  });
+
+  test("no page or helper of the dashboard calls login, signup, verify or the password reset from the server (#445)", () => {
+    const files = ["lib/api.ts", "pages/signin.ts", "pages/signup/index.ts", "pages/signup/verify.ts", "pages/forgot-password.ts", "pages/reset-password.ts"];
+    for (const f of files) {
+      const src = readFileSync(join(import.meta.dir, "..", f), "utf8");
+      expect([f, /\/v1\/account\/(login|signup|verify|password-reset)/u.test(src.replace(/^\s*\/\/.*$/gmu, ""))]).toEqual([f, false]);
+    }
   });
 });
 
@@ -119,8 +130,10 @@ test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow
     const verify = await fetch(`${dev.base}/signup/verify`);
     expect(verify.status).toBe(200);
     const v = await verify.text();
-    expect(v).toMatch(/<script nonce="[^"]+">/u);
-    expect(v).toContain('id="verify-token"');
+    expect(v).toContain('data-page="verify"');
+    expect(v).toContain('<script src="/account.js" defer');
+    expect(v).toContain("/install.sh | sh");
+    expect(v).not.toContain("bunx renox");
     const newApp = await page("/apps/new");
     expect(newApp).toContain('name="template" value="shop" checked');
     expect(newApp).toContain("<code>&lt;name&gt;.apps.example.test</code>");
@@ -148,4 +161,9 @@ test("the dashboard calls https://api.renoxium.com by default; RENOX_API_URL (ht
   expect(apiBase({})).toBe("https://api.renoxium.com");
   expect(apiBase({ RENOX_API_URL: "https://api.example.test/" })).toBe("https://api.example.test");
   expect(apiBase({ RENOX_API_URL: "http://api.example.test" })).toBe("https://api.renoxium.com");
+  // #445: a local control plane for the developer's own browser; never another plain-http host.
+  expect(apiBase({ RENOX_API_URL: "http://localhost:8788" })).toBe("http://localhost:8788");
+  expect(apiBase({ RENOX_API_URL: "http://127.0.0.1:8788/" })).toBe("http://127.0.0.1:8788");
+  expect(apiBase({ RENOX_API_URL: "http://localhost.evil.example" })).toBe("https://api.renoxium.com");
+  expect(apiBase({ RENOX_API_URL: "http://u:p@localhost:8788" })).toBe("https://api.renoxium.com");
 });

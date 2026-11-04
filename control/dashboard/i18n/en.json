@@ -85,7 +85,18 @@
       "refused": "The control API refused this token (unknown, expired or revoked).",
       "no_scope": "This token cannot list apps: it needs the apps:read scope.",
       "lede": "The dashboard for your apps, deployments, logs and usage.",
-      "get_token": "Where a token comes from"
+      "get_token": "Where a token comes from",
+      "forgot": "Forgot your password?",
+      "use_passkey": "Use a passkey instead",
+      "enrol_title": "Set up two-step verification",
+      "enrol_intro": "Your workspace requires a second factor. Add this key to an authenticator app (or open the link on your phone), then enter the code it shows.",
+      "continue": "Continue",
+      "unverified": "Your email address is not verified yet, so you cannot deploy. Open the link we sent, or ask for a new one.",
+      "resend": "Send a new link",
+      "direct": "Your browser signs in to the API at",
+      "stored_short": "The dashboard keeps a one-day token for this browser session and never sees your password.",
+      "token_title": "Sign in with a token (operators and automation)",
+      "token_submit": "Sign in with the token"
     },
     "signup": {
       "title": "Sign up",
@@ -121,7 +132,11 @@
       "next_after": "with the token it creates, and create your first app.",
       "err_incomplete": "This link is not complete. Open the link from the email again.",
       "err_used": "This link was already used or has expired. Sign in and ask for a new one.",
-      "err_attempts": "Too many attempts; try again later."
+      "err_attempts": "Too many attempts; try again later.",
+      "continuing": "Signing you in to the dashboard…",
+      "cli_title": "Deploy from your terminal",
+      "cli_intro": "Install the renox CLI, then sign it in. It opens this dashboard to approve the sign-in.",
+      "verifying": "Verifying your address…"
     },
     "dpa": {
       "title": "Data processing agreement",
@@ -607,7 +622,37 @@
       "workspace": "Workspace",
       "restrictions": "Restrictions",
       "sign_in_h": "Your sign-in",
-      "sign_in_token": "This browser session holds your tenant token, encrypted, and calls the control API at"
+      "sign_in_token": "This browser session holds your tenant token, encrypted, and calls the control API at",
+      "needs_js": "This page needs JavaScript: your browser signs in to the Renoxium API directly, so your password never passes through the dashboard.",
+      "wrong_password": "Wrong email or password.",
+      "too_many": "Too many attempts. Wait a little, then try again.",
+      "unreachable": "The Renoxium API could not be reached. Check your connection and try again.",
+      "bad_code": "That code is wrong or was already used. Try the next code from your app, or a recovery code.",
+      "no_workspace": "Your account has no workspace yet. Ask the owner of a workspace to invite you, or sign up to create one.",
+      "failed": "That did not work.",
+      "passkey_failed": "The passkey was not accepted.",
+      "resent": "We sent a new verification link. It works for 24 hours.",
+      "sign_in_again": "Your sign-in has ended. Sign in again with your password.",
+      "signing_in": "Signing you in…"
+    },
+    "install": {
+      "windows": "On Windows, run these commands inside WSL 2 (Ubuntu). Bun 1.4 or newer must be installed first."
+    },
+    "forgot": {
+      "title": "Reset your password",
+      "intro": "Enter the email address of your account. We send a link to choose a new password; it works once, for one hour.",
+      "submit": "Send the link",
+      "sent": "If an account uses that address, we sent it a link. Check your email.",
+      "back": "Back to sign in"
+    },
+    "reset": {
+      "title": "Choose a new password",
+      "new_password": "New password (at least 12 characters)",
+      "again": "The same password again",
+      "submit": "Set the password",
+      "done": "Your password is changed and every other sign-in has ended. Sign in with the new password.",
+      "err_used": "This link was already used or has expired. Ask for a new one.",
+      "err_mismatch": "The two passwords are not the same."
     }
   }
 }
