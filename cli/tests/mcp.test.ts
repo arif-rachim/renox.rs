@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { CLI_VERSION } from "../src/commands/new.ts";
 import { DOCS, searchDocs } from "../src/mcp/docs.ts";
 import { clearDevState, type DevState, problemFromMessage, writeDevState } from "../src/mcp/devstate.ts";
 import { createServer, INVALID_REQUEST, METHOD_NOT_FOUND, PROTOCOL_VERSIONS } from "../src/mcp/server.ts";
@@ -49,7 +50,7 @@ afterAll(async () => {
 
 describe("protocol", () => {
   test("initialize negotiates the newest version and advertises tools and resources only", () => {
-    expect(client.getServerVersion()).toMatchObject({ name: "renox", version: "0.1.0" });
+    expect(client.getServerVersion()).toMatchObject({ name: "renox", version: CLI_VERSION });
     const caps = client.getServerCapabilities();
     expect(caps?.tools).toBeDefined();
     expect(caps?.resources).toMatchObject({ subscribe: false });
