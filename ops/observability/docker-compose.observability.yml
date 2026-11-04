@@ -3,6 +3,7 @@
 #
 #   cp targets/nodes.example.json targets/nodes.json   # point it at your worker's health_listen
 #   printf '%s' "$RENOX_OPS_READ_TOKEN" > secrets/ops-read-token
+#   printf '%s' "$ALERT_WEBHOOK_URL" > secrets/webhook_url   # where alerts go (#450)
 #   docker compose -f ops/observability/docker-compose.observability.yml up
 #
 # Grafana: http://localhost:3000 (anonymous viewer, dashboards read-only).
@@ -14,7 +15,8 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
-    ports: ["127.0.0.1:9090:9090"]
+    # Host port 9091: a worker on the same machine has its health_listen on 9090 (#450).
+    ports: ["127.0.0.1:9091:9090"]
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./rules:/etc/prometheus/rules:ro
@@ -24,10 +26,12 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.28.1
-    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    # One instance: no cluster port (9094) is opened.
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--cluster.listen-address="]
     ports: ["127.0.0.1:9093:9093"]
     volumes:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./secrets:/etc/alertmanager/secrets:ro
 
   grafana:
     image: grafana/grafana:11.6.0

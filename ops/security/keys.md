@@ -33,10 +33,14 @@ The single host (`ops/single-host.md`) has no cloud secret store and no KMS. The
 
 ### Master key
 
+> **DO NOT RUN THIS PROCEDURE YET.** No code reads `CONTROL_MASTER_KEY_PREVIOUS` (audit of 2026-11-04, #450). Deploying the control API with a new `CONTROL_MASTER_KEY` makes every value sealed under the old key unreadable: every tenant secret, every TOTP secret, every other sealed column. Signing in with a second factor stops working and apps lose their secrets. The re-encryption job this procedure needs is #451 (`[F7-56]`). Until it is merged and this section is rewritten, keep the current key. If the key is believed compromised, treat it as an incident (`ops/security/incident-runbook.md`): rotate tenant secrets through their owners and reset second factors, not this key.
+
+The procedure as it will work once #451 lands:
+
 1. Generate the new key and store it in the secret store as the next version.
-2. Deploy the control API with `CONTROL_MASTER_KEY` set to the new key and `CONTROL_MASTER_KEY_PREVIOUS` to the old one (Open 2: the re-encryption job that reads with the previous key and writes with the new one is not built yet; until it is, a rotation needs a maintenance window in which every sealed value is re-encrypted by a script run against Postgres).
+2. Deploy the control API with `CONTROL_MASTER_KEY` set to the new key and `CONTROL_MASTER_KEY_PREVIOUS` to the old one, then run the re-encryption job of #451 until it reports no value left under the previous key.
 3. Verify: a secret round-trips (`renox secrets set` and a request that reads it), a TOTP code verifies.
-4. Remove the previous version from the secret store; record the drill below.
+4. Remove `CONTROL_MASTER_KEY_PREVIOUS` and the previous version from the secret store; record the drill below.
 
 ### Replica restore (drill)
 

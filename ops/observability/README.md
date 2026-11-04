@@ -6,7 +6,7 @@ Prometheus, alert rules and Grafana dashboards for a Renox region (#296). An ope
 | --- | --- |
 | `prometheus.yml` | Scrapes the workers on their control endpoint (file-based discovery from `targets/nodes.json`, node network only) and the control plane at `GET /v1/ops/metrics` with an `ops:read` operator token from `secrets/ops-read-token` |
 | `rules/*.yml` | Alert rules; each names its `docs/23` row in `annotations.failure_mode` |
-| `alertmanager.yml` | Routing with placeholder receivers (the paging integration is the owner's) |
+| `alertmanager.yml` | Routing to one receiver, `operator`: a webhook whose URL is the file `secrets/webhook_url` on the monitoring host (email as a commented alternative). The URL never goes in this repository (#450) |
 | `grafana/provisioning/**`, `grafana/dashboards/*.json` | The data source (`renox-prometheus`) and the three dashboards, provisioned read-only |
 | `docker-compose.observability.yml` | The whole stack on a laptop |
 | `prometheus.lock` | The Prometheus release whose `promtool` CI runs, with its SHA-256 |
@@ -99,10 +99,29 @@ The tenant's own view (latency and realtime on the dashboard's Usage page) comes
 ```sh
 cp ops/observability/targets/nodes.example.json ops/observability/targets/nodes.json   # your worker's [control] health_listen
 printf '%s' "$RENOX_OPS_READ_TOKEN" > ops/observability/secrets/ops-read-token          # an operator token with ops:read
+printf '%s' "$ALERT_WEBHOOK_URL" > ops/observability/secrets/webhook_url                # where alerts go
 docker compose -f ops/observability/docker-compose.observability.yml up
 ```
 
-Grafana answers on `http://localhost:3000`, Prometheus on `:9090`, Alertmanager on `:9093`, all on `127.0.0.1` only. For a control plane on the laptop, set the `renox-control-plane` target to `host.docker.internal:<port>` with `scheme: http`.
+Grafana answers on `http://localhost:3000`, Prometheus on `:9091` (9090 is the worker's `health_listen`), Alertmanager on `:9093`, all on `127.0.0.1` only. For a control plane on the laptop, set the `renox-control-plane` target to `host.docker.internal:<port>` with `scheme: http`.
+
+## Alertmanager on the single host (#450)
+
+The worker's `health_listen` is `127.0.0.1:9090` (`ops/single-host.md`, step 7), Prometheus's default port, so on `node-small` the monitoring stack moves: Prometheus on `127.0.0.1:9091`, Alertmanager on `127.0.0.1:9093` with its cluster port off. Both stay on loopback; the firewall keeps them closed anyway.
+
+1. **Receiver.** Create the incoming webhook in the chat or pager the owner reads (Slack, Mattermost, ntfy, a pager's webhook; an `https://` URL). Put it on the host twice, root-only:
+   ```
+   install -d -m 0750 -o root -g nogroup /etc/alertmanager/secrets
+   printf '%s' '<webhook url>' | install -m 0640 -o root -g nogroup /dev/stdin /etc/alertmanager/secrets/webhook_url
+   printf 'ALERT_WEBHOOK_URL=%s\n' '<webhook url>' | install -m 0600 -o root -g root /dev/stdin /etc/renox/secrets/alert.env
+   ```
+   The second file is what `renox-alert@.service` reads when the backup or the billing rollup fails (`ops/single-host.md`, step 11).
+2. **Alertmanager.** Install the release (`apt-get install -y prometheus-alertmanager`, or the `prom/alertmanager` v0.28 tarball with its SHA-256), copy `alertmanager.yml` to `/etc/alertmanager/alertmanager.yml`, and run it with `--web.listen-address=127.0.0.1:9093 --cluster.listen-address=` (Debian and Ubuntu: `ARGS=` in `/etc/default/prometheus-alertmanager`). `amtool check-config /etc/alertmanager/alertmanager.yml` must pass, then `systemctl restart prometheus-alertmanager`.
+3. **Prometheus.** `--web.listen-address=127.0.0.1:9091`, with `prometheus.yml` and `rules/` from this folder; its `alerting` target is `127.0.0.1:9093` on the host (`alertmanager:9093` is the compose service name).
+4. **Check.** `curl -fsS http://127.0.0.1:9093/-/ready`, then send a test alert and see it arrive:
+   ```
+   amtool --alertmanager.url=http://127.0.0.1:9093 alert add renox_test severity=page instance=node-small
+   ```
 
 ## Checks (CI's lint job)
 
@@ -111,6 +130,7 @@ promtool check rules ops/observability/rules/*.yml      # the release in prometh
 promtool check config ops/observability/prometheus.yml  # rule files and secrets resolve on the monitoring host only: CI checks the rules
 bun ops/observability/check.ts                          # dashboards and rules against this README
 docker compose -f ops/observability/docker-compose.observability.yml config -q
+amtool check-config ops/observability/alertmanager.yml   # the receiver's file resolves on the monitoring host only
 ```
 
 `check.ts` refuses: a dashboard that is not valid JSON, lacks a `uid`, `title`, `schemaVersion` or `panels`, repeats a panel id, has overlapping panels, or names a data source other than `renox-prometheus`; a target without an expression; a rule without `alert`, `expr`, a `severity` of `page` or `ticket`, a `summary`, or a `failure_mode` that is the first cell of a `docs/23-failure-modes.md` row; any expression that reads a family missing from the table above; and an alert missing from the alert table (or the reverse).

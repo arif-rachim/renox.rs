@@ -1,17 +1,40 @@
-# Alertmanager routing for the Renox rules (#296). The receivers are
-# placeholders: the paging integration (pager, chat, email) is the owner's
-# and its credentials never go in this repository; replace `default` with
-# the real receivers on the monitoring host.
+# Alertmanager routing for the Renox rules (#296, #450). One receiver,
+# `operator`, configured on the monitoring host; its secrets are files there,
+# never in this repository:
+#
+#   /etc/alertmanager/secrets/webhook_url   one line: the https URL of a chat
+#       incoming webhook or a pager's webhook (the same URL as
+#       ALERT_WEBHOOK_URL in /etc/renox/secrets/alert.env, which
+#       renox-alert@.service uses for failed units)
+#
+# Email instead of (or beside) the webhook: uncomment `email_configs` and put
+# the SMTP password in /etc/alertmanager/secrets/smtp_password. Install and
+# check: ops/observability/README.md, "Alertmanager on the single host".
+global:
+  resolve_timeout: 5m
+
 route:
-  receiver: default
+  receiver: operator
   group_by: [alertname, instance]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
   routes:
     - matchers: ['severity="page"']
-      receiver: default
+      receiver: operator
       repeat_interval: 1h
 
 receivers:
-  - name: default
+  - name: operator
+    webhook_configs:
+      - url_file: /etc/alertmanager/secrets/webhook_url
+        send_resolved: true
+        max_alerts: 20
+    # email_configs:
+    #   - to: ops@renoxium.com
+    #     from: alerts@renoxium.com
+    #     smarthost: smtp.resend.com:587
+    #     auth_username: resend
+    #     auth_password_file: /etc/alertmanager/secrets/smtp_password
+    #     require_tls: true
+    #     send_resolved: true
