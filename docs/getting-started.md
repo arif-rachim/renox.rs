@@ -16,7 +16,7 @@ alias renox="bun $PWD/cli/src/main.ts"
 
 `fetch-worker.ts` downloads the `renox-worker` release the CLI is tested against (it refuses a download whose SHA-256 does not match) into `cli/bin/<platform>-<arch>/`, where `renox dev` finds it. To get one binary instead of the alias, `bun run --cwd cli compile` writes `cli/dist/renox`.
 
-Outside this repository, the CLI installs with one line on Linux and macOS (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.0/install.sh | sh`; on Windows, inside WSL 2), and `bun install` in an app made by `renox new` pulls the SDK `@renoxium/sdk` at the same version; the details, the WSL 2 steps and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
+Outside this repository, the CLI installs with one line on Linux and macOS (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh`; on Windows, inside WSL 2), and `bun install` in an app made by `renox new` pulls the SDK `@renoxium/sdk` at the same version; the details, the WSL 2 steps and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
 
 ## Your first app
 

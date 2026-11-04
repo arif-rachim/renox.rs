@@ -33,9 +33,9 @@ Exit code 0 when every test passed, 2 when one failed.
 On Linux or macOS (x64 or arm64):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.0/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.0 (renox-worker 0.3.0)
+renox --version                          # renox 0.1.1 (renox-worker 0.3.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -57,7 +57,7 @@ The CLI is released as standalone binaries (`bun build --compile`, so no Bun is 
 Releases are signed (#129; `docs/24-threat-model.md` F, "Tampered release"). Every `cli-v*` and `worker-v*` release also carries `SHA256SUMS`, a sigstore bundle `<asset>.sigstore.json` per file (cosign keyless signature from the release workflow's OIDC identity, logged in Rekor), and SLSA v1 build provenance (`renox-<version>.provenance.sigstore.json`, `renox-worker-<version>.provenance.sigstore.json`). The release workflow verifies all of them with cosign in a fresh container before it publishes. With `cosign` installed, `install.sh` also checks each file's signature and installs nothing that fails; `RENOX_REQUIRE_SIGNATURE=1` refuses to install without a verified signature. To verify a download by hand:
 
 ```sh
-v=0.1.0; a=renox-$v-linux-x64
+v=0.1.1; a=renox-$v-linux-x64
 sha256sum -c --ignore-missing SHA256SUMS
 cosign verify-blob --bundle $a.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-cli\.yml@refs/tags/cli-v' \
