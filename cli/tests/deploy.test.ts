@@ -4,7 +4,7 @@
 // a worker is tests/deploy.e2e.test.ts.
 
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync } from "node:fs";
+import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -16,6 +16,7 @@ import type { Io } from "../src/commands/login.ts";
 import { formatLine, parseSince, run as logs, sseEvents } from "../src/commands/logs.ts";
 import { run as secrets, type SecretsIo, trimValue, valueProblem } from "../src/commands/secrets.ts";
 import { CliError, EXIT } from "../src/errors.ts";
+import { NUMBER_HANDLER, typedApp } from "./typed-app.ts";
 
 const repo = join(import.meta.dir, "../..");
 const TOKEN = `renox_pat_${"a".repeat(32)}`;
@@ -109,6 +110,34 @@ function controlPlane(active: string | null, overrides: Answer[] = []): Answer[]
     },
   ];
 }
+
+describe("renox deploy and the type check (#443)", () => {
+  test("a type error stops the deploy before anything is built or sent (exit 2), with the findings", async () => {
+    const dir = typedApp("hello");
+    writeFileSync(join(dir, "functions/api/hello.ts"), NUMBER_HANDLER);
+    const t = fake(controlPlane(null));
+    expect(await deploy([], t, dir)).toBe(EXIT.VALIDATION);
+    expect(t.calls).toEqual([]);
+    const out = t.lines.join("\n");
+    expect(out).toContain("functions/api/hello.ts:3:41  error  types  TS2322:");
+    expect(out).toContain("renox deploy: 1 type error(s); nothing was uploaded");
+    const j = fake(controlPlane(null));
+    expect(await deploy(["--json"], j, dir)).toBe(EXIT.VALIDATION);
+    expect(JSON.parse(j.lines[0] as string)).toMatchObject({ app: "hello", ok: false, types: [{ file: "functions/api/hello.ts", line: 3, column: 41, rule: "types", severity: "error" }] });
+  }, 60_000);
+
+  test("--skip-types deploys it anyway, with a warning", async () => {
+    const dir = typedApp("hello");
+    writeFileSync(join(dir, "functions/api/hello.ts"), NUMBER_HANDLER);
+    const t = fake(controlPlane(null));
+    expect(await deploy(["--skip-types"], t, dir)).toBe(EXIT.OK);
+    expect(t.lines[0]).toBe("  warning: --skip-types: the TypeScript type check did not run");
+    expect(t.calls.some((c) => c.method === "POST" && c.path === "/v1/apps/hello/deployments")).toBe(true);
+    const j = fake(controlPlane(null));
+    expect(await deploy(["--json", "--skip-types"], j, dir)).toBe(EXIT.OK);
+    expect(JSON.parse(j.lines[0] as string).types).toMatchObject({ checked: false, skipped: "--skip-types" });
+  }, 60_000);
+});
 
 describe("renox deploy", () => {
   test("builds, uploads the artifact as a gzip tar named by its hash, uploads source maps, activates, prints the live URL and the rollback command", async () => {

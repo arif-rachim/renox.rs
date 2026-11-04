@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import cliPackage from "../../package.json" with { type: "json" };
+import rootPackage from "../../../package.json" with { type: "json" };
 import { EXIT, UserError } from "../errors.ts";
 import { COMMON, TEMPLATES, type TemplateName, TSCONFIG } from "../lib/templates.ts";
 
@@ -15,6 +16,14 @@ import { COMMON, TEMPLATES, type TemplateName, TSCONFIG } from "../lib/templates
  * release X installs SDK X.
  */
 export const CLI_VERSION: string = cliPackage.version;
+
+/**
+ * #443: the TypeScript compiler `renox check` runs, and the Bun types the
+ * tests use, pinned to the versions this repository builds with (root
+ * package.json), so `bun install` brings the type check into the app.
+ */
+export const TYPESCRIPT_VERSION: string = rootPackage.devDependencies.typescript;
+export const BUN_TYPES_VERSION: string = rootPackage.devDependencies["bun-types"];
 
 const NAME = /^[a-z][a-z0-9-]{0,62}$/u;
 
@@ -36,8 +45,9 @@ export function newApp(name: string, template: string, parent = process.cwd()): 
         name,
         private: true,
         type: "module",
-        scripts: { dev: "renox dev", build: "renox build", check: "renox check", test: "renox test", deploy: "renox deploy" },
+        scripts: { dev: "renox dev", build: "renox build", check: "renox check", typecheck: "renox check --types-only", test: "renox test", deploy: "renox deploy" },
         dependencies: { "@renoxium/sdk": `^${CLI_VERSION}` },
+        devDependencies: { typescript: TYPESCRIPT_VERSION, "bun-types": BUN_TYPES_VERSION },
       },
       null,
       2,

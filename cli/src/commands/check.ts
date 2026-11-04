@@ -1,4 +1,6 @@
-// renox check [--secrets] [--security]: renox.toml schema, route conflicts,
+// renox check [--secrets] [--security] [--types-only | --no-types]: the
+// TypeScript type check with the app's own compiler (#443, check/types.ts),
+// renox.toml schema, route conflicts,
 // template diagnostics, manifest schema (by building in memory), SQL
 // interpolation lint, undeclared fetch hosts, handlers that write to global
 // scope, redirects to a target from the request (#111), and the bundle-hygiene rules (#115): secrets in what the build
@@ -26,6 +28,7 @@ import { TemplateError } from "../lib/templates-compile.ts";
 import { projectProblems } from "../lib/modules/resolve.ts";
 import { contractProblems, installedModules } from "../lib/modules/build.ts";
 import { exportProblems } from "../check/exports.ts";
+import { typeCheck } from "../check/types.ts";
 
 const SKIP = new Set(["node_modules", ".renox", ".git", "dist"]);
 
@@ -51,11 +54,26 @@ export interface CheckOptions {
   secretsOnly?: boolean;
   /** Override drift is an error, not a warning (#235). */
   strict?: boolean;
+  /**
+   * The TypeScript type check (#443): `include` runs it with everything else
+   * (`renox check`, `run_check`), `only` runs nothing else (`--types-only`),
+   * `skip` leaves it out (`--no-types`; the default for callers inside the
+   * CLI, such as the test harness).
+   */
+  types?: "include" | "only" | "skip";
+}
+
+/** The type check as findings: the compiler's errors, or one warning when the types were not checked. */
+export function typeFindings(project: string): Finding[] {
+  const t = typeCheck(project);
+  if (t.skipped !== null) return [{ file: existsSync(join(project, "tsconfig.json")) ? "package.json" : "tsconfig.json", line: 1, column: 1, rule: "types", severity: "warning", message: t.skipped }];
+  return t.findings;
 }
 
 export async function check(project: string, options: CheckOptions = {}): Promise<CheckReport> {
   const errors: CliError[] = [];
   const findings: Finding[] = [];
+  if (options.types === "only") return { errors, findings: typeFindings(project) };
   let network: string[] = [];
   // #283: what the build knows about authorization, for the source rules.
   let owned = new Set<string>();
@@ -132,6 +150,7 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     findings.push(...lintSql(src, f), ...lintFetch(src, f, network), ...lintGlobalState(src, f), ...lintRedirect(src, f), ...lintBody(src, f));
     findings.push(...lintMissingGuard(src, f, named), ...lintUnscoped(src, f, owned));
   }
+  if (options.types === "include") findings.push(...typeFindings(project));
   return { errors, findings };
 }
 
@@ -199,16 +218,21 @@ export function securityOutput(project: string): string {
 }
 
 export async function run(args: string[]): Promise<number> {
-  const flags = new Set(["--secrets", "--security", "--json", "--strict"]);
+  const flags = new Set(["--secrets", "--security", "--json", "--strict", "--types-only", "--no-types"]);
   const t = args.indexOf("--target");
   const target = t >= 0 ? args[t + 1] : undefined;
   const rest = t >= 0 ? [...args.slice(0, t), ...args.slice(t + 2)] : args;
   if ((t >= 0 && (target === undefined || target.startsWith("-"))) || rest.some((a) => !flags.has(a)) || new Set(rest).size !== rest.length) {
-    console.error("usage: renox check [--secrets] [--security] [--json] [--strict] [--target <hash | artifact dir>]");
+    console.error("usage: renox check [--secrets] [--security] [--json] [--strict] [--types-only | --no-types] [--target <hash | artifact dir>]");
+    return EXIT.USER;
+  }
+  if (args.includes("--types-only") && args.includes("--no-types")) {
+    console.error("renox check: --types-only and --no-types exclude each other");
     return EXIT.USER;
   }
   const security = args.includes("--security");
-  const { errors, findings: lint } = await check(process.cwd(), { secretsOnly: args.includes("--secrets"), strict: args.includes("--strict") });
+  const types = args.includes("--types-only") ? "only" : args.includes("--no-types") || args.includes("--secrets") ? "skip" : "include";
+  const { errors, findings: lint } = await check(process.cwd(), { secretsOnly: args.includes("--secrets"), strict: args.includes("--strict"), types });
   const findings: (Finding | SchemaFinding)[] = lint;
   if (target !== undefined) {
     try {

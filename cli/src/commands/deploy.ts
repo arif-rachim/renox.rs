@@ -21,9 +21,10 @@ import { writeTar } from "@renox/artifact-validate";
 import { EnvironmentError, EXIT, UserError } from "../errors.ts";
 import { artifactsDir, buildArtifact } from "../lib/build.ts";
 import { readProject } from "../lib/project.ts";
+import { typeCheck } from "../check/types.ts";
 import { apiAuth, apiRequest, cliErrorOf, defaultIo, errorBody, type Io } from "./login.ts";
 
-const USAGE = "usage: renox deploy [--json] | renox deploy --rollback [<hash>] [--app <name>] [--json]";
+const USAGE = "usage: renox deploy [--json] [--skip-types] | renox deploy --rollback [<hash>] [--app <name>] [--json]";
 const APP = /^[a-z][a-z0-9-]{0,49}$/u;
 /** Attempts of one retried request (upload, sourcemaps, activation), and the first backoff. */
 export const ATTEMPTS = 4;
@@ -120,12 +121,27 @@ function liveUrl(app: App): string {
   return host === undefined ? "(no hostname yet)" : `https://${host}`;
 }
 
-async function deploy(io: Io, project: string, json: boolean): Promise<number> {
+async function deploy(io: Io, project: string, json: boolean, skipTypes = false): Promise<number> {
   const out = (l: string) => (json ? undefined : io.out(l));
   const t0 = performance.now();
   apiAuth(io.env); // not signed in: fail before building
   const config = readProject(project);
   const name = config.app.name;
+
+  // #443: the type check before anything is built or sent; a type error stops the deploy (exit 2).
+  const types = skipTypes ? null : typeCheck(project);
+  if (skipTypes) out("  warning: --skip-types: the TypeScript type check did not run");
+  else if (types?.skipped) out(`  warning: ${types.skipped}`);
+  const typeErrors = (types?.findings ?? []).filter((f) => f.severity === "error");
+  if (typeErrors.length > 0) {
+    if (json) io.out(JSON.stringify({ app: name, ok: false, types: types?.findings ?? [] }));
+    else {
+      for (const f of types?.findings ?? []) io.out(`${f.file}:${f.line}:${f.column}  ${f.severity}  types  ${f.message}`);
+      io.out(`renox deploy: ${typeErrors.length} type error(s); nothing was uploaded`);
+      io.out("  hint: fix them (renox check shows the same), or deploy anyway with --skip-types");
+    }
+    return EXIT.VALIDATION;
+  }
 
   const b0 = performance.now();
   const r = await buildArtifact(project, artifactsDir(project), undefined, { secrets: true });
@@ -180,7 +196,8 @@ async function deploy(io: Io, project: string, json: boolean): Promise<number> {
   const live = await ok<App>(await apiRequest(io, "GET", `/v1/apps/${name}`), 200);
   const total = performance.now() - t0;
   if (json) {
-    io.out(JSON.stringify({ app: name, hash: r.hash, previous, url: liveUrl(live), hostnames: live.hostnames, sourcemaps, stages: rounded(stages), total_ms: Math.round(total) }));
+    const typesReport = { checked: types !== null && types.skipped === null, skipped: skipTypes ? "--skip-types" : (types?.skipped ?? null), ms: types?.ms ?? 0, warnings: (types?.findings ?? []).filter((f) => f.severity === "warning") };
+    io.out(JSON.stringify({ app: name, hash: r.hash, previous, url: liveUrl(live), hostnames: live.hostnames, sourcemaps, stages: rounded(stages), types: typesReport, total_ms: Math.round(total) }));
     return EXIT.OK;
   }
   out(pad(`  Live: ${liveUrl(live)}  (${short(r.hash)})`, total).replace(/ (\S+)$/u, " total $1"));
@@ -228,12 +245,14 @@ async function rollback(io: Io, app: string, target: string | undefined, json: b
 
 export async function run(args: string[], io: Io = defaultIo(), project: string = process.cwd()): Promise<number> {
   let json = false;
+  let skipTypes = false;
   let isRollback = false;
   let target: string | undefined;
   let app: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i] as string;
     if (a === "--json") json = true;
+    else if (a === "--skip-types") skipTypes = true;
     else if (a === "--rollback") {
       isRollback = true;
       const next = args[i + 1];
@@ -245,7 +264,7 @@ export async function run(args: string[], io: Io = defaultIo(), project: string 
   }
   if (!isRollback) {
     if (app !== undefined) throw new UserError("--app goes with --rollback; a deploy uses the app of renox.toml", { hint: USAGE });
-    return deploy(io, project, json);
+    return deploy(io, project, json, skipTypes);
   }
   return rollback(io, app ?? readProject(project).app.name, target, json);
 }

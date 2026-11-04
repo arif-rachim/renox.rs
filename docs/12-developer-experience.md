@@ -103,7 +103,16 @@ Target from save to browser update: under 300 ms for a single file. Discarding t
 
 ## Type safety
 
-`renox dev` generates `.renox/types/`: `LoaderContext`, `params` per route (from file names), each module's services, event payloads, policy action names, and fragment names. Type checking happens in the editor through `tsc`/tsgo; the runtime does not type check so reloads stay fast.
+`renox dev` generates `.renox/types/`: `LoaderContext`, `params` per route (from file names), each module's services, event payloads, policy action names, and fragment names. `renox dev` does not type check, so reloads stay fast; the editor does it there.
+
+**`renox check` type checks** (#443). It runs the app's own TypeScript compiler, `node_modules/typescript` (looked up from the app upwards, as Node resolves it), as `tsc --noEmit -p tsconfig.json` with a fixed argv and no shell, and reports each error as a finding of `rule: "types"` with its file, line, column and TS code (`functions/api/hello.ts:3:41  error  types  TS2322: …`); files under `node_modules/` are left out. `renox new` adds `typescript` (pinned to the version this repository uses, TypeScript 7) and `bun-types` as devDependencies and a `typecheck` script (`renox check --types-only`), so `bun install` is all an app needs.
+
+- Without `typescript` installed: one warning, `types not checked: add typescript (bun add -d typescript)`, and the check passes.
+- Without `tsconfig.json`: one warning, `types not checked: no tsconfig.json (renox new writes one; copy it from the template)`. No configuration is guessed, and the check passes.
+- `--types-only` runs only the type check; `--no-types` skips it; `--json` carries the findings like the others.
+- `renox deploy` runs the same check before it builds anything: a type error stops it with exit code 2 and nothing is uploaded; `--skip-types` deploys anyway, with a warning. `run_check` over `renox mcp` returns the type findings, so a coding agent sees them.
+
+The type check of `examples/shop` takes about 0.6 s with TypeScript 7 (measured on the CI container, `cli/tests/check-types.test.ts`).
 
 ## Debugging
 
