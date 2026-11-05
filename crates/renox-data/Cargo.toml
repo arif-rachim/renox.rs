@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Tenant SQLite files: connections, pragmas, authorizer, limits, migrations (docs/06-data.md)"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [dependencies]

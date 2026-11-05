@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Attribute templates -> minijinja: compiler, fragment map, renderer with limits, platform filters (docs/08-template-engine.md, ADR D8)"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 # Leaf crate: no renox-* dependencies, no V8 (AGENTS.md, compile discipline).

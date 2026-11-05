@@ -7,6 +7,7 @@ version = "0.3.0"
 description = "Renox cell: wires gateway, runtime, data, and meter into the renox-worker binary (P5)"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [features]

@@ -39,7 +39,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 11. `docs/10-modules.md` — module system and inter-module communication.
 12. `docs/11-authorization.md` — RBAC/ABAC/ReBAC with Cedar, `r-can`, `db.scoped`.
 13. `docs/12-developer-experience.md` — CLI, dev loop, types, debugging.
-14. `docs/13-decisions.md` — ADRs D1–D27. **Required reading before any architectural change.**
+14. `docs/13-decisions.md` — ADRs D1–D29. **Required reading before any architectural change.**
 15. `docs/14-benchmarks.md` — target numbers, scenarios, methodology, how to record results.
 16. `docs/15-roadmap.md` — phases, done criteria, kill criteria.
 17. `docs/16-risks.md` — risks and mitigations.

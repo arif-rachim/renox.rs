@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Renox data plane runtime: V8 isolates on deno_runtime, artifact loading, dispatch, limits, ops"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [features]

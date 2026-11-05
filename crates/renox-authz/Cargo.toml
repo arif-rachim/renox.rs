@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Cedar policy sets, the merged schema, and the fail-closed policy engine of a deployment (docs/11-authorization.md, D15; ops.md 1.5.0 section 17)"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 # Leaf crate: no renox-* dependencies, no V8 (AGENTS.md, compile discipline;
