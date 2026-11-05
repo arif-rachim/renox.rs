@@ -562,6 +562,12 @@ mod tests {
                 })
             }),
         );
+        // Not enforcing: at 95 % an enforcing monitor sets renox-data's
+        // process-wide write refusal, and every SQLite test that runs after
+        // this one in the same process would fail with RENOX_DB_QUOTA. This
+        // test only reads the heartbeat's JSON (the disk module's own tests
+        // do the same).
+        d.set_enforcing(false);
         let at = |pct: u64| {
             used.store(pct, Ordering::SeqCst);
             d.poll();
