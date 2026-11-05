@@ -1,0 +1,17 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
+body { margin: 0 auto; max-width: 40rem; padding: 0 1rem 3rem; }
+header { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; padding-block: 1rem; border-block-end: 1px solid #8884; }
+a { color: inherit; }
+.team { color: #888; letter-spacing: 0.05em; margin: 0; }
+#tasks ul { list-style: none; padding: 0; margin: 0; }
+.task { display: flex; gap: 0.75rem; align-items: center; padding-block: 0.5rem; border-block-end: 1px solid #8882; }
+.task .title { flex: 1; }
+.task.done .title { text-decoration: line-through; color: #888; }
+.count { color: #888; }
+.add { display: flex; gap: 0.5rem; margin-block: 1rem; }
+.add label { flex: 1; display: flex; gap: 0.5rem; align-items: center; }
+.add input { flex: 1; padding: 0.4rem 0.6rem; font: inherit; }
+button { font: inherit; cursor: pointer; }
+.check { background: none; border: 0; font-size: 1.2rem; }
+.remove { background: none; border: 1px solid #8886; border-radius: 0.3rem; }
+.error { color: #c00; }

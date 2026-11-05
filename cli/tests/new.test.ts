@@ -4,9 +4,9 @@
 // template gets the agent files `AGENTS.md`, `CLAUDE.md` and `.mcp.json`
 // (docs/12, "Build with an AI agent").
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { type Dirent, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { CLI_VERSION, newApp } from "../src/commands/new.ts";
 
@@ -41,5 +41,23 @@ test("every template writes AGENTS.md, CLAUDE.md and .mcp.json (snapshots)", () 
     // The template's own files are still there.
     expect(existsSync(join(dir, "renox.toml"))).toBe(true);
     expect(existsSync(join(dir, template === "hello" ? "functions/api/hello.ts" : "functions/api/health.ts"))).toBe(true);
+  }
+});
+
+test("--template tutorial writes examples/tutorial/step-01, file for file (#430)", () => {
+  const step01 = join(import.meta.dir, "../../examples/tutorial/step-01");
+  const dir = newApp("board", "tutorial", scratch);
+  const files = (root: string): string[] =>
+    (readdirSync(root, { recursive: true, withFileTypes: true }) as Dirent[])
+      .filter((d) => d.isFile())
+      .map((d) => relative(root, join(d.parentPath, d.name)))
+      .sort();
+  expect(files(dir)).toEqual(files(step01));
+  for (const f of files(step01)) {
+    const want = readFileSync(join(step01, f), "utf8");
+    const got = readFileSync(join(dir, f), "utf8");
+    // The checkpoint pins the SDK of the CLI release it was written with; a new app pins this CLI's.
+    if (f === "package.json") expect(got.replace(/"@renoxium\/sdk": "[^"]+"/u, "")).toBe(want.replace(/"@renoxium\/sdk": "[^"]+"/u, ""));
+    else expect(got, f).toBe(want);
   }
 });

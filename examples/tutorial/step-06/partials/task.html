@@ -1,0 +1,12 @@
+<r-props task="Task" />
+<article :class="{ task: true, done: task.done }">
+  <x-form action="toggle" hx-target="#tasks" hx-swap="outerHTML">
+    <input type="hidden" name="task" :value="task.id">
+    <button type="submit" class="check"><r-group r-if="task.done">✓</r-group><r-group r-else>○</r-group></button>
+  </x-form>
+  <span class="title" dir="auto">{{ task.title | truncate(80) }}</span>
+  <x-form action="remove" hx-target="#tasks" hx-swap="outerHTML">
+    <input type="hidden" name="task" :value="task.id">
+    <button type="submit" class="remove"><r-t key="board.remove" /></button>
+  </x-form>
+</article>

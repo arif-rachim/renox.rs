@@ -1,0 +1,46 @@
+# Written by renox (renox add, renox remove); do not edit by hand (docs/contracts/manifest.md, MF12).
+version = 1
+
+[[module]]
+name = "i18n"
+version = "1.0.0"
+source = "official"
+hash = "c91ad7f525744b571d23550a7aba0ab862159629874d02abf891f37a5c890b81"
+isolation = "shared"
+mount = "/i18n"
+dependencies = []
+config = { locales = "en,ar", default_locale = "en", digits = "latn", calendar = "gregory" }
+approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks = [] }
+
+[[module]]
+name = "auth"
+version = "1.0.0"
+source = "official"
+hash = "b6b1aaba1da4cb3ca6c3604806fa2ac1da3332fe199b2fb4a8b9a027de4cd411"
+isolation = "shared"
+mount = "/auth"
+dependencies = ["i18n"]
+config = { session_idle_hours = 24, session_absolute_days = 30, password_min_length = 12, login_path = "/auth/login", google_client_id = "", github_client_id = "", microsoft_client_id = "", uaepass_client_id = "", uaepass_env = "staging", phone_login = false, passkeys = false, passkey_rp_id = "", passkey_origin = "" }
+approved = { tables = "auth__*", network = ["accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com", "github.com", "api.github.com", "login.microsoftonline.com", "graph.microsoft.com", "stg-id.uaepass.ae", "id.uaepass.ae"], secrets = ["AUTH_GOOGLE_CLIENT_SECRET", "AUTH_GITHUB_CLIENT_SECRET", "AUTH_MICROSOFT_CLIENT_SECRET", "AUTH_UAEPASS_CLIENT_SECRET"], slots = ["app.header"], hooks = [] }
+
+[[module]]
+name = "org"
+version = "1.0.0"
+source = "official"
+hash = "ac7b1e6756ad2a31df88e21c0ba9cd158ea502faebc8b896f39a1f215d364f3f"
+isolation = "shared"
+mount = "/org"
+dependencies = ["auth", "i18n"]
+config = { base_path = "/org", invite_days = 7 }
+approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
+
+[[module]]
+name = "outbox"
+version = "1.0.0"
+source = "path:modules/outbox"
+hash = "dfa2fa85978de52114f45bb71d3ccaf5cb078d1bb2073f622827baf1e8e451f9"
+isolation = "shared"
+mount = "/outbox"
+dependencies = []
+config = {}
+approved = { tables = "outbox__*", network = [], secrets = [], slots = [], hooks = ["org.send_mail"] }

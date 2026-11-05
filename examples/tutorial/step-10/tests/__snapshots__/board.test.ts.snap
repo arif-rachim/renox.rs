@@ -1,0 +1,98 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the board, per role owner: creates the team, adds, ticks off and removes tasks: role: owner 1`] = `
+"<main>
+    
+  
+  <h1>Board</h1>
+  
+    <p class="team" dir="auto">ACME</p>
+    <section id="tasks" data-live="/sse/board">
+      <form method="post" action="?/add" hx-post="?/add" class="add" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+        <label>New task <input name="title" maxlength="200" autocomplete="off" required></label>
+        <button type="submit">Add</button>
+      </form>
+      
+      <p class="count">1 open</p>
+      <ul>
+        <li>
+<article class="task">
+  <form method="post" action="?/toggle" hx-post="?/toggle" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="task" value="2">
+    <button type="submit" class="check">○</button>
+  </form>
+  <span class="title" dir="auto">Ship &lt;b&gt;it&lt;/b&gt;</span>
+  <form method="post" action="?/remove" hx-post="?/remove" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="task" value="2">
+    <button type="submit" class="remove">Remove</button>
+  </form>
+</article>
+</li><li>
+<article class="task done">
+  <form method="post" action="?/toggle" hx-post="?/toggle" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="task" value="1">
+    <button type="submit" class="check">✓</button>
+  </form>
+  <span class="title" dir="auto">Write the tutorial</span>
+  <form method="post" action="?/remove" hx-post="?/remove" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="task" value="1">
+    <button type="submit" class="remove">Remove</button>
+  </form>
+</article>
+</li>
+      </ul>
+    </section>
+  
+
+  </main>"
+`;
+
+exports[`the board, per role member: joins by invitation, adds and ticks off, cannot remove: role: member 1`] = `
+"<main>
+    
+  
+  <h1>Board</h1>
+  
+    <p class="team" dir="auto">ACME</p>
+    <section id="tasks" data-live="/sse/board">
+      <form method="post" action="?/add" hx-post="?/add" class="add" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+        <label>New task <input name="title" maxlength="200" autocomplete="off" required></label>
+        <button type="submit">Add</button>
+      </form>
+      
+      <p class="count">1 open</p>
+      <ul>
+        <li>
+<article class="task">
+  <form method="post" action="?/toggle" hx-post="?/toggle" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="task" value="3">
+    <button type="submit" class="check">○</button>
+  </form>
+  <span class="title" dir="auto">Review chapter 9</span>
+  
+</article>
+</li><li>
+<article class="task done">
+  <form method="post" action="?/toggle" hx-post="?/toggle" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="task" value="2">
+    <button type="submit" class="check">✓</button>
+  </form>
+  <span class="title" dir="auto">Ship &lt;b&gt;it&lt;/b&gt;</span>
+  
+</article>
+</li><li>
+<article class="task done">
+  <form method="post" action="?/toggle" hx-post="?/toggle" hx-target="#tasks" hx-swap="outerHTML"><input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="task" value="1">
+    <button type="submit" class="check">✓</button>
+  </form>
+  <span class="title" dir="auto">Write the tutorial</span>
+  
+</article>
+</li>
+      </ul>
+    </section>
+  
+
+  </main>"
+`;

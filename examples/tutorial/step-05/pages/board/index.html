@@ -1,0 +1,16 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="board.title" /></r-group>
+  <h1><r-t key="board.title" /></h1>
+  <section id="tasks" r-fragment="tasks">
+    <x-form action="add" class="add" hx-target="#tasks" hx-swap="outerHTML">
+      <label><r-t key="board.new_task" /> <input name="title" maxlength="200" autocomplete="off" required></label>
+      <button type="submit"><r-t key="board.add" /></button>
+    </x-form>
+    <p class="error" r-if="error">{{ error | t }}</p>
+    <p class="count"><r-t key="board.open" :n="open | number" /></p>
+    <ul>
+      <li r-for="task in tasks"><x-task :task="task" /></li>
+      <li class="empty" r-empty="tasks"><r-t key="board.empty" /></li>
+    </ul>
+  </section>
+</r-layout>

@@ -1,0 +1,8 @@
+[module]
+name = "outbox"
+version = "1.0.0"
+description = "Keeps the invitation mails org asks to send, so a team can be tried before a mail module delivers them"
+
+[permissions]
+tables = "outbox__*"
+hooks = ["org.send_mail"]

@@ -1,0 +1,9 @@
+[
+  { "description": "a signed-in user opens the board", "principal": { "type": "User", "id": "u_lina" }, "action": "board.view", "expected": "allow" },
+  { "description": "a visitor who is not signed in does not", "principal": { "type": "Anonymous", "id": "anonymous" }, "action": "board.view", "expected": "deny" },
+  { "description": "a member ticks off a task of their team", "principal": { "type": "User", "id": "u_omar", "attrs": { "org": "o_acme" } }, "action": "task.edit", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "allow" },
+  { "description": "not a task of another team", "principal": { "type": "User", "id": "u_omar", "attrs": { "org": "o_acme" } }, "action": "task.edit", "resource": { "type": "Task", "id": "2", "team_id": "o_other" }, "expected": "deny" },
+  { "description": "nor without a team", "principal": { "type": "User", "id": "u_sara" }, "action": "task.edit", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "deny" },
+  { "description": "a task of the team may be removed", "principal": { "type": "User", "id": "u_lina", "attrs": { "org": "o_acme" } }, "action": "task.delete", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "allow" },
+  { "description": "not one of another team", "principal": { "type": "User", "id": "u_sara", "attrs": { "org": "o_other" } }, "action": "task.delete", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "deny" }
+]

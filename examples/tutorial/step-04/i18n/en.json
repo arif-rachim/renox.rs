@@ -1,0 +1,12 @@
+{
+  "home": {
+    "title": "Your team's board",
+    "intro": "Add tasks, tick them off, and see your team's changes as they happen.",
+    "open_board": "Open the board"
+  },
+  "board": {
+    "title": "Board",
+    "open": "{n} open",
+    "empty": "Nothing to do yet."
+  }
+}

@@ -172,6 +172,1681 @@ To work on the platform itself from a clone of the repository instead: `git clon
 
 ---
 
+Source: docs/tutorial/README.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/README.md)
+
+# Tutorial: build a team board
+
+In about an hour you go from an empty folder to a multi-user app on `https://<app>.renoxium.app`. You build a small **team task board**: people sign up, create a team, invite each other, add and tick off tasks, and everyone on the team sees changes live. Only admins and owners remove tasks.
+
+The app has no auth code of its own and no client framework. It uses pages and templates, one SQLite database, a few actions, two official modules, one Cedar policy file and a live feed. Each chapter adds one of these.
+
+## Before you start
+
+- Linux or macOS (Windows: WSL 2 with Ubuntu), [Bun](https://bun.sh) 1.4 or newer, `curl`, and a browser.
+- TypeScript and HTML at the level of a form and a `fetch`. You do not need to know htmx, Cedar or SQLite: each is explained when it first appears.
+
+## The chapters
+
+| # | Chapter | What the board can do afterwards |
+| --- | --- | --- |
+| 1 | [Install the CLI and create the app](01-install.md) | It runs locally: one page, one API route, one test |
+| 2 | [The dev loop](02-dev-loop.md) | It has a stylesheet, and you have seen the error overlay |
+| 3 | [Pages and templates](03-pages.md) | `/board` lists tasks through a layout, a partial and translated strings |
+| 4 | [Data](04-data.md) | The tasks live in SQLite, created by a migration |
+| 5 | [Functions and forms](05-actions.md) | You add, tick off and remove tasks; htmx swaps only the list |
+| 6 | [Sign-in and teams with modules](06-teams.md) | People sign up, create teams and invite each other; each team has its own tasks |
+| 7 | [Authorization](07-authorization.md) | A Cedar policy keeps every team's tasks to its members |
+| 8 | [Realtime](08-realtime.md) | Every member sees changes without reloading |
+| 9 | [Tests](09-tests.md) | A test flow for each role, with snapshots of what each one sees |
+| 10 | [Deploy and a custom domain](10-deploy.md) | It is live, with logs, usage and your own domain |
+
+## The checkpoints
+
+Every chapter ends at a checkpoint: a complete app in [`examples/tutorial/`](../../examples/tutorial/) (`step-01` … `step-10`). If your copy stops working, compare it with the checkpoint, or continue from there:
+
+```sh
+git clone --depth 1 https://github.com/arif-rachim/renox.rs
+cp -r renox.rs/examples/tutorial/step-05 my-board
+```
+
+Each step contains the whole previous step plus that chapter's changes. The code blocks in the chapters are copied from the checkpoint files, and the repository's CI fails when one drifts (`cli/tests/tutorial.test.ts`). The same CI builds every checkpoint, runs `renox check` on it and passes its `renox test`.
+
+## Building with an AI agent
+
+Every app `renox new` writes includes `AGENTS.md` (the app model, the commands and the rules) and `.mcp.json`, which registers `renox mcp --project .` with Claude Code, Cursor and other agents. Each chapter ends with a short note on doing that chapter's step with an agent. How agents work with Renoxium: [AI agents and MCP](../20-ai-agents-mcp.md).
+
+---
+
+Source: docs/tutorial/01-install.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/01-install.md)
+
+# Chapter 1: Install the CLI and create the app
+
+**What you build:** the starting point of the board, an app with one page, one API route and one test, running on your machine.
+
+## Install the CLI
+
+One line installs `renox`, and the `renox-worker` it runs your app on, into `~/.renox/bin`. Each file is installed only if its SHA-256 matches the release:
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
+export PATH="$HOME/.renox/bin:$PATH"   # also add this line to ~/.bashrc or ~/.zshrc
+renox --version
+```
+
+```
+renox 0.1.2 (renox-worker 0.3.0)
+```
+
+The CLI is not on npm: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. More on installing, verifying signatures and upgrading: [Getting started](../getting-started.md#install).
+
+## Create the app
+
+```sh
+renox new my-board --template tutorial
+cd my-board
+bun install
+```
+
+`--template tutorial` writes this chapter's checkpoint. **It needs a CLI newer than 0.1.2**: the `cli-v0.1.2` release came out before the template. With 0.1.2, copy the checkpoint instead:
+
+```sh
+git clone --depth 1 https://github.com/arif-rachim/renox.rs
+cp -r renox.rs/examples/tutorial/step-01 my-board
+cd my-board
+bun install
+```
+
+Either way you get:
+
+| Path | What it is |
+| --- | --- |
+| `renox.toml` | The app's name, time zone and permissions |
+| `functions/api/health.ts` | An API route: `GET /api/health` |
+| `pages/index.html`, `pages/_layouts/main.html` | The home page and the layout around it |
+| `tests/app.test.ts` | A test that `renox test` runs on the real worker |
+| `package.json`, `tsconfig.json` | The SDK, TypeScript and the Bun types; `renox check` type checks with them |
+| `AGENTS.md`, `CLAUDE.md`, `.mcp.json` | For coding agents (see the end of this chapter) |
+
+## The files
+
+`renox.toml` names the app and says what it may reach. An empty `network` list means `fetch` cannot reach any host. Every name in `secrets` must be declared before `ctx.secrets` can read it:
+
+`renox.toml`:
+```toml
+[app]
+name = "board"
+timezone = "Asia/Dubai"
+
+[permissions]
+# Outbound hosts for fetch, e.g. ["api.stripe.com"]; empty = no network.
+network = []
+# Secret names the app reads from ctx.secrets.
+secrets = []
+```
+
+Every file under `functions/` is a route: its path is the URL, and each exported HTTP method handles that method. A handler gets `ctx` (the request, the app's database, `fetch`, secrets, the log) and returns a `Response`:
+
+`functions/api/health.ts`:
+```ts
+// GET /api/health answers {"ok":true}: a route for uptime checks.
+//
+// Every file under functions/ is a route: its path is the URL, and each
+// exported HTTP method (GET, POST, ...) handles that method.
+import type { Handler } from "@renoxium/sdk";
+
+export const GET: Handler = () => Response.json({ ok: true });
+```
+
+The board will be mostly pages, so why keep an API route? An app made only of `.html` pages does not build yet ("an artifact needs at least one module", #472). The health route is useful anyway: chapter 10 points an uptime check at it.
+
+A page is an `.html` file under `pages/`; `pages/index.html` is `/`. `<r-layout use="main">` wraps it in `pages/_layouts/main.html`, and the layout's `<slot />` is where the page goes:
+
+`pages/index.html`:
+```html
+<r-layout use="main">
+  <h1>Team board</h1>
+  <p>Your app is running. This page is <code>pages/index.html</code>: change it and save.</p>
+  <p>The API answers at <a href="/api/health"><code>/api/health</code></a>.</p>
+</r-layout>
+```
+
+`pages/_layouts/main.html`:
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><slot name="title">Team board</slot></title>
+</head>
+<body>
+  <main>
+    <slot />
+  </main>
+</body>
+</html>
+```
+
+## Run it
+
+```sh
+renox dev
+```
+
+```
+renox dev: http://localhost:8787  (artifact 1296b55f326f, 2 routes)
+  GET     /api/health
+  PAGE    /
+```
+
+Open http://localhost:8787. [What you should see: the home page of the new app](screenshots/01-running.png).
+
+## Test it
+
+`renox test` builds the app, starts the same worker as `renox dev` with a fresh database for each test file, and runs `tests/*.test.ts` with Bun:
+
+`tests/app.test.ts`:
+```ts
+// `renox test` runs this file on the local worker, with a fresh database.
+import { describe, expect, test } from "bun:test";
+import type { TestApp } from "@renoxium/sdk/test";
+
+// `renox test` sets RENOX_TEST_SPEC; any other `bun test` skips this file.
+const run = process.env.RENOX_TEST_SPEC !== undefined;
+const t = run ? await (await import("@renoxium/sdk/test")).app() : ({} as TestApp);
+
+describe.skipIf(!run)("the app", () => {
+  test("the home page renders", async () => {
+    const res = await t.page("/");
+    expect(res.status).toBe(200);
+    expect(res.html).toContain("Team board");
+  });
+
+  test('GET /api/health answers {"ok":true}', async () => {
+    const res = await t.request("GET", "/api/health");
+    expect(res.json()).toEqual({ ok: true });
+  });
+});
+```
+
+```sh
+renox test
+```
+
+```
+ 2 pass
+ 0 fail
+```
+
+The first lines of the test file make it run only under `renox test`. Your app does not need them. They are there because the Renoxium repository runs its own `bun test` over every file it holds, these checkpoints included (#479 removes them).
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| `renox: command not found` | `~/.renox/bin` is not on your `PATH`: run the `export` line above, then open a new terminal |
+| `port 8787 is in use` | Another `renox dev` is running. Stop it, or run `renox dev --port 8788` |
+| `renox test` exits with code 3, "`bun` is not on PATH" | Install Bun 1.4 or newer and open a new terminal |
+| `RENOX_CLI_WORKER_UNVERIFIED` | The worker binary does not match the release checksums. Run the installer again; do not copy a worker from elsewhere |
+| `unknown template "tutorial"` | Your CLI is 0.1.2: copy `step-01` as shown above |
+
+## Building with an AI agent
+
+`.mcp.json` registers `renox mcp --project .` with Claude Code and Cursor. In the app folder, ask your agent: "Read AGENTS.md, then run the app's checks and tests with the renox MCP tools." It uses `run_check` and `run_tests`, and `dev_status` once `renox dev` runs. The tools and the rules agents follow: [AI agents and MCP](../20-ai-agents-mcp.md).
+
+**Checkpoint:** [`examples/tutorial/step-01`](../../examples/tutorial/step-01/). Next: [the dev loop](02-dev-loop.md).
+
+---
+
+Source: docs/tutorial/02-dev-loop.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/02-dev-loop.md)
+
+# Chapter 2: The dev loop
+
+**What you build:** a stylesheet and a header for the board. On the way you learn what `renox dev` does when you save, and where errors show up, from the server and from the browser.
+
+## Save, and the browser follows
+
+Keep `renox dev` running in one terminal. Each time you save, it rebuilds the app, starts a fresh isolate on the same worker (your database stays open) and reloads the open pages. One edited file usually appears in the browser within a second.
+
+Add a stylesheet. Files under `public/` are served as they are, outside your app's isolate and its CPU quota:
+
+`public/app.css`:
+```css
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
+body { margin: 0 auto; max-width: 40rem; padding: 0 1rem 3rem; }
+header { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; padding-block: 1rem; border-block-end: 1px solid #8884; }
+a { color: inherit; }
+```
+
+Link it from the layout, and add a header:
+
+`pages/_layouts/main.html`:
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><slot name="title">Team board</slot></title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <a href="/"><strong>Team board</strong></a>
+  </header>
+  <main>
+    <slot />
+  </main>
+</body>
+</html>
+```
+
+Save, and the page restyles itself. In the page source the link reads `/app.<hash>.css`, not `/app.css`. `renox build` adds a copy of the file named after its content and points the template at it, so browsers and Cloudflare can cache it until the file changes ([App model, static files](../07-app-model.md#static-files-public)).
+
+## The error overlay
+
+Break something on purpose. In `functions/api/health.ts`, delete the `)` before the last `;` and save. The build fails, the terminal prints the error, and the browser shows it over the page with the file, line, column and a hint.
+
+[What you should see: the overlay with `Expected ")" but found ";"`](screenshots/02-overlay.png).
+
+Put the `)` back and save: the overlay goes and the page reloads. A runtime error in a loader or an action works the same way: the terminal prints it with the original TypeScript line (source maps are in the bundle), and the page shows the error page with the request id.
+
+## Browser errors in the terminal
+
+Every page loads the platform's small client script, `/__renox/client.js`. It reports what goes wrong in the browser: a JavaScript exception, an htmx request that failed or found no target, a script the content security policy blocked. Under `renox dev` each report is printed next to the server's lines:
+
+```
+[browser] js.error pages/index.html:12:7 TypeError: tasks is undefined (01JBQ3Z7MA…)
+```
+
+The id at the end is the request id of the page. The overlay's **Browser** tab lists the same events, and next to them the server log of that request. You will use this from chapter 5, when htmx starts swapping fragments.
+
+## Check before you commit
+
+`renox check` runs what `renox deploy` runs first: the TypeScript type check, `renox.toml`, routes, templates, the SQL lint, secrets in the bundle and the other rules:
+
+```sh
+renox check
+```
+
+```
+renox check: ok
+```
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| The page does not reload after a save | The page was opened before `renox dev` started, or from another port. Reload it once by hand |
+| The stylesheet is not applied | The link must be a literal `href="/app.css"` for the hashed copy; check the file is under `public/`, not `pages/` |
+| `renox check` prints `types not checked: add typescript` | Run `bun install` in the app folder; `package.json` lists `typescript` |
+| A blocked inline `<script>` (a `securitypolicyviolation` event) | Pages send a strict content security policy. Put scripts in `public/` and link them, as chapter 8 does |
+
+## Building with an AI agent
+
+With `renox dev` running, an agent reads the same errors through the MCP tool `dev_errors` (server errors and `browserErrors`) and the app's state through `dev_status`. Ask it to "fix the error renox dev shows" and it reads them rather than guessing.
+
+**Checkpoint:** [`examples/tutorial/step-02`](../../examples/tutorial/step-02/). Next: [pages and templates](03-pages.md).
+
+---
+
+Source: docs/tutorial/03-pages.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/03-pages.md)
+
+# Chapter 3: Pages and templates
+
+**What you build:** the `/board` page. A loader gives it a list of tasks, the template loops over them through a partial, and the strings come from a translation file. The tasks are a fixed list for now; chapter 4 moves them into the database.
+
+## A page is two files
+
+`pages/board/index.html` is the page at `/board`. Next to it, `pages/board/index.ts` may export `load`, which returns the template's data. Either file can stand alone: an `.html` with no loader renders without data, and a loader can return a `Response` (a redirect, JSON) instead of data ([App model, pages](../07-app-model.md#pages-ts-and-html-pairs-are-optional)).
+
+The tasks, for now:
+
+`lib/tasks.ts`:
+```ts
+// The board's tasks. For now a fixed list; chapter 4 moves them into SQLite.
+
+export type Task = {
+  id: number;
+  title: string;
+  done: number;
+};
+
+const SAMPLE: Task[] = [
+  { id: 3, title: "Invite the team", done: 0 },
+  { id: 2, title: "Write the first page", done: 0 },
+  { id: 1, title: "Install the renox CLI", done: 1 },
+];
+
+/** The tasks, open ones first. */
+export function listTasks(): Task[] {
+  return [...SAMPLE].sort((a, b) => a.done - b.done || b.id - a.id);
+}
+```
+
+The loader:
+
+`pages/board/index.ts`:
+```ts
+// GET /board: the loader returns the template's data.
+import { listTasks } from "../../lib/tasks";
+
+export function load() {
+  const tasks = listTasks();
+  return {
+    tasks: tasks.map((t) => ({ ...t, done: t.done === 1 })),
+    open: tasks.filter((t) => t.done === 0).length,
+  };
+}
+```
+
+`lib/` is plain TypeScript: it is not a route, and pages and functions import from it.
+
+## The template
+
+`pages/board/index.html`:
+```html
+<r-layout use="main">
+  <r-group slot="title"><r-t key="board.title" /></r-group>
+  <h1><r-t key="board.title" /></h1>
+  <section id="tasks" r-fragment="tasks">
+    <p class="count"><r-t key="board.open" :n="open | number" /></p>
+    <ul>
+      <li r-for="task in tasks"><x-task :task="task" /></li>
+      <li class="empty" r-empty="tasks"><r-t key="board.empty" /></li>
+    </ul>
+  </section>
+</r-layout>
+```
+
+What each part does:
+
+| Syntax | Meaning |
+| --- | --- |
+| `<r-layout use="main">` | Wraps the page in `pages/_layouts/main.html` |
+| `<r-group slot="title">` | Fills the layout's `<slot name="title">`; `r-group` itself emits no element |
+| `r-for="task in tasks"` | Repeats the element for each item |
+| `r-empty="tasks"` | Shown instead when the list is empty |
+| `r-fragment="tasks"` | Names a part of the page that can be rendered alone (chapter 5 uses it) |
+| `<x-task :task="task" />` | Renders the partial `partials/task.html`; `:task` passes a value, not a string |
+| `<r-t key="board.open" :n="open \| number" />` | A translated string, with `{n}` filled in; `\| number` formats the number for the locale |
+
+The partial declares its props, so a typo in a caller is a build error and not an empty box:
+
+`partials/task.html`:
+```html
+<r-props task="Task" />
+<article :class="{ task: true, done: task.done }">
+  <span class="check"><r-group r-if="task.done">✓</r-group><r-group r-else>○</r-group></span>
+  <span class="title" dir="auto">{{ task.title | truncate(80) }}</span>
+</article>
+```
+
+`:class="{ task: true, done: task.done }"` sets the classes whose value is true. `r-if` / `r-else` choose one of two elements. `{{ task.title | truncate(80) }}` prints the title, escaped, cut at 80 characters. Escaping is automatic: a title of `<b>hi</b>` shows those characters, and no markup reaches the page. `dir="auto"` lets a title in Arabic run right to left.
+
+Templates are a small language on purpose: property access, comparisons, `&&`, `||`, `!`, `??` and filters, and no function calls. Anything that needs code goes in the loader ([Templates](../08-template-engine.md)).
+
+## Strings in one place
+
+`<r-t key="…">` looks the key up in `i18n/<locale>.json`. The app's own catalogue needs no module:
+
+`i18n/en.json`:
+```json
+{
+  "home": {
+    "title": "Your team's board",
+    "intro": "Add tasks, tick them off, and see your team's changes as they happen.",
+    "open_board": "Open the board"
+  },
+  "board": {
+    "title": "Board",
+    "open": "{n} open",
+    "empty": "Nothing to do yet."
+  }
+}
+```
+
+The home page and the layout's header now use keys too:
+
+`pages/index.html`:
+```html
+<r-layout use="main">
+  <h1><r-t key="home.title" /></h1>
+  <p><r-t key="home.intro" /></p>
+  <p><a href="/board"><r-t key="home.open_board" /></a></p>
+</r-layout>
+```
+
+`pages/_layouts/main.html`:
+```html
+  <header>
+    <a href="/"><strong>Team board</strong></a>
+    <a href="/board"><r-t key="board.title" /></a>
+  </header>
+```
+
+A second language is a second file (`i18n/ar.json`) with the same keys; the `i18n` module (chapter 6 installs it) picks the locale for each visitor.
+
+## See it
+
+Open http://localhost:8787/board. [What you should see: two open tasks above the done one](screenshots/03-board.png).
+
+The test asks for the page and checks the order:
+
+`tests/board.test.ts`:
+```ts
+describe.skipIf(!run)("the board", () => {
+  test("lists the tasks, open ones first", async () => {
+    const page = await t.page("/board");
+    expect(page.status).toBe(200);
+    expect(page.html).toContain("2 open");
+    expect(page.html.indexOf("Invite the team")).toBeLessThan(page.html.indexOf("Install the renox CLI"));
+    expect(page.html).toContain('<article class="task done">');
+  });
+```
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| ``unknown component `<x-tsk>`: expected partials/tsk.html`` | The partial's file name must match the tag: `<x-task>` is `partials/task.html` |
+| `i18n-missing-key  <r-t key="board.emptyy"> has no en translation` | The key is not in `i18n/en.json` (or the JSON does not parse) |
+| `RENOX_RENDER_LIMIT` | A template ran out of render fuel (a loop over a huge list). Limit the list in the loader |
+| A `{{ }}` shows up literally | Interpolation is not processed inside `<script>` and `<style>`, by design |
+
+## Building with an AI agent
+
+Ask: "Add a page at /board that lists tasks from a loader, with a partial for one task." The agent can call `search_docs` for the template syntax and `run_check` to see the template errors before you open the browser.
+
+**Checkpoint:** [`examples/tutorial/step-03`](../../examples/tutorial/step-03/). Next: [data](04-data.md).
+
+---
+
+Source: docs/tutorial/04-data.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/04-data.md)
+
+# Chapter 4: Data
+
+**What you build:** a table for the tasks, created by a migration, and a loader that reads it with a parameterised query.
+
+## One SQLite database per app
+
+Every app has its own SQLite database: one file, opened next to your app's code, and nothing to provision or connect to. Your code reaches it through `ctx.db`. It never sees a file path or a connection string. Every statement passes an authorizer: your app's tables start with `app__`, and each module may touch only its own prefix (`auth__`, `org__`, …) ([Data](../06-data.md)).
+
+## A migration
+
+A migration is a `.sql` file in `migrations/`. They run once each, in name order, and only forward: to change a table later you add a new file, never edit an old one (chapter 6 does exactly that).
+
+`migrations/001_tasks.sql`:
+```sql
+-- The board's tasks. Every table of the app starts with app__.
+create table app__tasks (
+  id         integer primary key,
+  title      text    not null,
+  done       integer not null default 0,
+  created_at integer not null
+) strict;
+```
+
+`strict` makes SQLite check the column types. Save: `renox dev` applies the new migration when it rebuilds. In production `renox deploy` runs pending migrations before the new code takes traffic.
+
+## Read it in the loader
+
+The tasks module now takes the database. The query has a `?` placeholder and the value goes in a separate array:
+
+`lib/tasks.ts`:
+```ts
+// The board's tasks: the queries the page runs, always with parameters
+// (`?`), never with a value pasted into the SQL.
+import type { DbStatements } from "@renoxium/sdk";
+
+export type Task = {
+  id: number;
+  title: string;
+  done: number;
+};
+
+/** The tasks, open ones first. */
+export function listTasks(db: DbStatements): Promise<Task[]> {
+  return db.query<Task>("select id, title, done from app__tasks order by done, id desc limit ?", [200]);
+}
+```
+
+The loader receives `ctx` and passes `db` on. `LoaderContext` is the type of a loader's `ctx`:
+
+`pages/board/index.ts`:
+```ts
+// GET /board: the loader reads the tasks from the app's SQLite database.
+import type { LoaderContext } from "@renoxium/sdk";
+
+import { listTasks } from "../../lib/tasks";
+
+export async function load({ db }: LoaderContext) {
+  const tasks = await listTasks(db);
+  return {
+    tasks: tasks.map((t) => ({ ...t, done: t.done === 1 })),
+    open: tasks.filter((t) => t.done === 0).length,
+  };
+}
+```
+
+The template and the partial do not change: the rows have the same shape as the fixed list of chapter 3.
+
+## Never build SQL from strings
+
+`renox check` refuses SQL put together from values:
+
+```ts
+db.query(`select id from app__tasks where title = '${title}'`);
+```
+
+```
+lib/bad.ts:2:61  error  sql-interpolation  db.query(): SQL built with template interpolation; pass values as ? parameters
+```
+
+Always write `db.query("… where title = ?", [title])`. One gap to know about: the rule does not yet see through a type argument, so `` db.query<Task>(`…${title}`) `` passes the check (#474). The rule is a lint; the habit is the protection.
+
+## Sample rows for the tests
+
+The dev board is empty: there is no form until the next chapter. `renox test` loads every `seeds/*.sql` file into each test file's fresh database after the migrations:
+
+`seeds/tasks.sql`:
+```sql
+-- Sample tasks. `renox test` loads seeds/*.sql into each test's database.
+insert into app__tasks (title, done, created_at) values
+  ('Install the renox CLI', 1, 0),
+  ('Write the first page', 0, 0),
+  ('Invite the team', 0, 0);
+```
+
+`docs/06-data.md` lists `renox db seed` to load the same files into the dev database. That command does not exist yet (#480).
+
+The test now also checks the table:
+
+`tests/board.test.ts`:
+```ts
+  test("the rows come from the migration's table", () => {
+    expect(t.db.query("select count(*) as n from app__tasks")).toEqual([{ n: 3 }]);
+  });
+```
+
+`t.db.query` reads the test's database directly, for assertions.
+
+## See it
+
+Open http://localhost:8787/board. [What you should see: "0 open" and "Nothing to do yet."](screenshots/04-board.png), because the dev database has the table and no rows. `renox test` sees the three seeded tasks:
+
+```sh
+renox test
+```
+
+```
+ 4 pass
+ 0 fail
+```
+
+## If it does not work
+
+The database codes below appear in the terminal (and in `renox logs` once deployed). The browser only gets `RENOX_INTERNAL` with the request id, so nothing about your schema leaks.
+
+| You see | Why, and what to do |
+| --- | --- |
+| `RENOX_DB_SQL` with `no such table: app__tasks` | The migration did not run: check the file is in `migrations/` and ends in `.sql`, then save any file so `renox dev` rebuilds |
+| `RENOX_DB_AUTH` | The statement touches a table without the `app__` prefix, or a module's table. Rename the table |
+| `RENOX_DB_PARAM` | The number of `?` and of values differ, or a value is not a string, number, boolean, null or bytes |
+| `RENOX_DB_MULTI_STATEMENT` | One `query` call holds two statements. Make two calls |
+| A migration you edited does not change the table | Migrations run once. Add `002_….sql` with an `alter table` instead |
+
+## Building with an AI agent
+
+Ask: "Store the tasks in SQLite with a migration and read them in the loader." `AGENTS.md` tells the agent about the `app__` prefix, forward-only migrations and `?` parameters, and `run_check` catches interpolated SQL.
+
+**Checkpoint:** [`examples/tutorial/step-04`](../../examples/tutorial/step-04/). Next: [functions and forms](05-actions.md).
+
+---
+
+Source: docs/tutorial/05-actions.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/05-actions.md)
+
+# Chapter 5: Functions and forms
+
+**What you build:** a form to add tasks, a button to tick one off and one to remove it. Each is a page **action**. With htmx, the server sends back only the task list and the page swaps it in place, without a full reload.
+
+## Actions
+
+A page's `.ts` file may export `actions`. A form posting to `?/add` runs `actions.add`. Each action runs in its own database transaction: it commits when the action returns and rolls back when it throws. When an action returns an object (or nothing), the page's `load` runs again and the page is rendered with that object merged over the loader's data. A `Response` is sent as it is.
+
+`pages/board/index.ts`:
+```ts
+// GET /board: the tasks. POST ?/add, ?/toggle and ?/remove change them;
+// an htmx request gets only the `tasks` fragment back.
+import type { ActionContext, LoaderContext } from "@renoxium/sdk";
+
+import { findTask, listTasks, parseTitle } from "../../lib/tasks";
+
+export async function load({ db }: LoaderContext) {
+  const tasks = await listTasks(db);
+  return {
+    tasks: tasks.map((t) => ({ ...t, done: t.done === 1 })),
+    open: tasks.filter((t) => t.done === 0).length,
+    error: null,
+  };
+}
+
+// Each action runs in its own transaction. Returning an object (or
+// nothing) runs `load` again and renders the page, or only the fragment
+// htmx asked for, with that object merged over the loader's data.
+export const actions = {
+  async add({ db, form }: ActionContext) {
+    const parsed = parseTitle(form.get("title"));
+    if ("error" in parsed) return { error: parsed.error };
+    await db.execute("insert into app__tasks (title, created_at) values (?, ?)", [parsed.title, Math.floor(Date.now() / 1000)]);
+  },
+
+  async toggle({ db, form }: ActionContext) {
+    const task = await findTask(db, form.get("task"));
+    if (task === null) return new Response("No such task", { status: 404 });
+    await db.execute("update app__tasks set done = 1 - done where id = ?", [task.id]);
+  },
+
+  async remove({ db, form }: ActionContext) {
+    const task = await findTask(db, form.get("task"));
+    if (task === null) return new Response("No such task", { status: 404 });
+    await db.execute("delete from app__tasks where id = ?", [task.id]);
+  },
+};
+```
+
+Three things to notice:
+- **Validation first.** `parseTitle` trims the title and refuses an empty or over-long one. It returns the i18n key of the error, and the action hands it to the template as `error`.
+- **The task is loaded from the database**, by its id, before it is changed. An id that does not exist is a 404, not a silent no-op.
+- **Form values are strings** (or files). `form.get("task")` is turned into a number before it reaches SQL.
+
+`lib/tasks.ts`:
+```ts
+export const MAX_TITLE = 200;
+
+/** The tasks, open ones first. */
+export function listTasks(db: DbStatements): Promise<Task[]> {
+  return db.query<Task>("select id, title, done from app__tasks order by done, id desc limit ?", [200]);
+}
+
+/** One task, or null. */
+export function findTask(db: DbStatements, id: unknown): Promise<Task | null> {
+  const n = Number(id);
+  if (!Number.isSafeInteger(n) || n < 1) return Promise.resolve(null);
+  return db.queryOne<Task>("select id, title, done from app__tasks where id = ?", [n]);
+}
+
+/** A title as typed, or the i18n key of the reason it cannot be one. */
+export function parseTitle(raw: FormDataEntryValue | null): { title: string } | { error: string } {
+  const title = typeof raw === "string" ? raw.trim() : "";
+  if (title === "") return { error: "board.error.empty" };
+  if (title.length > MAX_TITLE) return { error: "board.error.long" };
+  return { title };
+}
+```
+
+## Forms with `<x-form>`
+
+`<x-form action="add">` renders a `<form method="post" action="?/add">` with the CSRF token already inside, so the request passes the platform's CSRF check. A hand-written form needs `<x-csrf />`. The form now sits inside the `tasks` fragment:
+
+`pages/board/index.html`:
+```html
+  <section id="tasks" r-fragment="tasks">
+    <x-form action="add" class="add" hx-target="#tasks" hx-swap="outerHTML">
+      <label><r-t key="board.new_task" /> <input name="title" maxlength="200" autocomplete="off" required></label>
+      <button type="submit"><r-t key="board.add" /></button>
+    </x-form>
+    <p class="error" r-if="error">{{ error | t }}</p>
+    <p class="count"><r-t key="board.open" :n="open | number" /></p>
+    <ul>
+      <li r-for="task in tasks"><x-task :task="task" /></li>
+      <li class="empty" r-empty="tasks"><r-t key="board.empty" /></li>
+    </ul>
+  </section>
+```
+
+The partial gets the toggle and remove buttons:
+
+`partials/task.html`:
+```html
+<r-props task="Task" />
+<article :class="{ task: true, done: task.done }">
+  <x-form action="toggle" hx-target="#tasks" hx-swap="outerHTML">
+    <input type="hidden" name="task" :value="task.id">
+    <button type="submit" class="check"><r-group r-if="task.done">✓</r-group><r-group r-else>○</r-group></button>
+  </x-form>
+  <span class="title" dir="auto">{{ task.title | truncate(80) }}</span>
+  <x-form action="remove" hx-target="#tasks" hx-swap="outerHTML">
+    <input type="hidden" name="task" :value="task.id">
+    <button type="submit" class="remove"><r-t key="board.remove" /></button>
+  </x-form>
+</article>
+```
+
+`{{ error | t }}` translates the key the action returned, with the strings added to the catalogue:
+
+`i18n/en.json`:
+```json
+    "new_task": "New task",
+    "add": "Add",
+    "remove": "Remove",
+    "open": "{n} open",
+    "empty": "Nothing to do yet.",
+    "error": {
+      "empty": "Write what needs doing.",
+      "long": "Keep it under 200 characters."
+```
+
+## htmx: only the fragment
+
+The forms work without JavaScript: the browser posts and the whole page comes back. Add htmx (one file, served from `public/`) and the same forms send `hx-post` requests instead:
+
+`pages/_layouts/main.html`:
+```html
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title><slot name="title">Team board</slot></title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/htmx-2.0.4.min.js" defer></script>
+```
+
+Copy `htmx-2.0.4.min.js` from the [htmx release](https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js) (or from the checkpoint) into `public/`.
+
+`<x-form>` already writes `hx-post`. `hx-target="#tasks"` tells htmx where the answer goes. htmx sends the target's id in the `HX-Target` header, the platform matches it to `r-fragment="tasks"`, runs the action and `load` as before, and renders only that fragment: no layout, no header, a few hundred bytes. `hx-swap="outerHTML"` replaces the old section with the new one. Because the form is inside the fragment, it comes back empty after an add.
+
+[What you should see: one task ticked off, one open, and an empty form](screenshots/05-actions.png).
+
+The tests drive the actions as a browser would: `t.action(path, name, form)` reads the CSRF token from a first `GET` and posts the form:
+
+`tests/board.test.ts`:
+```ts
+  test("add: a task, escaped; an empty title is refused", async () => {
+    const added = await t.action("/board", "add", { title: "Ship <b>it</b>" });
+    expect(added.html).toContain("Ship &lt;b&gt;it&lt;/b&gt;");
+    expect(added.html).toContain("3 open");
+    expect((await t.action("/board", "add", { title: "   " })).html).toContain("Write what needs doing.");
+  });
+
+  test("toggle and remove", async () => {
+    await t.action("/board", "toggle", { task: taskId("Invite the team") });
+    expect((await t.page("/board")).html).toContain("2 open");
+    await t.action("/board", "remove", { task: taskId("Ship <b>it</b>") });
+    expect((await t.page("/board")).html).not.toContain("Ship &lt;b&gt;");
+    expect((await t.action("/board", "toggle", { task: "999" })).status).toBe(404);
+  });
+```
+
+The last test sends what htmx sends and checks that only the fragment comes back:
+
+`tests/board.test.ts`:
+```ts
+  test("htmx: the fragment only, not the page", async () => {
+    const res = await t.request("POST", "/board?/add", {
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": t.cookie("__Host-renox_csrf") ?? "", "hx-request": "true", "hx-target": "tasks" },
+      body: "title=Plan+the+demo",
+    });
+```
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| `RENOX_CSRF` (403) | The form has no token: use `<x-form>`, or put `<x-csrf />` inside a hand-written form. An htmx request needs the token too; `<x-form>` covers it |
+| The whole page appears inside the list | The target id and the fragment name differ. `hx-target="#tasks"` needs `r-fragment="tasks"` on the element with `id="tasks"` |
+| Nothing happens on submit, and `[browser] htmx.targetError` in the terminal | The `hx-target` selector matches nothing on the page |
+| "No such task" (404) | The id in the form is not a task: check the hidden input's `:value="task.id"` |
+| `RENOX_DB_CONSTRAINT` | A `not null` or `check` constraint refused the row; the transaction was rolled back, so nothing half-saved |
+
+## Building with an AI agent
+
+Ask: "Add actions to add, toggle and remove tasks, with htmx swapping only the list." Then ask it to run the tests (`run_tests`). The `htmx: the fragment only` test is the kind of check an agent can add to prove the fragment works.
+
+**Checkpoint:** [`examples/tutorial/step-05`](../../examples/tutorial/step-05/). Next: [sign-in and teams with modules](06-teams.md).
+
+---
+
+Source: docs/tutorial/06-teams.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/06-teams.md)
+
+# Chapter 6: Sign-in and teams with modules
+
+**What you build:** sign-up and sign-in, teams with roles, and invitations, without writing any auth code. Each task belongs to a team, and the board shows the active team's tasks.
+
+## Install the modules
+
+A module is a packaged piece of an app: its own tables, pages, services and policies. The official `org` module brings teams ("organisations"); it needs `auth` (users, passwords, sessions) and `i18n` (the locale). One command installs all three after showing what each asks for:
+
+```sh
+renox add org
+```
+
+```
+org needs auth, which is not installed; it is installed with it:
+auth 1.0.0 (official): Users, passwords (argon2id), sessions, and the login, register and account pages
+It asks for:
+  tables   auth__*
+  network  accounts.google.com, oauth2.googleapis.com, www.googleapis.com, github.com, api.github.com, login.microsoftonline.com, graph.microsoft.com, stg-id.uaepass.ae, id.uaepass.ae
+  secrets  AUTH_GOOGLE_CLIENT_SECRET, AUTH_GITHUB_CLIENT_SECRET, AUTH_MICROSOFT_CLIENT_SECRET, AUTH_UAEPASS_CLIENT_SECRET
+  slots    app.header
+…
+Approve and install org and auth, i18n? [y/N] y
+installed auth 1.0.0 (needed by org)
+installed i18n 1.0.0 (needed by org)
+installed org 1.0.0; run renox migrate to create its tables
+```
+
+The network hosts and secrets are for optional sign-in with Google, GitHub, Microsoft or UAE PASS. A module can reach only what you approve here, and only its own `auth__*` tables. `renox add` writes the modules into `renox.toml` and pins exact versions and content hashes in `renox.lock`:
+
+`renox.toml`:
+```toml
+[modules]
+org = { version = "^1.0.0" }
+auth = { version = "^1.0.0" }
+i18n = { version = "^1.0.0" }
+outbox = { version = "^1.0.0", source = "path:modules/outbox" }
+```
+
+(`outbox` is the next section.) Save, and `renox dev` serves the modules' pages: `/auth/register`, `/auth/login`, `/auth/account`, `/org` (your teams, create one) and `/org/members` (members, roles, invitations). Roles are `member`, `admin` and `owner` ([org's README](../../modules/org/README.md)).
+
+## Invitations need a mail sender
+
+An admin invites by email. `org` hands the invitation to the hook `org.send_mail`, and some module must fill it. The official `email` module fills `auth.send_mail` (password resets) but not yet `org.send_mail` (#475), so the board carries a ten-line module of its own. It keeps each invitation in a table so you can pass the link on yourself:
+
+`modules/outbox/module.toml`:
+```toml
+[module]
+name = "outbox"
+version = "1.0.0"
+description = "Keeps the invitation mails org asks to send, so a team can be tried before a mail module delivers them"
+
+[permissions]
+tables = "outbox__*"
+hooks = ["org.send_mail"]
+```
+
+`modules/outbox/hooks.ts`:
+```ts
+// org asks `org.send_mail` to deliver an invitation; no official module
+// sends it yet, so this one keeps the mail in outbox__mail for the
+// owner to pass on. Replace it with a mail module before real users join.
+interface Mail {
+  to: string;
+  template: string;
+  args: { url: string; org_name: string };
+}
+
+interface HookCtx {
+  db: { execute(sql: string, params?: unknown[]): Promise<unknown> };
+}
+
+export const hooks = {
+  "org.send_mail": {
+    async handle(ctx: HookCtx, mail: Mail) {
+      await ctx.db.execute("insert into outbox__mail (mail_to, template, url, org_name, created_at) values (?, ?, ?, ?, ?)", [mail.to, mail.template, mail.args.url, mail.args.org_name, Math.floor(Date.now() / 1000)]);
+    },
+  },
+};
+```
+
+`modules/outbox/migrations/001_init.sql`:
+```sql
+create table outbox__mail (
+  id         integer primary key,
+  mail_to    text    not null,
+  template   text    not null,
+  url        text    not null,
+  org_name   text    not null,
+  created_at integer not null
+) strict;
+```
+
+```sh
+renox add outbox --source path:modules/outbox
+```
+
+Replace it with a mail module before real users join. Until then, the link of an invitation is in `outbox__mail.url`.
+
+## A task belongs to a team
+
+Migrations only move forward, so the team goes into a new file:
+
+`migrations/002_tasks_team.sql`:
+```sql
+-- Chapter 6: a task belongs to a team. Migrations only move forward, so
+-- the column is added here, not written into 001.
+alter table app__tasks add column team_id text not null default '';
+create index app__tasks_team on app__tasks (team_id, id);
+```
+
+Every query now names the team. A task of another team is never read or changed, because the `where` clause says so:
+
+`lib/tasks.ts`:
+```ts
+export function listTasks(db: DbStatements, team: string): Promise<Task[]> {
+  return db.query<Task>("select id, title, done, team_id from app__tasks where team_id = ? order by done, id desc limit 200", [team]);
+}
+
+/** One task of the team, or null. */
+export function findTask(db: DbStatements, team: string, id: unknown): Promise<Task | null> {
+  const n = Number(id);
+  if (!Number.isSafeInteger(n) || n < 1) return Promise.resolve(null);
+  return db.queryOne<Task>("select id, title, done, team_id from app__tasks where id = ? and team_id = ?", [n, team]);
+}
+```
+
+The loader asks `org` for the active team. A module's services are imported from `renox:modules`; the call runs as the signed-in user, so `currentOrg()` is that user's active team or `null`:
+
+`pages/board/index.ts`:
+```ts
+export async function load({ db, url }: LoaderContext) {
+  // The header's slot renders auth's user menu (auth_user) and org's team switcher (org_switcher).
+  const auth_user = await auth.currentUser();
+  const org_switcher = await org.switcher(url.pathname);
+  const team = await org.currentOrg();
+  if (team === null) return { auth_user, org_switcher, team: null, tasks: [], open: 0, error: null };
+  const tasks = await listTasks(db, team.id);
+  return {
+    auth_user,
+    org_switcher,
+    team: { name: team.name },
+    tasks: tasks.map((t) => ({ ...t, done: t.done === 1 })),
+    open: tasks.filter((t) => t.done === 0).length,
+    error: null,
+  };
+}
+
+/** The active team, or a Response that ends the action. */
+async function activeTeam(): Promise<{ id: string; role: string } | Response> {
+  const team = await org.currentOrg();
+  return team ?? new Response("Sign in and create a team first", { status: 409 });
+}
+```
+
+The actions use `activeTeam()` and pass `team.id` to every query. The template shows a link to `/org` when there is no team yet:
+
+`pages/board/index.html`:
+```html
+  <r-group r-if="!team">
+    <p><r-t key="board.no_team" /> <a href="/org"><r-t key="board.create_team" /></a></p>
+  </r-group>
+  <r-group r-else>
+    <p class="team">{{ team.name | upper }}</p>
+```
+
+The layout gets the modules' header: `<r-slot name="app.header" />` is filled by `auth` (the user menu, from `auth_user`) and `org` (the team switcher, from `org_switcher`):
+
+`pages/_layouts/main.html`:
+```html
+  <header>
+    <a href="/"><strong>Team board</strong></a>
+    <a href="/board"><r-t key="board.title" /></a>
+    <r-slot name="app.header" />
+  </header>
+```
+
+## Types for `renox:modules`
+
+`renox check` type checks your calls to `org`, but it does not see the module types `renox dev` generates under `.renox/types/` (#471). Until it does, declare what you call:
+
+`renox-modules.d.ts`:
+```ts
+// The services of `renox:modules` this app calls. The type check needs
+// this file until the generated module types are picked up (chapter 6).
+declare module "renox:modules" {
+  export const auth: {
+    currentUser(): Promise<{ id: string; email: string; display_name: string } | null>;
+  };
+  export const org: {
+    currentOrg(): Promise<{ id: string; slug: string; name: string; role: string } | null>;
+    switcher(next?: string): Promise<unknown>;
+  };
+}
+```
+
+## The sample rows go
+
+`seeds/tasks.sql` is gone in this step: its rows would belong to no team, and no one would see them.
+
+## See it
+
+Register at http://localhost:8787/auth/register, create a team at `/org`, then open `/board`. [What you should see: the team name, the user menu and the team switcher](screenshots/06-team.png).
+
+The tests sign users up through the real `auth` pages and check that teams are kept apart:
+
+`tests/board.test.ts`:
+```ts
+describe.skipIf(!run)("the board, per team", () => {
+  test("a new user creates a team, then adds and ticks off its tasks", async () => {
+    const lina = await signUp("Lina");
+    expect((await lina.page("/board")).html).toContain("You are not in a team yet.");
+    expect((await lina.action("/org", "create", { name: "Acme" })).status).toBe(303);
+    await lina.action("/board", "add", { title: "Write the tutorial" });
+    await lina.action("/board", "toggle", { task: taskId("Write the tutorial") });
+    const page = await lina.page("/board");
+    expect(page.html).toContain("ACME");
+    expect(page.html).toContain('<article class="task done">');
+  });
+
+  test("another team sees none of it and cannot change it", async () => {
+    const sara = await signUp("Sara");
+    await sara.action("/org", "create", { name: "Other" });
+    expect((await sara.page("/board")).html).not.toContain("Write the tutorial");
+    expect((await sara.action("/board", "toggle", { task: taskId("Write the tutorial") })).status).toBe(404);
+  });
+});
+```
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| `TS2307: Cannot find module 'renox:modules'` | Add `renox-modules.d.ts` as above (#471) |
+| "Sign in and create a team first" (409) | The session has no active team: create one at `/org` |
+| `RENOX_MODULE_SERVICE` in the terminal | A module's service threw (for example `org` refused a call the user's role does not allow). The module's own log line, just above, names the cause |
+| `renox add` reports `MF2` or `MF11` | The version range in `renox.toml` cannot be met, or the module's source cannot be read. For a `path:` module, the folder must hold `module.toml` |
+| An invitation never arrives | No module delivers `org.send_mail` mails yet; read the link from `outbox__mail` |
+| `MF12: outbox.hash in renox.lock is "…", expected "…"` after you edit `modules/outbox` | The lock pins the module's content hash. Run `renox add outbox --source path:modules/outbox` again |
+
+## Building with an AI agent
+
+Ask: "Add sign-in and teams with the official modules; each task belongs to the active team." The agent should call `renox add` and not write auth code: `AGENTS.md` says so. Check that it scoped every query to the team; the tests above are the proof.
+
+**Checkpoint:** [`examples/tutorial/step-06`](../../examples/tutorial/step-06/). Next: [authorization](07-authorization.md).
+
+---
+
+Source: docs/tutorial/07-authorization.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/07-authorization.md)
+
+# Chapter 7: Authorization
+
+**What you build:** a Cedar policy that says who may open the board and who may change a team's tasks; a guard on the page; checks in the actions on the task as stored; and remove buttons only for admins and owners.
+
+Chapter 6 already filters every query by team. This chapter states the rule once, as a policy, so the page, the actions, the template and later the live feed all ask the same question.
+
+## Declare the actions
+
+`renox.toml`:
+```toml
+# Chapter 7: who may do what on the board (policies/app/board.cedar).
+[authz]
+actions = ["board.view", "task.edit", "task.delete"]
+
+[authz.entities]
+Task = { table = "app__tasks", attrs = ["team_id"] }
+```
+
+`actions` are the names your policies and code use. `[authz.entities]` declares `Task` as a resource type with the attribute `team_id`, so a policy can compare it.
+
+## The policy
+
+Policies live in `policies/app/*.cedar` ([Cedar](https://www.cedarpolicy.com) is a policy language from AWS; Renoxium evaluates it in Rust):
+
+`policies/app/board.cedar`:
+```cedar
+// Chapter 7: the board's policies. `principal.org` is the session's active
+// team; the org module puts it on the principal.
+
+// The page's guard: any signed-in user opens /board.
+permit (principal is Renox::User, action == Renox::Action::"board.view", resource == Renox::Action::"board.view");
+
+// Members of the team add and tick off its tasks, and nobody else.
+permit (principal is Renox::User, action == Renox::Action::"task.edit", resource is App::Task)
+when { principal has org && resource.team_id == principal.org };
+
+// Removing is for the team too; the action also asks for an admin or an
+// owner (chapter 7 explains why that check is not here).
+permit (principal is Renox::User, action == Renox::Action::"task.delete", resource is App::Task)
+when { principal has org && resource.team_id == principal.org };
+```
+
+`principal.org` is the session's active team. The `org` module puts it on the principal, so a policy can compare it with `resource.team_id`. Nothing is allowed unless a `permit` matches: a missing attribute, an unknown action or a visitor who is not signed in all mean deny.
+
+## Use it
+
+**The guard** runs before any code of the page. A visitor who is not signed in gets 403 (`RENOX_FORBIDDEN`) and the loader never runs:
+
+`pages/board/index.ts`:
+```ts
+/** Signed-in users only: checked before any code of this page runs. */
+export const guard = { action: "board.view" };
+```
+
+**In the actions**, `authz.require` checks the task as loaded from the database, never as the form describes it, and throws `RENOX_FORBIDDEN` (403) on a deny:
+
+`pages/board/index.ts`:
+```ts
+  async toggle({ db, form, authz }: ActionContext) {
+    const team = await activeTeam();
+    if (team instanceof Response) return team;
+    const task = await findTask(db, team.id, form.get("task"));
+    if (task === null) return new Response("No such task", { status: 404 });
+    // The task as loaded from the database, never as the form describes it.
+    await authz.require("task.edit", asResource(task));
+    await db.execute("update app__tasks set done = 1 - done where id = ?", [task.id]);
+  },
+```
+
+`asResource` turns a row into what the policy sees:
+
+`lib/tasks.ts`:
+```ts
+/** A task as the policy sees it: its type, id and the attributes renox.toml declares. */
+export const asResource = (t: Task) => ({ type: "Task", id: String(t.id), team_id: t.team_id });
+```
+
+## Only admins and owners remove
+
+The natural policy for that is `permit (principal in Renox::Role::"admin", …)`. Today it would never match: `org` keeps a member's role in its own table and does not hand it to the policy engine as a role assignment (#470). So the policy allows removing for the team, and the action adds the role check, with the role from `org.currentOrg()`:
+
+`pages/board/index.ts`:
+```ts
+  async remove({ db, form, authz }: ActionContext) {
+    const team = await activeTeam();
+    if (team instanceof Response) return team;
+    const task = await findTask(db, team.id, form.get("task"));
+    if (task === null) return new Response("No such task", { status: 404 });
+    await authz.require("task.delete", asResource(task));
+    // Only the team's admins and owners (chapter 7 says why this is not in the policy).
+    if (team.role === "member") return new Response("Only admins and owners remove tasks", { status: 403 });
+    await db.execute("delete from app__tasks where id = ?", [task.id]);
+  },
+```
+
+The template hides the button the same way. `r-can="task.delete" :resource="task"` asks the policy for each task, and `manager` carries the role:
+
+`partials/task.html`:
+```html
+  <x-form action="remove" hx-target="#tasks" hx-swap="outerHTML" r-if="manager" r-can="task.delete" :resource="task">
+    <input type="hidden" name="task" :value="task.id">
+    <button type="submit" class="remove"><r-t key="board.remove" /></button>
+  </x-form>
+```
+
+Hiding a button is a convenience, not protection: the action checks again, and a hand-made `POST` without the role gets 403. The loader computes `manager` once:
+
+`pages/board/index.ts`:
+```ts
+    // Admins and owners see the remove buttons; the action checks it again.
+    team: { name: team.name, manager: team.role !== "member" },
+```
+
+## Test the policy
+
+`policies/tests/*.json` cases are evaluated by `renox test` with the same engine, without a browser or a database:
+
+`policies/tests/board.json`:
+```json
+[
+  { "description": "a signed-in user opens the board", "principal": { "type": "User", "id": "u_lina" }, "action": "board.view", "expected": "allow" },
+  { "description": "a visitor who is not signed in does not", "principal": { "type": "Anonymous", "id": "anonymous" }, "action": "board.view", "expected": "deny" },
+  { "description": "a member ticks off a task of their team", "principal": { "type": "User", "id": "u_omar", "attrs": { "org": "o_acme" } }, "action": "task.edit", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "allow" },
+  { "description": "not a task of another team", "principal": { "type": "User", "id": "u_omar", "attrs": { "org": "o_acme" } }, "action": "task.edit", "resource": { "type": "Task", "id": "2", "team_id": "o_other" }, "expected": "deny" },
+  { "description": "nor without a team", "principal": { "type": "User", "id": "u_sara" }, "action": "task.edit", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "deny" },
+  { "description": "a task of the team may be removed", "principal": { "type": "User", "id": "u_lina", "attrs": { "org": "o_acme" } }, "action": "task.delete", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "allow" },
+  { "description": "not one of another team", "principal": { "type": "User", "id": "u_sara", "attrs": { "org": "o_other" } }, "action": "task.delete", "resource": { "type": "Task", "id": "1", "team_id": "o_acme" }, "expected": "deny" }
+]
+```
+
+```
+(pass) policy policies/tests/board.json: a member ticks off a task of their team -> allow
+(pass) policy policies/tests/board.json: not a task of another team -> deny
+…
+```
+
+`renox authz explain --user <id> --action task.edit --resource Task:1` prints which policy decided a request on the dev database. It cannot fill in `principal.org` yet, so it explains these team policies as a deny (#476). Use the test cases for now.
+
+## See it
+
+Invite a second user from `/org/members` (the link is in `outbox__mail`), accept it in another browser, and open `/board` as them. [What you should see: the member's board, without remove buttons](screenshots/07-member.png).
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| 403 `RENOX_FORBIDDEN` on `/board` when signed in | No `permit` matches `board.view`. Check the action name in `renox.toml`, the policy and the guard are the same |
+| `RENOX_POLICY_INVALID` from `renox check` | The policy names an action or entity that is not declared, or an attribute with the wrong type. The message names the file and line |
+| `RENOX_FORBIDDEN` with `reason: missing_attribute` in the log | The resource object lacks `team_id`: pass `asResource(task)`, not the raw form values |
+| Every request is denied for a team member | `principal.org` is missing: the user has no active team (create or switch at `/org`) |
+| An owner cannot remove | Check `team.role`; `org` roles are `member`, `admin` and `owner` |
+
+## Building with an AI agent
+
+Ask: "Write a Cedar policy so only members of the active team can change its tasks, with policy tests." The agent has `list_policies` and `authz_explain` over MCP; with the gap above, have it prove the policy with `policies/tests/*.json` cases and `run_tests`.
+
+**Checkpoint:** [`examples/tutorial/step-07`](../../examples/tutorial/step-07/). Next: [realtime](08-realtime.md).
+
+---
+
+Source: docs/tutorial/08-realtime.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/08-realtime.md)
+
+# Chapter 8: Realtime
+
+**What you build:** when anyone on the team adds, ticks off or removes a task, every open board of that team updates within a moment, without a reload. It takes one line of configuration, one route, one policy rule and a ten-line script.
+
+## The change feed
+
+`renox.toml`:
+```toml
+# Chapter 8: every committed change of a task reaches the team's topic.
+[realtime.feeds]
+app__tasks = "board:{team_id}"
+```
+
+After every committed change of a row of `app__tasks`, the platform publishes `{ table, rowid, op }` to the topic `board:<team_id>` of that row. Your actions do not change at all: a rolled-back action publishes nothing.
+
+## Subscribe: an SSE route
+
+Files under `functions/sse/` are Server-Sent Events routes. The connection is held by the platform in Rust, not by your code: `open` runs once to subscribe, and an idle connection costs a few KB and no isolate.
+
+`functions/sse/board.ts`:
+```ts
+// GET /sse/board: the live feed of the active team. `[realtime.feeds]` in
+// renox.toml sends every committed change of app__tasks to `board:<team>`;
+// this route only subscribes the connection to its own team's topic.
+interface SseCtx {
+  conn: { id: string };
+  principal: { attrs: { org?: unknown } } | null;
+  realtime: { subscribe(conn: { id: string }, topic: string): Promise<void> };
+}
+
+export const guard = { action: "board.view" };
+
+export const sse = {
+  async open({ conn, principal, realtime }: SseCtx) {
+    const team = principal?.attrs.org;
+    if (typeof team !== "string") throw new Error("no active team");
+    await realtime.subscribe(conn, `board:${team}`);
+  },
+};
+```
+
+The topic comes from the principal, never from the URL, so a user cannot ask for another team's topic. The policy has the last word anyway: subscribing is the action `realtime.subscribe` on the topic, and with no `permit` it is refused.
+
+`policies/app/board.cedar`:
+```cedar
+// Chapter 8: the live feed of your own team only.
+permit (principal is Renox::User, action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
+when { resource.name like "board:*" && principal has org && resource.segments.contains(principal.org) };
+```
+
+## Refresh the list
+
+The feed says *that* something changed, not what each member should see. So the browser fetches the `tasks` fragment again, through the loader and the template, with that member's own permissions (the remove buttons stay right for each role):
+
+`public/board.js`:
+```js
+// Chapter 8: when the server says the board changed, fetch the tasks
+// fragment again, so every member sees it through their own permissions.
+document.addEventListener("DOMContentLoaded", () => {
+  const tasks = document.getElementById("tasks");
+  if (tasks === null || !tasks.dataset.live) return;
+  const feed = new EventSource(tasks.dataset.live);
+  feed.addEventListener("message", () => {
+    htmx.ajax("GET", location.pathname, { target: "#tasks", swap: "outerHTML" });
+  });
+});
+```
+
+The fragment tells the script where its feed is:
+
+`pages/board/index.html`:
+```html
+    <section id="tasks" r-fragment="tasks" data-live="/sse/board">
+```
+
+and the layout loads the script:
+
+`pages/_layouts/main.html`:
+```html
+  <script src="/board.js" defer></script>
+```
+
+The script is a file in `public/` because pages send a strict content security policy: inline scripts without the page's nonce do not run.
+
+## See it
+
+Open the board in two browser windows signed in as members of the same team. Add a task in one. [What you should see: the other window shows it without a reload](screenshots/08-live.png).
+
+The test opens a feed for two teams and checks that only the right one hears the change:
+
+`tests/board.test.ts`:
+```ts
+  test("live: the feed of a team hears its changes, and only its own", async () => {
+    const lina = t.as("Lina");
+    const sara = t.as("Sara");
+    const linaFeed = await lina.sse("/sse/board");
+    const saraFeed = await sara.sse("/sse/board");
+    await Bun.sleep(200);
+    await lina.action("/board", "add", { title: "Seen live" });
+    expect((await linaFeed.next(5000))?.data).toContain("app__tasks");
+    expect(await saraFeed.next(500)).toBeNull();
+    linaFeed.close();
+    saraFeed.close();
+  });
+});
+```
+
+## Limits to know
+
+- Cloudflare, in front of every app, cuts a connection that sends nothing for 100 seconds. The platform sends a heartbeat every 15 seconds on SSE, so you do not have to.
+- A connection whose queue fills (256 messages) is closed with code 1008 (`RENOX_REALTIME_BACKPRESSURE`). `EventSource` reconnects by itself, and SSE replays recent events from `Last-Event-ID`.
+- Connections per app and per user are capped by tier; over the cap the upgrade gets 503 `RENOX_REALTIME_LIMIT`.
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| The other window does not update | Open the browser's network tab: `/sse/board` should stay open. A 403 means the guard or the subscribe policy denied it |
+| `RENOX_FORBIDDEN` when the feed opens | No `permit` for `realtime.subscribe` on `board:<team>`: check the topic name in `[realtime.feeds]`, the route and the policy match |
+| "no active team" in the terminal | The user has no team; the route refuses to subscribe |
+| `[browser] js.error … htmx is not defined` | `board.js` ran before htmx: both scripts need `defer`, htmx first |
+
+## Building with an AI agent
+
+Ask: "Make the board update live for every team member with the realtime feed." Point the agent at this chapter and [Fragments and realtime](../09-htmx-realtime.md); the test above is how it proves the feed is scoped to the team.
+
+**Checkpoint:** [`examples/tutorial/step-08`](../../examples/tutorial/step-08/). Next: [tests](09-tests.md).
+
+---
+
+Source: docs/tutorial/09-tests.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/09-tests.md)
+
+# Chapter 9: Tests
+
+**What you build:** one test file with a flow for each role (signed out, owner, member, outsider) and snapshots of what the owner and the member see. No new app code: this chapter makes sure the board stays right as it grows.
+
+## How `renox test` runs
+
+`renox test` builds the app, starts the same worker `renox dev` uses, and gives **each test file its own fresh database**, with the migrations applied (and `seeds/*.sql`, if any). The tests talk HTTP to that worker, so they go through the guard, the policies, the CSRF check, the modules and the templates, as a browser would. `@renoxium/sdk/test` gives you:
+
+| Helper | What it does |
+| --- | --- |
+| `app()` | The worker and the database for this file |
+| `t.as("Lina")` | The same app as another user, with their own cookies |
+| `t.page(path)` | `GET` a page |
+| `t.action(path, name, form)` | Post a page action with the CSRF token, as `<x-form>` would |
+| `t.request(method, path, init)` | Any request, with your own headers |
+| `t.sse(path)`, `t.ws(path)` | Open a realtime route and read its messages |
+| `t.db.query(sql, params)` | Read the test's database, for assertions |
+| `snapshot(html, { role })` | Compare a page with the stored snapshot for that role |
+
+## A flow per role
+
+Helpers first. Users sign up through the real `auth` pages, and the invitation link comes from the `outbox` table:
+
+`tests/board.test.ts`:
+```ts
+const PASSWORD = "correct horse battery";
+
+/** The page's <main>: the header carries the team's random id, which changes on every run. */
+const main = (html: string): string => html.slice(html.indexOf("<main>"), html.indexOf("</main>") + 7);
+
+/** A new user, registered and signed in, with their own cookies. */
+async function signUp(name: string): Promise<TestApp> {
+  const u = t.as(name);
+  const email = `${name.toLowerCase()}@example.com`;
+  await u.action("/auth/register", "default", { email, password: PASSWORD, display_name: name });
+  expect((await u.action("/auth/login", "default", { email, password: PASSWORD })).status).toBe(303);
+  return u;
+}
+
+/** The id of the task with this title. */
+const taskId = (title: string): string => String(t.db.query<{ id: number }>("select id from app__tasks where title = ?", [title])[0]?.id);
+
+/** The invitation link the outbox module kept for this address. */
+const invitation = (email: string): string => new URL(t.db.query<{ url: string }>("select url from outbox__mail where mail_to = ? order by id desc limit 1", [email])[0]?.url as string).pathname;
+```
+
+The owner creates the team and uses every action. An htmx request is checked to return the fragment only:
+
+`tests/board.test.ts`:
+```ts
+  test("owner: creates the team, adds, ticks off and removes tasks", async () => {
+    lina = await signUp("Lina");
+    expect((await lina.page("/board")).html).toContain("You are not in a team yet.");
+    expect((await lina.action("/org", "create", { name: "Acme" })).status).toBe(303);
+    await lina.action("/board", "add", { title: "Write the tutorial" });
+    await lina.action("/board", "add", { title: "Ship <b>it</b>" });
+    // An htmx request gets the tasks fragment only, not the whole page.
+    const fragment = await lina.request("POST", "/board?/add", {
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-renox-csrf": lina.cookie("__Host-renox_csrf") ?? "", "hx-request": "true", "hx-target": "tasks" },
+      body: "title=Plan+the+demo",
+    });
+    expect(fragment.status).toBe(200);
+    expect(fragment.html).toStartWith('<section id="tasks"');
+    expect(fragment.html).toContain("3 open");
+    expect((await lina.action("/board", "add", { title: "   " })).html).toContain("Write what needs doing.");
+    await lina.action("/board", "toggle", { task: taskId("Write the tutorial") });
+    await lina.action("/board", "remove", { task: taskId("Plan the demo") });
+    const page = await lina.page("/board");
+    expect(page.html).toContain("Ship &lt;b&gt;it&lt;/b&gt;");
+    expect(page.html).toContain("1 open");
+    expect(page.html).toContain(">Remove</button>");
+    sdk?.snapshot(main(page.html), { role: "owner" });
+  });
+```
+
+The member joins through the invitation. They can add and tick off, they see no remove button, and a hand-made remove request is refused:
+
+`tests/board.test.ts`:
+```ts
+  test("member: joins by invitation, adds and ticks off, cannot remove", async () => {
+    await lina.action("/org/members", "invite", { email: "omar@example.com", role: "member" });
+    omar = await signUp("Omar");
+    expect((await omar.action(invitation("omar@example.com"), "accept", {})).status).toBe(303);
+    await omar.action("/board", "add", { title: "Review chapter 9" });
+    await omar.action("/board", "toggle", { task: taskId("Ship <b>it</b>") });
+    const page = await omar.page("/board");
+    expect(page.html).toContain("Review chapter 9");
+    expect(page.html).not.toContain(">Remove</button>");
+    // The button is hidden, and the action refuses the request too.
+    expect((await omar.action("/board", "remove", { task: taskId("Review chapter 9") })).status).toBe(403);
+    sdk?.snapshot(main(page.html), { role: "member" });
+  });
+```
+
+The outsider is in another team: they see none of it, and a request naming one of Acme's tasks is a 404, because the query never finds it:
+
+`tests/board.test.ts`:
+```ts
+  test("outsider: another team sees none of it and cannot change it", async () => {
+    const sara = await signUp("Sara");
+    await sara.action("/org", "create", { name: "Other" });
+    const page = await sara.page("/board");
+    expect(page.html).toContain("Nothing to do yet.");
+    expect(page.html).not.toContain("Review chapter 9");
+    expect((await sara.action("/board", "toggle", { task: taskId("Review chapter 9") })).status).toBe(404);
+  });
+```
+
+The tests inside one `describe` share one database and run in order, so the member's test sees the owner's tasks.
+
+## Snapshots
+
+`snapshot(html, { role })` stores the page the first time and compares it on every later run. It replaces what changes on every request (request ids, CSRF tokens, nonces, hashed file names) before comparing. The page header holds the team's random id, so the test snapshots only `<main>`:
+
+`tests/board.test.ts`:
+```ts
+/** The page's <main>: the header carries the team's random id, which changes on every run. */
+const main = (html: string): string => html.slice(html.indexOf("<main>"), html.indexOf("</main>") + 7);
+```
+
+The snapshots are in `tests/__snapshots__/board.test.ts.snap`; review them like code. After an intended change to the page, update them and look at the diff:
+
+```sh
+renox test -u
+git diff tests/__snapshots__
+```
+
+## Run it
+
+```sh
+renox test
+```
+
+```
+(pass) policy policies/tests/board.json: a signed-in user opens the board -> allow
+(pass) policy policies/tests/board.json: a visitor who is not signed in does not -> deny
+(pass) policy policies/tests/board.json: a member ticks off a task of their team -> allow
+(pass) policy policies/tests/board.json: not a task of another team -> deny
+(pass) policy policies/tests/board.json: nor without a team -> deny
+(pass) policy policies/tests/board.json: a task of the team may be removed -> allow
+(pass) policy policies/tests/board.json: not one of another team -> deny
+bun test v1.4.4
+
+ 7 pass
+ 0 fail
+ 2 snapshots, 26 expect() calls
+Ran 7 tests across 2 files. [2.50s]
+```
+
+`renox test` exits with 0 when everything passed and 2 when anything failed, so CI can run it as it is.
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| A snapshot fails after you changed the page on purpose | Run `renox test -u`, then read the diff before you commit |
+| A snapshot fails on every run with a different value | Something per request is in the page (a time, a random id). Snapshot a smaller part, as `main()` does, or keep it out of the template |
+| `expected 303, received 200` on login | The password is shorter than `auth`'s minimum (12 characters by default) |
+| A test sees another test's data | Tests in one file share a database. Put independent tests in separate files |
+| Exit code 3 | No worker or no Bun: see chapter 1 |
+
+## Building with an AI agent
+
+Ask: "Write a test flow for each role of the board: owner, member, outsider, signed out." With `run_tests` the agent runs them on the worker and sees the failures. Ask it to show you the snapshot diff before it updates snapshots.
+
+**Checkpoint:** [`examples/tutorial/step-09`](../../examples/tutorial/step-09/). Next: [deploy and a custom domain](10-deploy.md).
+
+---
+
+Source: docs/tutorial/10-deploy.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/tutorial/10-deploy.md)
+
+# Chapter 10: Deploy and a custom domain
+
+**What you build:** the board, live on `https://<app>.renoxium.app`, with its logs and usage in the dashboard and, if you have one, your own domain in front of it. The checkpoint adds one page: the app's own "not found" page.
+
+## A page for "not found"
+
+`pages/_404.html` replaces the platform's default 404 page; like `_layouts/`, a file whose name starts with `_` is not a route:
+
+`pages/_404.html`:
+```html
+<r-layout use="main">
+  <r-group slot="title">Not found</r-group>
+  <h1>Not found</h1>
+  <p>There is no page at this address. <a href="/board">Back to the board</a>.</p>
+</r-layout>
+```
+
+## Sign in once
+
+```sh
+renox login
+```
+
+```
+Open https://dashboard.renoxium.com/device?code=BCDF-GHJK
+and check that it shows the code BCDF-GHJK, then approve.
+Waiting for approval…
+Signed in to my-workspace. Token saved to /home/you/.config/renox/credentials.json
+```
+
+Create the account at https://dashboard.renoxium.com first if you have none. In CI, set `RENOX_TOKEN` to a token from the dashboard's **Tokens** page instead.
+
+## Deploy
+
+App names are global. `board` is likely taken, so give yours its own name in `renox.toml` first, for example `name = "acme-board"`. Then:
+
+```sh
+renox deploy
+```
+
+```
+Bundling… <n> routes, <n> modules, <n> templates
+  Created app acme-board
+  Uploading <size> → api.renoxium.com
+  Validating… ✓ manifest ✓ routes ✓ templates ✓ permissions ✓ bundle (validated)
+  Activating… ✓ migrations ✓ cell ✓ probe
+  Live: https://acme-board.renoxium.app  (<deployment hash>)
+```
+
+(The shape of the output; your counts, sizes and times go where the `<…>` are.) `renox deploy` type checks first, as `renox check` does, and stops on a type error before anything is uploaded. The migrations run before the new code takes traffic. Every deployment is kept: `renox deploy --rollback` switches back to the previous one at once, without a build. Rolling back never undoes a migration, so a new column must be one the older code can ignore, as `team_id` with its default is ([Developer experience, deploy without downtime](../12-developer-experience.md#deploy-without-downtime)).
+
+Open the live URL, register, create a team and invite a colleague. The invitation link is in the `outbox__mail` table until a mail module delivers it (chapter 6, #475). [What you should see: the finished board](screenshots/10-finished.png).
+
+**The finished app, deployed:** not yet. Deploying this checkpoint on `renoxium.app` is an owner step of #430; its link goes here when it is live.
+
+## Logs and usage
+
+```sh
+renox logs --follow
+```
+
+prints your app's log lines as they happen, the browser errors of chapter 2 included (`source: client`). In the dashboard, open the app:
+
+| Page | What it shows |
+| --- | --- |
+| **Logs** | The same lines, filtered by source and deployment |
+| **Client errors** | Browser errors grouped by cause, per deployment, with the original TypeScript line |
+| **Usage** | Requests, CPU time, database time and egress per hour: what the bill is made of |
+| **Deployments** | Every deployment, with rollback |
+| **Secrets** | Names only; values are set with `printf %s "$VALUE" \| renox secrets set NAME` |
+
+## Your own domain
+
+Custom domains go through Cloudflare for SaaS: you point a CNAME at the platform, Cloudflare checks you own the name and issues the certificate, and the domain serves the same deployment as `<app>.renoxium.app`.
+
+**Use `www.`, not the bare domain.** The platform has no fixed address to give you for `example.com` itself. Add `www.example.com`, and redirect `example.com` to it at your DNS provider or registrar (or use CNAME flattening if your DNS provider offers it).
+
+There is no `renox domains` command, MCP tool or dashboard page yet (#477). The deploy API has the endpoint. Create a token with the `domains:write` scope on the dashboard's **Tokens** page, then:
+
+```sh
+curl -fsS -X POST https://api.renoxium.com/v1/apps/acme-board/domains \
+  -H "authorization: Bearer $RENOX_TOKEN" -H "content-type: application/json" \
+  -d '{"hostname": "www.example.com"}'
+```
+
+The answer (`201`) holds `cname_target` and, under `verification`, two TXT records: `ownership` and `dcv` (the certificate's). At your DNS provider, create the CNAME `www.example.com → <cname_target>` and both TXT records. The platform asks Cloudflare every minute; when the name is verified, it serves your app. Check with:
+
+```sh
+curl -fsS https://api.renoxium.com/v1/apps/acme-board/domains/www.example.com \
+  -H "authorization: Bearer $RENOX_TOKEN"
+```
+
+`status` moves from `pending` to `verified`. A name another account holds answers 409, and without Cloudflare configured on the platform the answer is 503 `RENOX_UNAVAILABLE`. The whole lifecycle: [Tenant lifecycle, custom domains](../05-tenant-lifecycle.md#custom-domains-and-dns).
+
+## Limits to know
+
+Cloudflare sits in front of every app:
+- **100 seconds idle.** A response that sends nothing for 100 s is cut (524). Long work belongs in a job, not in a request. SSE routes get a heartbeat every 15 s from the platform.
+- **100 MB request body.** A larger upload is refused at the edge before it reaches your app.
+
+Your app's own limits (CPU time per request, memory, database size, egress) depend on the tier: [Limits](../contracts/ops.md).
+
+## If it does not work
+
+| You see | Why, and what to do |
+| --- | --- |
+| `RENOX_UNAUTHENTICATED` | Run `renox login` again: the token expired (90 days) or was revoked |
+| `RENOX_CONFLICT`, "not available", on the first deploy | Someone has that app name: change `name` in `renox.toml` |
+| `RENOX_DEPLOY_REJECTED` | Validation failed: the message names the rule (`V…`) and the file. Run `renox check` |
+| `RENOX_ACTIVATION_FAILED` | A migration or the probe failed; the previous deployment keeps serving. `renox logs` has the cause |
+| `RENOX_TOKEN_SCOPE` on the domain call | The token lacks `domains:write` |
+| The domain stays `pending` | The CNAME or a TXT record is missing or wrong; DNS changes can take a while to reach Cloudflare |
+| 413 on an upload | The body is over the limit (100 MB at the edge, less on smaller tiers): keep large files out of a single request |
+
+## Building with an AI agent
+
+The platform MCP has `deploy`, `rollback`, `get_logs` and `list_deployments` for agents, with the scopes of the token you give them ([AI agents and MCP](../20-ai-agents-mcp.md)). Keep a person in the loop for rollbacks, secrets and domains.
+
+## Where next
+
+- Replace `modules/outbox` with a mail module once #475 is done; add `2fa` (`renox add 2fa`) for owners; add `audit` to record who removed what.
+- [Modules](../10-modules.md), [Authorization](../11-authorization.md), [Fragments and realtime](../09-htmx-realtime.md) and [App model](../07-app-model.md) go deeper into what you used here.
+
+**Checkpoint:** [`examples/tutorial/step-10`](../../examples/tutorial/step-10/), the finished app.
+
+---
+
 Source: docs/07-app-model.md (https://github.com/arif-rachim/renox.rs/blob/main/docs/07-app-model.md)
 
 # 07 — Tenant application model

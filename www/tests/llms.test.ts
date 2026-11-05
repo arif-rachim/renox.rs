@@ -24,7 +24,7 @@ describe("llms.txt", () => {
     expect(lines[0]).toBe("# Renoxium");
     expect(lines[2]?.startsWith("> ")).toBe(true);
     const sections = lines.filter((l) => l.startsWith("## ")).map((l) => l.slice(3));
-    expect(sections).toEqual(["Getting started", "App model", "Modules", "CLI", "MCP for agents", "Reference", "Optional"]);
+    expect(sections).toEqual(["Getting started", "Tutorial", "App model", "Modules", "CLI", "MCP for agents", "Reference", "Optional"]);
     for (const l of lines.filter((l) => l.startsWith("- "))) expect(l).toMatch(/^- \[[^\]]+\]\(https:\/\/[^)]+\): .+$/u);
     // No date, no hash: a regeneration without a document change is a no-op.
     expect(index).not.toMatch(/20\d\d-\d\d-\d\d/u);
