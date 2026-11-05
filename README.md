@@ -5,18 +5,18 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 
 > *"Assemble a SaaS from auth, billing, and admin modules, then deploy to hosting that charges only for what you use."*
 
-> **Status (2026-11-01, `main` at `c265810`).** The code of every phase F0 to F7 is on `main`: eight crates under `crates/`, the control plane under `control/`, the `renox` CLI and SDK, sixteen official modules, the examples, the site. Gates F0 and F1 passed (GO). Gates F2 to F7 are open on owner steps and measurements, not on code; what each one still needs is in the table below, the open work and the prompt for each batch in [`docs/25-execution.md`](docs/25-execution.md), "Where we are".
+> **Status (2026-11-05, `main` at `d37a751`).** The code of every phase F0 to F7 is on `main`: eight crates under `crates/`, the control plane under `control/`, the `renox` CLI and SDK, sixteen official modules, the examples, the site. The CLI is released (`cli-v0.1.3`, signed, pinning `renox-worker` 0.3.0), the SDK `@renoxium/sdk` is on npm with provenance, and the platform runs on one host behind Cloudflare (ADRs D25 and D26). Gates F0 and F1 passed (GO). Gates F2 to F7 are open on owner steps and measurements, not on code; what each one still needs is in the table below, the open work and the prompt for each batch in [`docs/25-execution.md`](docs/25-execution.md), "Where we are".
 >
 > | Phase | Built | Gate |
 > | --- | --- | --- |
 > | F0 Spike | The spike benchmarks under `bench/` against the unmodified Supabase Edge Runtime | #133, GO |
-> | F1 Minimal data plane | Gateway, runtime (V8 isolates, CPU, memory, wall-clock and `fetch` limits in Rust), SQLite per tenant with the authorizer, meter, cell; two tenants on one node, an infinite loop terminated at its limit | #165, GO. B1 and B2 re-run on `node-small`; B4, B11, B12 wait for the load-generator host (#158) |
-> | F2 SSR and templates | `renox-template`, pages (loaders, actions, layouts, partials, fragments), the `shop` example, streamed responses, the isolate pool, the macOS CPU clock (#212) | #49 open: B6 and B7 on `node-small` with a load generator (#46, #158), the two findings of the B1 run (#342, #343), four rows of #112 |
-> | F3 Minimal control plane | Deploy API, the dashboard as a Renox app, logs, secrets, custom domains, signed CLI and worker releases, the remote MCP | #61 open: the bench runs above, #219 (pin the CLI to `worker-v0.2.0`), the open rows of #99 and #116 |
+> | F1 Minimal data plane | Gateway, runtime (V8 isolates, CPU, memory, wall-clock and `fetch` limits in Rust), SQLite per tenant with the authorizer, meter, cell; two tenants on one node, an infinite loop terminated at its limit | #165, GO. B1 and B2 re-run on `node-small`; B4, B11, B12 wait for the load-generator host (#456) |
+> | F2 SSR and templates | `renox-template`, pages (loaders, actions, layouts, partials, fragments), the `shop` example, streamed responses, the isolate pool, the macOS CPU clock | #49 open: B6 and B7 with a load generator (#456), the last criterion of #342 (B1 three runs in a row on `node-small`), the `shop` RSS bisect (#457), four rows of #112 |
+> | F3 Minimal control plane | Deploy API, the dashboard as a Renox app (password sign-in, second factor, `/device`, tokens), logs, secrets, custom domains through Cloudflare for SaaS, signed CLI and worker releases, the remote MCP | #61 open: the bench runs above, the open rows of #99 and #116 |
 > | F4 Modules | Manifest, resolver and lock, forward-only migrations, services, events, hooks, slots, overrides; the modules under `modules/` | #68 open: the owner's booking product repository |
-> | F5 Authorization and realtime | Cedar policies and `guard`, `r-can`, `db.scoped()`, SSE and WebSocket with topics, `2fa`, App MCP on `/mcp` | #74 open: the B14 run on `node-small` (load generator, #158) |
-> | F6 Reliability and security | seccomp and Landlock, process tiers, Litestream replication, failover, export and restore, the chaos harness, OpenTelemetry, audit, erasure | #79 open: gate F5, the B18 two-host run, the `ops/` code-owner reviews, one green weekly chaos run |
-> | F7 External customers | `billing` with Stripe UAE, `tax_gcc`, `admin`, `storage`, `email`, `booking`, `reports`, `whatsapp`, the registry, `isolate` mode, EN/AR, onboarding, the site and docs, the SDK on npm | #86 open: the first paying tenant; the GCC PSP adapters (#330, #337) wait for sandbox accounts; the single-host deployment (#366) and the binary size (#372) are open |
+> | F5 Authorization and realtime | Cedar policies and `guard`, `r-can`, `db.scoped()`, SSE and WebSocket with topics, `2fa`, App MCP on `/mcp` | #74 open: the B14 run (load generator, #456) |
+> | F6 Reliability and security | seccomp and Landlock, process tiers, Litestream replication, failover, export and restore, the chaos harness, OpenTelemetry, audit, erasure | #79 open: gate F5, the B18 two-host run (#456), the `ops/` code-owner reviews, one green weekly chaos run (#389) |
+> | F7 External customers | `billing` with Stripe UAE, `tax_gcc`, `admin`, `storage`, `email`, `booking`, `reports`, `whatsapp`, the registry, `isolate` mode, EN/AR, onboarding, the site and docs in the dot-matrix design (D27); the CLI releases 0.1.0 to 0.1.3 and the SDK on npm (D28); the single host with the app edge behind Cloudflare (D25, D26) | #86 open: the first paying tenant; the install on `node-small` and the Cloudflare cut-over (#458); the GCC PSP adapters (#330, #337) wait for sandbox accounts |
 
 ## Naming
 
@@ -134,16 +134,16 @@ Full list, scenarios, and methodology in [`docs/14-benchmarks.md`](docs/14-bench
 
 ## Roadmap
 
-| Phase | Name | Done when | Status (2026-11-01) |
+| Phase | Name | Done when | Status (2026-11-05) |
 | --- | --- | --- | --- |
 | F0 | Spike | Memory per isolate, cold start, npm compatibility, and marshaling numbers meet the targets. If not, re-evaluate before writing platform code | Done, gate GO (#133) |
 | F1 | Minimal data plane | Two tenants on one node; an infinite loop in one does not affect the other; meters recorded | Done, gate GO (#165) |
-| F2 | SSR and templates | The `shop` example runs | Built; gate #49 waits for the bench hosts |
-| F3 | Minimal control plane | `renox deploy` goes live in under 30 s; rollback works | Built; gate #61 waits for the bench runs and `worker-v0.2.0` |
+| F2 | SSR and templates | The `shop` example runs | Built; gate #49 waits for the load-generator host (#456), #342 and #457 |
+| F3 | Minimal control plane | `renox deploy` goes live in under 30 s; rollback works | Built; gate #61 waits for the bench runs |
 | F4 | Modules | The first product uses `auth` and `org` with no auth code of its own | Built; gate #68 waits for the booking product repository |
 | F5 | Authorization and realtime | Cedar guards and the chat room work | Built; gate #74 waits for the B14 run |
-| F6 | Production reliability and security | A node is killed and tenants recover elsewhere | Built; gate #79 waits for gate F5, B18 and the `ops/` reviews |
-| F7 | External customers | First paying external tenant | Built but for the GCC PSP adapters; gate #86 waits for the first paying tenant |
+| F6 | Production reliability and security | A node is killed and tenants recover elsewhere | Built; gate #79 waits for gate F5, B18, the `ops/` reviews and a green chaos run |
+| F7 | External customers | First paying external tenant | Built but for the GCC PSP adapters; CLI 0.1.3 released; gate #86 waits for the single-host install (#458) and the first paying tenant |
 
 Each phase has kill criteria. See [`docs/15-roadmap.md`](docs/15-roadmap.md) and [`docs/18-build-plan.md`](docs/18-build-plan.md).
 
@@ -158,7 +158,7 @@ Start with [`AGENTS.md`](AGENTS.md), which holds the rules and the full reading 
 | [`docs/04-isolation-security.md`](docs/04-isolation-security.md) | Isolation model, per-tenant limits, threat model |
 | [`docs/06-data.md`](docs/06-data.md) | SQLite per tenant, authorizer, replication |
 | [`docs/10-modules.md`](docs/10-modules.md) | Module system |
-| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D23. **Required reading before any architectural change** |
+| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D28. **Required reading before any architectural change** |
 | [`docs/14-benchmarks.md`](docs/14-benchmarks.md) | Targets, scenarios, methodology |
 | [`docs/20-ai-agents-mcp.md`](docs/20-ai-agents-mcp.md) | Platform MCP, app MCP per tenant, agent security |
 
@@ -202,7 +202,7 @@ The Rust job caches `target/` (`Swatinem/rust-cache`) and compiler outputs (`scc
 
 ### Prebuilt `renox-worker`
 
-`renox dev` and `renox test` run a prebuilt worker, so tenant developers never build Rust (`docs/12-developer-experience.md`, rule 5). `.github/workflows/release-worker.yml` builds it on a `worker-v*` tag (or by hand from the Actions tab) and attaches `renox-worker-<version>-<target>` and its `.sha256` to the GitHub Release `worker-v<version>` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each build runs natively on its own runner and links a V8 archive checked against `ops/v8-checksums.txt`. Releases up to `worker-v0.1.0` carry the Linux x86_64 binary only; from `worker-v0.3.0` on, every release carries all four targets, signed. The CLI pins `worker-v0.3.0` (`WORKER_VERSION` in `cli/scripts/fetch-worker.ts`).
+`renox dev` and `renox test` run a prebuilt worker, so tenant developers never build Rust (`docs/12-developer-experience.md`, rule 5). `.github/workflows/release-worker.yml` builds it on a `worker-v*` tag (or by hand from the Actions tab) and attaches `renox-worker-<version>-<target>` and its `.sha256` to the GitHub Release `worker-v<version>` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each build runs natively on its own runner and links a V8 archive checked against `ops/v8-checksums.txt`. `worker-v0.1.0` carries the Linux x86_64 binary only and is unsigned; from `worker-v0.2.0` on, every release carries all four targets, each with a `.sha256` and a sigstore bundle, and is built without the `pdf` feature (`ctx.pdf.render` answers `pdf_unavailable` on a released worker; PR #380, #381). The CLI pins `worker-v0.3.0` (`WORKER_VERSION` in `cli/scripts/fetch-worker.ts`, the four digests in `PINNED_WORKER`). `install.sh` installs that worker beside `renox`; from a checkout, `bun cli/scripts/fetch-worker.ts` puts it in `cli/bin/<platform>-<arch>/`, where `renox dev` finds it.
 
 ```
 gh release download worker-v0.3.0 --pattern 'renox-worker-0.3.0-x86_64-unknown-linux-gnu*'
@@ -226,4 +226,4 @@ This repository is built with AI coding agents alongside a human maintainer. The
 
 ## License
 
-Not yet decided. Whether the data plane is open source or closed is an open question to be resolved before phase F7 (see `docs/15-roadmap.md`).
+Not yet decided for the repository. Whether the data plane is open source or closed is an owner decision, re-dated to before gate #86 (`docs/15-roadmap.md`, "Open questions"). The SDK `@renoxium/sdk` alone is published under MIT (`sdk/LICENSE`).

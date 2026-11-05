@@ -18,7 +18,10 @@ Without a database URL the API runs on an in-memory PGlite, and without `CONTROL
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `CONTROL_LISTEN_HOST` | `0.0.0.0` | Address the public listener binds. On the single host `127.0.0.1`, so only `cloudflared` reaches it. Refused at start (exit 78) when it is not loopback while every entry of `CONTROL_TRUSTED_PROXIES` is (`checkListen` in `src/config.ts`, #366) |
 | `CONTROL_LISTEN_PORT` | `8787` | Port of the public listener (tenant, account, operator, MCP endpoints) |
+| `CONTROL_TRUSTED_PROXIES` | empty: the socket address is the client address and no header is read | Addresses or CIDRs, comma separated, of the proxies in front of the public listener (`127.0.0.1,::1` on the single host, `cloudflared`). Only a request whose socket peer is listed takes its client address from `CONTROL_CLIENT_IP_HEADER`; a missing, malformed or multi-valued header falls back to the peer. The per-IP buckets of sign-up, login and mail key on the result (`src/auth/ip.ts`, #366) |
+| `CONTROL_CLIENT_IP_HEADER` | `CF-Connecting-IP` | The header a trusted proxy puts the client address in; must be a header name (RFC 9110 token) |
 | `CONTROL_NODE_LISTEN_HOST` | `0.0.0.0` | Address the node listener binds; set it to the private address only nodes reach |
 | `CONTROL_NODE_LISTEN_PORT` | `8788` | Port of the node listener (`/v1/nodes/*`, `/v1/ingest/*`, `/v1/healthz`); must differ from `CONTROL_LISTEN_PORT` |
 | `CONTROL_DATABASE_URL` | `pglite:memory` | `postgres://…`, `pglite:memory`, or `pglite:<dir>` |
