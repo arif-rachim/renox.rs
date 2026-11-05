@@ -34,6 +34,8 @@ test("worker lines: node-only messages are dropped, others become one short line
   expect(workerLine(j("ERROR", { message: "disk watermark reached", level: "warn", used_pct: 89.1 }))).toBeNull();
   expect(workerLine(j("WARN", { message: "worker degraded", component: "disk", reason: "warn 89% used" }))).toBeNull();
   expect(workerLine(j("WARN", { message: "refused at the disk watermark", tenant_id: "dev" }))).toBeNull();
+  // #462: every 5 s on macOS, where the worker has no statvfs probe.
+  expect(workerLine(j("WARN", { message: "disk usage unreadable", path: "/Users/dev/app/.renox/data", error: "unsupported" }))).toBeNull();
   expect(workerLine(j("WARN", { message: "isolate restarted", tenant_id: "dev", reason: "cpu limit" }))).toBe('worker: warn isolate restarted tenant_id=dev reason="cpu limit"');
   expect(workerLine("not json")).toBe("worker: not json");
 });

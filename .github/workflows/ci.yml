@@ -469,7 +469,13 @@ jobs:
   cli-smoke:
     needs: lint
     if: ${{ !cancelled() && needs.lint.outputs.ts == 'true' }}
-    runs-on: ubuntu-24.04
+    # #462: macOS too, where $TMPDIR is a symlink under /var and the worker
+    # has no statvfs probe; the first hour must behave the same there.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     steps:

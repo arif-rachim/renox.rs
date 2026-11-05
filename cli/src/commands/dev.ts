@@ -597,7 +597,14 @@ export function handlerResultHint(name: string): string {
  * node's disk watermarks and the health state they feed. A laptop's disk is
  * not the app's problem, so `renox dev` does not show them.
  */
-const NODE_ONLY = [/^disk watermark (reached|cleared)$/u, /^worker (degraded|recovered)$/u, /^refused at the disk watermark$/u];
+const NODE_ONLY = [
+  /^disk watermark (reached|cleared)$/u,
+  /^worker (degraded|recovered)$/u,
+  /^refused at the disk watermark$/u,
+  // #462: the probe behind the watermarks is Linux-only; on a Mac the worker
+  // logs its `Unsupported` answer at every poll, which is nothing to the app.
+  /^disk usage unreadable$/u,
+];
 
 /**
  * A worker warning or error as one short line (`worker: warn <message>

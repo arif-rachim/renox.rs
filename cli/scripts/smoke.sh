@@ -10,8 +10,10 @@
 # Needs bun, curl and ps on PATH. Exits non-zero at the first failed step.
 set -euo pipefail
 
-RENOX=$(realpath "$1")
-SDK=${2:+$(realpath "$2")}
+# An absolute path without realpath(1): macOS before 13 has none (#462).
+abspath() { (cd "$(dirname "$1")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$1")"); }
+RENOX=$(abspath "$1")
+SDK=${2:+$(abspath "$2")}
 PORT=${SMOKE_PORT:-18787}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/renox-smoke-XXXXXX")
 DEV_PID=""
@@ -50,7 +52,8 @@ step "renox test (and never more than one renox process)"
 TEST_PID=$!
 MAX=0
 while kill -0 "$TEST_PID" 2>/dev/null; do
-  N=$(ps -eo comm= | grep -cx renox || true)
+  # macOS prints the full path in comm; keep the base name.
+  N=$(ps -eo comm= | sed 's|.*/||' | grep -cx renox || true)
   (( N > MAX )) && MAX=$N
   # 2: the parent, plus a fork of it for an instant before it execs `bun`.
   if (( N > 2 )); then echo "renox test spawned $N renox processes" >&2; kill -9 "$TEST_PID"; exit 1; fi
@@ -79,6 +82,6 @@ echo "GET / -> $STATUS"
 [[ "$STATUS" == 200 ]]
 echo "--- renox dev output"
 cat "$WORK/dev.log"
-if grep -Eq 'fetch_blocked_addresses|platform_key_file|watermark' "$WORK/dev.log"; then echo "renox dev printed a production-only warning" >&2; exit 1; fi
+if grep -Eq 'fetch_blocked_addresses|platform_key_file|watermark|disk usage unreadable' "$WORK/dev.log"; then echo "renox dev printed a production-only warning" >&2; exit 1; fi
 
 printf '\nsmoke test passed\n'
