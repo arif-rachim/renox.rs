@@ -1,0 +1,13 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`renox new prints every step to a live app, and the docs 1`] = `
+"Created demo/. Next:
+
+  cd demo
+  bun install        # the @renoxium/sdk types and test helpers
+  renox dev          # http://localhost:8787, reloads on save
+  renox login        # once: approve the sign-in in the dashboard
+  renox deploy       # prints the live URL
+
+Docs: https://renoxium.com/docs"
+`;

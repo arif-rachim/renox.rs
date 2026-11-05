@@ -241,6 +241,12 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     // No file name on the page: the path appears only in the "Source on GitHub" link.
     expect(data.text.replace(/<a href="https:\/\/github\.com[^"]*">Source on GitHub<\/a>/u, "")).not.toContain("06-data.md");
     expect((await get("/docs/no-such-doc")).status).toBe(404);
+    // #447: a browser gets the site's HTML 404 page; a client without text/html gets JSON.
+    const missing = await fetch(`${base}/no/such/page`, { headers: { accept: "text/html,application/xhtml+xml,*/*;q=0.8" } });
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("content-type")).toStartWith("text/html");
+    expect(await missing.text()).toContain("There is no page at this address.");
+    expect((await fetch(`${base}/no/such/page`, { headers: { accept: "*/*" } })).headers.get("content-type")).toStartWith("application/json");
     // The allowlist (#428): internal documents answer 404 under every slug they could have had.
     for (const path of ["/docs/24-threat-model", "/docs/threat-model", "/docs/13-decisions", "/docs/01-business", "/docs/25-execution", "/docs/contracts-deploy-api", "/docs/deploy-api"]) expect((await get(path)).status, path).toBe(404);
     expect((await get("/docs?q=custom%20domains")).text).toContain('href="/docs/tenant-lifecycle#custom-domains-and-dns"');
@@ -255,7 +261,7 @@ test.skipIf(!worker)("renox build and check pass; the worker serves the docs, se
     expect(home.text.match(/<script[^>]*src="([^"]+)"/gu)?.every((m) => m.includes("/__renox/"))).toBe(true);
     expect(home.text).not.toContain("site.js");
     expect(home.text).toContain('href="https://dashboard.renoxium.com/signup"');
-    expect(home.text).toContain("AED</small> 79");
+    expect(home.text).toContain("AED</small>79");
     const pricing = await get("/pricing");
     expect(pricing.text).toContain("AED 82.95 with VAT");
     expect((await get("/legal/dpa")).text).toContain(`Version ${DPA_VERSION}.`);

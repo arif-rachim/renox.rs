@@ -1,0 +1,13 @@
+# The billing rollup every hour, a few minutes past it so the meter batches of
+# the hour that ended have arrived (#450). A missed run (host down) runs at
+# boot; each run recomputes the last 48 hours, so nothing is lost.
+[Unit]
+Description=Hourly billing rollup
+
+[Timer]
+OnCalendar=*-*-* *:07:00
+RandomizedDelaySec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

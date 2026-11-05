@@ -1,0 +1,37 @@
+# A failed unit tells a person (#450): `OnFailure=renox-alert@%n.service` on
+# renox-backup-db.service and renox-billing.service starts this with the
+# failed unit's name. ops/scripts/renox-alert.sh posts it to the webhook in
+# /etc/renox/secrets/alert.env (ALERT_WEBHOOK_URL), the same receiver
+# Alertmanager uses, with the host name and the unit's last journal lines;
+# without the file it only logs. The URL is a secret: it reaches the script
+# through LoadCredential, never a command line.
+[Unit]
+Description=Alert the operator: %i failed
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
+
+[Service]
+Type=oneshot
+LoadCredential=alert.env:/etc/renox/secrets/alert.env
+ExecStart=/opt/renox/bin/renox-alert.sh %i
+DynamicUser=yes
+# The journal of the failed unit: the systemd-journal group reads it.
+SupplementaryGroups=systemd-journal
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077

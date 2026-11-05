@@ -1010,8 +1010,16 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
         let t = thread::spawn(move || {
+            let own = ThreadCpuClock::current().unwrap();
             tx.send(ThreadCpuClock::current().unwrap()).unwrap();
-            spin(Duration::from_millis(40));
+            // Spin until this thread has used 40 ms of CPU, not for 40 ms of
+            // wall time: a loaded runner deschedules it for part of a wall
+            // clock spin (29 ms of CPU in 40 ms on the macOS job), and the
+            // reader below waits for 30 ms.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while own.now().unwrap() < Duration::from_millis(40) && Instant::now() < deadline {
+                spin(Duration::from_millis(1));
+            }
             go_rx.recv().unwrap();
         });
         let c = rx.recv().unwrap();

@@ -10,49 +10,128 @@ Source: docs/getting-started.md (https://github.com/arif-rachim/renox.rs/blob/ma
 
 # Getting started
 
-From an empty folder to an app at `https://<app>.renoxium.app`: install the CLI, create an app, run it locally, sign in, deploy. Every command below is the real one from the [CLI reference](../cli/README.md).
+From an empty folder to an app at `https://<app>.renoxium.app` in about ten minutes: install the CLI, create an app, run it locally, sign in, deploy. Each step shows what you should see. Every command is the real one from the [CLI reference](../cli/README.md).
+
+## Prerequisites
+
+- **Linux or macOS** (x64 or arm64). **Windows:** use WSL 2 with Ubuntu (`wsl --install -d Ubuntu` in PowerShell, then run every command below inside the Ubuntu terminal).
+- **[Bun](https://bun.sh) 1.4 or newer** for `bun install` and `renox test`: `curl -fsSL https://bun.sh/install | bash`, then open a new terminal. `bun --version` prints `1.4.x` or newer.
+- `curl`, and a browser for the sign-in.
 
 ## Install
 
-The CLI is released as a signed binary for Linux and macOS on x64 and arm64; on Windows it runs inside WSL 2. One line installs `renox`, and the `renox-worker` it is tested against, into `~/.renox/bin`, and installs a file only when its SHA-256 matches:
+One line installs `renox`, and the `renox-worker` it runs your app on locally, into `~/.renox/bin`. It installs a file only when its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
 ```
 
-`renox --version` prints the CLI's version and the worker it pins. The SDK is the npm package `@renoxium/sdk`: `bun install` in an app made by `renox new` pulls it at the CLI's version. Verifying the signatures, the WSL 2 steps and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
-
-To run the CLI from a clone of the repository instead (to work on the platform itself), with [Bun](https://bun.sh) 1.4 or later:
+If the installer says `~/.renox/bin` is not on your `PATH`, add it (and add the same line to `~/.bashrc` or `~/.zshrc`):
 
 ```sh
-git clone https://github.com/arif-rachim/renox.rs
-cd renox.rs
-bun install
-bun cli/scripts/fetch-worker.ts        # the signed renox-worker release for your platform
-alias renox="bun $PWD/cli/src/main.ts"
+export PATH="$HOME/.renox/bin:$PATH"
 ```
+
+Check it:
+
+```sh
+renox --version
+```
+
+```
+renox 0.1.2 (renox-worker 0.3.0)
+```
+
+There is no npm package for the CLI: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. Verifying the signatures and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
 
 ## Your first app
 
 ```sh
-renox new my-shop --template hello
-cd my-shop
+renox new my-app --template hello
+```
+
+```
+Created my-app/. Next:
+
+  cd my-app
+  bun install        # the @renoxium/sdk types and test helpers
+  renox dev          # http://localhost:8787, reloads on save
+  renox login        # once: approve the sign-in in the dashboard
+  renox deploy       # prints the live URL
+
+Docs: https://renoxium.com/docs
+```
+
+`hello` writes a function (`functions/api/hello.ts`), a home page (`pages/index.html` and its layout), a test (`tests/hello.test.ts`), `renox.toml`, `package.json`, `tsconfig.json`, a `README.md` and the files for coding agents (`AGENTS.md`, `CLAUDE.md`, `.mcp.json`). `--template blank` writes one health route and nothing else.
+
+```sh
+cd my-app
+bun install
+```
+
+```
++ bun-types@1.4.4
++ typescript@7.0.2
++ @renoxium/sdk@0.1.2
+
+6 packages installed
+```
+
+`typescript` is what `renox check` type checks your code with.
+
+Run it:
+
+```sh
 renox dev
 ```
 
-`renox new` writes `renox.toml`, `package.json`, `tsconfig.json`, the agent files (`AGENTS.md`, `CLAUDE.md`, `.mcp.json`) and the template's files. `hello` is one function; `blank` has a health route and nothing else. `renox dev` builds the app, starts the worker on it and serves it at `http://localhost:8787`, rebuilding on every change.
+```
+renox dev: http://localhost:8787  (artifact 982e73345217, 2 routes)
+  GET     /api/hello
+  PAGE    /
+```
 
-Folders are routes: `functions/api/hello.ts` answers `/api/hello`, `pages/products/[id].html` is the page at `/products/:id` with its loader in `pages/products/[id].ts`. The model is in [App model](07-app-model.md); `renox check` validates the project and `renox test` runs its tests.
+Open `http://localhost:8787`: the page says "my-app is running". `http://localhost:8787/api/hello` answers `{"ok":true}`. Edit `pages/index.html` or the function and save: the browser reloads. Stop it with Ctrl-C.
+
+Folders are routes: `functions/api/hello.ts` answers `/api/hello`, `pages/products/[id].html` is the page at `/products/:id` with its loader in `pages/products/[id].ts`. The model is in [App model](07-app-model.md).
+
+## Check and test
+
+```sh
+renox check
+```
+
+```
+renox check: ok
+```
+
+```sh
+renox test
+```
+
+```
+ 2 pass
+ 0 fail
+```
+
+`renox check` validates the configuration, the routes and templates, lints SQL and scans for secrets. `renox test` runs `tests/*.test.ts` on the same local worker as `renox dev`, with a fresh database for each test file.
 
 ## Sign in
 
-Create an account at `https://dashboard.renoxium.com/signup` and verify the address from the email. Then, in the app folder:
+Create an account at `https://dashboard.renoxium.com/signup` (email, a password of at least 12 characters, a workspace id) and open the link in the email: the dashboard signs you in. Then, in the app folder:
 
 ```sh
 renox login
 ```
 
-`renox login` prints a code and polls until it is approved; the token it receives is kept in `~/.config/renox/credentials.json` (mode 0600). The approval page of the dashboard is not published yet, so until it is, the code cannot be approved from a browser; the CLI commands below are ready for the day it is. In CI, set `RENOX_TOKEN` instead.
+```
+Open https://dashboard.renoxium.com/device?code=BCDF-GHJK
+and check that it shows the code BCDF-GHJK, then approve.
+Waiting for approval…
+Signed in to my-workspace. Token saved to /home/you/.config/renox/credentials.json
+```
+
+The link opens the dashboard's device page with the code filled in: check that the code matches, keep or narrow the scopes, and press Approve. The token is kept in `~/.config/renox/credentials.json` (readable only by you) for 90 days. In CI, set `RENOX_TOKEN` to a token from the dashboard's Tokens page instead.
 
 ## Deploy
 
@@ -61,22 +140,25 @@ renox deploy
 ```
 
 ```
-Bundling… 1 routes, 0 modules, 0 templates
-Uploading 0.1 MB → api.renoxium.com
-Validating… ✓ manifest ✓ routes ✓ templates ✓ permissions ✓ bundle (validated)
-Activating… ✓ migrations ✓ cell ✓ probe
-Live: https://my-shop.renoxium.app   (<hash>)
-Rollback: renox deploy --rollback <previous hash>
+Bundling… 2 routes, 1 modules, 2 templates               0.2s
+  Created app my-app
+  Uploading 0.0 MB → api.renoxium.com                      0.0s
+  Validating… ✓ manifest ✓ routes ✓ templates ✓ permissions ✓ bundle (validated)
+  Activating… ✓ migrations ✓ cell ✓ probe                  0.1s
+  Live: https://my-app.renoxium.app  (10db4d689fa2)        total 0.6s
 ```
 
-The first deploy creates the app under the name in `renox.toml`. Every deploy is kept: `renox deploy --rollback` switches back to the previous one without a build or an upload. Then:
+`renox deploy` first type checks the app (as `renox check` does) and stops on a type error. The next deploy also prints `Rollback: renox deploy --rollback <previous hash>`.
+
+The first deploy creates the app under the name in `renox.toml`; the app names are global, so pick another name in `renox.toml` if it is taken. Every deploy is kept: `renox deploy --rollback` switches back to the previous one without a build or an upload. Then:
 
 | Command | What it does |
 | --- | --- |
 | `renox logs --follow` | The app's log lines as they happen |
 | `printf %s "$VALUE" \| renox secrets set NAME` | A secret, read from stdin and never from an argument |
-| `renox add auth` | Installs a module after showing its permissions ([Modules](10-modules.md)) |
+| `renox add auth` | Installs a module (and the official modules it needs) after showing its permissions ([Modules](10-modules.md)) |
 | `renox db export` | A snapshot of the app's SQLite database ([Data](06-data.md)) |
+| `renox <command> --help` | The options of any command |
 
 ## What next
 
@@ -85,6 +167,8 @@ The first deploy creates the app under the name in `renox.toml`. Every deploy is
 - [Modules](10-modules.md): sign-in, organisations, billing and admin as installed modules.
 - [Limits](contracts/ops.md#10-limits-per-tier-and-behaviour-on-limit): what the platform enforces per request and per app.
 - [AI agents and MCP](20-ai-agents-mcp.md): `renox mcp` for coding agents.
+
+To work on the platform itself from a clone of the repository instead: `git clone https://github.com/arif-rachim/renox.rs && cd renox.rs && bun install && bun cli/scripts/fetch-worker.ts`, then run the CLI as `bun cli/src/main.ts`.
 
 ---
 
@@ -756,16 +840,17 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 
 | Command | Purpose |
 | --- | --- |
-| `renox new <name>` | Project from a template (`shop`, `saas`, `blank`) |
+| `renox new <name>` | Project from a template: `hello` (a function, a home page and a test) or `blank` (one health route); prints the next steps |
 | `renox dev` | Local server: hot reload, error overlay, type generation, local dashboard |
 | `renox add <module>` | Add a module, update `renox.lock`, show requested permissions |
 | `renox migrate` | Run migrations for all modules in dependency order |
-| `renox check` | Type check TS, validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL, scan for secrets (`--secrets`: only the secret scan) |
+| `renox check` | Type check the TypeScript with the app's own `typescript` (see "Type safety"), validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL, scan for secrets (`--secrets`: only the secret scan) |
 | `renox test` | Run TS tests in the production runtime, including policy test cases and per-role template snapshots |
 | `renox deploy` | Bundle, upload, validate, activate; `--rollback <hash>` |
 | `renox logs --follow` | Tenant logs |
 | `renox authz explain` | Explain a policy decision |
-| `renox db shell` / `renox db export` | Open the local SQLite file; export a tenant's file from production |
+| `renox db export` / `import` / `restore` | Download the production database; import a file into a staging app; restore a point in time into a new app. The local database of `renox dev` is `.renox/data/dev/app.db`, a plain SQLite file any SQLite client opens |
+| `renox <command> --help` | The usage of any command; an unknown command or flag is named, with a suggestion |
 
 ### `renox test`
 
@@ -785,9 +870,9 @@ Exit code 0 when every test passed, 2 when one failed.
 On Linux or macOS (x64 or arm64):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.1 (renox-worker 0.3.0)
+renox --version                          # renox 0.1.2 (renox-worker 0.3.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -809,7 +894,7 @@ The CLI is released as standalone binaries (`bun build --compile`, so no Bun is 
 Releases are signed (#129; `docs/24-threat-model.md` F, "Tampered release"). Every `cli-v*` and `worker-v*` release also carries `SHA256SUMS`, a sigstore bundle `<asset>.sigstore.json` per file (cosign keyless signature from the release workflow's OIDC identity, logged in Rekor), and SLSA v1 build provenance (`renox-<version>.provenance.sigstore.json`, `renox-worker-<version>.provenance.sigstore.json`). The release workflow verifies all of them with cosign in a fresh container before it publishes. With `cosign` installed, `install.sh` also checks each file's signature and installs nothing that fails; `RENOX_REQUIRE_SIGNATURE=1` refuses to install without a verified signature. To verify a download by hand:
 
 ```sh
-v=0.1.1; a=renox-$v-linux-x64
+v=0.1.2; a=renox-$v-linux-x64
 sha256sum -c --ignore-missing SHA256SUMS
 cosign verify-blob --bundle $a.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-cli\.yml@refs/tags/cli-v' \
@@ -854,7 +939,16 @@ Target from save to browser update: under 300 ms for a single file. Discarding t
 
 ## Type safety
 
-`renox dev` generates `.renox/types/`: `LoaderContext`, `params` per route (from file names), each module's services, event payloads, policy action names, and fragment names. Type checking happens in the editor through `tsc`/tsgo; the runtime does not type check so reloads stay fast.
+`renox dev` generates `.renox/types/`: `LoaderContext`, `params` per route (from file names), each module's services, event payloads, policy action names, and fragment names. `renox dev` does not type check, so reloads stay fast; the editor does it there.
+
+**`renox check` type checks** (#443). It runs the app's own TypeScript compiler, `node_modules/typescript` (looked up from the app upwards, as Node resolves it), as `tsc --noEmit -p tsconfig.json` with a fixed argv and no shell, and reports each error as a finding of `rule: "types"` with its file, line, column and TS code (`functions/api/hello.ts:3:41  error  types  TS2322: …`); files under `node_modules/` are left out. `renox new` adds `typescript` (pinned to the version this repository uses, TypeScript 7) and `bun-types` as devDependencies and a `typecheck` script (`renox check --types-only`), so `bun install` is all an app needs.
+
+- Without `typescript` installed: one warning, `types not checked: add typescript (bun add -d typescript)`, and the check passes.
+- Without `tsconfig.json`: one warning, `types not checked: no tsconfig.json (renox new writes one; copy it from the template)`. No configuration is guessed, and the check passes.
+- `--types-only` runs only the type check; `--no-types` skips it; `--json` carries the findings like the others.
+- `renox deploy` runs the same check before it builds anything: a type error stops it with exit code 2 and nothing is uploaded; `--skip-types` deploys anyway, with a warning. `run_check` over `renox mcp` returns the type findings, so a coding agent sees them.
+
+The type check of `examples/shop` takes about 0.6 s with TypeScript 7 (636 ms measured on 2026-11-04 in a 4-vCPU container; `cli/tests/check-types.test.ts` fails above 5 s).
 
 ## Debugging
 
@@ -1081,8 +1175,8 @@ One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, 
 Linux and macOS, x64 and arm64 (on Windows, use WSL 2: `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
-renox --version        # renox 0.1.1 (renox-worker 0.3.0)
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
+renox --version        # renox 0.1.2 (renox-worker 0.3.0)
 ```
 
 The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed). Running it again upgrades in place. Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
@@ -1117,7 +1211,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`, version 1) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Leaves forbidden files out of `public/` and fails on a secret in what it ships (step 5 and the secret scan below). Prints the hash. An app with templates needs the `renox-worker` binary (see "Templates") |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact. WebSocket and SSE routes are proxied unbuffered (below, "Realtime, tools and jobs") |
 | `renox dev --worker <path>` | Runs another `renox-worker` binary: it must have the pinned release's sha256 or carry a sigstore signature (`<path>.sigstore.json`) and the release's provenance bundle beside it that `cosign` verifies; otherwise `RENOX_CLI_WORKER_UNVERIFIED`, exit code 3 (#129) |
-| `renox check [--secrets] [--security] [--json] [--strict]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
+| `renox check [--secrets] [--security] [--json] [--strict] [--types-only \| --no-types]` | Type checks the TypeScript with the app's own `typescript` (`rule: "types"`, #443; one warning when `typescript` or `tsconfig.json` is missing), validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--types-only` runs only the type check, `--no-types` skips it. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
 | `renox add <module> [--version <range>] [--source …] [--mount <path>] [--yes]` | Installs a module after showing and approving its permissions; writes `renox.toml` and `renox.lock` (below) |
 | `renox remove <module>` | Uninstalls a module; its tables stay |
 | `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs the policy test cases of `policies/tests/*.json`, then `tests/*.test.ts` with `@renoxium/sdk/test` on the worker, a fresh tenant file per test file (below) |
@@ -1127,7 +1221,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox jobs run <name> [--module <m>]` | A tick of the scheduled job now (coalescing into its waiting run, as the scheduler does); `renox dev` runs it within a second |
 | `renox jobs retry <id>` | A dead run back in the queue with its attempts reset |
 | `renox migrate [--db <file>]` | Builds, then runs the artifact's migration plan (installed modules in lock order, then the app's) on the dev tenant file `.renox/data/dev/app.db` through `renox-worker migrate` (below) |
-| `renox deploy [--json]` | Builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
+| `renox deploy [--json] [--skip-types]` | Type checks (as `renox check`; a type error stops it, exit 2), builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
 | `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |
 | `renox logs [--follow] [--since <t>] [--source all\|server\|client] [--deployment <hash>] [--app <name>] [--json]` | The app's log lines; `--follow` keeps streaming |
 | `renox secrets set <NAME> \| list \| rm <NAME> [--app <name>]` | App secrets; `set` reads the value from stdin |
@@ -1187,6 +1281,7 @@ The worker is the faster cold path, needs no Wasm file next to the compiled CLI,
 | Rule | Severity |
 | --- | --- |
 | `renox.toml` schema, route discovery (functions and pages), route conflicts (V8), template diagnostics (one per problem, with file and line), manifest schema, migration names, bundle size | error |
+| `types`: an error of the app's TypeScript compiler (`tsc --noEmit -p tsconfig.json`, #443), with file, line, column and the TS code; `renox deploy` refuses the app until it is fixed (`--skip-types` overrides, with a warning) | error |
 | `sql-interpolation`: the first argument of `db.query` / `db.queryOne` / `db.execute` (also `tx.` and `ctx.db.`) is a template literal with `${}`, uses `+`, or calls `.concat(` | error |
 | `fetch-undeclared-host`: `fetch("https://…")` / `ctx.fetch(...)` with a literal URL whose host is not in `[permissions] network` | warning |
 | `global-state`: inside a function body, a write to `globalThis` (`globalThis.x = …`, `globalThis["x"] = …`, compound assignments, `++`/`--`, `Object.assign(globalThis, …)`, `Object.defineProperty(globalThis, …)`) or an assignment to a module-level `let`/`var` binding that no parameter or local declaration shadows. Module state is shared by every request of the deployment (`docs/07-app-model.md`, "State rules"); `// renox-allow-global` on the line or the line above marks an intentional cache | error |
@@ -1312,7 +1407,6 @@ $ renox deploy
 ```
 
 Measured times are B15's (`bench/scenarios/B15/run.sh`).
-```
 
 - **Deploy.** `renox build` (with the secret scan), then the artifact directory as a gzip tar with `x-renox-artifact-hash` to `POST /v1/apps/{app}/deployments` (the app is created on the first deploy), the source maps of `.renox/sourcemaps/<hash>/` to the private `PUT …/sourcemaps` (a failure there is a warning, not an error), and `POST /v1/apps/{app}/activate`, which answers once the owning node has migrated, loaded and probed the new cell. The live URL is the app's first hostname. An upload is idempotent by hash, so it is retried on a network failure, a 5xx or a 429; activation and rollback are retried on 503 and 429. At most 4 attempts, waiting `Retry-After` (capped at 30 s) or 1, 2, 4 s. A rejected upload prints every violation (`rule=… path=… reason=…`); a failed activation prints the stage (`migrate` with module, file and the SQLite message; `probe` with the status) and the old deployment keeps serving.
 - **Rollback.** `renox deploy --rollback` is a pointer switch to the most recently superseded deployment (`POST /v1/apps/{app}/rollback`); no build, upload or migration. It prints the command that undoes it.

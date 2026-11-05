@@ -59,7 +59,9 @@ describe("renox login", () => {
       },
     ]);
     expect(await login(["--api", "https://api.test/"], t)).toBe(EXIT.OK);
-    expect(t.lines[0]).toBe("Open https://dash.test/device and enter the code BCDF-GHJK");
+    // #446: the dashboard's /device page opens with the code filled in.
+    expect(t.lines[0]).toBe("Open https://dash.test/device?code=BCDF-GHJK");
+    expect(t.lines[1]).toBe("and check that it shows the code BCDF-GHJK, then approve.");
     expect(t.slept).toEqual([5000, 10000, 10000]);
     const file = credentialsPath(t.env);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ api: "https://api.test", token: TOKEN, tenant_id: "t-1", token_id: "tok_1", expires_at: 1 });
@@ -82,6 +84,17 @@ describe("renox login", () => {
     ]);
     const e2 = await login(["--api", "https://api.test"], down).catch((e: unknown) => e);
     expect((e2 as CliError).exitCode).toBe(EXIT.ENVIRONMENT);
+  });
+
+  test("a request denied on the dashboard's /device page stops at once with a user error (#446)", async () => {
+    const denied = io([
+      (c) => (c.url.endsWith("/device") ? json(201, { device_code: "d".repeat(32), user_code: "BCDF-GHJK", verification_uri: "https://dash.test/device", expires_in: 900, interval: 5 }) : undefined),
+      () => json(403, { error: { code: "RENOX_TOKEN_SCOPE", message: "Forbidden", details: [{ field: "device_code", reason: "access_denied" }] } }),
+    ]);
+    const e = (await login(["--api", "https://api.test"], denied).catch((x: unknown) => x)) as CliError;
+    expect(e.exitCode).toBe(EXIT.USER);
+    expect(e.message).toBe("the login request was denied in the dashboard");
+    expect(denied.slept).toEqual([5000]);
   });
 
   test("--with-token reads stdin; RENOX_TOKEN overrides the file", async () => {

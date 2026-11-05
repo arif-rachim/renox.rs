@@ -7,8 +7,8 @@ One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, 
 Linux and macOS, x64 and arm64 (on Windows, use WSL 2: `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
-renox --version        # renox 0.1.1 (renox-worker 0.3.0)
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
+renox --version        # renox 0.1.2 (renox-worker 0.3.0)
 ```
 
 The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed). Running it again upgrades in place. Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
@@ -43,7 +43,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox build [--out <dir>]` | Builds the artifact (`docs/contracts/artifact.md`, version 1) into `.renox/artifact/<hash>/` (or `<dir>/<hash>/`). Leaves forbidden files out of `public/` and fails on a secret in what it ships (step 5 and the secret scan below). Prints the hash. An app with templates needs the `renox-worker` binary (see "Templates") |
 | `renox dev [--port 8787]` | Builds, starts the prebuilt `renox-worker` on the app, serves it on `http://localhost:<port>`, rebuilds on every change and switches the worker to the new artifact. WebSocket and SSE routes are proxied unbuffered (below, "Realtime, tools and jobs") |
 | `renox dev --worker <path>` | Runs another `renox-worker` binary: it must have the pinned release's sha256 or carry a sigstore signature (`<path>.sigstore.json`) and the release's provenance bundle beside it that `cosign` verifies; otherwise `RENOX_CLI_WORKER_UNVERIFIED`, exit code 3 (#129) |
-| `renox check [--secrets] [--security] [--json] [--strict]` | Validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
+| `renox check [--secrets] [--security] [--json] [--strict] [--types-only \| --no-types]` | Type checks the TypeScript with the app's own `typescript` (`rule: "types"`, #443; one warning when `typescript` or `tsconfig.json` is missing), validates `renox.toml`, the modules and `renox.lock` (MF rules), route conflicts, templates, `[security]`, and the manifest (by building in memory), lints the sources, and scans for secrets. `--types-only` runs only the type check, `--no-types` skips it. `--secrets` runs only the secret scan; `--security` also prints the effective response headers, CORS, and rate-limit buckets per route (#47). Exit code 2 on any error |
 | `renox add <module> [--version <range>] [--source …] [--mount <path>] [--yes]` | Installs a module after showing and approving its permissions; writes `renox.toml` and `renox.lock` (below) |
 | `renox remove <module>` | Uninstalls a module; its tables stay |
 | `renox test [pattern...] [--seed <file.sql>]... [-u]` | Runs the policy test cases of `policies/tests/*.json`, then `tests/*.test.ts` with `@renoxium/sdk/test` on the worker, a fresh tenant file per test file (below) |
@@ -53,7 +53,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 | `renox jobs run <name> [--module <m>]` | A tick of the scheduled job now (coalescing into its waiting run, as the scheduler does); `renox dev` runs it within a second |
 | `renox jobs retry <id>` | A dead run back in the queue with its attempts reset |
 | `renox migrate [--db <file>]` | Builds, then runs the artifact's migration plan (installed modules in lock order, then the app's) on the dev tenant file `.renox/data/dev/app.db` through `renox-worker migrate` (below) |
-| `renox deploy [--json]` | Builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
+| `renox deploy [--json] [--skip-types]` | Type checks (as `renox check`; a type error stops it, exit 2), builds, uploads, validates and activates the app of `renox.toml` against the control plane (below) |
 | `renox deploy --rollback [<hash>] [--app <name>] [--json]` | Switches the app back to the previous deployment, or to the superseded one named by a hash or a unique prefix of at least 6 characters |
 | `renox logs [--follow] [--since <t>] [--source all\|server\|client] [--deployment <hash>] [--app <name>] [--json]` | The app's log lines; `--follow` keeps streaming |
 | `renox secrets set <NAME> \| list \| rm <NAME> [--app <name>]` | App secrets; `set` reads the value from stdin |
@@ -113,6 +113,7 @@ The worker is the faster cold path, needs no Wasm file next to the compiled CLI,
 | Rule | Severity |
 | --- | --- |
 | `renox.toml` schema, route discovery (functions and pages), route conflicts (V8), template diagnostics (one per problem, with file and line), manifest schema, migration names, bundle size | error |
+| `types`: an error of the app's TypeScript compiler (`tsc --noEmit -p tsconfig.json`, #443), with file, line, column and the TS code; `renox deploy` refuses the app until it is fixed (`--skip-types` overrides, with a warning) | error |
 | `sql-interpolation`: the first argument of `db.query` / `db.queryOne` / `db.execute` (also `tx.` and `ctx.db.`) is a template literal with `${}`, uses `+`, or calls `.concat(` | error |
 | `fetch-undeclared-host`: `fetch("https://…")` / `ctx.fetch(...)` with a literal URL whose host is not in `[permissions] network` | warning |
 | `global-state`: inside a function body, a write to `globalThis` (`globalThis.x = …`, `globalThis["x"] = …`, compound assignments, `++`/`--`, `Object.assign(globalThis, …)`, `Object.defineProperty(globalThis, …)`) or an assignment to a module-level `let`/`var` binding that no parameter or local declaration shadows. Module state is shared by every request of the deployment (`docs/07-app-model.md`, "State rules"); `// renox-allow-global` on the line or the line above marks an intentional cache | error |
@@ -238,7 +239,6 @@ $ renox deploy
 ```
 
 Measured times are B15's (`bench/scenarios/B15/run.sh`).
-```
 
 - **Deploy.** `renox build` (with the secret scan), then the artifact directory as a gzip tar with `x-renox-artifact-hash` to `POST /v1/apps/{app}/deployments` (the app is created on the first deploy), the source maps of `.renox/sourcemaps/<hash>/` to the private `PUT …/sourcemaps` (a failure there is a warning, not an error), and `POST /v1/apps/{app}/activate`, which answers once the owning node has migrated, loaded and probed the new cell. The live URL is the app's first hostname. An upload is idempotent by hash, so it is retried on a network failure, a 5xx or a 429; activation and rollback are retried on 503 and 429. At most 4 attempts, waiting `Retry-After` (capped at 30 s) or 1, 2, 4 s. A rejected upload prints every violation (`rule=… path=… reason=…`); a failed activation prints the stage (`migrate` with module, file and the SQLite message; `probe` with the status) and the old deployment keeps serving.
 - **Rollback.** `renox deploy --rollback` is a pointer switch to the most recently superseded deployment (`POST /v1/apps/{app}/rollback`); no build, upload or migration. It prints the command that undoes it.

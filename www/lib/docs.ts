@@ -52,7 +52,7 @@ function limitsOf(contract: string): string {
   const start = contract.indexOf("## 10. Limits per tier");
   const end = contract.indexOf("\n## ", start + 1);
   const body = contract.slice(start, end === -1 ? undefined : end).replace(/^## 10\.\s*/u, "# ");
-  return `${body.trimEnd()}\n\nThese are the defaults the platform enforces; an app may lower a limit in its manifest and never raise it. The full contract of every op, including what each limit does to a request, is [\`ops.md\`](contracts/ops.md) in the repository.\n`;
+  return `${body.trimEnd()}\n\nThese are the defaults the platform enforces; an app may lower a limit in its manifest and never raise it. The full contract of every op, including what each limit does to a request, is [\`ops.md\`](ops.md) in the repository.\n`;
 }
 
 /** `ctx.d.ts` as a reference page: one code block. */
@@ -92,6 +92,14 @@ export const SECTION_LINKS: readonly { group: Group; label: string; slug: string
 ];
 
 export const REPO = "https://github.com/arif-rachim/renox.rs/blob/main/";
+/** GitHub answers 400 for a directory under /blob/; a directory is under /tree/ (#449). */
+export const REPO_TREE = "https://github.com/arif-rachim/renox.rs/tree/main/";
+
+/** The repository URL of a path: /tree/ for a directory (a trailing slash, or a last segment without an extension), /blob/ for a file. */
+export function repoUrl(path: string): string {
+  const last = path.replace(/\/+$/u, "").split("/").pop() ?? "";
+  return `${path === "" || path.endsWith("/") || !/\.[A-Za-z0-9]+$/u.test(last) ? REPO_TREE : REPO}${path}`;
+}
 
 /** Repository path -> markdown text, for the link resolver and the tests. */
 export const SOURCES: ReadonlyMap<string, string> = new Map(PUBLISHED.filter((p) => p.slug !== "limits" && p.slug !== "ctx").map((p) => [p.path, p.markdown]));
@@ -124,7 +132,7 @@ export function resolver(from: string): (target: string) => string {
     const hash = anchor === undefined ? "" : `#${anchor}`;
     const slug = slugOfPath(resolved);
     if (slug !== null) return `/docs/${slug}${hash}`;
-    return `${REPO}${resolved}${hash}`;
+    return `${repoUrl(resolved)}${hash}`;
   };
 }
 

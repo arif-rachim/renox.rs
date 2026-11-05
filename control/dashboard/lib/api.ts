@@ -274,7 +274,13 @@ export interface ApiFailure {
 
 export type Result<T> = { ok: true; value: T } | ApiFailure;
 
-/** The API's base URL: `RENOX_API_URL` when set (https only), else the default. */
+/**
+ * The API's base URL: `RENOX_API_URL` when set (https only), else the
+ * default. One exception for a local control plane (#445): `http://localhost`
+ * or `http://127.0.0.1` with a port, which only the developer's own browser
+ * can reach (tenant `fetch` refuses loopback for the dashboard as for every
+ * tenant, ADR D23), so nothing is sent in clear over a network.
+ */
 export function apiBase(secrets: Secrets): string {
   const raw = secrets.RENOX_API_URL;
   if (raw === undefined || raw === "") return DEFAULT_API;
@@ -285,7 +291,9 @@ export function apiBase(secrets: Secrets): string {
     return DEFAULT_API;
   }
   // The token is sent to this origin: plain http or credentials in the URL are never used.
-  if (url.protocol !== "https:" || url.username !== "" || url.password !== "") return DEFAULT_API;
+  if (url.username !== "" || url.password !== "") return DEFAULT_API;
+  const local = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  if (url.protocol !== "https:" && !local) return DEFAULT_API;
   return url.origin;
 }
 
@@ -629,22 +637,9 @@ export class Api {
   }
 }
 
-/**
- * The two onboarding calls that need no sign-in (deploy-api.md 0.5 section
- * 21, #326): `signup` and `verifyEmail`. No token is sent; the password
- * passes through once and is never kept.
- */
-export function publicApi(fetch: Fetch, secrets: Secrets): Api {
-  return new Api(fetch, "", apiBase(secrets));
-}
-
-export function signupAccount(fetch: Fetch, secrets: Secrets, body: { email: string; password: string; tenant_id: string; tenant_name?: string; dpa_accepted: true; captcha_token?: string }): Promise<Result<{ status: "check_email" }>> {
-  return publicApi(fetch, secrets).json("POST", "/v1/account/signup", body);
-}
-
-export function verifyAccount(fetch: Fetch, secrets: Secrets, token: string): Promise<Result<{ user_id: string; email_verified: true; tenant_id?: string }>> {
-  return publicApi(fetch, secrets).json("POST", "/v1/account/verify", { token });
-}
+// #445: `signup`, `verifyEmail`, `login` and the password reset are called by
+// the browser (public/account.js), never from here: the API's per-IP buckets
+// must see the person's address, not the node's (ADR D23).
 
 /** The `log` events of a Server-Sent Events body; other events, comments and malformed data are skipped. */
 export function parseLogEvents(body: string): LogLine[] {

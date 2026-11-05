@@ -1,0 +1,59 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="dash.device.title" /> · <r-t key="dash.brand" /></r-group>
+  <section class="narrow" id="account" :data-api="api" :data-code="code" :data-grantable="grantable_json" data-page="device">
+    <div class="page-hero">
+      <p class="pill quiet">renox login</p>
+      <h1 class="dot dot-small"><r-t key="dash.device.title" /></h1>
+      <p class="lede"><r-t key="dash.device.lede" /></p>
+    </div>
+    <div class="problem" role="alert" id="account-error" hidden><p><strong></strong></p></div>
+    <p class="notice" role="status" id="account-notice" hidden></p>
+    <noscript><p class="problem"><r-t key="dash.account.needs_js" /></p></noscript>
+
+    <div class="panel stack" id="api-signin" hidden>
+      <p><r-t key="dash.device.api_signin" /></p>
+      <p><a class="button primary" :href="signin_href"><r-t key="dash.common.sign_in" /></a></p>
+    </div>
+
+    <form id="device-code" class="panel stack">
+      <label><r-t key="dash.device.code" /> <input name="code" :value="code" required autocomplete="off" spellcheck="false" maxlength="9" pattern="[A-Za-z]{4}-?[A-Za-z]{4}" placeholder="XXXX-XXXX" autofocus></label>
+      <button type="submit" class="primary"><r-t key="dash.signin.continue" /></button>
+    </form>
+
+    <form id="device-request" class="panel stack" hidden>
+      <dl class="pairs">
+        <dt><r-t key="dash.device.code" /></dt><dd><code id="device-user-code"></code></dd>
+        <dt><r-t key="dash.device.device" /></dt><dd id="device-name"></dd>
+        <dt><r-t key="dash.device.asked" /></dt><dd><bdi id="device-asked"></bdi></dd>
+        <dt><r-t key="dash.device.expires" /></dt><dd><bdi id="device-expires"></bdi></dd>
+      </dl>
+      <p><r-t key="dash.device.check" /></p>
+      <fieldset>
+        <legend><r-t key="dash.device.scopes" /></legend>
+        <div id="device-scopes" class="checks"></div>
+        <p class="muted small"><r-t key="dash.device.scopes_note" /></p>
+      </fieldset>
+      <p class="row"><button type="submit" class="primary" id="device-approve"><r-t key="dash.device.approve" /></button> <button type="button" class="danger" id="device-deny"><r-t key="dash.device.deny" /></button></p>
+    </form>
+
+    <form id="step-up" class="panel stack" hidden>
+      <h2><r-t key="dash.common.confirm_you" /></h2>
+      <p><r-t key="dash.common.enter_code" /></p>
+      <label><r-t key="dash.common.code" /> <input name="code" autocomplete="one-time-code" maxlength="24" spellcheck="false" required></label>
+      <button type="submit" class="primary"><r-t key="dash.common.verify" /></button>
+    </form>
+
+    <p class="notice" id="device-approved" hidden><r-t key="dash.device.approved" /></p>
+    <p class="notice" id="device-denied" hidden><r-t key="dash.device.denied" /></p>
+
+    <div hidden id="account-msgs">
+      <span data-k="not_found"><r-t key="dash.device.not_found" /></span>
+      <span data-k="bad_code"><r-t key="dash.account.bad_code" /></span>
+      <span data-k="no_scope"><r-t key="dash.device.no_scope" /></span>
+      <span data-k="too_many"><r-t key="dash.account.too_many" /></span>
+      <span data-k="unreachable"><r-t key="dash.account.unreachable" /></span>
+      <span data-k="failed"><r-t key="dash.account.failed" /></span>
+    </div>
+    <script src="/account.js" defer></script>
+  </section>
+</r-layout>

@@ -29,7 +29,8 @@ This page takes an empty host to live ("Install, in order"), and an existing hos
  │   the renox-tunnel uid only                    │                            │
  │        └── [control] url ─────────────────────┘                            │
  │                                       Postgres 127.0.0.1:5432               │
- │ timers: renox-backup-db (pg_dump → R2); renox-litestream@ (tenant files → R2)│
+ │ timers: renox-backup-db (pg_dump → R2), renox-billing (hourly rollup);      │
+ │ renox-litestream@ (tenant files → R2); renox-alert@ on a failed unit        │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -50,7 +51,8 @@ This page takes an empty host to live ("Install, in order"), and an existing hos
 | `/opt/renox/src` | root, 0755 | A checkout of this repository at the deployed commit, with `bun install --frozen-lockfile` run in it (step 3); runs the control API |
 | `~<operator>/renox-deploy` | the operator, 0755 | A second checkout of the same commit, owned by the operator's own user, for `renox deploy` of the platform's apps (step 9); never `/opt/renox/src` |
 | `/opt/renox/bin/{renox-worker,litestream,cloudflared,bun}` | root, 0755 | Each verified by SHA-256 (`bootstrap-node.sh`, `*.lock`) |
-| `/opt/renox/bin/backup-control-db.sh` | root, 0755 | From `ops/scripts/`, installed by `bootstrap-node.sh --single-host` |
+| `/opt/renox/bin/backup-control-db.sh`, `/opt/renox/bin/renox-alert.sh` | root, 0755 | From `ops/scripts/`, installed by `bootstrap-node.sh --single-host` |
+| `/etc/renox/secrets/alert.env` | root, 0600 | `ALERT_WEBHOOK_URL=https://…`: where `renox-alert@.service` posts a failed unit (secret, step 11) |
 | `/etc/renox/worker.toml` | root:renox, 0640 | The worker (`ops/worker.toml.example`): `listen = "unix:/run/renox-edge/worker.sock"`, `[gateway] trusted_socket_users = ["renox-tunnel"]`, `socket_group = "renox-edge"` |
 | `/etc/renox/node.token`, `/etc/renox/platform.key` | renox:renox, 0400 | The node token (`renox_node_…`, step 6) and the page session key (32 random bytes, written once by `bootstrap-node.sh`). The worker refuses either file with any group or other bit |
 | `/etc/tmpfiles.d/renox-edge.conf` | root, 0644 | `d /run/renox-edge 0750 renox renox-edge -`: the socket's directory, made at every boot |
@@ -172,13 +174,28 @@ All commands as root on the host unless the step says otherwise.
 
     The job reads each custom hostname every minute. `GET /v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `status: active`, `ssl_status: active`. Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`. A domain detached by the status poll (three negative answers over at least 30 minutes; an API error never counts) comes back when you repeat its `POST …/domains`: it answers 201 with the same custom hostname and is read at the next tick.
 10. **Backups.** `/etc/renox/backup-age.pub` and `/etc/renox/secrets/r2-backup.env` in place, then `systemctl start renox-backup-db.service` once. Check its journal line (`backup-control-db: renox -> renoxium-backups/control-db/…`), then `systemctl enable --now renox-backup-db.timer`. Then "Tenant files to R2" (steps 1 to 4 under "Backups"), and run both restore drills once.
+11. **Alerts for failed units (#450).** `renox-backup-db.service` and `renox-billing.service` start `renox-alert@<unit>.service` when they fail (`OnFailure=`). It posts to the webhook in `/etc/renox/secrets/alert.env`, the same receiver as Alertmanager (`ops/observability/README.md`, "Alertmanager on the single host"):
+    ```
+    printf 'ALERT_WEBHOOK_URL=%s\n' '<https webhook url>' | install -m 0600 -o root -g root /dev/stdin /etc/renox/secrets/alert.env
+    systemctl start renox-alert@test.service     # a test alert: "test failed on node-small" arrives
+    ```
+    Without the file a failure is only in the journal (`journalctl -u 'renox-alert@*'`).
+12. **Billing rollup (#450).** `control/billing` turns the meter records into hourly usage (`meters_hourly`), which usage, quotas, the tier machine and invoices read. Nothing else runs it:
+    ```
+    systemctl start renox-billing.service         # one pass now
+    journalctl -u renox-billing -n 5              # {"level":"info","msg":"rollup", …} lines, no "billing run failed"
+    systemctl enable --now renox-billing.timer    # then every hour at :07
+    ```
+    It uses `CONTROL_DATABASE_URL` from `control.env`, as the control API does.
 
 ### Health checks after every change
 
 | Check | Expect |
 | --- | --- |
 | `systemctl is-active renox-worker renox-control renox-tunnel` | `active` three times |
-| `systemctl list-timers 'renox-*'` | the backup timer with a next run |
+| `systemctl list-timers 'renox-*'` | the backup timer and the billing timer, each with a next run |
+| `systemctl status renox-billing.service` | the last run `status=0/SUCCESS`, less than about an hour ago |
+| `sudo -u postgres psql renox -c 'select max(hour) from meters_hourly'` | the current or the previous hour once traffic has arrived (usage is not stuck at zero) |
 | `nft list table inet renox_single_host` | the input chain with `tcp dport <ssh port> accept` (22, or the `--ssh-port` of step 2) and no other `tcp dport` rule |
 | From another machine: `nc -z -w 3 <node address> 22`, then `80`, `443`, `5432`, `8787`, `8788` | 22 open; every other port refused or timed out |
 | `ss -tlnp` on the host | nothing listening on a public address but sshd; `127.0.0.1:8787`, `8788`, `9090`, `5432`, `20241` only on loopback |

@@ -38,14 +38,18 @@
       <p class="notice" r-if="notice">{{ notice }}</p>
       <x-problem :problem="action_problem" r-if="action_problem" />
 
-      <h2><r-t key="dash.overview.last_24h" /></h2>
+      <div class="title-row section-head">
+        <h2><r-t key="dash.overview.last_24h" /></h2>
+        <span class="spacer"></span>
+        <a href="/apps/{{ app }}/usage" r-if="usage"><r-t key="dash.nav.usage" /></a>
+      </div>
       <r-group r-if="usage">
         <div class="cards">
           <div class="card stat"><b class="value">{{ usage.requests.n }}</b><span class="caption"><r-t key="dash.overview.requests" /></span></div>
-          <div class="card stat"><b class="value">{{ usage.cpu.n }} <small>{{ usage.cpu.unit }}</small></b><span class="caption">CPU</span></div>
-          <div class="card stat"><b class="value">{{ usage.egress.n }} <small>{{ usage.egress.unit }}</small></b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
+          <div class="card stat"><b class="value">{{ usage.cpu.n }}<small>{{ usage.cpu.unit }}</small></b><span class="caption">CPU</span></div>
+          <div class="card stat"><b class="value">{{ usage.egress.n }}<small>{{ usage.egress.unit }}</small></b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
         </div>
-        <p><span class="problem-inline" r-if="usage.over"><r-t key="dash.overview.over_quota" /> {{ usage.over }}. </span><a href="/apps/{{ app }}/usage"><r-t key="dash.nav.usage" /></a></p>
+        <p r-if="usage.over"><span class="problem-inline"><r-t key="dash.overview.over_quota" /> {{ usage.over }}.</span></p>
       </r-group>
       <p class="muted" r-else><r-t key="dash.overview.no_usage" /></p>
       <div class="cols">

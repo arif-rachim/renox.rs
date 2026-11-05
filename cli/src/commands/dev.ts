@@ -29,6 +29,7 @@
 //   routes.json             <app>.localhost -> dev -> <hash>
 //   types/                  routes.d.ts, db.d.ts, index.d.ts (#43)
 //   worker.toml             generated worker config
+//   platform.key            the dev platform key (page sessions survive restarts), 0600
 //   meters/, logs/          meter batches, tenant log lines
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, watch, writeFileSync, openSync, readSync, closeSync } from "node:fs";
@@ -211,6 +212,12 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   const routes = join(state, "routes.json");
   writeRoutes(routes, host, current);
   const workerPort = freePort();
+  // #449: dev values for what a production node must configure, so the worker
+  // does not warn every developer about them. The platform key keeps page
+  // sessions across worker restarts; 192.0.2.1 (TEST-NET-1) is refused anyway.
+  const platformKey = join(state, "platform.key");
+  if (!existsSync(platformKey)) writeFileSync(platformKey, Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex"), { mode: 0o600 });
+  chmodSync(platformKey, 0o600);
   const toml = join(state, "worker.toml");
   writeFileSync(
     toml,
@@ -225,6 +232,8 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
       `idle_timeout_secs = 600`,
       `meter_flush_ms = 1000`,
       `default_tier = "free"`,
+      `platform_key_file = "platform.key"`,
+      `fetch_blocked_addresses = ["192.0.2.1"]`,
       "",
       // ops.md section 20 (#297): the scheduler runs only with --jobs; the
       // poll sees the rows `renox jobs run` and `retry` write.
@@ -257,8 +266,10 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         while ((i = buf.indexOf("\n")) >= 0) {
           const line = buf.slice(0, i);
           buf = buf.slice(i + 1);
-          if (/"level":"(WARN|ERROR)"/u.test(line)) log(`worker: ${line}`);
-          else if (opts.jobs) {
+          if (/"level":"(WARN|ERROR)"/u.test(line)) {
+            const short = process.env.RENOX_DEV_RAW === "1" ? `worker: ${line}` : workerLine(line);
+            if (short !== null) log(short);
+          } else if (opts.jobs) {
             const tick = jobTick(line);
             if (tick) log(tick);
           }
@@ -444,6 +455,8 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         const { stack, ...rest } = l.fields ?? {};
         const f = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : "";
         log(`[${l.level}] ${l.message}${f}`);
+        // #444: a handler that returned something other than a Response: the fix.
+        if (rest.reason === "handler_result") log(`    hint: ${handlerResultHint(String(rest.name ?? ""))}`);
         // Server stacks point at the TypeScript sources (.renox/sourcemaps/<hash>/).
         if (typeof stack === "string" && stack) log(symbols.stack(stack).replace(/^/gmu, "    "));
       } catch {
@@ -571,6 +584,42 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   };
 }
 
+/** #444: what to do when a function handler resolved to `name` instead of a Response. */
+export function handlerResultHint(name: string): string {
+  if (name === "undefined") return "did you forget `return`? Return a Response, e.g. Response.json(value) or new Response(body, { status })";
+  if (name === "object" || name === "array") return "use Response.json(value) to send it as JSON";
+  if (name === "string") return "use new Response(text) (with a content-type header) to send it as text";
+  return "return a Response, e.g. Response.json(value) or new Response(body, { status })";
+}
+
+/**
+ * Worker messages that are about a production node, not the app (#449): the
+ * node's disk watermarks and the health state they feed. A laptop's disk is
+ * not the app's problem, so `renox dev` does not show them.
+ */
+const NODE_ONLY = [/^disk watermark (reached|cleared)$/u, /^worker (degraded|recovered)$/u, /^refused at the disk watermark$/u];
+
+/**
+ * A worker warning or error as one short line (`worker: warn <message>
+ * key=value`), or null for a node-only message. RENOX_DEV_RAW=1 shows the
+ * raw JSON instead.
+ */
+export function workerLine(line: string): string | null {
+  let v: { level?: string; fields?: Record<string, unknown>; target?: string };
+  try {
+    v = JSON.parse(line);
+  } catch {
+    return `worker: ${line}`;
+  }
+  const { message, ...rest } = v.fields ?? {};
+  const text = typeof message === "string" ? message : "";
+  if (NODE_ONLY.some((r) => r.test(text))) return null;
+  const pairs = Object.entries(rest)
+    .map(([k, x]) => `${k}=${typeof x === "string" ? (/\s/u.test(x) ? JSON.stringify(x) : x) : JSON.stringify(x)}`)
+    .join(" ");
+  return `worker: ${(v.level ?? "warn").toLowerCase()} ${text}${pairs ? ` ${pairs}` : ""}`;
+}
+
 /** A scheduler line of the worker as `jobs: <module.name> tick <time>` (`renox dev --jobs`), else null. */
 export function jobTick(line: string): string | null {
   let v: { fields?: Record<string, unknown> } & Record<string, unknown>;
@@ -618,8 +667,12 @@ export async function run(args: string[]): Promise<number> {
   process.once("SIGINT", early);
   const dev = await startDev({ project: process.cwd(), port, jobs, ...(worker ? { worker } : {}) });
   process.off("SIGINT", early);
+  // Ctrl-C, or SIGTERM from a process manager: stop the worker too, never leave it running (#449).
   const outcome = await Promise.race([
-    new Promise<"interrupted">((r) => process.once("SIGINT", () => r("interrupted"))),
+    new Promise<"interrupted">((r) => {
+      process.once("SIGINT", () => r("interrupted"));
+      process.once("SIGTERM", () => r("interrupted"));
+    }),
     dev.failed,
   ]);
   await dev.stop();

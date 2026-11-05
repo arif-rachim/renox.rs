@@ -78,7 +78,7 @@ table.logs { padding: var(--rx-2) var(--rx-4); background: var(--rx-sunken); bor
 @media (max-width: 40rem) {
   table.logs, table.logs tbody { display: block; }
   table.logs tr { display: grid; grid-template-columns: auto 1fr; gap: .15rem var(--rx-3); padding-block: var(--rx-2); border-block-end: 1px solid var(--rx-rule); }
-  table.logs td { display: block; padding: 0; border: 0; }
+  table.logs td, [dir="rtl"] table.logs.list td[dir="auto"]:dir(ltr):nth-child(n) { display: block; padding: 0; border: 0; }
   /* The message right under its time; the id and source after it. */
   table.logs td.msg { grid-column: 1 / -1; order: 1; }
   table.logs td:nth-child(3), table.logs td:nth-child(4) { order: 2; grid-column: 1 / -1; font-size: .75rem; color: var(--rx-muted); word-break: break-all; }
@@ -86,3 +86,47 @@ table.logs { padding: var(--rx-2) var(--rx-4); background: var(--rx-sunken); bor
   /* A phone title stays at 24-28px. */
   main h1, .page-hero .dot { font-size: 1.5rem; }
 }
+/* #446: scope checkboxes on /device and /account/tokens, one chip each. */
+.checks { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+.checks label { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0; }
+
+/* Tokens: the form over the list, each full width, so neither card is
+   stretched to the other's height. Name and days share a row. */
+.token-create { margin-block-end: var(--rx-5); }
+.token-create .row { margin-block: 0; }
+.token-create .row > .grow { flex: 0 1 28rem; }
+.token-create .row > .grow > input { inline-size: 100%; max-inline-size: 28rem; }
+.token-create fieldset { margin-block-end: 0; }
+.token-create > p { margin-block-end: 0; }
+.list .scopes code { display: inline-block; margin: 0 .25rem .25rem 0; font-size: .75rem; }
+.list td.when { white-space: nowrap; }
+.list th.end, .list td.end { text-align: end; }
+/* A table that is wider than its column scrolls inside it, never the page. */
+.table-scroll { max-inline-size: 100%; overflow-x: auto; }
+.table-scroll > .list { margin-block-end: 0; }
+/* The live log table: the source and deployment stay on one line. */
+@media (min-width: 40.01rem) { table.logs td:nth-child(4) { white-space: nowrap; } }
+
+@media (max-width: 40rem) {
+  /* Every ledger table scrolls sideways inside the page on a phone. */
+  /* Tokens: one block per token, each date under its own label. */
+  main table.tokens, table.tokens tbody, table.tokens tr, table.tokens td { display: block; }
+  table.tokens thead { display: none; }
+  table.tokens tr { padding-block: var(--rx-3); border-block-end: 1px solid var(--rx-rule); }
+  main table.tokens td { padding: .15rem 0; border: 0; white-space: normal; text-align: start; }
+  table.tokens td:first-child { font-weight: 500; }
+  table.tokens td.when { font-size: .8125rem; color: var(--rx-ink-2); }
+  table.tokens td.when::before { content: attr(data-label) " "; color: var(--rx-muted); }
+  table.tokens td.end { padding-block-start: var(--rx-2); }
+  main table.list:not(.logs, .tokens) { display: block; max-inline-size: 100%; overflow-x: auto; }
+  main table.list:not(.logs, .tokens) td, main table.list:not(.logs, .tokens) th { white-space: nowrap; }
+  /* The top bar on one line: Account is in the side navigation. */
+  .top { gap: var(--rx-2) var(--rx-3); padding-inline-start: var(--rx-3); }
+  .top > a[href="/account"], .top > .pill { display: none; }
+}
+/* Inline code moves to the next line whole instead of splitting (an isolated
+   Latin run split over two lines reads backwards on an Arabic page). */
+main p code, main li code { display: inline-block; max-inline-size: 100%; overflow-wrap: anywhere; vertical-align: baseline; }
+/* A section heading with its link at the end of the same line. */
+.section-head { margin-block: var(--rx-5) var(--rx-3); }
+.section-head h2 { margin: 0; }

@@ -1,22 +1,31 @@
 <r-layout use="main">
   <r-group slot="title"><r-t key="dash.signup.title" /> · <r-t key="dash.brand" /></r-group>
-  <section class="narrow">
+  <section class="narrow" id="account" :data-api="api" data-page="signup">
     <h1><r-t key="dash.signup.heading" /></h1>
-    <r-group r-if="sent">
-      <p class="notice"><r-t key="dash.signup.sent" /> <strong>{{ email }}</strong> <r-t key="dash.signup.sent_after" /></p>
-    </r-group>
-    <r-group r-if="!sent">
-      <div class="problem" role="alert" r-if="error"><p><strong>{{ error }}</strong></p></div>
-      <form method="post" action="/signup">
-        <x-csrf />
-        <label><r-t key="dash.common.email" /> <input type="email" name="email" :value="email" required autocomplete="email" maxlength="254"></label>
-        <label><r-t key="dash.common.password" /> <input type="password" name="password" required minlength="12" autocomplete="new-password"></label>
-        <label><r-t key="dash.signup.workspace_id" /> <input name="tenant_id" :value="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false"></label>
-        <label><r-t key="dash.signup.workspace_name" /> <input name="tenant_name" maxlength="128"></label>
-        <label><input type="checkbox" name="dpa" value="yes" required> <r-t key="dash.signup.accept" /> <a href="/legal/dpa"><r-t key="dash.signup.dpa_link" /></a> <r-t key="dash.signup.and" /> <a href="/legal/terms"><r-t key="dash.signup.terms_link" /></a>.</label>
-        <button type="submit" class="primary"><r-t key="dash.signup.submit" /></button>
-      </form>
-      <p class="muted"><r-t key="dash.signup.have_account" /> <a href="/signin"><r-t key="dash.common.sign_in" /></a>. <r-t key="dash.signup.agreement_note" /></p>
-    </r-group>
+    <div class="problem" role="alert" r-if="error"><p><strong>{{ error }}</strong></p></div>
+    <div class="problem" role="alert" id="account-error" hidden><p><strong></strong></p></div>
+    <p class="notice" role="status" id="account-notice" hidden></p>
+    <noscript><p class="problem"><r-t key="dash.account.needs_js" /></p></noscript>
+    <p class="notice" id="signup-sent" hidden><r-t key="dash.signup.sent" /> <strong id="sent-email"></strong> <r-t key="dash.signup.sent_after" /></p>
+    <form id="signup-form" class="stack">
+      <label><r-t key="dash.common.email" /> <input type="email" name="email" required autocomplete="email" maxlength="254"></label>
+      <label><r-t key="dash.common.password" /> <input type="password" name="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+      <label><r-t key="dash.signup.workspace_id" /> <input name="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false"></label>
+      <label><r-t key="dash.signup.workspace_name" /> <input name="tenant_name" maxlength="128"></label>
+      <label><input type="checkbox" name="dpa" value="yes" required> <r-t key="dash.signup.accept" /> <a href="/legal/dpa"><r-t key="dash.signup.dpa_link" /></a> <r-t key="dash.signup.and" /> <a href="/legal/terms"><r-t key="dash.signup.terms_link" /></a>.</label>
+      <button type="submit" class="primary"><r-t key="dash.signup.submit" /></button>
+    </form>
+    <p class="muted" id="signup-more"><r-t key="dash.signup.have_account" /> <a href="/signin"><r-t key="dash.common.sign_in" /></a>. <r-t key="dash.signup.agreement_note" /></p>
+    <div hidden id="account-msgs">
+      <span data-k="err_password"><r-t key="dash.signup.err_password" /></span>
+      <span data-k="err_accept"><r-t key="dash.signup.err_accept" /></span>
+      <span data-k="err_taken"><r-t key="dash.signup.err_taken" /></span>
+      <span data-k="err_disposable"><r-t key="dash.signup.err_disposable" /></span>
+      <span data-k="err_too_many"><r-t key="dash.signup.err_too_many" /></span>
+      <span data-k="too_many"><r-t key="dash.account.too_many" /></span>
+      <span data-k="unreachable"><r-t key="dash.account.unreachable" /></span>
+      <span data-k="failed"><r-t key="dash.account.failed" /></span>
+    </div>
+    <script src="/account.js" defer></script>
   </section>
 </r-layout>

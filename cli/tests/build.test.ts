@@ -44,9 +44,13 @@ describe("renox build", () => {
   test("renox new x --template hello && renox build", async () => {
     const parent = tmp("new");
     const dir = newApp("x", "hello", parent);
-    expect(readFileSync(join(dir, "functions/api/hello.ts"), "utf8")).toBe(
-      readFileSync(join(repo, "examples/hello/functions/api/hello.ts"), "utf8"),
-    );
+    // The handler is examples/hello's; the comments are for a new developer, not
+    // the benchmarks (#449), and the app has a home page, a test and a README.
+    const handler = (f: string) => readFileSync(f, "utf8").split("\n").filter((l) => l.startsWith("export const GET"));
+    expect(handler(join(dir, "functions/api/hello.ts"))).toEqual(handler(join(repo, "examples/hello/functions/api/hello.ts")));
+    expect(readFileSync(join(dir, "functions/api/hello.ts"), "utf8")).not.toMatch(/benchmark|B4|spike/u);
+    for (const f of ["pages/index.html", "pages/_layouts/main.html", "tests/hello.test.ts", "README.md"]) expect([f, existsSync(join(dir, f))]).toEqual([f, true]);
+    expect(readFileSync(join(dir, "README.md"), "utf8")).toStartWith("# x\n");
     expect(readFileSync(join(dir, "renox.toml"), "utf8")).toContain('name = "x"');
     expect(existsSync(join(dir, ".gitignore"))).toBe(true);
     const r = await buildArtifact(dir, join(dir, ".renox/artifact"));

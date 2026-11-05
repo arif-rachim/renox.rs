@@ -13,7 +13,7 @@
           <td><a class="pill" href="?hash={{ d.hash }}"><code>{{ d.short }}</code></a></td>
           <td>{{ d.when }}</td>
           <td><span class="pill" :class="{ ok: d.state == 'active', bad: d.state == 'rejected' }">{{ d.label }}</span></td>
-          <td class="n">{{ d.size }}</td>
+          <td class="n"><span>{{ d.size }}</span></td>
           <td r-if="has_notes">{{ d.error ?? "" }}</td>
           <td><x-deployment-actions :d="d" /> <a href="?hash={{ d.hash }}"><r-t key="dash.deployments.details" /></a></td>
         </tr>

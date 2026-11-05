@@ -4,16 +4,17 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 
 | Command | Purpose |
 | --- | --- |
-| `renox new <name>` | Project from a template (`shop`, `saas`, `blank`) |
+| `renox new <name>` | Project from a template: `hello` (a function, a home page and a test) or `blank` (one health route); prints the next steps |
 | `renox dev` | Local server: hot reload, error overlay, type generation, local dashboard |
 | `renox add <module>` | Add a module, update `renox.lock`, show requested permissions |
 | `renox migrate` | Run migrations for all modules in dependency order |
-| `renox check` | Type check TS, validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL, scan for secrets (`--secrets`: only the secret scan) |
+| `renox check` | Type check the TypeScript with the app's own `typescript` (see "Type safety"), validate templates and policies, detect route conflicts and broken module contracts, lint unsafe SQL, scan for secrets (`--secrets`: only the secret scan) |
 | `renox test` | Run TS tests in the production runtime, including policy test cases and per-role template snapshots |
 | `renox deploy` | Bundle, upload, validate, activate; `--rollback <hash>` |
 | `renox logs --follow` | Tenant logs |
 | `renox authz explain` | Explain a policy decision |
-| `renox db shell` / `renox db export` | Open the local SQLite file; export a tenant's file from production |
+| `renox db export` / `import` / `restore` | Download the production database; import a file into a staging app; restore a point in time into a new app. The local database of `renox dev` is `.renox/data/dev/app.db`, a plain SQLite file any SQLite client opens |
+| `renox <command> --help` | The usage of any command; an unknown command or flag is named, with a suggestion |
 
 ### `renox test`
 
@@ -33,9 +34,9 @@ Exit code 0 when every test passed, 2 when one failed.
 On Linux or macOS (x64 or arm64):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.1/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.1 (renox-worker 0.3.0)
+renox --version                          # renox 0.1.2 (renox-worker 0.3.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -57,7 +58,7 @@ The CLI is released as standalone binaries (`bun build --compile`, so no Bun is 
 Releases are signed (#129; `docs/24-threat-model.md` F, "Tampered release"). Every `cli-v*` and `worker-v*` release also carries `SHA256SUMS`, a sigstore bundle `<asset>.sigstore.json` per file (cosign keyless signature from the release workflow's OIDC identity, logged in Rekor), and SLSA v1 build provenance (`renox-<version>.provenance.sigstore.json`, `renox-worker-<version>.provenance.sigstore.json`). The release workflow verifies all of them with cosign in a fresh container before it publishes. With `cosign` installed, `install.sh` also checks each file's signature and installs nothing that fails; `RENOX_REQUIRE_SIGNATURE=1` refuses to install without a verified signature. To verify a download by hand:
 
 ```sh
-v=0.1.1; a=renox-$v-linux-x64
+v=0.1.2; a=renox-$v-linux-x64
 sha256sum -c --ignore-missing SHA256SUMS
 cosign verify-blob --bundle $a.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-cli\.yml@refs/tags/cli-v' \
@@ -102,7 +103,16 @@ Target from save to browser update: under 300 ms for a single file. Discarding t
 
 ## Type safety
 
-`renox dev` generates `.renox/types/`: `LoaderContext`, `params` per route (from file names), each module's services, event payloads, policy action names, and fragment names. Type checking happens in the editor through `tsc`/tsgo; the runtime does not type check so reloads stay fast.
+`renox dev` generates `.renox/types/`: `LoaderContext`, `params` per route (from file names), each module's services, event payloads, policy action names, and fragment names. `renox dev` does not type check, so reloads stay fast; the editor does it there.
+
+**`renox check` type checks** (#443). It runs the app's own TypeScript compiler, `node_modules/typescript` (looked up from the app upwards, as Node resolves it), as `tsc --noEmit -p tsconfig.json` with a fixed argv and no shell, and reports each error as a finding of `rule: "types"` with its file, line, column and TS code (`functions/api/hello.ts:3:41  error  types  TS2322: …`); files under `node_modules/` are left out. `renox new` adds `typescript` (pinned to the version this repository uses, TypeScript 7) and `bun-types` as devDependencies and a `typecheck` script (`renox check --types-only`), so `bun install` is all an app needs.
+
+- Without `typescript` installed: one warning, `types not checked: add typescript (bun add -d typescript)`, and the check passes.
+- Without `tsconfig.json`: one warning, `types not checked: no tsconfig.json (renox new writes one; copy it from the template)`. No configuration is guessed, and the check passes.
+- `--types-only` runs only the type check; `--no-types` skips it; `--json` carries the findings like the others.
+- `renox deploy` runs the same check before it builds anything: a type error stops it with exit code 2 and nothing is uploaded; `--skip-types` deploys anyway, with a warning. `run_check` over `renox mcp` returns the type findings, so a coding agent sees them.
+
+The type check of `examples/shop` takes about 0.6 s with TypeScript 7 (636 ms measured on 2026-11-04 in a 4-vCPU container; `cli/tests/check-types.test.ts` fails above 5 s).
 
 ## Debugging
 

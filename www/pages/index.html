@@ -25,7 +25,7 @@
 
   <!-- Card row: numbers that are true and measured (docs/14-benchmarks.md), and the way in. -->
   <section class="cards home-stats" aria-label="Measured numbers">
-    <div class="card stat" r-for="s in stats"><b class="value">{{ s.value }} <small r-if="s.unit">{{ s.unit }}</small></b><span class="caption">{{ s.caption }}</span></div>
+    <div class="card stat" r-for="s in stats"><b class="value">{{ s.value }}<small r-if="s.unit">{{ s.unit }}</small></b><span class="caption">{{ s.caption }}</span></div>
     <div class="card card-text">
       <p>One app is a folder of TypeScript and HTML. Renoxium builds it, runs it in its own V8 isolate with its own SQLite file, and keeps every deploy for a one-click rollback.</p>
       <p><a class="button go" href="https://dashboard.renoxium.com/signup">Sign up</a></p>
@@ -99,7 +99,7 @@
     <p>Monthly, excluding 5 % VAT. <a href="/pricing">Every quota of every plan</a></p>
     <div class="cards plans-row">
       <div class="card stat" r-for="p in plans">
-        <b class="value"><small>{{ currency }}</small> {{ p.price }}</b>
+        <b class="value"><small class="pre">{{ currency }}</small>{{ p.price }}</b>
         <span class="caption"><strong>{{ p.name }}</strong> · {{ p.requests }} requests a month · {{ p.apps }} apps · {{ p.db }} database</span>
         <span><a class="button" href="https://dashboard.renoxium.com/signup">Start with {{ p.name }}</a></span>
       </div>

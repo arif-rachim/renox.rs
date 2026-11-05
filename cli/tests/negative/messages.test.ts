@@ -171,7 +171,8 @@ describe("messages and exit codes", () => {
     const sql = make({ ...base, "functions/api/q.ts": "export const GET = async ({ db, url }) => Response.json(await db.query(`select ${url.search}`));\n" });
     expect(renox(sql, ["check"]).exitCode).toBe(EXIT.VALIDATION);
     const warn = make({ ...base, "functions/api/f.ts": 'export const GET = () => fetch("https://undeclared.example/");\n' });
-    const r = renox(warn, ["check"]);
+    // --no-types: this fixture has no tsconfig.json, whose own warning (#443) is tested in check-types.test.ts.
+    const r = renox(warn, ["check", "--no-types"]);
     expect(r.exitCode).toBe(EXIT.OK);
     expect(r.stderr).toContain("1 warning(s)");
   });

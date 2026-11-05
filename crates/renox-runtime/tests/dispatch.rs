@@ -153,8 +153,127 @@ async fn handler_exception_is_500_without_leaking_message_or_stack() {
         lines
             .iter()
             .any(|l| l.request_id.as_deref() == Some("req_throw_000002")
-                && l.message.contains("did not return a Response"))
+                && l.message == "POST /boom returned object, not a Response")
     );
+}
+
+/// Dispatches `method` on `path` and returns the response and the one log
+/// line of the request.
+async fn result_case(
+    iso: &renox_runtime::IsolateHandle,
+    sink: &MemoryLogSink,
+    method: &str,
+    path: &str,
+    id: &str,
+) -> (http::Response<Bytes>, Option<renox_runtime::LogLine>) {
+    let req = http::Request::builder()
+        .method(method)
+        .uri(format!("https://test.renox.app{path}"))
+        .body(Bytes::new())
+        .unwrap();
+    let out = iso.dispatch(ctx(id), req).await;
+    let line = sink
+        .lines()
+        .into_iter()
+        .find(|l| l.request_id.as_deref() == Some(id));
+    (out.response, line)
+}
+
+/// #444, `docs/23-failure-modes.md` "Function returns a non-Response": for
+/// each value a handler can resolve to instead of a Response, the client gets
+/// the same 500 `RENOX_INTERNAL` body as any internal error, and the tenant
+/// log gets one line naming the route and the value's type (`reason:
+/// "handler_result"`), never the value: a secret-looking string in a returned
+/// object reaches neither the log nor the response.
+#[tokio::test]
+async fn handler_result_names_the_type_never_the_value() {
+    let (rt, sink) = runtime_with_sink();
+    let first = r#"
+        export function GET() { }
+        export function POST() { return null; }
+        export function PUT() { return 42; }
+        export function PATCH() { return "text"; }
+        export function DELETE() { return { ok: true }; }
+    "#;
+    let second = r#"
+        class Thing { constructor() { this.secret = "renox_pat_abcdefghijklmnopqrstuvwxyz234567"; } }
+        export async function GET() { await null; return [1]; }
+        export function POST() { return { token: "renox_pat_abcdefghijklmnopqrstuvwxyz234567" }; }
+        export function PUT() { return new Thing(); }
+        export function PATCH() { return Response.json({ fine: true }); }
+        export function DELETE() { return Response.redirect("https://test.renox.app/", 303); }
+    "#;
+    let routes = [
+        ("GET", "/r"),
+        ("POST", "/r"),
+        ("PUT", "/r"),
+        ("PATCH", "/r"),
+        ("DELETE", "/r"),
+    ];
+    let (dir1, hash1) = function_artifact(first, &routes, &[]);
+    let (dir2, hash2) = function_artifact(second, &routes, &[]);
+    let iso1 = rt
+        .create_isolate(spec(&dir1, &hash1, Limits::FREE))
+        .await
+        .unwrap();
+    let iso2 = rt
+        .create_isolate(spec(&dir2, &hash2, Limits::FREE))
+        .await
+        .unwrap();
+    let cases = [
+        (&iso1, "GET", "undefined"),
+        (&iso1, "POST", "null"),
+        (&iso1, "PUT", "number"),
+        (&iso1, "PATCH", "string"),
+        (&iso1, "DELETE", "object"),
+        (&iso2, "GET", "array"),
+        (&iso2, "POST", "object"),
+        (&iso2, "PUT", "Thing"),
+    ];
+    for (n, (iso, method, name)) in cases.into_iter().enumerate() {
+        let id = format!("req_result_{n:06}");
+        let (res, line) = result_case(iso, &sink, method, "/r", &id).await;
+        assert_eq!(res.status(), 500, "{method} {name}");
+        let v = body_json(&res);
+        // The body every internal error has: code, request id, the fixed message.
+        assert_eq!(v["error"]["code"], "RENOX_INTERNAL", "{method} {name}");
+        assert_eq!(v["error"]["request_id"], id.as_str());
+        let mut keys: Vec<_> = v["error"].as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec!["code", "message", "request_id"],
+            "{method} {name}"
+        );
+        let line = line.expect("one log line");
+        assert_eq!(line.level, "error");
+        assert_eq!(
+            line.message,
+            format!("{method} /r returned {name}, not a Response")
+        );
+        assert_eq!(line.fields["code"], "RENOX_INTERNAL");
+        assert_eq!(line.fields["route"], format!("{method} /r"));
+        assert_eq!(line.fields["phase"], "request");
+        assert_eq!(line.fields["reason"], "handler_result");
+        assert_eq!(line.fields["name"], name);
+        let body = String::from_utf8(res.body().to_vec()).unwrap();
+        let logged = serde_json::to_string(&line.fields).unwrap();
+        for leaked in ["renox_pat_", "text", "42", "\"ok\""] {
+            assert!(!body.contains(leaked), "{method} {name}: {body}");
+            assert!(
+                !logged.contains(leaked) && !line.message.contains(leaked),
+                "{method} {name}: {logged}"
+            );
+        }
+    }
+    // Valid responses are unchanged: JSON and a redirect.
+    let (ok, line) = result_case(&iso2, &sink, "PATCH", "/r", "req_result_ok0001").await;
+    assert_eq!(ok.status(), 200);
+    assert_eq!(body_json(&ok), serde_json::json!({ "fine": true }));
+    assert!(line.is_none(), "{line:?}");
+    let (moved, _) = result_case(&iso2, &sink, "DELETE", "/r", "req_result_ok0002").await;
+    assert_eq!(moved.status(), 303);
+    assert_eq!(moved.headers()["location"], "https://test.renox.app/");
 }
 
 /// Acceptance: `Deno` and `SharedArrayBuffer` are not reachable from tenant

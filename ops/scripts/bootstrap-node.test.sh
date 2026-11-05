@@ -226,7 +226,7 @@ if [[ ${RENOX_TEST_STUB_WORKER:-0} != 1 ]]; then
 else
   echo "skip renox-worker config parse (RENOX_TEST_STUB_WORKER=1)"
 fi
-for f in cloudflared backup-control-db.sh; do
+for f in cloudflared backup-control-db.sh renox-alert.sh; do
   if docker exec "$name" test -x "/opt/renox/bin/$f"; then pass "/opt/renox/bin/$f installed"; else fail "/opt/renox/bin/$f installed"; fi
 done
 modes=$(docker exec "$name" stat -c '%n %a %U' /etc/renox/control.env /etc/renox/secrets /etc/renox/tunnel/config.yml)

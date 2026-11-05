@@ -6,7 +6,7 @@
 // module re-resolves it and asks again for its current permissions (the
 // approval MF12 asks for after a manifest change).
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { EXIT, UserError, ValidationError } from "../errors.ts";
@@ -15,6 +15,7 @@ import { readLock, writeLock } from "../lib/modules/lock.ts";
 import { type ModuleProblem, obj } from "../lib/modules/manifest.ts";
 import { type InstallSpec, type ResolvedModule, lockEntryOf, readModulesTable, resolveModules, resolvedConfig } from "../lib/modules/resolve.ts";
 import { setTableEntry } from "../lib/modules/toml.ts";
+import { officialModulesDir } from "../lib/modules/official.ts";
 import { download, REGISTRY } from "../lib/modules/registry.ts";
 import { apiRequest, defaultIo, type Io } from "./login.ts";
 
@@ -26,6 +27,9 @@ export interface AddOptions {
   /** The registry client (tests pass a fake). */
   io?: Io;
 }
+
+/** An official module of that name ships with this CLI (manifest.md section 1: the catalog's 2fa is `twofa`). */
+const officialExists = (name: string): boolean => existsSync(join(officialModulesDir(), name === "twofa" ? "2fa" : name, "module.toml"));
 
 const list = (xs: string[]): string => (xs.length ? xs.join(", ") : "(none)");
 
@@ -105,16 +109,44 @@ export async function addModule(project: string, name: string, options: AddOptio
     all[name] = { ...spec, version: `^${added.manifest.version}` };
     resolution = resolveModules(project, all, pinned);
   }
+  // #448: when an official module is added, its official dependencies that are
+  // not installed yet join the same resolution and the same approval prompt,
+  // instead of failing MF5. A path:, git: or registry: module keeps MF5: its
+  // author decides where its dependencies come from.
+  const extra: string[] = [];
+  const official = spec.source === undefined || spec.source === "official";
+  for (let round = 0; official && round < 10; round++) {
+    const missing = new Map<string, string>();
+    for (const m of resolution.modules) {
+      for (const [dep, range] of Object.entries(m.manifest.dependencies)) {
+        if (!(dep in all) && officialExists(dep)) missing.set(dep, range);
+      }
+    }
+    if (missing.size === 0) break;
+    for (const [dep, range] of missing) {
+      all[dep] = { version: range };
+      extra.push(dep);
+    }
+    resolution = resolveModules(project, all, pinned);
+  }
   const target = resolution.modules.find((m) => m.name === name);
-  const blocking = [...resolution.problems, ...(target ? resolvedConfig(target).problems : [])];
+  const blocking = [...resolution.problems, ...(target ? resolvedConfig(target).problems : []), ...extra.flatMap((d) => {
+    const m = resolution.modules.find((x) => x.name === d);
+    return m ? resolvedConfig(m).problems : [];
+  })];
   if (blocking.length || target === undefined) {
     throw new ValidationError(`cannot install ${name}:\n${show(blocking)}`, { hint: "fix the problems above; nothing was written" });
   }
   const installed = new Map(resolution.modules.map((m) => [m.name, m]));
   console.log(permissionRequest(target, installed));
-  const approved = options.yes === true || (await confirm(`Approve and install ${name}?`));
+  for (const d of extra) {
+    console.log(`\n${name} needs ${d}, which is not installed; it is installed with it:`);
+    console.log(permissionRequest(installed.get(d) as ResolvedModule, installed));
+  }
+  const what = extra.length === 0 ? name : `${name} and ${extra.join(", ")}`;
+  const approved = options.yes === true || (await confirm(`Approve and install ${what}?`));
   if (!approved) {
-    console.log(`${name} not installed: renox.toml and renox.lock are unchanged`);
+    console.log(`${what} not installed: renox.toml and renox.lock are unchanged`);
     return EXIT.USER;
   }
   // renox.toml: the entry as the tenant wrote it plus what this command set.
@@ -125,13 +157,19 @@ export async function addModule(project: string, name: string, options: AddOptio
   if (entry.mount !== undefined) value.mount = entry.mount;
   if (entry.config !== undefined) value.config = entry.config;
   if (entry.isolation !== undefined) value.isolation = entry.isolation;
-  writeFileSync(tomlPath, setTableEntry(readFileSync(tomlPath, "utf8"), "modules", name, value));
+  let toml = setTableEntry(readFileSync(tomlPath, "utf8"), "modules", name, value);
+  for (const d of extra) {
+    const dep = installed.get(d) as ResolvedModule;
+    toml = setTableEntry(toml, "modules", d, { version: `^${dep.manifest.version}` });
+  }
+  writeFileSync(tomlPath, toml);
   // renox.lock: every module in topological order; the others keep what they had approved.
   const kept = new Map((entries ?? []).map((e) => [e.name, e.approved]));
   writeLock(
     project,
-    resolution.modules.map((m) => lockEntryOf(m, m.name === name ? m.manifest.permissions : (kept.get(m.name) ?? m.manifest.permissions))),
+    resolution.modules.map((m) => lockEntryOf(m, m.name === name || extra.includes(m.name) ? m.manifest.permissions : (kept.get(m.name) ?? m.manifest.permissions))),
   );
+  for (const d of extra) console.log(`installed ${d} ${(installed.get(d) as ResolvedModule).manifest.version} (needed by ${name})`);
   console.log(`installed ${name} ${target.manifest.version}; run renox migrate to create its tables`);
   return EXIT.OK;
 }

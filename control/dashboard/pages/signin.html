@@ -1,6 +1,6 @@
 <r-layout use="main">
   <r-group slot="title"><r-t key="dash.common.sign_in" /> · <r-t key="dash.brand" /></r-group>
-  <section class="narrow signin">
+  <section class="narrow signin" id="account" :data-api="api" :data-next="next" :data-scopes="scopes_json" :data-days="token_days" data-page="signin">
     <div class="page-hero">
       <p class="pill quiet"><r-t key="dash.brand" /></p>
       <h1 class="dot dot-small"><r-t key="dash.common.sign_in" /></h1>
@@ -9,17 +9,79 @@
     <div class="panel">
       <div class="problem" role="alert" r-if="error"><p><strong>{{ error }}</strong></p></div>
       <p class="problem" r-if="!configured"><r-t key="dash.signin.not_configured" /></p>
-      <form method="post" action="/signin">
+      <div class="problem" role="alert" id="account-error" hidden><p><strong></strong></p></div>
+      <p class="notice" role="status" id="account-notice" hidden></p>
+      <noscript><p class="problem"><r-t key="dash.account.needs_js" /></p></noscript>
+
+      <form id="password-form" class="stack">
+        <label><r-t key="dash.common.email" /> <input type="email" name="email" required autocomplete="username" maxlength="254" autofocus></label>
+        <label><r-t key="dash.common.password" /> <input type="password" name="password" required autocomplete="current-password" maxlength="1024"></label>
+        <button type="submit" class="primary"><r-t key="dash.common.sign_in" /></button>
+        <p class="small"><a href="/forgot-password"><r-t key="dash.signin.forgot" /></a></p>
+      </form>
+
+      <form id="mfa-verify" class="stack" hidden>
+        <h2><r-t key="dash.common.confirm_you" /></h2>
+        <p><r-t key="dash.common.enter_code" /></p>
+        <label><r-t key="dash.common.code" /> <input name="code" autocomplete="one-time-code" inputmode="text" maxlength="24" spellcheck="false" required></label>
+        <button type="submit" class="primary"><r-t key="dash.common.verify" /></button>
+        <p><button type="button" class="link" id="mfa-passkey" hidden><r-t key="dash.signin.use_passkey" /></button></p>
+      </form>
+
+      <form id="mfa-enrol" class="stack" hidden>
+        <h2><r-t key="dash.signin.enrol_title" /></h2>
+        <p><r-t key="dash.signin.enrol_intro" /></p>
+        <p><code id="totp-secret"></code></p>
+        <p><a id="totp-uri" href="#"><r-t key="dash.security.open_app" /></a></p>
+        <label><r-t key="dash.common.code" /> <input name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="12" spellcheck="false" required></label>
+        <button type="submit" class="primary"><r-t key="dash.common.confirm" /></button>
+      </form>
+
+      <div id="recovery" class="stack" hidden>
+        <h2><r-t key="dash.security.recovery_codes" /></h2>
+        <p><r-t key="dash.security.recovery_note" /></p>
+        <ul class="codes" id="recovery-list"></ul>
+        <button type="button" class="primary" id="recovery-done"><r-t key="dash.signin.continue" /></button>
+      </div>
+
+      <div id="unverified" class="stack" hidden>
+        <p class="notice"><r-t key="dash.signin.unverified" /></p>
+        <p class="row"><button type="button" id="resend"><r-t key="dash.signin.resend" /></button> <button type="button" class="primary" id="unverified-continue"><r-t key="dash.signin.continue" /></button></p>
+      </div>
+
+      <form method="post" action="/signin" id="dashboard-signin" hidden>
+        <x-csrf />
+        <input type="hidden" name="next" :value="next">
+        <input type="hidden" name="token">
+      </form>
+      <p class="muted small"><r-t key="dash.signin.direct" /> <strong>{{ api_host }}</strong>. <r-t key="dash.signin.stored_short" /></p>
+    </div>
+    <p class="muted"><r-t key="dash.signup.no_account" /> <a href="/signup"><r-t key="dash.signup.title" /></a>.</p>
+
+    <details class="operators">
+      <summary><r-t key="dash.signin.token_title" /></summary>
+      <form method="post" action="/signin" class="stack">
         <x-csrf />
         <input type="hidden" name="next" :value="next">
         <label><r-t key="dash.signin.token" /> <input type="password" name="token" autocomplete="off" spellcheck="false" required pattern="renox_pat_[a-z2-7]{32}"></label>
-        <button type="submit" class="primary"><r-t key="dash.common.sign_in" /></button>
+        <button type="submit"><r-t key="dash.signin.token_submit" /></button>
       </form>
       <p class="muted small"><r-t key="dash.signin.calls" /> <strong>{{ api_host }}</strong> <r-t key="dash.signin.stored" /></p>
+      <pre data-lang="sh">renox tokens create dashboard --scope apps:read --scope apps:write --scope deploy --scope logs:read --scope secrets:read --scope secrets:write --expires-days 7</pre>
+    </details>
+
+    <div hidden id="account-msgs">
+      <span data-k="wrong_password"><r-t key="dash.account.wrong_password" /></span>
+      <span data-k="too_many"><r-t key="dash.account.too_many" /></span>
+      <span data-k="unreachable"><r-t key="dash.account.unreachable" /></span>
+      <span data-k="bad_code"><r-t key="dash.account.bad_code" /></span>
+      <span data-k="no_workspace"><r-t key="dash.account.no_workspace" /></span>
+      <span data-k="failed"><r-t key="dash.account.failed" /></span>
+      <span data-k="passkey_failed"><r-t key="dash.account.passkey_failed" /></span>
+      <span data-k="sent"><r-t key="dash.account.resent" /></span>
+      <span data-k="sign_in_again"><r-t key="dash.account.sign_in_again" /></span>
+      <span data-k="signing_in"><r-t key="dash.account.signing_in" /></span>
     </div>
-    <h2><r-t key="dash.signin.get_token" /></h2>
-    <p><r-t key="dash.signin.intro" /> <code>renox login</code><r-t key="dash.signin.intro_dashboard" /></p>
-    <pre data-lang="sh">renox tokens create dashboard --scope apps:read --scope apps:write --scope deploy --scope logs:read --scope secrets:read --scope secrets:write --expires-days 7</pre>
-    <p class="muted"><r-t key="dash.signup.no_account" /> <a href="/signup"><r-t key="dash.signup.title" /></a>.</p>
+    <script src="/account.js" defer></script>
   </section>
 </r-layout>

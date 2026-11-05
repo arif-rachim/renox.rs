@@ -19,7 +19,7 @@
   <table>
     <thead><tr><th>Item / البند</th><th>Qty / الكمية</th><th>Amount (AED) / المبلغ</th></tr></thead>
     <tbody>
-      <tr r-for="l in lines"><td>{{ l.description }}</td><td class="n">{{ l.quantity }}</td><td class="n">{{ l.amount }}</td></tr>
+      <tr r-for="l in lines"><td>{{ l.description }}</td><td class="n"><span>{{ l.quantity }}</span></td><td class="n"><span>{{ l.amount }}</span></td></tr>
     </tbody>
   </table>
   <p>Subtotal / المجموع الفرعي: {{ subtotal }} AED</p>

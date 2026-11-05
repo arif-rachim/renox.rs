@@ -57,7 +57,7 @@ export const TOOLS: ToolDef[] = [
     name: "run_check",
     title: "renox check",
     description:
-      "Runs `renox check` on the project: renox.toml schema, routes and route conflicts, manifest, SQL interpolation, undeclared fetch hosts, global-state writes. Returns structured problems.",
+      "Runs `renox check` on the project: TypeScript type errors (rule `types`, with file, line and column), renox.toml schema, routes and route conflicts, manifest, SQL interpolation, undeclared fetch hosts, global-state writes. Returns structured problems.",
     inputSchema: noInput,
     annotations: readOnly,
   },
@@ -263,7 +263,8 @@ async function devErrors(project: string): Promise<Record<string, unknown>> {
 }
 
 async function runCheck(project: string): Promise<Record<string, unknown>> {
-  const { errors, findings } = await check(project);
+  // #443: a coding agent sees the type errors too.
+  const { errors, findings } = await check(project, { types: "include" });
   const problems: Problem[] = [
     ...errors.map(problemOf),
     ...findings.map((f) => ({

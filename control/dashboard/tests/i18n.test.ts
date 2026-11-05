@@ -75,7 +75,7 @@ test("en.json and ar.json have the same keys; every Arabic message is Arabic", (
   expect(mismatched).toEqual([]);
   // Every key a template uses has a message.
   const templates = [
-    "pages/_layouts/main.html", "pages/_404.html", "pages/_error.html", "pages/index.html", "pages/signin.html", "pages/signup/index.html", "pages/signup/verify.html",
+    "pages/_layouts/main.html", "pages/_404.html", "pages/_error.html", "pages/index.html", "pages/signin.html", "pages/signup/index.html", "pages/signup/verify.html", "pages/forgot-password.html", "pages/reset-password.html", "pages/device.html", "pages/account/tokens.html",
     "pages/legal/dpa.html", "pages/legal/terms.html", "pages/apps/index.html", "pages/usage.html", "pages/account/index.html", "partials/app-nav.html", "pages/apps/new.html", "pages/apps/[app]/index.html", "pages/apps/[app]/deployments.html",
     "pages/apps/[app]/logs.html", "pages/apps/[app]/client-errors.html", "pages/apps/[app]/usage.html", "pages/apps/[app]/secrets.html", "pages/apps/[app]/database.html",
     "pages/apps/[app]/settings.html", "pages/apps/[app]/modules/index.html", "pages/billing/index.html", "pages/account/security.html", "pages/ops/registry/index.html",

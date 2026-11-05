@@ -8,17 +8,17 @@
     <x-problem :problem="problem" r-if="problem" />
     <div class="cards" r-if="totals">
       <div class="card stat"><b class="value">{{ totals.requests.n }}</b><span class="caption"><r-t key="dash.overview.requests" /></span></div>
-      <div class="card stat"><b class="value">{{ totals.cpu.n }} <small>{{ totals.cpu.unit }}</small></b><span class="caption">CPU</span></div>
-      <div class="card stat"><b class="value">{{ totals.egress.n }} <small>{{ totals.egress.unit }}</small></b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
+      <div class="card stat"><b class="value">{{ totals.cpu.n }}<small>{{ totals.cpu.unit }}</small></b><span class="caption">CPU</span></div>
+      <div class="card stat"><b class="value">{{ totals.egress.n }}<small>{{ totals.egress.unit }}</small></b><span class="caption"><r-t key="dash.overview.egress" /></span></div>
     </div>
     <table class="list" r-if="!problem">
       <thead><tr><th><r-t key="dash.apps.app" /></th><th class="n"><r-t key="dash.overview.requests" /></th><th class="n">CPU</th><th class="n"><r-t key="dash.overview.egress" /></th><th></th></tr></thead>
       <tbody>
         <tr r-for="a in apps">
           <td><a href="/apps/{{ a.name }}">{{ a.name }}</a></td>
-          <td class="n">{{ a.requests }}</td>
-          <td class="n">{{ a.cpu }}</td>
-          <td class="n">{{ a.egress }}</td>
+          <td class="n"><span>{{ a.requests }}</span></td>
+          <td class="n"><span>{{ a.cpu }}</span></td>
+          <td class="n"><span>{{ a.egress }}</span></td>
           <td><a href="/apps/{{ a.name }}/usage"><r-t key="dash.usage_all.per_hour" /></a></td>
         </tr>
         <tr r-empty="apps"><td colspan="5"><r-t key="dash.usage_all.empty" /></td></tr>

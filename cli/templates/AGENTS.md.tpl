@@ -17,7 +17,7 @@ A Renox app: TypeScript functions and HTML pages that Renoxium runs in a V8 isol
 ## Commands
 
 - `renox dev` builds, starts the local worker on <http://localhost:8787> and rebuilds on every change.
-- `renox check` validates `renox.toml`, routes, templates, policies and modules, lints SQL and scans for secrets. Run it before every commit and deploy; exit code 2 means errors.
+- `renox check` type checks the TypeScript (the app's own `typescript`, `rule: "types"` findings with file, line and column), validates `renox.toml`, routes, templates, policies and modules, lints SQL and scans for secrets. Run it before every commit; `renox deploy` runs the same type check and refuses an app with type errors. Exit code 2 means errors.
 - `renox test` runs `policies/tests/*.json` and `tests/*.test.ts` against the worker.
 - `renox deploy` builds, uploads, validates and activates; `renox deploy --rollback` goes back.
 - `renox add <module>` installs an official module (`auth`, `org`, `billing`, `storage`, ...) after showing the permissions it asks for.

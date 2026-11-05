@@ -246,6 +246,8 @@ if [[ $single_host -eq 1 ]]; then
     install -m 0755 "$("$here/scripts/fetch-cloudflared.sh" "$target" "$tmp/cloudflared")" "$bin_dir/cloudflared"
   fi
   install -m 0755 "$here/scripts/backup-control-db.sh" "$bin_dir/backup-control-db.sh"
+  # #450: OnFailure= of the backup and billing units (renox-alert@.service).
+  install -m 0755 "$here/scripts/renox-alert.sh" "$bin_dir/renox-alert.sh"
   if ! id -u renox-control >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/renox-control --no-create-home --shell /usr/sbin/nologin renox-control
   fi

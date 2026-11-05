@@ -12,6 +12,8 @@ Description=Back up the control database to R2
 Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
 After=network-online.target postgresql.service
 Wants=network-online.target
+# #450: a failed nightly backup reaches the operator (ops/systemd/renox-alert@.service).
+OnFailure=renox-alert@%n.service
 
 [Service]
 Type=oneshot

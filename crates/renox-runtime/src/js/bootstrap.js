@@ -1645,6 +1645,33 @@ function describeThrow(err) {
 }
 
 /**
+ * #444: the type name of a handler's value that is not a Response, for the
+ * tenant's log and `renox dev`: `undefined`, `null`, `number`, `string`,
+ * `boolean`, `bigint`, `symbol`, `function`, `array`, `object` (a plain
+ * object), or the class name of an instance (a short identifier). Never the
+ * value, and no tenant code runs: getters and Proxy traps are read through
+ * descriptors inside a `try`, and anything odd falls back to `object`.
+ */
+const TYPE_NAME = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
+function resultTypeName(res) {
+  if (res === null) return "null";
+  const t = typeof res;
+  if (t !== "object") return t;
+  try {
+    if (ArrayIsArray(res)) return "array";
+    const proto = ObjectGetPrototypeOf(res);
+    if (proto === null) return "object";
+    const ctor = ObjectGetOwnPropertyDescriptor(proto, "constructor")?.value;
+    if (typeof ctor !== "function") return "object";
+    const name = ObjectGetOwnPropertyDescriptor(ctor, "name")?.value;
+    if (typeof name === "string" && name !== "Object" && RegExpPrototypeTest(TYPE_NAME, name)) return name;
+  } catch {
+    // A hostile Proxy: the generic name.
+  }
+  return "object";
+}
+
+/**
  * A Response to Rust, head first (ops.md section 6, "Response body"): a
  * static body crosses with the head in one piece; a body backed by a
  * ReadableStream crosses as `stream: true`, and `pumpBody` writes it chunk
@@ -1652,7 +1679,8 @@ function describeThrow(err) {
  */
 async function serializeResponse(res, wantBody) {
   if (!ObjectPrototypeIsPrototypeOf(responseMod().ResponsePrototype, res)) {
-    return { kind: KIND_NOT_RESPONSE, name: typeof res };
+    // #444: the type of what came back, never the value (it may hold tenant data or secrets).
+    return { kind: KIND_NOT_RESPONSE, reason: "handler_result", name: resultTypeName(res) };
   }
   const headers = [];
   for (const pair of new SafeArrayIterator([...res.headers])) {

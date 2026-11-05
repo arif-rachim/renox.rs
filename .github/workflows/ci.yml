@@ -449,6 +449,41 @@ jobs:
       - name: Benchmark harness smoke test
         run: bench/run.sh B0 --runs 1
 
+  # The compiled CLI as a developer gets it (#448): `bun build --compile` with
+  # the embedded modules and test harness (cli/scripts/compile.ts), then the
+  # first-hour steps from a directory outside the repository
+  # (cli/scripts/smoke.sh): new, bun install, check, build, test, add auth,
+  # dev with a request to /api/hello. The worker is the pinned release,
+  # installed beside the binary as install.sh does; the app installs this
+  # commit's SDK (packed), not the npm release.
+  cli-smoke:
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.ts == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - name: Compile the CLI and install the pinned worker beside it
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/sdk"
+          (cd cli && bun scripts/compile.ts --outfile "$RUNNER_TEMP/bin/renox")
+          git diff --exit-code cli/src/lib/embedded.ts
+          worker=$(bun cli/scripts/fetch-worker.ts | sed 's/.* -> //')
+          cp "$worker" "$RUNNER_TEMP/bin/renox-worker"
+          (cd sdk && bun run build && bun pm pack --destination "$RUNNER_TEMP/sdk")
+      - name: Smoke test from outside the repository
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$GITHUB_WORKSPACE/cli/scripts/smoke.sh" "$RUNNER_TEMP/bin/renox" "$RUNNER_TEMP"/sdk/*.tgz | tee "$RUNNER_TEMP/smoke.log"
+          { echo '```'; grep -E '^== |at most|GET / ->|passed' "$RUNNER_TEMP/smoke.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   # control/api on a real Postgres: PGlite (the default in `make ts-test`)
   # hides driver differences, e.g. Bun's client double-encoding a string bound
   # to `$n::jsonb` (control/api/README.md, "Tests").

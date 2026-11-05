@@ -501,17 +501,52 @@ export function registerAccounts(app: Hono<Env>, deps: Deps): void {
     return c.json({ approved: true });
   });
 
+  /** The pending request of a user code, for the person about to approve it: a signed-in session only (#446). */
+  const pendingDevice = async (c: Context<Env>, code: string): Promise<{ id: string; name: string | null; created_at: unknown; expires_at: unknown }> => {
+    const p = c.get("principal") as Principal & { kind: "tenant" };
+    if (p.via !== "session") throw new ApiError("RENOX_TOKEN_SCOPE");
+    const rows = await deviceCodes(db).query<{ id: string; name: string | null; created_at: unknown; expires_at: unknown }>(
+      "select id, name, created_at, expires_at from device_codes where user_code = $1 and approved_at is null and used_at is null and expires_at > $2",
+      [code.trim().toUpperCase(), deps.now()],
+    );
+    if (rows[0] === undefined) throw notFound();
+    return rows[0];
+  };
+
+  // #446: what the dashboard's /device page shows before Approve or Deny: the
+  // name `renox login` sent and the code's times. Nothing about the device code.
+  // The user code travels in the body, like approve and deny, so it never
+  // lands in a request log's path.
+  app.post("/v1/account/device/lookup", operation(deps, "getDeviceLogin"), tenantAuth(deps, "tokens:write"), async (c) => {
+    const body = await objectBody(c);
+    if (typeof body.user_code !== "string") throw notFound();
+    const d = await pendingDevice(c, body.user_code);
+    return c.json({ user_code: body.user_code.trim().toUpperCase(), name: d.name ?? "renox login", created_at: num(d.created_at), expires_at: num(d.expires_at) });
+  });
+
+  app.post("/v1/account/device/deny", operation(deps, "denyDeviceLogin"), tenantAuth(deps, "tokens:write"), async (c) => {
+    const body = await objectBody(c);
+    if (typeof body.user_code !== "string") throw notFound();
+    const d = await pendingDevice(c, body.user_code);
+    const now = deps.now();
+    await deviceCodes(db).query("update device_codes set denied_at = $1, used_at = $1 where id = $2", [now, d.id]);
+    c.set("auditTarget", { device_id: d.id });
+    return c.json({ denied: true });
+  });
+
   app.post("/v1/account/device/token", operation(deps, "pollDeviceLogin"), publicRoute(deps), async (c) => {
     const body = await objectBody(c);
     const device = oneTimeField(body.device_code);
     const now = deps.now();
     const result = await db.transaction(async (tx) => {
-      const rows = await tx.query<{ id: string; tenant_id: string | null; user_id: string | null; scopes: string[] | null; name: string; approved_at: unknown }>(
-        "select id, tenant_id, user_id, scopes, name, approved_at from device_codes where device_sha256 = $1 and used_at is null and expires_at > $2 for update",
+      const rows = await tx.query<{ id: string; tenant_id: string | null; user_id: string | null; scopes: string[] | null; name: string; approved_at: unknown; used_at: unknown; denied_at: unknown }>(
+        "select id, tenant_id, user_id, scopes, name, approved_at, used_at, denied_at from device_codes where device_sha256 = $1 and expires_at > $2 for update",
         [sha256hex(device), now],
       );
       const d = rows[0];
-      if (d === undefined) throw notFound();
+      // #446: a request denied on /device says so; a used or unknown code stays "not found".
+      if (d !== undefined && d.denied_at !== null) throw new ApiError("RENOX_TOKEN_SCOPE", [{ field: "device_code", reason: "access_denied" }]);
+      if (d === undefined || d.used_at !== null) throw notFound();
       if (d.approved_at === null || d.tenant_id === null || d.user_id === null || d.scopes === null) return null;
       await tx.query("update device_codes set used_at = $1 where id = $2", [now, d.id]);
       const token = await createTenantToken(tx, d.tenant_id, d.name, d.scopes, DEVICE_TOKEN_DAYS, now, d.user_id);

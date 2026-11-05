@@ -10,7 +10,7 @@
       <h2><r-t key="dash.billing.plans" /></h2>
       <table class="list">
         <thead><tr><th><r-t key="dash.billing.plan" /></th><th class="n"><r-t key="dash.billing.per_month" /></th></tr></thead>
-        <tbody><tr r-for="p in plans"><td>{{ p.name }}</td><td class="n">{{ p.price }}</td></tr></tbody>
+        <tbody><tr r-for="p in plans"><td>{{ p.name }}</td><td class="n"><span>{{ p.price }}</span></td></tr></tbody>
       </table>
       <p class="muted"><r-t key="dash.billing.plans_note" /></p>
     </r-group>

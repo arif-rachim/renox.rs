@@ -28,6 +28,7 @@ import { registerNodeArtifacts } from "./nodes/artifacts.ts";
 import { registerPrepareResults } from "./nodes/prepare_results.ts";
 import { registerActivation } from "./deployments/activate.ts";
 import { registerAccounts } from "./auth/accounts.ts";
+import { cors } from "./cors.ts";
 import { registerMfa } from "./auth/mfa.ts";
 import { registerTeam } from "./tenancy/team.ts";
 import { registerDomains } from "./domains/routes.ts";
@@ -92,6 +93,9 @@ export function createApp(deps: Deps, modules: RouteModule[] = [], surface: Surf
       ms: Math.round((performance.now() - started) * 1000) / 1000,
     });
   });
+
+  // #445: browser calls from the dashboard origin only (src/cors.ts).
+  app.use(cors(deps));
 
   app.onError((err, c) => {
     const requestId = c.get("requestId");

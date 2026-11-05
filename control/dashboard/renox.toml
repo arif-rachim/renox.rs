@@ -19,4 +19,8 @@ secrets = ["DASHBOARD_KEY", "OPS_CONSOLE", "RENOX_API_URL", "RENOX_PLATFORM_DOMA
 [security.csp]
 script_src = ["https://js.stripe.com"]
 frame_src = ["https://js.stripe.com", "https://hooks.stripe.com"]
-connect_src = ["https://api.stripe.com"]
+# #445: sign-in, sign-up, the second factor, password reset, device approval
+# and tokens are called from the browser (public/account.js; ADR D23: the
+# dashboard must not proxy them). A RENOX_API_URL elsewhere needs its origin
+# here too.
+connect_src = ["https://api.stripe.com", "https://api.renoxium.com"]

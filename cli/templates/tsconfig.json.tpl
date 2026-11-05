@@ -7,7 +7,8 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "types": ["bun-types"]
   },
   "include": ["**/*.ts"],
   "exclude": ["node_modules", ".renox"]

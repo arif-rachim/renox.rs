@@ -64,6 +64,9 @@ export const EXTRA_ROUTES: Record<string, string> = {
   "POST /v1/account/device": "startDeviceLogin",
   "POST /v1/account/device/approve": "approveDeviceLogin",
   "POST /v1/account/device/token": "pollDeviceLogin",
+  // #446: the dashboard's /device page (proposed for deploy-api.yaml in the PR).
+  "POST /v1/account/device/lookup": "getDeviceLogin",
+  "POST /v1/account/device/deny": "denyDeviceLogin",
   "GET /v1/team/members": "listMembers",
   "POST /v1/team/invitations": "inviteMember",
   "GET /v1/team/invitations": "listInvitations",
@@ -203,6 +206,8 @@ const NO_ID_CASES: Record<string, NoIdCase> = {
   switchTenant: { json: (b) => ({ tenant_id: b.tenant }), session: 404, token: 401, why: "A's user is not a member of B" },
   acceptInvitation: { json: (b) => ({ token: b.invitationToken }), session: 404, token: 401, why: "B's invitation is for another address" },
   approveDeviceLogin: { json: () => ({ user_code: "BBBB-BBBB" }), session: 404, token: 403, why: "device codes are approved by sessions only" },
+  getDeviceLogin: { json: () => ({ user_code: "BBBB-BBBB" }), session: 404, token: 403, why: "a pending code belongs to no tenant; looked up by sessions only" },
+  denyDeviceLogin: { json: () => ({ user_code: "BBBB-BBBB" }), session: 404, token: 403, why: "device codes are denied by sessions only" },
   listMembers: { session: 200, why: "A's members only" },
   inviteMember: { json: (b) => ({ email: b.email, role: "viewer" }), session: 201, why: "inviting B's address reveals nothing about B" },
   listInvitations: { session: 200, why: "A's invitations only" },

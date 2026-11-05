@@ -34,7 +34,9 @@ export interface Finding {
     | "unscoped-owned-table"
     | "undeclared-action"
     // #336: a translation key missing in a declared locale.
-    | "i18n-missing-key";
+    | "i18n-missing-key"
+    // #443: a TypeScript error of the app's own compiler (check/types.ts).
+    | "types";
   severity: "error" | "warning";
   message: string;
 }

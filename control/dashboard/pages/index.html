@@ -15,8 +15,10 @@
     <div class="panel">
       <h2><r-t key="dash.home.cli_title" /></h2>
       <p><r-t key="dash.home.cli_intro" /></p>
-      <pre><code>bunx renox login
-bunx renox deploy</code></pre>
+      <pre data-lang="sh">curl -fsSL {{ install_url }} | sh
+renox login
+renox deploy</pre>
+      <p class="muted small"><r-t key="dash.install.windows" /> <a :href="docs_url"><r-t key="dash.nav.docs" /></a></p>
     </div>
     </div>
   </section>
