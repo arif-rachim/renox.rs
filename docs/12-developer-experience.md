@@ -42,6 +42,8 @@ renox new demo --template hello && cd demo && bun install && renox dev
 
 `bun install` in the new app pulls the SDK `@renoxium/sdk` from npm at the CLI's version; it needs Bun 1.4 or later (the `renox` binary itself does not need Bun).
 
+**The install line names a release that exists.** Every install line in the repository (this section, `docs/getting-started.md`, `cli/README.md`, the dashboard's `control/dashboard/lib/install.ts`, `www/public/llms-full.txt`) names a `cli-v*` release that is on GitHub Releases. The version in `cli/package.json` and the install lines move together (`control/dashboard/tests/copy.test.ts` checks the dashboard's against it), in the release commit that is then tagged the same day; a change for the next version is listed under it in `CHANGELOG.md` as "(unreleased)" and moves no install line. A newcomer's first command must never answer 404. Before a docs PR merges, the check is a grep for `cli-v` against the list of releases.
+
 **Windows.** There is no native Windows build in 0.1 (`renox-worker` runs on Linux and macOS only), and `install.sh` stops with these steps when it runs under Git Bash, MSYS2 or Cygwin. Use WSL 2, which is a Linux machine:
 
 1. In PowerShell as administrator: `wsl --install -d Ubuntu`, then restart Windows.

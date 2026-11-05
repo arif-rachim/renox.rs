@@ -46,7 +46,7 @@ F3 (control plane) depends only on F1's artifact format and route table contract
 | Second region (Saudi Arabia) | Requires in-country hosting and ZATCA e-invoicing; not before UAE traction | After first external customers |
 | UAE PASS | Onboarding requirements for private providers; whether to ship in M16 or later (shipped behind config in M16, #291; owner steps in `modules/auth/README.md`, "UAE PASS") | F5 |
 | E-invoicing | Phase timing for SMEs and the accredited-provider route for `tax-gcc` | F7 (verify, see `21-uae-gcc-strategy.md`) |
-| Data-plane license | Open source (contributors, trust) vs closed (protect the hosting business) | Before F7 |
+| Data-plane license | Open source (contributors, trust) vs closed (protect the hosting business). "Before F7" has passed: the F7 code is on `main` and the repository still has no licence. The SDK `@renoxium/sdk` is on npm under MIT (`sdk/LICENSE`, PR #433), which covers the package only, not the data plane, the control plane or the CLI. The decision is an ADR the owner writes | Before gate #86 (the first paying tenant), re-dated 2026-11-05 |
 | Marketplace revenue share | Percentage and payout mechanism. Data available from `deploy-api.md` 0.5 section 19: publishers, versions and their informational `price` (`manifest.md` 1.2), and the approvals per app (`listAppModules`), so installs per module can be counted; no payout operation exists | F7; the decision stays the owner's |
 
 Decided (no longer open): dogfooding products are booking for salons/clinics and QR ordering for F&B; the first region is the UAE.
