@@ -1391,7 +1391,7 @@ Hiding a button is a convenience, not protection: the action checks again, and a
 …
 ```
 
-`renox authz explain --user <id> --action task.edit --resource Task:1` prints which policy decided a request on the dev database. It cannot fill in `principal.org` yet, so it explains these team policies as a deny (#476). Use the test cases for now.
+`renox authz explain --user <id> --action task.edit --resource Task:1` prints which policy decided a request on the dev database. It does not run the `org` hook, so give the attribute yourself: `--attr org=o_acme` sets `principal.org`. The output lists the attributes it used.
 
 ## See it
 
@@ -2494,7 +2494,7 @@ Example: the refund button is hidden because `inv.amount > 10,000,000`. The user
 - Each module enforces policies for its own resources; the user identity travels with every service call.
 - Event handlers, jobs, and cron run as `System::"<module>"` with explicit permissions, never as a superuser. Admin impersonation is recorded in the context and audit log.
 - Decisions for `sensitive` actions are written append-only: who, action, resource, result, deciding policy.
-- `renox authz explain --user alice --action invoice.refund --resource inv_123` prints the permitting or forbidding policies; `renox test` runs policy test cases (principal, action, resource, expected result) and per-role template snapshots.
+- `renox authz explain --user alice --action invoice.refund --resource inv_123` prints the permitting or forbidding policies and the principal attributes it used (`--attr key=value`, repeatable, sets one that a hook fills in the app, such as `org` or `mfa_verified`; the value is JSON when it parses, else a string); `renox test` runs policy test cases (principal, action, resource, expected result) and per-role template snapshots.
 
 ## Performance
 

@@ -18,7 +18,7 @@ Develop:
   jobs list [--state <s>] [--json]
   jobs run <name> [--module <m>]
   jobs retry <id>
-  authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]
+  authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--attr <key=value>]... [--db <file>] [--json]
   mcp [--project <dir>]
 
 Deploy and operate:

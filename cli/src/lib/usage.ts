@@ -46,9 +46,9 @@ export const HELP: Record<string, CommandHelp> = {
   jobs: { group: "Develop", usage: ["jobs list [--state <s>] [--json]", "jobs run <name> [--module <m>]", "jobs retry <id>"], summary: "The dev app's jobs: scheduled, queued, running and dead.", flags: ["--state", "--json", "--module", "--db"] },
   authz: {
     group: "Develop",
-    usage: ["authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]"],
+    usage: ["authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--attr <key=value>]... [--db <file>] [--json]"],
     summary: "Why the policies allow or deny a request, with roles and resource attributes from the dev database.",
-    flags: ["--user", "--action", "--resource", "--role", "--db", "--json"],
+    flags: ["--user", "--action", "--resource", "--role", "--attr", "--db", "--json"],
   },
   mcp: { group: "Develop", usage: ["mcp [--project <dir>]"], summary: "The local MCP server on stdio for coding agents: docs, check, tests, dev status.", flags: ["--project"] },
   login: { group: "Deploy and operate", usage: ["login [--api <url>] [--with-token]"], summary: "Sign the CLI in: it prints a link to approve in the dashboard. --with-token reads a token from stdin (CI).", flags: ["--api", "--with-token"] },

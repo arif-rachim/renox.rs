@@ -134,7 +134,7 @@ Hiding a button is a convenience, not protection: the action checks again, and a
 …
 ```
 
-`renox authz explain --user <id> --action task.edit --resource Task:1` prints which policy decided a request on the dev database. It cannot fill in `principal.org` yet, so it explains these team policies as a deny (#476). Use the test cases for now.
+`renox authz explain --user <id> --action task.edit --resource Task:1` prints which policy decided a request on the dev database. It does not run the `org` hook, so give the attribute yourself: `--attr org=o_acme` sets `principal.org`. The output lists the attributes it used.
 
 ## See it
 
