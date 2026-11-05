@@ -4432,7 +4432,7 @@ components:
         process: { enum: [shared, own] }
         process_effective:
           enum: [shared, own, unknown]
-          description: "0.6.2 (section 17, \"Read\"): what the owning node actually runs. shared when the tier asks for shared, or when the node reported process_isolation with enabled false; own when the tier asks for own and the node reported enabled true; unknown when the tenant has no owning node or the node never reported process_isolation (a worker older than 0.6.2). Optional so 0.6.1 answers stay valid."
+          description: "0.6.2 (section 17, \"Read\"): what the owning node actually runs, in this order: unknown when the tenant has no owning node; shared when process is shared; for process own, unknown when the node never reported process_isolation (a worker older than 0.6.2), shared when it reported enabled false, own when it reported enabled true. Optional so 0.6.1 answers stay valid."
         node_id: { oneOf: [{ $ref: "#/components/schemas/NodeId" }, { type: "null" }], description: "The owning node, or null while the tenant has no route entry." }
         pinned_node: { oneOf: [{ $ref: "#/components/schemas/NodeId" }, { type: "null" }], description: "The node a failover or an operator move pinned the tenant to (FO4), or null." }
         moving: { type: boolean, description: "A microVM move is in progress: requests answer 503 RENOX_TENANT_MOVING (section 17)." }
