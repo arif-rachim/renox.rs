@@ -20,7 +20,7 @@ Two main parts:
 
 ## Project status
 
-**As of 2026-11-01 (`main` at `c265810`): the code of every phase F0 to F7 is on `main`.** Gates F0 and F1 passed (`docs/14-benchmarks.md`, "F0 results" and "F1 results": GO). Gates F2 to F7 (#49, #61, #68, #74, #79, #86) are open on owner steps and measurements, not on code: the bench hosts for B4, B6, B7, B11, B12, B14 and B18 (#158), the two findings of the B1 run on `node-small` (#342, #343), the booking product repository, the GCC PSP sandbox accounts (#330, #337), the single-host deployment (#366), the first paying tenant. The per-phase table is in `README.md`, "Status"; the open work, the merged batches and the prompt for each open batch are in `docs/25-execution.md`, "Where we are".
+**As of 2026-11-05 (`main` at `d37a751`): the code of every phase F0 to F7 is on `main`, the CLI is released (`cli-v0.1.3`, pinning `renox-worker` 0.3.0), the SDK is on npm as `@renoxium/sdk`, and the platform runs on one host behind Cloudflare (D25, D26).** Gates F0 and F1 passed (`docs/14-benchmarks.md`, "F0 results" and "F1 results": GO). Gates F2 to F7 (#49, #61, #68, #74, #79, #86) are open on owner steps and measurements, not on code: the load-generator host and the load benchmarks B4, B6, B7, B11, B12, B14, B18 (#456), the last B1 criterion of #342 and the `shop` RSS bisect (#457) on `node-small`, the booking product repository, the GCC PSP sandbox accounts (#330, #337), the single-host install and Cloudflare cut-over (#458), the first paying tenant. The per-phase table is in `README.md`, "Status"; the open work, the batches that ran and the prompt for each open batch are in `docs/25-execution.md`, "Where we are".
 Crates that exist: `renox-gateway`, `renox-runtime`, `renox-template`, `renox-data`, `renox-authz`, `renox-realtime`, `renox-meter`, `renox-cell` (binary `renox-worker`). Also on `main`: `control/api`, `control/dashboard`, `control/billing`; `sdk/` (the npm package `@renoxium/sdk`) and `cli/`; sixteen modules under `modules/`; `www/` (the site); `ops/`; `bench/` with the harness, the spikes, the chaos harness and the results.
 See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 
@@ -39,7 +39,7 @@ See `docs/15-roadmap.md` for done criteria per phase and kill criteria.
 11. `docs/10-modules.md` — module system and inter-module communication.
 12. `docs/11-authorization.md` — RBAC/ABAC/ReBAC with Cedar, `r-can`, `db.scoped`.
 13. `docs/12-developer-experience.md` — CLI, dev loop, types, debugging.
-14. `docs/13-decisions.md` — ADRs D1–D29. **Required reading before any architectural change.**
+14. `docs/13-decisions.md` — ADRs D1–D28 (D25 and D26: the app edge behind Cloudflare; D27: the dot-matrix design; D28: the SDK's npm name). **Required reading before any architectural change.**
 15. `docs/14-benchmarks.md` — target numbers, scenarios, methodology, how to record results.
 16. `docs/15-roadmap.md` — phases, done criteria, kill criteria.
 17. `docs/16-risks.md` — risks and mitigations.
