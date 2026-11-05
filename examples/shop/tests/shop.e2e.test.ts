@@ -91,7 +91,10 @@ test.skipIf(!worker)("renox build: valid artifact with migrations, checksums, pa
   ]);
   expect(r.manifest.templates?.["pages/products/index"]).toEqual({ kind: "page", fragments: { cart_badge: { target: "cart-badge" }, product_list: { target: "product-list" } } });
   expect(r.manifest.templates?.["pages/products/[id]"]?.fragments).toEqual({ cart_badge: { target: "cart-badge" }, product: { target: "product" } });
-  expect(readdirSync(join(r.dir, "public")).sort()).toEqual(["app.css", "htmx-2.0.4.min.js"]);
+  // Each linked file also under its content-hashed name, served immutable (#406).
+  const pub = readdirSync(join(r.dir, "public")).sort();
+  expect(pub.filter((f) => !/\.[0-9a-f]{16}\./u.test(f))).toEqual(["app.css", "htmx-2.0.4.min.js"]);
+  expect(pub.filter((f) => /\.[0-9a-f]{16}\./u.test(f)).map((f) => f.replace(/\.[0-9a-f]{16}\./u, ".<hash>."))).toEqual(["app.<hash>.css", "htmx-2.0.4.min.<hash>.js"]);
   // renox check: no template diagnostics, no lint findings.
   expect(await check(app)).toEqual({ errors: [], findings: [] });
 });

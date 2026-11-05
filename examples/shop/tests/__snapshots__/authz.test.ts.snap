@@ -6,8 +6,8 @@ exports[`refunds: roles, threshold, second factor after a TOTP verification: the
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>Your orders</title>
-  <link rel="stylesheet" href="/app.css">
-  <script src="/htmx-2.0.4.min.js" defer nonce="<nonce>"></script>
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <script src="/htmx-2.0.4.min.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">

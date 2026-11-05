@@ -367,8 +367,9 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
 
 /**
  * The page's HTML without what changes per request (request id, deployment,
- * nonces, CSRF tokens, session ids), matched against the snapshot named by
- * `role`. Returns the normalized HTML.
+ * nonces, CSRF tokens, session ids, and the content hash `renox build` puts
+ * in the names of linked public files: `/app.<hash>.css`), matched against
+ * the snapshot named by `role`. Returns the normalized HTML.
  */
 export function snapshot(html: string, options: { role: string }): string {
   const normalized = html
@@ -379,7 +380,8 @@ export function snapshot(html: string, options: { role: string }): string {
     .replace(/(value=")[^"]*("[^>]*name="_csrf")/gu, "$1<csrf>$2")
     .replace(/("x-renox-csrf"\s*:\s*")[^"]*/gu, "$1<csrf>")
     .replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/gu, "<ulid>")
-    .replace(/(\?v=)[0-9a-f]{16}/gu, "$1<version>");
+    .replace(/(\?v=)[0-9a-f]{16}/gu, "$1<version>")
+    .replace(/(["']\/[^"'\s]*\.)[0-9a-f]{16}(\.[A-Za-z0-9]+["'])/gu, "$1<hash>$2");
   expect(normalized).toMatchSnapshot(`role: ${options.role}`);
   return normalized;
 }
