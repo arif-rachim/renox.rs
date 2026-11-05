@@ -30,8 +30,17 @@ export const CODE = "RENOX_CLI_WORKER_UNVERIFIED";
  * The sha256 of each released binary of the pinned worker (WORKER_VERSION in
  * cli/scripts/fetch-worker.ts), from the release's `.sha256` assets. Bump
  * both together. A target without an entry has no released worker yet.
+ *
+ * `pdf` pins the variant with the PDF engine (#381): the sha256 of the
+ * binary after `gunzip`, from the release's signed `SHA256SUMS.unpacked`
+ * (the asset itself, `-pdf.gz`, is what `SHA256SUMS` lists). Empty until a
+ * worker release carries the variant; worker-v0.3.0 does not.
  */
-export const PINNED_WORKER: { version: string; sha256: Readonly<Record<string, string>> } = {
+export const PINNED_WORKER: {
+  version: string;
+  sha256: Readonly<Record<string, string>>;
+  pdf: Readonly<Record<string, string>>;
+} = {
   version: "0.3.0",
   sha256: {
     "x86_64-unknown-linux-gnu": "581f967a4e725ce38498dfac2e4fefdaceab3b0aeb988b5bf59803ce845ab805",
@@ -39,6 +48,7 @@ export const PINNED_WORKER: { version: string; sha256: Readonly<Record<string, s
     "x86_64-apple-darwin": "60368601809636e8a8c6b531139aa7b5fd4cf750fa3caeb0b26d0c37f8bd945f",
     "aarch64-apple-darwin": "e9ca33b1c26b86260517068399c194ff78af69bcf6239b79542b3a658b34253c",
   },
+  pdf: {},
 };
 
 export const OIDC_ISSUER = "https://token.actions.githubusercontent.com";
@@ -76,13 +86,36 @@ export function fileSha256(path: string): string {
   return hex;
 }
 
-const pinnedFor = (target: string, pinned: Readonly<Record<string, string>>): string => pinned[target] ?? "(none: no released worker for this target)";
+const pinnedFor = (target: string, pinned: Readonly<Record<string, string>>, pdf: Readonly<Record<string, string>> = {}): string => {
+  const lean = pinned[target] ?? "(none: no released worker for this target)";
+  return pdf[target] ? `${lean} or ${pdf[target]} (pdf)` : lean;
+};
 
-/** The downloaded or installed worker: its sha256 must be the pinned one for `target`. */
-export function verifyPinned(path: string, target: string = targetTriple(), pinned: Readonly<Record<string, string>> = PINNED_WORKER.sha256): void {
-  const expected = pinnedFor(target, pinned);
+/**
+ * Which pinned build `hex` is for `target`: the default one, the one with the
+ * PDF engine, or none.
+ */
+export function pinnedVariant(
+  hex: string,
+  target: string = targetTriple(),
+  pinned: Readonly<Record<string, string>> = PINNED_WORKER.sha256,
+  pdf: Readonly<Record<string, string>> = PINNED_WORKER.pdf,
+): "default" | "pdf" | undefined {
+  if (pinned[target] === hex) return "default";
+  if (pdf[target] === hex) return "pdf";
+  return undefined;
+}
+
+/** The downloaded or installed worker: its sha256 must be a pinned one for `target` (the default build or the pdf variant). */
+export function verifyPinned(
+  path: string,
+  target: string = targetTriple(),
+  pinned: Readonly<Record<string, string>> = PINNED_WORKER.sha256,
+  pdf: Readonly<Record<string, string>> = PINNED_WORKER.pdf,
+): void {
+  const expected = pinnedFor(target, pinned, pdf);
   const actual = fileSha256(path);
-  if (actual !== expected) {
+  if (!pinnedVariant(actual, target, pinned, pdf)) {
     throw new WorkerUnverifiedError(path, expected, actual, `it is not renox-worker ${PINNED_WORKER.version} for ${target}`, REDOWNLOAD);
   }
 }
@@ -90,6 +123,8 @@ export function verifyPinned(path: string, target: string = targetTriple(), pinn
 export interface ExternalOptions {
   target?: string;
   pinned?: Readonly<Record<string, string>>;
+  /** The pins of the pdf variant (default PINNED_WORKER.pdf). */
+  pdf?: Readonly<Record<string, string>>;
   /** The cosign binary (default `cosign` on PATH). */
   cosign?: string;
   /** The provenance bundle; default the one `*.provenance.sigstore.json` beside the binary. */
@@ -110,9 +145,13 @@ function findProvenance(path: string): string | undefined {
  */
 export function verifyExternal(path: string, opts: ExternalOptions = {}): "pinned" | "signed" {
   const target = opts.target ?? targetTriple();
-  const expected = pinnedFor(target, opts.pinned ?? PINNED_WORKER.sha256);
+  const pinned = opts.pinned ?? PINNED_WORKER.sha256;
+  const pdf = opts.pdf ?? PINNED_WORKER.pdf;
+  const expected = pinnedFor(target, pinned, pdf);
   const actual = fileSha256(path);
-  if (actual === expected) return "pinned";
+  // The pdf variant, unpacked from its signed .gz, is accepted by its pin only:
+  // cosign cannot verify the 134 MiB binary itself (#381).
+  if (pinnedVariant(actual, target, pinned, pdf)) return "pinned";
   const refuse = (why: string, hint: string): never => {
     throw new WorkerUnverifiedError(path, expected, actual, why, hint);
   };

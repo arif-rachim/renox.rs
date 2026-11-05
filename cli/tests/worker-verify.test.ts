@@ -15,7 +15,7 @@ import { targetTriple, WORKER_VERSION } from "../scripts/fetch-worker.ts";
 import { EXIT } from "../src/errors.ts";
 import { sha256Hex } from "../src/lib/hash.ts";
 import { workerPath } from "../src/lib/worker.ts";
-import { CODE, OIDC_ISSUER, PINNED_WORKER, verifyExternal, verifyPinned, WorkerUnverifiedError, workerIdentity } from "../src/worker/verify.ts";
+import { CODE, OIDC_ISSUER, PINNED_WORKER, pinnedVariant, verifyExternal, verifyPinned, WorkerUnverifiedError, workerIdentity } from "../src/worker/verify.ts";
 import { MAIN } from "./negative/helpers.ts";
 
 const root = mkdtempSync(join(tmpdir(), "renox-verify-"));
@@ -266,4 +266,39 @@ describe("install.sh signature check", () => {
     expect(unsigned.err).toContain(`cli-v0.1.0 has no signature for ${asset}`);
     expect(existsSync(unsigned.installed)).toBe(false);
   });
+});
+
+// #381: the variant with ctx.pdf has its own pins (the sha256 of the unpacked
+// binary). docs/24-threat-model.md section F, "Tampered release": a corrupted
+// pdf worker is refused like the default one.
+test("a pinned pdf worker is accepted beside the default build; a corrupted one is refused", () => {
+  for (const t of Object.keys(PINNED_WORKER.pdf)) expect(t in PINNED_WORKER.sha256).toBe(true);
+  for (const hex of Object.values(PINNED_WORKER.pdf)) expect(hex).toMatch(/^[0-9a-f]{64}$/u);
+
+  const lean = pinnedWorker();
+  const pdfPath = join(dir(), "renox-worker");
+  writeFileSync(pdfPath, `${BODY}# pdf\n`, { mode: 0o755 });
+  const pdf = { [TARGET]: sha256Hex(`${BODY}# pdf\n`) };
+  expect(pinnedVariant(sha256Hex(BODY), TARGET, lean.pinned, pdf)).toBe("default");
+  expect(pinnedVariant(pdf[TARGET] as string, TARGET, lean.pinned, pdf)).toBe("pdf");
+  expect(pinnedVariant("0".repeat(64), TARGET, lean.pinned, pdf)).toBeUndefined();
+
+  verifyPinned(lean.path, TARGET, lean.pinned, pdf);
+  verifyPinned(pdfPath, TARGET, lean.pinned, pdf);
+  expect(verifyExternal(pdfPath, { target: TARGET, pinned: lean.pinned, pdf, cosign: "/nonexistent/cosign" })).toBe("pinned");
+
+  corrupt(pdfPath);
+  const e = refusal(() => verifyPinned(pdfPath, TARGET, lean.pinned, pdf));
+  expect(e.code).toBe(CODE);
+  expect(e.message).toContain(`expected sha256 ${lean.pinned[TARGET]} or ${pdf[TARGET]} (pdf)`);
+
+  // Looked up from the download directory, the same check.
+  const bin = dir();
+  mkdirSync(join(bin, `${process.platform}-${process.arch}`));
+  const fetched = join(bin, `${process.platform}-${process.arch}`, "renox-worker");
+  writeFileSync(fetched, `${BODY}# pdf\n`, { mode: 0o755 });
+  const all = (hex: string): Record<string, string> => Object.fromEntries(TARGETS.map((t) => [t, hex]));
+  expect(workerPath("", bin, all("1".repeat(64)), undefined, all(pdf[TARGET] as string))).toBe(fetched);
+  corrupt(fetched);
+  refusal(() => workerPath("", bin, all("1".repeat(64)), undefined, all(pdf[TARGET] as string)));
 });

@@ -74,6 +74,27 @@ cosign verify-blob-attestation --bundle renox-$v.provenance.sigstore.json --new-
 
 For a worker use `release-worker\.yml@refs/tags/worker-v` and the worker release's files. The CLI checks the worker before it runs it: the downloaded or installed worker must have the sha256 of the pinned release for its platform, baked into the CLI (`PINNED_WORKER` in `cli/src/worker/verify.ts`, checked against the worker release when the CLI is released); `renox dev --worker <path>` also accepts a binary whose `<path>.sigstore.json` and the release's provenance bundle beside it verify with cosign as above. Anything else stops with `RENOX_CLI_WORKER_UNVERIFIED` (exit code 3) and the expected and actual sha256. `RENOX_WORKER_PATH` is the unverified override for a worker built from source.
 
+**Which worker has `ctx.pdf`** (#381). The PDF engine behind `ctx.pdf` (typst, 26 MiB) does not fit in the default release build under the 128 MiB that cosign verifies (B20, `docs/14-benchmarks.md`), so each `worker-v*` release from 0.4.0 on carries two builds per platform:
+
+| Worker | `ctx.pdf.render` | How you get it |
+| --- | --- | --- |
+| Default release build, `renox-worker-<version>-<target>` | fails with `RENOX_INTERNAL`, `details.reason: "pdf_unavailable"`; everything else works | `install.sh`, `bun cli/scripts/fetch-worker.ts` |
+| PDF variant, `renox-worker-<version>-<target>-pdf.gz` | renders | `bun cli/scripts/fetch-worker.ts --pdf`, or by hand (below) |
+| Built from a checkout, `cargo build --release -p renox-cell --bin renox-worker` (the `pdf` feature is on by default) | renders | `RENOX_WORKER_PATH=target/release/renox-worker` (not verified) |
+
+The variant is published gzip-compressed: the `.gz` is what `SHA256SUMS`, its signature and the provenance cover, and the `.gz` is small enough for cosign. `SHA256SUMS.unpacked`, signed as well, lists the sha256 of each binary after `gunzip`, and the CLI pins those hashes beside the default ones (`PINNED_WORKER.pdf`), so it runs either build and refuses anything else with `RENOX_CLI_WORKER_UNVERIFIED`. `fetch-worker.ts --pdf` checks the `.gz` against its `.sha256`, unpacks it and installs it as `renox-worker`; run it without `--pdf` to go back. With an installed `renox` and no checkout, verify and unpack the variant by hand, then point `renox dev` at it:
+
+```sh
+v=0.4.0; a=renox-worker-$v-x86_64-unknown-linux-gnu-pdf
+id='^https://github\.com/arif-rachim/renox\.rs/\.github/workflows/release-worker\.yml@refs/tags/worker-v'
+cosign verify-blob --bundle $a.gz.sigstore.json --certificate-identity-regexp "$id" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com $a.gz
+gunzip -c $a.gz > renox-worker-pdf && chmod +x renox-worker-pdf
+renox dev --worker ./renox-worker-pdf
+```
+
+`renox dev --worker` accepts it by its pinned hash once the CLI pins that worker release. `worker-v0.3.0`, which CLI 0.1.3 pins, has no PDF variant: until a CLI pins a release that does, use a checkout build through `RENOX_WORKER_PATH`. Production nodes run the variant their operator installs; apps that call `ctx.pdf` (the `tax_gcc` invoices, `reports`) need the PDF variant there too.
+
 ## Build with an AI agent
 
 The platform is built to be driven by a coding agent as well as by a person (`docs/20-ai-agents-mcp.md`; #377). What an agent gets, and the rules it works under:

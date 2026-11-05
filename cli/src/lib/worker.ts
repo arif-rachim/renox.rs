@@ -19,10 +19,17 @@ const besideCli = (): string | undefined =>
 /**
  * The worker binary: RENOX_WORKER_PATH (a worker you built, not verified),
  * else <binDir>/<platform>-<arch>/renox-worker or the one installed beside a
- * compiled `renox`, which must have the pinned sha256 (#129). Exit 3 when
+ * compiled `renox`, which must have the pinned sha256 (#129) of the default
+ * build or of the variant with `ctx.pdf` (`fetch-worker.ts --pdf`, #381). Exit 3 when
  * there is none or it does not verify.
  */
-export function workerPath(env = process.env.RENOX_WORKER_PATH, binDir = BIN_DIR, pinned = PINNED_WORKER.sha256, installed = besideCli()): string {
+export function workerPath(
+  env = process.env.RENOX_WORKER_PATH,
+  binDir = BIN_DIR,
+  pinned = PINNED_WORKER.sha256,
+  installed = besideCli(),
+  pdf = PINNED_WORKER.pdf,
+): string {
   if (env) {
     const p = resolve(env);
     if (!existsSync(p)) throw new EnvironmentError(`RENOX_WORKER_PATH is ${p}, which does not exist`, { hint: DOWNLOAD_HINT });
@@ -30,7 +37,7 @@ export function workerPath(env = process.env.RENOX_WORKER_PATH, binDir = BIN_DIR
   }
   for (const p of [join(binDir, `${process.platform}-${process.arch}`, "renox-worker"), installed]) {
     if (p && existsSync(p)) {
-      verifyPinned(p, undefined, pinned);
+      verifyPinned(p, undefined, pinned, pdf);
       return p;
     }
   }
