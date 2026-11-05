@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "arif-agent-skills": {
+      "source": { "source": "github", "repo": "arif-rachim/agent-skills" }
+    }
+  },
+  "enabledPlugins": {
+    "arif-skills@arif-agent-skills": true
+  }
+}
