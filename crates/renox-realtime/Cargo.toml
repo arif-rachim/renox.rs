@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Realtime connections of a tenant: topics, fan-out with per-connection backpressure, limits, heartbeats, replay, WebSocket and SSE transports (docs/09-htmx-realtime.md, D9; ops.md 1.5.0 section 18)"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 # Leaf crate: no renox-* dependencies, no V8 (AGENTS.md, compile discipline;

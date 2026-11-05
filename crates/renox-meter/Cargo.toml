@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Per-invocation meter records, batching, and sinks (docs/contracts/meter.md v0)"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 # Leaf crate: no renox-* dependencies, no V8 (AGENTS.md, compile discipline).

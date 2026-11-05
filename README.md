@@ -158,7 +158,7 @@ Start with [`AGENTS.md`](AGENTS.md), which holds the rules and the full reading 
 | [`docs/04-isolation-security.md`](docs/04-isolation-security.md) | Isolation model, per-tenant limits, threat model |
 | [`docs/06-data.md`](docs/06-data.md) | SQLite per tenant, authorizer, replication |
 | [`docs/10-modules.md`](docs/10-modules.md) | Module system |
-| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D28. **Required reading before any architectural change** |
+| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D29. **Required reading before any architectural change** |
 | [`docs/14-benchmarks.md`](docs/14-benchmarks.md) | Targets, scenarios, methodology |
 | [`docs/20-ai-agents-mcp.md`](docs/20-ai-agents-mcp.md) | Platform MCP, app MCP per tenant, agent security |
 
@@ -226,4 +226,4 @@ This repository is built with AI coding agents alongside a human maintainer. The
 
 ## License
 
-Not yet decided for the repository. Whether the data plane is open source or closed is an owner decision, re-dated to before gate #86 (`docs/15-roadmap.md`, "Open questions"). The SDK `@renoxium/sdk` alone is published under MIT (`sdk/LICENSE`).
+Apache License 2.0 for the whole repository: the data plane, the control plane, the CLI, the SDK, the modules, the examples, the site and the documentation (`LICENSE`; `docs/13-decisions.md`, D29). The npm package `@renoxium/sdk` is Apache-2.0 from version 0.1.4; versions 0.1.0 to 0.1.3 were published under MIT and stay so. The business is the hosting, not the code.
