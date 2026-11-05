@@ -136,3 +136,15 @@ test("renox:modules is typed from the generated types, with no hand-written .d.t
     rmSync(mods, { recursive: true, force: true });
   }
 }, 120_000);
+
+test("#482: a new app may import local files with or without the `.ts` extension, as the examples and modules do", () => {
+  const dir = typedApp("tsext");
+  mkdirSync(join(dir, "lib"), { recursive: true });
+  writeFileSync(join(dir, "lib/greet.ts"), `export const greet = (n: string): string => \`hi \${n}\`;\n`);
+  const handler = (spec: string) => `import type { Handler } from "@renoxium/sdk";\nimport { greet } from "${spec}";\n\nexport const GET: Handler = async () => Response.json({ msg: greet("x") });\n`;
+  writeFileSync(join(dir, "functions/api/hello.ts"), handler("../../lib/greet.ts"));
+  expect(typeCheck(dir).findings).toEqual([]);
+  writeFileSync(join(dir, "functions/api/hello.ts"), handler("../../lib/greet"));
+  expect(typeCheck(dir).findings).toEqual([]);
+  rmSync(dir, { recursive: true });
+}, 60_000);
