@@ -657,6 +657,10 @@ pub struct TenantDb {
     /// Set by `with_policy` while it runs: the policy readers opened in the
     /// meantime get (`Some(None)` = the platform).
     policy_override: std::cell::RefCell<Option<Option<Arc<AuthorizerPolicy>>>>,
+    /// True while the writer runs platform work: inside `with_writer_policy`
+    /// or `with_policy` with the platform's policy (`None`). The write
+    /// watermark does not refuse it (#311, #382).
+    writer_platform: Cell<bool>,
     stats: Cell<DbStats>,
 }
 
@@ -702,6 +706,7 @@ impl TenantDb {
             in_tx: Cell::new(false),
             policy: None,
             policy_override: std::cell::RefCell::new(None),
+            writer_platform: Cell::new(false),
             stats: Cell::new(DbStats::default()),
         })
         .and_then(|db| match db.options.module_prefix.clone() {
@@ -789,18 +794,32 @@ impl TenantDb {
     /// Run `f` with `policy` on the writer instead of the handle's policy;
     /// the handle's policy is back when `f` returns or panics. The readers
     /// keep the handle's policy. Used by the migration runner (`allow_ddl`).
+    /// With `None` the writer does platform work for the scope, which the
+    /// write watermark does not refuse (#382: the bookkeeping of migrations
+    /// at 95 %); only the writer, the readers never get the platform's
+    /// policy from it.
     pub(crate) fn with_writer_policy<T>(
         &self,
         policy: Option<Arc<AuthorizerPolicy>>,
         f: impl FnOnce() -> T,
     ) -> T {
-        struct Restore<'a>(&'a Conn, Option<Arc<AuthorizerPolicy>>);
+        struct Restore<'a> {
+            db: &'a TenantDb,
+            policy: Option<Arc<AuthorizerPolicy>>,
+            platform: bool,
+        }
         impl Drop for Restore<'_> {
             fn drop(&mut self) {
-                self.0.set_policy(self.1.take());
+                self.db.writer.set_policy(self.policy.take());
+                self.db.writer_platform.set(self.platform);
             }
         }
-        let _restore = Restore(&self.writer, self.writer.set_policy(policy));
+        let platform = self.writer_platform.replace(policy.is_none());
+        let _restore = Restore {
+            db: self,
+            policy: self.writer.set_policy(policy),
+            platform,
+        };
         f()
     }
 
@@ -824,6 +843,7 @@ impl TenantDb {
             db: &'a TenantDb,
             old: Vec<(&'a Conn, Option<Arc<AuthorizerPolicy>>)>,
             override_old: Option<Option<Arc<AuthorizerPolicy>>>,
+            platform_old: bool,
         }
         impl Drop for Restore<'_> {
             fn drop(&mut self) {
@@ -838,17 +858,20 @@ impl TenantDb {
                     c.set_policy(p);
                 }
                 *self.db.policy_override.borrow_mut() = self.override_old.take();
+                self.db.writer_platform.set(self.platform_old);
             }
         }
         let old = self
             .connections()
             .map(|c| (c, c.set_policy(policy.clone())))
             .collect();
+        let platform_old = self.writer_platform.replace(policy.is_none());
         let override_old = self.policy_override.replace(Some(policy));
         let _restore = Restore {
             db: self,
             old,
             override_old,
+            platform_old,
         };
         Ok(f())
     }
@@ -1033,9 +1056,11 @@ impl TenantDb {
     fn run_execute(&self, ctx: &QueryCtx, sql: &str, params: &[Value]) -> Result<ExecResult> {
         // #311: at the disk's write watermark a tenant or module write is
         // refused here as well (SQLite would answer SQLITE_FULL later).
-        if crate::limits::writes_refused() && !matches!(&*self.policy_override.borrow(), Some(None))
-        {
-            return Err(DbError::QuotaExceeded);
+        // Platform work on the writer (`with_policy(None)`, and
+        // `with_writer_policy(None)` such as the migration bookkeeping,
+        // #382) is not.
+        if crate::limits::writes_refused() && !self.writer_platform.get() {
+            return Err(DbError::WritesRefused);
         }
         self.measured(ctx, sql, || {
             let (rows, read, written) = self.on_writer(ctx, sql, params, false)?;
