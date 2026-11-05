@@ -15,6 +15,61 @@
 // are translated like the rest of it.
 (function () {
   "use strict";
+
+  // ---------------------------------------------------------- workspace id (pure; tested without a browser)
+
+  const ID_MAX = 63;
+
+  /** The id a workspace name suggests: "Al Noor Clinic" -> "al-noor-clinic"; "" when nothing Latin is left (the person types one). */
+  function slugify(name) {
+    let s = String(name).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^[-_]+|[-_]+$/g, "");
+    if (s.length > ID_MAX) s = s.slice(0, ID_MAX).replace(/[-_]+$/, "");
+    return s;
+  }
+
+  /**
+   * Why an id is refused, or null: { kind: "start" | "char" | "length", char, index }.
+   * `char` is the first offending character ("start": the first character, which may not be - or _).
+   */
+  function idProblem(id) {
+    let index = 0;
+    for (const ch of String(id)) {
+      if (!/[a-z0-9_-]/.test(ch)) return { kind: index === 0 ? "start" : "char", char: ch, index };
+      if (index === 0 && !/[a-z0-9]/.test(ch)) return { kind: "start", char: ch, index };
+      index += 1;
+    }
+    if (String(id).length > ID_MAX) return { kind: "length", char: "", index: ID_MAX };
+    return null;
+  }
+
+  /** What to offer when an id is taken: "al-noor" -> "al-noor-2", "al-noor-2" -> "al-noor-3" (63 characters at most). */
+  function suggestId(id) {
+    const m = /^(.*?)-(\d+)$/.exec(id);
+    const base = m ? m[1] : id;
+    const n = m ? Number(m[2]) + 1 : 2;
+    const tail = "-" + n;
+    return base.slice(0, ID_MAX - tail.length).replace(/[-_]+$/, "") + tail;
+  }
+
+  /**
+   * The id field follows the name until the person edits the id by hand.
+   * `name(v)` is the name typed: returns the id to show (unchanged once locked);
+   * `edit(v)` is the id typed by hand: locks the derivation (emptying the id unlocks it).
+   */
+  function idSync(initial) {
+    let id = initial || "";
+    let locked = id !== "";
+    return {
+      name(v) { if (!locked) id = slugify(v); return id; },
+      edit(v) { id = v; locked = v !== ""; return id; },
+      get id() { return id; },
+      get locked() { return locked; },
+    };
+  }
+
+  const pure = { slugify, idProblem, suggestId, idSync, ID_MAX };
+  if (typeof module !== "undefined" && module.exports) module.exports = pure;
+  if (typeof document === "undefined") return;
   const root = document.getElementById("account");
   if (!root) return;
   const API = (root.dataset.api || "").replace(/\/+$/, "");
@@ -259,8 +314,36 @@
 
   // ------------------------------------------------------------ sign-up, verification, password reset
 
+  /** The rule and the first offending character, as text (translated by the page). */
+  function idMessage(id) {
+    const p = idProblem(id);
+    if (!p) return "";
+    if (p.kind === "length") return msg("err_workspace");
+    const shown = p.char === " " ? msg("id_space") : '"' + p.char + '"';
+    return msg("err_workspace") + " " + (p.kind === "start" ? msg("id_bad_start") : msg("id_bad_char")) + " " + shown;
+  }
+
   function signupPage() {
     const form = $("signup-form");
+    const nameEl = form.elements.tenant_name;
+    const idEl = form.elements.tenant_id;
+    const idError = $("id-error");
+    const sync = idSync(idEl.value);
+    const checkId = () => {
+      const text = idMessage(idEl.value);
+      idError.textContent = text;
+      idError.hidden = text === "";
+      idEl.setCustomValidity(text);
+      idEl.setAttribute("aria-invalid", text ? "true" : "false");
+    };
+    nameEl.addEventListener("input", () => {
+      idEl.value = sync.name(nameEl.value);
+      checkId();
+    });
+    idEl.addEventListener("input", () => {
+      sync.edit(idEl.value);
+      checkId();
+    });
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       error("");
@@ -278,7 +361,7 @@
       const r = await call("POST", "/v1/account/signup", body);
       busy(form, false);
       if (!r.ok) {
-        if (r.status === 409) return error(msg("err_taken"));
+        if (r.status === 409) return error(msg("err_taken") + " " + msg("id_try") + " " + suggestId(body.tenant_id));
         if (reasonOf(r, "email") === "disposable") return error(msg("err_disposable"));
         if (r.status === 429) return error(msg("err_too_many"));
         return error(failure(r));

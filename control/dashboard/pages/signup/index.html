@@ -8,11 +8,17 @@
     <noscript><p class="problem"><r-t key="dash.account.needs_js" /></p></noscript>
     <p class="notice" id="signup-sent" hidden><r-t key="dash.signup.sent" /> <strong id="sent-email"></strong> <r-t key="dash.signup.sent_after" /></p>
     <form id="signup-form" class="stack">
-      <label><r-t key="dash.common.email" /> <input type="email" name="email" required autocomplete="email" maxlength="254"></label>
-      <label><r-t key="dash.common.password" /> <input type="password" name="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
-      <label><r-t key="dash.signup.workspace_id" /> <input name="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false"></label>
-      <label><r-t key="dash.signup.workspace_name" /> <input name="tenant_name" maxlength="128"></label>
-      <label><input type="checkbox" name="dpa" value="yes" required> <r-t key="dash.signup.accept" /> <a href="/legal/dpa"><r-t key="dash.signup.dpa_link" /></a> <r-t key="dash.signup.and" /> <a href="/legal/terms"><r-t key="dash.signup.terms_link" /></a>.</label>
+      <label><r-t key="dash.common.email" /> <input type="email" name="email" required autocomplete="email" maxlength="254" aria-describedby="hint-email"></label>
+      <small class="muted hint" id="hint-email"><r-t key="dash.signup.hint_email" /> <r-t key="dash.signup.example" /> <code>you@example.com</code>.</small>
+      <label><r-t key="dash.common.password" /> <input type="password" name="password" required minlength="12" maxlength="1024" autocomplete="new-password" aria-describedby="hint-password"></label>
+      <small class="muted hint" id="hint-password"><r-t key="dash.signup.hint_password" /> <r-t key="dash.signup.example" /> <code>three dates and a coffee</code>.</small>
+      <label><r-t key="dash.signup.workspace_name" /> <input name="tenant_name" required maxlength="128" autocomplete="organization" aria-describedby="hint-name"></label>
+      <small class="muted hint" id="hint-name"><r-t key="dash.signup.hint_name" /> <r-t key="dash.signup.example" /> <code>Al Noor Clinic</code>. <r-t key="dash.signup.hint_name_after" /></small>
+      <label><r-t key="dash.signup.workspace_id" /> <input name="tenant_id" required pattern="[a-z0-9][a-z0-9_-]*" maxlength="63" spellcheck="false" autocapitalize="none" dir="ltr" aria-describedby="hint-id id-error"></label>
+      <small class="muted hint" id="hint-id"><r-t key="dash.signup.hint_id" /> <r-t key="dash.signup.example" /> <code>al-noor-clinic</code>.</small>
+      <small class="problem" id="id-error" role="status" hidden></small>
+      <label><input type="checkbox" name="dpa" value="yes" required aria-describedby="hint-dpa"> <r-t key="dash.signup.accept" /> <a href="/legal/dpa"><r-t key="dash.signup.dpa_link" /></a> <r-t key="dash.signup.and" /> <a href="/legal/terms"><r-t key="dash.signup.terms_link" /></a>.</label>
+      <small class="muted hint" id="hint-dpa"><r-t key="dash.signup.hint_dpa" /></small>
       <button type="submit" class="primary"><r-t key="dash.signup.submit" /></button>
     </form>
     <p class="muted" id="signup-more"><r-t key="dash.signup.have_account" /> <a href="/signin"><r-t key="dash.common.sign_in" /></a>. <r-t key="dash.signup.agreement_note" /></p>
@@ -20,6 +26,11 @@
       <span data-k="err_password"><r-t key="dash.signup.err_password" /></span>
       <span data-k="err_accept"><r-t key="dash.signup.err_accept" /></span>
       <span data-k="err_taken"><r-t key="dash.signup.err_taken" /></span>
+      <span data-k="err_workspace"><r-t key="dash.signup.err_workspace" /></span>
+      <span data-k="id_bad_char"><r-t key="dash.signup.id_bad_char" /></span>
+      <span data-k="id_bad_start"><r-t key="dash.signup.id_bad_start" /></span>
+      <span data-k="id_space"><r-t key="dash.signup.id_space" /></span>
+      <span data-k="id_try"><r-t key="dash.signup.id_try" /></span>
       <span data-k="err_disposable"><r-t key="dash.signup.err_disposable" /></span>
       <span data-k="err_too_many"><r-t key="dash.signup.err_too_many" /></span>
       <span data-k="too_many"><r-t key="dash.account.too_many" /></span>
