@@ -71,7 +71,11 @@ mode = "enforce"
 # The sections below arrive with F6 (#254 process tiers, #255 replication);
 # see crates/renox-cell/README.md for their keys and defaults.
 #
+# The single host keeps [process] off (#403, ops/single-host.md "What runs
+# where"): every tenant, a paid one too, runs in this process, and the worker
+# warns once per tenant whose route entry asks for process = "own".
 # [process]
+# enabled = true
 # launcher = "systemd"
 # run_dir = "/run/renox"
 #
