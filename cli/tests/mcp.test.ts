@@ -9,7 +9,7 @@
 // docs/20-ai-agents-mcp.md, "Security of the platform MCP": secrets are never
 // readable through MCP (.env values are redacted from tool output).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -204,14 +204,35 @@ describe("tools", () => {
   });
 });
 
+describe("search_docs covers what the site publishes (#478)", () => {
+  test("the tutorial is searchable: \"realtime feed\" finds chapter 8", async () => {
+    expect(searchDocs("realtime feed").map((h) => h.uri)).toContain("docs://tutorial/08-realtime.md");
+    const r = await client.callTool({ name: "search_docs", arguments: { query: "realtime feed" } });
+    expect(structured<{ hits: { uri: string }[] }>(r).hits.map((h) => h.uri)).toContain("docs://tutorial/08-realtime.md");
+    const { contents } = await client.readResource({ uri: "docs://tutorial/README.md" });
+    expect(contents).toHaveLength(1);
+  });
+
+  test("docs the site does not publish are not embedded", async () => {
+    for (const unpublished of ["25-execution.md", "24-threat-model.md", "13-decisions.md"]) {
+      expect(DOCS[unpublished]).toBeUndefined();
+      await expect(client.readResource({ uri: `docs://${unpublished}` })).rejects.toThrow(/resource not found/u);
+    }
+    expect(searchDocs("execution log").every((h) => !h.uri.endsWith("25-execution.md"))).toBe(true);
+  });
+});
+
 describe("resources", () => {
-  test("every docs/*.md and docs/contracts/*.md is a docs:// resource, embedded byte for byte", async () => {
-    const onDisk = [
-      ...readdirSync(DOCS_DIR).filter((f) => f.endsWith(".md")),
-      ...readdirSync(join(DOCS_DIR, "contracts"))
-        .filter((f) => f.endsWith(".md"))
-        .map((f) => `contracts/${f}`),
-    ].sort();
+  test("exactly the docs the site publishes are docs:// resources, embedded byte for byte (#478)", async () => {
+    // A computed specifier: the site's module imports markdown as text, which this package's tsc does not model.
+    const site = join(CLI, "..", "www", "lib", "docs.ts");
+    const { PUBLISHED } = (await import(site)) as { PUBLISHED: { path: string }[] };
+    const published = PUBLISHED.map((p) => p.path)
+      .filter((p) => p.startsWith("docs/") && p.endsWith(".md"))
+      .map((p) => p.slice("docs/".length))
+      .sort();
+    expect(published).toContain("tutorial/08-realtime.md");
+    const onDisk = published;
     expect(Object.keys(DOCS).sort()).toEqual(onDisk);
     const { resources } = await client.listResources();
     expect(resources.filter((r) => r.uri.startsWith("docs://")).map((r) => r.uri.slice(7)).sort()).toEqual(onDisk);
@@ -259,8 +280,8 @@ test("the compiled binary carries the docs (it does not ship docs/)", async () =
   mkdirSync(empty);
   const c = new Client({ name: "renox-test", version: "0.0.0" });
   await c.connect(new StdioClientTransport({ command: bin, args: ["mcp"], cwd: empty, stderr: "ignore" }));
-  const { contents } = await c.readResource({ uri: "docs://13-decisions.md" });
-  expect((contents[0] as { text: string }).text).toBe(readFileSync(join(DOCS_DIR, "13-decisions.md"), "utf8"));
+  const { contents } = await c.readResource({ uri: "docs://tutorial/08-realtime.md" });
+  expect((contents[0] as { text: string }).text).toBe(readFileSync(join(DOCS_DIR, "tutorial", "08-realtime.md"), "utf8"));
   await c.close();
 }, 60_000);
 
