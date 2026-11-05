@@ -68,9 +68,9 @@ export const HELP: Record<string, CommandHelp> = {
   tokens: { group: "Deploy and operate", usage: ["tokens list", "tokens create <name> --scope <s>... [--expires-days <n>]", "tokens revoke <id>"], summary: "Tenant tokens for CI and scripts; a new value is shown once.", flags: ["--scope", "--expires-days"] },
   db: {
     group: "Deploy and operate",
-    usage: ["db export [--out <file>] [--app <name>]", "db import <file> [--app <name>]", "db restore --at <time> --as <new-app> [--app <name>]"],
-    summary: "Download the production database (sha256 checked), import into a staging app, restore a point in time into a new app.",
-    flags: ["--out", "--app", "--at", "--as"],
+    usage: ["db export [--out <file>] [--app <name>]", "db import <file> [--app <name>]", "db restore --at <time> --as <new-app> [--app <name>]", "db seed [--db <file>]"],
+    summary: "Download the production database (sha256 checked), import into a staging app, restore a point in time into a new app; seed loads seeds/*.sql into the dev database.",
+    flags: ["--out", "--app", "--at", "--as", "--db"],
   },
   add: {
     group: "Modules",

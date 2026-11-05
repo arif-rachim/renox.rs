@@ -112,7 +112,7 @@ Tenant code does not change when moving up unless it uses SQLite-only features; 
 | Command | Purpose |
 | --- | --- |
 | `renox db shell` | Open the local SQLite file and run queries |
-| `renox db seed` | Load sample data from `seeds/*.sql` or `seeds/*.ts` |
+| `renox db seed` | Apply pending migrations, then load `seeds/*.sql` (name order, one transaction; a failing statement rolls back and names file and line) into `.renox/data/dev`. `seeds/*.ts` are not supported yet |
 | `renox db export [--out file]` | Download a consistent snapshot of the production file to the laptop for debugging, through a signed URL, with its SHA-256 checked (`cli/README.md`, "`renox db`"; column masking is F7) |
 | `renox db import <file> --app <staging-app>` | Push a file to a staging app; production apps and tables outside the naming rules are refused (`cli/README.md`, "`renox db`") |
 | `renox db diff` | Compare the current schema with migrations and draft the next migration file (later phase) |
