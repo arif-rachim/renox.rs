@@ -10,7 +10,7 @@
 // bypass). It never exists in what `renox build` or `renox deploy` produce.
 
 import { Database } from "bun:sqlite";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -187,6 +187,18 @@ async function listening(port: number, exited: () => number | undefined, ms = 30
   }
 }
 
+/** A worker log line (JSON from `tracing`) as `message: error`, or the line itself. */
+export function workerError(line: string): string {
+  try {
+    const v = JSON.parse(line) as { fields?: Record<string, unknown> };
+    const { message, error, ...rest } = v.fields ?? {};
+    const parts = [message, error, ...Object.entries(rest).map(([k, x]) => `${k}=${typeof x === "string" ? x : JSON.stringify(x)}`)].filter((p) => typeof p === "string" && p !== "");
+    return parts.length ? parts.join(": ") : line;
+  } catch {
+    return line;
+  }
+}
+
 /** One running test worker on a fresh tenant file. */
 export interface TestWorker {
   base: string;
@@ -200,9 +212,33 @@ export interface TestWorker {
   stop(): Promise<void>;
 }
 
+/**
+ * The worker configuration of one test run (#462). The artifacts live in the
+ * app, the state under the temp dir, and the two must never be joined by a
+ * relative path: on macOS `$TMPDIR` is under `/var`, a symlink to
+ * `/private/var`, so `../../..` from it lands in `/private/Users/...` and the
+ * worker's start-up `create_dir_all` is refused. Every path is absolute.
+ */
+export function testWorkerConfig(state: string, artifacts: string, port: number): string {
+  return [
+    `listen = "127.0.0.1:${port}"`,
+    `data_dir = ${JSON.stringify(join(state, "data"))}`,
+    `artifacts_dir = ${JSON.stringify(resolve(artifacts))}`,
+    `routes_file = ${JSON.stringify(join(state, "routes.json"))}`,
+    `meters_dir = ${JSON.stringify(join(state, "meters"))}`,
+    `logs_dir = ${JSON.stringify(join(state, "logs"))}`,
+    `node_id = "test"`,
+    `idle_timeout_secs = 600`,
+    `meter_flush_ms = 1000`,
+    `default_tier = "free"`,
+    "",
+  ].join("\n");
+}
+
 /** Start the worker of `spec` on a new temporary tenant file: migrations applied, seeds run. */
 export async function startTestWorker(spec: TestSpec): Promise<TestWorker> {
-  const state = mkdtempSync(join(tmpdir(), "renox-test-"));
+  // realpath: the physical directory, so nothing below depends on a symlinked temp dir.
+  const state = realpathSync(mkdtempSync(join(tmpdir(), "renox-test-")));
   for (const d of ["data", "meters", "logs"]) mkdirSync(join(state, d), { recursive: true });
   mkdirSync(join(state, "data", TEST_TENANT), { recursive: true });
   // Test secrets: `.env.test` of the app (KEY=value lines), never the real `.env`.
@@ -220,31 +256,38 @@ export async function startTestWorker(spec: TestSpec): Promise<TestWorker> {
     JSON.stringify({ version: 0, entries: [{ hostname: TEST_HOST, tenant_id: TEST_TENANT, deployment_hash: spec.hash, status: "active", updated_at: Date.now() }] }),
   );
   const port = freePort();
-  writeFileSync(
-    join(state, "worker.toml"),
-    [
-      `listen = "127.0.0.1:${port}"`,
-      `data_dir = "data"`,
-      `artifacts_dir = ${JSON.stringify(relative(state, spec.artifacts))}`,
-      `routes_file = "routes.json"`,
-      `meters_dir = "meters"`,
-      `logs_dir = "logs"`,
-      `node_id = "test"`,
-      `idle_timeout_secs = 600`,
-      `meter_flush_ms = 1000`,
-      `default_tier = "free"`,
-      "",
-    ].join("\n"),
-  );
-  const w = Bun.spawn([spec.worker, "--config", join(state, "worker.toml")], { cwd: state, stdin: "ignore", stdout: "ignore", stderr: "ignore", env: { ...process.env, RUST_LOG: "error" } });
+  const toml = join(state, "worker.toml");
+  writeFileSync(toml, testWorkerConfig(state, spec.artifacts, port));
+  const w = Bun.spawn([spec.worker, "--config", toml], { cwd: state, stdin: "ignore", stdout: "ignore", stderr: "pipe", env: { ...process.env, RUST_LOG: "error" } });
   let code: number | undefined;
   void w.exited.then((c) => {
     code = c;
   });
+  // The worker's errors (RUST_LOG=error): kept for the start-up failure below,
+  // never printed while the tests run (#462).
+  const errors: string[] = [];
+  void (async () => {
+    const dec = new TextDecoder();
+    let buf = "";
+    for await (const chunk of w.stderr) {
+      buf += dec.decode(chunk);
+      let i: number;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (line) errors.push(line);
+        if (errors.length > 20) errors.shift();
+      }
+    }
+    if (buf.trim()) errors.push(buf.trim());
+  })();
   try {
     await listening(port, () => code);
   } catch (e) {
     w.kill("SIGKILL");
+    if (e instanceof EnvironmentError && errors.length) {
+      throw new EnvironmentError(e.message, { hint: `the worker said: ${workerError(errors[errors.length - 1] as string)} (config: ${toml})` });
+    }
     throw e;
   }
   const base = `http://127.0.0.1:${port}`;

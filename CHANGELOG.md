@@ -2,7 +2,16 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
-## 0.1.2 (unreleased)
+## 0.1.3 (unreleased)
+
+What the first hour on a Mac found (#462; the pinned `renox-worker` stays 0.3.0):
+
+- `renox test` works on macOS. The harness wrote the worker's `artifacts_dir` relative to its state directory under `$TMPDIR`, which on macOS is a symlink under `/var`; the worker resolved it into `/private/Users/...` and was refused at start-up. Every path in the generated worker configuration is now absolute.
+- A worker that exits during `renox test` start-up now names its last error line and the configuration file in the hint, instead of only the exit code.
+- `renox dev` no longer prints the worker's `disk usage unreadable` warning every 5 seconds on macOS, where the disk probe is unsupported.
+- CI runs the first-hour smoke test on macOS as well as Linux.
+
+## 0.1.2 (2026-11-05)
 
 The first hour of a new developer, from sign-up to a live deploy (batch ONBOARD-1: #443, #444, #445, #446, #447, #448, #449, #450). The pinned `renox-worker` stays 0.3.0; the worker change of #444 ships with the next `worker-v*` release and the CLI pin that follows it.
 
