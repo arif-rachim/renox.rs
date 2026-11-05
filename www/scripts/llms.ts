@@ -55,6 +55,21 @@ export const DEV_DOCS: readonly [path: string, line: string][] = [
   ["docs/20-ai-agents-mcp.md", "renox mcp (local) and mcp.renoxium.com (remote) for coding agents, App MCP tools per app, ctx.ai, agent security rules"],
 ];
 
+/** The tutorial (#430): the index and the ten chapters, in reading order, each built on its checkpoint in examples/tutorial/. */
+export const TUTORIAL: readonly [path: string, line: string][] = [
+  ["docs/tutorial/README.md", "build a team task board from an empty folder to a deployed multi-user app in about an hour; the chapters and the checkpoints"],
+  ["docs/tutorial/01-install.md", "install the CLI, renox new --template tutorial, the layout of an app, renox.toml, a function, a page, a test"],
+  ["docs/tutorial/02-dev-loop.md", "renox dev reloads, public/ files, the error overlay, browser errors in the terminal, renox check"],
+  ["docs/tutorial/03-pages.md", "a page with a loader, a layout, a partial with props, loops and conditions, filters, i18n strings"],
+  ["docs/tutorial/04-data.md", "a migration, SQLite per app, a loader with a parameterised query, the SQL lint, seeds for tests"],
+  ["docs/tutorial/05-actions.md", "page actions with validation, <x-form> and CSRF, htmx fragments for add, toggle and remove"],
+  ["docs/tutorial/06-teams.md", "renox add org (with auth and i18n), an app module filling org.send_mail, tasks per team, the header slot"],
+  ["docs/tutorial/07-authorization.md", "a Cedar policy for team members only, guard, authz.require on the stored row, r-can, policy tests"],
+  ["docs/tutorial/08-realtime.md", "[realtime.feeds], an SSE route, the subscribe policy, refreshing a fragment for each member"],
+  ["docs/tutorial/09-tests.md", "renox test with @renoxium/sdk/test: a flow per role, page snapshots, the policy cases"],
+  ["docs/tutorial/10-deploy.md", "renox login and deploy, logs and usage, a custom domain through Cloudflare for SaaS (www, not the apex), the 100 s and 100 MB edge limits"],
+];
+
 /** The reference pages and contracts: what tenant code and tools can rely on. */
 export const CONTRACTS: readonly [path: string, line: string][] = [
   ["docs/contracts/ctx.d.ts", "the TypeScript declarations of everything tenant code gets on ctx"],
@@ -121,8 +136,9 @@ export function llmsTxt(): string {
     [doc("docs/12-developer-experience.md"), "the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits"],
     [`[renox CLI reference](${site("cli/README.md")})`, "every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy"],
     [`[The SDK, @renoxium/sdk](${site("sdk/README.md")})`, "the `@renoxium/sdk` npm package: Handler, Ctx, pages, validate, modules, query builders, @renoxium/sdk/fakes and @renoxium/sdk/test"],
-    [`[Example apps](${repo("examples/")})`, "hello (one function), shop (pages, templates, modules, policies), chat (realtime)"],
+    [`[Example apps](${repo("examples/")})`, "hello (one function), shop (pages, templates, modules, policies), chat (realtime), tutorial (the tutorial's ten checkpoints)"],
   ]);
+  section("Tutorial", TUTORIAL.map(([p, line]) => [doc(p), line]));
   section("App model", DEV_DOCS.filter(([p]) => !/getting-started|12-developer-experience|20-ai-agents-mcp/u.test(p)).map(([p, line]) => [doc(p), line]));
   section("Modules", [
     [doc("docs/10-modules.md"), "how modules are installed (renox add), configured and talk to each other"],
@@ -145,7 +161,7 @@ export function llmsTxt(): string {
 
 /** The files llms-full.txt concatenates, in order. */
 export function fullSources(): string[] {
-  return [...DEV_DOCS.map(([p]) => p), "cli/README.md", "sdk/README.md", "docs/contracts/errors.md", "docs/contracts/manifest.md", ...modules().map((m) => `modules/${m.dir}/README.md`)];
+  return [...DEV_DOCS.slice(0, 1).map(([p]) => p), ...TUTORIAL.map(([p]) => p), ...DEV_DOCS.slice(1).map(([p]) => p), "cli/README.md", "sdk/README.md", "docs/contracts/errors.md", "docs/contracts/manifest.md", ...modules().map((m) => `modules/${m.dir}/README.md`)];
 }
 
 /** The developer-facing documents in one file. */

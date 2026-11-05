@@ -1,0 +1,5 @@
+<r-props task="Task" />
+<article :class="{ task: true, done: task.done }">
+  <span class="check"><r-group r-if="task.done">✓</r-group><r-group r-else>○</r-group></span>
+  <span class="title" dir="auto">{{ task.title | truncate(80) }}</span>
+</article>

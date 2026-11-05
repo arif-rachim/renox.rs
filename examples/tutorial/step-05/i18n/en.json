@@ -1,0 +1,19 @@
+{
+  "home": {
+    "title": "Your team's board",
+    "intro": "Add tasks, tick them off, and see your team's changes as they happen.",
+    "open_board": "Open the board"
+  },
+  "board": {
+    "title": "Board",
+    "new_task": "New task",
+    "add": "Add",
+    "remove": "Remove",
+    "open": "{n} open",
+    "empty": "Nothing to do yet.",
+    "error": {
+      "empty": "Write what needs doing.",
+      "long": "Keep it under 200 characters."
+    }
+  }
+}

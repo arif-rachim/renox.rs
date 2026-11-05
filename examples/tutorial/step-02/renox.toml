@@ -1,0 +1,9 @@
+[app]
+name = "board"
+timezone = "Asia/Dubai"
+
+[permissions]
+# Outbound hosts for fetch, e.g. ["api.stripe.com"]; empty = no network.
+network = []
+# Secret names the app reads from ctx.secrets.
+secrets = []

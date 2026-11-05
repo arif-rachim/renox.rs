@@ -1,0 +1,22 @@
+[app]
+name = "board"
+timezone = "Asia/Dubai"
+
+[permissions]
+# Outbound hosts for fetch, e.g. ["api.stripe.com"]; empty = no network.
+network = []
+# Secret names the app reads from ctx.secrets.
+secrets = []
+
+[modules]
+org = { version = "^1.0.0" }
+auth = { version = "^1.0.0" }
+i18n = { version = "^1.0.0" }
+outbox = { version = "^1.0.0", source = "path:modules/outbox" }
+
+# Chapter 7: who may do what on the board (policies/app/board.cedar).
+[authz]
+actions = ["board.view", "task.edit", "task.delete"]
+
+[authz.entities]
+Task = { table = "app__tasks", attrs = ["team_id"] }

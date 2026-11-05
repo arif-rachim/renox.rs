@@ -10,6 +10,17 @@
 // Add a page: one import line, one entry of PUBLISHED.
 
 import gettingStarted from "../../docs/getting-started.md" with { type: "text" };
+import tutorial from "../../docs/tutorial/README.md" with { type: "text" };
+import tutorial01 from "../../docs/tutorial/01-install.md" with { type: "text" };
+import tutorial02 from "../../docs/tutorial/02-dev-loop.md" with { type: "text" };
+import tutorial03 from "../../docs/tutorial/03-pages.md" with { type: "text" };
+import tutorial04 from "../../docs/tutorial/04-data.md" with { type: "text" };
+import tutorial05 from "../../docs/tutorial/05-actions.md" with { type: "text" };
+import tutorial06 from "../../docs/tutorial/06-teams.md" with { type: "text" };
+import tutorial07 from "../../docs/tutorial/07-authorization.md" with { type: "text" };
+import tutorial08 from "../../docs/tutorial/08-realtime.md" with { type: "text" };
+import tutorial09 from "../../docs/tutorial/09-tests.md" with { type: "text" };
+import tutorial10 from "../../docs/tutorial/10-deploy.md" with { type: "text" };
 import overview from "../../docs/00-overview.md" with { type: "text" };
 import lifecycle from "../../docs/05-tenant-lifecycle.md" with { type: "text" };
 import data from "../../docs/06-data.md" with { type: "text" };
@@ -62,6 +73,18 @@ const ctxPage = `# The \`ctx\` surface\n\nThe TypeScript declarations of everyth
 /** The published pages, in navigation order (previous and next follow it). */
 export const PUBLISHED: readonly Page[] = [
   { path: "docs/getting-started.md", slug: "getting-started", group: "Get started", label: "Getting started", markdown: gettingStarted },
+  // The tutorial (#430): an index and ten chapters, in reading order.
+  { path: "docs/tutorial/README.md", slug: "tutorial", group: "Get started", label: "Tutorial: a team board", markdown: tutorial },
+  { path: "docs/tutorial/01-install.md", slug: "tutorial-install", group: "Get started", label: "1. Install and create", markdown: tutorial01 },
+  { path: "docs/tutorial/02-dev-loop.md", slug: "tutorial-dev-loop", group: "Get started", label: "2. The dev loop", markdown: tutorial02 },
+  { path: "docs/tutorial/03-pages.md", slug: "tutorial-pages", group: "Get started", label: "3. Pages and templates", markdown: tutorial03 },
+  { path: "docs/tutorial/04-data.md", slug: "tutorial-data", group: "Get started", label: "4. Data", markdown: tutorial04 },
+  { path: "docs/tutorial/05-actions.md", slug: "tutorial-actions", group: "Get started", label: "5. Functions and forms", markdown: tutorial05 },
+  { path: "docs/tutorial/06-teams.md", slug: "tutorial-teams", group: "Get started", label: "6. Sign-in and teams", markdown: tutorial06 },
+  { path: "docs/tutorial/07-authorization.md", slug: "tutorial-authorization", group: "Get started", label: "7. Authorization", markdown: tutorial07 },
+  { path: "docs/tutorial/08-realtime.md", slug: "tutorial-realtime", group: "Get started", label: "8. Realtime", markdown: tutorial08 },
+  { path: "docs/tutorial/09-tests.md", slug: "tutorial-tests", group: "Get started", label: "9. Tests", markdown: tutorial09 },
+  { path: "docs/tutorial/10-deploy.md", slug: "tutorial-deploy", group: "Get started", label: "10. Deploy and a domain", markdown: tutorial10 },
   { path: "docs/12-developer-experience.md", slug: "developer-experience", group: "Get started", label: "Developer experience", markdown: developerExperience },
   { path: "docs/07-app-model.md", slug: "app-model", group: "Guides", label: "App model", markdown: appModel },
   { path: "docs/06-data.md", slug: "data", group: "Guides", label: "Data", markdown: data },

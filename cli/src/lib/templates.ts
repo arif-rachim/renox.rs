@@ -1,7 +1,9 @@
 // The `renox new` templates (cli/templates/<name>/; a `.tpl` file is written
 // without the suffix), embedded so the compiled binary carries them. `hello`
-// mirrors examples/hello. `COMMON` is written into every new app whatever
-// the template: the agent files (#377; docs/12-developer-experience.md,
+// mirrors examples/hello; `tutorial` is examples/tutorial/step-01, the start
+// of the tutorial (#430), written by examples/tutorial/sync-template.ts.
+// `COMMON` is written into every new app whatever the template: the agent
+// files (#377; docs/12-developer-experience.md,
 // "Build with an AI agent").
 
 import agents from "../../templates/AGENTS.md.tpl" with { type: "text" };
@@ -14,6 +16,11 @@ import helloTest from "../../templates/hello/tests/hello.test.ts.tpl" with { typ
 import readme from "../../templates/README.md.tpl" with { type: "text" };
 import mcp from "../../templates/mcp.json.tpl" with { type: "text" };
 import tsconfig from "../../templates/tsconfig.json.tpl" with { type: "text" };
+import tutorialHealth from "../../templates/tutorial/functions/api/health.ts.tpl" with { type: "text" };
+import tutorialIndex from "../../templates/tutorial/pages/index.html.tpl" with { type: "text" };
+import tutorialLayout from "../../templates/tutorial/pages/_layouts/main.html.tpl" with { type: "text" };
+import tutorialReadme from "../../templates/tutorial/README.md.tpl" with { type: "text" };
+import tutorialTest from "../../templates/tutorial/tests/app.test.ts.tpl" with { type: "text" };
 
 /** `{{APP}}` in a template is replaced by the app's name (#449). */
 export const TEMPLATES = {
@@ -23,6 +30,13 @@ export const TEMPLATES = {
     "pages/index.html": helloIndex,
     "pages/_layouts/main.html": helloLayout,
     "tests/hello.test.ts": helloTest,
+  },
+  tutorial: {
+    "README.md": tutorialReadme,
+    "functions/api/health.ts": tutorialHealth,
+    "pages/_layouts/main.html": tutorialLayout,
+    "pages/index.html": tutorialIndex,
+    "tests/app.test.ts": tutorialTest,
   },
 } as const satisfies Record<string, Record<string, string>>;
 

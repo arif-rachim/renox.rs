@@ -10,7 +10,21 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 - [Developer experience](https://renoxium.com/docs/developer-experience): the CLI and SDK releases, building with an AI agent, the dev loop, types, debugging, limits
 - [renox CLI reference](https://renoxium.com/docs/cli): every command, exit codes, renox build, renox check, renox test, renox mcp, renox deploy
 - [The SDK, @renoxium/sdk](https://renoxium.com/docs/sdk): the `@renoxium/sdk` npm package: Handler, Ctx, pages, validate, modules, query builders, @renoxium/sdk/fakes and @renoxium/sdk/test
-- [Example apps](https://github.com/arif-rachim/renox.rs/tree/main/examples/): hello (one function), shop (pages, templates, modules, policies), chat (realtime)
+- [Example apps](https://github.com/arif-rachim/renox.rs/tree/main/examples/): hello (one function), shop (pages, templates, modules, policies), chat (realtime), tutorial (the tutorial's ten checkpoints)
+
+## Tutorial
+
+- [Tutorial: build a team board](https://renoxium.com/docs/tutorial): build a team task board from an empty folder to a deployed multi-user app in about an hour; the chapters and the checkpoints
+- [Chapter 1: Install the CLI and create the app](https://renoxium.com/docs/tutorial-install): install the CLI, renox new --template tutorial, the layout of an app, renox.toml, a function, a page, a test
+- [Chapter 2: The dev loop](https://renoxium.com/docs/tutorial-dev-loop): renox dev reloads, public/ files, the error overlay, browser errors in the terminal, renox check
+- [Chapter 3: Pages and templates](https://renoxium.com/docs/tutorial-pages): a page with a loader, a layout, a partial with props, loops and conditions, filters, i18n strings
+- [Chapter 4: Data](https://renoxium.com/docs/tutorial-data): a migration, SQLite per app, a loader with a parameterised query, the SQL lint, seeds for tests
+- [Chapter 5: Functions and forms](https://renoxium.com/docs/tutorial-actions): page actions with validation, <x-form> and CSRF, htmx fragments for add, toggle and remove
+- [Chapter 6: Sign-in and teams with modules](https://renoxium.com/docs/tutorial-teams): renox add org (with auth and i18n), an app module filling org.send_mail, tasks per team, the header slot
+- [Chapter 7: Authorization](https://renoxium.com/docs/tutorial-authorization): a Cedar policy for team members only, guard, authz.require on the stored row, r-can, policy tests
+- [Chapter 8: Realtime](https://renoxium.com/docs/tutorial-realtime): [realtime.feeds], an SSE route, the subscribe policy, refreshing a fragment for each member
+- [Chapter 9: Tests](https://renoxium.com/docs/tutorial-tests): renox test with @renoxium/sdk/test: a flow per role, page snapshots, the policy cases
+- [Chapter 10: Deploy and a custom domain](https://renoxium.com/docs/tutorial-deploy): renox login and deploy, logs and usage, a custom domain through Cloudflare for SaaS (www, not the apex), the 100 s and 100 MB edge limits
 
 ## App model
 
