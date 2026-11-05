@@ -51,21 +51,22 @@ fi
 if [[ ! -e $out/sdk/dist ]]; then
   pass "the SDK's prepare skips its build in a production install (no sdk/dist, no error)"
 else fail "the SDK's prepare in a production install built sdk/dist without the dev toolchain?"; fi
-# The control API's entry point and its imports resolve in the production
-# tree, except @electric-sql/pglite: control/api/src/main.ts imports it
-# statically, but control/api/package.json lists it under devDependencies, so
-# a production tree lacks it and the API cannot start from it. That fix is
-# outside ops/ and is recorded on #400; until it lands the runbook installs
-# without --production (ops/single-host.md, step 3).
-if (cd "$out/control/api" && env -i PATH="$clean_path" "$bun_bin" build --target=bun --outdir "$out/.build" \
-  --external @electric-sql/pglite src/main.ts) >"$out/.build.log" 2>&1; then
-  pass "control/api/src/main.ts and every import but @electric-sql/pglite resolve in the production tree"
-else fail "control/api in the production tree: $(tail -n 10 "$out/.build.log")"; fi
-if [[ -d $out/node_modules/@electric-sql/pglite ]]; then
-  pass "@electric-sql/pglite is installed in production: the control API starts from this tree"
-else echo "note @electric-sql/pglite is not installed by --production (control/api devDependency, #400): the control API cannot start from this tree yet"; fi
+# The control API starts from the production tree on Postgres (#400): PGlite
+# is a dev dependency, loaded only for a pglite: URL, so the production tree
+# has none and the API's whole import graph still loads. Started against a
+# port nothing listens on, it gets as far as connecting to the database and
+# fails there, not on a missing module.
+if [[ ! -d $out/node_modules/@electric-sql/pglite ]]; then
+  pass "@electric-sql/pglite (a dev dependency) is not installed by --production"
+else fail "@electric-sql/pglite is installed by --production: it is a dev dependency"; fi
+start_log=$out/.start.log
+(cd "$out/control/api" && env -i HOME="$out/.home" PATH="$clean_path" CONTROL_DATABASE_URL=postgres://renox@127.0.0.1:1/none \
+  CONTROL_LISTEN_PORT=18911 CONTROL_NODE_LISTEN_PORT=18912 timeout 60 "$bun_bin" src/main.ts) >"$start_log" 2>&1 || true
+if grep -q "ERR_POSTGRES_CONNECTION_REFUSED" "$start_log" && ! grep -qiE "cannot find (module|package)" "$start_log"; then
+  pass "control/api starts from the production tree: every module loads and it stops at the Postgres connection"
+else fail "control/api from the production tree: $(tail -n 10 "$start_log")"; fi
 if [[ ! -e $out/node_modules/typescript ]]; then pass "the dev toolchain (typescript) is not installed"; else fail "typescript is installed by --production"; fi
-rm -rf "$out/.build" "$out/.home"
+rm -rf "$out/.home" "$start_log"
 
 # A dev install of the same files still builds sdk/dist (what CI and the
 # deploy checkout rely on: control/dashboard and www import renox from it).
