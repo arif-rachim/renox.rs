@@ -1,23 +1,51 @@
 //! #311: at the disk's write watermark the data layer refuses tenant and
 //! module writes (`RENOX_DB_QUOTA`), reads go on, and platform work is not
 //! refused (`docs/23-failure-modes.md` "Disk full on node").
+//!
+//! The watermark is one flag per process, so the tests of this file take
+//! `SERIAL` and never run side by side.
 
-use renox_data::{DbError, DbOptions, TenantDb};
+use std::sync::Mutex;
+
+use renox_data::{DbError, DbOptions, MigrationFile, TenantDb, migrate};
+
+static SERIAL: Mutex<()> = Mutex::new(());
+
+/// Clears the watermark when a test ends, also when it panics.
+struct Watermark;
+
+impl Watermark {
+    fn on() -> Watermark {
+        renox_data::limits::refuse_writes(true);
+        Watermark
+    }
+}
+
+impl Drop for Watermark {
+    fn drop(&mut self) {
+        renox_data::limits::refuse_writes(false);
+    }
+}
 
 #[test]
 fn writes_are_refused_at_the_watermark_and_platform_work_is_not() {
-    let dir = std::env::temp_dir().join(format!("renox-watermark-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let db = TenantDb::open(dir.join("app.db"), DbOptions::default()).unwrap();
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let db = TenantDb::open(dir.path().join("app.db"), DbOptions::default()).unwrap();
     db.execute("create table app__t (x integer)", &[]).unwrap();
     db.execute("insert into app__t (x) values (1)", &[])
         .unwrap();
-    renox_data::limits::refuse_writes(true);
+    let watermark = Watermark::on();
     let refused = db.execute("insert into app__t (x) values (2)", &[]);
     assert!(
-        matches!(refused, Err(DbError::QuotaExceeded)),
+        matches!(refused, Err(DbError::WritesRefused)),
         "{refused:?}"
     );
+    let err = refused.unwrap_err();
+    // Same code as the file quota (the contract is unchanged), but the
+    // message names the node's disk, not the tenant's own quota (#382).
+    assert_eq!(err.code(), "RENOX_DB_QUOTA");
+    assert!(err.to_string().contains("write watermark"), "{err}");
     assert_eq!(
         db.query("select x from app__t", &[]).unwrap().len(),
         1,
@@ -35,7 +63,40 @@ fn writes_are_refused_at_the_watermark_and_platform_work_is_not() {
         platform.is_ok(),
         "platform work is not refused: {platform:?}"
     );
-    renox_data::limits::refuse_writes(false);
+    drop(watermark);
     assert!(db.execute("insert into app__t (x) values (3)", &[]).is_ok());
-    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #382: a deployment's migrations are platform work and apply at the
+/// write watermark. Before the fix the bookkeeping insert into
+/// `renox__migrations` (run under `with_writer_policy(None)`) counted as a
+/// tenant write, so activation failed at `stage=migrate` with
+/// `QuotaExceeded` on a node past 95 % (`docs/23-failure-modes.md` "Disk
+/// full on node": platform work is not refused).
+#[test]
+fn migrations_apply_at_the_watermark() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let db = TenantDb::open(dir.path().join("app.db"), DbOptions::default()).unwrap();
+    let files = [MigrationFile {
+        name: "001_init.sql".into(),
+        sql: "create table app__items (id integer primary key, name text not null);".into(),
+    }];
+    let _watermark = Watermark::on();
+    let report = migrate(&db, "app", &files).expect("migrations apply at the watermark");
+    assert_eq!(report.applied, ["001_init.sql"]);
+    let rows = db
+        .with_policy(None, || {
+            db.query(
+                "select name from renox__migrations where module = 'app'",
+                &[],
+            )
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(rows.len(), 1, "the bookkeeping row is written");
+    // The platform scope ends with the migration: a tenant write after it is
+    // refused again, and so is one through the migrated table.
+    let after = db.execute("insert into app__items (name) values ('a')", &[]);
+    assert!(matches!(after, Err(DbError::WritesRefused)), "{after:?}");
 }

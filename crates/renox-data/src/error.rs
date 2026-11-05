@@ -73,6 +73,12 @@ pub enum DbError {
     /// The file reached its `max_page_count` quota. Reads still work.
     #[error("database file size quota exceeded")]
     QuotaExceeded,
+    /// The node's disk is at its write watermark (95 %, #311): tenant and
+    /// module writes are refused, reads still work. The same code as the
+    /// file quota (`RENOX_DB_QUOTA`, the contract is unchanged), but not the
+    /// tenant's own quota, so the message says so (#382).
+    #[error("writes refused: the node's disk is at its write watermark")]
+    WritesRefused,
     #[error("{} constraint failed: {message}", kind.as_str())]
     Constraint {
         kind: ConstraintKind,
@@ -116,7 +122,7 @@ impl DbError {
             DbError::Auth { .. } => "RENOX_DB_AUTH",
             DbError::Scope { .. } => "RENOX_DB_SCOPE",
             DbError::Timeout => "RENOX_DB_TIMEOUT",
-            DbError::QuotaExceeded => "RENOX_DB_QUOTA",
+            DbError::QuotaExceeded | DbError::WritesRefused => "RENOX_DB_QUOTA",
             DbError::Constraint { .. } => "RENOX_DB_CONSTRAINT",
             DbError::Param(_) => "RENOX_DB_PARAM",
             DbError::ColumnName(_) => "RENOX_DB_COLUMN_NAME",

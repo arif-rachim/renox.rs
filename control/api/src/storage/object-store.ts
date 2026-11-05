@@ -1,4 +1,4 @@
-// Object storage for artifacts and sourcemaps (S3-compatible: MinIO locally,
+// Object storage for artifacts and sourcemaps (S3-compatible: versitygw locally,
 // Cloudflare R2 in production, ADR D25). Keys are content-addressed and
 // written once (deploy-api.md section 4). Exports (#308) are written with
 // SSE-KMS (`PutOptions.sseKmsKeyId`) when `EXPORT_KMS_KEY_ID` is set (an AWS

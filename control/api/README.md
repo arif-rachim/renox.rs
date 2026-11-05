@@ -5,7 +5,7 @@ The Renox control plane's deploy API: Bun + Hono, Postgres, S3-compatible object
 ## Run
 
 ```sh
-docker compose -f control/docker-compose.yml up -d        # Postgres 16 + MinIO + the artifact bucket
+docker compose -f control/docker-compose.yml up -d        # Postgres 16 + versitygw (S3) + the artifact bucket
 CONTROL_DATABASE_URL=postgres://renox:renox-dev@localhost:5432/renox \
 CONTROL_S3_ENDPOINT=http://localhost:9000 \
 CONTROL_S3_ACCESS_KEY_ID=renox CONTROL_S3_SECRET_ACCESS_KEY=renox-dev-minio \

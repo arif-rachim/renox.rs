@@ -39,6 +39,23 @@
 # unit.
 # RENOX_TEST_STUB_WORKER=1 says the worker binary is a stand-in (a local run
 # without a build), so the real config parser is not asked.
+# RENOX_TEST_FORCE_UPGRADE_FAILURE=1 makes the second --upgrade run of step 4
+# fail (a --worker-bin that does not exist), to see what a failure prints and
+# that step 5 does not inherit it (#464).
+#
+# #464, the intermittent step 4 in CI (run 42041215973, 18 s then FAIL, and
+# step 5 refused for "this node runs renox-worker 0.0.1"): the version file
+# still said 0.0.1, so the first `--upgrade` run (same version) failed after
+# it wrote the file, and the second never ran. Its output went to /dev/null.
+# Every bootstrap run downloaded Litestream from GitHub again (curl --retry 3:
+# about 7 s of back-off plus the attempts), five times per test, and a failed
+# download fits both the 18 s and the missing message. Now only step 1
+# downloads it (the fetch path stays tested); later runs install the binary
+# step 1 verified and installed. Every bootstrap run's output is kept and
+# printed on failure with `systemctl status` and the worker's journal; the
+# worker is awaited (`systemctl is-active` polled) instead of a fixed sleep;
+# the single-host runs pass --upgrade, so step 5 starts from a known state
+# whatever step 4 left.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -114,6 +131,30 @@ TOML
 failures=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1" >&2; failures=$((failures + 1)); }
+# What a failed bootstrap run said, and the worker's state (#464).
+explain() {
+  local what=$1 log=$2
+  {
+    echo "---- $what: output"
+    cat "$log" 2>/dev/null || true
+    echo "---- systemctl status renox-worker"
+    docker exec "$name" systemctl status renox-worker --no-pager --lines=0 2>&1 || true
+    echo "---- journalctl -u renox-worker (last 30 lines)"
+    docker exec "$name" journalctl -u renox-worker --no-pager -n 30 2>&1 || true
+    echo "----"
+  } >&2
+}
+# Polls until the worker is active (the unit is Type=exec: `restart` returns
+# once the process is exec'd, not when it serves).
+worker_active() {
+  local state=""
+  for _ in $(seq 20); do
+    state=$(docker exec "$name" systemctl is-active renox-worker 2>/dev/null || true)
+    [[ $state == active ]] && return 0
+    sleep 0.5
+  done
+  return 1
+}
 
 # RENOX_TEST_LITESTREAM_BIN: a Litestream binary to install instead of fetching
 # it (a local run whose container has no route to GitHub).
@@ -125,12 +166,23 @@ fi
 boot() { docker exec "$name" /src/ops/scripts/bootstrap-node.sh --worker-version 0.0.1 --worker-bin /src/renox-worker --config /src/worker.toml "${lsbin[@]}" "$@"; }
 
 # 1. Install without starting, then add the (empty) route table the local mode needs.
-if boot --no-enable >/dev/null; then pass "bootstrap installs the node (--no-enable)"; else fail "bootstrap installs the node (--no-enable)"; fi
+if boot --no-enable >"$ctx/boot1" 2>&1; then pass "bootstrap installs the node (--no-enable)"; else
+  fail "bootstrap installs the node (--no-enable)"
+  explain "bootstrap --no-enable" "$ctx/boot1"
+fi
 docker exec "$name" sh -c 'echo "{\"version\": 0, \"entries\": []}" > /var/lib/renox/data/routes.json && chown renox:renox /var/lib/renox/data/routes.json'
+# Step 1 fetched and verified the pinned Litestream (fetch-litestream.sh);
+# every later run installs that binary instead of downloading it again (#464).
+if [[ ${#lsbin[@]} -eq 0 ]] && docker exec "$name" cp /opt/renox/bin/litestream /src/litestream 2>/dev/null; then
+  lsbin=(--litestream-bin /src/litestream)
+fi
 
 # 2. Second run, same version: enables and starts the target.
-if boot >/dev/null; then pass "a second run with the same version succeeds and starts the node"; else fail "a second run with the same version succeeds"; fi
-sleep 3
+if boot >"$ctx/boot2" 2>&1; then pass "a second run with the same version succeeds and starts the node"; else
+  fail "a second run with the same version succeeds"
+  explain "bootstrap (second run)" "$ctx/boot2"
+fi
+worker_active || true
 active=$(docker exec "$name" systemctl is-active renox-worker 2>/dev/null || true)
 if [[ $active == active ]]; then pass "systemctl is-active renox-worker: active"; else
   fail "systemctl is-active renox-worker: ${active:-none}"
@@ -155,15 +207,21 @@ else
 fi
 
 # 4. --upgrade installs it, keeps the previous binary for rollback and restarts.
-if boot --upgrade >/dev/null 2>&1 && docker exec "$name" /src/ops/scripts/bootstrap-node.sh --worker-version 0.0.2 --worker-bin /src/renox-worker --config /src/worker.toml "${lsbin[@]}" --upgrade >/dev/null; then
-  sleep 2
-  if [[ $(docker exec "$name" cat /opt/renox/worker-version) == 0.0.2 && $(docker exec "$name" systemctl is-active renox-worker || true) == active ]]; then
-    pass "--upgrade installs the new version and the worker restarts"
-  else
-    fail "--upgrade installs the new version and the worker restarts"
-  fi
+# Each run's output is kept: a failure names the run and shows what it said,
+# `systemctl status` and the worker's journal (#464).
+upgrade_bin=/src/renox-worker
+[[ ${RENOX_TEST_FORCE_UPGRADE_FAILURE:-0} == 1 ]] && upgrade_bin=/src/no-such-renox-worker
+if ! boot --upgrade >"$ctx/up1" 2>&1; then
+  fail "--upgrade installs the new version: the --upgrade run with the same version (0.0.1) failed"
+  explain "bootstrap --worker-version 0.0.1 --upgrade" "$ctx/up1"
+elif ! docker exec "$name" /src/ops/scripts/bootstrap-node.sh --worker-version 0.0.2 --worker-bin "$upgrade_bin" --config /src/worker.toml "${lsbin[@]}" --upgrade >"$ctx/up2" 2>&1; then
+  fail "--upgrade installs the new version: the --upgrade run to 0.0.2 failed"
+  explain "bootstrap --worker-version 0.0.2 --upgrade" "$ctx/up2"
+elif [[ $(docker exec "$name" cat /opt/renox/worker-version) == 0.0.2 ]] && worker_active; then
+  pass "--upgrade installs the new version and the worker restarts"
 else
-  fail "--upgrade installs the new version"
+  fail "--upgrade installs the new version and the worker restarts (version $(docker exec "$name" cat /opt/renox/worker-version 2>&1))"
+  explain "bootstrap --worker-version 0.0.2 --upgrade" "$ctx/up2"
 fi
 
 # 5. The single host (#366). The local-mode worker.toml is set aside so the
@@ -194,8 +252,10 @@ while True:
 PY
 docker exec "$name" chmod 0755 /src/cloudflared
 docker exec "$name" mv /etc/renox/worker.toml /src/local-worker.toml
+# --upgrade: step 5 installs 0.0.2 whatever version step 4 left (#464), so it
+# passes or fails on its own merits.
 single() {
-  docker exec "$name" /src/ops/scripts/bootstrap-node.sh --single-host --no-enable --worker-version 0.0.2 --worker-bin /src/renox-worker \
+  docker exec "$name" /src/ops/scripts/bootstrap-node.sh --single-host --no-enable --upgrade --worker-version 0.0.2 --worker-bin /src/renox-worker \
     --cloudflared-bin /src/cloudflared --node-id node-single --node-token-file /src/node.token "${lsbin[@]}" "$@"
 }
 if single --control-url https://10.0.1.5:8788 --blocked-addresses 203.0.113.10,127.0.0.1 2>"$ctx/err"; then fail "--single-host refuses a control URL that is not loopback"

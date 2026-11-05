@@ -34,9 +34,9 @@ This is the same shape as B18 (`bench/scenarios/B18/`), with both nodes on one h
 
 | Variable | Example (CI) |
 | --- | --- |
-| `RENOX_CHAOS_S3_ENDPOINT` | `http://127.0.0.1:9000` (MinIO from `control/docker-compose.yml`) |
+| `RENOX_CHAOS_S3_ENDPOINT` | `http://127.0.0.1:9000` (the `s3` service, versitygw, from `control/docker-compose.yml`) |
 | `RENOX_CHAOS_S3_ACCESS_KEY_ID`, `RENOX_CHAOS_S3_SECRET_ACCESS_KEY` | the compose file's development values |
-| `RENOX_CHAOS_S3_DOWN`, `RENOX_CHAOS_S3_UP` | `docker pause renox-control-minio-1`, `docker unpause renox-control-minio-1` |
+| `RENOX_CHAOS_S3_DOWN`, `RENOX_CHAOS_S3_UP` | `docker pause renox-control-s3-1`, `docker unpause renox-control-s3-1` |
 
 Any S3 server works. On `node-small` (2026-11-01, no MinIO image could be pulled and MinIO no longer publishes binaries) it was `rclone serve s3 --addr 127.0.0.1:9000 --auth-key <id>,<secret> --force-path-style=true <dir>` with a `renox-artifacts` directory in `<dir>`. Run it both ways: with the server stopped (connections refused) and paused (`kill -STOP` of the server's own process, or `docker pause` as in CI: connections accepted and never answered). Before #359 the paused case failed, because the cold start waited for the worker's 60 s artifact download timeout; the worker now gives up after `HEAD_TIMEOUT` (5 s) and refuses further uncached cold starts for `FETCH_BACKOFF` (5 s) without fetching.
 

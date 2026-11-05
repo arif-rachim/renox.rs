@@ -142,7 +142,18 @@ allow_unsandboxed = true
       );
       const workerProc = Bun.spawn([worker as string, "--config", join(root, "worker.toml")], { stdout: "ignore", stderr: Bun.file(join(root, "worker.log")) });
       procs.push(workerProc);
-      await until("the worker", 60_000, async () => ((await fetch(`http://127.0.0.1:${health}/healthz`)).ok ? true : undefined));
+      const healthz = await until("the worker", 60_000, async () => {
+        const res = await fetch(`http://127.0.0.1:${health}/healthz`);
+        return res.ok ? ((await res.json()) as { status: string; reasons?: string[] }) : undefined;
+      });
+      // #382: a controlled worker past its disk watermark (90 %: no new
+      // cell; 95 %: no write) makes every later step time out one after
+      // another. The worker counts `size - f_bavail`, which on a container
+      // with a disk allowance can read far above `df`. Say so at once.
+      const disk = (healthz.reasons ?? []).find((r) => /^disk: (stop_scheduling|refuse_writes) /u.test(r));
+      if (disk !== undefined) {
+        throw new Error(`the worker's data directory (${tmpdir()}) is past its disk watermark (${disk}); free disk or point TMPDIR at another file system`);
+      }
 
       const env = { ...process.env, RENOX_TOKEN: token, RENOX_API_URL: api, XDG_CONFIG_HOME: root };
       const cli = (args: string[], cwd: string) => {
