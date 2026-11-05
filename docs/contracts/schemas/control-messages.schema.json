@@ -182,8 +182,26 @@
           "if": { "properties": { "level": { "const": "ok" } } },
           "then": { "properties": { "watermark": { "type": "null" } } },
           "else": { "properties": { "watermark": { "type": "integer" } } }
-        }
+        },
+        "process_isolation": { "$ref": "#/$defs/process_isolation" }
       }
+    },
+    "process_isolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "own_ignored"],
+      "description": "Deploy API 0.6.2 (section 7), optional: whether the node's process supervisor ([process] in worker.toml, #254) is on. enabled: false = every tenant runs in the shared worker process, and own_ignored lists the tenants whose active route entry on this node asks for process = \"own\" (RouteState::own_process_ignored, #403). enabled: true = own_ignored is empty. Absent = a worker older than 0.6.2; the console shows the isolation as unknown, never as own.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "own_ignored": {
+          "type": "array",
+          "maxItems": 2000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/tenant_id" }
+        }
+      },
+      "if": { "properties": { "enabled": { "const": true } } },
+      "then": { "properties": { "own_ignored": { "maxItems": 0 } } }
     },
     "heartbeat_ack": {
       "type": "object",
