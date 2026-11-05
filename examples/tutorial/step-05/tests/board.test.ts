@@ -1,16 +1,14 @@
 // Chapter 5: the actions add, tick off and remove tasks; an htmx request
 // gets the `tasks` fragment only.
 import { describe, expect, test } from "bun:test";
-import type { TestApp } from "@renoxium/sdk/test";
+import { app } from "@renoxium/sdk/test";
 
-// `renox test` sets RENOX_TEST_SPEC; any other `bun test` skips this file.
-const run = process.env.RENOX_TEST_SPEC !== undefined;
-const t = run ? await (await import("@renoxium/sdk/test")).app() : ({} as TestApp);
+const t = await app();
 
 /** The id of the task with this title. */
 const taskId = (title: string): string => String(t.db.query<{ id: number }>("select id from app__tasks where title = ?", [title])[0]?.id);
 
-describe.skipIf(!run)("the board", () => {
+describe("the board", () => {
   test("lists the seeded tasks, open ones first", async () => {
     const page = await t.page("/board");
     expect(page.html).toContain("2 open");

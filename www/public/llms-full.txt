@@ -349,13 +349,11 @@ Open http://localhost:8787. [What you should see: the home page of the new app](
 ```ts
 // `renox test` runs this file on the local worker, with a fresh database.
 import { describe, expect, test } from "bun:test";
-import type { TestApp } from "@renoxium/sdk/test";
+import { app } from "@renoxium/sdk/test";
 
-// `renox test` sets RENOX_TEST_SPEC; any other `bun test` skips this file.
-const run = process.env.RENOX_TEST_SPEC !== undefined;
-const t = run ? await (await import("@renoxium/sdk/test")).app() : ({} as TestApp);
+const t = await app();
 
-describe.skipIf(!run)("the app", () => {
+describe("the app", () => {
   test("the home page renders", async () => {
     const res = await t.page("/");
     expect(res.status).toBe(200);
@@ -635,7 +633,7 @@ The test asks for the page and checks the order:
 
 `tests/board.test.ts`:
 ```ts
-describe.skipIf(!run)("the board", () => {
+describe("the board", () => {
   test("lists the tasks, open ones first", async () => {
     const page = await t.page("/board");
     expect(page.status).toBe(200);
@@ -1213,7 +1211,7 @@ The tests sign users up through the real `auth` pages and check that teams are k
 
 `tests/board.test.ts`:
 ```ts
-describe.skipIf(!run)("the board, per team", () => {
+describe("the board, per team", () => {
   test("a new user creates a team, then adds and ticks off its tasks", async () => {
     const lina = await signUp("Lina");
     expect((await lina.page("/board")).html).toContain("You are not in a team yet.");
@@ -1620,7 +1618,7 @@ The owner creates the team and uses every action. An htmx request is checked to 
     expect(page.html).toContain("Ship &lt;b&gt;it&lt;/b&gt;");
     expect(page.html).toContain("1 open");
     expect(page.html).toContain(">Remove</button>");
-    sdk?.snapshot(main(page.html), { role: "owner" });
+    snapshot(main(page.html), { role: "owner" });
   });
 ```
 
@@ -1639,7 +1637,7 @@ The member joins through the invitation. They can add and tick off, they see no 
     expect(page.html).not.toContain(">Remove</button>");
     // The button is hidden, and the action refuses the request too.
     expect((await omar.action("/board", "remove", { task: taskId("Review chapter 9") })).status).toBe(403);
-    sdk?.snapshot(main(page.html), { role: "member" });
+    snapshot(main(page.html), { role: "member" });
   });
 ```
 

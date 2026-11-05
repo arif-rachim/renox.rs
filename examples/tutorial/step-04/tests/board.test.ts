@@ -1,13 +1,11 @@
 // Chapter 4: the board reads its tasks from SQLite; `renox test` loads
 // seeds/tasks.sql into this file's fresh database first.
 import { describe, expect, test } from "bun:test";
-import type { TestApp } from "@renoxium/sdk/test";
+import { app } from "@renoxium/sdk/test";
 
-// `renox test` sets RENOX_TEST_SPEC; any other `bun test` skips this file.
-const run = process.env.RENOX_TEST_SPEC !== undefined;
-const t = run ? await (await import("@renoxium/sdk/test")).app() : ({} as TestApp);
+const t = await app();
 
-describe.skipIf(!run)("the board", () => {
+describe("the board", () => {
   test("lists the tasks, open ones first", async () => {
     const page = await t.page("/board");
     expect(page.status).toBe(200);

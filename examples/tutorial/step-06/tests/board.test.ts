@@ -1,10 +1,8 @@
 // Chapter 6: tasks belong to the signed-in user's team.
 import { describe, expect, test } from "bun:test";
-import type { TestApp } from "@renoxium/sdk/test";
+import { app, type TestApp } from "@renoxium/sdk/test";
 
-// `renox test` sets RENOX_TEST_SPEC; any other `bun test` skips this file.
-const run = process.env.RENOX_TEST_SPEC !== undefined;
-const t = run ? await (await import("@renoxium/sdk/test")).app() : ({} as TestApp);
+const t = await app();
 
 const PASSWORD = "correct horse battery";
 
@@ -20,7 +18,7 @@ async function signUp(name: string): Promise<TestApp> {
 /** The id of the task with this title. */
 const taskId = (title: string): string => String(t.db.query<{ id: number }>("select id from app__tasks where title = ?", [title])[0]?.id);
 
-describe.skipIf(!run)("the board, per team", () => {
+describe("the board, per team", () => {
   test("a new user creates a team, then adds and ticks off its tasks", async () => {
     const lina = await signUp("Lina");
     expect((await lina.page("/board")).html).toContain("You are not in a team yet.");

@@ -205,7 +205,7 @@ The tests sign users up through the real `auth` pages and check that teams are k
 
 `tests/board.test.ts`:
 ```ts
-describe.skipIf(!run)("the board, per team", () => {
+describe("the board, per team", () => {
   test("a new user creates a team, then adds and ticks off its tasks", async () => {
     const lina = await signUp("Lina");
     expect((await lina.page("/board")).html).toContain("You are not in a team yet.");

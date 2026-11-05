@@ -128,13 +128,11 @@ Open http://localhost:8787. [What you should see: the home page of the new app](
 ```ts
 // `renox test` runs this file on the local worker, with a fresh database.
 import { describe, expect, test } from "bun:test";
-import type { TestApp } from "@renoxium/sdk/test";
+import { app } from "@renoxium/sdk/test";
 
-// `renox test` sets RENOX_TEST_SPEC; any other `bun test` skips this file.
-const run = process.env.RENOX_TEST_SPEC !== undefined;
-const t = run ? await (await import("@renoxium/sdk/test")).app() : ({} as TestApp);
+const t = await app();
 
-describe.skipIf(!run)("the app", () => {
+describe("the app", () => {
   test("the home page renders", async () => {
     const res = await t.page("/");
     expect(res.status).toBe(200);
