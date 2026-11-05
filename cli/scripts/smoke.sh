@@ -10,8 +10,10 @@
 # Needs bun, curl and ps on PATH. Exits non-zero at the first failed step.
 set -euo pipefail
 
-RENOX=$(realpath "$1")
-SDK=${2:+$(realpath "$2")}
+# An absolute path without realpath(1): macOS before 13 has none (#462).
+abspath() { (cd "$(dirname "$1")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$1")"); }
+RENOX=$(abspath "$1")
+SDK=${2:+$(abspath "$2")}
 PORT=${SMOKE_PORT:-18787}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/renox-smoke-XXXXXX")
 DEV_PID=""

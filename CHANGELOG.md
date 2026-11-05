@@ -9,7 +9,7 @@ What the first hour on a Mac found (#462; the pinned `renox-worker` stays 0.3.0)
 - `renox test` works on macOS. The harness wrote the worker's `artifacts_dir` relative to its state directory under `$TMPDIR`, which on macOS is a symlink under `/var`; the worker resolved it into `/private/Users/...` and was refused at start-up. Every path in the generated worker configuration is now absolute.
 - A worker that exits during `renox test` start-up now names its last error line and the configuration file in the hint, instead of only the exit code.
 - `renox dev` no longer prints the worker's `disk usage unreadable` warning every 5 seconds on macOS, where the disk probe is unsupported.
-- CI runs the first-hour smoke test on macOS as well as Linux.
+- CI runs the first-hour smoke test on macOS as well as Linux; the script no longer needs `realpath`, which macOS before 13 does not have.
 
 ## 0.1.2 (2026-11-05)
 
