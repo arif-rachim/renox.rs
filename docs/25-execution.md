@@ -8,9 +8,9 @@ Issue #87 (UAE entity and bank account) is yours, not a session; it is needed be
 
 Prompts of finished batches are kept as the record of what ran; the status line under each heading says what happened.
 
-## Where we are (2026-11-05, after SINGLE-HOST-2; `main` at `21f0d16`)
+## Where we are (2026-11-05, after SINGLE-HOST-2 and F7-63; `main` at `d37a751`)
 
-Every session that ran on 2026-11-05 before these four batches was cancelled and its branch lost; the tracker was cleaned the same day, and #455 to #464 are the issues filed then. The four batches marked "Started 2026-11-05" below run now, side by side; PR #463 (#462, the CLI on macOS) is open beside them.
+Every session that ran on 2026-11-05 before these four batches was cancelled and its branch lost; the tracker was cleaned the same day, and #455 to #464 are the issues filed then. The four batches marked "Started 2026-11-05" below run now, side by side. PR #463 (#462, the CLI on macOS) and PR #467 (the 0.1.3 release commit) merged while they ran.
 
 | Phase | Done (PR) | Running | Next |
 | --- | --- | --- | --- |
@@ -21,13 +21,13 @@ Every session that ran on 2026-11-05 before these four batches was cancelled and
 | F4 | F4-0 #247 (#225, #227), F4-ALL #262 (the 19 tasks; epics #63–#67 closed), F4-X #271 (#263–#268), P4 (checklists #101 9 of 10, #117 8 of 14), the two P4 leftovers #274 (F6-B #300) and #275 (F5-ALL #301) | — | Gate #68 (needs the booking product repo) |
 | F5 | C5 #299 (#272, #273), F5-ALL #301 (the 22 issues; epics #69, #71, #72, #73 closed), F56-ALL #314 (#305), F67-ALL #340 (#307) | — | Gate #74 after the B14 run (#456) |
 | F6 | F6-ALL #270, C5 #299, F6-B #300, F56-ALL #314, F67-ALL #340, F67-B #344 (epics #75, #77, #78 closed), O3-HOST #345 (#312, #256; epic #76 closed), JOBS-CLOCK #365 (#362), #367 (#359), #373 | GREEN-CI (#389, the weekly chaos run; #464, the bootstrap `--upgrade` flake) | Gate #79 after #74, the B18 two-host run (#456), the `ops/` code-owner reviews and one green weekly chaos run |
-| F7 | F67-ALL #340, F67-B #344, C7 #347 (#346), F67-C #348 (#325, #332), F67-D #349 (#123, #336), F7-STRIPE #352 (#350, #351), GREEN-MAIN #358 (#356), DOMAINS #368 #370 (#363, #364), SDK-DOCS #379 (#376, #377), BINARY-SIZE #380 #383 (#372), SINGLE-HOST #386 (#385, #366 partly; #366 closed on 2026-11-05 after HOST-OPS, HOST-WORKER, HOST-CONTROL and SINGLE-HOST-2, its owner steps moved to #458), #388 (#387), #390, renox-ui #384 (D24), HOST-CONTROL #408, HOST-OPS #409 (#393, #394, #395, #397, #399, #405), HOST-WORKER #412 (#391, #392, #401, #404), F7-38 CF-EDGE #422 #423 #425 (#414, #416–#420, #424; epic #421 closed; D25, D26), F7-39 DOTMATRIX #432 #439 (#426–#428; epic #429 closed; D27), F7-44 #433–#438 (#431, #219; D28; `cli-v0.1.0`, `cli-v0.1.1`), ONBOARD-1 #452 (#443–#450), SINGLE-HOST-2 #453 (#400, #403, #406, #407); `cli-v0.1.2` released 2026-11-05 | DOCS-SYNC (#461), HEARTBEAT-KEYS (#454, #460, #451), TUTORIAL (#430); PR #463 (#462) open | Not in a batch yet: #381 (`ctx.pdf` on the released worker), #440 (the CLI on npm), #441 (native Windows CLI), #442 (epic: the worker on Windows); gate #86 needs the products launched and the first paying tenant |
+| F7 | F67-ALL #340, F67-B #344, C7 #347 (#346), F67-C #348 (#325, #332), F67-D #349 (#123, #336), F7-STRIPE #352 (#350, #351), GREEN-MAIN #358 (#356), DOMAINS #368 #370 (#363, #364), SDK-DOCS #379 (#376, #377), BINARY-SIZE #380 #383 (#372), SINGLE-HOST #386 (#385, #366 partly; #366 closed on 2026-11-05 after HOST-OPS, HOST-WORKER, HOST-CONTROL and SINGLE-HOST-2, its owner steps moved to #458), #388 (#387), #390, renox-ui #384 (D24), HOST-CONTROL #408, HOST-OPS #409 (#393, #394, #395, #397, #399, #405), HOST-WORKER #412 (#391, #392, #401, #404), F7-38 CF-EDGE #422 #423 #425 (#414, #416–#420, #424; epic #421 closed; D25, D26), F7-39 DOTMATRIX #432 #439 (#426–#428; epic #429 closed; D27), F7-44 #433–#438 (#431, #219; D28; `cli-v0.1.0`, `cli-v0.1.1`), ONBOARD-1 #452 (#443–#450), SINGLE-HOST-2 #453 (#400, #403, #406, #407), F7-63 #463 #467 (#462: `renox test` on macOS); `cli-v0.1.2` and `cli-v0.1.3` released 2026-11-05 | DOCS-SYNC (#461), HEARTBEAT-KEYS (#454, #460, #451), TUTORIAL (#430) | Not in a batch yet: #381 (`ctx.pdf` on the released worker), #440 (the CLI on npm), #441 (native Windows CLI), #442 (epic: the worker on Windows); gate #86 needs the products launched and the first paying tenant |
 
 **Waits on the owner** (no session can do these; each issue says what is needed):
 
 | Issue | What the owner does |
 | --- | --- |
-| #455 | The `cli-v0.1.2` release is out; what is left is the quickstart transcript from a clean machine (and the 0.1.2 date in `CHANGELOG.md`, which PR #463 sets) |
+| #455 | `cli-v0.1.2` and `cli-v0.1.3` are out (the Mac run of the quickstart found #462, fixed in 0.1.3); what is left is the quickstart transcript from a clean machine with the released installer |
 | #456 | The load-generator host (SSH address in the issue); then a session runs B4, B6, B7, B11, B12, B14, B18 and the Hono baseline |
 | #457 | A `node-small` session for the bisect of the `shop` isolate RSS |
 | #458 | The install on `node-small` from `ops/single-host.md` and the Cloudflare cut-over (tunnel, DNS, R2, Resend) |
@@ -820,7 +820,7 @@ Status (2026-11-05): merged as PR #453 (`21f0d16`), closing #400, #406, #407; #4
 Work on batch DOCS-SYNC of arif-rachim/renox.rs: issue #461. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if something blocks you, do what the rules say and continue.
 ```
 
-Started 2026-11-05. Docs only: `README.md`, `AGENTS.md`, `CLAUDE.md`, this file, `docs/12`, `docs/15`, `docs/getting-started.md`, `cli/README.md`, `control/api/README.md`, the dashboard's install constant, `examples/hello/README.md`. It touches nothing PR #463 or GREEN-CI edits (`cli/src`, `cli/tests`, `cli/scripts`, `.github/workflows/ci.yml`, `ops/`, `bench/chaos`).
+Started 2026-11-05. Docs only: `README.md`, `AGENTS.md`, `CLAUDE.md`, this file, `docs/12`, `docs/15`, `docs/getting-started.md`, `cli/README.md`, `control/api/README.md`, the dashboard's install constant, `examples/hello/README.md`. It touches nothing GREEN-CI edits, and nothing in `cli/src`, `cli/tests`, `cli/scripts` or `.github/workflows/ci.yml`, which PR #463 owned while it was open.
 
 ### Batch GREEN-CI — now — the weekly chaos run, the bootstrap `--upgrade` flake, the rollback e2e test (3 issues)
 
@@ -828,7 +828,7 @@ Started 2026-11-05. Docs only: `README.md`, `AGENTS.md`, `CLAUDE.md`, this file,
 Work on batch GREEN-CI of arif-rachim/renox.rs: issues #389, #464, #382 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
 ```
 
-Started 2026-11-05. #389 (the weekly chaos run of 2026-11-02 failed before the harness finished; `bench/chaos/`, the run's `chaos-results` artifact), #464 (`ops/scripts/bootstrap-node.test.sh`: the `--upgrade` step fails intermittently and hides its output, and the single-host steps inherit the failure; code-owner review of `ops/`), #382 (`cli/tests/deploy.e2e.test.ts`, "v1 again on the worker" times out after `renox deploy --rollback`, found by BINARY-SIZE). #382 is in `cli/tests`, which PR #463 also edits: rebase on `main` after #463 merges. Gate #79 waits for one green weekly chaos run.
+Started 2026-11-05. #389 (the weekly chaos run of 2026-11-02 failed before the harness finished; `bench/chaos/`, the run's `chaos-results` artifact), #464 (`ops/scripts/bootstrap-node.test.sh`: the `--upgrade` step fails intermittently and hides its output, and the single-host steps inherit the failure; code-owner review of `ops/`), #382 (`cli/tests/deploy.e2e.test.ts`, "v1 again on the worker" times out after `renox deploy --rollback`, found by BINARY-SIZE). #382 is in `cli/tests`, which PR #463 also edited: branch from `main` at `d37a751` or later. Gate #79 waits for one green weekly chaos run.
 
 ### Batch HEARTBEAT-KEYS — now — `process_isolation` on the heartbeat, the master-key re-encryption job (3 issues)
 
@@ -844,7 +844,7 @@ Started 2026-11-05. #454 first (special case `type:contract`: the deploy API pat
 Work on batch TUTORIAL of arif-rachim/renox.rs: issue #430. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if the issue blocks you, do what the rules say and stop.
 ```
 
-Started 2026-11-05. #430 (`[F7-43]`): a team task board built in ten chapters (`docs/tutorial/`) with one tested checkpoint app per chapter (`examples/tutorial/step-01` to `step-10`), a drift test between the chapters' code blocks and the checkpoints, `renox new --template tutorial`, and the pages in the docs navigation and `llms*.txt`; written against the released `cli-v0.1.2`. Its blocker #428 is closed (DOTMATRIX). Paths: `examples/tutorial/**`, `docs/tutorial/**`, `cli/templates/tutorial/**`, one entry in `cli/src/lib/templates.ts`, one case in `cli/tests/new.test.ts`, `www/lib/docs.ts`, `www/scripts/llms.ts`; no file of PR #463, GREEN-CI or DOCS-SYNC. The first-time user's run on a clean machine and the deployed app are the owner's to arrange.
+Started 2026-11-05. #430 (`[F7-43]`): a team task board built in ten chapters (`docs/tutorial/`) with one tested checkpoint app per chapter (`examples/tutorial/step-01` to `step-10`), a drift test between the chapters' code blocks and the checkpoints, `renox new --template tutorial`, and the pages in the docs navigation and `llms*.txt`; written against the released CLI (`cli-v0.1.3` at the start). Its blocker #428 is closed (DOTMATRIX). Paths: `examples/tutorial/**`, `docs/tutorial/**`, `cli/templates/tutorial/**`, one entry in `cli/src/lib/templates.ts`, one case in `cli/tests/new.test.ts`, `www/lib/docs.ts`, `www/scripts/llms.ts`; no file of GREEN-CI or DOCS-SYNC. The first-time user's run on a clean machine and the deployed app are the owner's to arrange.
 
 ### Gate F7 — after F67-ALL and F67-B, the products launched and the first paying tenant
 

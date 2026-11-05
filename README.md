@@ -5,7 +5,7 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 
 > *"Assemble a SaaS from auth, billing, and admin modules, then deploy to hosting that charges only for what you use."*
 
-> **Status (2026-11-05, `main` at `21f0d16`).** The code of every phase F0 to F7 is on `main`: eight crates under `crates/`, the control plane under `control/`, the `renox` CLI and SDK, sixteen official modules, the examples, the site. The CLI is released (`cli-v0.1.2`, signed, pinning `renox-worker` 0.3.0), the SDK `@renoxium/sdk` is on npm with provenance, and the platform runs on one host behind Cloudflare (ADRs D25 and D26). Gates F0 and F1 passed (GO). Gates F2 to F7 are open on owner steps and measurements, not on code; what each one still needs is in the table below, the open work and the prompt for each batch in [`docs/25-execution.md`](docs/25-execution.md), "Where we are".
+> **Status (2026-11-05, `main` at `d37a751`).** The code of every phase F0 to F7 is on `main`: eight crates under `crates/`, the control plane under `control/`, the `renox` CLI and SDK, sixteen official modules, the examples, the site. The CLI is released (`cli-v0.1.3`, signed, pinning `renox-worker` 0.3.0), the SDK `@renoxium/sdk` is on npm with provenance, and the platform runs on one host behind Cloudflare (ADRs D25 and D26). Gates F0 and F1 passed (GO). Gates F2 to F7 are open on owner steps and measurements, not on code; what each one still needs is in the table below, the open work and the prompt for each batch in [`docs/25-execution.md`](docs/25-execution.md), "Where we are".
 >
 > | Phase | Built | Gate |
 > | --- | --- | --- |
@@ -16,7 +16,7 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 > | F4 Modules | Manifest, resolver and lock, forward-only migrations, services, events, hooks, slots, overrides; the modules under `modules/` | #68 open: the owner's booking product repository |
 > | F5 Authorization and realtime | Cedar policies and `guard`, `r-can`, `db.scoped()`, SSE and WebSocket with topics, `2fa`, App MCP on `/mcp` | #74 open: the B14 run (load generator, #456) |
 > | F6 Reliability and security | seccomp and Landlock, process tiers, Litestream replication, failover, export and restore, the chaos harness, OpenTelemetry, audit, erasure | #79 open: gate F5, the B18 two-host run (#456), the `ops/` code-owner reviews, one green weekly chaos run (#389) |
-> | F7 External customers | `billing` with Stripe UAE, `tax_gcc`, `admin`, `storage`, `email`, `booking`, `reports`, `whatsapp`, the registry, `isolate` mode, EN/AR, onboarding, the site and docs in the dot-matrix design (D27); the CLI releases 0.1.0 to 0.1.2 and the SDK on npm (D28); the single host with the app edge behind Cloudflare (D25, D26) | #86 open: the first paying tenant; the install on `node-small` and the Cloudflare cut-over (#458); the GCC PSP adapters (#330, #337) wait for sandbox accounts |
+> | F7 External customers | `billing` with Stripe UAE, `tax_gcc`, `admin`, `storage`, `email`, `booking`, `reports`, `whatsapp`, the registry, `isolate` mode, EN/AR, onboarding, the site and docs in the dot-matrix design (D27); the CLI releases 0.1.0 to 0.1.3 and the SDK on npm (D28); the single host with the app edge behind Cloudflare (D25, D26) | #86 open: the first paying tenant; the install on `node-small` and the Cloudflare cut-over (#458); the GCC PSP adapters (#330, #337) wait for sandbox accounts |
 
 ## Naming
 
@@ -143,7 +143,7 @@ Full list, scenarios, and methodology in [`docs/14-benchmarks.md`](docs/14-bench
 | F4 | Modules | The first product uses `auth` and `org` with no auth code of its own | Built; gate #68 waits for the booking product repository |
 | F5 | Authorization and realtime | Cedar guards and the chat room work | Built; gate #74 waits for the B14 run |
 | F6 | Production reliability and security | A node is killed and tenants recover elsewhere | Built; gate #79 waits for gate F5, B18, the `ops/` reviews and a green chaos run |
-| F7 | External customers | First paying external tenant | Built but for the GCC PSP adapters; CLI 0.1.2 released; gate #86 waits for the single-host install (#458) and the first paying tenant |
+| F7 | External customers | First paying external tenant | Built but for the GCC PSP adapters; CLI 0.1.3 released; gate #86 waits for the single-host install (#458) and the first paying tenant |
 
 Each phase has kill criteria. See [`docs/15-roadmap.md`](docs/15-roadmap.md) and [`docs/18-build-plan.md`](docs/18-build-plan.md).
 
