@@ -1,0 +1,33 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="dash.ops.operator" /> · {{ node }} · <r-t key="dash.brand" /></r-group>
+  <section id="page" r-fragment="page">
+    <h1><r-t key="dash.ops.node" /> <code>{{ node }}</code></h1>
+    <p class="muted"><r-t key="dash.ops.node_intro" /></p>
+    <p class="problem" r-if="form_error">{{ form_error }}</p>
+    <x-problem :problem="action_problem" r-if="action_problem" />
+    <x-form action="status" hx-target="#page" hx-swap="outerHTML" class="row">
+      <label><r-t key="dash.ops.token" /> <input type="password" name="token" required autocomplete="off" spellcheck="false"></label>
+      <button type="submit"><r-t key="dash.ops.show_node" /></button>
+    </x-form>
+    <r-group r-if="node_view">
+      <table class="list">
+        <tbody>
+          <tr><td><r-t key="dash.ops.region" /></td><td>{{ node_view.region }}</td></tr>
+          <tr><td><r-t key="dash.ops.worker_version" /></td><td><code>{{ node_view.worker_version }}</code></td></tr>
+          <tr><td><r-t key="dash.ops.healthy" /></td><td>{{ node_view.healthy }}</td></tr>
+          <tr><td><r-t key="dash.ops.last_heartbeat" /></td><td>{{ node_view.last_heartbeat }}</td></tr>
+          <tr><td><r-t key="dash.ops.cells" /></td><td>{{ node_view.cells }}</td></tr>
+          <tr><td><r-t key="dash.ops.route_version" /></td><td>{{ node_view.route_version }}</td></tr>
+          <tr><td><r-t key="dash.ops.isolation" /></td><td>{{ node_view.isolation }}</td></tr>
+        </tbody>
+      </table>
+      <r-group r-if="node_view.reported_off">
+        <h2><r-t key="dash.ops.ignored_h" /></h2>
+        <p class="muted" r-if="!node_view.ignored"><r-t key="dash.ops.no_ignored" /></p>
+        <ul r-if="node_view.ignored">
+          <li r-for="i in node_view.ignored"><a :href="i.href"><code>{{ i.tenant }}</code></a></li>
+        </ul>
+      </r-group>
+    </r-group>
+  </section>
+</r-layout>

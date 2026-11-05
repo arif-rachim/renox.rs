@@ -23,9 +23,10 @@ export function checkValue(value: string): void {
 
 /** The tenant's data key, created and wrapped on first use. */
 async function dekOf(tx: Db, keys: KeyProvider, tenantId: string, now: number): Promise<Uint8Array> {
-  const rows = await tx.query<{ wrapped_dek: Uint8Array; nonce: Uint8Array }>("select wrapped_dek, nonce from tenant_keys where tenant_id = $1", [tenantId]);
+  const rows = await tx.query<{ wrapped_dek: Uint8Array; nonce: Uint8Array; master_key_id: string }>("select wrapped_dek, nonce, master_key_id from tenant_keys where tenant_id = $1", [tenantId]);
   const row = rows[0];
-  if (row !== undefined) return keys.unwrap(new Uint8Array(row.wrapped_dek), new Uint8Array(row.nonce), tenantId);
+  // #451: opened with the master key its id names (the previous one during a rotation).
+  if (row !== undefined) return keys.unwrap(new Uint8Array(row.wrapped_dek), new Uint8Array(row.nonce), tenantId, row.master_key_id);
   const dek = newDek();
   const { wrapped, nonce } = await keys.wrap(dek, tenantId);
   const inserted = await tx.query(

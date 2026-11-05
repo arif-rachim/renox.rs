@@ -24,6 +24,7 @@ import { sweepBilling } from "./billing/sweep.ts";
 import { sweepAbuse } from "./abuse/takedown.ts";
 import { sweepSafeBrowsing } from "./safe-browsing/check.ts";
 import { rescanActive } from "./deployments/advisories.ts";
+import { reseal } from "./secrets/reseal.ts";
 
 const log = createLogger();
 /** A configuration error exits with 78 (EX_CONFIG): renox-control.service does not restart on it (#366). */
@@ -84,6 +85,11 @@ setInterval(() => void sweepBilling(deps).catch((e: unknown) => log.error("billi
 setInterval(() => void sweepAbuse(deps).catch((e: unknown) => log.error("abuse sweep failed", { error: String(e) })), 60_000);
 setInterval(() => void sweepSafeBrowsing(deps).catch((e: unknown) => log.error("safe browsing sweep failed", { error: String(e) })), 3_600_000);
 setInterval(() => void rescanActive(deps).catch((e: unknown) => log.error("advisory re-scan failed", { error: String(e) })), 3_600_000);
+// #451: values still under a previous master key are re-sealed under the current one, hourly and once at start.
+// The error is logged by its class only: a crypto or database error never carries a value here, and nothing else is added.
+const resealRun = (): void => void reseal(deps).catch((e: unknown) => log.error("reseal failed", { error: e instanceof Error ? e.name : "unknown" }));
+resealRun();
+setInterval(resealRun, 3_600_000);
 if (!process.env.RENOX_SAFE_BROWSING_KEY) log.warn("RENOX_SAFE_BROWSING_KEY is not set: hostnames are not checked with Safe Browsing");
 if ((config.exportKmsKeyId ?? null) === null) log.info("EXPORT_KMS_KEY_ID is not set: exports are written without SSE-KMS (R2 has none; the bucket's own encryption at rest applies)");
 

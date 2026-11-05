@@ -16,6 +16,8 @@ import { operation } from "../audit.ts";
 import type { Deps, Env } from "../context.ts";
 import { REPORT_STALE_MS } from "../workers/health.ts";
 import { opsAuth } from "./auth.ts";
+import { masterKeys } from "../secrets/master.ts";
+import { KINDS, remainingOtherKey } from "../secrets/reseal.ts";
 
 /** deploy-api.md section 16 FO6: the lag an alert fires at. */
 export const LAG_ALERT_SECONDS = 10;
@@ -88,6 +90,14 @@ export async function metricsText(deps: Deps): Promise<string> {
 
   const deployments = await db.query<{ state: string; n: unknown }>("select state, count(*) as n from deployments group by state order by state");
   e.family("renox_cp_deployments", "gauge", "Deployments by state.", deployments.map((d) => [{ state: d.state }, num(d.n)]));
+  // #451: values a master key rotation has not moved yet; unset CONTROL_MASTER_KEY_PREVIOUS only when every kind is 0.
+  const other = await remainingOtherKey(db, masterKeys(deps));
+  e.family(
+    "renox_cp_sealed_values_other_key",
+    "gauge",
+    "Stored sealed values whose key id is not the current master key's (ops/security/keys.md, \"Master key\"), by kind.",
+    KINDS.map((k) => [{ kind: k }, other[k]]),
+  );
   e.family("renox_cp_up", "gauge", "1: the control plane answered and Postgres answered.", [[{}, 1]]);
   return e.text();
 }

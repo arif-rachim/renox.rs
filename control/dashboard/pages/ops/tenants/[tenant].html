@@ -31,7 +31,8 @@
           <tr><td><r-t key="dash.common.name" /></td><td>{{ status.name }}</td></tr>
           <tr><td><r-t key="dash.common.state" /></td><td>{{ status.state }}</td></tr>
           <tr><td><r-t key="dash.common.tier" /></td><td>{{ status.tier }} (<r-t key="dash.ops.process_lc" /> {{ status.process }})</td></tr>
-          <tr><td><r-t key="dash.ops.node" /></td><td><code>{{ status.node }}</code></td></tr>
+          <tr><td><r-t key="dash.ops.runs" /></td><td>{{ status.effective }}<span class="problem" r-if="status.broken"> <r-t key="dash.ops.effective_broken" /></span></td></tr>
+          <tr><td><r-t key="dash.ops.node" /></td><td><a :href="status.node_link" r-if="status.node_link"><code>{{ status.node }}</code></a><code r-if="!status.node_link">{{ status.node }}</code></td></tr>
           <tr><td><r-t key="dash.ops.pinned" /></td><td><code>{{ status.pinned }}</code></td></tr>
           <tr><td><r-t key="dash.ops.moving" /></td><td>{{ status.moving }}</td></tr>
           <tr><td><r-t key="dash.ops.last_microvm" /></td><td>{{ status.microvm }}</td></tr>

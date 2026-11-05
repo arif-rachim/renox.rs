@@ -15,20 +15,15 @@ import { routeService } from "../routes/service.ts";
 import { entriesWhere, lockRoutes, upsertEntry } from "../routes/table.ts";
 import { ownerFor } from "../workers/assign.ts";
 import { healthyNodes } from "../workers/repo.ts";
-import { EnvMasterKey, type KeyProvider } from "./crypto.ts";
+import { MasterKeyProvider, type KeyProvider } from "./crypto.ts";
+import { masterKeys } from "./master.ts";
 import { deleteSecret, latestVersion, listSecrets, putSecret, valuesAt } from "./store.ts";
 
-const providers = new WeakMap<Deps, KeyProvider>();
-
-/** The key provider, or 503 when no master key is configured. */
+/** The key provider (current and previous master keys, #451), or 503 when no master key is configured. */
 function keysOf(deps: Deps): KeyProvider {
-  let keys = providers.get(deps);
-  if (keys === undefined) {
-    if (deps.config.masterKey === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 60 });
-    keys = new EnvMasterKey(deps.config.masterKey);
-    providers.set(deps, keys);
-  }
-  return keys;
+  const keys = masterKeys(deps);
+  if (keys === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 60 });
+  return new MasterKeyProvider(keys);
 }
 
 function secretName(c: Context<Env>): string {

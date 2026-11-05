@@ -23,7 +23,8 @@ import { writeAudit } from "../audit.ts";
 import { logIngest, type StoredLine } from "../ingest/logs.ts";
 import { routeService } from "../routes/service.ts";
 import { entriesWhere, lockRoutes, upsertEntry } from "../routes/table.ts";
-import { EnvMasterKey } from "../secrets/crypto.ts";
+import { MasterKeyProvider } from "../secrets/crypto.ts";
+import { masterKeys } from "../secrets/master.ts";
 import { candidatesFor, pinTenant } from "./assign.ts";
 
 /** FO3: the restore deadline the candidate gets. */
@@ -77,23 +78,26 @@ export function nodeCall(deps: Deps): NodeCall {
   return calls.get(deps) ?? httpNodeCall;
 }
 
-/** Wraps a callback token for the workers table under the master key. */
-export async function sealCallbackToken(deps: Deps, nodeId: string, token: string): Promise<{ wrapped: Uint8Array; nonce: Uint8Array } | null> {
-  if (deps.config.masterKey === null) return null;
-  return new EnvMasterKey(deps.config.masterKey).wrap(new TextEncoder().encode(token), `node:${nodeId}`);
+/** Wraps a callback token for the workers table under the current master key, with that key's id (#451). */
+export async function sealCallbackToken(deps: Deps, nodeId: string, token: string): Promise<{ wrapped: Uint8Array; nonce: Uint8Array; keyId: string } | null> {
+  const keys = masterKeys(deps);
+  if (keys === null) return null;
+  const provider = new MasterKeyProvider(keys);
+  return { ...(await provider.wrap(new TextEncoder().encode(token), `node:${nodeId}`)), keyId: provider.id };
 }
 
 /** The node's listener URL and callback token, when it registered one. */
 export async function nodeTarget(deps: Deps, db: Db, nodeId: string): Promise<NodeTarget> {
-  const rows = await db.query<{ listen_url: string | null; callback_token_wrapped: Uint8Array | null; callback_token_nonce: Uint8Array | null }>(
-    "select listen_url, callback_token_wrapped, callback_token_nonce from workers where node_id = $1",
+  const rows = await db.query<{ listen_url: string | null; callback_token_wrapped: Uint8Array | null; callback_token_nonce: Uint8Array | null; callback_token_key_id: string | null }>(
+    "select listen_url, callback_token_wrapped, callback_token_nonce, callback_token_key_id from workers where node_id = $1",
     [nodeId],
   );
   const r = rows[0];
-  if (r === undefined || r.listen_url === null || r.callback_token_wrapped === null || r.callback_token_nonce === null || deps.config.masterKey === null) {
+  const keys = masterKeys(deps);
+  if (r === undefined || r.listen_url === null || r.callback_token_wrapped === null || r.callback_token_nonce === null || keys === null) {
     return { node_id: nodeId, listen_url: r?.listen_url ?? null, token: null };
   }
-  const plain = await new EnvMasterKey(deps.config.masterKey).unwrap(new Uint8Array(r.callback_token_wrapped), new Uint8Array(r.callback_token_nonce), `node:${nodeId}`);
+  const plain = await new MasterKeyProvider(keys).unwrap(new Uint8Array(r.callback_token_wrapped), new Uint8Array(r.callback_token_nonce), `node:${nodeId}`, r.callback_token_key_id);
   return { node_id: nodeId, listen_url: r.listen_url, token: new TextDecoder().decode(plain) };
 }
 

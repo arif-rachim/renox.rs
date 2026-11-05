@@ -79,7 +79,7 @@ test("en.json and ar.json have the same keys; every Arabic message is Arabic", (
     "pages/legal/dpa.html", "pages/legal/terms.html", "pages/apps/index.html", "pages/usage.html", "pages/account/index.html", "partials/app-nav.html", "pages/apps/new.html", "pages/apps/[app]/index.html", "pages/apps/[app]/deployments.html",
     "pages/apps/[app]/logs.html", "pages/apps/[app]/client-errors.html", "pages/apps/[app]/usage.html", "pages/apps/[app]/secrets.html", "pages/apps/[app]/database.html",
     "pages/apps/[app]/settings.html", "pages/apps/[app]/modules/index.html", "pages/billing/index.html", "pages/account/security.html", "pages/ops/registry/index.html",
-    "pages/ops/tenants/[tenant].html", "partials/app-nav.html", "partials/deployment-actions.html", "partials/log-rows.html", "partials/problem.html",
+    "pages/ops/tenants/[tenant].html", "pages/ops/nodes/[node].html", "partials/app-nav.html", "partials/deployment-actions.html", "partials/log-rows.html", "partials/problem.html",
   ];
   expect(templates.flatMap(keysOf).filter((k) => !en.has(k))).toEqual([]);
 });

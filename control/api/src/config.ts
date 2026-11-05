@@ -3,6 +3,7 @@
 // logged (the config object has no toJSON that includes them).
 
 import { parseProxyEntry, TrustedProxies } from "./auth/ip.ts";
+import { MasterKeyConfigError, masterKeysFrom } from "./secrets/master.ts";
 
 export interface S3Config {
   endpoint: string;
@@ -31,6 +32,12 @@ export interface Config {
   s3: S3Config | null;
   /** Base64 of the 32-byte master key (deploy-api.md section 9); null disables secrets. */
   masterKey: string | null;
+  /**
+   * `CONTROL_MASTER_KEY_PREVIOUS` (#451): the key being retired during a
+   * rotation. Values sealed under it still open; the re-seal job moves them to
+   * `masterKey` (src/secrets/master.ts, ops/security/keys.md "Master key").
+   */
+  masterKeyPrevious?: string | null;
   /** `CONTROL_DASHBOARD_URL`: base URL of the dashboard, for links in emails (#113; default `https://dashboard.renoxium.com`). */
   dashboardUrl: string;
   /** Directory where account emails are written as files (local development); null: no mail delivery. */
@@ -259,6 +266,15 @@ export function loadConfig(env: Env = process.env): Config {
   if (listenHost === "") throw new ConfigError("CONTROL_LISTEN_HOST is empty");
   const proxies = trustedProxies(env.CONTROL_TRUSTED_PROXIES);
   checkListen(listenHost, proxies);
+  const masterKey = env.CONTROL_MASTER_KEY ?? null;
+  const masterKeyPrevious = env.CONTROL_MASTER_KEY_PREVIOUS ?? null;
+  // #451: both keys are checked at start (exit 78), never at the first use.
+  try {
+    masterKeysFrom(masterKey, masterKeyPrevious);
+  } catch (e) {
+    if (e instanceof MasterKeyConfigError) throw new ConfigError(e.message);
+    throw e;
+  }
   return {
     port,
     listenHost,
@@ -266,7 +282,8 @@ export function loadConfig(env: Env = process.env): Config {
     operatorTokenSha256: operator,
     platformDomain: env.CONTROL_PLATFORM_DOMAIN ?? DEFAULTS.platformDomain,
     s3,
-    masterKey: env.CONTROL_MASTER_KEY ?? null,
+    masterKey,
+    masterKeyPrevious,
     dashboardUrl: env.CONTROL_DASHBOARD_URL ?? DEFAULTS.dashboardUrl,
     mailOutboxDir: env.CONTROL_MAIL_OUTBOX_DIR ?? null,
     mail: mailConfig(env),

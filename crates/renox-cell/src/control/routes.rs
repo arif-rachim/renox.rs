@@ -157,6 +157,11 @@ impl RouteState {
         self.check_process_placement();
     }
 
+    /// Whether `[process] enabled` was set (#254).
+    pub fn process_enabled(&self) -> bool {
+        self.process_enabled.load(Ordering::SeqCst)
+    }
+
     /// #403: the tenants of this node whose active entry asks for
     /// `process = "own"` while `[process]` is off: they run in the shared
     /// process. Empty when the process tiers run.
@@ -402,7 +407,7 @@ impl DeploymentLookup for RouteState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn entry(

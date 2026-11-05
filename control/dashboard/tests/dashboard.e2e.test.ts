@@ -49,6 +49,7 @@ test.skipIf(!worker)("renox build: every F3 screen is a page route; renox check 
     "PAGE /forgot-password",
     "PAGE /legal/dpa",
     "PAGE /legal/terms",
+    "PAGE /ops/nodes/:node",
     "PAGE /ops/registry",
     "PAGE /ops/tenants/:tenant",
     "PAGE /reset-password",

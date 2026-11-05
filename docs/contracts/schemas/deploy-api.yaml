@@ -11,7 +11,7 @@
 openapi: 3.1.0
 info:
   title: Renoxium deploy API
-  version: 0.6.1
+  version: 0.6.2
   description: >-
     The control plane's HTTP API for tenant developers (CLI, dashboard, MCP),
     for worker nodes, and for operators. See docs/contracts/deploy-api.md.
@@ -1841,7 +1841,38 @@ paths:
                         reported_at: 1793318100000
                         stale: true
                     actions: []
+                paid-on-shared-node:
+                  value:
+                    tenant_id: renoxium
+                    name: Renoxium
+                    tier: paid
+                    state: active
+                    process: own
+                    process_effective: shared
+                    node_id: node-dxb-01
+                    pinned_node: null
+                    moving: false
+                    moving_since: null
+                    microvm_at: null
+                    replication: []
+                    actions: []
               x-renox-invalid-examples:
+                effective-unknown-value:
+                  x-expect: enum
+                  value:
+                    tenant_id: renoxium
+                    name: Renoxium
+                    tier: paid
+                    state: active
+                    process: own
+                    process_effective: microvm
+                    node_id: node-dxb-01
+                    pinned_node: null
+                    moving: false
+                    moving_since: null
+                    microvm_at: null
+                    replication: []
+                    actions: []
                 six-actions:
                   x-expect: maxItems
                   value:
@@ -2047,7 +2078,7 @@ paths:
     get:
       operationId: getNode
       tags: [ops]
-      summary: A node's health, capacity and last disk report (deploy-api.md section 7, 0.4)
+      summary: A node's health, capacity, last disk report and process isolation (deploy-api.md section 7, 0.4, 0.6.2)
       security:
         - operatorToken: []
       x-renox-operator-scope: ops:read
@@ -2055,14 +2086,17 @@ paths:
       x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND]
       responses:
         "200":
-          description: From Postgres; `disk` is the last heartbeat's report or null.
+          description: From Postgres; `disk` and `process_isolation` are the last heartbeat's reports or null.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/NodeDetail" }
               examples:
                 warn: { value: { node_id: node-dxb-01, region: me-central-1, worker_version: 0.4.0, healthy: true, last_heartbeat_at: 1793318410000, route_version: 42, cells: 17, max_cells: 400, disk: { level: warn, free_bytes: 12884901888, watermark: 80 } } }
                 old-worker: { value: { node_id: node-dxb-02, region: me-central-1, worker_version: 0.3.0, healthy: false, last_heartbeat_at: 1793318000000, route_version: 41, cells: 0, max_cells: 400, disk: null } }
+                process-off: { value: { node_id: node-dxb-01, region: me-central-1, worker_version: 0.7.0, healthy: true, last_heartbeat_at: 1793318410000, route_version: 42, cells: 17, max_cells: 400, disk: { level: ok, free_bytes: 64424509440, watermark: null }, process_isolation: { enabled: false, own_ignored: [renoxium] } } }
+                process-unknown: { value: { node_id: node-dxb-02, region: me-central-1, worker_version: 0.6.0, healthy: true, last_heartbeat_at: 1793318410000, route_version: 42, cells: 3, max_cells: 400, disk: { level: ok, free_bytes: 64424509440, watermark: null }, process_isolation: null } }
               x-renox-invalid-examples:
+                process-on-with-ignored: { x-expect: maxItems, value: { node_id: node-dxb-01, region: me-central-1, worker_version: 0.7.0, healthy: true, last_heartbeat_at: 1793318410000, route_version: 42, cells: 17, max_cells: 400, disk: null, process_isolation: { enabled: true, own_ignored: [renoxium] } } }
                 warn-without-watermark: { x-expect: watermark, value: { node_id: node-dxb-01, region: me-central-1, worker_version: 0.4.0, healthy: true, last_heartbeat_at: 1793318410000, route_version: 42, cells: 17, max_cells: 400, disk: { level: warn, free_bytes: 12884901888, watermark: null } } }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/TokenScope" }
@@ -4396,6 +4430,9 @@ components:
         tier: { $ref: "#/components/schemas/Tier" }
         state: { enum: [active, suspended] }
         process: { enum: [shared, own] }
+        process_effective:
+          enum: [shared, own, unknown]
+          description: "0.6.2 (section 17, \"Read\"): what the owning node actually runs, in this order: unknown when the tenant has no owning node; shared when process is shared; for process own, unknown when the node never reported process_isolation (a worker older than 0.6.2), shared when it reported enabled false, own when it reported enabled true. Optional so 0.6.1 answers stay valid."
         node_id: { oneOf: [{ $ref: "#/components/schemas/NodeId" }, { type: "null" }], description: "The owning node, or null while the tenant has no route entry." }
         pinned_node: { oneOf: [{ $ref: "#/components/schemas/NodeId" }, { type: "null" }], description: "The node a failover or an operator move pinned the tenant to (FO4), or null." }
         moving: { type: boolean, description: "A microVM move is in progress: requests answer 503 RENOX_TENANT_MOVING (section 17)." }
@@ -4519,6 +4556,18 @@ components:
         cells: { type: integer, minimum: 0 }
         max_cells: { type: integer, minimum: 1 }
         disk: { oneOf: [{ $ref: "#/components/schemas/DiskReport" }, { type: "null" }], description: "The last heartbeat's report; null when the node never sent one (a worker older than 0.4)." }
+        process_isolation: { oneOf: [{ $ref: "#/components/schemas/ProcessIsolationReport" }, { type: "null" }], description: "0.6.2: the last heartbeat's process_isolation; null when the node never sent one (a worker older than 0.6.2), shown as unknown. Optional so 0.6.1 answers stay valid." }
+
+    ProcessIsolationReport:
+      type: object
+      additionalProperties: false
+      description: "0.6.2 (section 7): the node's process supervisor ([process], #254). enabled false: every tenant runs in the shared process and own_ignored names the tenants whose entry asks for own; enabled true: own_ignored is empty. The same shape as control-messages.schema.json $defs/process_isolation."
+      required: [enabled, own_ignored]
+      properties:
+        enabled: { type: boolean }
+        own_ignored: { type: array, maxItems: 2000, uniqueItems: true, items: { $ref: "#/components/schemas/TenantId" } }
+      if: { properties: { enabled: { const: true } } }
+      then: { properties: { own_ignored: { maxItems: 0 } } }
 
     ImpersonationId: { type: string, pattern: "^imp_[0-9A-Za-z]{16,32}$" }
 
