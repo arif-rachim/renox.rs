@@ -58,9 +58,12 @@ test("Alertmanager has a real receiver whose URL lives outside the repository", 
   expect(am).not.toMatch(/https:\/\/hooks\./u);
 });
 
-test("the key-rotation procedure warns not to run it until the re-encryption job exists", () => {
+// #451 built the re-encryption job, so the "do not run" warning of #450 is gone
+// and the procedure names the previous key, the job and its metric.
+test("the key-rotation procedure is the working one of #451: previous key, re-seal job, metric", () => {
   const keys = readFileSync(join(HERE, "../security/keys.md"), "utf8");
   const at = keys.indexOf("### Master key");
-  expect(keys.slice(at, at + 400)).toContain("DO NOT RUN THIS PROCEDURE YET");
-  expect(keys).toContain("#451");
+  const section = keys.slice(at, keys.indexOf("### Replica restore", at));
+  expect(section).not.toContain("DO NOT RUN");
+  for (const s of ["CONTROL_MASTER_KEY_PREVIOUS", "control/api/scripts/reseal.ts", "renox_cp_sealed_values_other_key", "#451"]) expect(section).toContain(s);
 });
