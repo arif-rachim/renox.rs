@@ -6,8 +6,8 @@
 //
 // Needs an S3 endpoint for control/api and commands that cut and restore it:
 //   RENOX_CHAOS_S3_ENDPOINT, RENOX_CHAOS_S3_ACCESS_KEY_ID, RENOX_CHAOS_S3_SECRET_ACCESS_KEY,
-//   RENOX_CHAOS_S3_DOWN (e.g. `docker pause renox-control-minio-1`), RENOX_CHAOS_S3_UP.
-// CI's chaos workflow starts MinIO from control/docker-compose.yml and sets
+//   RENOX_CHAOS_S3_DOWN (e.g. `docker pause renox-control-s3-1`), RENOX_CHAOS_S3_UP.
+// CI's chaos workflow starts the `s3` service (versitygw) from control/docker-compose.yml and sets
 // them; without them the scenario is skipped with the reason.
 
 import { spawnSync } from "node:child_process";
@@ -29,7 +29,7 @@ export async function run(worker: string): Promise<Outcome> {
     scenario: "storage-down",
     title: "Object storage unreachable",
     failureModes: ["Object storage unreachable"],
-    description: "control/api keeps artifacts in S3 (MinIO); the node restarts with one tenant's artifact removed from its cache, another tenant is warmed from the cache, the storage is paused, then resumed",
+    description: "control/api keeps artifacts in S3 (versitygw in CI); the node restarts with one tenant's artifact removed from its cache, another tenant is warmed from the cache, the storage is paused, then resumed",
     target: "cached tenant 200 throughout; uncached cold start 503 RENOX_UNAVAILABLE while down, 200 after; /healthz reports object_storage",
     alerts: [{ rule: "RenoxObjectStorageUnreachable", observed: "reads renox_worker_degraded{component=\"object_storage\"} (pending #295); the reason is on /healthz" }],
     notes: [],
@@ -38,7 +38,7 @@ export async function run(worker: string): Promise<Outcome> {
   const down = env("RENOX_CHAOS_S3_DOWN");
   const up = env("RENOX_CHAOS_S3_UP");
   if (endpoint === undefined || down === undefined || up === undefined) {
-    return { ...base, verdict: "SKIPPED", skipped: "RENOX_CHAOS_S3_ENDPOINT, RENOX_CHAOS_S3_DOWN and RENOX_CHAOS_S3_UP are not set (CI's chaos workflow sets them with MinIO)", result: "", checks: [], metrics: {} };
+    return { ...base, verdict: "SKIPPED", skipped: "RENOX_CHAOS_S3_ENDPOINT, RENOX_CHAOS_S3_DOWN and RENOX_CHAOS_S3_UP are not set (CI's chaos workflow sets them with versitygw)", result: "", checks: [], metrics: {} };
   }
   const s = await Stack.start(worker, {
     s3: { endpoint, accessKeyId: env("RENOX_CHAOS_S3_ACCESS_KEY_ID") ?? "", secretAccessKey: env("RENOX_CHAOS_S3_SECRET_ACCESS_KEY") ?? "" },

@@ -2,7 +2,7 @@ name: chaos
 
 # The fault-injection harness (bench/chaos, #104; docs/23-failure-modes.md
 # section 6): every scenario against a fresh two-node stack (control/api and
-# two controlled renox-workers on the runner, MinIO from
+# two controlled renox-workers on the runner, the `s3` service (versitygw) of
 # control/docker-compose.yml for the artifact store), weekly and on demand.
 # A failure opens an issue labelled `chaos` (or comments on the open one).
 on:
@@ -54,8 +54,8 @@ jobs:
           cargo build --release --locked -p renox-cell --bin renox-worker
           echo "RENOX_WORKER_PATH=$PWD/target/release/renox-worker" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
-      - name: MinIO for storage-down
-        run: docker compose -f control/docker-compose.yml up -d --wait minio minio-init
+      - name: S3 (versitygw) for storage-down
+        run: docker compose -f control/docker-compose.yml up -d --wait s3
       # Root: disk-full loop-mounts a file system, and each node gets a tmpfs
       # data directory. The development credentials are the compose file's.
       - name: Run every scenario
@@ -63,8 +63,8 @@ jobs:
           RENOX_CHAOS_S3_ENDPOINT: http://127.0.0.1:9000
           RENOX_CHAOS_S3_ACCESS_KEY_ID: renox
           RENOX_CHAOS_S3_SECRET_ACCESS_KEY: renox-dev-minio
-          RENOX_CHAOS_S3_DOWN: docker pause renox-control-minio-1
-          RENOX_CHAOS_S3_UP: docker unpause renox-control-minio-1
+          RENOX_CHAOS_S3_DOWN: docker pause renox-control-s3-1
+          RENOX_CHAOS_S3_UP: docker unpause renox-control-s3-1
           BENCH_PROFILE: github-ubuntu-24.04
         run: sudo -E env "PATH=$PATH" bench/chaos/run.sh all --out "$RUNNER_TEMP/chaos"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
