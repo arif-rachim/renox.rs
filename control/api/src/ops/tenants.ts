@@ -23,7 +23,7 @@ import { entriesWhere, lockRoutes, processOf, upsertEntry } from "../routes/tabl
 import { routeService } from "../routes/service.ts";
 import { moveTenant, nodeCall, nodeTarget } from "../workers/failover.ts";
 import { replicationOf } from "../workers/health.ts";
-import { findWorker } from "../workers/repo.ts";
+import { findWorker, processEffective, processIsolationOf } from "../workers/repo.ts";
 import { accountRef, operatorOf, opsAuth } from "./auth.ts";
 
 /** The hook may run 10 minutes (node-listener.yaml, nodeMoveTenant). */
@@ -136,13 +136,17 @@ export function registerOps(app: Hono<Env>, deps: Deps): void {
       throw notFound();
     }
     const pins = await deps.db.query<{ node_id: string }>("select node_id from tenant_pins where tenant_id = $1", [tenantId]);
+    const node = await currentNode(deps.db, tenantId);
+    const process = processOf(t.tier);
     const body = {
       tenant_id: tenantId,
       name: t.name,
       tier: t.tier,
       state: t.state,
-      process: processOf(t.tier),
-      node_id: await currentNode(deps.db, tenantId),
+      process,
+      // 0.6.2 (#460): what the owning node actually runs, from its last heartbeat.
+      process_effective: processEffective(process, node, node === null ? null : await processIsolationOf(deps.db, node)),
+      node_id: node,
       pinned_node: pins[0]?.node_id ?? null,
       moving: t.moving_since !== null,
       moving_since: t.moving_since === null ? null : num(t.moving_since),

@@ -133,6 +133,24 @@ pub fn heartbeat_disk(d: &crate::disk::DiskMonitor) -> serde_json::Value {
     json!({ "level": level, "free_bytes": d.available_bytes(), "watermark": watermark })
 }
 
+/// `own_ignored` holds at most this many tenant ids
+/// (`control-messages.schema.json` `$defs/process_isolation`).
+pub const MAX_OWN_IGNORED: usize = 2000;
+
+/// The heartbeat's `process_isolation` (deploy API 0.6.2 section 7, #460):
+/// whether the process supervisor runs, and, when it does not, the tenants
+/// whose entry asks for `process = "own"` and run in the shared process
+/// (#403). Ids are sorted; past [`MAX_OWN_IGNORED`] the rest are left out
+/// (the worker's warning names each of them once).
+pub fn heartbeat_process_isolation(routes: &RouteState) -> serde_json::Value {
+    if routes.process_enabled() {
+        return json!({ "enabled": true, "own_ignored": [] });
+    }
+    let mut ignored = routes.own_process_ignored();
+    ignored.truncate(MAX_OWN_IGNORED);
+    json!({ "enabled": false, "own_ignored": ignored })
+}
+
 impl Controller {
     pub fn new(
         client: ControlClient,
@@ -408,8 +426,15 @@ impl Controller {
                     "cells": self.manager.cell_count(),
                 });
                 let disk = self.disk.lock().expect("controller lock").clone();
-                if let (Some(d), Some(obj)) = (disk, body.as_object_mut()) {
-                    obj.insert("disk".into(), heartbeat_disk(&d));
+                if let Some(obj) = body.as_object_mut() {
+                    if let Some(d) = disk {
+                        obj.insert("disk".into(), heartbeat_disk(&d));
+                    }
+                    // #460: which paid tenants run in the shared process.
+                    obj.insert(
+                        "process_isolation".into(),
+                        heartbeat_process_isolation(&self.routes),
+                    );
                 }
                 match self
                     .client
@@ -561,6 +586,43 @@ mod tests {
     }
 
     use super::*;
+
+    /// #460 (deploy API 0.6.2 section 7): with `[process]` off the heartbeat
+    /// names the tenants whose entry asks for `own`, at most 2000 of them;
+    /// with it on, none.
+    #[test]
+    fn the_heartbeat_process_isolation_is_capped_and_empty_when_enabled() {
+        use crate::supervisor::ProcessKind;
+        let s = RouteState::new("node-1", Arc::new(renox_gateway::RouteTable::new()));
+        let entries = (0..MAX_OWN_IGNORED + 5)
+            .map(|i| {
+                let mut e = routes::tests::entry(
+                    &format!("h{i}.renox.app"),
+                    'a',
+                    renox_gateway::RouteStatus::Active,
+                    "node-1",
+                    1,
+                );
+                e.tenant_id = format!("t{i:05}");
+                e.process = ProcessKind::Own;
+                e
+            })
+            .collect();
+        s.apply_snapshot(Snapshot {
+            version: 1,
+            entries,
+        });
+        let off = heartbeat_process_isolation(&s);
+        assert_eq!(off["enabled"], false);
+        let ids = off["own_ignored"].as_array().unwrap();
+        assert_eq!(ids.len(), MAX_OWN_IGNORED);
+        assert_eq!(ids[0], "t00000");
+        s.set_process_enabled(true);
+        assert_eq!(
+            heartbeat_process_isolation(&s),
+            json!({ "enabled": true, "own_ignored": [] })
+        );
+    }
 
     #[test]
     fn sse_events_are_split_and_comments_skipped() {

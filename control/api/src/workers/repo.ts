@@ -38,10 +38,50 @@ export async function recordDisk(db: Db, nodeId: string, disk: DiskReport, now: 
   await db.query("update workers set disk = $2::text::jsonb, disk_reported_at = $3 where node_id = $1", [nodeId, JSON.stringify(disk), now]);
 }
 
+/** The heartbeat's `process_isolation` (deploy-api.md 0.6.2 section 7, #460). */
+export interface ProcessIsolationReport {
+  enabled: boolean;
+  own_ignored: string[];
+}
+
+/**
+ * Keeps the last heartbeat's `process_isolation`; a heartbeat without it
+ * (a worker older than 0.6.2) clears it, so the console never shows an old
+ * report as current.
+ */
+export async function recordProcessIsolation(db: Db, nodeId: string, report: ProcessIsolationReport | undefined, now: number): Promise<void> {
+  await db.query("update workers set process_isolation = $2::text::jsonb, process_isolation_reported_at = $3 where node_id = $1", [
+    nodeId,
+    report === undefined ? null : JSON.stringify({ enabled: report.enabled, own_ignored: report.own_ignored }),
+    report === undefined ? null : now,
+  ]);
+}
+
+function jsonColumn<T>(v: T | string | null): T | null {
+  return typeof v === "string" ? (JSON.parse(v) as T) : v;
+}
+
+/** The last `process_isolation` of `nodeId`, or null (never reported, or an unknown node). */
+export async function processIsolationOf(db: Db, nodeId: string): Promise<ProcessIsolationReport | null> {
+  const rows = await db.query<{ process_isolation: ProcessIsolationReport | string | null }>("select process_isolation from workers where node_id = $1", [nodeId]);
+  return jsonColumn(rows[0]?.process_isolation ?? null);
+}
+
+/**
+ * getOpsTenant's `process_effective` (deploy-api.md 0.6.2 section 17): what
+ * the owning node actually runs, in the contract's order.
+ */
+export function processEffective(process: "shared" | "own", nodeId: string | null, report: ProcessIsolationReport | null): "shared" | "own" | "unknown" {
+  if (nodeId === null) return "unknown";
+  if (process === "shared") return "shared";
+  if (report === null) return "unknown";
+  return report.enabled ? "own" : "shared";
+}
+
 /** A node as getNode answers it (deploy-api.md 0.4 section 7, `NodeDetail`), or null. */
 export async function nodeDetail(db: Db, nodeId: string): Promise<Record<string, unknown> | null> {
-  const rows = await db.query<{ node_id: string; region: string; worker_version: string; healthy: boolean; last_heartbeat_at: unknown; route_version: unknown; cells: unknown; max_cells: unknown; disk: DiskReport | string | null }>(
-    "select node_id, region, worker_version, healthy, last_heartbeat_at, route_version, cells, max_cells, disk from workers where node_id = $1",
+  const rows = await db.query<{ node_id: string; region: string; worker_version: string; healthy: boolean; last_heartbeat_at: unknown; route_version: unknown; cells: unknown; max_cells: unknown; disk: DiskReport | string | null; process_isolation: ProcessIsolationReport | string | null }>(
+    "select node_id, region, worker_version, healthy, last_heartbeat_at, route_version, cells, max_cells, disk, process_isolation from workers where node_id = $1",
     [nodeId],
   );
   const r = rows[0];
@@ -55,6 +95,8 @@ export async function nodeDetail(db: Db, nodeId: string): Promise<Record<string,
     route_version: num(r.route_version),
     cells: num(r.cells),
     max_cells: num(r.max_cells),
-    disk: typeof r.disk === "string" ? (JSON.parse(r.disk) as DiskReport) : r.disk,
+    disk: jsonColumn(r.disk),
+    // 0.6.2 (#460): null when the node's last heartbeat did not carry it.
+    process_isolation: jsonColumn(r.process_isolation),
   };
 }

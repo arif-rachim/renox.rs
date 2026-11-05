@@ -1,7 +1,7 @@
 // Node endpoints (deploy-api.md sections 7-8): register, heartbeat, the
 // control-message stream (SSE), and the route snapshot.
 
-import { nodeDetail, recordDisk, type DiskReport } from "./repo.ts";
+import { nodeDetail, recordDisk, recordProcessIsolation, type DiskReport, type ProcessIsolationReport } from "./repo.ts";
 import { accountRef, operatorOf, opsAuth } from "../ops/auth.ts";
 import { writeAudit } from "../audit.ts";
 import { notFound } from "../errors.ts";
@@ -96,7 +96,7 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
 
   app.post("/v1/nodes/:node_id/heartbeat", operation(deps, "heartbeat"), nodeAuth(deps), async (c) => {
     const node = nodeId(c);
-    const body = await message<{ node_id: string; route_version: number; cells: number; disk?: DiskReport }>(c, "heartbeat");
+    const body = await message<{ node_id: string; route_version: number; cells: number; disk?: DiskReport; process_isolation?: ProcessIsolationReport }>(c, "heartbeat");
     if (body.node_id !== node) throw new ApiError("RENOX_TOKEN_SCOPE");
     const now = deps.now();
     const moved = await db.transaction(async (tx) => {
@@ -111,6 +111,8 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
       ]);
       // deploy-api.md 0.4 section 7 (#311): the last disk report, kept as sent.
       if (body.disk !== undefined) await recordDisk(tx, node, body.disk, now);
+      // 0.6.2 section 7 (#460): which paid tenants run in the shared process.
+      await recordProcessIsolation(tx, node, body.process_isolation, now);
       return before.healthy ? 0 : reassign(tx, now);
     });
     if (moved > 0) await service.publisher.publish();

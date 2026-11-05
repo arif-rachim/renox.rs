@@ -4,7 +4,8 @@
 // POST ?/tier (tier), ?/node (node_id), ?/microvm: each with `reason` and the
 // operator's token, which is used for that one API call and never kept.
 // POST ?/status: the status panel (#296) from `getOpsTenant` (deploy-api.md
-// 0.3.1 section 17) with the operator's token, kept no longer either.
+// 0.3.1 section 17) with the operator's token, kept no longer either; from
+// 0.6.2 (#460) it shows `process_effective` beside the tier's `process`.
 // POST ?/impersonate (reason, token with `ops:impersonate`; #310, 0.4
 // section 17): break-glass. The API answers a read-only tenant token for 60
 // minutes, once; this session signs in with it (replacing the operator's own
@@ -29,7 +30,11 @@ export function statusView(t: OpsTenant, now: number, tr: Tr = EN) {
     tier: t.tier,
     state: t.state,
     process: t.process,
+    // 0.6.2 (#460): what the owning node actually runs, beside the tier's promise.
+    effective: tr(`dash.ops.effective_${t.process_effective ?? "unknown"}`),
+    broken: t.process === "own" && t.process_effective === "shared",
     node: t.node_id ?? tr("dash.ops.node_none"),
+    node_link: t.node_id === null ? null : `/ops/nodes/${encodeURIComponent(t.node_id)}`,
     pinned: t.pinned_node ?? "—",
     moving: t.moving ? tr("dash.ops.moving_since", { at: clock(t.moving_since ?? now) }) : tr("dash.ops.no"),
     microvm: t.microvm_at === null ? "—" : clock(t.microvm_at),

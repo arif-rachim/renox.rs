@@ -234,6 +234,27 @@ export interface OpsReplication {
   stale: boolean;
 }
 
+/** `ProcessIsolationReport` (deploy-api.md 0.6.2 section 7). */
+export interface ProcessIsolation {
+  enabled: boolean;
+  own_ignored: string[];
+}
+
+/** `NodeDetail`: a node as `getNode` answers it (deploy-api.md 0.4 and 0.6.2 section 7; #460). */
+export interface NodeDetail {
+  node_id: string;
+  region: string;
+  worker_version: string;
+  healthy: boolean;
+  last_heartbeat_at: number | null;
+  route_version: number;
+  cells: number;
+  max_cells: number;
+  disk: { level: "ok" | "warn" | "critical"; free_bytes: number; watermark: number | null } | null;
+  /** Null (or absent, before 0.6.2) when the node never reported it. */
+  process_isolation?: ProcessIsolation | null;
+}
+
 /** `OpsTenant`: a tenant as the operator console shows it (`getOpsTenant`, 0.3.1; #296). */
 export interface OpsTenant {
   tenant_id: string;
@@ -241,6 +262,8 @@ export interface OpsTenant {
   tier: "free" | "paid";
   state: "active" | "suspended";
   process: "shared" | "own";
+  /** 0.6.2 (#460): what the owning node actually runs; absent from an API before 0.6.2. */
+  process_effective?: "shared" | "own" | "unknown";
   node_id: string | null;
   pinned_node: string | null;
   moving: boolean;
@@ -451,6 +474,10 @@ export class Api {
   /** The operator read (needs an operator token as this client's token). */
   getOpsTenant(tenant: string): Promise<Result<OpsTenant>> {
     return this.json("GET", `/v1/ops/tenants/${encodeURIComponent(tenant)}`);
+  }
+
+  getNode(node: string): Promise<Result<NodeDetail>> {
+    return this.json("GET", `/v1/ops/nodes/${encodeURIComponent(node)}`);
   }
 
   listApps(): Promise<Result<{ apps: App[] }>> {
