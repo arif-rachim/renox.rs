@@ -2,9 +2,17 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
-## 0.1.3 (unreleased)
+## 0.1.3 (2026-11-05)
 
-What the first hour on a Mac found (#462; the pinned `renox-worker` stays 0.3.0):
+What the first hour on a Mac found (#462; the pinned `renox-worker` stays 0.3.0).
+
+**Install**
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.3/install.sh | sh
+```
+
+**CLI**
 
 - `renox test` works on macOS. The harness wrote the worker's `artifacts_dir` relative to its state directory under `$TMPDIR`, which on macOS is a symlink under `/var`; the worker resolved it into `/private/Users/...` and was refused at start-up. Every path in the generated worker configuration is now absolute.
 - A worker that exits during `renox test` start-up now names its last error line and the configuration file in the hint, instead of only the exit code.
