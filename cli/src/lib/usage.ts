@@ -65,6 +65,12 @@ export const HELP: Record<string, CommandHelp> = {
     flags: ["--follow", "-f", "--since", "--source", "--deployment", "--app", "--json", "--raw"],
   },
   secrets: { group: "Deploy and operate", usage: ["secrets set <NAME> [--app <name>]", "secrets list [--app <name>]", "secrets rm <NAME> [--app <name>]"], summary: "The app's secrets. set reads the value from stdin and never prints it.", flags: ["--app"] },
+  domains: {
+    group: "Deploy and operate",
+    usage: ["domains add <hostname> [--app <name>] [--json]", "domains list [--app <name>] [--json]", "domains status <hostname> [--app <name>] [--json]", "domains rm <hostname> [--app <name>] [--json]"],
+    summary: "The app's custom domains. add prints the CNAME and the two TXT records to create; status shows pending, then verified. Use www.<domain>, not the apex.",
+    flags: ["--app", "--json"],
+  },
   tokens: { group: "Deploy and operate", usage: ["tokens list", "tokens create <name> --scope <s>... [--expires-days <n>]", "tokens revoke <id>"], summary: "Tenant tokens for CI and scripts; a new value is shown once.", flags: ["--scope", "--expires-days"] },
   db: {
     group: "Deploy and operate",

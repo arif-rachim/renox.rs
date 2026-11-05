@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// renox: new, build, dev, check, authz, mcp, login, tokens, deploy, logs, secrets, db. docs/12-developer-experience.md.
+// renox: new, build, dev, check, authz, mcp, login, tokens, deploy, logs, secrets, domains, db. docs/12-developer-experience.md.
 // Exit codes: src/errors.ts and cli/README.md, "Exit codes".
 
 import { run as add } from "./commands/add.ts";
@@ -13,6 +13,7 @@ import { run as login } from "./commands/login.ts";
 import { run as logs } from "./commands/logs.ts";
 import { run as newApp } from "./commands/new.ts";
 import { run as remove } from "./commands/remove.ts";
+import { run as domains } from "./commands/domains.ts";
 import { run as secrets } from "./commands/secrets.ts";
 import { run as tokens } from "./commands/tokens.ts";
 import { CliError, EXIT, exitCodeOf, formatError } from "./errors.ts";
@@ -32,7 +33,7 @@ const VERSION_LINE = `renox ${CLI_VERSION} (renox-worker ${PINNED_WORKER.version
 /** The whole help, grouped (lib/usage.ts, #449). */
 const USAGE = overview(VERSION_LINE.replace(/^renox /u, ""));
 
-const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, jobs, test, mcp, publish, approve, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), db: (a) => db(a) };
+const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, jobs, test, mcp, publish, approve, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), domains: (a) => domains(a), db: (a) => db(a) };
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;

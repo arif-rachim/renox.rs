@@ -60,7 +60,7 @@ Every app gets `<app>.renoxium.app` and per-deployment preview hosts (`<app>-<ha
 
 | Step | Tenant | Renoxium |
 | --- | --- | --- |
-| 1. Add | Dashboard, `renox domains add www.example.com`, or the MCP tool `add_domain` | Creates the custom hostname at Cloudflare and shows the records to create (`verification`) and the CNAME target. Without Cloudflare configured: 503 |
+| 1. Add | Dashboard (the app's Domains page), `renox domains add www.example.com` (then `renox domains status www.example.com`), or the MCP tool `add_domain` (with `list_domains`, `domain_status`, `remove_domain`) | Creates the custom hostname at Cloudflare and shows the records to create (`verification`) and the CNAME target. Without Cloudflare configured: 503 |
 | 2. Verify ownership and point traffic | Cloudflare's ownership TXT (`_cf-custom-hostname.www.example.com`), the certificate's DCV TXT, and `www` → `CNAME renoxium.app` | Reads the custom hostname every minute until Cloudflare reports it `active`. The hostname is **not served** before (prevents domain takeover) |
 | 3. Certificate | Nothing | Cloudflare issues and renews the edge certificate |
 | 4. Live | Opens `https://www.example.com` | Served through Cloudflare and the tunnel |

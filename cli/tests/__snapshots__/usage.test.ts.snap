@@ -29,6 +29,10 @@ Deploy and operate:
   secrets set <NAME> [--app <name>]
   secrets list [--app <name>]
   secrets rm <NAME> [--app <name>]
+  domains add <hostname> [--app <name>] [--json]
+  domains list [--app <name>] [--json]
+  domains status <hostname> [--app <name>] [--json]
+  domains rm <hostname> [--app <name>] [--json]
   tokens list
   tokens create <name> --scope <s>... [--expires-days <n>]
   tokens revoke <id>

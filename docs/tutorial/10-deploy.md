@@ -68,6 +68,7 @@ prints your app's log lines as they happen, the browser errors of chapter 2 incl
 | **Usage** | Requests, CPU time, database time and egress per hour: what the bill is made of |
 | **Deployments** | Every deployment, with rollback |
 | **Secrets** | Names only; values are set with `printf %s "$VALUE" \| renox secrets set NAME` |
+| **Domains** | Custom domains with their state and the DNS records to create |
 
 ## Your own domain
 
@@ -75,22 +76,19 @@ Custom domains go through Cloudflare for SaaS: you point a CNAME at the platform
 
 **Use `www.`, not the bare domain.** The platform has no fixed address to give you for `example.com` itself. Add `www.example.com`, and redirect `example.com` to it at your DNS provider or registrar (or use CNAME flattening if your DNS provider offers it).
 
-There is no `renox domains` command, MCP tool or dashboard page yet (#477). The deploy API has the endpoint. Create a token with the `domains:write` scope on the dashboard's **Tokens** page, then:
+Add the name from the app's folder (or pass `--app`):
 
 ```sh
-curl -fsS -X POST https://api.renoxium.com/v1/apps/acme-board/domains \
-  -H "authorization: Bearer $RENOX_TOKEN" -H "content-type: application/json" \
-  -d '{"hostname": "www.example.com"}'
+renox domains add www.example.com
 ```
 
-The answer (`201`) holds `cname_target` and, under `verification`, two TXT records: `ownership` and `dcv` (the certificate's). At your DNS provider, create the CNAME `www.example.com → <cname_target>` and both TXT records. The platform asks Cloudflare every minute; when the name is verified, it serves your app. Check with:
+It prints the records to create. The CNAME is `www.example.com → <cname_target>`; the two TXT records are `ownership` (Cloudflare's pre-validation) and `dcv` (the certificate's). Create all three at your DNS provider. The platform asks Cloudflare every minute; when the name is verified, it serves your app. Check with:
 
 ```sh
-curl -fsS https://api.renoxium.com/v1/apps/acme-board/domains/www.example.com \
-  -H "authorization: Bearer $RENOX_TOKEN"
+renox domains status www.example.com
 ```
 
-`status` moves from `pending` to `verified`. A name another account holds answers 409, and without Cloudflare configured on the platform the answer is 503 `RENOX_UNAVAILABLE`. The whole lifecycle: [Tenant lifecycle, custom domains](../05-tenant-lifecycle.md#custom-domains-and-dns).
+`status` moves from `pending` to `verified`. `renox domains list` shows every domain of the app, and `renox domains rm www.example.com` removes one. The dashboard's **Domains** page under the app does the same, and so does the MCP tool `add_domain` (with `list_domains`, `domain_status` and `remove_domain`). Adding and removing need the `domains:write` scope; in CI, give the token that scope. A name another account holds answers 409, and without Cloudflare configured on the platform the answer is 503 `RENOX_UNAVAILABLE`. The whole lifecycle: [Tenant lifecycle, custom domains](../05-tenant-lifecycle.md#custom-domains-and-dns).
 
 ## Limits to know
 
@@ -108,13 +106,13 @@ Your app's own limits (CPU time per request, memory, database size, egress) depe
 | `RENOX_CONFLICT`, "not available", on the first deploy | Someone has that app name: change `name` in `renox.toml` |
 | `RENOX_DEPLOY_REJECTED` | Validation failed: the message names the rule (`V…`) and the file. Run `renox check` |
 | `RENOX_ACTIVATION_FAILED` | A migration or the probe failed; the previous deployment keeps serving. `renox logs` has the cause |
-| `RENOX_TOKEN_SCOPE` on the domain call | The token lacks `domains:write` |
+| `RENOX_TOKEN_SCOPE` on `renox domains add` | The token lacks `domains:write` |
 | The domain stays `pending` | The CNAME or a TXT record is missing or wrong; DNS changes can take a while to reach Cloudflare |
 | 413 on an upload | The body is over the limit (100 MB at the edge, less on smaller tiers): keep large files out of a single request |
 
 ## Building with an AI agent
 
-The platform MCP has `deploy`, `rollback`, `get_logs` and `list_deployments` for agents, with the scopes of the token you give them ([AI agents and MCP](../20-ai-agents-mcp.md)). Keep a person in the loop for rollbacks, secrets and domains.
+The platform MCP has `deploy`, `rollback`, `get_logs`, `list_deployments` and `add_domain` for agents, with the scopes of the token you give them ([AI agents and MCP](../20-ai-agents-mcp.md)). Keep a person in the loop for rollbacks, secrets and domains.
 
 ## Where next
 

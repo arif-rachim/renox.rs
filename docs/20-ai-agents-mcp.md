@@ -24,6 +24,7 @@ All results are structured JSON with the same error shapes as the CLI (`file`, `
 | Group | Tools | Notes |
 | --- | --- | --- |
 | Apps and deploys | `list_apps`, `create_app`, `deploy`, `rollback`, `get_deployment`, `list_deployments` | `deploy` returns the validation report (templates, policies, routes, permissions) |
+| Domains | `list_domains`, `domain_status`, `add_domain` (`domains:write` + confirmation), `remove_domain` | `add_domain` returns the CNAME target and the two TXT records to create (#477) |
 | Observability | `get_logs(filter, since, limit)`, `get_metrics(range)`, `get_trace(request_id)` | Logs are truncated and secret-redacted |
 | Data | `db_schema`, `db_query(sql)` (read-only by default), `db_execute(sql)` (write scope + confirmation), `db_export` | Same authorizer; row and time limits |
 | Modules | `search_registry`, `add_module`, `module_permissions_diff`, `upgrade_module`, `list_module_contracts` | Permission diffs are returned to the agent, never auto-approved |

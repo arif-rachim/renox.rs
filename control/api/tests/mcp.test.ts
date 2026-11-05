@@ -16,7 +16,10 @@ import { UnauthorizedError, type OAuthClientProvider } from "../../../cli/node_m
 import { StreamableHTTPClientTransport } from "../../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
 import { SESSION_COOKIE } from "../src/auth/sessions.ts";
 import { ConfigError, loadConfig } from "../src/config.ts";
+import { tick } from "../src/domains/jobs.ts";
+import { configureDomains } from "../src/domains/service.ts";
 import { logIngest } from "../src/ingest/logs.ts";
+import { EDGE, StubCloudflare } from "./domain-stubs.ts";
 import { addMember, assertScoped, auditRows, createApp_, harness, type Harness, PASSWORD, type Session, signup } from "./helpers.ts";
 
 afterEach(assertScoped);
@@ -221,7 +224,7 @@ describe("tools", () => {
     try {
       const { client } = await connect(srv.url, s);
       const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-      expect(tools).toEqual(["activate", "create_app", "get_app", "get_deployment", "get_logs", "get_usage", "list_apps", "list_deployments", "list_secrets", "rollback"]);
+      expect(tools).toEqual(["activate", "add_domain", "create_app", "domain_status", "get_app", "get_deployment", "get_logs", "get_usage", "list_apps", "list_deployments", "list_domains", "list_secrets", "remove_domain", "rollback"]);
       expect(structured(await client.callTool({ name: "list_apps", arguments: {} }))).toEqual({ apps: [] });
 
       // An app made through the deploy API, a secret and a log line written with a prompt-injection attempt.
@@ -387,6 +390,70 @@ describe("behind a TLS terminator (CONTROL_MCP_URL)", () => {
     expect(loadConfig({ CONTROL_MCP_URL: "http://127.0.0.1:8787" }).mcpUrl).toBe("http://127.0.0.1:8787");
     for (const bad of ["http://mcp.renoxium.com", "https://mcp.renoxium.com/mcp", "https://mcp.renoxium.com/?a=1", "https://u:p@mcp.renoxium.com", "mcp.renoxium.com"]) {
       expect(() => loadConfig({ CONTROL_MCP_URL: bad })).toThrow(ConfigError);
+    }
+  });
+});
+
+describe("custom domains (#477)", () => {
+  test("add_domain needs domains:write and a confirmation; its answer carries the CNAME and both TXT records; list_domains and domain_status show pending, then verified; remove_domain detaches", async () => {
+    const h = await harness();
+    const s = await signup(h, "owner@example.com", "t-dom");
+    await h.db.query("update tenants set tier = 'paid' where id = 't-dom'");
+    const cf = new StubCloudflare();
+    configureDomains(h.deps, { cloudflare: cf });
+    await h.request("POST", "/v1/apps", { session: s, json: { name: "shop" } });
+    await signup(h, "viewer@example.com");
+    await addMember(h, "t-dom", "viewer@example.com", "viewer");
+    const login = await h.request("POST", "/v1/account/login", { json: { email: "viewer@example.com", password: PASSWORD } });
+    const viewer = { cookie: /__Host-renox_session=([^;]+)/u.exec(login.headers.get("set-cookie") ?? "")?.[1] as string, csrf: ((await login.json()) as { csrf: string }).csrf };
+    await h.request("POST", "/v1/account/tenant", { session: viewer, json: { tenant_id: "t-dom" } });
+    const srv = serve(h);
+    try {
+      // A viewer's agent reads domains but is not offered, and is refused, the write tools (domains:write is owner and admin).
+      const ro = await connect(srv.url, viewer);
+      const roNames = (await ro.client.listTools()).tools.map((t) => t.name);
+      expect(roNames).toContain("list_domains");
+      expect(roNames).not.toContain("add_domain");
+      expect(structured(await ro.client.callTool({ name: "add_domain", arguments: { app: "shop", hostname: "www.example.com" } })).error).toMatchObject({ code: "insufficient_scope", scope: "domains:write" });
+      await ro.client.close();
+
+      const { client } = await connect(srv.url, s);
+      expect((await client.listTools()).tools.map((t) => t.name)).toEqual(expect.arrayContaining(["add_domain", "remove_domain", "list_domains", "domain_status"]));
+      const bad = await client.callTool({ name: "add_domain", arguments: { app: "shop", hostname: "https://x.com/a" } });
+      expect(structured(bad).error).toMatchObject({ code: "invalid_input" });
+
+      const first = structured(await client.callTool({ name: "add_domain", arguments: { app: "shop", hostname: "www.example.com" } }));
+      expect(first.error).toMatchObject({ code: "confirmation_required" });
+      expect(first.plan).toContain("www.example.com");
+      expect(cf.calls).toEqual([]);
+      const done = await client.callTool({ name: "add_domain", arguments: { app: "shop", hostname: "www.example.com", confirmation_token: first.confirmation_token as string } });
+      expect(done.isError).toBe(false);
+      const id = cf.of("www.example.com")?.id as string;
+      expect(structured(done)).toMatchObject({
+        hostname: "www.example.com",
+        state: "pending",
+        cname_target: EDGE,
+        verification: [
+          { purpose: "ownership", type: "TXT", name: "_cf-custom-hostname.www.example.com", value: `own-${id}` },
+          { purpose: "dcv", type: "TXT", name: "_acme-challenge.www.example.com", value: `dcv-${id}` },
+        ],
+      });
+      const listed = structured(await client.callTool({ name: "list_domains", arguments: { app: "shop" } })).domains as { hostname: string; state: string }[];
+      expect(listed.map((d) => [d.hostname, d.state])).toEqual([["www.example.com", "pending"]]);
+      expect(structured(await client.callTool({ name: "domain_status", arguments: { app: "shop", hostname: "www.example.com" } }))).toMatchObject({ state: "pending" });
+
+      cf.setStatus("www.example.com", "active");
+      await tick(h.deps);
+      expect(structured(await client.callTool({ name: "domain_status", arguments: { app: "shop", hostname: "www.example.com" } }))).toMatchObject({ state: "verified", verification: [] });
+
+      const rm = structured(await client.callTool({ name: "remove_domain", arguments: { app: "shop", hostname: "www.example.com" } }));
+      const removed = await client.callTool({ name: "remove_domain", arguments: { app: "shop", hostname: "www.example.com", confirmation_token: rm.confirmation_token as string } });
+      expect(structured(removed)).toMatchObject({ state: "detached" });
+      const rows = (await auditRows(h)).filter((r) => r.action === "mcp.add_domain").map((r) => (r.target as Record<string, string>).outcome);
+      expect(rows).toEqual(["insufficient_scope", "invalid_input", "confirmation_required", "ok"]);
+      await client.close();
+    } finally {
+      srv.stop();
     }
   });
 });
