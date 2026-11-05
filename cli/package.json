@@ -1,6 +1,6 @@
 {
   "name": "@renox/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The renox CLI: new, build, dev, check (F1)",
   "private": true,
   "type": "module",

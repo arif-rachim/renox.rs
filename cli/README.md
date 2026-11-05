@@ -7,8 +7,8 @@ One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, 
 Linux and macOS, x64 and arm64 (on Windows, use WSL 2: `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
-renox --version        # renox 0.1.2 (renox-worker 0.3.0)
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.3/install.sh | sh
+renox --version        # renox 0.1.3 (renox-worker 0.3.0)
 ```
 
 The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed). Running it again upgrades in place. Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
