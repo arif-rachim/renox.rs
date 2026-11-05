@@ -8,21 +8,22 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 import { ApiError } from "../errors.ts";
 import type { Deps } from "../context.ts";
+import { masterKeys, type MasterKey } from "../secrets/master.ts";
 
 export type Purpose = "client" | "consent" | "code" | "confirm";
 
-const keys = new WeakMap<Deps, Buffer>();
+const mcpKey = (master: MasterKey): Buffer => Buffer.from(hkdfSync("sha256", master.key, "renox-mcp", "renox-mcp-seal-v1", 32));
 
-/** The MCP key: HKDF-SHA256 of the master key; 503 when no master key is configured. */
-function keyOf(deps: Deps): Buffer {
-  let k = keys.get(deps);
-  if (k === undefined) {
-    const master = deps.config.masterKey === null ? null : Buffer.from(deps.config.masterKey, "base64");
-    if (master === null || master.length !== 32) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 60 });
-    k = Buffer.from(hkdfSync("sha256", master, "renox-mcp", "renox-mcp-seal-v1", 32));
-    keys.set(deps, k);
-  }
-  return k;
+/**
+ * The MCP keys: HKDF-SHA256 of each master key, current first; 503 when no
+ * master key is configured. These values are not stored, so a rotation
+ * (#451) has nothing to re-seal: while the previous key is set, a value
+ * sealed under it still opens, and it expires on its own.
+ */
+function keysOf(deps: Deps): Buffer[] {
+  const keys = masterKeys(deps);
+  if (keys === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 60 });
+  return keys.all().map(mcpKey);
 }
 
 const b64url = (b: Uint8Array): string => Buffer.from(b).toString("base64url");
@@ -30,7 +31,7 @@ const b64url = (b: Uint8Array): string => Buffer.from(b).toString("base64url");
 /** `<prefix><base64url(nonce | ciphertext | tag)>` of the JSON of `value`. */
 export function seal(deps: Deps, purpose: Purpose, prefix: string, value: unknown): string {
   const nonce = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", keyOf(deps), nonce);
+  const c = createCipheriv("aes-256-gcm", keysOf(deps)[0] as Buffer, nonce);
   c.setAAD(Buffer.from(`renox-mcp:${purpose}`));
   const body = Buffer.concat([c.update(JSON.stringify(value), "utf8"), c.final()]);
   return `${prefix}${b64url(Buffer.concat([nonce, body, c.getAuthTag()]))}`;
@@ -41,14 +42,16 @@ export function open<T>(deps: Deps, purpose: Purpose, prefix: string, sealed: st
   if (typeof sealed !== "string" || !sealed.startsWith(prefix) || sealed.length > 8192) return null;
   const raw = Buffer.from(sealed.slice(prefix.length), "base64url");
   if (raw.length < 12 + 16 + 2) return null;
-  try {
-    const d = createDecipheriv("aes-256-gcm", keyOf(deps), raw.subarray(0, 12));
-    d.setAAD(Buffer.from(`renox-mcp:${purpose}`));
-    d.setAuthTag(raw.subarray(raw.length - 16));
-    const text = Buffer.concat([d.update(raw.subarray(12, raw.length - 16)), d.final()]).toString("utf8");
-    return JSON.parse(text) as T;
-  } catch (e) {
-    if (e instanceof ApiError) throw e;
-    return null;
+  for (const key of keysOf(deps)) {
+    try {
+      const d = createDecipheriv("aes-256-gcm", key, raw.subarray(0, 12));
+      d.setAAD(Buffer.from(`renox-mcp:${purpose}`));
+      d.setAuthTag(raw.subarray(raw.length - 16));
+      const text = Buffer.concat([d.update(raw.subarray(12, raw.length - 16)), d.final()]).toString("utf8");
+      return JSON.parse(text) as T;
+    } catch {
+      // Not this key (or not JSON): try the next one.
+    }
   }
+  return null;
 }

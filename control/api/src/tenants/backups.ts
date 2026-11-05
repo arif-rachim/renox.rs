@@ -17,6 +17,7 @@ import { logIngest } from "../ingest/logs.ts";
 import { assertNotMoving } from "../ops/tenants.ts";
 import { activate } from "../routes/activation.ts";
 import { crossTenant } from "../tenancy/scope.ts";
+import { masterKeys } from "../secrets/master.ts";
 import { tenantAuth } from "../auth/middleware.ts";
 import type { Deps, Env } from "../context.ts";
 import type { Db } from "../db/db.ts";
@@ -121,13 +122,34 @@ export const EXPORT_KEEP_MS = 24 * 3600 * 1000;
 
 const unavailable = (field: string, reason: string) => new ApiError("RENOX_BACKUP_UNAVAILABLE", [{ field, reason }], { retryAfter: 30 });
 
-/** The HMAC key of the API's own signed download URLs (stores that cannot presign). */
-function signingKey(deps: Deps): Buffer {
-  return createHmac("sha256", deps.config.masterKey ?? "renox-no-master-key").update("exports\n").digest();
+/** The HMAC key of the API's own signed download URLs (stores that cannot presign), from one master key's text. */
+function signingKey(masterText: string): Buffer {
+  return createHmac("sha256", masterText).update("exports\n").digest();
 }
 
+/** The master keys' texts, current first (#451); the fixed fallback without a master key. */
+function signingTexts(deps: Deps): string[] {
+  const keys = masterKeys(deps);
+  return keys === null ? ["renox-no-master-key"] : keys.all().map((k) => k.text);
+}
+
+const signWith = (text: string, id: string, expires: number): string => createHmac("sha256", signingKey(text)).update(`${id}\n${expires}`).digest("hex");
+
 export function signExport(deps: Deps, id: string, expires: number): string {
-  return createHmac("sha256", signingKey(deps)).update(`${id}\n${expires}`).digest("hex");
+  return signWith(signingTexts(deps)[0] as string, id, expires);
+}
+
+/**
+ * Whether `sig` signs the export under the current master key or, during a
+ * rotation (#451), the previous one: a URL lives 15 minutes and is not
+ * stored, so there is nothing to re-seal.
+ */
+export function exportSignatureValid(deps: Deps, id: string, expires: number, sig: string): boolean {
+  const got = Buffer.from(sig, "hex");
+  return signingTexts(deps).some((t) => {
+    const want = Buffer.from(signWith(t, id, expires), "hex");
+    return want.length === got.length && timingSafeEqual(want, got);
+  });
 }
 
 async function audited(deps: Deps, c: Context<Env>, target: Record<string, string>): Promise<void> {
@@ -194,8 +216,7 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const expires = Number(c.req.query("expires"));
     const sig = c.req.query("sig") ?? "";
     if (!/^exp_[0-9A-Za-z]{26}$/u.test(id) || !Number.isFinite(expires) || !/^[0-9a-f]{64}$/u.test(sig)) throw notFound();
-    const want = Buffer.from(signExport(deps, id, expires), "hex");
-    if (!timingSafeEqual(want, Buffer.from(sig, "hex")) || deps.now() > expires) throw new ApiError("RENOX_TOKEN_SCOPE");
+    if (!exportSignatureValid(deps, id, expires, sig) || deps.now() > expires) throw new ApiError("RENOX_TOKEN_SCOPE");
     const rows = await crossTenant(deps.db, "a signed export URL names its export, not a tenant").query<{ object_key: string }>("select object_key from exports where id = $1", [id]);
     const key = rows[0]?.object_key;
     const bytes = key === undefined ? null : await deps.store.get(key);

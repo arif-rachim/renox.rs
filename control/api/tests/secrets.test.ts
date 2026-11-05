@@ -7,8 +7,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { contentHash } from "@renox/artifact-validate";
 import { checkMessage } from "../src/contract.ts";
 import { decryptValue, encryptValue, EnvMasterKey, MasterKeyError, valueAad } from "../src/secrets/crypto.ts";
+import { keyIdOf } from "../src/secrets/master.ts";
 import { helloArtifact, upload } from "./artifacts.ts";
-import { assertScoped, auditRows, createApp_, harness, registeredNode, scopedToken, sseReader, tenant, type Harness } from "./helpers.ts";
+import { assertScoped, auditRows, createApp_, harness, registeredNode, scopedToken, sseReader, tenant, TEST_MASTER_KEY, type Harness } from "./helpers.ts";
 
 afterEach(assertScoped);
 
@@ -53,7 +54,8 @@ describe("secrets API", () => {
     ].join("\n");
     for (const value of [STRIPE, OTHER]) expect(everything).not.toContain(value);
     const keys = await h.db.query<{ master_key_id: string }>("select master_key_id from tenant_keys");
-    expect(keys).toEqual([{ master_key_id: "env-1" }]);
+    // #451: the id of the key that wrapped it (`mk-` + 16 hex of its SHA-256), never `env-1` again.
+    expect(keys).toEqual([{ master_key_id: keyIdOf(Buffer.from(TEST_MASTER_KEY, "base64")) }]);
   });
 
   test("value and name rules", async () => {

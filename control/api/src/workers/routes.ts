@@ -71,10 +71,11 @@ export function registerWorkers(app: Hono<Env>, deps: Deps): void {
            max_cells = excluded.max_cells, registered_at = excluded.registered_at, last_heartbeat_at = excluded.last_heartbeat_at, healthy = true`,
         [node, body.worker_version, body.region, body.max_cells, now],
       );
-      await tx.query("update workers set listen_url = $1, callback_token_wrapped = $2, callback_token_nonce = $3 where node_id = $4", [
+      await tx.query("update workers set listen_url = $1, callback_token_wrapped = $2, callback_token_nonce = $3, callback_token_key_id = $4 where node_id = $5", [
         sealed === null ? null : (body.listen_url as string),
         sealed?.wrapped ?? null,
         sealed?.nonce ?? null,
+        sealed?.keyId ?? null,
         node,
       ]);
       return before?.healthy === true ? 0 : reassign(tx, now);

@@ -26,6 +26,7 @@ import { num, numOrNull, type Db } from "../db/db.ts";
 import { ApiError, invalid, notFound } from "../errors.ts";
 import { JSON_LIMIT, readBody } from "../http.ts";
 import { ulid } from "../ids.ts";
+import { masterKeys, type MasterKey } from "../secrets/master.ts";
 import { base64url, fromBase64url, verifyAssertion, verifyRegistration, WebAuthnError } from "../../../../sdk/src/webauthn.ts";
 import { generateTotpSecret, totpUri, verifyTotp } from "../../../../sdk/src/totp.ts";
 import { bucketsOf, RULES } from "./buckets.ts";
@@ -80,39 +81,53 @@ export const STEP_UP_ACTIONS = new Set([
 
 // ---------------------------------------------------------------- sealing
 
-const keys = new WeakMap<Deps, Buffer>();
-
-function keyOf(deps: Deps): Buffer {
-  let k = keys.get(deps);
-  if (k === undefined) {
-    const master = deps.config.masterKey === null ? null : Buffer.from(deps.config.masterKey, "base64");
-    if (master === null || master.length !== 32) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 60 });
-    k = Buffer.from(hkdfSync("sha256", master, "renox-mfa", "renox-mfa-totp-v1", 32));
-    keys.set(deps, k);
-  }
-  return k;
+/** The TOTP sealing key of one master key: HKDF-SHA256 (#293). */
+export function totpKey(master: MasterKey): Buffer {
+  return Buffer.from(hkdfSync("sha256", master.key, "renox-mfa", "renox-mfa-totp-v1", 32));
 }
 
-function sealSecret(deps: Deps, userId: string, secret: string): string {
+/** `base64url(nonce | ciphertext | tag)` of the secret, bound to the user. */
+export function sealTotp(key: Buffer, userId: string, secret: string): string {
   const nonce = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", keyOf(deps), nonce);
+  const c = createCipheriv("aes-256-gcm", key, nonce);
   c.setAAD(Buffer.from(`totp:${userId}`));
   const body = Buffer.concat([c.update(secret, "utf8"), c.final()]);
   return Buffer.concat([nonce, body, c.getAuthTag()]).toString("base64url");
 }
 
-function openSecret(deps: Deps, userId: string, sealed: string): string | null {
+/** The secret sealed by `sealTotp` under `key` for `userId`, or null. */
+export function openTotp(key: Buffer, userId: string, sealed: string): string | null {
   const raw = Buffer.from(sealed, "base64url");
   if (raw.length < 12 + 16 + 1) return null;
   try {
-    const d = createDecipheriv("aes-256-gcm", keyOf(deps), raw.subarray(0, 12));
+    const d = createDecipheriv("aes-256-gcm", key, raw.subarray(0, 12));
     d.setAAD(Buffer.from(`totp:${userId}`));
     d.setAuthTag(raw.subarray(raw.length - 16));
     return Buffer.concat([d.update(raw.subarray(12, raw.length - 16)), d.final()]).toString("utf8");
-  } catch (e) {
-    if (e instanceof ApiError) throw e;
+  } catch {
     return null;
   }
+}
+
+function keysOrUnavailable(deps: Deps) {
+  const keys = masterKeys(deps);
+  if (keys === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 60 });
+  return keys;
+}
+
+/** Sealed under the current master key, with its id (#451). */
+function sealSecret(deps: Deps, userId: string, secret: string): { sealed: string; keyId: string } {
+  const current = keysOrUnavailable(deps).current;
+  return { sealed: sealTotp(totpKey(current), userId, secret), keyId: current.id };
+}
+
+/** Opened with the master key `keyId` names; a value from before ids tries the current key, then the previous one. */
+function openSecret(deps: Deps, userId: string, sealed: string, keyId: string | null): string | null {
+  for (const k of keysOrUnavailable(deps).forId(keyId)) {
+    const secret = openTotp(totpKey(k), userId, sealed);
+    if (secret !== null) return secret;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- state
@@ -219,10 +234,13 @@ async function useRecoveryCode(db: Db, userId: string, code: unknown, now: numbe
 
 async function checkTotp(deps: Deps, userId: string, code: unknown): Promise<boolean> {
   if (typeof code !== "string") return false;
-  const rows = await deps.db.query<{ secret_sealed: string; last_step: unknown }>("select secret_sealed, last_step from account_mfa_totp where user_id = $1 and confirmed_at is not null", [userId]);
+  const rows = await deps.db.query<{ secret_sealed: string; secret_key_id: string | null; last_step: unknown }>(
+    "select secret_sealed, secret_key_id, last_step from account_mfa_totp where user_id = $1 and confirmed_at is not null",
+    [userId],
+  );
   const row = rows[0];
   if (row === undefined) return false;
-  const secret = openSecret(deps, userId, row.secret_sealed);
+  const secret = openSecret(deps, userId, row.secret_sealed, row.secret_key_id);
   if (secret === null) return false;
   const step = await verifyTotp(secret, code.replace(/\s/gu, ""), { time: deps.now() / 1000, lastStep: numOrNull(row.last_step) });
   if (step === null) return false;
@@ -340,7 +358,8 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     if (rows[0] !== undefined && rows[0].confirmed_at !== null) throw new ApiError("RENOX_CONFLICT", [{ field: "totp", reason: "already set up; disable it first" }]);
     const secret = generateTotpSecret();
     await db.query("delete from account_mfa_totp where user_id = $1", [u.userId]);
-    await db.query("insert into account_mfa_totp (user_id, secret_sealed, created_at) values ($1, $2, $3)", [u.userId, sealSecret(deps, u.userId, secret), deps.now()]);
+    const sealed = sealSecret(deps, u.userId, secret);
+    await db.query("insert into account_mfa_totp (user_id, secret_sealed, secret_key_id, created_at) values ($1, $2, $3, $4)", [u.userId, sealed.sealed, sealed.keyId, deps.now()]);
     c.set("auditTarget", { user_id: u.userId });
     return c.json({ secret, otpauth_uri: totpUri({ secret, issuer: "Renoxium", account: user.email }) }, 201);
   });
@@ -350,8 +369,8 @@ export function registerMfa(app: Hono<Env>, deps: Deps): void {
     const user = await userRow(db, u.userId);
     limitVerify(deps, user.email);
     const body = await objectBody(c);
-    const rows = await db.query<{ secret_sealed: string }>("select secret_sealed from account_mfa_totp where user_id = $1 and confirmed_at is null", [u.userId]);
-    const secret = rows[0] === undefined ? null : openSecret(deps, u.userId, rows[0].secret_sealed);
+    const rows = await db.query<{ secret_sealed: string; secret_key_id: string | null }>("select secret_sealed, secret_key_id from account_mfa_totp where user_id = $1 and confirmed_at is null", [u.userId]);
+    const secret = rows[0] === undefined ? null : openSecret(deps, u.userId, rows[0].secret_sealed, rows[0].secret_key_id);
     const now = deps.now();
     const step = secret === null || typeof body.code !== "string" ? null : await verifyTotp(secret, body.code.replace(/\s/gu, ""), { time: now / 1000 });
     if (step === null) throw invalid("code", "does not match");

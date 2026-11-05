@@ -5,6 +5,7 @@
 // appended to the ciphertext.
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import type { MasterKeys } from "./master.ts";
 
 const TAG = 16;
 
@@ -24,15 +25,51 @@ function open(key: Uint8Array, ciphertext: Uint8Array, nonce: Uint8Array, aad: s
   return new Uint8Array(Buffer.concat([decipher.update(ciphertext.subarray(0, ciphertext.length - TAG)), decipher.final()]));
 }
 
-/** Wraps and unwraps data keys. The env master key today; a KMS adapter later (#120). */
+/** Wraps and unwraps data keys. The env master keys today; a KMS adapter later (#120). */
 export interface KeyProvider {
-  /** Recorded with every wrapped key, for rotation. */
+  /** Recorded with every wrapped key, for rotation: the key that `wrap` uses. */
   readonly id: string;
   wrap(dek: Uint8Array, tenantId: string): Promise<{ wrapped: Uint8Array; nonce: Uint8Array }>;
-  unwrap(wrapped: Uint8Array, nonce: Uint8Array, tenantId: string): Promise<Uint8Array>;
+  /** `keyId` is the id stored with the wrapped key (#451); null or absent for a value from before ids. */
+  unwrap(wrapped: Uint8Array, nonce: Uint8Array, tenantId: string, keyId?: string | null): Promise<Uint8Array>;
 }
 
 export class MasterKeyError extends Error {}
+
+/**
+ * The current and previous master keys (#451, src/secrets/master.ts): wraps
+ * under the current key; unwraps with the key the stored id names, or, for a
+ * value from before ids, the current key and then the previous one. The
+ * error never names a key, a value or a ciphertext.
+ */
+export class MasterKeyProvider implements KeyProvider {
+  constructor(private readonly keys: MasterKeys) {}
+
+  get id(): string {
+    return this.keys.current.id;
+  }
+
+  async wrap(dek: Uint8Array, subject: string) {
+    const { ciphertext, nonce } = seal(this.keys.current.key, dek, `dek\n${subject}`);
+    return { wrapped: ciphertext, nonce };
+  }
+
+  async unwrap(wrapped: Uint8Array, nonce: Uint8Array, subject: string, keyId?: string | null) {
+    return (await this.unwrapWithId(wrapped, nonce, subject, keyId)).plain;
+  }
+
+  /** The plaintext and the id of the key that opened it. */
+  async unwrapWithId(wrapped: Uint8Array, nonce: Uint8Array, subject: string, keyId?: string | null): Promise<{ plain: Uint8Array; keyId: string }> {
+    for (const k of this.keys.forId(keyId)) {
+      try {
+        return { plain: open(k.key, wrapped, nonce, `dek\n${subject}`), keyId: k.id };
+      } catch {
+        // AES-GCM refused this key: try the next one.
+      }
+    }
+    throw new MasterKeyError("the value does not open under any configured master key");
+  }
+}
 
 /** The master key from CONTROL_MASTER_KEY: 32 bytes, base64. */
 export class EnvMasterKey implements KeyProvider {
