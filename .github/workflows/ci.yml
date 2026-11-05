@@ -448,6 +448,16 @@ jobs:
           exit "$status"
       - name: Benchmark harness smoke test
         run: bench/run.sh B0 --runs 1
+      # ops/single-host.md steps 3 to 12 in one ubuntu:24.04 container booted
+      # with systemd (#407): Postgres, bootstrap --single-host, the control
+      # API on Postgres, the controlled worker with the sandbox enforced, the
+      # platform tenant's dashboard and www deployed with the CLI and served
+      # through the tunnel's socket, the backup, alert and billing units, and
+      # the runbook's health checks. Needs Bun, node_modules and a worker,
+      # which this job has; skips with a reason where systemd cannot run in
+      # a container.
+      - name: Single host end to end
+        run: ops/scripts/single-host-e2e.test.sh "$RENOX_WORKER_PATH"
 
   # The compiled CLI as a developer gets it (#448): `bun build --compile` with
   # the embedded modules and test harness (cli/scripts/compile.ts), then the

@@ -11,7 +11,6 @@ import { ConfigError, loadConfig } from "./config.ts";
 import { createLogger } from "./log.ts";
 import { migrate } from "./db/migrate.ts";
 import { openPostgres } from "./db/postgres.ts";
-import { openPglite } from "./db/pglite.ts";
 import { MemoryObjectStore, S3ObjectStore } from "./storage/object-store.ts";
 import type { Db } from "./db/db.ts";
 import { sweepErasures } from "./tenants/erasure.ts";
@@ -48,10 +47,15 @@ function nodeListener(env: Record<string, string | undefined>): { hostname: stri
 }
 const nodeAt = nodeListener(process.env);
 
+/**
+ * PGlite is a development and test database (a devDependency): it is loaded
+ * only for a `pglite:` URL, so a `bun install --production` tree, which has
+ * no PGlite, starts the API on Postgres (#400).
+ */
 async function openDb(url: string): Promise<Db> {
-  if (url === "pglite:memory") return openPglite();
-  if (url.startsWith("pglite:")) return openPglite(url.slice("pglite:".length));
-  return openPostgres(url);
+  if (!url.startsWith("pglite:")) return openPostgres(url);
+  const { openPglite } = await import("./db/pglite.ts");
+  return url === "pglite:memory" ? openPglite() : openPglite(url.slice("pglite:".length));
 }
 
 const db = await openDb(config.databaseUrl);

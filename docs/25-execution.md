@@ -715,6 +715,14 @@ Work on batch BINARY-SIZE of arif-rachim/renox.rs: issue #372. Follow docs/25-ex
 
 Measure first (`cargo bloat` on the size-built packaged binary, the top 20 crates against the 2026-10-28 build, in a result file), then the candidates the measurement points at: Cargo features `media` and `pdf` on `renox-runtime` and `renox-cell` (a worker without one answers its ops with the unavailable error the contract allows), a smaller AVIF encoder or AVIF off with WebP kept, `typst` trimmed. `MAX_BINARY_MB` and the B20 row back at 100 MB, or the sentence why not. Needs a release build (34 minutes on `node-small`, or the release workflow by hand). `.github/workflows/release-worker.yml` changes need the code-owner review.
 
+### Batch SINGLE-HOST-2 — after SINGLE-HOST — what the production install on `node-small` found (4 issues)
+
+```
+Work on batch SINGLE-HOST-2 of arif-rachim/renox.rs: issues #400, #403, #406, #407 in that order. Follow docs/25-execution.md section "Rules for the agent" exactly. Do not ask me questions; if an issue blocks you, do what the rules say and continue with the next one.
+```
+
+Status (2026-11-05): run on `claude/lucid-ride-ia0tof` after the owner chose it, since no batch was left in this file once O4-HOST and SINGLE-HOST waited only on owner steps. #400's last item: the control API loads PGlite only for a `pglite:` URL, so it starts from a `bun install --production` tree. #403: the runbook states the single host's `[process]` decision; the heartbeat field needs a `type:contract` change (deploy API 0.5.4, proposed in the PR), so #403 stays open. #406: `renox build` links each `public/` file a template names by a content-hashed copy, served `immutable`; compression stays at Cloudflare's edge, and a gateway test keeps the worker from encoding twice. #407: `ops/scripts/single-host-e2e.test.sh` walks the runbook's steps 3 to 12 in a systemd container in CI's `ts` job (Pebble and cert-renew dropped since D25). Owner steps: the code-owner review of `.github/workflows/ci.yml` and `ops/`, and a contract issue for #403's heartbeat field.
+
 ### Gate F7 — after F67-ALL and F67-B, the products launched and the first paying tenant
 
 ```
