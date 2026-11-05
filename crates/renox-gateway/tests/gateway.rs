@@ -482,3 +482,33 @@ async fn hsts_and_csp_upgrade_follow_the_trusted_edge() {
         );
     }
 }
+
+/// A `public/` file is sent as stored, whatever `Accept-Encoding` asks: no
+/// `Content-Encoding`, no `Vary`. Behind the tunnel (ADR D25) Cloudflare's
+/// edge compresses it for the visitor (#406), so a worker encoding would be
+/// a double encoding, and a `Vary` from a request header on a static asset
+/// is what `docs/24-threat-model.md`, "Cache poisoning of static assets",
+/// rules out.
+#[tokio::test]
+async fn static_file_is_never_encoded_by_the_worker() {
+    let dir = tempfile::tempdir().unwrap();
+    let css = "body { color: #222; }\n".repeat(200);
+    write_public(
+        dir.path(),
+        HASH_A,
+        &[("site.css", css.as_bytes(), "text/css; charset=utf-8")],
+    );
+    let app = gateway(dir.path()).router(FakeDispatcher::new());
+    let mut req = request("a.test", "/site.css");
+    req.headers_mut()
+        .insert("accept-encoding", "br, gzip".parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp.headers().get("content-encoding").is_none());
+    assert!(resp.headers().get("vary").is_none());
+    assert_eq!(
+        resp.headers()["content-length"],
+        css.len().to_string().as_str()
+    );
+    assert_eq!(body_string(resp).await, css);
+}

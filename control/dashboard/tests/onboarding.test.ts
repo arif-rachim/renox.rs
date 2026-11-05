@@ -132,7 +132,13 @@ test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow
     expect(verify.status).toBe(200);
     const v = await verify.text();
     expect(v).toContain('data-page="verify"');
-    expect(v).toContain('<script src="/account.js" defer');
+    // The build links public/ files by their content-hashed name, served immutable (#406).
+    expect(v).toMatch(/<script src="\/account\.[0-9a-f]{16}\.js" defer/u);
+    const hashed = /<script src="(\/account\.[0-9a-f]{16}\.js)"/u.exec(v)?.[1] as string;
+    const asset = await fetch(`${dev.base}${hashed}`);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(await asset.text()).toBe(readFileSync(join(import.meta.dir, "../public/account.js"), "utf8"));
     expect(v).toContain("/install.sh | sh");
     expect(v).not.toContain("bunx renox");
     const newApp = await page("/apps/new");

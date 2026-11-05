@@ -37,6 +37,7 @@ import { checkSecurity, type SecurityConfig } from "../check/security.ts";
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
+import { rewriteAssetRefs } from "./public-assets.ts";
 import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, mergedActions, PolicyError, readGuard, v25Problems } from "./policies.ts";
 import { moduleParts, type ModuleParts, type OverrideDrift, storedOverrides } from "./modules/build.ts";
 import { readLock } from "./modules/lock.ts";
@@ -466,6 +467,16 @@ export async function buildFiles(
         Object.entries(mods.slots).map(([k, v]) => [k, v.map((f) => ({ template: f.template, ...(f.requires ? { requires: f.requires } : {}) }))]),
       )
     : undefined;
+  // Public files, read before the templates: a template's literal link to
+  // one of them points at a content-hashed copy, served immutable (#406).
+  const pubDir = join(project, "public");
+  const skipped: Skipped[] = [];
+  const pubs = listFiles(pubDir, "", skipped);
+  for (const k of skipped) k.path = `public/${k.path}`;
+  const pubBytes = new Map(pubs.map((p) => [`/${p}`, new Uint8Array(readFileSync(join(pubDir, p)))] as const));
+  const pubSha = new Map([...pubBytes].map(([p, b]) => [p, sha256Hex(b)] as const));
+  const assets = rewriteAssetRefs(sources, pubSha);
+  sources = assets.sources;
   let templates: Record<string, CompiledTemplate> = {};
   if (Object.keys(sources).length) {
     const tkey = templatesKey({ ...sources, "\0slots": JSON.stringify(compilerSlots ?? {}) });
@@ -519,17 +530,16 @@ export async function buildFiles(
     files.set("migrations/checksums.json", enc.encode(`${JSON.stringify(checksums, null, 2)}\n`));
   }
 
-  // Public files.
-  const pubDir = join(project, "public");
-  const skipped: Skipped[] = [];
-  const pubs = listFiles(pubDir, "", skipped);
-  for (const k of skipped) k.path = `public/${k.path}`;
+  // Public files, plus the hashed copy of each one a template links (#406).
   if (pubs.length) {
     const entries: Record<string, { sha256: string; size: number; content_type: string }> = {};
-    for (const p of pubs) {
-      const bytes = new Uint8Array(readFileSync(join(pubDir, p)));
-      files.set(`public/${p}`, bytes);
-      entries[`/${p}`] = { sha256: sha256Hex(bytes), size: bytes.length, content_type: contentType(p) };
+    for (const [path, bytes] of pubBytes) {
+      const sha256 = pubSha.get(path) as string;
+      const names = [path, ...(assets.aliases.has(path) ? [assets.aliases.get(path) as string] : [])];
+      for (const name of names) {
+        files.set(`public${name}`, bytes);
+        entries[name] = { sha256, size: bytes.length, content_type: contentType(name.slice(1)) };
+      }
     }
     const pm = { version: 0, files: entries };
     const errs = validate(schemas.publicManifest, pm as Json);
