@@ -76,7 +76,7 @@ import type { Handler } from "@renoxium/sdk";
 export const GET: Handler = () => Response.json({ ok: true });
 ```
 
-The board will be mostly pages, so why keep an API route? An app made only of `.html` pages does not build yet ("an artifact needs at least one module", #472). The health route is useful anyway: chapter 10 points an uptime check at it.
+The board will be mostly pages, but an app made only of `.html` pages builds too (artifact 1.6). We keep the health route because chapter 10 points an uptime check at it.
 
 A page is an `.html` file under `pages/`; `pages/index.html` is `/`. `<r-layout use="main">` wraps it in `pages/_layouts/main.html`, and the layout's `<slot />` is where the page goes:
 

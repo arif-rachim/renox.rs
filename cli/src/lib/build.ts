@@ -425,10 +425,6 @@ export async function buildFiles(
     ...toolModules,
     ...jobModules.map((j) => ({ id: j.id, source: j.source })),
   ];
-  if (functions.length === 0 && !mods?.entries.length)
-    throw new BuildError("no code: an artifact needs at least one module (artifact.md, code.entry)", [], {
-      hint: "add a pages/*.ts loader or a functions/ module",
-    });
   const conflicts = routeConflicts(routes).map(ownersOf);
   if (conflicts.length) throw new BuildError("route conflicts", conflicts);
   // V21 (ops.md section 19): /mcp and its resource metadata are the cell's on every app.
@@ -573,7 +569,8 @@ export async function buildFiles(
     artifact: { version: 1 },
     app: config.app,
     code: { format: "esm-dir", entry },
-    entries: entriesOf(entry, bundled.code),
+    // Artifact 1.6: a code-less app (pages and public/ only) has `code.entry: {}` and no `entries` key.
+    ...(functions.length === 0 && !mods?.entries.length ? {} : { entries: entriesOf(entry, bundled.code) }),
     routes: [...routes, ...extra.tools, ...extra.jobs],
     ...(Object.keys(manifestTemplates).length ? { templates: manifestTemplates } : {}),
     permissions: config.permissions,
@@ -804,5 +801,6 @@ export const artifactsDir = (project: string): string => join(project, ".renox",
 
 /** Total bytes under `code/` (V5 reports it). */
 export function codeBytes(dir: string): number {
+  if (!existsSync(join(dir, "code"))) return 0;
   return listFiles(join(dir, "code")).reduce((n, f) => n + statSync(join(dir, "code", f)).size, 0);
 }

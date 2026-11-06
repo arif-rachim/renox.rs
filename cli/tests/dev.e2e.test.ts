@@ -2,7 +2,7 @@
 // RENOX_WORKER_PATH is set (always in CI, #186; locally: cargo build -p
 // renox-cell --bin renox-worker and point it at target/debug/renox-worker).
 import { expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -148,6 +148,29 @@ test.skipIf(!worker)(
     } finally {
       sse.stop();
       await dev.stop();
+    }
+  },
+  60_000,
+);
+
+test.skipIf(!worker)(
+  "renox dev serves a pages-only app (artifact 1.6)",
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), "renox-dev-pages-only-"));
+    cpSync(join(import.meta.dir, "fixtures/pages-only"), dir, { recursive: true });
+    const port = 20000 + Math.floor(Math.random() * 20000);
+    const lines: string[] = [];
+    const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
+    const base = `http://localhost:${port}`;
+    try {
+      const home = await fetch(`${base}/`);
+      expect(home.status).toBe(200);
+      expect(await home.text()).toContain("Pages only");
+      expect((await fetch(`${base}/style.css`)).status).toBe(200);
+      expect((await fetch(`${base}/api/x`)).status).toBe(404);
+    } finally {
+      await dev.stop();
+      rmSync(dir, { recursive: true, force: true });
     }
   },
   60_000,

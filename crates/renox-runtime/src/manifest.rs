@@ -631,7 +631,8 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Load and verify an artifact directory: V1 (paths, links), V2 (hash =
 /// directory name), V3 (manifest and version), V5 (code size), V6 (code
-/// layout), V7 (routes and entries). V8 (route conflicts) and V9-V12 are
+/// layout), V7 (routes and entries), V30 (an app with no code: empty
+/// `code.entry`, artifact 1.6). V8 (route conflicts) and V9-V12 are
 /// `renox check`'s job in F1; the router still refuses invalid patterns.
 pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
     let dir_name = root
@@ -715,6 +716,9 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
             format!("code/ is {code_bytes} bytes, over {MAX_CODE_BYTES}"),
         ));
     }
+    if manifest.code.entry.is_empty() {
+        check_no_code(&manifest, &code_files)?;
+    }
     match manifest.code.format {
         CodeFormat::EsmDir => {
             for (rel, _) in &code_files {
@@ -740,7 +744,10 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
             }
         }
         CodeFormat::Eszip => {
-            if code_files.len() != 1 || code_files[0].0 != "code/bundle.eszip" {
+            let no_code = manifest.code.entry.is_empty();
+            if !(no_code && code_files.is_empty())
+                && (code_files.len() != 1 || code_files[0].0 != "code/bundle.eszip")
+            {
                 return Err(load_err("V6", "code/ must hold exactly bundle.eszip"));
             }
         }
@@ -753,11 +760,8 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
             ));
         }
     }
-    if manifest.routes.is_empty() || manifest.code.entry.is_empty() {
-        return Err(load_err(
-            "V7",
-            "at least one route and one code.entry are required",
-        ));
+    if manifest.routes.is_empty() {
+        return Err(load_err("V7", "at least one route is required"));
     }
     for r in &manifest.routes {
         if r.kind == RouteKind::Page {
@@ -813,6 +817,51 @@ pub fn load_artifact(root: &Path) -> Result<Artifact, LoadError> {
         hash,
         manifest,
     })
+}
+
+/// V30 (artifact 1.6): an app with no code. With an empty `code.entry`, no
+/// route may need code, `entries` is empty or absent, and `code/` is empty
+/// (a missing `code/` directory reads as empty).
+fn check_no_code(manifest: &Manifest, code_files: &[&(String, PathBuf)]) -> Result<(), LoadError> {
+    if !code_files.is_empty() {
+        return Err(load_err(
+            "V30",
+            format!(
+                "code.entry is empty but code/ holds {} file(s)",
+                code_files.len()
+            ),
+        ));
+    }
+    if manifest.entries.as_ref().is_some_and(|e| !e.is_empty()) {
+        return Err(load_err("V30", "code.entry is empty but entries is not"));
+    }
+    for r in &manifest.routes {
+        if r.kind != RouteKind::Page {
+            return Err(load_err(
+                "V30",
+                format!(
+                    "route {} {} ({}) needs code, but code.entry is empty",
+                    r.method.as_str(),
+                    r.path,
+                    format!("{:?}", r.kind).to_lowercase()
+                ),
+            ));
+        }
+        if let Some(p) = r.page()
+            && (p.module.as_deref().is_some_and(|m| !m.is_empty())
+                || p.load
+                || !p.actions.is_empty())
+        {
+            return Err(load_err(
+                "V30",
+                format!(
+                    "page {} names a module, load or actions, but code.entry is empty",
+                    r.path
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// V14: `templates/` holds exactly `templates/<id>.jinja` for the keys of
@@ -997,6 +1046,103 @@ mod tests {
         let err = load_artifact(&dir).unwrap_err();
         assert_eq!(err.rule, "V3", "{err}");
         fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// Writes `manifest` and the given `code/` files plus the two page
+    /// templates; returns the hash-named directory.
+    fn write_no_code(name: &str, manifest: serde_json::Value, code: &[(&str, &str)]) -> PathBuf {
+        let tmp = std::env::temp_dir().join(format!("renox-nocode-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let src = tmp.join("src");
+        fs::create_dir_all(src.join("templates/pages")).unwrap();
+        fs::write(src.join("templates/pages/index.jinja"), "<h1>home</h1>").unwrap();
+        fs::write(src.join("templates/pages/about.jinja"), "<h1>about</h1>").unwrap();
+        for (rel, body) in code {
+            let p = src.join("code").join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, body).unwrap();
+        }
+        fs::write(src.join("manifest.json"), manifest.to_string()).unwrap();
+        let hash = content_hash(&src).unwrap();
+        let dir = tmp.join(&hash);
+        fs::rename(&src, &dir).unwrap();
+        dir
+    }
+
+    fn no_code_base() -> serde_json::Value {
+        serde_json::json!({
+            "artifact": { "version": 1 },
+            "app": { "name": "x", "timezone": "UTC" },
+            "code": { "format": "esm-dir", "entry": {} },
+            "routes": [
+                { "kind": "page", "path": "/", "template": "pages/index" },
+                { "kind": "page", "path": "/about", "template": "pages/about" }
+            ],
+            "templates": {
+                "pages/index": { "kind": "page", "fragments": {} },
+                "pages/about": { "kind": "page", "fragments": {} }
+            },
+            "permissions": { "network": [], "secrets": [] }
+        })
+    }
+
+    fn cleanup(dir: &Path) {
+        fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+    }
+
+    /// V30: an app with no code loads.
+    #[test]
+    fn no_code_artifact_loads() {
+        let dir = write_no_code("loads", no_code_base(), &[]);
+        let a = load_artifact(&dir).unwrap();
+        assert!(a.manifest.code.entry.is_empty());
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn no_code_with_a_code_file_is_v30() {
+        let dir = write_no_code("file", no_code_base(), &[("x.js", "export {}")]);
+        assert_eq!(load_artifact(&dir).unwrap_err().rule, "V30");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn no_code_with_a_function_route_is_v30() {
+        let mut m = no_code_base();
+        m["routes"].as_array_mut().unwrap().push(serde_json::json!(
+            { "kind": "function", "method": "GET", "path": "/api/x", "module": "functions/x", "export": "GET" }
+        ));
+        let dir = write_no_code("function", m, &[]);
+        assert_eq!(load_artifact(&dir).unwrap_err().rule, "V30");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn no_code_page_with_module_is_v30() {
+        let mut m = no_code_base();
+        m["routes"][0]["module"] = serde_json::json!("pages/index");
+        let dir = write_no_code("module", m, &[]);
+        assert_eq!(load_artifact(&dir).unwrap_err().rule, "V30");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn no_code_with_entries_is_v30() {
+        let mut m = no_code_base();
+        m["entries"] = serde_json::json!({ "pages/x": { "exports": ["load"] } });
+        let dir = write_no_code("entries", m, &[]);
+        assert_eq!(load_artifact(&dir).unwrap_err().rule, "V30");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn no_code_eszip_without_bundle_loads() {
+        let mut m = no_code_base();
+        m["code"]["format"] = serde_json::json!("eszip");
+        let dir = write_no_code("eszip", m, &[]);
+        let r = load_artifact(&dir);
+        assert!(r.is_ok(), "{:?}", r.err());
+        cleanup(&dir);
     }
 
     /// Artifact 1.4 (#123): a version 1 artifact may carry `sbom.cdx.json`;
