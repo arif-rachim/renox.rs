@@ -2563,7 +2563,15 @@ renox new demo --template hello && cd demo && bun install && renox dev
 
 **The install line names a release that exists.** Every install line in the repository (this section, `docs/getting-started.md`, `cli/README.md`, the dashboard's `control/dashboard/lib/install.ts`, `www/public/llms-full.txt`) names a `cli-v*` release that is on GitHub Releases. The version in `cli/package.json` and the install lines move together (`control/dashboard/tests/copy.test.ts` checks the dashboard's against it), in the release commit that is then tagged the same day; a change for the next version is listed under it in `CHANGELOG.md` as "(unreleased)" and moves no install line. A newcomer's first command must never answer 404. Before a docs PR merges, the check is a grep for `cli-v` against the list of releases.
 
-**Windows.** There is no native Windows build in 0.1 (`renox-worker` runs on Linux and macOS only), and `install.sh` stops with these steps when it runs under Git Bash, MSYS2 or Cygwin. Use WSL 2, which is a Linux machine:
+#### Windows
+
+In PowerShell (x64):
+
+```powershell
+irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex
+```
+
+The CLI runs natively on Windows; `renox-worker` does not (it runs on Linux and macOS only). What works natively: `new`, `check` and `build` of an app without `.html` pages or policies, `login`, `deploy`, `logs`, `secrets`, `db`, `add`, `remove` and `mcp`. CI builds `examples/hello` and `examples/npm-compat` on Windows and on Linux and compares the artifact hashes (`.github/workflows/ci.yml`, jobs `windows` and `windows-hash-parity`). What needs WSL 2 until #442: `dev`, `test`, `migrate`, and apps with `.html` pages or policies; these commands stop with `RENOX_CLI_WORKER_UNAVAILABLE`. `install.sh` stops with the same pointer when it runs under Git Bash, MSYS2 or Cygwin. WSL 2 is a Linux machine:
 
 1. In PowerShell as administrator: `wsl --install -d Ubuntu`, then restart Windows.
 2. Open Ubuntu from the Start menu and create the Linux user it asks for.
@@ -2879,7 +2887,7 @@ One CLI for the tenant dev loop and deploys (`docs/12-developer-experience.md`, 
 
 ## Install
 
-Linux and macOS, x64 and arm64 (on Windows, use WSL 2: `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
+Linux and macOS, x64 and arm64 (Windows: a PowerShell installer, and WSL 2 for `dev`, `test` and `migrate`; see `docs/12-developer-experience.md`, "Installing the CLI", "Windows"):
 
 ```sh
 curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.3/install.sh | sh
@@ -3533,6 +3541,7 @@ Answered as JSON-RPC errors by the cell's `/mcp` endpoint (`ops.md` section 19):
 | `RENOX_ACTIVATION_FAILED` | F3 | 422 (deploy API) | Activation stopped on the owning node: the artifact could not be fetched, a migration file failed, module evaluation failed, the probe answered 5xx or hit a limit, or the node did not answer within 60 s. Nothing switched; the previous deployment keeps serving | The deployment could not be activated. | Deployment event with `stage` (`fetch` / `load` / `migrate` / `probe` / `timeout`), `module`, `file`, `sqlite_error`, `http_status`; the deployment returns to `validated` with `last_error` | Fix the failing migration file or handler and deploy again; applied migration files are not re-run | `deploy-api.md` §6; failure modes "Migration fails half-way during activation", "New deployment fails its first request" |
 | `RENOX_POLICY_INVALID` | F5 | 422 (deploy API); `renox check` exit code 1 | A Cedar policy file (`policies/app/*.cedar`, a module's `policies/*.cedar`) does not parse, or does not validate against the merged schema (an unknown action or entity type, a type error), or the merged schema has a duplicate entity type or action (`artifact.md` V24); nothing is loaded | The policies failed validation. | Deployment event with `rule: "V24"`, `path` (the policy file), `reason` (the parser's or validator's message, which names policy text the tenant wrote, never ours); the deployment state becomes `rejected` | Run `renox check`, which prints the same message with the file and line; declare the action in `[authz] actions` or the entity in `[authz.entities]` / `policies/schema.cedarschema` | `artifact.md` §3, "Policies", §6 V24; `ops.md` §17; `docs/24-threat-model.md` rule 3 (fail closed) |
 | `RENOX_CLI_WORKER_UNVERIFIED` | F3 | — (CLI, exit code 3) | The CLI refused to run a `renox-worker` binary whose sha256 differs from the pinned release or whose sigstore signature or provenance does not verify | — | CLI output only: `expected_sha256`, `actual_sha256`, the binary path on the developer's own machine | Re-download the worker (`renox dev` fetches the pinned release) or pass a binary from an official release; never disable the check | `docs/24-threat-model.md` F, "Tampered release"; #129 |
+| `RENOX_CLI_WORKER_UNAVAILABLE` | F7 | — (CLI, exit code 3) | A command that needs `renox-worker` (`dev`, `test`, `migrate`, and `build`, `check` or `deploy` of an app with `.html` pages or policies) ran on a platform with no worker build (Windows today) | — | CLI output only: the platform and arch | Run renox inside WSL 2 (`wsl --install -d Ubuntu`); a native Windows worker is #442. `new`, `check` and `build` of an app without `.html` pages or policies, `login`, `deploy`, `logs`, `secrets` and `db` work natively | #441, #442 |
 
 ### Control API (deploy API, F3 and F6)
 
@@ -3577,6 +3586,7 @@ Answers of `control/api` to tenants, nodes and operators ([`deploy-api.md`](depl
 | 0.5 | #318 | Ops 1.7.0 (F7): the storage, image, webhook, AI and PDF codes |
 | 0.6 | #346 | Artifact 1.5 and deploy API 0.5.1 (F7): `RENOX_TENANT_SUSPENDED`, the neutral suspension page the gateway answers for a `suspended` route entry |
 | 0.7 | #418 | `RENOX_HOST_MISMATCH` deprecated: the worker serves plain HTTP/1.1 behind Cloudflare Tunnel and has no SNI to compare (ADR D25). The row stays, marked as no longer produced; no other change |
+| 0.8 | #507 | `RENOX_CLI_WORKER_UNAVAILABLE` (F7): the CLI has no worker build for the platform (Windows) |
 
 ---
 

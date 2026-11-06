@@ -44,7 +44,15 @@ renox new demo --template hello && cd demo && bun install && renox dev
 
 **The install line names a release that exists.** Every install line in the repository (this section, `docs/getting-started.md`, `cli/README.md`, the dashboard's `control/dashboard/lib/install.ts`, `www/public/llms-full.txt`) names a `cli-v*` release that is on GitHub Releases. The version in `cli/package.json` and the install lines move together (`control/dashboard/tests/copy.test.ts` checks the dashboard's against it), in the release commit that is then tagged the same day; a change for the next version is listed under it in `CHANGELOG.md` as "(unreleased)" and moves no install line. A newcomer's first command must never answer 404. Before a docs PR merges, the check is a grep for `cli-v` against the list of releases.
 
-**Windows.** There is no native Windows build in 0.1 (`renox-worker` runs on Linux and macOS only), and `install.sh` stops with these steps when it runs under Git Bash, MSYS2 or Cygwin. Use WSL 2, which is a Linux machine:
+#### Windows
+
+In PowerShell (x64):
+
+```powershell
+irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex
+```
+
+The CLI runs natively on Windows; `renox-worker` does not (it runs on Linux and macOS only). What works natively: `new`, `check` and `build` of an app without `.html` pages or policies, `login`, `deploy`, `logs`, `secrets`, `db`, `add`, `remove` and `mcp`. CI builds `examples/hello` and `examples/npm-compat` on Windows and on Linux and compares the artifact hashes (`.github/workflows/ci.yml`, jobs `windows` and `windows-hash-parity`). What needs WSL 2 until #442: `dev`, `test`, `migrate`, and apps with `.html` pages or policies; these commands stop with `RENOX_CLI_WORKER_UNAVAILABLE`. `install.sh` stops with the same pointer when it runs under Git Bash, MSYS2 or Cygwin. WSL 2 is a Linux machine:
 
 1. In PowerShell as administrator: `wsl --install -d Ubuntu`, then restart Windows.
 2. Open Ubuntu from the Start menu and create the Linux user it asks for.

@@ -123,7 +123,7 @@ case $(uname -s) in
     # (renox-worker is Linux and macOS only). WSL 2 is a Linux machine, so the
     # same install line works there (docs/12-developer-experience.md,
     # "Installing the CLI", "Windows").
-    die "no native Windows build of renox; use WSL 2: run 'wsl --install -d Ubuntu' in PowerShell as administrator, restart, open Ubuntu, and run this install line there"
+    die "no native Windows build of renox; use WSL 2: run 'wsl --install -d Ubuntu' in PowerShell as administrator, restart, open Ubuntu, and run this install line there. For the native CLI (no dev, test or migrate), run in PowerShell: irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex"
     ;;
   *) die "no renox build for $(uname -s); Linux and macOS are supported (on Windows, use WSL 2)" ;;
 esac
