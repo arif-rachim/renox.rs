@@ -527,11 +527,15 @@ jobs:
       - name: CLI tests that need no worker
         run: cd cli && bun test tests/paths.test.ts tests/hash.test.ts tests/routes.test.ts tests/credentials-path.test.ts tests/worker-unavailable.test.ts
       - name: new, check, build of a blank app
+        # Outside the repository: inside it, check would find the workspace's
+        # typescript but not the app's own @renoxium/sdk (no bun install there).
         run: |
-          bun cli/src/main.ts new demo --template blank
+          cli="$PWD/cli/src/main.ts"
+          cd "$RUNNER_TEMP"
+          bun "$cli" new demo --template blank
           cd demo
-          bun ../cli/src/main.ts check
-          bun ../cli/src/main.ts build
+          bun "$cli" check
+          bun "$cli" build
       - name: Artifact hashes of the examples
         run: bun cli/scripts/build-hash.ts examples/hello examples/npm-compat > hashes-windows.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
