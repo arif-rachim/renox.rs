@@ -293,6 +293,8 @@ jobs:
           if ($LASTEXITCODE -ne 3) { throw "renox dev exited $LASTEXITCODE, expected 3" }
           if ($out -notmatch 'RENOX_CLI_WORKER_UNAVAILABLE') { throw "renox dev did not print RENOX_CLI_WORKER_UNAVAILABLE" }
           "windows-x64 smoke test of renox-${v}: ok" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          # The runner exits with the last native exit code, here dev's expected 3.
+          exit 0
 
   release:
     needs: [build, smoke-windows]
