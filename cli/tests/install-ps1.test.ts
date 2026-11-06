@@ -35,8 +35,10 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-function install(dir: string): { code: number; err: string } {
-  const r = Bun.spawnSync([pwsh as string, "-NoProfile", "-NonInteractive", "-File", script, version], {
+// Async: a spawnSync would block this process's event loop, so the Bun.serve
+// release above could never answer the script's downloads.
+async function install(dir: string): Promise<{ code: number; err: string }> {
+  const r = Bun.spawn([pwsh as string, "-NoProfile", "-NonInteractive", "-File", script, version], {
     env: {
       ...process.env,
       RENOX_RELEASE_BASE: `http://127.0.0.1:${server?.port}`,
@@ -46,23 +48,27 @@ function install(dir: string): { code: number; err: string } {
     stdout: "pipe",
     stderr: "pipe",
   });
-  return { code: r.exitCode, err: r.stderr.toString() };
+  const [code, err] = await Promise.all([r.exited, new Response(r.stderr).text(), new Response(r.stdout).text()]);
+  return { code, err };
 }
 
-test.skipIf(!pwsh)("a correct sha256 installs renox.exe", () => {
+// pwsh takes a few seconds to start on a CI runner.
+const PWSH_TIMEOUT = 60_000;
+
+test.skipIf(!pwsh)("a correct sha256 installs renox.exe", async () => {
   digest = sha(binary);
   const dir = join(scratch, "ok");
-  const { code, err } = install(dir);
+  const { code, err } = await install(dir);
   expect(err).toContain(`renox ${version}`);
   expect(code).toBe(0);
   expect(readFileSync(join(dir, "renox.exe")).equals(binary)).toBe(true);
-});
+}, PWSH_TIMEOUT);
 
-test.skipIf(!pwsh)("a wrong sha256 exits 1 and installs nothing", () => {
+test.skipIf(!pwsh)("a wrong sha256 exits 1 and installs nothing", async () => {
   digest = sha(Buffer.from("something else"));
   const dir = join(scratch, "bad");
-  const { code, err } = install(dir);
+  const { code, err } = await install(dir);
   expect(code).toBe(1);
   expect(err).toContain("checksum mismatch");
   expect(existsSync(join(dir, "renox.exe"))).toBe(false);
-});
+}, PWSH_TIMEOUT);
