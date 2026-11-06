@@ -238,7 +238,7 @@ const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,63}$/u;
 export interface Mail {
   to: string;
   template: "org_invite";
-  args: { url: string; org_name: string; role: Role; expires_days: number; invited_by: string };
+  args: { url: string; org_name: string; role: Role; expires_days: number; invited_by: string; locale: string | null };
 }
 
 /**
@@ -284,11 +284,11 @@ export async function inviteAs(
     "insert into org__invites (id, org_id, token_hash, email, role, invited_by, expires_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
     [id, orgId, await sha256Hex(token), email, role, s.user.id, expires, t],
   );
-  const org = await ctx.db.queryOne<{ name: string }>("select name from org__orgs where id = ?", [orgId]);
+  const org = await ctx.db.queryOne<{ name: string; locale: string | null }>("select name, locale from org__orgs where id = ?", [orgId]);
   const mail: Mail = {
     to: email,
     template: "org_invite",
-    args: { url: `${origin ?? ""}${basePath(ctx)}/accept/${token}`, org_name: org?.name ?? "", role, expires_days: days, invited_by: s.user.display_name },
+    args: { url: `${origin ?? ""}${basePath(ctx)}/accept/${token}`, org_name: org?.name ?? "", role, expires_days: days, invited_by: s.user.display_name, locale: org?.locale ?? null },
   };
   await ctx.hooks.run("org.send_mail", mail);
   return { ok: true, invite_id: id, expires_at: expires };

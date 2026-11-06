@@ -5,6 +5,7 @@
 //   auth module, from this module's bilingual templates;
 // - `auth.user_registered`: the welcome email (the address from auth's
 //   public view);
+// - `org.send_mail` (when `org` is installed): the invitation mail;
 // - `notifications.deliver` for the `email` channel.
 import * as core from "./lib/core.ts";
 
@@ -41,6 +42,13 @@ export const hooks = {
   "auth.send_mail": {
     async handle(ctx: Ctx, args: { to: string; template: string; args: { url?: string; expires_minutes?: number; display_name?: string } }) {
       await quietly(() => core.sendTemplate(ctx, args.to, args.template, args.args ?? {}, { locale: localeOf(ctx) }));
+    },
+  },
+  /** The invitation of the `org` module, in the organisation's locale (its column; null = English). */
+  "org.send_mail": {
+    async handle(ctx: Ctx, args: { to: string; template: string; args: { url: string; org_name: string; role: string; expires_days: number; invited_by: string; locale?: string | null } }) {
+      const { url, org_name, role, expires_days, invited_by, locale } = args.args;
+      await quietly(() => core.sendTemplate(ctx, args.to, "org_invite", { url, org_name, role, expires_days, invited_by }, { locale: typeof locale === "string" && locale.startsWith("ar") ? "ar" : "en" }));
     },
   },
   "notifications.deliver": {

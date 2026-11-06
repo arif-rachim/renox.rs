@@ -57,17 +57,6 @@ config = { currency = "AED", success_url = "/billing/thanks", cancel_url = "/bil
 approved = { tables = "billing__*", network = ["api.stripe.com"], secrets = ["BILLING_STRIPE_KEY", "BILLING_WEBHOOK_STRIPE_SECRET"], slots = ["admin.sidebar"], hooks = [] }
 
 [[module]]
-name = "email"
-version = "1.0.0"
-source = "official"
-hash = "07d6a86d006d88473c5330c619d86a087ba4ea5f29d0b8ccb4394ea7ea3abe57"
-isolation = "shared"
-mount = "/email"
-dependencies = ["auth", "i18n"]
-config = { provider = "resend", from = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
-approved = { tables = "email__*", network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"], secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_mail"] }
-
-[[module]]
 name = "notifications"
 version = "1.0.0"
 source = "official"
@@ -82,12 +71,23 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 name = "org"
 version = "1.0.0"
 source = "official"
-hash = "ac7b1e6756ad2a31df88e21c0ba9cd158ea502faebc8b896f39a1f215d364f3f"
+hash = "7504cf39710d2c852f40d93f458e8e823c212a661908462dbda58d9fec15d70f"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/org", invite_days = 7 }
 approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
+
+[[module]]
+name = "email"
+version = "1.0.0"
+source = "official"
+hash = "17c9c32bd49fdaadec430676684fe57ef8e365d897a06587a1be3d4f46c3b6ca"
+isolation = "shared"
+mount = "/email"
+dependencies = ["auth", "i18n"]
+config = { provider = "resend", from = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
+approved = { tables = "email__*", network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"], secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_mail", "org.send_mail"] }
 
 [[module]]
 name = "storage"

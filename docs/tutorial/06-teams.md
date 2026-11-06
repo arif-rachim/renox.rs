@@ -40,7 +40,7 @@ outbox = { version = "^1.0.0", source = "path:modules/outbox" }
 
 ## Invitations need a mail sender
 
-An admin invites by email. `org` hands the invitation to the hook `org.send_mail`, and some module must fill it. The official `email` module fills `auth.send_mail` (password resets) but not yet `org.send_mail` (#475), so the board carries a ten-line module of its own. It keeps each invitation in a table so you can pass the link on yourself:
+An admin invites by email. `org` hands the invitation to the hook `org.send_mail`, and some module must fill it. The official `email` module fills `auth.send_mail` (password resets) and, from CLI 0.1.4, `org.send_mail` too: `renox add email` delivers invitations. The board keeps `modules/outbox` so the tutorial runs without a mail provider, so it carries a ten-line module of its own. It keeps each invitation in a table so you can pass the link on yourself:
 
 `modules/outbox/module.toml`:
 ```toml
@@ -234,7 +234,7 @@ describe("the board, per team", () => {
 | "Sign in and create a team first" (409) | The session has no active team: create one at `/org` |
 | `RENOX_MODULE_SERVICE` in the terminal | A module's service threw (for example `org` refused a call the user's role does not allow). The module's own log line, just above, names the cause |
 | `renox add` reports `MF2` or `MF11` | The version range in `renox.toml` cannot be met, or the module's source cannot be read. For a `path:` module, the folder must hold `module.toml` |
-| An invitation never arrives | No module delivers `org.send_mail` mails yet; read the link from `outbox__mail` |
+| An invitation never arrives | The board fills `org.send_mail` with `modules/outbox`, which delivers nothing; read the link from `outbox__mail`. From CLI 0.1.4, `renox add email` delivers invitations too |
 | `MF12: outbox.hash in renox.lock is "…", expected "…"` after you edit `modules/outbox` | The lock pins the module's content hash. Run `renox add outbox --source path:modules/outbox` again |
 
 ## Building with an AI agent

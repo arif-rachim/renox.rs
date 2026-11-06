@@ -1046,7 +1046,7 @@ outbox = { version = "^1.0.0", source = "path:modules/outbox" }
 
 ## Invitations need a mail sender
 
-An admin invites by email. `org` hands the invitation to the hook `org.send_mail`, and some module must fill it. The official `email` module fills `auth.send_mail` (password resets) but not yet `org.send_mail` (#475), so the board carries a ten-line module of its own. It keeps each invitation in a table so you can pass the link on yourself:
+An admin invites by email. `org` hands the invitation to the hook `org.send_mail`, and some module must fill it. The official `email` module fills `auth.send_mail` (password resets) and, from CLI 0.1.4, `org.send_mail` too: `renox add email` delivers invitations. The board keeps `modules/outbox` so the tutorial runs without a mail provider, so it carries a ten-line module of its own. It keeps each invitation in a table so you can pass the link on yourself:
 
 `modules/outbox/module.toml`:
 ```toml
@@ -1240,7 +1240,7 @@ describe("the board, per team", () => {
 | "Sign in and create a team first" (409) | The session has no active team: create one at `/org` |
 | `RENOX_MODULE_SERVICE` in the terminal | A module's service threw (for example `org` refused a call the user's role does not allow). The module's own log line, just above, names the cause |
 | `renox add` reports `MF2` or `MF11` | The version range in `renox.toml` cannot be met, or the module's source cannot be read. For a `path:` module, the folder must hold `module.toml` |
-| An invitation never arrives | No module delivers `org.send_mail` mails yet; read the link from `outbox__mail` |
+| An invitation never arrives | The board fills `org.send_mail` with `modules/outbox`, which delivers nothing; read the link from `outbox__mail`. From CLI 0.1.4, `renox add email` delivers invitations too |
 | `MF12: outbox.hash in renox.lock is "…", expected "…"` after you edit `modules/outbox` | The lock pins the module's content hash. Run `renox add outbox --source path:modules/outbox` again |
 
 ## Building with an AI agent
@@ -1769,7 +1769,7 @@ Bundling… <n> routes, <n> modules, <n> templates
 
 (The shape of the output; your counts, sizes and times go where the `<…>` are.) `renox deploy` type checks first, as `renox check` does, and stops on a type error before anything is uploaded. The migrations run before the new code takes traffic. Every deployment is kept: `renox deploy --rollback` switches back to the previous one at once, without a build. Rolling back never undoes a migration, so a new column must be one the older code can ignore, as `team_id` with its default is ([Developer experience, deploy without downtime](../12-developer-experience.md#deploy-without-downtime)).
 
-Open the live URL, register, create a team and invite a colleague. The invitation link is in the `outbox__mail` table until a mail module delivers it (chapter 6, #475). [What you should see: the finished board](screenshots/10-finished.png).
+Open the live URL, register, create a team and invite a colleague. The invitation link is in the `outbox__mail` table: from CLI 0.1.4, `renox add email` delivers invitations too; the board keeps `modules/outbox` so the tutorial runs without a mail provider (chapter 6). [What you should see: the finished board](screenshots/10-finished.png).
 
 **The finished app, deployed:** not yet. Deploying this checkpoint on `renoxium.app` is an owner step of #430; its link goes here when it is live.
 
@@ -1836,7 +1836,7 @@ The platform MCP has `deploy`, `rollback`, `get_logs`, `list_deployments` and `a
 
 ## Where next
 
-- Replace `modules/outbox` with a mail module once #475 is done; add `2fa` (`renox add 2fa`) for owners; add `audit` to record who removed what.
+- Replace `modules/outbox` with the `email` module (`renox add email`, from CLI 0.1.4 it delivers invitations too); add `2fa` (`renox add 2fa`) for owners; add `audit` to record who removed what.
 - [Modules](../10-modules.md), [Authorization](../11-authorization.md), [Fragments and realtime](../09-htmx-realtime.md) and [App model](../07-app-model.md) go deeper into what you used here.
 
 **Checkpoint:** [`examples/tutorial/step-10`](../../examples/tutorial/step-10/), the finished app.
@@ -3596,7 +3596,7 @@ Source: docs/contracts/manifest.md (https://github.com/arif-rachim/renox.rs/blob
 
 | | |
 | --- | --- |
-| Version | **1.3** (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
+| Version | **1.4** (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
 | Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
 | Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
 | Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
@@ -3713,7 +3713,7 @@ Required in a tree published with `renox publish`; ignored for `path:` and `git:
 
 ### `[dependencies]`
 
-Module name → semver range. A dependency is required for service calls and public views, and only for those (`docs/10-modules.md`, "Five communication mechanisms"): events, hooks, and slots need none. Every dependency must itself be installed in `renox.toml` (MF5); the CLI never installs a module implicitly.
+Module name → semver range. A dependency is required for service calls and public views, and only for those (`docs/10-modules.md`, "Five communication mechanisms"): events, hooks, and slots need none. Every dependency must itself be installed in `renox.toml` (MF5); the CLI never installs a module implicitly. A module that is only wanted when present goes in `[optional_dependencies]`.
 
 Ranges are a fixed subset of npm's:
 
@@ -3725,6 +3725,10 @@ Ranges are a fixed subset of npm's:
 | `>=A <B` (full versions, one space) | the interval | `>=1.2.0 <1.5.0` |
 
 A pre-release version (`1.3.0-rc.1`) satisfies only an exact range naming it. Nothing else (`*`, `||`, `x`, hyphen ranges) is accepted.
+
+### `[optional_dependencies]` (1.4)
+
+Module name → semver range, with the same range forms as `[dependencies]`. When the module is installed, its version must satisfy the range (MF2) and it is ordered before this one; when it is not installed, nothing is required and the module still builds. Only hooks may be used from an optional dependency: a hook `<dep>.<name>` in `permissions.hooks` is allowed when `<dep>` is an optional dependency, and the fill is ignored while `<dep>` is not installed (MF8). Services and views still need `[dependencies]` (MF7 is unchanged). A name may not appear in both tables (MF5). The lock's `dependencies` lists the required names only.
 
 ### `[config]`
 
@@ -3908,10 +3912,10 @@ Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `valid
 | MF2 | **Versions.** Every `version` is semver and every range is of section 2. The lock's version of each module satisfies its `renox.toml` range and the range of every installed module that depends on it | single file, project |
 | MF3 | **One install per name and prefix.** The `renox.toml` key, the manifest's `[module].name`, and the lock entry's `name` are the same; no two installed modules (or a module and `app`) have the same name; no installed module's prefix is a prefix of another's; each `renox.toml` module has exactly one lock entry and the lock has no other | single file (lock), project |
 | MF4 | **Own prefix only.** `permissions.tables`, when present, is exactly `"<name>__*"` (in the manifest and in the lock's `approved`); every secret name starts with `<NAME>_`, the module name in upper case | single file |
-| MF5 | **Dependency graph.** Every dependency is installed; no module depends on itself; the graph has no cycle (rejected at build, not at call, `docs/10-modules.md` rule 1); the lock lists every module after its dependencies | single file (lock), project |
+| MF5 | **Dependency graph.** Every `[dependencies]` entry is installed; a name in both `[dependencies]` and `[optional_dependencies]` is rejected (1.4); no module depends on itself; the graph has no cycle (rejected at build, not at call, `docs/10-modules.md` rule 1); the lock lists every module after its dependencies | single file (lock), project |
 | MF6 | **Export names.** Views are `<name>__public_<id>_v<n>` with this module's name; events and hook points start with `<name>.`; payload, argument, and result schemas use only the keyword subset of `validate.ts` | single file |
 | MF7 | **Imports.** Every `[imports]` service `<dep>.<service>` and view `<dep>__public_…` names a module in `[dependencies]` whose installed manifest exports it | project |
-| MF8 | **Fills.** `permissions.slots` is exactly the set of `[[slots]].name`; every hook in `permissions.hooks` is exported by an installed module other than this one | single file, project |
+| MF8 | **Fills.** `permissions.slots` is exactly the set of `[[slots]].name`; every hook in `permissions.hooks` is exported by an installed module other than this one, except a hook `<dep>.*` where `<dep>` is in `[optional_dependencies]` and not installed (1.4) | single file, project |
 | MF9 | **References.** Every `[[slots]].template` exists in the module tree; every `[[slots]].requires` and `[[tools]].action` is in `[authz].actions` | single file, project |
 | MF10 | **Config.** A declaration's `default` has its `type` and passes `values`, `min`, `max`, `max_length`; `min ≤ max`; `required = true` has no `default`. Every `renox.toml` config key is declared; every value has the declared type and passes its bounds; every required key has a value | single file, project |
 | MF11 | **Sources and isolation.** `source` is `path:`, `git:`, or (1.2) `registry:`; a `renox.toml` `isolation` is never lower than the manifest's (`shared` below `isolate`); the lock's `isolation` is the effective one | project |
@@ -3970,6 +3974,7 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 | 1.1 | #272 | Minor (no lock version bump; every new key is optional). `[authz] sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`; `[realtime.feeds]`; `[[tools]]` carried in the artifact (`artifact.md` 1.3); `permissions.roles` and `approved.roles`; the `auth.principal` service and hook convention; `renox.toml [authz]` and `[realtime]` for the app; `authz` a reserved name (MF1); rules MF13–MF14. For `ops.md` 1.5.0 sections 17–19 |
 | 1.2 | #318 | Minor (no lock version bump; every new key is optional). `source = "registry:<publisher>/<name>"` in `renox.toml` and the lock (MF11 relaxed); `[publisher]` (`name`, `key_id`) and `[module] price` in `module.toml`; `[storage] allowed_types`; the `module.sig` file and its signed message; the lock's `key_id`, `signature` (registry only), and `approved_version` for the upgrade diff; `renox publish`; the `isolate` mode settled (Open 2) and registry sources settled (Open 3); rule MF15. For `artifact.md` 1.4 and `ops.md` 1.7.0 |
 | 1.3 | #346 | Minor (no lock version bump; every new key is optional). `[permissions] app_access` (`read` \| `write`) in `module.toml`; `app_tables` on a `renox.toml [modules]` entry; the lock's `approved.app_access` and `approved.app_tables`; rule MF16; Open 6 and 7. For `ops.md` 1.8.0 section 1 |
+| 1.4 | #503 | Minor (no lock version bump; the new key is optional). [optional_dependencies]; MF5 and MF8 amended |
 
 ---
 
@@ -4738,7 +4743,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `status(id)` | `{ status, attempts, error }`, where status is `queued`, `sent`, `failed` or `suppressed` |
 | `suppress(address, reason)`, `unsuppress(address)`, `isSuppressed(address)` | Manage the suppression list |
 
-**Templates** (`lib/templates.ts`): `verify_email`, `password_reset`, `magic_link`, `account_exists`, `welcome`.
+**Templates** (`lib/templates.ts`): `verify_email`, `password_reset`, `magic_link`, `account_exists`, `welcome`, `org_invite`.
 - The values are `display_name`, `url` (only `https`, or `http` on localhost) and `expires_minutes`.
 - Every value is escaped, and the HTML is a two-column table: one column `lang="en" dir="ltr"`, the other `lang="ar" dir="rtl"`.
 - A different wording means a new template here.
@@ -4760,6 +4765,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `email.before_send` | hook point | `{ template, locale, to_domain }`, never the body: a filler that halts stops the message (the app's own sending policy) |
 | `auth.send_mail` | hook filled | auth's confirmation, reset, magic-link and account-exists emails, from the templates |
 | `auth.user_registered` | event handled | The `welcome` email, to the address in `auth__public_users_v1` |
+| `org.send_mail` | hook filled | the invitation mail (`org_invite`), when `org` is installed |
 | `notifications.deliver` | hook filled | The `email` channel of the notifications module |
 
 ## Feedback
@@ -5255,7 +5261,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.member_added` | `{ org_id, user_id, role, at }` | event: at creation (the owner) and on every accepted invitation |
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
-| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by } }` | hook: fill it to deliver invitations until the email module (F7) |
+| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
 
 ## App MCP tool
 

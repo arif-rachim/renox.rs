@@ -140,6 +140,41 @@ test("auth.send_mail fills from the templates; a suppressed address is skipped q
   expect((await c.db.query("select id from email__messages")).length).toBe(1);
 });
 
+// #504: the `org.send_mail` filler, the invitation in the organisation's locale.
+const invite = (locale: string | null) => ({
+  to: "ali@shop.ae",
+  template: "org_invite",
+  args: { url: "https://shop.renox.app/org/accept/tok123", org_name: "Acme Trading", role: "admin", expires_days: 7, invited_by: "Sara", locale },
+});
+
+test("org.send_mail sends one org_invite mail with the accept link", async () => {
+  const { c } = ctx(async () => new Response("{}"));
+  await hooks.hooks["org.send_mail"].handle(c, invite(null) as never);
+  const rows = await c.db.query<{ template: string; subject: string; text: string | null; html: string | null }>("select * from email__messages");
+  expect(rows.length).toBe(1);
+  expect(rows[0]?.template).toBe("org_invite");
+  expect(rows[0]?.subject).toContain("Acme Trading");
+  expect(JSON.stringify(rows[0])).toContain("https://shop.renox.app/org/accept/tok123");
+});
+
+test("the invitation follows the organisation's locale", async () => {
+  const { c } = ctx(async () => new Response("{}"));
+  await hooks.hooks["org.send_mail"].handle(c, invite("ar-AE") as never);
+  await hooks.hooks["org.send_mail"].handle(c, invite(null) as never);
+  const rows = await c.db.query<{ locale: string }>("select locale from email__messages order by rowid");
+  expect(rows.map((r) => r.locale)).toEqual(["ar", "en"]);
+});
+
+test("templates: org_invite in both languages (snapshots)", () => {
+  const data = { url: "https://shop.renox.app/org/accept/tok123", org_name: "Acme <Trading>", role: "admin", expires_days: 7, invited_by: "Sara" };
+  const en = renderMail("org_invite", data, "en");
+  const ar = renderMail("org_invite", data, "ar");
+  expect(en?.subject).toBe("You are invited to join Acme <Trading>");
+  expect(en?.html).toContain("Acme &lt;Trading&gt;");
+  expect(en?.html).toMatchSnapshot("org_invite ltr");
+  expect(ar?.html).toMatchSnapshot("org_invite rtl");
+});
+
 // #123: the sending reputation.
 import * as reputation from "../src/reputation/reputation.ts";
 

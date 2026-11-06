@@ -94,7 +94,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.member_added` | `{ org_id, user_id, role, at }` | event: at creation (the owner) and on every accepted invitation |
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
-| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by } }` | hook: fill it to deliver invitations until the email module (F7) |
+| `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
 
 ## App MCP tool
 

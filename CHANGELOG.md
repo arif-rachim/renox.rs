@@ -5,6 +5,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 ## 0.1.4 (unreleased)
 
 - An app with only `.html` pages and `public/` files builds, runs under `renox dev` and `renox test`, and deploys; its artifact has an empty `code.entry` and the worker starts no isolate for it (artifact 1.6, #495).
+- `renox add email` also delivers org invitations: email fills `org.send_mail` with the `org_invite` mail in EN/AR, in the organisation's locale, when `org` is installed (#475).
 - `@renoxium/sdk` is licensed under Apache-2.0 from this version (`LICENSE`, ADR D29, #469); 0.1.0 to 0.1.3 were published under MIT and stay so.
 
 ## 0.1.3 (2026-11-05)
