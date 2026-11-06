@@ -34,9 +34,12 @@ test.skipIf(!worker)(
     try {
       const r = await fetch(`http://localhost:${port}/api/hello`);
       expect(r.status).toBe(500);
-      const body = (await r.json()) as { error: { code: string } };
+      const body = (await r.json()) as { error: { code: string; request_id?: string } };
       expect(body.error.code).toBe("RENOX_INTERNAL");
-      expect(JSON.stringify(body)).not.toContain("42");
+      // The value never reaches the client. The request id is random and can
+      // contain "42" by chance (CI run 42131617153), so it is left out of the check.
+      const { request_id: _id, ...rest } = body.error;
+      expect(JSON.stringify(rest)).not.toContain("42");
       for (let i = 0; i < 30 && !lines.some((l) => l.includes("hint:")); i++) await Bun.sleep(100);
       const at = lines.findIndex((l) => l.startsWith("[error] GET /api/hello returned number, not a Response"));
       expect(at, lines.join("\n")).toBeGreaterThanOrEqual(0);

@@ -10,6 +10,17 @@ name: Release worker
 # release tagged worker-v<version>. cli/scripts/fetch-worker.ts downloads the
 # same names (#154).
 #
+# Two variants per target (#381): the default build has no `pdf` feature
+# (ctx.pdf answers RENOX_INTERNAL, reason `pdf_unavailable`) and stays the
+# one install.sh and fetch-worker.ts fetch; the `pdf` variant has the typst
+# engine and is published gzip-compressed as
+# renox-worker-<version>-<target>-pdf.gz (+ .sha256), because the binary
+# (about 134 MiB) is over the 128 MiB cosign verifies
+# (COSIGN_MAX_ATTACHMENT_SIZE) and the .gz is well under it.
+# SHA256SUMS.unpacked lists the sha256 of each binary after gunzip; it is
+# signed like SHA256SUMS and is what PINNED_WORKER.pdf in
+# cli/src/worker/verify.ts pins. `fetch-worker.ts --pdf` fetches it.
+#
 # Signed releases (#129; docs/24-threat-model.md F, "Tampered release"): the
 # release job also publishes
 #   SHA256SUMS                                   every binary's sha256
@@ -73,6 +84,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+        # #381: `default` without the `pdf` feature, `pdf` with it.
+        variant: [default, pdf]
         include:
           # Every target builds natively: step 1 below runs a test binary
           # that writes the snapshot, which a cross build cannot (#139).
@@ -112,6 +130,7 @@ jobs:
       CARGO_PROFILE_RELEASE_OPT_LEVEL: "s"
       CARGO_PROFILE_RELEASE_LTO: "fat"
       TARGET: ${{ matrix.target }}
+      VARIANT: ${{ matrix.variant }}
       # Inputs reach the shell through the environment only, never through
       # ${{ }} inside a script.
       INPUT_VERSION: ${{ inputs.version }}
@@ -176,13 +195,15 @@ jobs:
       # Step 1 of the packaged build: snapshot and residual lazy sources,
       # written by the same source, features and v8 as the binary below.
       #
-      # Features (#372, 2026-11-02): the release leaves the `pdf` feature
-      # (the typst engine behind ctx.pdf, 26 MiB) out, so the binary fits
-      # under the cosign ceiling: on this worker `ctx.pdf.render` answers
-      # RENOX_INTERNAL with reason `pdf_unavailable`. `media` and `avif`
-      # stay in. The op set is the same with or without `pdf`, so the
-      # snapshot is the same; both steps still name the features so they
-      # cannot drift apart (crates/renox-runtime/README.md, "Packaging").
+      # Features (#372, 2026-11-02): the default variant leaves the `pdf`
+      # feature (the typst engine behind ctx.pdf, 26 MiB) out, so the binary
+      # fits under the cosign ceiling: on that worker `ctx.pdf.render`
+      # answers RENOX_INTERNAL with reason `pdf_unavailable`. The `pdf`
+      # variant (#381) adds it and ships compressed (Package below). `media`
+      # and `avif` stay in both. The op set is the same with or without
+      # `pdf`, so the snapshot is the same; both steps still name the
+      # features so they cannot drift apart (crates/renox-runtime/README.md,
+      # "Packaging").
       - name: Write the packaged sources
         run: |
           echo "RENOX_PACKAGED_DIR=$RUNNER_TEMP/packaged" >> "$GITHUB_ENV"
@@ -191,8 +212,10 @@ jobs:
             -- --ignored --exact write_packaged_sources --nocapture
       - name: Build
         run: |
+          features=media,avif,renox-runtime/packaged
+          [[ "$VARIANT" == pdf ]] && features=$features,pdf
           cargo build --release --locked -p renox-cell --bin renox-worker \
-            --no-default-features --features media,avif,renox-runtime/packaged
+            --no-default-features --features "$features"
           cp target/release/renox-worker target/renox-worker
       # #401: the built binary reports the crate version, which the Version
       # step matched against the tag; a mismatch fails the release.
@@ -213,12 +236,23 @@ jobs:
           # An unreleased build is 0.0.0-dev, still a semver for fetch-worker.ts.
           name="renox-worker-${VERSION:-0.0.0-dev}-$TARGET"
           mkdir dist
-          cp target/renox-worker "dist/$name"
-          (cd dist && shasum -a 256 "$name" > "$name.sha256")
+          if [[ "$VARIANT" == pdf ]]; then
+            # #381: gzip -n (no name or time in the header), so the .gz is a
+            # function of the binary. The unpacked sha256 goes to
+            # <name>-pdf.unpacked, which the release job folds into the
+            # signed SHA256SUMS.unpacked; it is not a .sha256 asset, so
+            # SHA256SUMS lists only what is published.
+            gzip -9 -n -c target/renox-worker > "dist/$name-pdf.gz"
+            (cd dist && shasum -a 256 "$name-pdf.gz" > "$name-pdf.gz.sha256")
+            printf '%s  %s\n' "$(shasum -a 256 target/renox-worker | cut -d ' ' -f 1)" "$name-pdf" > "dist/$name-pdf.unpacked"
+          else
+            cp target/renox-worker "dist/$name"
+            (cd dist && shasum -a 256 "$name" > "$name.sha256")
+          fi
           ls -l dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: renox-worker-${{ matrix.target }}
+          name: renox-worker-${{ matrix.target }}-${{ matrix.variant }}
           path: dist/
           if-no-files-found: error
       # #154: the binary serves examples/hello in a clean container, with no
@@ -270,18 +304,37 @@ jobs:
           cp dist/* "$RUNNER_TEMP/release/worker-v$v/"
           (cd "$RUNNER_TEMP/release" && python3 -m http.server 18000 --bind 127.0.0.1 >/dev/null 2>&1 &)
           sleep 2
-          worker=$(RENOX_RELEASE_BASE=http://127.0.0.1:18000 bun cli/scripts/fetch-worker.ts "$v" | sed 's/.* -> //')
+          flag=()
+          [[ "$VARIANT" == pdf ]] && flag=(--pdf)
+          worker=$(RENOX_RELEASE_BASE=http://127.0.0.1:18000 bun cli/scripts/fetch-worker.ts "${flag[@]}" "$v" | sed 's/.* -> //')
+          # #381: the downloaded (for pdf: unpacked) worker is the binary built here.
+          cmp "$worker" target/renox-worker
           RENOX_WORKER_PATH="$worker" bun test cli/tests/dev.e2e.test.ts
+          # ctx.pdf renders the bilingual invoice on the pdf variant and
+          # answers pdf_unavailable on the default one.
+          pdf=0
+          [[ "$VARIANT" == pdf ]] && pdf=1
+          RENOX_WORKER_PATH="$worker" RENOX_WORKER_PDF=$pdf bun test cli/tests/dev-pdf.e2e.test.ts
       # B20, last: a binary over the limit fails the job (and no release is
       # published) after the smoke tests above have still run.
+      #
+      # #381: for the pdf variant the limit applies to what is signed and
+      # verified, the .gz; the unpacked binary is reported, not limited.
       - name: Size check
         run: |
+          mib() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1048576 }'; }
           bin=target/renox-worker
-          bytes=$(wc -c < "$bin" | tr -d ' ')
-          mb=$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1048576 }')
-          echo "renox-worker ($TARGET): $mb MB (limit $MAX_BINARY_MB MB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          bin_bytes=$(wc -c < "$bin" | tr -d ' ')
+          if [[ "$VARIANT" == pdf ]]; then
+            asset=$(ls dist/*-pdf.gz)
+            bytes=$(wc -c < "$asset" | tr -d ' ')
+            echo "renox-worker ($TARGET, pdf): $(mib "$bytes") MB compressed, $(mib "$bin_bytes") MB unpacked (limit $MAX_BINARY_MB MB on the compressed asset)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            bytes=$bin_bytes
+            echo "renox-worker ($TARGET): $(mib "$bytes") MB (limit $MAX_BINARY_MB MB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           if (( bytes > MAX_BINARY_MB * 1048576 )); then
-            echo "::error::renox-worker is $mb MB, over the $MAX_BINARY_MB MB B20 limit"
+            echo "::error::renox-worker ($VARIANT) is $(mib "$bytes") MB, over the $MAX_BINARY_MB MB B20 limit"
             exit 1
           fi
       - run: sccache --show-stats
@@ -304,16 +357,26 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # #381: SHA256SUMS lists the published files (the pdf variant as its
+      # .gz); SHA256SUMS.unpacked the pdf binaries after gunzip, checked
+      # here by unpacking each one.
       - name: SHA256SUMS
         run: |
-          (cd dist && cat renox-worker-*.sha256 > SHA256SUMS && sha256sum -c SHA256SUMS)
+          cd dist
+          cat renox-worker-*.sha256 > SHA256SUMS && sha256sum -c SHA256SUMS
+          cat renox-worker-*-pdf.unpacked > SHA256SUMS.unpacked && rm renox-worker-*-pdf.unpacked
+          while read -r hash name; do
+            got=$(gunzip -c "$name.gz" | sha256sum | cut -d ' ' -f 1)
+            [[ "$got" == "$hash" ]] || { echo "::error::$name.gz unpacks to $got, SHA256SUMS.unpacked says $hash"; exit 1; }
+          done < SHA256SUMS.unpacked
+          cat SHA256SUMS.unpacked
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: v3.0.6
       - name: Sign
         run: |
           cd dist
-          for f in SHA256SUMS $(cut -d ' ' -f 3 SHA256SUMS); do
+          for f in SHA256SUMS SHA256SUMS.unpacked $(cut -d ' ' -f 3 SHA256SUMS); do
             cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           done
       - name: Provenance
@@ -335,7 +398,7 @@ jobs:
               cd /dist
               id="^https://github\.com/$(printf %s "$REPO" | sed "s/\./\\\\./g")/\.github/workflows/release-worker\.yml@refs/tags/worker-v"
               sha256sum -c SHA256SUMS
-              for f in SHA256SUMS $(cut -d " " -f 3 SHA256SUMS); do
+              for f in SHA256SUMS SHA256SUMS.unpacked $(cut -d " " -f 3 SHA256SUMS); do
                 cosign verify-blob --bundle "$f.sigstore.json" --certificate-identity-regexp "$id" \
                   --certificate-oidc-issuer https://token.actions.githubusercontent.com "$f"
               done
