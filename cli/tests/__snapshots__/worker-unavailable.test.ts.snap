@@ -1,0 +1,6 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`no build for the platform: RENOX_CLI_WORKER_UNAVAILABLE, exit 3 1`] = `
+"renox dev: RENOX_CLI_WORKER_UNAVAILABLE: renox-worker has no build for win32-x64; this command needs it
+  hint: Run renox inside WSL 2 (wsl --install -d Ubuntu); a native Windows worker is #442. new, check and build of an app without .html pages or policies, login, deploy, logs, secrets and db work natively."
+`;

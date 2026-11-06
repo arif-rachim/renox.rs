@@ -108,7 +108,15 @@ async function moduleTestApp(module: string): Promise<string> {
   const sdk = resolve(import.meta.dir, "../../../sdk");
   if (!existsSync(join(app, "node_modules", "@renoxium", "sdk")) && existsSync(join(sdk, "package.json"))) {
     mkdirSync(join(app, "node_modules", "@renoxium"), { recursive: true });
-    symlinkSync(sdk, join(app, "node_modules", "@renoxium", "sdk"), "dir");
+    const link = join(app, "node_modules", "@renoxium", "sdk");
+    try {
+      symlinkSync(sdk, link, "dir");
+    } catch (e) {
+      // Windows without Developer Mode refuses symlinks: copy the SDK instead.
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EACCES") throw e;
+      cpSync(sdk, link, { recursive: true, dereference: true });
+    }
   }
   const toml = readFileSync(join(src, "renox.toml"), "utf8").replace(/"path:([^"]+)"/gu, (_m, rel: string) => JSON.stringify(`path:${toPosix(relative(app, resolve(src, rel)))}`));
   writeFileSync(join(app, "renox.toml"), toml);
