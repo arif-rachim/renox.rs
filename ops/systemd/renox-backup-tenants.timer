@@ -1,0 +1,11 @@
+# Weekly snapshot of the tenant databases (#517). Copies older than
+# BACKUP_KEEP_DAYS (14) are pruned by the script.
+[Unit]
+Description=Weekly snapshot of the tenant databases to the local disk
+
+[Timer]
+OnCalendar=Sun *-*-* 03:17:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

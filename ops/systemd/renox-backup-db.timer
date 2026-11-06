@@ -1,7 +1,8 @@
-# Nightly backup of the control database (#366). R2's lifecycle rule on
-# control-db/ deletes objects after 30 days (ops/single-host.md "Backups").
+# Nightly backup of the control database (#366, #517). With R2 off the dump
+# stays on the disk for 14 days; with R2, its lifecycle rule on control-db/
+# deletes objects after 30 days (ops/single-host.md "Backups").
 [Unit]
-Description=Nightly backup of the control database to R2
+Description=Nightly backup of the control database
 
 [Timer]
 OnCalendar=*-*-* 02:17:00

@@ -44,6 +44,36 @@ test("a failed backup or rollup starts renox-alert@, which reads its webhook fro
   expect(readFileSync(join(HERE, "../scripts/bootstrap-node.sh"), "utf8")).toContain('"$here/scripts/renox-alert.sh" "$bin_dir/renox-alert.sh"');
 });
 
+test("renox-backup-tenants.service snapshots the tenant files as root, weekly, and alerts on failure (#517)", () => {
+  const s = unit("renox-backup-tenants.service");
+  expect(key(s, "Type")).toEqual(["oneshot"]);
+  expect(key(s, "User")).toEqual([]);
+  const [exec] = key(s, "ExecStart");
+  expect(exec).toBe("/opt/renox/bin/backup-tenant-files.sh --data-dir /var/lib/renox/data --backup-dir /var/backups/renox");
+  expect(key(s, "OnFailure")).toEqual(["renox-alert@%n.service"]);
+  expect(key(s, "ReadWritePaths")[0]).toContain("/var/backups/renox");
+  expect(key(s, "UMask")).toEqual(["0077"]);
+  const t = unit("renox-backup-tenants.timer");
+  expect(key(t, "OnCalendar")).toEqual(["Sun *-*-* 03:17:00 UTC"]);
+  expect(key(t, "Persistent")).toEqual(["true"]);
+  expect(key(t, "WantedBy")).toEqual(["timers.target"]);
+  const bootstrap = readFileSync(join(HERE, "../scripts/bootstrap-node.sh"), "utf8");
+  expect(bootstrap).toContain('"$here/scripts/backup-tenant-files.sh" "$bin_dir/backup-tenant-files.sh"');
+  expect(bootstrap).toContain('"$here/scripts/restore-check.sh" "$bin_dir/restore-check.sh"');
+  expect(bootstrap).toContain("install -d -m 0700 -o root -g root /var/backups/renox");
+  for (const f of ["backup-tenant-files.sh", "restore-check.sh", "backup-local.test.sh"]) expect(existsSync(join(HERE, "../scripts", f))).toBe(true);
+});
+
+test("renox-backup-db.service writes the local dump under /var/backups/renox as root (#517)", () => {
+  const s = unit("renox-backup-db.service");
+  expect(key(s, "User")).toEqual([]);
+  expect(key(s, "ExecStart")[0]).toContain("backup-control-db.sh --database renox --pg-user postgres");
+  expect(key(s, "ReadWritePaths")).toEqual(["/var/backups/renox"]);
+  expect(key(s, "OnFailure")).toEqual(["renox-alert@%n.service"]);
+  expect(key(s, "UMask")).toEqual(["0077"]);
+  expect(key(unit("renox-backup-db.timer"), "OnCalendar")).toEqual(["*-*-* 02:17:00"]);
+});
+
 test("the runbook installs both and checks them", () => {
   const runbook = readFileSync(join(HERE, "../single-host.md"), "utf8");
   expect(runbook).toContain("systemctl enable --now renox-billing.timer");

@@ -1,14 +1,12 @@
-# Nightly encrypted dump of the control database to R2 (#366,
-# ops/scripts/backup-control-db.sh). Runs as the distribution's `postgres`
-# user (peer authentication on the local socket). The R2 key pair stays in a
-# root-only file and reaches the script through LoadCredential (%d). systemd
-# 255 hands it to User=postgres as root 0440 with a read ACL for postgres,
-# private to this unit; backup-control-db.sh accepts group read only there,
-# under $CREDENTIALS_DIRECTORY (#395). The
-# dump is encrypted to /etc/renox/backup-age.pub, whose private key is kept
-# off the host (ops/single-host.md "Backups"). Started by renox-backup-db.timer.
+# Nightly dump of the control database (#366, #517, ops/scripts/backup-control-db.sh).
+# Runs as root, which pg_dump never is: the script drops to `postgres` for the
+# dump itself (--pg-user, peer authentication on the local socket) and keeps the
+# result root-owned 0600 under /var/backups/renox/control-db. Without R2_ENDPOINT
+# in /etc/renox/secrets/r2-backup.env it writes that local copy (14 days); with
+# it, it encrypts to /etc/renox/backup-age.pub and uploads to R2 as before
+# (ops/single-host.md "Backups"). Started by renox-backup-db.timer.
 [Unit]
-Description=Back up the control database to R2
+Description=Back up the control database (local, or to R2 when configured)
 Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
 After=network-online.target postgresql.service
 Wants=network-online.target
@@ -17,14 +15,10 @@ OnFailure=renox-alert@%n.service
 
 [Service]
 Type=oneshot
-User=postgres
-Group=postgres
-LoadCredential=r2-backup.env:/etc/renox/secrets/r2-backup.env
-# The public key too: postgres cannot traverse /etc/renox (root:renox 0750).
-LoadCredential=backup-age.pub:/etc/renox/backup-age.pub
-ExecStart=/opt/renox/bin/backup-control-db.sh --database renox --recipients %d/backup-age.pub --r2-env %d/r2-backup.env
+ExecStart=/opt/renox/bin/backup-control-db.sh --database renox --pg-user postgres --recipients /etc/renox/backup-age.pub --r2-env /etc/renox/secrets/r2-backup.env
 NoNewPrivileges=yes
 ProtectSystem=strict
+ReadWritePaths=/var/backups/renox
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -40,5 +34,6 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-CapabilityBoundingSet=
+# setpriv to postgres needs setuid and setgid; nothing else.
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
 UMask=0077
