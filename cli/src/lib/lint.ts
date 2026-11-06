@@ -167,22 +167,53 @@ function firstArgument(tokens: Token[], open: number): Token[] {
 const SQL_METHODS = new Set(["query", "queryOne", "execute"]);
 const RECEIVERS = new Set(["db", "tx"]);
 
-/** `db.query(\`... ${x}\`)`, `db.query("..." + x)`, and `.concat(` as the SQL argument. */
+/** Index of the `(` that opens the call after optional type arguments (`<…>`) starting at `i`, or -1. */
+function callOpen(tokens: Token[], i: number): number {
+  if (tokens[i]?.text === "(") return i;
+  if (tokens[i]?.text !== "<") return -1;
+  let depth = 0;
+  for (let k = i; k < tokens.length; k++) {
+    const t = tokens[k] as Token;
+    if (t.type !== "punct") continue;
+    if (t.text === "<") depth++;
+    else if (t.text === ">" && tokens[k - 1]?.text !== "=") {
+      depth--;
+      if (depth === 0) return tokens[k + 1]?.text === "(" ? k + 1 : -1;
+    }
+  }
+  return -1;
+}
+
+/** Receiver of the call: `db` / `tx`, or `db.scoped(…)` / `tx.scoped(…)`; `dot` is the index of the `.` before the method. */
+function sqlReceiver(tokens: Token[], dot: number): Token | undefined {
+  let r = dot - 1;
+  if (tokens[r]?.text === ")") {
+    let depth = 0;
+    for (; r >= 0; r--) {
+      const t = tokens[r] as Token;
+      if (t.type !== "punct") continue;
+      if (t.text === ")") depth++;
+      else if (t.text === "(" && --depth === 0) break;
+    }
+    if (r < 3 || tokens[r - 1]?.text !== "scoped" || tokens[r - 2]?.text !== ".") return undefined;
+    r -= 3;
+  }
+  const recv = tokens[r];
+  return recv?.type === "ident" && RECEIVERS.has(recv.text) ? recv : undefined;
+}
+
+/** `db.query(\`... ${x}\`)`, `db.query("..." + x)`, and `.concat(` as the SQL argument; type arguments and `db.scoped(…)` are seen through. */
 export function lintSql(src: string, file: string): Finding[] {
   const tokens = tokenize(src);
   const out: Finding[] = [];
-  for (let k = 0; k + 3 < tokens.length; k++) {
-    const [recv, dot, name, open] = [tokens[k], tokens[k + 1], tokens[k + 2], tokens[k + 3]] as Token[];
-    if (
-      recv?.type !== "ident" ||
-      !RECEIVERS.has(recv.text) ||
-      dot?.text !== "." ||
-      name?.type !== "ident" ||
-      !SQL_METHODS.has(name.text) ||
-      open?.text !== "("
-    )
-      continue;
-    const arg = firstArgument(tokens, k + 3);
+  for (let k = 1; k < tokens.length; k++) {
+    const name = tokens[k] as Token;
+    if (name.type !== "ident" || !SQL_METHODS.has(name.text) || tokens[k - 1]?.text !== ".") continue;
+    const recv = sqlReceiver(tokens, k - 1);
+    if (!recv) continue;
+    const open = callOpen(tokens, k + 1);
+    if (open < 0) continue;
+    const arg = firstArgument(tokens, open);
     const interpolated = arg.some((t) => t.type === "template" && t.text.includes("${"));
     // `+` joining only string literals is a constant; any other operand
     // (a variable, a call, an interpolated template) builds SQL from data.

@@ -168,3 +168,23 @@ describe("i18n-missing-key (#336)", () => {
     expect(findings.map((f) => `${f.file}:${f.line} ${f.message}`)).toEqual([]);
   });
 });
+
+test("lintSql sees through type arguments and db.scoped", () => {
+  const bad = [
+    "await db.query<Task>(`select * from t where a = '${q}'`);",
+    "await db.queryOne<{ id: number; tags: Array<string> }>(`select id from t where a = '${q}'`);",
+    "await tx.execute<Record<string, unknown>>(`update t set a = '${q}'`);",
+    "await db.scoped(x).query<Task>(`select * from t where a = '${q}'`);",
+    'await db.query<Task>("select * from t where a = " + q);',
+    "await db.query<(a: number) => void>(`select ${q}`);",
+  ].join("\n");
+  expect(lintSql(bad, "f.ts").map((f) => f.line)).toEqual([1, 2, 3, 4, 5, 6]);
+  const ok = [
+    "await db.query<Task>('select * from t where a = ?', [q]);",
+    "await db.queryOne<{ id: number; tags: Array<string> }>('select id from t where a = ?', [q]);",
+    "await tx.execute<Record<string, unknown>>('update t set a = ?', [q]);",
+    "await db.scoped(x).query<Task>('select * from t where a = ?', [q]);",
+    "if (a < b && c > d) foo(`${x}`);",
+  ].join("\n");
+  expect(lintSql(ok, "f.ts")).toEqual([]);
+});

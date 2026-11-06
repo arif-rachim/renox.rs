@@ -35,6 +35,7 @@ Deploy and operate:
   db export [--out <file>] [--app <name>]
   db import <file> [--app <name>]
   db restore --at <time> --as <new-app> [--app <name>]
+  db seed [--db <file>]
 
 Modules:
   add <module> [--version <range>] [--source path:<dir>|git:<url>#<ref>] [--mount <path>] [--yes]

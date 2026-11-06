@@ -8,8 +8,9 @@
     "noEmit": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "types": ["bun-types"]
   },
-  "include": ["**/*.ts"],
-  "exclude": ["node_modules", ".renox"]
+  "include": ["**/*.ts", ".renox/types/**/*.d.ts"],
+  "exclude": ["node_modules", ".renox/artifact", ".renox/data", ".renox/logs", ".renox/meters", ".renox/modules", ".renox/sourcemaps", ".renox/test"]
 }

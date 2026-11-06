@@ -4,9 +4,9 @@
 // `--no-types`. The runtime half of the same mistake (a handler returning a
 // non-Response) is #444.
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { check, typeFindings } from "../src/commands/check.ts";
 import { newApp } from "../src/commands/new.ts";
@@ -101,5 +101,50 @@ test("run_check over MCP returns the type findings (rule `types`, file, line, co
   expect(s.ok).toBe(false);
   expect(s.problems).toContainEqual(expect.objectContaining({ code: "types", file: "functions/api/hello.ts", line: 3, column: 41 }));
   expect(s.problems.find((p) => p.code === "types")?.message).toStartWith("TS2322:");
+  rmSync(dir, { recursive: true });
+}, 60_000);
+
+test("renox:modules is typed from the generated types, with no hand-written .d.ts (#471)", async () => {
+  const { addModule } = await import("../src/commands/add.ts");
+  const dir = typedApp("modtypes");
+  // The module trees sit beside the app (as a registry cache would), resolving @renoxium/sdk through a node_modules link.
+  const mods = `${dir}-modules`;
+  try {
+    mkdirSync(mods);
+    symlinkSync(join(dir, "node_modules"), join(mods, "node_modules"), "dir");
+    for (const m of ["i18n", "auth", "org"]) cpSync(join(repo, "modules", m), join(mods, m), { recursive: true });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      for (const m of ["i18n", "auth", "org"]) expect(await addModule(dir, m, { source: `path:${relative(dir, join(mods, m)).split("\\").join("/")}`, yes: true }, async () => true)).toBe(0);
+    } finally {
+      console.log = log;
+    }
+    const page = (call: string) => `import type { Handler } from "@renoxium/sdk";\nimport { org } from "renox:modules";\n\nexport const GET: Handler = async () => Response.json({ org: await org.${call} });\n`;
+    mkdirSync(join(dir, "functions/api"), { recursive: true });
+    writeFileSync(join(dir, "functions/api/board.ts"), page("currentOrg()"));
+    const ok = typeCheck(dir);
+    expect([ok.skipped, ok.findings.filter((f) => f.severity === "error")]).toEqual([null, []]);
+    expect(existsSync(join(dir, ".renox/types/renox-modules.d.ts"))).toBe(true);
+    expect(cli(["check", "--types-only"], dir).code).toBe(0);
+    writeFileSync(join(dir, "functions/api/board.ts"), page("currentOrg(42)"));
+    const bad = typeCheck(dir);
+    expect(bad.findings.some((f) => f.severity === "error" && f.file === "functions/api/board.ts" && f.rule === "types")).toBe(true);
+    expect(cli(["check", "--types-only"], dir).code).toBe(2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(mods, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("#482: a new app may import local files with or without the `.ts` extension, as the examples and modules do", () => {
+  const dir = typedApp("tsext");
+  mkdirSync(join(dir, "lib"), { recursive: true });
+  writeFileSync(join(dir, "lib/greet.ts"), `export const greet = (n: string): string => \`hi \${n}\`;\n`);
+  const handler = (spec: string) => `import type { Handler } from "@renoxium/sdk";\nimport { greet } from "${spec}";\n\nexport const GET: Handler = async () => Response.json({ msg: greet("x") });\n`;
+  writeFileSync(join(dir, "functions/api/hello.ts"), handler("../../lib/greet.ts"));
+  expect(typeCheck(dir).findings).toEqual([]);
+  writeFileSync(join(dir, "functions/api/hello.ts"), handler("../../lib/greet"));
+  expect(typeCheck(dir).findings).toEqual([]);
   rmSync(dir, { recursive: true });
 }, 60_000);

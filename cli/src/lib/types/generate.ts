@@ -145,7 +145,6 @@ export type TablesOf<P extends string> = { [K in keyof Tables as K extends \`\${
 /** Writes `.renox/types/` (each file replaced atomically). */
 export function writeTypes(project: string, routes: Route[], templates: Record<string, CompiledTemplate>): string {
   const out = join(project, ".renox", "types");
-  mkdirSync(out, { recursive: true });
   const files: Record<string, string> = {
     "routes.d.ts": routesDts(routes, templates),
     "db.d.ts": dbDts(project),
@@ -157,10 +156,28 @@ export function writeTypes(project: string, routes: Route[], templates: Record<s
     files["modules.d.ts"] = mods.modules;
     files["renox-modules.d.ts"] = mods.ambient;
   }
+  writeAll(out, files);
+  return out;
+}
+
+/** Replaces each file of `out` atomically. */
+function writeAll(out: string, files: Record<string, string>): void {
+  mkdirSync(out, { recursive: true });
   for (const [name, text] of Object.entries(files)) {
     const tmp = join(out, `${name}.tmp`);
     writeFileSync(tmp, text);
     renameSync(tmp, join(out, name));
   }
-  return out;
+}
+
+/**
+ * Writes only the installed modules' types (`modules.d.ts`, `renox-modules.d.ts`),
+ * for the type check of `renox check` and `renox deploy` (#471), which have no
+ * build to take routes from. Returns false when no module is installed.
+ */
+export function writeModuleTypes(project: string): boolean {
+  const mods = modulesDts(project);
+  if (mods === null) return false;
+  writeAll(join(project, ".renox", "types"), { "modules.d.ts": mods.modules, "renox-modules.d.ts": mods.ambient });
+  return true;
 }

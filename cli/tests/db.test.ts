@@ -3,7 +3,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -209,5 +210,57 @@ describe("renox db against the in-process control API", () => {
     expect(await db(["restore", "--at", String(at), "--as", "shop-old", "--app", "shop"], io, dir)).toBe(EXIT.OK);
     expect(lines.at(-1)).toContain("into the new app shop-old");
     expect((await h.request("GET", "/v1/apps/shop-old", { token })).status).toBe(200);
+  });
+});
+
+describe("renox db seed (#480)", () => {
+  const io = (lines: string[]): Io => ({ env: {}, out: (l) => lines.push(l), sleep: async () => {}, readStdin: async () => "", fetch: async () => new Response("", { status: 500 }) });
+  const project = (seeds: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), "renox-seed-"));
+    mkdirSync(join(dir, "seeds"));
+    for (const [n, c] of Object.entries(seeds)) writeFileSync(join(dir, "seeds", n), c);
+    const dbFile = join(dir, ".renox", "data", "dev", "app.db");
+    const migrate = async (_p: string, f: string) => {
+      const d = new Database(f);
+      d.exec("create table if not exists app__notes (id integer primary key, body text not null)");
+      d.close();
+      return { ok: true, modules: [] };
+    };
+    return { dir, dbFile, migrate };
+  };
+  const rows = (f: string) => {
+    const d = new Database(f, { readonly: true });
+    const r = (d.query("select body from app__notes order by id").all() as { body: string }[]).map((x) => x.body);
+    d.close();
+    return r;
+  };
+
+  test("applies seeds/*.sql in name order after the migrations and prints the files", async () => {
+    const p = project({
+      "002_more.sql": "insert into app__notes (body) values ('two; with semicolon');\n",
+      "001_first.sql": "-- comment; here\ninsert into app__notes (body) values ('one');\n",
+      "ignored.ts": "nope",
+    });
+    const lines: string[] = [];
+    expect(await db(["seed"], io(lines), p.dir, { migrate: p.migrate })).toBe(EXIT.OK);
+    expect(lines.slice(0, 2)).toEqual(["Seeded seeds/001_first.sql", "Seeded seeds/002_more.sql"]);
+    expect(rows(p.dbFile)).toEqual(["one", "two; with semicolon"]);
+  });
+
+  test("a failing seed rolls back every file and names the file and line", async () => {
+    const p = project({
+      "001_ok.sql": "insert into app__notes (body) values ('kept?');\n",
+      "002_bad.sql": "insert into app__notes (body) values ('x');\n\n/* c */\ninsert into app__notes (body) values (null);\n",
+    });
+    const e = await failure(db(["seed"], io([]), p.dir, { migrate: p.migrate }));
+    expect(e.exitCode).toBe(EXIT.USER);
+    expect(e.message).toContain("seeds/002_bad.sql:4");
+    expect(rows(p.dbFile)).toEqual([]);
+  });
+
+  test("no seed files is a user error", async () => {
+    const p = project({});
+    const e = await failure(db(["seed"], io([]), p.dir, { migrate: p.migrate }));
+    expect(e.exitCode).toBe(EXIT.USER);
   });
 });
