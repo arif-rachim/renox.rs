@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { formatLock } from "../src/lib/modules/lock.ts";
-import { lockEntryOf, readModulesTable, resolveModules, treeHash } from "../src/lib/modules/resolve.ts";
+import { lockEntryOf, projectProblems, readModulesTable, resolveModules, treeHash } from "../src/lib/modules/resolve.ts";
 import { isRange, satisfies } from "../src/lib/modules/semver.ts";
 import { AUTH_EXTRA, app, writeModule } from "./modules-fixture.ts";
 
@@ -71,6 +71,60 @@ test("an unsatisfied dependency range is an error naming both modules", () => {
   // A dependency that is not installed: never installed implicitly.
   const r3 = resolveModules(dir, { org: { version: "^1.0", source: "path:modules/org" } });
   expect(r3.problems[0]?.message).toContain("org depends on auth ^2.0, which is not installed");
+  rmSync(dir, { recursive: true });
+});
+
+const OPTIONAL_ORG = '[optional_dependencies]\norg = "^1.0"\n\n[permissions]\nhooks = ["org.send_mail"]\n';
+const EMAIL = '{ version = "^1.0", source = "path:modules/email" }';
+const ORG = '{ version = "^1.0", source = "path:modules/org" }';
+
+test("an optional dependency that is not installed is no problem and its fill is ignored", () => {
+  const dir = app({ email: EMAIL }, [{ name: "email", version: "1.0.0", extra: OPTIONAL_ORG }]);
+  const r = resolveModules(dir, readModulesTable(dir).specs);
+  expect(r.problems).toEqual([]);
+  expect(r.modules.map((m) => m.name)).toEqual(["email"]);
+  expect(projectProblems(dir).filter((p) => p.rule === "MF5" || p.rule === "MF8")).toEqual([]);
+  // The lock keeps listing required dependencies only.
+  expect(lockEntryOf(r.modules[0] as (typeof r.modules)[number]).dependencies).toEqual([]);
+  rmSync(dir, { recursive: true });
+});
+
+test("an installed optional dependency with a satisfied range is ordered first", () => {
+  const dir = app({ email: EMAIL, org: ORG }, [
+    { name: "email", version: "1.0.0", extra: OPTIONAL_ORG },
+    { name: "org", version: "1.2.0" },
+  ]);
+  const r = resolveModules(dir, readModulesTable(dir).specs);
+  expect(r.problems).toEqual([]);
+  expect(r.modules.map((m) => m.name)).toEqual(["org", "email"]);
+  expect(lockEntryOf(r.modules[1] as (typeof r.modules)[number]).dependencies).toEqual([]);
+  rmSync(dir, { recursive: true });
+});
+
+test("an installed optional dependency outside its range is MF2", () => {
+  const dir = app({ email: EMAIL, org: ORG }, [
+    { name: "email", version: "1.0.0", extra: '[optional_dependencies]\norg = "^2.0"\n' },
+    { name: "org", version: "1.2.0" },
+  ]);
+  const r = resolveModules(dir, readModulesTable(dir).specs);
+  expect(r.problems).toEqual([{ rule: "MF2", file: "email/module.toml", message: 'email needs org "^2.0", but org 1.2.0 is installed' }]);
+  rmSync(dir, { recursive: true });
+});
+
+test("a name in both [dependencies] and [optional_dependencies] is MF5", () => {
+  const dir = app({ email: EMAIL, org: ORG }, [
+    { name: "email", version: "1.0.0", dependencies: { org: "^1.0" }, extra: '[optional_dependencies]\norg = "^1.0"\n' },
+    { name: "org", version: "1.0.0" },
+  ]);
+  const r = resolveModules(dir, readModulesTable(dir).specs);
+  expect(r.problems.map((p) => `${p.rule}: ${p.message}`)).toContain("MF5: email lists org in both [dependencies] and [optional_dependencies]");
+  rmSync(dir, { recursive: true });
+});
+
+test("a fill of a hook whose module is neither installed nor optional is MF8", () => {
+  const dir = app({ email: EMAIL }, [{ name: "email", version: "1.0.0", extra: '[permissions]\nhooks = ["org.x"]\n' }]);
+  const mf8 = projectProblems(dir).filter((p) => p.rule === "MF8");
+  expect(mf8).toEqual([{ rule: "MF8", file: "email/module.toml", message: 'email fills hook "org.x", which no other installed module exports' }]);
   rmSync(dir, { recursive: true });
 });
 

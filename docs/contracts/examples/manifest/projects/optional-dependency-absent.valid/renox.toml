@@ -1,0 +1,3 @@
+# 1.4: email fills org.send_mail when org is installed; org is not installed here.
+[modules]
+email = { version = "^1.0", source = "path:modules/email" }

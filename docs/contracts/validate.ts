@@ -1065,6 +1065,12 @@ function moduleRules(doc: JsonObject): string[] {
     if (p !== null) errors.push(`MF1: [dependencies] "${dep}" ${p}`);
     if (dep === name) errors.push(`MF5: ${name} depends on itself`);
   }
+  for (const dep of Object.keys(obj(doc.optional_dependencies))) {
+    const p = moduleNameProblem(dep);
+    if (p !== null) errors.push(`MF1: [optional_dependencies] "${dep}" ${p}`);
+    if (dep === name) errors.push(`MF5: ${name} depends on itself`);
+    if (dep in obj(doc.dependencies)) errors.push(`MF5: ${name} lists ${dep} in both [dependencies] and [optional_dependencies]`);
+  }
   const permissions = obj(doc.permissions);
   errors.push(...permissionRules(name, permissions, "[permissions]"));
 
@@ -1230,7 +1236,7 @@ function checkProject(dir: string): string[] {
       return;
     }
     state.set(name, "visiting");
-    for (const dep of Object.keys(obj(manifestOf(name).dependencies))) if (manifests.has(dep)) visit(dep, [...path, name]);
+    for (const dep of [...Object.keys(obj(manifestOf(name).dependencies)), ...Object.keys(obj(manifestOf(name).optional_dependencies))]) if (manifests.has(dep)) visit(dep, [...path, name]);
     state.set(name, "done");
   };
   for (const name of manifests.keys()) visit(name, []);
@@ -1241,7 +1247,7 @@ function checkProject(dir: string): string[] {
     if (e !== undefined && !satisfies(e.version as string, m.version as string)) errors.push(`MF2: ${key} ${e.version} does not satisfy renox.toml "${m.version}"`);
   }
   for (const [key, manifest] of manifests) {
-    for (const [dep, range] of Object.entries(obj(manifest.dependencies))) {
+    for (const [dep, range] of [...Object.entries(obj(manifest.dependencies)), ...Object.entries(obj(manifest.optional_dependencies))]) {
       const e = entries.get(dep);
       if (e !== undefined && !satisfies(e.version as string, range as string)) errors.push(`MF2: ${dep} ${e.version} does not satisfy ${key}'s range "${range}"`);
     }
@@ -1272,7 +1278,9 @@ function checkProject(dir: string): string[] {
   for (const [key, manifest] of manifests) {
     for (const h of strings(obj(manifest.permissions).hooks)) {
       const owner = hookOwners.get(h);
-      if (owner === undefined || owner === key) errors.push(`MF8: ${key} fills hook "${h}", which no other installed module exports`);
+      // 1.4: a hook of an optional dependency that is not installed is ignored.
+      const optional = h.split(".")[0] as string in obj(manifest.optional_dependencies) && !(h.split(".")[0] as string in installed);
+      if (!optional && (owner === undefined || owner === key)) errors.push(`MF8: ${key} fills hook "${h}", which no other installed module exports`);
     }
     for (const s of (manifest.slots as JsonObject[] | undefined) ?? []) {
       if (!fs.existsSync(`${trees.get(key)}/${s.template}`)) errors.push(`MF9: ${key}: slot template ${s.template} is not in the module tree`);
