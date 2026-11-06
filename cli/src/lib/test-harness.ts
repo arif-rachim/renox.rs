@@ -21,6 +21,7 @@ import { EnvironmentError, UserError } from "../errors.ts";
 import { readModulesTable } from "./modules/resolve.ts";
 import { buildArtifact } from "./build.ts";
 import { hashFiles } from "./hash.ts";
+import { toPosix } from "./paths.ts";
 import { checkPolicies, type PolicyCase, type PolicyResult, readPolicyCases } from "./policies.ts";
 import { workerPath } from "./worker.ts";
 
@@ -101,7 +102,7 @@ async function moduleTestApp(module: string): Promise<string> {
     throw new UserError("a module's tests run in tests/app/: a renox.toml that installs the module from path:../..", { file: "tests/app/renox.toml" });
   }
   const app = mkdtempSync(join(tmpdir(), "renox-module-test-"));
-  cpSync(src, app, { recursive: true, filter: (p) => !/\/(\.renox|renox\.lock|node_modules)(\/|$)/u.test(p.slice(src.length)) });
+  cpSync(src, app, { recursive: true, filter: (p) => !/\/(\.renox|renox\.lock|node_modules)(\/|$)/u.test(toPosix(p).slice(toPosix(src).length)) });
   // The SDK as `node_modules/@renoxium/sdk`, as an app has it: module code may import
   // its helpers (auth's passkeys use `verifyAssertion`, #291).
   const sdk = resolve(import.meta.dir, "../../../sdk");
@@ -109,7 +110,7 @@ async function moduleTestApp(module: string): Promise<string> {
     mkdirSync(join(app, "node_modules", "@renoxium"), { recursive: true });
     symlinkSync(sdk, join(app, "node_modules", "@renoxium", "sdk"), "dir");
   }
-  const toml = readFileSync(join(src, "renox.toml"), "utf8").replace(/"path:([^"]+)"/gu, (_m, rel: string) => JSON.stringify(`path:${relative(app, resolve(src, rel)).split("\\").join("/")}`));
+  const toml = readFileSync(join(src, "renox.toml"), "utf8").replace(/"path:([^"]+)"/gu, (_m, rel: string) => JSON.stringify(`path:${toPosix(relative(app, resolve(src, rel)))}`));
   writeFileSync(join(app, "renox.toml"), toml);
   const { specs } = readModulesTable(app);
   const log = console.log;
@@ -359,10 +360,10 @@ export async function changeModule(
   version?: string,
 ): Promise<ModuleChange & { db: string }> {
   const work = scratch?.project ?? mkdtempSync(join(tmpdir(), "renox-test-module-"));
-  if (!scratch) cpSync(project, work, { recursive: true, filter: (p) => !/\/(\.renox|\.git)(\/|$)/u.test(p.slice(project.length)) });
+  if (!scratch) cpSync(project, work, { recursive: true, filter: (p) => !/\/(\.renox|\.git)(\/|$)/u.test(toPosix(p).slice(toPosix(project).length)) });
   // A `path:` source is relative to the app; from the scratch copy it is made
   // relative again (a tree inside the app was copied with it).
-  const src = source.startsWith("path:") ? `path:${relative(work, existsSync(join(work, source.slice(5))) ? join(work, source.slice(5)) : resolve(project, source.slice(5))).split("\\").join("/")}` : source;
+  const src = source.startsWith("path:") ? `path:${toPosix(relative(work, existsSync(join(work, source.slice(5))) ? join(work, source.slice(5)) : resolve(project, source.slice(5))))}` : source;
   // The range: `^<version>` of the tree's module.toml (an upgrade may cross a major).
   let range = version;
   if (range === undefined && src.startsWith("path:")) {

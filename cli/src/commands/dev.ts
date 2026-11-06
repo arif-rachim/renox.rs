@@ -41,6 +41,7 @@ import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
 import { Symbolicator } from "../lib/sourcemap.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
 import { allHints, CLIENT_EVENTS_PATH, clientLine, handleBatch, injectDevMeta, type PageRoute } from "../dev/client-events.ts";
+import { toPosix } from "../lib/paths.ts";
 import { hasPath } from "../lib/routes.ts";
 import { BROWSER_TAB_PATH, browserTabJs } from "../dev/overlay/browser-tab.ts";
 import { collectErrorDetails } from "../dev/overlay/details.ts";
@@ -547,7 +548,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
   };
   const watcher = watch(project, { recursive: true }, (_event, filename) => {
     if (!filename) return;
-    const f = filename.split("\\").join("/");
+    const f = toPosix(filename);
     if (!isAppInput(f)) return;
     // The bundle is reused until a function source changes; another source
     // file may be imported by any module, so the cache is dropped. Set per

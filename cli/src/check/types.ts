@@ -18,6 +18,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import type { Finding } from "../lib/lint.ts";
+import { toPosix } from "../lib/paths.ts";
 import { writeModuleTypes } from "../lib/types/generate.ts";
 
 export const NO_TYPESCRIPT = "types not checked: add typescript (bun add -d typescript)";
@@ -45,7 +46,7 @@ export function parseTsc(output: string, cwd: string, project: string = cwd): Fi
     const m = LINE.exec(raw);
     if (m) {
       const abs = isAbsolute(m[1] as string) ? (m[1] as string) : join(cwd, m[1] as string);
-      const file = relative(project, abs).split("\\").join("/");
+      const file = toPosix(relative(project, abs));
       // Dropped: dependencies, and installed module trees (outside the app, or fetched under .renox/modules/), which the generated module types pull in (#471) and whose own errors are not the app's.
       if (file.startsWith("node_modules/") || file.includes("/node_modules/") || file.startsWith("../") || file.startsWith(".renox/modules/")) {
         last = null;

@@ -10,6 +10,8 @@
 
 import { scanText, TEXT_FILE, type SecretFinding } from "@renox/artifact-validate";
 
+import { toPosix } from "./paths.ts";
+
 export interface ProjectSecret extends SecretFinding {
   /** Project-relative path of the file that holds it. */
   file: string;
@@ -33,7 +35,8 @@ export function scanBundle(maps: ReadonlyMap<string, string>, files: ReadonlyMap
   const texts = new Map<string, string>();
   for (const map of maps.values()) {
     const m = JSON.parse(map) as { sources?: string[]; sourcesContent?: (string | null)[] };
-    (m.sources ?? []).forEach((source, i) => {
+    (m.sources ?? []).forEach((raw, i) => {
+      const source = toPosix(raw);
       const content = m.sourcesContent?.[i];
       if (!vendored(source) && typeof content === "string" && !texts.has(source)) texts.set(source, content);
     });

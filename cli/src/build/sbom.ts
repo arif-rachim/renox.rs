@@ -9,6 +9,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { toPosix } from "../lib/paths.ts";
+
 export interface SbomPackage {
   name: string;
   version: string;
@@ -17,7 +19,7 @@ export interface SbomPackage {
 
 /** The `node_modules/<name>/` (or `@scope/name`) of a bundled source path, or null. */
 export function packageDirOf(source: string): string | null {
-  const m = /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//u.exec(source.replaceAll("\\", "/"));
+  const m = /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//u.exec(toPosix(source));
   return m === null ? null : (m[1] as string);
 }
 

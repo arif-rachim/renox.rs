@@ -19,6 +19,7 @@ import { join, relative } from "node:path";
 
 import { type Json, type JsonObject, isObject } from "../schema.ts";
 import { readLock } from "../modules/lock.ts";
+import { toPosix } from "../paths.ts";
 import { obj, readManifest, strings } from "../modules/manifest.ts";
 import { fetchTree } from "../modules/resolve.ts";
 
@@ -80,7 +81,7 @@ function configType(decl: JsonObject): string {
 
 /** An import specifier from `.renox/types/` to a file (posix separators, `./` prefix). */
 const specifier = (from: string, to: string): string => {
-  const r = relative(from, to).split("\\").join("/");
+  const r = toPosix(relative(from, to));
   return r.startsWith(".") ? r : `./${r}`;
 };
 

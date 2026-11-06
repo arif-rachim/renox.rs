@@ -37,6 +37,7 @@ import { checkSecurity, type SecurityConfig } from "../check/security.ts";
 import { location, ValidationError, type Where } from "../errors.ts";
 
 import { hashFiles, sha256Hex } from "./hash.ts";
+import { toPosix } from "./paths.ts";
 import { rewriteAssetRefs } from "./public-assets.ts";
 import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, mergedActions, PolicyError, readGuard, v25Problems } from "./policies.ts";
 import { moduleParts, type ModuleParts, type OverrideDrift, storedOverrides } from "./modules/build.ts";
@@ -49,6 +50,11 @@ import { type CompiledTemplate, TemplateCache, templateFiles, templatesKey, tran
 import { type Json, validate } from "./schema.ts";
 import { schemas } from "./schemas.ts";
 import { formatSecret, scanBundle, SECRET_HINT, type ProjectSecret } from "./secrets.ts";
+
+/** A bundler output path as an artifact path: POSIX, without a leading `./`. */
+export function bundleOutputPath(p: string): string {
+  return toPosix(p).replace(/^\.\//u, "");
+}
 
 /** The app does not build (exit 2). `problems` lists every one when there are several. */
 export class BuildError extends ValidationError {
@@ -67,7 +73,7 @@ function bundlerProblem(project: string, log: BuildMessage | ResolveMessage): { 
   const message = String(log.message ?? log);
   if (!pos?.file) return { where: {}, message };
   const abs = resolve(project, pos.file);
-  const file = abs.startsWith(`${resolve(project)}/`) ? relative(project, abs).split("\\").join("/") : pos.file;
+  const file = toPosix(abs).startsWith(`${toPosix(resolve(project))}/`) ? toPosix(relative(project, abs)) : pos.file;
   return { where: { file, line: pos.line, column: pos.column }, message };
 }
 
@@ -340,7 +346,7 @@ async function bundle(project: string, functions: Entry[], app = project): Promi
     }
     const out: Bundle = { code: new Map(), maps: new Map() };
     for (const o of r.outputs) {
-      const path = o.path.replace(/^\.\//u, "");
+      const path = bundleOutputPath(o.path);
       if (o.kind === "sourcemap") out.maps.set(path, await o.text());
       else if (o.kind === "entry-point" || o.kind === "chunk") out.code.set(path, await o.text());
       else throw new BuildError(`unexpected bundler output ${path} (${o.kind})`);
@@ -400,7 +406,7 @@ export async function buildFiles(
     const file = sourceOf.get(r.module);
     if (file === undefined) continue;
     try {
-      guards.set(r.module, readGuard(readFileSync(file, "utf8"), relative(project, file) || r.module));
+      guards.set(r.module, readGuard(readFileSync(file, "utf8"), toPosix(relative(project, file)) || r.module));
     } catch (e) {
       // A syntax error is the bundler's to report, with its position.
       if (e instanceof GuardError) guardProblems.push(e.message);
