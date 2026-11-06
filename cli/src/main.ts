@@ -2,6 +2,9 @@
 // renox: new, build, dev, check, authz, mcp, login, tokens, deploy, logs, secrets, domains, db. docs/12-developer-experience.md.
 // Exit codes: src/errors.ts and cli/README.md, "Exit codes".
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { run as add } from "./commands/add.ts";
 import { run as authz } from "./commands/authz.ts";
 import { run as build } from "./commands/build.ts";
@@ -24,6 +27,7 @@ import { run as test } from "./commands/test.ts";
 import { run as publish } from "./commands/publish.ts";
 import { run as approve } from "./commands/approve.ts";
 import { CLI_VERSION } from "./commands/new.ts";
+import { ensureWorker } from "./lib/worker.ts";
 import { PINNED_WORKER } from "./worker/verify.ts";
 import { commandHelp, HELP, overview, suggest, unknownFlag } from "./lib/usage.ts";
 
@@ -34,6 +38,16 @@ const VERSION_LINE = `renox ${CLI_VERSION} (renox-worker ${PINNED_WORKER.version
 const USAGE = overview(VERSION_LINE.replace(/^renox /u, ""));
 
 const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, jobs, test, mcp, publish, approve, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), domains: (a) => domains(a), db: (a) => db(a) };
+
+/**
+ * dev, test and migrate always run the worker. build needs it for .html files
+ * and Cedar policies; an app with a pages/ or policies/ folder may have them
+ * (a cheap, conservative test: an app with neither never needs a download).
+ */
+function needsWorker(cmd: string): boolean {
+  if (cmd === "dev" || cmd === "test" || cmd === "migrate") return true;
+  return cmd === "build" && (existsSync(join(process.cwd(), "pages")) || existsSync(join(process.cwd(), "policies")));
+}
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
@@ -71,6 +85,8 @@ async function main(argv: string[]): Promise<number> {
   // Ctrl-C: `renox dev` stops its worker first and returns 130 itself.
   if (cmd !== "dev") process.once("SIGINT", () => process.exit(EXIT.INTERRUPTED));
   try {
+    // #440, D30: a CLI from npm has no worker; the first command that needs one downloads the pinned release.
+    if (needsWorker(name) && !rest.includes("--worker")) await ensureWorker();
     return await fn(rest);
   } catch (e) {
     if (e instanceof CliError) console.error(formatError(cmd as string, e));

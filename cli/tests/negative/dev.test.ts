@@ -214,7 +214,9 @@ test("no RENOX_WORKER_PATH and no downloaded binary: exit 3 with the download in
   dirs.push(empty);
   let err: unknown;
   try {
-    workerPath("", empty);
+    // No worker in bin/, beside the CLI or in the ~/.renox/bin cache (#440): an empty cache too,
+    // so a machine with an install.sh worker gives the same answer.
+    workerPath("", empty, undefined, undefined, undefined, undefined, empty);
   } catch (e) {
     err = e;
   }

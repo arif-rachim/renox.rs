@@ -1,0 +1,24 @@
+{
+  "name": "@renoxium/cli",
+  "version": "0.0.0",
+  "description": "The renox CLI for Renoxium: new, dev, test, check, build, deploy. One bundled file that runs on Bun.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/arif-rachim/renox.rs/tree/main/cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arif-rachim/renox.rs.git",
+    "directory": "cli"
+  },
+  "type": "module",
+  "bin": {
+    "renox": "bin/renox.js"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.4.0"
+  }
+}

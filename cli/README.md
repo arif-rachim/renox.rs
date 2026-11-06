@@ -11,6 +11,8 @@ curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.3/
 renox --version        # renox 0.1.3 (renox-worker 0.3.0)
 ```
 
+With Bun 1.4 or later instead: `bun add -g @renoxium/cli` (or `bunx @renoxium/cli new myapp`, `bun create renox myapp`); the worker is downloaded into `~/.renox/bin` on first use (`docs/12-developer-experience.md`, "Installing the CLI").
+
 The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed). Running it again upgrades in place. Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
 
 ## From the repository
