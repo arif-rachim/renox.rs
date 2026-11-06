@@ -933,6 +933,7 @@ impl IsolateHandle {
             std::fs::read_to_string(artifact.root.join("templates").join(format!("{id}.jinja")))
                 .is_ok_and(|src| src.contains("can(\""))
         });
+        let codeless = artifact.manifest.code.entry.is_empty();
         let pool = Pool {
             runtime,
             spec: Arc::new(spec),
@@ -959,11 +960,17 @@ impl IsolateHandle {
             isolated_spawn: tokio::sync::Mutex::new(()),
             link: Arc::new(OnceLock::new()),
         };
-        let thread = pool.spawn_thread().await?;
-        pool.members
-            .lock()
-            .expect("pool lock")
-            .push(Arc::new(thread));
+        // Artifact 1.6, "An app with no code": a deployment without
+        // `code.entry` starts no V8 thread. Its `.html` pages are answered in
+        // `dispatch` before any job; a request that does need V8 (a template
+        // using `can(`) starts one isolate lazily through `pick_live`.
+        if !codeless {
+            let thread = pool.spawn_thread().await?;
+            pool.members
+                .lock()
+                .expect("pool lock")
+                .push(Arc::new(thread));
+        }
         let inner = Arc::new(pool);
         let _ = inner.link.set(Arc::downgrade(&inner));
         // An `isolate` module with `hooks.ts` gets its isolate now: the
@@ -1118,6 +1125,12 @@ impl Pool {
             return None;
         }
         r.page().and_then(|p| p.template.clone())
+    }
+
+    /// Is this a code-less deployment (`code.entry` empty, artifact 1.6)?
+    /// Such a pool starts no V8 thread at creation.
+    pub fn is_codeless(&self) -> bool {
+        self.artifact.manifest.code.entry.is_empty()
     }
 
     /// Free concurrency slots of the deployment.
