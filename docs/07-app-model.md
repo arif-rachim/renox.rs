@@ -28,6 +28,8 @@ my-app/
 └── overrides/<module>/     override module templates without forking
 ```
 
+An app may have no code at all: `.html` pages and `public/` files only, with an empty `code.entry` in the artifact (artifact contract 1.6). It has no loaders, actions, functions, realtime or jobs until a `.ts` file exists.
+
 ## Routing rules
 
 | Pattern | Example file | URL |

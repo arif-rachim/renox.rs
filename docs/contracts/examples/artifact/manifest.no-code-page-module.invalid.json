@@ -1,0 +1,44 @@
+{
+  "$comment": "invalid (V30): an empty code.entry with a page route that names a module [expect: V30]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "site",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {}
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/",
+      "template": "pages/index"
+    },
+    {
+      "kind": "page",
+      "path": "/about",
+      "module": "pages/about",
+      "template": "pages/about"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/index": {
+      "kind": "page",
+      "fragments": {}
+    },
+    "pages/about": {
+      "kind": "page",
+      "fragments": {}
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}

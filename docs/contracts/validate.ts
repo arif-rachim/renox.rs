@@ -4,7 +4,7 @@
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
 //     hash, manifest, migrations, public files, templates, pages, security,
-//     modules, policies, realtime, tools, jobs, webhooks, storage: rules V1-V29, versions 0, 1,
+//     modules, policies, realtime, tools, jobs, webhooks, storage: rules V1-V30, versions 0, 1,
 //     1.1, 1.2, 1.3 and 1.4);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - client-event batches and raw CSP report bodies follow
@@ -744,6 +744,26 @@ function manifestRules(manifest: JsonObject): string[] {
   errors.push(...entriesRules(manifest));
   errors.push(...authzRules(manifest));
   errors.push(...webhookStorageRules(manifest));
+  errors.push(...noCodeRules(manifest));
+  return errors;
+}
+
+/** V30 (artifact 1.6): an empty code.entry allows only .html-only page routes. */
+function noCodeRules(manifest: JsonObject): string[] {
+  const errors: string[] = [];
+  const entry = (manifest.code as JsonObject).entry as JsonObject;
+  if (Object.keys(entry).length > 0) return errors;
+  const routes = (manifest.routes as JsonObject[]) ?? [];
+  routes.forEach((route, i) => {
+    const where = `routes[${i}]`;
+    if (route.kind !== "page") {
+      errors.push(`V30: ${where}: a ${route.kind as string} route needs code, but code.entry is empty`);
+    } else if (route.module !== undefined || route.load === true || (Array.isArray(route.actions) && route.actions.length > 0)) {
+      errors.push(`V30: ${where}: with an empty code.entry a page route has no module, load or actions`);
+    }
+  });
+  const entries = manifest.entries;
+  if (isObject(entries) && Object.keys(entries).length > 0) errors.push("V30: entries must be empty when code.entry is empty");
   return errors;
 }
 
@@ -1381,7 +1401,7 @@ function checkMessage(kind: string, doc: Json): string[] {
   return errors;
 }
 
-/** Walks an artifact directory and applies V1-V29. Returns one line per violation. */
+/** Walks an artifact directory and applies V1-V30. Returns one line per violation. */
 function checkArtifact(dir: string): string[] {
   const errors: string[] = [];
   const files = new Map<string, Uint8Array>();
@@ -1455,7 +1475,8 @@ function checkArtifact(dir: string): string[] {
   const code = manifest.code as JsonObject;
   const codeFiles = [...files.keys()].filter((p) => p.startsWith("code/")).map((p) => p.slice("code/".length));
   if (code.format === "eszip") {
-    if (codeFiles.length !== 1 || codeFiles[0] !== "bundle.eszip") {
+    const noCode = Object.keys(code.entry as JsonObject).length === 0 && codeFiles.length === 0; // 1.6: an app with no code
+    if (!noCode && (codeFiles.length !== 1 || codeFiles[0] !== "bundle.eszip")) {
       errors.push("V6: code.format eszip requires code/ to hold only bundle.eszip");
     }
   } else {
