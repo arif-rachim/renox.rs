@@ -13,7 +13,7 @@ Each phase produces something runnable and has done criteria. Two real products 
 | F4 | Modules | 6–8 weeks | Manifest, resolver and lockfile, forward-only migrations, services, events (outbox + `update_hook`), hooks, slots, overrides; `auth` and `org` modules | The first product uses `auth` and `org` with no auth code of its own |
 | F5 | Authorization and realtime | 4–6 weeks | Cedar, `guard`, `authz.require`, `r-can`, `db.scoped`; SSE/WebSocket with in-process pub/sub; `2fa` module via hooks | Refund is denied for users without the role or without 2FA; the chat room works (B14) |
 | F6 | Production reliability and security | 6–8 weeks | Process sandbox (seccomp, cgroups), process tiers, Litestream, synchronous replica for the higher tier, OpenTelemetry, audit log, SSRF blocking verified, internal penetration test | A node is killed and tenants recover elsewhere within their tier's RPO (B18) |
-| F7 | External customers | 6–8 weeks | `billing` with GCC payments and BNPL, `tax-gcc` (FTA tax invoices), `admin`, `storage`, `email`, `booking`, `reports` modules; complete EN/AR; module registry with signatures; `isolate` mode for marketplace modules; public docs; onboarding; AED pricing; PDPL DPA; booking and F&B ordering products launched | First paying external tenant (agency or vertical product customer) in the UAE |
+| F7 | External customers | 6–8 weeks | `billing` with GCC payments and BNPL, `tax-gcc` (FTA tax invoices), `admin`, `storage`, `email`, `booking`, `reports` modules; complete EN/AR; module registry with signatures; `isolate` mode for marketplace modules; public docs; onboarding; AED pricing; PDPL DPA; booking and F&B ordering products launched (the GCC PSP adapters, the entity and the products are deferred with D31) | The first external user on the free tier runs their own deployed app on `renoxium.app` for two weeks with no platform-caused outage (D31) |
 
 Total estimate: 9–12 months for one experienced engineer plus agents, assuming the two dogfooding products are built in parallel by the same person.
 
@@ -23,7 +23,7 @@ Total estimate: 9–12 months for one experienced engineer plus agents, assuming
 | --- | --- | --- |
 | After F0 | Memory per isolate > 20 MB, cold start p99 > 100 ms, or core npm packages fail (B17) | Consider Bun process-per-tenant for paid tiers only, or stop |
 | After F4 (~4–5 months) | Fewer than two real products running on Renox | Stop the platform; keep the products on a conventional stack |
-| After F7 (~9–12 months) | No paying external tenant | Renox becomes an internal tool; no marketplace investment |
+| After F7 (~9–12 months) | No external user after three months of the platform being live (D31) | Renox becomes an internal tool; no marketplace investment |
 
 ## Milestone sequence (what unblocks what)
 
@@ -41,12 +41,12 @@ F3 (control plane) depends only on F1's artifact format and route table contract
 | --- | --- | --- |
 | Target node size | 8 GB vs 16 GB; affects warm isolate count and tiers | After B3 |
 | Hosting provider | Cost per node, network quality to Cloudflare's edge, and egress; no country requirement since D25 | Before the second node |
-| Pricing model | Per request + CPU-ms (Cloudflare style), flat per tenant with quotas, or hybrid; AED tiers in `01-business.md` are hypotheses. Data available from `deploy-api.md` 0.5 section 20: the plans with their quotas (`listPlans`), usage per dimension and period (`getBilling`), and `meters_hourly` per tenant (section 11); the plan numbers there are proposals (Open 18) | F7, after unit-economics data from F3 meters; the decision stays the owner's |
+| Pricing model | Per request + CPU-ms (Cloudflare style), flat per tenant with quotas, or hybrid; AED tiers in `01-business.md` are hypotheses. Data available from `deploy-api.md` 0.5 section 20: the plans with their quotas (`listPlans`), usage per dimension and period (`getBilling`), and `meters_hourly` per tenant (section 11); the plan numbers there are proposals (Open 18) | Deferred with D31 (no payments in the current goal); was F7, after unit-economics data from F3 meters; the decision stays the owner's |
 | Bring-your-own Postgres | From the start, or only on the top tier | F6 |
 | Second region (Saudi Arabia) | Requires in-country hosting and ZATCA e-invoicing; not before UAE traction | After first external customers |
 | UAE PASS | Onboarding requirements for private providers; whether to ship in M16 or later (shipped behind config in M16, #291; owner steps in `modules/auth/README.md`, "UAE PASS") | F5 |
 | E-invoicing | Phase timing for SMEs and the accredited-provider route for `tax-gcc` | F7 (verify, see `21-uae-gcc-strategy.md`) |
 | Data-plane license | Decided 2026-11-05: Apache-2.0 for the whole repository, the data plane included (`LICENSE`, D29); the SDK on npm was MIT up to 0.1.3 and is Apache-2.0 from 0.1.4 | Done |
-| Marketplace revenue share | Percentage and payout mechanism. Data available from `deploy-api.md` 0.5 section 19: publishers, versions and their informational `price` (`manifest.md` 1.2), and the approvals per app (`listAppModules`), so installs per module can be counted; no payout operation exists | F7; the decision stays the owner's |
+| Marketplace revenue share | Percentage and payout mechanism. Data available from `deploy-api.md` 0.5 section 19: publishers, versions and their informational `price` (`manifest.md` 1.2), and the approvals per app (`listAppModules`), so installs per module can be counted; no payout operation exists | Deferred with D31; was F7; the decision stays the owner's |
 
-Decided (no longer open): dogfooding products are booking for salons/clinics and QR ordering for F&B; the first region is the UAE.
+Decided (no longer open): dogfooding products are booking for salons/clinics and QR ordering for F&B; the first region is the UAE. Deferred on 2026-11-06 (D31, #516): the entity, the GCC PSP adapters, the products, the pricing model and the marketplace revenue share, until the owner reopens them; the current goal is the platform live on `node-small` for hand-onboarded users on the free tier.

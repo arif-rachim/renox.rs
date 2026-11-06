@@ -130,6 +130,7 @@ Each milestone ends with a `type:review` issue. The review issue:
 - Lists the done criteria from `15-roadmap.md` and the benchmark IDs from `14-benchmarks.md` that must have a `PASS` result file under `bench/results/`.
 - Is blocked by the phase's `negative path checklist` issue, which ticks every row of `docs/23-failure-modes.md` due in that phase with a link to its test.
 - Is blocked by the phase's `security checklist` issue, which ticks every row of `docs/24-threat-model.md` due in that phase with a link to its test.
+- For F7, the done criterion is the one of D31 in `15-roadmap.md`: the first external user on the free tier runs their own deployed app on `renoxium.app` for two weeks with no platform-caused outage (gate #86).
 - Checks the kill criteria. If a kill criterion is hit, the review issue is where the decision (continue, change direction, stop) is recorded, together with a new ADR in `13-decisions.md` if the direction changes.
 - Splits the next phase's `type:epic` issues into tasks, using what the finished phase taught us. Detailed task issues are written only one phase ahead on purpose; writing F4 tasks before F1 exists produces fiction.
 
