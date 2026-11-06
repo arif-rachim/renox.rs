@@ -31,7 +31,10 @@ export function modulesDigest(files: ReadonlyMap<string, Uint8Array>): string {
   return h.digest("hex");
 }
 
-const cacheRoot = (env: Record<string, string | undefined>): string => join(env.XDG_CACHE_HOME ?? join(env.HOME ?? homedir(), ".cache"), "renox", "modules");
+export const cacheRoot = (env: Record<string, string | undefined>, platform: NodeJS.Platform = process.platform): string =>
+  platform === "win32"
+    ? join(env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "renox", "cache")
+    : join(env.XDG_CACHE_HOME ?? join(env.HOME ?? homedir(), ".cache"), "renox", "modules");
 
 /** The embedded modules on disk under `root`, extracted (atomically) when missing or not matching the digest. */
 export function extractModules(e: Embedded, root = cacheRoot(process.env)): string {

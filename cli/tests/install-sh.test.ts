@@ -29,6 +29,7 @@ test.each(["MINGW64_NT-10.0-22631", "MSYS_NT-10.0-22631", "CYGWIN_NT-10.0-22631"
   expect(code).toBe(1);
   expect(err).toContain("no native Windows build of renox; use WSL 2");
   expect(err).toContain("wsl --install -d Ubuntu");
+  expect(err).toContain("irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex");
   expect(err).not.toContain("download failed");
 });
 

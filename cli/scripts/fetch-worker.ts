@@ -36,7 +36,7 @@ export const WORKER_VERSION = "0.3.0";
 
 const REPO = process.env.RENOX_RELEASE_REPO ?? "arif-rachim/renox.rs";
 
-const TARGETS: Record<string, string> = {
+export const TARGETS: Record<string, string> = {
   "linux-x64": "x86_64-unknown-linux-gnu",
   "linux-arm64": "aarch64-unknown-linux-gnu",
   "darwin-x64": "x86_64-apple-darwin",
