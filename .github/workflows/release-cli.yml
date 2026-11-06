@@ -275,7 +275,10 @@ jobs:
           Remove-Item Env:RENOX_WORKER_PATH -ErrorAction SilentlyContinue
           $first = (& $exe --version | Out-String).Trim()
           Write-Host $first
-          if ($LASTEXITCODE -ne 0 -or -not $first.StartsWith("renox $v")) { throw "--version printed '$first', expected 'renox $v'" }
+          # A tag or dispatch run names the version; a PR run builds 0.0.0-dev
+          # file names from the package version, so only the prefix is checked.
+          $want = if ($env:VERSION) { "renox $v" } else { 'renox ' }
+          if ($LASTEXITCODE -ne 0 -or -not $first.StartsWith($want)) { throw "--version printed '$first', expected '$want'" }
           $work = Join-Path $env:RUNNER_TEMP 'smoke-windows'
           New-Item -ItemType Directory -Path $work -Force | Out-Null
           Set-Location $work
