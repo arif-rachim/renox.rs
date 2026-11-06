@@ -321,6 +321,7 @@ class Out {
   emit(v) {
     if (v === undefined || v === null) return;
     if (typeof v === "string") this.s += escapeHtml(v);
+    else if (typeof v === "boolean") this.s += v ? "true" : "false";
     else if (v instanceof Safe) this.s += v.s;
     else this.s += escapeHtml(str(v));
   }

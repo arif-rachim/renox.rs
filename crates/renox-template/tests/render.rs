@@ -184,6 +184,26 @@ fn autoescaping_and_r_html() {
     assert!(html.contains("<b>ok</b>"));
 }
 
+#[test]
+fn booleans_render_as_true_false_and_boolean_attrs_stay_present_or_absent() {
+    let c = compile_files(&[(
+        "pages/index.html",
+        "<button :aria-pressed=\"x\" :data-on=\"!x\" :disabled=\"x\">{{ x }}|{{ !x }}</button><i :class=\"s\">{{ s }}</i>",
+    )])
+    .unwrap();
+    let r = renderer(&c);
+    let on = render_page(&r, "pages/index", json!({"x": true, "s": "<b>"}));
+    assert!(on.contains("aria-pressed=\"true\""), "{on}");
+    assert!(on.contains("data-on=\"false\""), "{on}");
+    assert!(on.contains(" disabled"), "{on}");
+    assert!(on.contains(">true|false</button>"), "{on}");
+    assert!(on.contains("&lt;b&gt;"), "{on}");
+    let off = render_page(&r, "pages/index", json!({"x": false, "s": ""}));
+    assert!(off.contains("aria-pressed=\"false\""), "{off}");
+    assert!(!off.contains("disabled"), "{off}");
+    assert!(off.contains(">false|true</button>"), "{off}");
+}
+
 /// Bound URLs cannot carry `javascript:` (`docs/24-threat-model.md`, row
 /// "XSS through template data").
 #[test]

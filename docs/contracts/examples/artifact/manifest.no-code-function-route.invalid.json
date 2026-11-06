@@ -1,0 +1,41 @@
+{
+  "$comment": "invalid (V30): an empty code.entry with a function route; a function route needs an entry [expect: V30]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "site",
+    "timezone": "UTC"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {}
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/",
+      "template": "pages/index"
+    },
+    {
+      "kind": "function",
+      "method": "GET",
+      "path": "/api/health",
+      "module": "functions/api/health",
+      "export": "GET"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/index": {
+      "kind": "page",
+      "fragments": {}
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  }
+}

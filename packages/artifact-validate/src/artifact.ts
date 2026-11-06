@@ -403,6 +403,7 @@ export function manifestRules(manifest: JsonObject, tier?: TierLimits): Violatio
   out.push(...entriesRules(manifest));
   out.push(...authzRules(manifest));
   out.push(...webhookStorageRules(manifest));
+  out.push(...noCodeRules(manifest));
 
   if (tier !== undefined && isObject(manifest.limits)) {
     for (const [key, value] of Object.entries(manifest.limits)) {
@@ -532,7 +533,7 @@ export function checkManifest(manifest: Json, tier?: TierLimits): Violation[] {
   return manifestRules(manifest, tier);
 }
 
-/** V1-V12, V14-V29 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
+/** V1-V12, V14-V30 (V10 when `options.tier` is set) on an artifact held as path -> bytes. */
 export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, options: CheckOptions = {}): CheckResult {
   const out: Violation[] = [];
   const hash = contentHash(files);
@@ -612,7 +613,8 @@ export function checkArtifactFiles(files: ReadonlyMap<string, Uint8Array>, optio
   const code = manifest.code as JsonObject;
   const codeFiles = [...files.keys()].filter((p) => p.startsWith("code/")).map((p) => p.slice("code/".length));
   if (code.format === "eszip") {
-    if (codeFiles.length !== 1 || codeFiles[0] !== "bundle.eszip") {
+    const noCode = Object.keys(code.entry as JsonObject).length === 0 && codeFiles.length === 0; // 1.6: an app with no code
+    if (!noCode && (codeFiles.length !== 1 || codeFiles[0] !== "bundle.eszip")) {
       out.push({ rule: "V6", path: "code/", reason: "code.format eszip requires code/ to hold only bundle.eszip" });
     }
   } else {
@@ -738,6 +740,19 @@ function policyAndFeedRules(files: ReadonlyMap<string, Uint8Array>, manifest: Js
     for (const t of Object.keys(obj(realtime.feeds))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.realtime.feeds`, reason: `"${t}": no migration of ${owner} creates it` });
     for (const t of Object.keys(obj(authz.ownership))) if (!tables.has(t)) out.push({ rule: "V26", field: `${owner}.authz.ownership`, reason: `"${t}": no migration of ${owner} creates it` });
   }
+  return out;
+}
+
+/** V30 (artifact 1.6): an empty code.entry allows only .html-only page routes. */
+function noCodeRules(manifest: JsonObject): Violation[] {
+  const out: Violation[] = [];
+  if (Object.keys((manifest.code as JsonObject).entry as JsonObject).length > 0) return out;
+  ((manifest.routes as JsonObject[]) ?? []).forEach((route, i) => {
+    const field = `routes[${i}]`;
+    if (route.kind !== "page") out.push({ rule: "V30", field, reason: `a ${route.kind as string} route needs code, but code.entry is empty` });
+    else if (route.module !== undefined || route.load === true || (Array.isArray(route.actions) && route.actions.length > 0)) out.push({ rule: "V30", field, reason: "with an empty code.entry a page route has no module, load or actions" });
+  });
+  if (isObject(manifest.entries) && Object.keys(manifest.entries).length > 0) out.push({ rule: "V30", field: "entries", reason: "entries must be empty when code.entry is empty" });
   return out;
 }
 

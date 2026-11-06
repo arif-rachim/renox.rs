@@ -36,6 +36,8 @@ Templates are valid HTML with logic expressed as attributes. At deploy time the 
 | Permission | `r-can="action" :resource="x"`, `r-cannot` | `{% if can(...) %}` (see `11-authorization.md`) |
 | Module component | `<billing:plan-badge :user="user" />` | namespaced macro |
 
+A boolean prints as `true` or `false` in an interpolation and in a bound attribute (`:aria-pressed="task.done"` gives `aria-pressed="true"`), which is what ARIA and `data-*` attributes expect. Boolean HTML attributes (`disabled`, `checked`, `hidden`, ...) keep their present/absent behaviour: `:disabled="x"` emits `disabled` when `x` is truthy and nothing otherwise. Inside `~`, `join` and list displays a boolean still has minijinja's `True`/`False` form.
+
 `r-*` and `:*` attributes are removed from the output; `hx-*` and `x-*` are passed through. Interpolation uses `{{ }}` because single braces clash with `x-data="{ open: false }"` and `hx-vals='{...}'`; interpolation is not processed inside `<script>` and `<style>`.
 
 ## Right-to-left and bilingual output

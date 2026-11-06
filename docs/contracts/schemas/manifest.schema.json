@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://renoxium.com/contracts/artifact/v1/manifest.schema.json",
-  "title": "Renox artifact manifest, artifact contract versions 0, 1, 1.1, 1.2, 1.3 and 1.4",
-  "description": "manifest.json at the root of an artifact. Prose: docs/contracts/artifact.md section 3. Semantic rules the schema cannot express (route conflicts, entry files exist, tier bounds, page field combinations, templates, security, modules) are V4-V23 in section 6. Version 1.1 (artifact.version 1) adds modules, slots, and module-prefixed ids. Version 1.2 (artifact.version 1) adds entries: the export names of each code entry and its eager flag (ops.md 1.4.0, lazy route modules). Version 1.3 (artifact.version 1) adds the route kinds ws, sse, tool and job, the guard of a route, and the authz and realtime blocks of the app and of each module (ops.md 1.5.0); rules V24-V27.",
+  "title": "Renox artifact manifest, artifact contract versions 0, 1, 1.1, 1.2, 1.3, 1.4 and 1.6",
+  "description": "manifest.json at the root of an artifact. Prose: docs/contracts/artifact.md section 3. Semantic rules the schema cannot express (route conflicts, entry files exist, tier bounds, page field combinations, templates, security, modules) are V4-V23 in section 6. Version 1.1 (artifact.version 1) adds modules, slots, and module-prefixed ids. Version 1.2 (artifact.version 1) adds entries: the export names of each code entry and its eager flag (ops.md 1.4.0, lazy route modules). Version 1.3 (artifact.version 1) adds the route kinds ws, sse, tool and job, the guard of a route, and the authz and realtime blocks of the app and of each module (ops.md 1.5.0); rules V24-V27. Version 1.6 (artifact.version 1) allows an empty code.entry for an app with no code; rule V30.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -65,8 +65,8 @@
           ]
         },
         "entry": {
+          "description": "Module id -> module path. Version 1.6: may be empty ({}) when the app has no code (artifact.md section 3, rule V30).",
           "type": "object",
-          "minProperties": 1,
           "propertyNames": {
             "$ref": "#/$defs/moduleId"
           },

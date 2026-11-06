@@ -584,6 +584,12 @@ fn format_value(
     if value.is_undefined() || value.is_none() {
         return Ok(());
     }
+    if value.kind() == minijinja::value::ValueKind::Bool {
+        let text = if value.is_true() { "true" } else { "false" };
+        return out
+            .write_str(text)
+            .map_err(|e| Error::new(ErrorKind::WriteFailure, e.to_string()));
+    }
     let text = value.to_string();
     let write = |out: &mut minijinja::Output, s: &str| {
         out.write_str(s)
