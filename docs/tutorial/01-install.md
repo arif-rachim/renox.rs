@@ -7,13 +7,13 @@
 One line installs `renox`, and the `renox-worker` it runs your app on, into `~/.renox/bin`. Each file is installed only if its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.2/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.4/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"   # also add this line to ~/.bashrc or ~/.zshrc
 renox --version
 ```
 
 ```
-renox 0.1.2 (renox-worker 0.3.0)
+renox 0.1.4 (renox-worker 0.3.0)
 ```
 
 The CLI is not on npm: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. More on installing, verifying signatures and upgrading: [Getting started](../getting-started.md#install).
@@ -26,13 +26,10 @@ cd my-board
 bun install
 ```
 
-`--template tutorial` writes this chapter's checkpoint. **It needs a CLI newer than 0.1.2**: the `cli-v0.1.2` release came out before the template. With 0.1.2, copy the checkpoint instead:
+`--template tutorial` writes this chapter's checkpoint. You can also copy it from the repository:
 
 ```sh
-git clone --depth 1 https://github.com/arif-rachim/renox.rs
-cp -r renox.rs/examples/tutorial/step-01 my-board
-cd my-board
-bun install
+git clone --depth 1 https://github.com/arif-rachim/renox.rs && cp -r renox.rs/examples/tutorial/step-01 my-board
 ```
 
 Either way you get:

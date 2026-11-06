@@ -4,10 +4,38 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.4 (unreleased)
 
-- `@renoxium/cli` and `create-renox` on npm (D30, #440).
-- An app with only `.html` pages and `public/` files builds, runs under `renox dev` and `renox test`, and deploys; its artifact has an empty `code.entry` and the worker starts no isolate for it (artifact 1.6, #495).
+The tutorial template, `renox db seed` and `renox domains`, the first native Windows CLI, and the CLI and `create-renox` on npm (#483, #490, #492, #513, #440). The pinned `renox-worker` stays 0.3.0; the worker changes of #495 ship with the next `worker-v*` release and the CLI pin that follows it.
+
+**Install**
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.4/install.sh | sh
+```
+
+On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex` (#441).
+
+**CLI**
+
+- `renox new <name> --template tutorial` writes the checkpoint of chapter 1 of the tutorial (`docs/tutorial/`), a board with one page, one API route and one test (#483).
+- `renox db seed` loads `seeds/*.sql` into the dev database: it applies the pending migrations, then runs the files in name order in one transaction; a failing statement rolls everything back and the error names `seeds/<file>:<line>` (#490).
+- The SQL lint (rule `sql-interpolation`) sees through type arguments: `db.query<T>(`, `queryOne<T>(` and `execute<T>(` are checked like the untyped calls, and `db.scoped(...)` and `tx.scoped(...)` count as receivers (#490).
+- `renox check` and the deploy type check generate the `renox:modules` types (`.renox/types/`) before running `tsc`, and the template `tsconfig.json` includes them and accepts `.ts` import extensions; errors inside installed module trees are not reported as the app's (#490).
+- `renox authz explain --attr <key=value>` sets principal attributes for the check, and the output lists them (#492).
+- `renox domains add|list|status|rm` manages the app's custom domains: `add` prints the CNAME and the two TXT records to create, `status` shows pending, then verified; the hosted MCP server has matching domain tools (#492).
+- The tutorial is in the docs `search_docs` returns, and the tutorial checkpoints' tests run without the `RENOX_TEST_SPEC` guard (#492).
+- Native Windows CLI: `renox-<version>-windows-x64.exe` and `install.ps1` in the release. `new`, `check` and `build` of an app without `.html` pages or policies, `login`, `deploy`, `logs`, `secrets`, `db`, `add`, `remove` and `mcp` run natively; `renox dev`, `test`, `migrate` and apps with pages or policies need WSL 2 and stop with `RENOX_CLI_WORKER_UNAVAILABLE` until the worker runs on Windows (#442). Credentials and the module cache live under `%APPDATA%` and `%LOCALAPPDATA%`, and artifact paths and hashes are the same as on Linux (#513).
+- `@renoxium/cli` and `create-renox` on npm as Bun packages (`bun create renox`) (D30, #440).
+- An app with only `.html` pages and `public/` files builds with an empty `code.entry` (artifact 1.6) and is accepted by `renox dev` and `renox test`; the worker that starts no isolate for it (#498, #499) is not in `renox-worker` 0.3.0, so running such an app needs the next `renox-worker` release and the CLI pin that follows it (#495).
 - `renox add email` also delivers org invitations: email fills `org.send_mail` with the `org_invite` mail in EN/AR, in the organisation's locale, when `org` is installed (#475).
+- Manifest 1.4: a module can list `[optional_dependencies]`; a hook of an optional dependency that is not installed is ignored instead of failing the build (rules MF5 and MF8, #503).
+
+**SDK**
+
 - `@renoxium/sdk` is licensed under Apache-2.0 from this version (`LICENSE`, ADR D29, #469); 0.1.0 to 0.1.3 were published under MIT and stay so.
+
+**Worker**
+
+- No new `renox-worker` release: the CLI pins 0.3.0. The worker changes of #495 (an empty `code.entry` is accepted under rule V30 and starts no isolate) are on `main` and wait for the next `worker-v*` release.
 
 ## 0.1.3 (2026-11-05)
 
