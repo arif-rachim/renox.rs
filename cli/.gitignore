@@ -1,2 +1,4 @@
 dist/
 bin/
+# The create-renox launcher is source, not a downloaded binary (#440).
+!npm/create-renox/bin/
