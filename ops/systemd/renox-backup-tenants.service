@@ -1,0 +1,35 @@
+# Weekly local snapshot of every tenant's SQLite file (#517, #516: R2 is off;
+# ops/scripts/backup-tenant-files.sh, ops/single-host.md "Local backups (no R2)").
+# Runs as root so the copies are root-owned 0600 under /var/backups/renox/tenants
+# (a 0700 directory); CAP_DAC_OVERRIDE reads the tenants' files, which belong to
+# `renox`, and lets sqlite open a WAL file's -shm for the consistent copy.
+# Started by renox-backup-tenants.timer.
+[Unit]
+Description=Snapshot the tenant databases to the local disk
+Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
+# A failed snapshot reaches the operator (ops/systemd/renox-alert@.service).
+OnFailure=renox-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/renox/bin/backup-tenant-files.sh --data-dir /var/lib/renox/data --backup-dir /var/backups/renox
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/backups/renox /var/lib/renox/data
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+UMask=0077

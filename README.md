@@ -16,7 +16,7 @@ Tenants deploy web apps and functions written in TypeScript; Renox runs them saf
 > | F4 Modules | Manifest, resolver and lock, forward-only migrations, services, events, hooks, slots, overrides; the modules under `modules/` | #68 open: the owner's booking product repository |
 > | F5 Authorization and realtime | Cedar policies and `guard`, `r-can`, `db.scoped()`, SSE and WebSocket with topics, `2fa`, App MCP on `/mcp` | #74 open: the B14 run (load generator, #456) |
 > | F6 Reliability and security | seccomp and Landlock, process tiers, Litestream replication, failover, export and restore, the chaos harness, OpenTelemetry, audit, erasure | #79 open: gate F5, the B18 two-host run (#456), the `ops/` code-owner reviews, one green weekly chaos run (#389) |
-> | F7 External customers | `billing` with Stripe UAE, `tax_gcc`, `admin`, `storage`, `email`, `booking`, `reports`, `whatsapp`, the registry, `isolate` mode, EN/AR, onboarding, the site and docs in the dot-matrix design (D27); the CLI releases 0.1.0 to 0.1.3 and the SDK on npm (D28); the single host with the app edge behind Cloudflare (D25, D26) | #86 open: the first paying tenant; the install on `node-small` and the Cloudflare cut-over (#458); the GCC PSP adapters (#330, #337) wait for sandbox accounts |
+> | F7 External customers | `billing` with Stripe UAE, `tax_gcc`, `admin`, `storage`, `email`, `booking`, `reports`, `whatsapp`, the registry, `isolate` mode, EN/AR, onboarding, the site and docs in the dot-matrix design (D27); the CLI releases 0.1.0 to 0.1.3 and the SDK on npm (D28); the single host with the app edge behind Cloudflare (D25, D26) | #86 open: the install on `node-small` and the Cloudflare cut-over (#458), local backups (#517), the first external user on the free tier; the GCC PSP adapters, the entity and the products (#330, #337, #87) are deferred by D31 |
 
 ## Naming
 
@@ -143,7 +143,7 @@ Full list, scenarios, and methodology in [`docs/14-benchmarks.md`](docs/14-bench
 | F4 | Modules | The first product uses `auth` and `org` with no auth code of its own | Built; gate #68 waits for the booking product repository |
 | F5 | Authorization and realtime | Cedar guards and the chat room work | Built; gate #74 waits for the B14 run |
 | F6 | Production reliability and security | A node is killed and tenants recover elsewhere | Built; gate #79 waits for gate F5, B18, the `ops/` reviews and a green chaos run |
-| F7 | External customers | First paying external tenant | Built but for the GCC PSP adapters; CLI 0.1.3 released; gate #86 waits for the single-host install (#458) and the first paying tenant |
+| F7 | External customers | The first external user on the free tier runs their own app for two weeks (D31) | Built but for the GCC PSP adapters; CLI 0.1.3 released; gate #86 waits for the single-host install (#458), local backups (#517) and the first external user on the free tier; payments, the entity and the products are deferred (D31) |
 
 Each phase has kill criteria. See [`docs/15-roadmap.md`](docs/15-roadmap.md) and [`docs/18-build-plan.md`](docs/18-build-plan.md).
 
@@ -158,7 +158,7 @@ Start with [`AGENTS.md`](AGENTS.md), which holds the rules and the full reading 
 | [`docs/04-isolation-security.md`](docs/04-isolation-security.md) | Isolation model, per-tenant limits, threat model |
 | [`docs/06-data.md`](docs/06-data.md) | SQLite per tenant, authorizer, replication |
 | [`docs/10-modules.md`](docs/10-modules.md) | Module system |
-| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D29. **Required reading before any architectural change** |
+| [`docs/13-decisions.md`](docs/13-decisions.md) | ADRs D1–D31. **Required reading before any architectural change** |
 | [`docs/14-benchmarks.md`](docs/14-benchmarks.md) | Targets, scenarios, methodology |
 | [`docs/20-ai-agents-mcp.md`](docs/20-ai-agents-mcp.md) | Platform MCP, app MCP per tenant, agent security |
 

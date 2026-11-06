@@ -1,4 +1,4 @@
-// renox new <name> [--template blank|hello]: writes the app, then prints the
+// renox new <name> [--template blank|hello|tutorial]: writes the app, then prints the
 // steps to a live app and the docs URL (#449).
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -85,7 +85,7 @@ export function run(args: string[]): number {
   const t = args.indexOf("--template");
   const template = t >= 0 ? args[t + 1] : "blank";
   if (!name || template === undefined) {
-    console.error("usage: renox new <name> [--template blank|hello]");
+    console.error("usage: renox new <name> [--template blank|hello|tutorial]");
     return EXIT.USER;
   }
   newApp(name, template);

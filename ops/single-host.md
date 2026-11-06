@@ -66,7 +66,7 @@ This page takes an empty host to live ("Install, in order"), and an existing hos
 | `/etc/renox/backup-age.pub` | root, 0644 | The age **public** key backups are encrypted to; the private key is never on the host |
 | `/etc/nftables.d/renox-single-host.nft` | root, 0644 | `firewall-single-host.sh`'s rules, included from `/etc/nftables.conf` |
 
-The units that read root-only files (`renox-tunnel`, `renox-backup-db`) get a copy through systemd's `LoadCredential=`; `renox-worker` and `renox-litestream@` get the R2 replica pair through `EnvironmentFile=`, which systemd reads as root. The service users cannot read the files under `/etc/renox` themselves. systemd 255 makes a credential copy root-owned 0440, readable by the unit's user through an ACL, when the unit has a `User=`; `backup-control-db.sh` accepts group read only for a file in its own `$CREDENTIALS_DIRECTORY`.
+`renox-backup-db` and `renox-backup-tenants` run as root (#517) and read the backup files directly; `renox-tunnel` gets a copy through systemd's `LoadCredential=`; `renox-worker` and `renox-litestream@` get the R2 replica pair through `EnvironmentFile=`, which systemd reads as root. The service users cannot read the files under `/etc/renox` themselves. systemd 255 makes a credential copy root-owned 0440, readable by the unit's user through an ACL, when the unit has a `User=`; `backup-control-db.sh` accepts group read only for a file in its own `$CREDENTIALS_DIRECTORY`.
 
 ## Cloudflare
 
@@ -174,7 +174,7 @@ All commands as root on the host unless the step says otherwise.
     8. In the `renoxium.com` zone create the three DNS-only CNAMEs to `renoxium.app` (the apex flattened) and every TXT record of the answers, and keep them.
 
     The job reads each custom hostname every minute. `GET /v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `status: active`, `ssl_status: active`. Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`. A domain detached by the status poll (three negative answers over at least 30 minutes; an API error never counts) comes back when you repeat its `POST …/domains`: it answers 201 with the same custom hostname and is read at the next tick.
-10. **Backups.** `/etc/renox/backup-age.pub` and `/etc/renox/secrets/r2-backup.env` in place, then `systemctl start renox-backup-db.service` once. Check its journal line (`backup-control-db: renox -> renoxium-backups/control-db/…`), then `systemctl enable --now renox-backup-db.timer`. Then "Tenant files to R2" (steps 1 to 4 under "Backups"), and run both restore drills once.
+10. **Backups.** While R2 is off, "Local backups (no R2)" under "Backups": enable both timers and run `restore-check.sh` once. With R2: `/etc/renox/backup-age.pub` and `/etc/renox/secrets/r2-backup.env` in place, then `systemctl start renox-backup-db.service` once. Check its journal line (`backup-control-db: renox -> renoxium-backups/control-db/…`), then `systemctl enable --now renox-backup-db.timer`. Then "Tenant files to R2" (steps 1 to 4 under "Backups"), and run both restore drills once.
 11. **Alerts for failed units (#450).** `renox-backup-db.service` and `renox-billing.service` start `renox-alert@<unit>.service` when they fail (`OnFailure=`). It posts to the webhook in `/etc/renox/secrets/alert.env`, the same receiver as Alertmanager (`ops/observability/README.md`, "Alertmanager on the single host"):
     ```
     printf 'ALERT_WEBHOOK_URL=%s\n' '<https webhook url>' | install -m 0600 -o root -g root /dev/stdin /etc/renox/secrets/alert.env
@@ -256,6 +256,23 @@ rm -f "$jar"
 6. Then continue with step 1 of the install. The firewall step (2) checks SSH before it changes anything; after it, only SSH answers from outside; the sites come back through the tunnel.
 
 ## Backups
+
+### Local backups (no R2)
+
+R2 is deferred (#516). Until it is enabled, the host keeps its own copies on its disk (#517); with no `R2_ENDPOINT` in `/etc/renox/secrets/r2-backup.env`, `renox-backup-db.service` takes this path.
+
+| What | Where (root, 0700 directories, 0600 files) | When | Keeps |
+| --- | --- | --- | --- |
+| Control database | `/var/backups/renox/control-db/control-db-<stamp>.dump` (`pg_dump --format=custom`, not encrypted) | nightly 02:17, `renox-backup-db.timer` | 14 days |
+| Tenant files | `/var/backups/renox/tenants/<tenant>/<name>-<stamp>.db` (`sqlite3 .backup`, a consistent copy under WAL; `app.db` and the staging `<app>.db`) | Sundays 03:17 UTC, `renox-backup-tenants.timer` | 14 days |
+
+`BACKUP_KEEP_DAYS` (default 14) sets the retention of both; the scripts are `backup-control-db.sh` and `backup-tenant-files.sh`, installed in `/opt/renox/bin` by `bootstrap-node.sh --single-host`, which also creates `/var/backups/renox`. Enable both timers with `systemctl enable --now renox-backup-db.timer renox-backup-tenants.timer`, start each service once and look at `ls -la /var/backups/renox/control-db /var/backups/renox/tenants/*`. The journal says `backup-control-db: renox -> /var/backups/renox/control-db/<file> (<bytes> bytes)` and one `backup-tenant-files:` line per tenant.
+
+**Monthly restore drill.** `/opt/renox/bin/restore-check.sh --pg-user postgres` restores the newest control dump into the scratch database `renox_restore_check` (`createdb`, `pg_restore --no-owner --exit-on-error`, `select count(*) from tenants`, `dropdb`) and opens the newest tenant copy with `pragma quick_check`. A corrupt dump is refused before any database is touched. It exits 1 on any failure and 0 when both pass; note the date in `ops/security/keys.md`, "Drill record".
+
+**A disk failure is not covered until R2 is enabled.** These copies protect against a bad migration, an accidental erasure or a corrupt file, not against losing the disk.
+
+### R2 backups (deferred, #516)
 
 | What | Where | How often | Keeps |
 | --- | --- | --- | --- |

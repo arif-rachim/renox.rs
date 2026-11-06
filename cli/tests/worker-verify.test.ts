@@ -11,10 +11,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { targetTriple, WORKER_VERSION } from "../scripts/fetch-worker.ts";
+import { assetName, targetTriple, WORKER_VERSION } from "../scripts/fetch-worker.ts";
 import { EXIT } from "../src/errors.ts";
 import { sha256Hex } from "../src/lib/hash.ts";
-import { workerPath } from "../src/lib/worker.ts";
+import { ensureWorker, workerPath } from "../src/lib/worker.ts";
 import { CODE, OIDC_ISSUER, PINNED_WORKER, pinnedVariant, verifyExternal, verifyPinned, WorkerUnverifiedError, workerIdentity } from "../src/worker/verify.ts";
 import { MAIN } from "./negative/helpers.ts";
 
@@ -301,4 +301,74 @@ test("a pinned pdf worker is accepted beside the default build; a corrupted one 
   expect(workerPath("", bin, all("1".repeat(64)), undefined, all(pdf[TARGET] as string))).toBe(fetched);
   corrupt(fetched);
   refusal(() => workerPath("", bin, all("1".repeat(64)), undefined, all(pdf[TARGET] as string)));
+});
+
+/**
+ * #440, D30: a CLI from npm has no worker and downloads the pinned one on first
+ * use. Proves docs/24-threat-model.md section F, "Tampered release": the
+ * download is checked against the release's .sha256 and then against the pins
+ * baked into the CLI; a cached worker that was changed afterwards is refused
+ * and not downloaded over. A fake release server stands in for GitHub.
+ */
+test("ensureWorker downloads the pinned worker once into the cache; a tampered cached worker is refused", async () => {
+  let requests = 0;
+  const asset = assetName(WORKER_VERSION);
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      requests++;
+      const path = new URL(req.url).pathname;
+      if (path === `/worker-v${WORKER_VERSION}/${asset}`) return new Response(BODY);
+      if (path === `/worker-v${WORKER_VERSION}/${asset}.sha256`) return new Response(`${sha256Hex(BODY)}  ${asset}\n`);
+      return new Response("not found", { status: 404 });
+    },
+  });
+  const base = process.env.RENOX_RELEASE_BASE;
+  process.env.RENOX_RELEASE_BASE = `http://127.0.0.1:${server.port}`;
+  try {
+    const cacheDir = join(dir(), "cache", "bin");
+    const pinned = Object.fromEntries(TARGETS.map((t) => [t, sha256Hex(BODY)]));
+    const logs: string[] = [];
+    const opts = { cacheDir, env: "", binDir: dir(), installed: undefined, pinned, pdf: {}, log: (l: string) => logs.push(l) };
+
+    const first = await ensureWorker(opts);
+    expect(first).toBe(join(cacheDir, "renox-worker"));
+    expect(readFileSync(first, "utf8")).toBe(BODY);
+    expect(requests).toBe(2);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatch(/^renox: downloaded renox-worker \S+ for \S+ \(\d+\.\d MB, sha256 checked\) -> /u);
+
+    // The second call finds it in the cache: no request, no log.
+    expect(await ensureWorker(opts)).toBe(first);
+    expect(requests).toBe(2);
+    expect(logs).toHaveLength(1);
+
+    // One byte flipped in the cache: refused, and nothing is downloaded over it.
+    corrupt(first);
+    let err: unknown;
+    try {
+      await ensureWorker(opts);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(WorkerUnverifiedError);
+    expect((err as WorkerUnverifiedError).code).toBe(CODE);
+    expect(requests).toBe(2);
+
+    // A release server that is down: the manual way is named.
+    server.stop(true);
+    let down: unknown;
+    try {
+      await ensureWorker({ ...opts, cacheDir: join(dir(), "other") });
+    } catch (e) {
+      down = e;
+    }
+    expect((down as Error).message).toContain(`could not download renox-worker ${WORKER_VERSION}`);
+    expect((down as { hint: string }).hint).toContain("curl");
+    expect((down as { hint: string }).hint).toContain("RENOX_WORKER_PATH");
+  } finally {
+    server.stop(true);
+    if (base === undefined) delete process.env.RENOX_RELEASE_BASE;
+    else process.env.RENOX_RELEASE_BASE = base;
+  }
 });

@@ -34,13 +34,24 @@ Exit code 0 when every test passed, 2 when one failed.
 On Linux or macOS (x64 or arm64):
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.3/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.4/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
 renox --version                          # renox 0.1.3 (renox-worker 0.3.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
 `bun install` in the new app pulls the SDK `@renoxium/sdk` from npm at the CLI's version; it needs Bun 1.4 or later (the `renox` binary itself does not need Bun).
+
+**With Bun.** The CLI is also one npm package, `@renoxium/cli`: a single bundled JavaScript file that runs on Bun (D30), at the version of the `cli-v*` tag.
+
+```sh
+bun add -g @renoxium/cli          # then: renox --version
+bunx @renoxium/cli new myapp      # without installing
+bun create renox myapp            # the create-renox package: renox new myapp
+npm install -g @renoxium/cli      # needs Bun 1.4 or later on PATH
+```
+
+The package carries no worker. `renox dev`, `renox test` and `renox migrate` (and `renox build` of an app with a `pages/` or `policies/` folder) download the pinned `renox-worker` on first use into `~/.renox/bin`, the folder `install.sh` uses, and print one line saying so; a worker found earlier (`RENOX_WORKER_PATH`, beside a compiled `renox`, `cli/bin/`) is used as it is. What is checked: npm provenance covers the package (it was built by `release-cli.yml` from the tag), the sha256 pinned in the CLI covers the worker (downloaded or cached, a file that does not match is refused with `RENOX_CLI_WORKER_UNVERIFIED` and never run), and `install.sh` checks the sha256 of each file and the sigstore signature when `cosign` is installed. The standalone binaries and `install.sh` are unchanged.
 
 **The install line names a release that exists.** Every install line in the repository (this section, `docs/getting-started.md`, `cli/README.md`, the dashboard's `control/dashboard/lib/install.ts`, `www/public/llms-full.txt`) names a `cli-v*` release that is on GitHub Releases. The version in `cli/package.json` and the install lines move together (`control/dashboard/tests/copy.test.ts` checks the dashboard's against it), in the release commit that is then tagged the same day; a change for the next version is listed under it in `CHANGELOG.md` as "(unreleased)" and moves no install line. A newcomer's first command must never answer 404. Before a docs PR merges, the check is a grep for `cli-v` against the list of releases.
 

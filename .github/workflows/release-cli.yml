@@ -22,6 +22,7 @@ name: Release CLI
 #       (sigstore bundle), identity this workflow on the cli-v* tag (#129)
 #   renox-<version>.provenance.sigstore.json
 #       SLSA v1 build provenance for the same files
+# The npm job then publishes @renoxium/cli and create-renox (#440, D30).
 # Every file is verified with cosign in a fresh container before publishing.
 # The CLI bakes in the sha256 of the pinned worker per target
 # (PINNED_WORKER in cli/src/worker/verify.ts); the build job refuses a
@@ -37,6 +38,8 @@ on:
       - "cli/scripts/install.ps1"
       - "cli/scripts/compile.ts"
       - "cli/scripts/smoke.sh"
+      - "cli/scripts/pack-npm.ts"
+      - "cli/npm/**"
   workflow_dispatch:
     inputs:
       version:
@@ -295,6 +298,74 @@ jobs:
           "windows-x64 smoke test of renox-${v}: ok" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           # The runner exits with the last native exit code, here dev's expected 3.
           exit 0
+
+  # #440, D30: @renoxium/cli (one bundled file for Bun) and create-renox on
+  # npm, at the version of the tag. A tag run publishes after the GitHub
+  # Release exists; a pull request or a manual run without a version only
+  # packs and runs `npm publish --dry-run` (the release job is skipped then,
+  # which `!failure()` allows). A version npm already has is not published
+  # again (npm refuses it); its dry run uses a throwaway prerelease.
+  npm:
+    needs: [build, release]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # npm provenance and trusted publishing: the OIDC token is the identity.
+      id-token: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      # A pull request from a fork gets no OIDC token: its dry run cannot
+      # attest provenance and runs without --provenance.
+      HEAD_IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      # npm 11.5.1 or later for trusted publishing; Node 24 ships it. No
+      # registry-url here: setup-node would write an .npmrc with a token
+      # placeholder that gets in the way of the OIDC exchange.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Pack
+        run: bun cli/scripts/pack-npm.ts
+      - name: Publish (tag) or dry run
+        run: |
+          flags=(--provenance)
+          if [[ "$HEAD_IS_FORK" == "true" ]]; then
+            echo "::notice::pull request from a fork: no OIDC token, so the dry run skips --provenance"
+            flags=()
+          fi
+          for dir in dist/npm/cli dist/npm/create-renox; do
+            name=$(jq -r .name "$dir/package.json")
+            version=$(jq -r .version "$dir/package.json")
+            # 404 (no such package or version) and a network error both read as
+            # "not published"; the publish fails loudly if that is wrong.
+            found=$(npm view "$name@$version" version 2>/dev/null || true)
+            if [[ -n "$VERSION" ]]; then
+              if [[ "$found" == "$version" ]]; then
+                echo "::notice::$name@$version is already on npm; not publishing it again"
+                echo "$name@$version is already on npm" >> "$GITHUB_STEP_SUMMARY"
+                continue
+              fi
+              (cd "$dir" && npm publish --provenance --access public)
+              echo "published $name@$version" >> "$GITHUB_STEP_SUMMARY"
+            else
+              dry=(--dry-run --access public "${flags[@]}")
+              if [[ "$found" == "$version" ]]; then
+                # npm 11 refuses a dry run of a published version, and a prerelease without a dist-tag.
+                (cd "$dir" && npm pkg set version="$version-dryrun.$GITHUB_RUN_ID")
+                dry+=(--tag dryrun)
+                echo "::notice::$name@$version is already on npm; the dry run uses $version-dryrun.$GITHUB_RUN_ID"
+              fi
+              (cd "$dir" && npm publish "${dry[@]}")
+            fi
+          done
 
   release:
     needs: [build, smoke-windows]

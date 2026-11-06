@@ -10,6 +10,8 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 
 ## Where we are (2026-11-05, after SINGLE-HOST-2 and F7-63; `main` at `d37a751`)
 
+**Scope reset of 2026-11-06 (D31, #518).** The goal is the platform live on `node-small` for users the owner onboards by hand, on the free tier, without payments, entity or products, until the owner reopens the discussion. Deferred and closed as not planned (#516): #87 (the entity), #330 (the GCC PSP adapters), #337 (the products and starters), #456 (the load-generator host), and R2 for #458 (backups stay on the node's disk, #517). Wherever the text below says that a gate or a step waits on one of them, read it as deferred.
+
 Every session that ran on 2026-11-05 before these four batches was cancelled and its branch lost; the tracker was cleaned the same day, and #455 to #464 are the issues filed then. The four batches marked "Started 2026-11-05" below run now, side by side. PR #463 (#462, the CLI on macOS) and PR #467 (the 0.1.3 release commit) merged while they ran.
 
 | Phase | Done (PR) | Running | Next |
@@ -28,14 +30,14 @@ Every session that ran on 2026-11-05 before these four batches was cancelled and
 | Issue | What the owner does |
 | --- | --- |
 | #455 | `cli-v0.1.2` and `cli-v0.1.3` are out (the Mac run of the quickstart found #462, fixed in 0.1.3); what is left is the quickstart transcript from a clean machine with the released installer |
-| #456 | The load-generator host (SSH address in the issue); then a session runs B4, B6, B7, B11, B12, B14, B18 and the Hono baseline |
+| #456 | Deferred with D31 (closed as not planned): the load-generator host; the benchmarks run on `node-small` alone and are provisional. What the issue asked: a session runs B4, B6, B7, B11, B12, B14, B18 and the Hono baseline |
 | #457 | A `node-small` session for the bisect of the `shop` isolate RSS |
-| #458 | The install on `node-small` from `ops/single-host.md` and the Cloudflare cut-over (tunnel, DNS, R2, Resend) |
+| #458 | The install on `node-small` from `ops/single-host.md` and the Cloudflare cut-over (tunnel, DNS, Resend; no R2 for now, D31) |
 | #459 | The ADR on data residency for tenant replicas in R2 |
-| #330, #337 | The PSP sandbox accounts (Checkout.com, Telr, PayTabs, N-Genius, Tabby, Tamara); #337 follows #330 |
-| #49, #61, #68, #74, #79, #86 | The gate reviews, in the order below; #68 needs the booking product repository, #86 the first paying tenant |
+| #330, #337 | Deferred with D31 (closed as not planned): the PSP sandbox accounts (Checkout.com, Telr, PayTabs, N-Genius, Tabby, Tamara); #337 follows #330 |
+| #49, #61, #68, #74, #79, #86 | The gate reviews, in the order below; #68 needs the booking product repository, #86 the first external user on the free tier (D31) |
 | #94, #112, #99, #116, #101, #117, #102, #119, #105, #122, #106, #124 | The checklists: the owner confirms the ticked and moved rows at each phase's gate |
-| #87 | The UAE entity and bank account |
+| #87 | Deferred with D31 (closed as not planned): the UAE entity and bank account |
 
 Issues created since 2026-11-01, outside the batches that filed them: #381 and #382 (from BINARY-SIZE), #385 (the Resend mailer, in SINGLE-HOST), #387 (F7-42, PR #388), #389 (the weekly chaos run that failed on 2026-11-02), #391–#407 (the findings of the first install on `node-small`, run in HOST-WORKER, HOST-OPS, HOST-CONTROL and SINGLE-HOST-2), #414–#421 and #424 (the Cloudflare edge), #426–#429 (the dot-matrix design), #430 (the tutorial), #431 (the first CLI release), #440–#442 (npm and Windows), #443–#450 (ONBOARD-1), #451 (from ONBOARD-1), and #454–#464 (filed on 2026-11-05 after the cancelled sessions). Not from an issue: #384 (renox-ui and the landing page), #390 (`--ssh-port` for the firewall script), #410, #411 and #413 (dependency bumps), #423 (the `/v1` rule for breaking changes).
 
@@ -46,7 +48,7 @@ Issues created outside the batches since the F1 gate: #182 (timing-dependent tes
 
 Since 2026-10-30: #342 and #343 (the two findings of the B1 run on `node-small`: a cold first request charged 3–5× its CPU, and 2.7 MB of per-isolate RSS outside the V8 heap; O4-HOST below), #350 and #351 (F7-STRIPE: a Stripe Customer per tenant, invoice collection, disputes; PR #352), #356 (GREEN-MAIN: the tests failing on `main` and the `ts` job that hid them; PR #358), #359 (an artifact fetch from unresponsive object storage; PR #367), #361 (the `macos` job's bound; MACOS-ACCOUNTING below), #362 (jobs due on a minute boundary; JOBS-CLOCK, PR #365), #363 and #364 (DOMAINS: `renoxium.app` for tenant apps, `renoxium.com` for the platform; PRs #368 and #370), #366 (SINGLE-HOST below), #372 (BINARY-SIZE below), #376 and #377 (SDK-DOCS below). Not from an issue: #341 (this file after F67-B), #353, #354, #355 and #217 (dependency bumps), #369, #371, #374 and #375 (the macOS CPU clock after #357), #373 (the two `worker-v0.2.0` release blockers).
 
-**Gate order** (each gate review is a `type:review` issue run under its special case): #49 (F2) after #342's last criterion, #457, the load-generator runs of #456 and the four open rows of #112; #61 (F3) after #49's bench runs; #68 (F4) when the owner's booking product repository exists; #74 (F5) after the B14 run (#456); #79 (F6) after #74, the B18 run (#456), the `ops/` reviews and one green weekly chaos run (#389, GREEN-CI); #86 (F7) after the single-host install (#458), the products launched and the first paying tenant.
+**Gate order** (each gate review is a `type:review` issue run under its special case): #49 (F2) after #342's last criterion, #457, the benchmark runs on `node-small` (#456 is deferred, D31) and the four open rows of #112; #61 (F3) after #49's bench runs; #68 (F4) when the owner's booking product repository exists; #74 (F5) after the B14 run on `node-small`; #79 (F6) after #74, the B18 run on `node-small`, the `ops/` reviews and one green weekly chaos run (#389, GREEN-CI); #86 (F7) after the single-host install (#458), local backups (#517) and the first external user on the free tier (D31). Since D31 every gate runs with the provisional `node-small` numbers and records what is not measured (the second host, the PSPs, the products) as a known gap in its review comment.
 
 ## F0 (done: 2 sessions + gate)
 
@@ -846,13 +848,13 @@ Work on batch TUTORIAL of arif-rachim/renox.rs: issue #430. Follow docs/25-execu
 
 Started 2026-11-05. #430 (`[F7-43]`): a team task board built in ten chapters (`docs/tutorial/`) with one tested checkpoint app per chapter (`examples/tutorial/step-01` to `step-10`), a drift test between the chapters' code blocks and the checkpoints, `renox new --template tutorial`, and the pages in the docs navigation and `llms*.txt`; written against the released CLI (`cli-v0.1.3` at the start). Its blocker #428 is closed (DOTMATRIX). Paths: `examples/tutorial/**`, `docs/tutorial/**`, `cli/templates/tutorial/**`, one entry in `cli/src/lib/templates.ts`, one case in `cli/tests/new.test.ts`, `www/lib/docs.ts`, `www/scripts/llms.ts`; no file of GREEN-CI or DOCS-SYNC. The first-time user's run on a clean machine and the deployed app are the owner's to arrange.
 
-### Gate F7 — after F67-ALL and F67-B, the products launched and the first paying tenant
+### Gate F7 — after F67-ALL and F67-B, the single-host install and the first external user on the free tier
 
 ```
 Run the gate review issue #86 of arif-rachim/renox.rs. Follow docs/25-execution.md section "Rules for the agent", special case type:review. Write the report as a comment on the issue and stop.
 ```
 
-Needs #74 and #79, the two F7 checklists, `docs/15` open questions resolved or re-dated and the licence ADR (owner), and the kill criterion checked: no paying tenant means Renox becomes an internal tool.
+Needs #74 and #79, the two F7 checklists, `docs/15` open questions resolved or re-dated and the licence ADR (owner), and the kill criterion checked (D31): no external user after three months of the platform being live means Renox becomes an internal tool.
 
 ## F5 to F7: what can run in parallel
 

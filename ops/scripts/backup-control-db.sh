@@ -24,7 +24,16 @@
 # lock rule on <prefix>/ keeps every object for 30 days, so the host's key
 # (which R2 cannot limit to writes only) cannot erase earlier backups either.
 #
+# Local mode, the default while R2 is off (#517, #516): with no R2_ENDPOINT in
+# the environment or in the --r2-env file (or BACKUP_TARGET=local), the dump is
+# written, unencrypted, to <backup-dir>/control-db/control-db-<stamp>.dump
+# (0600) and files there older than BACKUP_KEEP_DAYS (14) are deleted. The
+# disk is the only copy: a disk failure is not covered until R2 is enabled.
+# BACKUP_TARGET=r2 forces the R2 mode above.
+#
 # Options:
+#   --backup-dir <d> local mode: the root of the copies (/var/backups/renox)
+#   --pg-user <u>    run pg_dump as this user when started as root (postgres)
 #   --prefix <p>     object key prefix (control-db)
 #   --work-dir <d>   where the encrypted dump is staged (a fresh 0700 temp dir)
 #   --pg-dump <cmd>  the pg_dump binary (pg_dump on PATH)
@@ -36,6 +45,8 @@ r2_env=""
 prefix=control-db
 work_parent=${TMPDIR:-/tmp}
 pg_dump_bin=pg_dump
+backup_dir=/var/backups/renox
+pg_user=""
 
 die() { echo "backup-control-db: $*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n $2 ]] || die "$1 needs a value"; }
@@ -47,14 +58,52 @@ while [[ $# -gt 0 ]]; do
     --r2-env) need_value "$@"; r2_env=$2; shift 2 ;;
     --prefix) need_value "$@"; prefix=$2; shift 2 ;;
     --work-dir) need_value "$@"; work_parent=$2; shift 2 ;;
+    --backup-dir) need_value "$@"; backup_dir=$2; shift 2 ;;
+    --pg-user) need_value "$@"; pg_user=$2; shift 2 ;;
     --pg-dump) need_value "$@"; pg_dump_bin=$2; shift 2 ;;
-    -h | --help) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h | --help) sed -n '2,42p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) die "unknown option $1" ;;
   esac
 done
 
 [[ $database =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$ ]] || die "--database must name the control database"
 [[ $prefix =~ ^[a-z0-9][a-z0-9/_-]{0,62}$ && $prefix != */ ]] || die "--prefix must be like control-db"
+# pg_dump, as the database's own user when this runs as root (peer authentication).
+run_pg_dump() {
+  if [[ -n $pg_user && $(id -u) -eq 0 ]]; then
+    setpriv --reuid="$pg_user" --regid="$pg_user" --init-groups "$pg_dump_bin" "$@"
+  else
+    "$pg_dump_bin" "$@"
+  fi
+}
+
+target=${BACKUP_TARGET:-}
+if [[ -z $target ]]; then
+  if [[ -n ${R2_ENDPOINT:-} ]] || { [[ -n $r2_env && -r $r2_env ]] && grep -q '^R2_ENDPOINT=.' "$r2_env"; }; then target=r2; else target=local; fi
+fi
+[[ $target == local || $target == r2 ]] || die "BACKUP_TARGET must be local or r2"
+
+if [[ $target == local ]]; then
+  keep_days=${BACKUP_KEEP_DAYS:-14}
+  [[ $keep_days =~ ^[1-9][0-9]{0,4}$ ]] || die "BACKUP_KEEP_DAYS must be a number of days (1 or more)"
+  [[ $backup_dir == /* ]] || die "--backup-dir must be an absolute path"
+  command -v "$pg_dump_bin" >/dev/null 2>&1 || die "$pg_dump_bin is not installed (postgresql-client)"
+  umask 077
+  dest=$backup_dir/control-db
+  mkdir -p "$backup_dir" "$dest"
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  file=$dest/control-db-$stamp.dump
+  partial=$dest/.control-db-$stamp.partial
+  trap 'rm -f "$partial"' EXIT
+  run_pg_dump --format=custom --compress=6 --dbname="$database" > "$partial" || die "pg_dump failed; nothing was kept"
+  [[ -s $partial ]] || die "the dump is empty"
+  chmod 0600 "$partial"
+  mv "$partial" "$file"
+  find "$dest" -maxdepth 1 -type f -name 'control-db-*.dump' -mtime "+$keep_days" -delete
+  echo "backup-control-db: $database -> $file ($(stat -c %s "$file") bytes)"
+  exit 0
+fi
+
 [[ -f $recipients && -s $recipients ]] || die "--recipients must name the age public key file"
 grep -Eq '^age1[0-9a-z]{58}$' "$recipients" || die "--recipients holds no age public key (age1…): never put the private key on the host"
 if grep -q 'AGE-SECRET-KEY' "$recipients"; then die "--recipients holds a private key: keep it off the host"; fi
@@ -107,7 +156,7 @@ file=$work/backup.dump.age
 
 started=$(date +%s)
 # pipefail: a failing pg_dump fails the backup even though age succeeded.
-"$pg_dump_bin" --format=custom --compress=6 --dbname="$database" | age --encrypt --recipients-file "$recipients" --output "$file"
+run_pg_dump --format=custom --compress=6 --dbname="$database" | age --encrypt --recipients-file "$recipients" --output "$file"
 [[ -s $file ]] || die "the encrypted dump is empty"
 size=$(stat -c %s "$file")
 sum=$(sha256sum "$file" | awk '{ print $1 }')

@@ -45,6 +45,8 @@ Positioning: *the factory for custom SME applications in the UAE: bilingual, loc
 
 These replace the generic "local market" placeholders. IDs continue `18-build-plan.md`.
 
+Deferred on 2026-11-06 (D31): the starters below and the PSP and BNPL adapters of M17 (`payments-gcc`) need the entity (#87), merchant accounts (#330) and launched products (#337), none of which the current goal has. They are not planned until the owner reopens them (#516); nothing in this section is removed.
+
 | ID | Module | Contents | Phase |
 | --- | --- | --- | --- |
 | M15 | `whatsapp` | WhatsApp Cloud API: notifications, OTP, message templates, light inbox, chat-to-order button | F5 |
