@@ -6,7 +6,8 @@
 // reads an existing `renox_pat_` token from stdin instead (CI).
 //
 // The token is stored in $XDG_CONFIG_HOME/renox/credentials.json (default
-// ~/.config/renox/), readable only by the user. RENOX_TOKEN and RENOX_API_URL
+// ~/.config/renox/), readable only by the user; on Windows in
+// %APPDATA%\renox\credentials.json (the profile's default ACL). RENOX_TOKEN and RENOX_API_URL
 // override the file, so CI never writes one.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -28,8 +29,10 @@ export interface Credentials {
 
 type Env = Record<string, string | undefined>;
 
-export const credentialsPath = (env: Env = process.env): string =>
-  join(env.XDG_CONFIG_HOME ?? join(env.HOME ?? homedir(), ".config"), "renox", "credentials.json");
+export const credentialsPath = (env: Env = process.env, platform: NodeJS.Platform = process.platform): string =>
+  platform === "win32"
+    ? join(env.APPDATA ?? join(homedir(), "AppData", "Roaming"), "renox", "credentials.json")
+    : join(env.XDG_CONFIG_HOME ?? join(env.HOME ?? homedir(), ".config"), "renox", "credentials.json");
 
 export function readCredentials(env: Env = process.env): Credentials | null {
   const file = credentialsPath(env);
@@ -44,8 +47,15 @@ export function readCredentials(env: Env = process.env): Credentials | null {
 
 export function writeCredentials(c: Credentials, env: Env = process.env): string {
   const file = credentialsPath(env);
+  const body = `${JSON.stringify(c, null, 2)}\n`;
+  if (process.platform === "win32") {
+    // The user profile's default ACL is the protection (docs/24-threat-model.md); modes mean nothing there.
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, body);
+    return file;
+  }
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  writeFileSync(file, `${JSON.stringify(c, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(file, body, { mode: 0o600 });
   chmodSync(file, 0o600);
   return file;
 }
