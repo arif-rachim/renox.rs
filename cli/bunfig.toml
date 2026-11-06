@@ -1,0 +1,3 @@
+[test]
+# Fixture apps carry their own tests/*.test.ts: `renox test` runs them, the CLI's own `bun test` must not.
+pathIgnorePatterns = ["tests/fixtures/**"]

@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { check } from "../src/commands/check.ts";
 import { newApp } from "../src/commands/new.ts";
-import { buildArtifact } from "../src/lib/build.ts";
+import { buildArtifact, codeBytes } from "../src/lib/build.ts";
 import { hashDir } from "../src/lib/hash.ts";
 import { type Json, validate } from "../src/lib/schema.ts";
 import { schemas } from "../src/lib/schemas.ts";
@@ -183,4 +183,24 @@ test("the app's catalogs i18n/<locale>.json go to code/i18n/ (#244); other files
   expect(readdirSync(join(r.dir, "code/i18n")).sort()).toEqual(["ar.json", "en.json"]);
   expect(readFileSync(join(r.dir, "code/i18n/ar.json"), "utf8")).toContain("مرحباً");
   expect(hashDir(r.dir)).toBe(r.hash);
+});
+
+describe("renox build without code (artifact 1.6, #495)", () => {
+  const fixture = join(import.meta.dir, "fixtures/pages-only");
+
+  test.skipIf(!worker)("a pages-only app builds with an empty code.entry", async () => {
+    const a = await buildArtifact(fixture, tmp("pages-only-a"));
+    const b = await buildArtifact(fixture, tmp("pages-only-b"));
+    expect(b.hash).toBe(a.hash);
+    expect(a.manifest.code.entry).toEqual({});
+    expect(a.manifest.entries).toBeUndefined();
+    expect(existsSync(join(a.dir, "code"))).toBe(false);
+    expect(validate(schemas.manifest, readJson(join(a.dir, "manifest.json")))).toEqual([]);
+    expect(codeBytes(a.dir)).toBe(0);
+  });
+
+  test.skipIf(!worker)("renox check passes on a pages-only app", async () => {
+    const { errors } = await check(fixture);
+    expect(errors).toEqual([]);
+  });
 });

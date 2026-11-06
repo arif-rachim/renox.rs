@@ -3,7 +3,7 @@
 // roles has unit, snapshot-per-role, install/upgrade and policy-case tests.
 
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -146,6 +146,24 @@ test.skipIf(!worker)(
     expect(r.code, r.out).toBe(0);
     expect(existsSync(join(gcc, ".renox"))).toBe(false);
     expect(treeHash(gcc)).toBe(before);
+  },
+  120_000,
+);
+
+test.skipIf(!worker)(
+  "renox test runs against a pages-only app",
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), "renox-test-pages-only-"));
+    try {
+      cpSync(join(import.meta.dir, "fixtures/pages-only"), dir, { recursive: true });
+      mkdirSync(join(dir, "node_modules/@renoxium"), { recursive: true });
+      symlinkSync(join(repo, "sdk"), join(dir, "node_modules/@renoxium/sdk"));
+      const r = await runTests(dir, [], "pipe");
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("1 pass");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   },
   120_000,
 );
