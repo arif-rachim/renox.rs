@@ -1,0 +1,12 @@
+version = 1
+
+[[module]]
+name = "email"
+version = "1.0.0"
+source = "path:modules/email"
+hash = "eb1eae2536b0088684fabd66b2f0107b7239610bc4402e8bc4f6979352f25074"
+isolation = "shared"
+mount = "/email"
+dependencies = []
+config = {}
+approved = { network = [], secrets = [], slots = [], hooks = ["org.send_mail"] }

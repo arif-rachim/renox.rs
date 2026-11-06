@@ -36,6 +36,10 @@ export const TEMPLATES: Record<string, Record<Locale, Text>> = {
     en: { subject: "Welcome", body: ["Hello {display_name},", "Your account is ready."] },
     ar: { subject: "أهلًا بك", body: ["مرحبًا {display_name}،", "حسابك جاهز."] },
   },
+  org_invite: {
+    en: { subject: "You are invited to join {org_name}", body: ["{invited_by} invited you to join {org_name} as {role}.", "The invitation expires in {expires_days} days."], action: "Accept the invitation" },
+    ar: { subject: "دعوة للانضمام إلى {org_name}", body: ["دعاك {invited_by} للانضمام إلى {org_name} بصفة {role}.", "تنتهي صلاحية الدعوة بعد {expires_days} أيام."], action: "قبول الدعوة" },
+  },
 };
 
 const esc = (s: string): string => s.replace(/[&<>"']/gu, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
@@ -77,5 +81,6 @@ export function renderMail(template: string, data: Readonly<Record<string, unkno
   const text = order
     .map((l) => [...t[l].body.map((p) => fill(p, data, (v) => v)), ...(url !== null ? [url] : [])].join("\n\n"))
     .join("\n\n----\n\n");
-  return { subject: t[locale].subject, text, html };
+  // The subject takes `{key}` values too, on one line (no header injection).
+  return { subject: fill(t[locale].subject, data, (v) => v.replace(/[\r\n]+/gu, " ")), text, html };
 }

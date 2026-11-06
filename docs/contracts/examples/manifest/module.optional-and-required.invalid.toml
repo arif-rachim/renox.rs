@@ -1,0 +1,10 @@
+# [expect: MF5] email lists org in both [dependencies] and [optional_dependencies]
+[module]
+name = "email"
+version = "1.0.0"
+
+[dependencies]
+org = "^1.0"
+
+[optional_dependencies]
+org = "^1.0"

@@ -1,0 +1,11 @@
+# 1.4: org is optional; the fill of org.send_mail is ignored while org is not installed.
+[module]
+name = "email"
+version = "1.0.0"
+description = "Sends mail; fills org.send_mail when org is installed"
+
+[optional_dependencies]
+org = "^1.0"
+
+[permissions]
+hooks = ["org.send_mail"]

@@ -29,6 +29,8 @@ export interface Manifest {
   isolation: "shared" | "isolate";
   description: string | undefined;
   dependencies: Record<string, string>;
+  /** Checked only when installed; only hooks may be filled from them (manifest.md 1.4). */
+  optionalDependencies: Record<string, string>;
   permissions: Permissions;
 }
 
@@ -105,6 +107,12 @@ export function manifestRules(doc: JsonObject): string[] {
     if (p !== null) errors.push(`MF1: [dependencies] "${dep}" ${p}`);
     if (dep === name) errors.push(`MF5: ${name} depends on itself`);
   }
+  for (const dep of Object.keys(obj(doc.optional_dependencies))) {
+    const p = moduleNameProblem(dep);
+    if (p !== null) errors.push(`MF1: [optional_dependencies] "${dep}" ${p}`);
+    if (dep === name) errors.push(`MF5: ${name} depends on itself`);
+    if (dep in obj(doc.dependencies)) errors.push(`MF5: ${name} lists ${dep} in both [dependencies] and [optional_dependencies]`);
+  }
   const permissions = obj(doc.permissions);
   errors.push(...permissionProblems(name, permissions, "[permissions]"));
   const exports = obj(doc.exports);
@@ -161,6 +169,7 @@ export function readManifest(tree: string, file: string): { manifest: Manifest |
       isolation: module.isolation === "isolate" ? "isolate" : "shared",
       description: typeof module.description === "string" ? module.description : undefined,
       dependencies: Object.fromEntries(Object.entries(obj(doc.dependencies)).map(([k, v]) => [k, String(v)])),
+      optionalDependencies: Object.fromEntries(Object.entries(obj(doc.optional_dependencies)).map(([k, v]) => [k, String(v)])),
       permissions: permissionsOf(obj(doc.permissions)),
     },
     problems: errors,

@@ -42,7 +42,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `status(id)` | `{ status, attempts, error }`, where status is `queued`, `sent`, `failed` or `suppressed` |
 | `suppress(address, reason)`, `unsuppress(address)`, `isSuppressed(address)` | Manage the suppression list |
 
-**Templates** (`lib/templates.ts`): `verify_email`, `password_reset`, `magic_link`, `account_exists`, `welcome`.
+**Templates** (`lib/templates.ts`): `verify_email`, `password_reset`, `magic_link`, `account_exists`, `welcome`, `org_invite`.
 - The values are `display_name`, `url` (only `https`, or `http` on localhost) and `expires_minutes`.
 - Every value is escaped, and the HTML is a two-column table: one column `lang="en" dir="ltr"`, the other `lang="ar" dir="rtl"`.
 - A different wording means a new template here.
@@ -64,6 +64,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | `email.before_send` | hook point | `{ template, locale, to_domain }`, never the body: a filler that halts stops the message (the app's own sending policy) |
 | `auth.send_mail` | hook filled | auth's confirmation, reset, magic-link and account-exists emails, from the templates |
 | `auth.user_registered` | event handled | The `welcome` email, to the address in `auth__public_users_v1` |
+| `org.send_mail` | hook filled | the invitation mail (`org_invite`), when `org` is installed |
 | `notifications.deliver` | hook filled | The `email` channel of the notifications module |
 
 ## Feedback

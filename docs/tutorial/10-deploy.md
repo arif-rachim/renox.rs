@@ -49,7 +49,7 @@ Bundling… <n> routes, <n> modules, <n> templates
 
 (The shape of the output; your counts, sizes and times go where the `<…>` are.) `renox deploy` type checks first, as `renox check` does, and stops on a type error before anything is uploaded. The migrations run before the new code takes traffic. Every deployment is kept: `renox deploy --rollback` switches back to the previous one at once, without a build. Rolling back never undoes a migration, so a new column must be one the older code can ignore, as `team_id` with its default is ([Developer experience, deploy without downtime](../12-developer-experience.md#deploy-without-downtime)).
 
-Open the live URL, register, create a team and invite a colleague. The invitation link is in the `outbox__mail` table until a mail module delivers it (chapter 6, #475). [What you should see: the finished board](screenshots/10-finished.png).
+Open the live URL, register, create a team and invite a colleague. The invitation link is in the `outbox__mail` table: from CLI 0.1.4, `renox add email` delivers invitations too; the board keeps `modules/outbox` so the tutorial runs without a mail provider (chapter 6). [What you should see: the finished board](screenshots/10-finished.png).
 
 **The finished app, deployed:** not yet. Deploying this checkpoint on `renoxium.app` is an owner step of #430; its link goes here when it is live.
 
@@ -116,7 +116,7 @@ The platform MCP has `deploy`, `rollback`, `get_logs`, `list_deployments` and `a
 
 ## Where next
 
-- Replace `modules/outbox` with a mail module once #475 is done; add `2fa` (`renox add 2fa`) for owners; add `audit` to record who removed what.
+- Replace `modules/outbox` with the `email` module (`renox add email`, from CLI 0.1.4 it delivers invitations too); add `2fa` (`renox add 2fa`) for owners; add `audit` to record who removed what.
 - [Modules](../10-modules.md), [Authorization](../11-authorization.md), [Fragments and realtime](../09-htmx-realtime.md) and [App model](../07-app-model.md) go deeper into what you used here.
 
 **Checkpoint:** [`examples/tutorial/step-10`](../../examples/tutorial/step-10/), the finished app.

@@ -165,6 +165,13 @@ export function resolveModules(project: string, specs: Record<string, InstallSpe
         problems.push({ rule: "MF2", file: `${m.name}/module.toml`, message: `${m.name} needs ${dep} "${range}", but ${dep} ${d.manifest.version} is installed` });
       }
     }
+    // 1.4: an optional dependency is checked only when it is installed.
+    for (const [dep, range] of Object.entries(m.manifest.optionalDependencies)) {
+      const d = found.get(dep);
+      if (d !== undefined && !satisfies(d.manifest.version, range)) {
+        problems.push({ rule: "MF2", file: `${m.name}/module.toml`, message: `${m.name} needs ${dep} "${range}", but ${dep} ${d.manifest.version} is installed` });
+      }
+    }
   }
   const { order, cycle } = topological([...found.values()]);
   if (cycle !== null) problems.push({ rule: "MF5", file: "renox.toml", message: `dependency cycle ${cycle.join(" -> ")}` });
@@ -174,7 +181,7 @@ export function resolveModules(project: string, specs: Record<string, InstallSpe
 /** Kahn's algorithm with the ready set in name order; the first cycle found, as a path. */
 export function topological(mods: ResolvedModule[]): { order: ResolvedModule[]; cycle: string[] | null } {
   const byName = new Map(mods.map((m) => [m.name, m]));
-  const deps = (m: ResolvedModule) => Object.keys(m.manifest.dependencies).filter((d) => byName.has(d));
+  const deps = (m: ResolvedModule) => [...Object.keys(m.manifest.dependencies), ...Object.keys(m.manifest.optionalDependencies)].filter((d) => byName.has(d));
   const placed = new Set<string>();
   const order: ResolvedModule[] = [];
   while (order.length < mods.length) {
@@ -271,6 +278,9 @@ export function projectProblems(project: string): ModuleProblem[] {
     }
     // MF8: filled hooks are exported by another installed module. MF9: slot templates exist.
     for (const h of m.manifest.permissions.hooks) {
+      // 1.4: a hook of an optional dependency that is not installed is ignored.
+      const hookDep = h.split(".")[0] as string;
+      if (hookDep in m.manifest.optionalDependencies && !byName.has(hookDep)) continue;
       const owner = modules.find((o) => h in obj(obj(o.manifest.doc.exports).hooks));
       if (owner === undefined || owner.name === m.name) out.push({ rule: "MF8", file: `${m.name}/module.toml`, message: `${m.name} fills hook "${h}", which no other installed module exports` });
     }

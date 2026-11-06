@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Version | **1.3** (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
+| Version | **1.4** (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
 | Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
 | Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
 | Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
@@ -119,7 +119,7 @@ Required in a tree published with `renox publish`; ignored for `path:` and `git:
 
 ### `[dependencies]`
 
-Module name → semver range. A dependency is required for service calls and public views, and only for those (`docs/10-modules.md`, "Five communication mechanisms"): events, hooks, and slots need none. Every dependency must itself be installed in `renox.toml` (MF5); the CLI never installs a module implicitly.
+Module name → semver range. A dependency is required for service calls and public views, and only for those (`docs/10-modules.md`, "Five communication mechanisms"): events, hooks, and slots need none. Every dependency must itself be installed in `renox.toml` (MF5); the CLI never installs a module implicitly. A module that is only wanted when present goes in `[optional_dependencies]`.
 
 Ranges are a fixed subset of npm's:
 
@@ -131,6 +131,10 @@ Ranges are a fixed subset of npm's:
 | `>=A <B` (full versions, one space) | the interval | `>=1.2.0 <1.5.0` |
 
 A pre-release version (`1.3.0-rc.1`) satisfies only an exact range naming it. Nothing else (`*`, `||`, `x`, hyphen ranges) is accepted.
+
+### `[optional_dependencies]` (1.4)
+
+Module name → semver range, with the same range forms as `[dependencies]`. When the module is installed, its version must satisfy the range (MF2) and it is ordered before this one; when it is not installed, nothing is required and the module still builds. Only hooks may be used from an optional dependency: a hook `<dep>.<name>` in `permissions.hooks` is allowed when `<dep>` is an optional dependency, and the fill is ignored while `<dep>` is not installed (MF8). Services and views still need `[dependencies]` (MF7 is unchanged). A name may not appear in both tables (MF5). The lock's `dependencies` lists the required names only.
 
 ### `[config]`
 
@@ -314,10 +318,10 @@ Applied by `renox check`, `renox build`, and `renox install` (P11, #235). `valid
 | MF2 | **Versions.** Every `version` is semver and every range is of section 2. The lock's version of each module satisfies its `renox.toml` range and the range of every installed module that depends on it | single file, project |
 | MF3 | **One install per name and prefix.** The `renox.toml` key, the manifest's `[module].name`, and the lock entry's `name` are the same; no two installed modules (or a module and `app`) have the same name; no installed module's prefix is a prefix of another's; each `renox.toml` module has exactly one lock entry and the lock has no other | single file (lock), project |
 | MF4 | **Own prefix only.** `permissions.tables`, when present, is exactly `"<name>__*"` (in the manifest and in the lock's `approved`); every secret name starts with `<NAME>_`, the module name in upper case | single file |
-| MF5 | **Dependency graph.** Every dependency is installed; no module depends on itself; the graph has no cycle (rejected at build, not at call, `docs/10-modules.md` rule 1); the lock lists every module after its dependencies | single file (lock), project |
+| MF5 | **Dependency graph.** Every `[dependencies]` entry is installed; a name in both `[dependencies]` and `[optional_dependencies]` is rejected (1.4); no module depends on itself; the graph has no cycle (rejected at build, not at call, `docs/10-modules.md` rule 1); the lock lists every module after its dependencies | single file (lock), project |
 | MF6 | **Export names.** Views are `<name>__public_<id>_v<n>` with this module's name; events and hook points start with `<name>.`; payload, argument, and result schemas use only the keyword subset of `validate.ts` | single file |
 | MF7 | **Imports.** Every `[imports]` service `<dep>.<service>` and view `<dep>__public_…` names a module in `[dependencies]` whose installed manifest exports it | project |
-| MF8 | **Fills.** `permissions.slots` is exactly the set of `[[slots]].name`; every hook in `permissions.hooks` is exported by an installed module other than this one | single file, project |
+| MF8 | **Fills.** `permissions.slots` is exactly the set of `[[slots]].name`; every hook in `permissions.hooks` is exported by an installed module other than this one, except a hook `<dep>.*` where `<dep>` is in `[optional_dependencies]` and not installed (1.4) | single file, project |
 | MF9 | **References.** Every `[[slots]].template` exists in the module tree; every `[[slots]].requires` and `[[tools]].action` is in `[authz].actions` | single file, project |
 | MF10 | **Config.** A declaration's `default` has its `type` and passes `values`, `min`, `max`, `max_length`; `min ≤ max`; `required = true` has no `default`. Every `renox.toml` config key is declared; every value has the declared type and passes its bounds; every required key has a value | single file, project |
 | MF11 | **Sources and isolation.** `source` is `path:`, `git:`, or (1.2) `registry:`; a `renox.toml` `isolation` is never lower than the manifest's (`shared` below `isolate`); the lock's `isolation` is the effective one | project |
@@ -376,3 +380,4 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 | 1.1 | #272 | Minor (no lock version bump; every new key is optional). `[authz] sensitive`, `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`; `[realtime.feeds]`; `[[tools]]` carried in the artifact (`artifact.md` 1.3); `permissions.roles` and `approved.roles`; the `auth.principal` service and hook convention; `renox.toml [authz]` and `[realtime]` for the app; `authz` a reserved name (MF1); rules MF13–MF14. For `ops.md` 1.5.0 sections 17–19 |
 | 1.2 | #318 | Minor (no lock version bump; every new key is optional). `source = "registry:<publisher>/<name>"` in `renox.toml` and the lock (MF11 relaxed); `[publisher]` (`name`, `key_id`) and `[module] price` in `module.toml`; `[storage] allowed_types`; the `module.sig` file and its signed message; the lock's `key_id`, `signature` (registry only), and `approved_version` for the upgrade diff; `renox publish`; the `isolate` mode settled (Open 2) and registry sources settled (Open 3); rule MF15. For `artifact.md` 1.4 and `ops.md` 1.7.0 |
 | 1.3 | #346 | Minor (no lock version bump; every new key is optional). `[permissions] app_access` (`read` \| `write`) in `module.toml`; `app_tables` on a `renox.toml [modules]` entry; the lock's `approved.app_access` and `approved.app_tables`; rule MF16; Open 6 and 7. For `ops.md` 1.8.0 section 1 |
+| 1.4 | #503 | Minor (no lock version bump; the new key is optional). [optional_dependencies]; MF5 and MF8 amended |

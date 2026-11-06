@@ -70,6 +70,17 @@
         "$ref": "#/$defs/range"
       }
     },
+    "optional_dependencies": {
+      "type": "object",
+      "description": "Module name -> semver range. Checked only when the module is installed; only its hooks may be filled (manifest.md 1.4).",
+      "maxProperties": 64,
+      "propertyNames": {
+        "$ref": "#/$defs/moduleName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/range"
+      }
+    },
     "config": {
       "type": "object",
       "description": "Typed configuration keys; renox.toml [modules.<name>].config sets them (MF10).",
