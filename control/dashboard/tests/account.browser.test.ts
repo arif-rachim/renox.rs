@@ -105,6 +105,9 @@ describe.skipIf(skip)("account pages in Chromium", () => {
     await p.goto(`${dev.base}/signup`);
     await p.fill('#signup-form [name="email"]', "new@example.test");
     await p.fill('#signup-form [name="password"]', PASSWORD);
+    // #488: the workspace name is required and comes first; the id is derived from it.
+    await p.fill('#signup-form [name="tenant_name"]', "T Browser");
+    expect(await p.inputValue('#signup-form [name="tenant_id"]')).toBe("t-browser");
     await p.fill('#signup-form [name="tenant_id"]', "t-browser");
     await p.check('#signup-form [name="dpa"]');
     await p.click('#signup-form button[type="submit"]');

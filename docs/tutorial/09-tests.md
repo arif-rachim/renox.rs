@@ -69,7 +69,7 @@ The owner creates the team and uses every action. An htmx request is checked to 
     expect(page.html).toContain("Ship &lt;b&gt;it&lt;/b&gt;");
     expect(page.html).toContain("1 open");
     expect(page.html).toContain(">Remove</button>");
-    sdk?.snapshot(main(page.html), { role: "owner" });
+    snapshot(main(page.html), { role: "owner" });
   });
 ```
 
@@ -88,7 +88,7 @@ The member joins through the invitation. They can add and tick off, they see no 
     expect(page.html).not.toContain(">Remove</button>");
     // The button is hidden, and the action refuses the request too.
     expect((await omar.action("/board", "remove", { task: taskId("Review chapter 9") })).status).toBe(403);
-    sdk?.snapshot(main(page.html), { role: "member" });
+    snapshot(main(page.html), { role: "member" });
   });
 ```
 

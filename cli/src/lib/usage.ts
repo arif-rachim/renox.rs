@@ -46,9 +46,9 @@ export const HELP: Record<string, CommandHelp> = {
   jobs: { group: "Develop", usage: ["jobs list [--state <s>] [--json]", "jobs run <name> [--module <m>]", "jobs retry <id>"], summary: "The dev app's jobs: scheduled, queued, running and dead.", flags: ["--state", "--json", "--module", "--db"] },
   authz: {
     group: "Develop",
-    usage: ["authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--db <file>] [--json]"],
+    usage: ["authz explain --user <id> --action <a> [--resource <type:id>] [--role <r>]... [--attr <key=value>]... [--db <file>] [--json]"],
     summary: "Why the policies allow or deny a request, with roles and resource attributes from the dev database.",
-    flags: ["--user", "--action", "--resource", "--role", "--db", "--json"],
+    flags: ["--user", "--action", "--resource", "--role", "--attr", "--db", "--json"],
   },
   mcp: { group: "Develop", usage: ["mcp [--project <dir>]"], summary: "The local MCP server on stdio for coding agents: docs, check, tests, dev status.", flags: ["--project"] },
   login: { group: "Deploy and operate", usage: ["login [--api <url>] [--with-token]"], summary: "Sign the CLI in: it prints a link to approve in the dashboard. --with-token reads a token from stdin (CI).", flags: ["--api", "--with-token"] },
@@ -65,6 +65,12 @@ export const HELP: Record<string, CommandHelp> = {
     flags: ["--follow", "-f", "--since", "--source", "--deployment", "--app", "--json", "--raw"],
   },
   secrets: { group: "Deploy and operate", usage: ["secrets set <NAME> [--app <name>]", "secrets list [--app <name>]", "secrets rm <NAME> [--app <name>]"], summary: "The app's secrets. set reads the value from stdin and never prints it.", flags: ["--app"] },
+  domains: {
+    group: "Deploy and operate",
+    usage: ["domains add <hostname> [--app <name>] [--json]", "domains list [--app <name>] [--json]", "domains status <hostname> [--app <name>] [--json]", "domains rm <hostname> [--app <name>] [--json]"],
+    summary: "The app's custom domains. add prints the CNAME and the two TXT records to create; status shows pending, then verified. Use www.<domain>, not the apex.",
+    flags: ["--app", "--json"],
+  },
   tokens: { group: "Deploy and operate", usage: ["tokens list", "tokens create <name> --scope <s>... [--expires-days <n>]", "tokens revoke <id>"], summary: "Tenant tokens for CI and scripts; a new value is shown once.", flags: ["--scope", "--expires-days"] },
   db: {
     group: "Deploy and operate",

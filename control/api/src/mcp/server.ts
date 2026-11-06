@@ -12,7 +12,7 @@
 //
 // - per-tool scopes: `tools/list` shows the tools the token's scopes allow,
 //   and a call to another one is refused with `insufficient_scope`;
-// - mutating tools (create_app, activate, rollback) first return a plan and a
+// - mutating tools (create_app, activate, rollback, add_domain, remove_domain) first return a plan and a
 //   confirmation token bound to the access token, the tool and its exact
 //   arguments, valid 5 minutes and once; only a second call carrying it runs;
 // - every tool call writes an audit row: actor `agent:token:<id>`, action
@@ -37,6 +37,7 @@ const MAX_BODY = 1024 * 1024;
 const MAX_LOG_LINES = 200;
 const APP = { type: "string", pattern: "^[a-z][a-z0-9-]{0,49}$", description: "App name" } as const;
 const HASH = { type: "string", pattern: "^[0-9a-f]{64}$", description: "Deployment hash (64 hex characters)" } as const;
+const HOSTNAME = { type: "string", pattern: "^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", description: "Custom hostname, lowercase, for example www.example.com" } as const;
 const CONFIRMATION = { type: "string", description: "The confirmation_token returned by the first call; omit it to get the plan" } as const;
 
 interface Agent {
@@ -166,6 +167,40 @@ export const TOOLS: Tool[] = [
     mutating: false,
     inputSchema: { type: "object", properties: { app: APP }, required: ["app"], additionalProperties: false },
     run: (call, a) => call("GET", `/v1/apps/${enc(a.app)}/secrets`),
+  },
+  {
+    name: "list_domains",
+    description: "Custom domains of an app with their state (pending, verified, detached), Cloudflare status and the DNS records still to create.",
+    scope: "apps:read",
+    mutating: false,
+    inputSchema: { type: "object", properties: { app: APP }, required: ["app"], additionalProperties: false },
+    run: (call, a) => call("GET", `/v1/apps/${enc(a.app)}/domains`),
+  },
+  {
+    name: "domain_status",
+    description: "One custom domain: pending until Cloudflare validates it, then verified; a hostname is not served before that. While pending it lists the CNAME target and the TXT records to create.",
+    scope: "apps:read",
+    mutating: false,
+    inputSchema: { type: "object", properties: { app: APP, hostname: HOSTNAME }, required: ["app", "hostname"], additionalProperties: false },
+    run: (call, a) => call("GET", `/v1/apps/${enc(a.app)}/domains/${enc(a.hostname)}`),
+  },
+  {
+    name: "add_domain",
+    description: "Add a custom domain (www.example.com, not an apex) to an app. Returns the CNAME target and the two TXT records (ownership, certificate validation) the user creates at their DNS provider. Needs confirmation and the domains:write scope.",
+    scope: "domains:write",
+    mutating: true,
+    inputSchema: { type: "object", properties: { app: APP, hostname: HOSTNAME, confirmation_token: CONFIRMATION }, required: ["app", "hostname"], additionalProperties: false },
+    plan: (a) => `Claim the custom domain ${String(a.hostname)} for ${String(a.app)} and create its Cloudflare custom hostname. It is not served until its DNS records are created and Cloudflare verifies it.`,
+    run: (call, a) => call("POST", `/v1/apps/${enc(a.app)}/domains`, { hostname: a.hostname }),
+  },
+  {
+    name: "remove_domain",
+    description: "Remove a custom domain from an app: it stops being served at once. Needs confirmation and the domains:write scope.",
+    scope: "domains:write",
+    mutating: true,
+    inputSchema: { type: "object", properties: { app: APP, hostname: HOSTNAME, confirmation_token: CONFIRMATION }, required: ["app", "hostname"], additionalProperties: false },
+    plan: (a) => `Remove the custom domain ${String(a.hostname)} from ${String(a.app)}. It stops being served at once.`,
+    run: (call, a) => call("DELETE", `/v1/apps/${enc(a.app)}/domains/${enc(a.hostname)}`),
   },
   {
     name: "get_usage",

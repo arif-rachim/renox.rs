@@ -1,0 +1,56 @@
+<r-layout use="main">
+  <r-group slot="title"><r-t key="dash.nav.domains" /> · {{ app }} · <r-t key="dash.brand" /></r-group>
+  <r-group slot="nav"><x-app-nav :app="app" :section="section" /></r-group>
+  <section id="page" r-fragment="page">
+    <h1><r-t key="dash.nav.domains" /></h1>
+    <x-problem :problem="problem" r-if="problem" />
+    <p class="notice" r-if="notice">{{ notice }}</p>
+    <p class="problem" r-if="form_error">{{ form_error }}</p>
+    <x-problem :problem="action_problem" r-if="action_problem" />
+    <r-group r-if="!problem">
+      <p class="muted"><r-t key="dash.domains.intro" /></p>
+      <table class="list">
+        <thead><tr><th><r-t key="dash.domains.hostname" /></th><th><r-t key="dash.common.state" /></th><th><r-t key="dash.domains.cloudflare" /></th><th><r-t key="dash.domains.certificate" /></th><th><r-t key="dash.common.actions" /></th></tr></thead>
+        <tbody>
+          <tr r-for="d in domains">
+            <td><code>{{ d.hostname }}</code></td>
+            <td>{{ d.state_label }}</td>
+            <td>{{ d.status }}</td>
+            <td>{{ d.ssl_status }}</td>
+            <td>
+              <x-form action="remove" hx-target="#page" hx-swap="outerHTML" :hx-confirm="'dash.domains.confirm_delete' | t({'hostname': d.hostname})" class="inline">
+                <input type="hidden" name="hostname" :value="d.hostname">
+                <button type="submit"><r-t key="dash.common.delete" /></button>
+              </x-form>
+            </td>
+          </tr>
+          <tr r-empty="domains"><td colspan="5"><r-t key="dash.domains.empty" /></td></tr>
+        </tbody>
+      </table>
+      <div r-for="d in domains">
+        <r-group r-if="d.pending">
+          <h2>{{ d.hostname }}: <r-t key="dash.domains.records_title" /></h2>
+          <table class="list">
+            <thead><tr><th><r-t key="dash.domains.type" /></th><th><r-t key="dash.common.name" /></th><th><r-t key="dash.domains.value" /></th><th></th></tr></thead>
+            <tbody>
+              <tr r-for="r in d.records">
+                <td><code>{{ r.type }}</code></td>
+                <td><code>{{ r.name }}</code></td>
+                <td><code>{{ r.value }}</code></td>
+                <td>{{ r.purpose }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="muted"><r-t key="dash.domains.records_wait" /></p>
+        </r-group>
+        <p class="muted" r-if="d.verified">{{ d.hostname }}: <r-t key="dash.domains.served" /></p>
+        <p class="muted" r-if="d.detached">{{ d.hostname }}: <r-t key="dash.domains.detached" /></p>
+      </div>
+      <h2><r-t key="dash.domains.add" /></h2>
+      <x-form action="add" hx-target="#page" hx-swap="outerHTML" class="row">
+        <label><r-t key="dash.domains.hostname" /> <input name="hostname" required maxlength="253" placeholder="www.example.com" autocomplete="off" spellcheck="false"></label>
+        <button type="submit"><r-t key="dash.common.save" /></button>
+      </x-form>
+    </r-group>
+  </section>
+</r-layout>

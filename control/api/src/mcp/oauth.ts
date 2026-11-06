@@ -29,8 +29,8 @@ import { isRole, roleAllows, type Role } from "../tenancy/roles.ts";
 import { withTenant } from "../tenancy/scope.ts";
 import { open, seal } from "./seal.ts";
 
-/** Scopes an MCP client may ask for. Never `secrets:write` or `tokens:write`: an agent does not set secrets or mint tokens. */
-export const MCP_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read"] as const;
+/** Scopes an MCP client may ask for. Never `secrets:write` or `tokens:write`: an agent does not set secrets or mint tokens. `domains:write` is offered but never in the default grant. */
+export const MCP_SCOPES = ["apps:read", "apps:write", "deploy", "logs:read", "secrets:read", "domains:write"] as const;
 /** Granted when the client asks for no scope: read scopes plus deploy (docs/20-ai-agents-mcp.md section 1). */
 export const DEFAULT_SCOPES = ["apps:read", "logs:read", "secrets:read", "deploy"];
 export const TOKEN_PREFIX_NAME = "mcp: ";

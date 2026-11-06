@@ -1,12 +1,9 @@
 // Chapter 9: one flow per role, on the local worker with a fresh database.
 // An owner, a member invited by email, and an outsider in another team.
 import { describe, expect, test } from "bun:test";
-import type { TestApp } from "@renoxium/sdk/test";
+import { app, snapshot, type TestApp } from "@renoxium/sdk/test";
 
-// `renox test` sets RENOX_TEST_SPEC; any other `bun test` skips this file.
-const run = process.env.RENOX_TEST_SPEC !== undefined;
-const sdk = run ? await import("@renoxium/sdk/test") : null;
-const t = sdk ? await sdk.app() : ({} as TestApp);
+const t = await app();
 
 const PASSWORD = "correct horse battery";
 
@@ -28,7 +25,7 @@ const taskId = (title: string): string => String(t.db.query<{ id: number }>("sel
 /** The invitation link the outbox module kept for this address. */
 const invitation = (email: string): string => new URL(t.db.query<{ url: string }>("select url from outbox__mail where mail_to = ? order by id desc limit 1", [email])[0]?.url as string).pathname;
 
-describe.skipIf(!run)("the board, per role", () => {
+describe("the board, per role", () => {
   let lina: TestApp;
   let omar: TestApp;
 
@@ -57,7 +54,7 @@ describe.skipIf(!run)("the board, per role", () => {
     expect(page.html).toContain("Ship &lt;b&gt;it&lt;/b&gt;");
     expect(page.html).toContain("1 open");
     expect(page.html).toContain(">Remove</button>");
-    sdk?.snapshot(main(page.html), { role: "owner" });
+    snapshot(main(page.html), { role: "owner" });
   });
 
   test("member: joins by invitation, adds and ticks off, cannot remove", async () => {
@@ -71,7 +68,7 @@ describe.skipIf(!run)("the board, per role", () => {
     expect(page.html).not.toContain(">Remove</button>");
     // The button is hidden, and the action refuses the request too.
     expect((await omar.action("/board", "remove", { task: taskId("Review chapter 9") })).status).toBe(403);
-    sdk?.snapshot(main(page.html), { role: "member" });
+    snapshot(main(page.html), { role: "member" });
   });
 
   test("outsider: another team sees none of it and cannot change it", async () => {

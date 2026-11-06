@@ -31,6 +31,8 @@ Scopes are the #113 token scopes. The MCP offers `apps:read`, `apps:write`, `dep
 | `rollback` | `deploy` | yes | `POST …/rollback` |
 | `get_logs` | `logs:read` | — | the app check, then the API's log store; the result carries `untrusted: true` |
 | `list_secrets` | `secrets:read` | — | `GET …/secrets`: names, times, version; never a value |
+| `list_domains`, `domain_status` | `apps:read` | — | `GET …/domains[/{hostname}]`: state, CNAME target and the DNS records still to create |
+| `add_domain`, `remove_domain` | `domains:write` | yes | `POST …/domains`, `DELETE …/domains/{hostname}` (#477) |
 | `get_usage` | `apps:read` | — | `GET …/usage` |
 
 Each tool runs as an internal request to the deploy API with the agent's token. The token's scopes, the user's current role, the tenant scoping and IDOR rules of #113, and the deploy API's own audit row all apply unchanged. `tools/list` shows only the tools the token's scopes allow. A call to any other tool gets `insufficient_scope`.

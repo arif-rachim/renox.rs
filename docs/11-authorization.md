@@ -81,7 +81,7 @@ Example: the refund button is hidden because `inv.amount > 10,000,000`. The user
 - Each module enforces policies for its own resources; the user identity travels with every service call.
 - Event handlers, jobs, and cron run as `System::"<module>"` with explicit permissions, never as a superuser. Admin impersonation is recorded in the context and audit log.
 - Decisions for `sensitive` actions are written append-only: who, action, resource, result, deciding policy.
-- `renox authz explain --user alice --action invoice.refund --resource inv_123` prints the permitting or forbidding policies; `renox test` runs policy test cases (principal, action, resource, expected result) and per-role template snapshots.
+- `renox authz explain --user alice --action invoice.refund --resource inv_123` prints the permitting or forbidding policies and the principal attributes it used (`--attr key=value`, repeatable, sets one that a hook fills in the app, such as `org` or `mfa_verified`; the value is JSON when it parses, else a string); `renox test` runs policy test cases (principal, action, resource, expected result) and per-role template snapshots.
 
 ## Performance
 

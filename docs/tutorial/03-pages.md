@@ -141,7 +141,7 @@ The test asks for the page and checks the order:
 
 `tests/board.test.ts`:
 ```ts
-describe.skipIf(!run)("the board", () => {
+describe("the board", () => {
   test("lists the tasks, open ones first", async () => {
     const page = await t.page("/board");
     expect(page.status).toBe(200);

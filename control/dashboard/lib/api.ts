@@ -153,6 +153,20 @@ export interface ClientErrorEvent {
   frames: ClientErrorFrame[];
 }
 
+/** `Domain` (deploy-api.yaml, section 10): a custom hostname and the DNS records the customer creates. */
+export interface Domain {
+  hostname: string;
+  app: string;
+  state: string;
+  status: string;
+  ssl_status: string;
+  cname_target: string;
+  verification: { purpose: string; type: string; name: string; value: string }[];
+  created_at: number;
+  verified_at: number | null;
+  last_checked_at: number | null;
+}
+
 export interface SecretList {
   version: number;
   secrets: { name: string; updated_at: number }[];
@@ -566,6 +580,18 @@ export class Api {
   /** `installModule`: `approved` must be the version's own request, which the user reviewed. */
   installModule(app: string, body: { source: string; version: string; hash: string; approved: ModulePermissions }): Promise<Result<AppModule>> {
     return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/modules`, body);
+  }
+
+  listDomains(app: string): Promise<Result<{ domains: Domain[] }>> {
+    return this.json("GET", `/v1/apps/${encodeURIComponent(app)}/domains`);
+  }
+
+  addDomain(app: string, hostname: string): Promise<Result<Domain>> {
+    return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/domains`, { hostname });
+  }
+
+  removeDomain(app: string, hostname: string): Promise<Result<Domain>> {
+    return this.json("DELETE", `/v1/apps/${encodeURIComponent(app)}/domains/${encodeURIComponent(hostname)}`);
   }
 
   listSecrets(app: string): Promise<Result<SecretList>> {
