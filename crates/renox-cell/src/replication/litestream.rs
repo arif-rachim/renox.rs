@@ -288,6 +288,10 @@ mod tests {
         assert!(parse_generations("no replicas\n").is_empty());
     }
 
+    // Replication is Unix-only: `[replication] enabled = true` is refused at
+    // config parse on Windows (#530), and the file replica path here is built
+    // with `Path::join`, which writes `\` there.
+    #[cfg(unix)]
     #[test]
     fn config_for_both_replica_kinds() {
         let mut r = ReplicationSection {
