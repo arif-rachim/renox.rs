@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { startDev } from "../src/commands/dev.ts";
 import { newApp } from "../src/commands/new.ts";
 import { testWorker } from "./worker-env.ts";
+import { freePort } from "./free-port.ts";
 
 const worker = testWorker();
 
@@ -17,7 +18,7 @@ test.skipIf(!worker)(
   async () => {
     const dir = newApp("devtest", "hello", mkdtempSync(join(tmpdir(), "renox-dev-")));
     writeFileSync(join(dir, ".env"), "GREETING=salaam-alaikum-123\n");
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const lines: string[] = [];
     const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
     try {
@@ -102,7 +103,7 @@ test.skipIf(!worker)(
     const dir = mkdtempSync(join(tmpdir(), "renox-dev-pages-"));
     cpSync(join(import.meta.dir, "fixtures/pages"), dir, { recursive: true });
     writeFileSync(join(dir, "pages/box.html"), '<html><body><h1>Box</h1><div id="box" r-fragment="box">v1</div></body></html>\n');
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const lines: string[] = [];
     const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
     const base = `http://localhost:${port}`;
@@ -158,7 +159,7 @@ test.skipIf(!worker)(
   async () => {
     const dir = mkdtempSync(join(tmpdir(), "renox-dev-pages-only-"));
     cpSync(join(import.meta.dir, "fixtures/pages-only"), dir, { recursive: true });
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const lines: string[] = [];
     const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
     const base = `http://localhost:${port}`;

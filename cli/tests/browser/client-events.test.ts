@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import { type DevServer, startDev } from "../../src/commands/dev.ts";
 import { testWorker } from "../worker-env.ts";
+import { freePort } from "../free-port.ts";
 
 const repo = join(import.meta.dir, "../../..");
 const worker = testWorker();
@@ -95,7 +96,7 @@ describe.skipIf(!worker || !playwright)("renox-client.js in Chromium under renox
     cpSync(join(repo, "examples/shop"), dir, { recursive: true, filter: (p) => !p.includes("node_modules") && !p.includes(".renox") });
     symlinkSync(join(repo, "examples/shop/node_modules"), join(dir, "node_modules"));
     for (const [p, src] of Object.entries(PAGES)) writeFileSync(join(dir, p), src);
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
     base = `http://localhost:${port}`;
     browser = await (playwright as Pw).chromium.launch();
