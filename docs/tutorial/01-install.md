@@ -7,7 +7,7 @@
 One line installs `renox`, and the `renox-worker` it runs your app on, into `~/.renox/bin`. Each file is installed only if its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.5/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.6/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"   # also add this line to ~/.bashrc or ~/.zshrc
 renox --version
 ```
