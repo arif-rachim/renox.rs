@@ -1,0 +1,67 @@
+{
+ "what": "#523: hiccup.c on node-small after the 2026-11-04 live migration, idle guest (load < 0.1), 60 s per run; and the two meter records of the B1 attempt of 2026-11-05. The O4 numbers of 2026-10-31 are on the unpushed branch batch/o4-host-f2; hiccup.c and gaps.c are copied here.",
+ "hiccup_1_thread_60s": [
+  "cpu0 wall=60000ms threadcpu=59915ms gaps>=0.1ms:15031 >=1:3197 >=5:728 >=10:260 >=20:88 max=82.30ms | on_thread_clock: >=1:2290 >=5:520 >=10:190 >=20:62 max=82.30ms | gaptime=16981.2ms of_which_on_thread_clock=12226.6ms"
+ ],
+ "hiccup_4_threads_60s": [
+  "cpu2 wall=60000ms threadcpu=55339ms gaps>=0.1ms:11694 >=1:2648 >=5:869 >=10:483 >=20:227 max=192.14ms | on_thread_clock: >=1:1439 >=5:497 >=10:259 >=20:107 max=100.60ms | gaptime=22276.9ms of_which_on_thread_clock=12613.9ms",
+  "cpu3 wall=60000ms threadcpu=56389ms gaps>=0.1ms:12961 >=1:2577 >=5:799 >=10:430 >=20:198 max=297.21ms | on_thread_clock: >=1:1333 >=5:445 >=10:238 >=20:102 max=136.70ms | gaptime=21102.6ms of_which_on_thread_clock=12043.3ms",
+  "cpu0 wall=60000ms threadcpu=54393ms gaps>=0.1ms:12458 >=1:2698 >=5:794 >=10:463 >=20:240 max=317.91ms | on_thread_clock: >=1:1387 >=5:427 >=10:250 >=20:116 max=118.74ms | gaptime=23286.6ms of_which_on_thread_clock=12785.7ms",
+  "cpu1 wall=60000ms threadcpu=55629ms gaps>=0.1ms:11405 >=1:2465 >=5:719 >=10:415 >=20:208 max=325.23ms | on_thread_clock: >=1:1320 >=5:405 >=10:231 >=20:103 max=155.80ms | gaptime=21378.6ms of_which_on_thread_clock=12271.5ms"
+ ],
+ "b1_meters_2026_11_05": [
+  {
+   "schema_version": 0,
+   "cell_id": "bench",
+   "node_id": "bench",
+   "records": [
+    {
+     "request_id": "01M6P2BRGN7SK62WP3ZFDDQ7N8",
+     "tenant_id": "t_shop_0",
+     "deployment_hash": "6cd247282dcca65f1a5bf3eb5f9f04ad85bb31c594561fe9fc36810bdce73073",
+     "route": "GET /api/products",
+     "started_at": 1793889526298,
+     "cpu_ms": 6.748,
+     "wall_ms": 458.485,
+     "peak_heap_bytes": 4671328,
+     "ingress_bytes": 0,
+     "egress_bytes": 25,
+     "fetch_sent_bytes": 0,
+     "fetch_received_bytes": 0,
+     "fetch_blocked": 0,
+     "db_ms": 0.231,
+     "db_rows": 0,
+     "render_fuel": 0,
+     "logs_dropped": 0,
+     "http_status": 200,
+     "status": "ok"
+    },
+    {
+     "request_id": "01M6P2BRZD0P6AJKNNBH9QT6AK",
+     "tenant_id": "t_shop_1",
+     "deployment_hash": "6cd247282dcca65f1a5bf3eb5f9f04ad85bb31c594561fe9fc36810bdce73073",
+     "route": "GET /api/products",
+     "started_at": 1793889526765,
+     "cpu_ms": 55.0,
+     "wall_ms": 491.993,
+     "peak_heap_bytes": 4675104,
+     "ingress_bytes": 0,
+     "egress_bytes": 137,
+     "fetch_sent_bytes": 0,
+     "fetch_received_bytes": 0,
+     "fetch_blocked": 0,
+     "db_ms": 0.0,
+     "db_rows": 0,
+     "render_fuel": 0,
+     "logs_dropped": 0,
+     "http_status": 503,
+     "status": "cpu_limit"
+    }
+   ]
+  }
+ ],
+ "sources": {
+  "hiccup.c": "// Gap detector: one thread pinned per CPU spins reading CLOCK_MONOTONIC and\n// its own CLOCK_THREAD_CPUTIME_ID; a gap is a jump of the monotonic clock\n// between two reads. Reports per CPU: gaps >= 0.1/1/5/10/20 ms, the largest,\n// and how much of the gap time the thread CPU clock counted as its own.\n#define _GNU_SOURCE\n#include <pthread.h>\n#include <sched.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <time.h>\nstatic double secs;\nstatic double now(clockid_t c){struct timespec t;clock_gettime(c,&t);return t.tv_sec*1e3+t.tv_nsec/1e6;}\nstatic void* run(void* a){\n  long cpu=(long)a; cpu_set_t s; CPU_ZERO(&s); CPU_SET(cpu,&s); pthread_setaffinity_np(pthread_self(),sizeof s,&s);\n  long b[5]={0}, bo[5]={0}; double mxo=0; double th[5]={0.1,1,5,10,20}, mx=0, gapsum=0, gapcpu=0;\n  double t0=now(CLOCK_MONOTONIC), last=t0, lastc=now(CLOCK_THREAD_CPUTIME_ID);\n  while(last-t0<secs*1e3){\n    double t=now(CLOCK_MONOTONIC), c=now(CLOCK_THREAD_CPUTIME_ID), g=t-last;\n    if(g>=0.1){ double dc=c-lastc; int on=dc>=0.9*g; for(int i=0;i<5;i++) if(g>=th[i]) {b[i]++; if(on) bo[i]++;} if(g>mx)mx=g; if(on&&g>mxo)mxo=g; gapsum+=g; gapcpu+=dc; }\n    last=t; lastc=c;\n  }\n  double cpuT=now(CLOCK_THREAD_CPUTIME_ID), wall=last-t0;\n  printf(\"cpu%ld wall=%.0fms threadcpu=%.0fms gaps>=0.1ms:%ld >=1:%ld >=5:%ld >=10:%ld >=20:%ld max=%.2fms | on_thread_clock: >=1:%ld >=5:%ld >=10:%ld >=20:%ld max=%.2fms | gaptime=%.1fms of_which_on_thread_clock=%.1fms\\n\",cpu,wall,cpuT,b[0],b[1],b[2],b[3],b[4],mx,bo[1],bo[2],bo[3],bo[4],mxo,gapsum,gapcpu);\n  return 0;\n}\nint main(int c,char**v){ secs=c>1?atof(v[1]):30; int n=c>2?atoi(v[2]):4; pthread_t t[64]; for(long i=0;i<n;i++) pthread_create(&t[i],0,run,(void*)i); for(int i=0;i<n;i++) pthread_join(t[i],0); }\n",
+  "gaps.c": "// One spinner per CPU; prints every gap >= 5 ms as \"cpu start_ms end_ms\".\n#define _GNU_SOURCE\n#include <pthread.h>\n#include <sched.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <time.h>\nstatic double secs;\nstatic double now(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return t.tv_sec*1e3+t.tv_nsec/1e6;}\nstatic void* run(void* a){\n  long cpu=(long)a; cpu_set_t s; CPU_ZERO(&s); CPU_SET(cpu,&s); pthread_setaffinity_np(pthread_self(),sizeof s,&s);\n  double t0=now(), last=t0;\n  while(last-t0<secs*1e3){ double t=now(); if(t-last>=5) printf(\"%ld %.3f %.3f\\n\",cpu,last,t); last=t; }\n  return 0;\n}\nint main(int c,char**v){ secs=atof(v[1]); int n=atoi(v[2]); setvbuf(stdout,0,_IOLBF,0); pthread_t t[64]; for(long i=0;i<n;i++) pthread_create(&t[i],0,run,(void*)i); for(int i=0;i<n;i++) pthread_join(t[i],0); }\n"
+ }
+}

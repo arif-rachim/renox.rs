@@ -16,6 +16,7 @@ Columns: **Failure** · **Detected by** · **Tenant sees** · **Platform does** 
 | Failure | Detected by | Tenant sees | Platform does | Proof | Phase |
 | --- | --- | --- | --- | --- | --- |
 | Infinite loop / CPU over limit | CPU watchdog | 503 `RENOX_CPU_LIMIT`, logged with route and cpu_ms | `TerminateExecution`, isolate poisoned and replaced, meter `status=cpu_limit` | `renox-runtime` limits test; B12 | F1 |
+| Host vCPU stalls counted as tenant CPU (shared-vCPU host without steal accounting) | Meter: a `RENOX_CPU_LIMIT` whose `cpu_ms` is far above the same route's median (on `node-small`: 55.0 ms for a request whose work is about 6.7 ms) | An occasional spurious 503 `RENOX_CPU_LIMIT` at the free tier's 50 ms limit | Nothing: the thread CPU clock cannot tell a stalled vCPU from tenant code, so the charge stays whole and tenant code is never under-counted; the platform does not retry the request. Known gap (D31, #342 closed as not planned) | [`bench/results/2026-11-05-cpu-stalls-node-small.md`](../bench/results/2026-11-05-cpu-stalls-node-small.md) | F7 |
 | Unbounded allocation | V8 near-heap-limit callback | 503 `RENOX_OOM` | Terminate, dispose isolate on its own thread, RSS returns to baseline | limits test (RSS delta ≤ 10 MB after) | F1 |
 | Handler never resolves | Wall-clock deadline | 504 `RENOX_DEADLINE` | Cancel pending ops via token, meter `status=timeout` | limits test | F1 |
 | Handler throws | Dispatch wrapper | 500 `RENOX_INTERNAL`, request id | Error with stack to tenant log sink only | dispatch test (body has no message/stack) | F1 |

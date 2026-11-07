@@ -10,7 +10,7 @@ Prompts of finished batches are kept as the record of what ran; the status line 
 
 ## Where we are (2026-11-05, after SINGLE-HOST-2 and F7-63; `main` at `d37a751`)
 
-**Scope reset of 2026-11-06 (D31, #518).** The goal is the platform live on `node-small` for users the owner onboards by hand, on the free tier, without payments, entity or products, until the owner reopens the discussion. Deferred and closed as not planned (#516): #87 (the entity), #330 (the GCC PSP adapters), #337 (the products and starters), #456 (the load-generator host), and R2 for #458 (backups stay on the node's disk, #517). Wherever the text below says that a gate or a step waits on one of them, read it as deferred.
+**Scope reset of 2026-11-06 (D31, #518).** The goal is the platform live on `node-small` for users the owner onboards by hand, on the free tier, without payments, entity or products, until the owner reopens the discussion. Deferred and closed as not planned (#516): #87 (the entity), #330 (the GCC PSP adapters), #337 (the products and starters), #456 (the load-generator host), and R2 for #458 (backups stay on the node's disk, #517). Known gaps recorded under D31: host vCPU stalls counted as CPU on `node-small` (#342, `bench/results/2026-11-05-cpu-stalls-node-small.md`). Wherever the text below says that a gate or a step waits on one of them, read it as deferred.
 
 Every session that ran on 2026-11-05 before these four batches was cancelled and its branch lost; the tracker was cleaned the same day, and #455 to #464 are the issues filed then. The four batches marked "Started 2026-11-05" below run now, side by side. PR #463 (#462, the CLI on macOS) and PR #467 (the 0.1.3 release commit) merged while they ran.
 
