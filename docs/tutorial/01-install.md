@@ -16,7 +16,26 @@ renox --version
 renox 0.1.7 (renox-worker 0.4.0)
 ```
 
-The CLI is not on npm: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. More on installing, verifying signatures and upgrading: [Getting started](../getting-started.md#install).
+On Windows (x64), in PowerShell: `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
+
+If you already use Bun, you can install the CLI from npm instead. It downloads the worker the first time `renox dev` or `renox test` needs it:
+
+```sh
+bun add -g @renoxium/cli
+```
+
+Keep the `-g`: without it the CLI goes into the current project only. The SDK your app imports is a separate npm package, `@renoxium/sdk`.
+
+### Upgrade later
+
+When a new version is out, run the same command again, with the tool you installed with:
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/latest/download/install.sh | sh   # installer
+bun add -g @renoxium/cli@latest                                                                # Bun
+```
+
+On Windows, run the PowerShell line above again. Then `renox --version` shows the new version. Pinning a version, upgrading the SDK and two copies on `PATH`: [Getting started](../getting-started.md#upgrade).
 
 ## Create the app
 
@@ -159,6 +178,7 @@ The first lines of the test file make it run only under `renox test`. Your app d
 | You see | Why, and what to do |
 | --- | --- |
 | `renox: command not found` | `~/.renox/bin` is not on your `PATH`: run the `export` line above, then open a new terminal |
+| `renox --version` shows the old version after an upgrade | Two copies are installed (the installer's and Bun's); the first on `PATH` wins. `which -a renox` lists them: keep one |
 | `port 8787 is in use` | Another `renox dev` is running. Stop it, or run `renox dev --port 8788` |
 | `renox test` exits with code 3, "`bun` is not on PATH" | Install Bun 1.4 or newer and open a new terminal |
 | `RENOX_CLI_WORKER_UNVERIFIED` | The worker binary does not match the release checksums. Run the installer again; do not copy a worker from elsewhere |

@@ -14,7 +14,7 @@ From an empty folder to an app at `https://<app>.renoxium.app` in about ten minu
 
 ## Prerequisites
 
-- **Linux or macOS** (x64 or arm64). **Windows:** use WSL 2 with Ubuntu (`wsl --install -d Ubuntu` in PowerShell, then run every command below inside the Ubuntu terminal).
+- **Linux or macOS** (x64 or arm64), or **Windows** (x64): natively with the PowerShell installer below, or inside WSL 2 with Ubuntu (`wsl --install -d Ubuntu`) like Linux.
 - **[Bun](https://bun.sh) 1.4 or newer** for `bun install` and `renox test`: `curl -fsSL https://bun.sh/install | bash`, then open a new terminal. `bun --version` prints `1.4.x` or newer.
 - `curl`, and a browser for the sign-in.
 
@@ -42,7 +42,49 @@ renox --version
 renox 0.1.7 (renox-worker 0.4.0)
 ```
 
-There is no npm package for the CLI: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. Verifying the signatures and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
+**Windows (x64), in PowerShell:** `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex` installs `renox.exe` and `renox-worker.exe`; `renox dev` and `renox test` run without WSL 2.
+
+**With Bun instead.** The CLI is also on npm as `@renoxium/cli`, a single JavaScript file that runs on Bun 1.4 or newer. It downloads the `renox-worker` into `~/.renox/bin` the first time `renox dev`, `renox test` or `renox migrate` needs it:
+
+```sh
+bun add -g @renoxium/cli          # installs the renox command for every folder
+bunx @renoxium/cli new my-app     # or run it once without installing
+```
+
+Use `-g`: `bun add @renoxium/cli` without it adds the CLI to the current project only, and you then run it as `bunx renox`. The SDK your app imports is a separate npm package, `@renoxium/sdk`.
+
+### Upgrade
+
+Upgrade with the same tool you installed with. `renox --version` shows what you have.
+
+| You installed with | Upgrade with |
+| --- | --- |
+| `install.sh` (Linux, macOS, WSL) | `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/latest/download/install.sh \| sh` |
+| `install.ps1` (Windows) | `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 \| iex` |
+| Bun (`@renoxium/cli`) | `bun add -g @renoxium/cli@latest` |
+
+The installers replace `renox` and its `renox-worker` in place. Set `RENOX_VERSION=0.1.6` before the line to install a given version instead of the newest one. In an app, upgrade the SDK on its own: `bun add @renoxium/sdk@latest`.
+
+If `renox --version` still prints the old version, you have two copies: the installer's (`~/.renox/bin`, or `%LOCALAPPDATA%\renox\bin` on Windows) and Bun's (`~/.bun/bin`). The one that comes first on your `PATH` wins. `which -a renox` (PowerShell: `Get-Command renox -All`) lists them; keep one. Verifying the signatures: [Developer experience](12-developer-experience.md#installing-the-cli).
+
+### Uninstall
+
+**Windows (`install.ps1`), in PowerShell:** remove the folder and its entry in your user `Path`, then open a new terminal:
+
+```powershell
+$dir = Join-Path $env:LOCALAPPDATA 'renox\bin'
+Remove-Item -Recurse -Force $dir
+$keep = [Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -and $_ -ne $dir }
+[Environment]::SetEnvironmentVariable('Path', ($keep -join ';'), 'User')
+```
+
+If you installed with `RENOX_INSTALL_DIR`, use that folder for `$dir`.
+
+**Linux, macOS, WSL (`install.sh`):** `rm -rf ~/.renox/bin`, then delete the `export PATH="$HOME/.renox/bin:$PATH"` line from `~/.bashrc` or `~/.zshrc`.
+
+**Bun:** `bun remove -g @renoxium/cli`. The worker it downloaded is in `~/.renox/bin` (Windows: `%USERPROFILE%\.renox\bin`). Delete that folder too.
+
+The sign-in token stays until you delete it: `%APPDATA%\renox` on Windows, `~/.config/renox` elsewhere. Each app keeps its local build and database in its own `.renox/` folder. Deleting the app folder removes it.
 
 ## Your first app
 
@@ -237,7 +279,26 @@ renox --version
 renox 0.1.7 (renox-worker 0.4.0)
 ```
 
-The CLI is not on npm: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. More on installing, verifying signatures and upgrading: [Getting started](../getting-started.md#install).
+On Windows (x64), in PowerShell: `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
+
+If you already use Bun, you can install the CLI from npm instead. It downloads the worker the first time `renox dev` or `renox test` needs it:
+
+```sh
+bun add -g @renoxium/cli
+```
+
+Keep the `-g`: without it the CLI goes into the current project only. The SDK your app imports is a separate npm package, `@renoxium/sdk`.
+
+### Upgrade later
+
+When a new version is out, run the same command again, with the tool you installed with:
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/latest/download/install.sh | sh   # installer
+bun add -g @renoxium/cli@latest                                                                # Bun
+```
+
+On Windows, run the PowerShell line above again. Then `renox --version` shows the new version. Pinning a version, upgrading the SDK and two copies on `PATH`: [Getting started](../getting-started.md#upgrade).
 
 ## Create the app
 
@@ -380,6 +441,7 @@ The first lines of the test file make it run only under `renox test`. Your app d
 | You see | Why, and what to do |
 | --- | --- |
 | `renox: command not found` | `~/.renox/bin` is not on your `PATH`: run the `export` line above, then open a new terminal |
+| `renox --version` shows the old version after an upgrade | Two copies are installed (the installer's and Bun's); the first on `PATH` wins. `which -a renox` lists them: keep one |
 | `port 8787 is in use` | Another `renox dev` is running. Stop it, or run `renox dev --port 8788` |
 | `renox test` exits with code 3, "`bun` is not on PATH" | Install Bun 1.4 or newer and open a new terminal |
 | `RENOX_CLI_WORKER_UNVERIFIED` | The worker binary does not match the release checksums. Run the installer again; do not copy a worker from elsewhere |
@@ -2569,6 +2631,8 @@ npm install -g @renoxium/cli      # needs Bun 1.4 or later on PATH
 
 The package carries no worker. `renox dev`, `renox test` and `renox migrate` (and `renox build` of an app with a `pages/` or `policies/` folder) download the pinned `renox-worker` on first use into `~/.renox/bin`, the folder `install.sh` uses, and print one line saying so; a worker found earlier (`RENOX_WORKER_PATH`, beside a compiled `renox`, `cli/bin/`) is used as it is. What is checked: npm provenance covers the package (it was built by `release-cli.yml` from the tag), the sha256 pinned in the CLI covers the worker (downloaded or cached, a file that does not match is refused with `RENOX_CLI_WORKER_UNVERIFIED` and never run), and `install.sh` checks the sha256 of each file and the sigstore signature when `cosign` is installed. The standalone binaries and `install.sh` are unchanged.
 
+**Upgrading.** The way you installed is the way you upgrade. Rerun `install.sh` or `install.ps1` from `releases/latest/download/`: they take the newest `cli-v*` release and replace `renox` and its pinned worker in place, or the release that `RENOX_VERSION` names. With Bun, run `bun add -g @renoxium/cli@latest`. The CLI has no self-update command. When both an installer copy and a Bun copy are present, the first on `PATH` runs (`which -a renox`, `Get-Command renox -All`). An app's `@renoxium/sdk` is upgraded in the app: `bun add @renoxium/sdk@latest`.
+
 **The install line names a release that exists.** Every install line in the repository (this section, `docs/getting-started.md`, `cli/README.md`, the dashboard's `control/dashboard/lib/install.ts`, `www/public/llms-full.txt`) names a `cli-v*` release that is on GitHub Releases. The version in `cli/package.json` and the install lines move together (`control/dashboard/tests/copy.test.ts` checks the dashboard's against it), in the release commit that is then tagged the same day; a change for the next version is listed under it in `CHANGELOG.md` as "(unreleased)" and moves no install line. A newcomer's first command must never answer 404. Before a docs PR merges, the check is a grep for `cli-v` against the list of releases.
 
 #### Windows
@@ -2904,7 +2968,9 @@ renox --version        # renox 0.1.7 (renox-worker 0.4.0)
 
 With Bun 1.4 or later instead: `bun add -g @renoxium/cli` (or `bunx @renoxium/cli new myapp`, `bun create renox myapp`); the worker is downloaded into `~/.renox/bin` on first use (`docs/12-developer-experience.md`, "Installing the CLI").
 
-The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed). Running it again upgrades in place. `RENOX_WORKER_VARIANT=pdf` installs the worker build with `ctx.pdf` instead of the default one (verified the same way; needs a worker release that carries it, 0.4.0 or later). Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
+The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed).
+
+**Upgrade** with the tool you installed with: run the installer again (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/latest/download/install.sh | sh`, or the `install.ps1` line on Windows), or `bun add -g @renoxium/cli@latest`. `RENOX_VERSION=<x.y.z>` installs a given version. With both an installer copy and a Bun copy, the first on `PATH` wins (`which -a renox`). The SDK in an app upgrades on its own: `bun add @renoxium/sdk@latest`. `RENOX_WORKER_VARIANT=pdf` installs the worker build with `ctx.pdf` instead of the default one (verified the same way; needs a worker release that carries it, 0.4.0 or later). Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
 
 ## From the repository
 
