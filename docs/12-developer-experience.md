@@ -53,6 +53,26 @@ npm install -g @renoxium/cli      # needs Bun 1.4 or later on PATH
 
 The package carries no worker. `renox dev`, `renox test` and `renox migrate` (and `renox build` of an app with a `pages/` or `policies/` folder) download the pinned `renox-worker` on first use into `~/.renox/bin`, the folder `install.sh` uses, and print one line saying so; a worker found earlier (`RENOX_WORKER_PATH`, beside a compiled `renox`, `cli/bin/`) is used as it is. What is checked: npm provenance covers the package (it was built by `release-cli.yml` from the tag), the sha256 pinned in the CLI covers the worker (downloaded or cached, a file that does not match is refused with `RENOX_CLI_WORKER_UNVERIFIED` and never run), and `install.sh` checks the sha256 of each file and the sigstore signature when `cosign` is installed. The standalone binaries and `install.sh` are unchanged.
 
+**Bun is not installed for you.** `@renoxium/cli` has no dependencies. `"engines": { "bun": ">=1.4.0" }` is advice that npm does not act on, so `npm install -g @renoxium/cli` succeeds without Bun. Afterwards `renox` fails: its file starts with `#!/usr/bin/env bun`. On Windows the message comes from `cmd.exe` and does not name renox: `'"bun"' is not recognized as an internal or external command`. Install Bun first and check `bun --version` (1.4 or later). The standalone `renox` from `install.sh` or `install.ps1` has Bun built in, but the app itself still needs Bun for `bun install` and `renox test`.
+
+**Install Bun and the CLI with the same tool.** How Bun was installed decides how the CLI can be installed:
+
+| Bun was installed with | Install the CLI with | Why |
+| --- | --- | --- |
+| The official installer: `curl -fsSL https://bun.sh/install \| bash`, or on Windows `powershell -c "irm bun.sh/install.ps1 \| iex"` | `bun add -g @renoxium/cli` | The installer puts `bun` in `~/.bun/bin` and adds that folder to `PATH`; `bun add -g` puts `renox` there too. |
+| npm: `npm install -g bun` | `npm install -g @renoxium/cli` | npm puts `renox` beside its own `bun`, which is on `PATH`. |
+
+Avoid `bun add -g @renoxium/cli` with a Bun that npm installed. It installs without an error, then `renox` does not run, for two reasons:
+- **`~/.bun/bin` is not on `PATH`.** `bun add -g` writes `renox` into `~/.bun/bin` (`%USERPROFILE%\.bun\bin` on Windows), and only the official installer adds that folder to `PATH`. The shell answers that `renox` is not found.
+- **On Windows the launcher finds no `bun.exe`.** The `renox.exe` launcher that `bun add -g` writes looks for a real `bun.exe` on `PATH`. npm's Bun puts only a `bun.cmd` shim there; its `bun.exe` stays inside `node_modules\bun\bin`. The launcher answers `error: bun is not installed in %PATH%`.
+
+To see which Bun you have, run `where.exe bun` (Windows) or `which -a bun`. A path under the Node.js folder (for example `C:\nvm4w\nodejs\bun.cmd`, or `$(npm prefix -g)/bin/bun`) is npm's Bun; `~/.bun/bin/bun` is the official one. With two Bun installations on `PATH`, keep one:
+- npm's Bun: `npm uninstall -g bun`.
+- The official Bun: delete `~/.bun` (`%USERPROFILE%\.bun`) and remove `~/.bun/bin` from `PATH`.
+- Then install it again with the tool you chose. The official installer is the one `bun add -g` expects.
+
+**In an app**, run `bun install` once after `renox new`. Without it, `renox test` stops with "@renoxium/sdk is not installed" (CLI 0.1.7 or later; before, bun's `Cannot find module '@renoxium/sdk/test'`). Run the tests with `renox test`, not `bun test`: `renox test` starts the test worker and sets `RENOX_TEST_HARNESS`, and `bun test` alone stops with `@renoxium/sdk/test: run the tests with renox test`.
+
 **Upgrading.** The way you installed is the way you upgrade. Rerun `install.sh` or `install.ps1` from `releases/latest/download/`: they take the newest `cli-v*` release and replace `renox` and its pinned worker in place, or the release that `RENOX_VERSION` names. With Bun, run `bun add -g @renoxium/cli@latest`. The CLI has no self-update command. When both an installer copy and a Bun copy are present, the first on `PATH` runs (`which -a renox`, `Get-Command renox -All`). An app's `@renoxium/sdk` is upgraded in the app: `bun add @renoxium/sdk@latest`.
 
 **The install line names a release that exists.** Every install line in the repository (this section, `docs/getting-started.md`, `cli/README.md`, the dashboard's `control/dashboard/lib/install.ts`, `www/public/llms-full.txt`) names a `cli-v*` release that is on GitHub Releases. The version in `cli/package.json` and the install lines move together (`control/dashboard/tests/copy.test.ts` checks the dashboard's against it), in the release commit that is then tagged the same day; a change for the next version is listed under it in `CHANGELOG.md` as "(unreleased)" and moves no install line. A newcomer's first command must never answer 404. Before a docs PR merges, the check is a grep for `cli-v` against the list of releases.

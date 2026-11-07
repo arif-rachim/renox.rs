@@ -13,6 +13,12 @@ renox --version        # renox 0.1.7 (renox-worker 0.4.0)
 
 With Bun 1.4 or later instead: `bun add -g @renoxium/cli` (or `bunx @renoxium/cli new myapp`, `bun create renox myapp`); the worker is downloaded into `~/.renox/bin` on first use (`docs/12-developer-experience.md`, "Installing the CLI").
 
+Install Bun and the CLI with the same tool. npm does not install Bun for you.
+- With the official Bun installer, use `bun add -g @renoxium/cli`.
+- With `npm install -g bun`, use `npm install -g @renoxium/cli`.
+- `bun add -g` with a Bun that npm installed gives a `renox` that does not run, with `error: bun is not installed in %PATH%` on Windows.
+- Details and how to check which Bun you have: `docs/12-developer-experience.md`, "Bun is not installed for you".
+
 The installer puts `renox` and the `renox-worker` it pins into `~/.renox/bin`, and installs a file only when its SHA-256 matches (and its sigstore signature, when `cosign` is installed).
 
 **Upgrade** with the tool you installed with: run the installer again (`curl -fsSL https://github.com/arif-rachim/renox.rs/releases/latest/download/install.sh | sh`, or the `install.ps1` line on Windows), or `bun add -g @renoxium/cli@latest`. `RENOX_VERSION=<x.y.z>` installs a given version. With both an installer copy and a Bun copy, the first on `PATH` wins (`which -a renox`). The SDK in an app upgrades on its own: `bun add @renoxium/sdk@latest`. `RENOX_WORKER_VARIANT=pdf` installs the worker build with `ctx.pdf` instead of the default one (verified the same way; needs a worker release that carries it, 0.4.0 or later). Verifying a release by hand, the environment variables, and how the CLI's worker relates to production: `docs/12-developer-experience.md`, "Installing the CLI".
