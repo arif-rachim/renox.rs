@@ -286,6 +286,8 @@ jobs:
   smoke-windows:
     needs: build
     runs-on: windows-latest
+    # renox dev serves until stopped: a step that fails to stop it must not hang for hours.
+    timeout-minutes: 15
     env:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
@@ -313,13 +315,25 @@ jobs:
           Set-Location smoke
           & $exe build
           if ($LASTEXITCODE -ne 0) { throw "renox build exited $LASTEXITCODE" }
-          $ErrorActionPreference = 'Continue'
-          $out = (& $exe dev 2>&1 | Out-String)
-          Write-Host $out
-          if ($LASTEXITCODE -ne 3) { throw "renox dev exited $LASTEXITCODE, expected 3" }
-          if ($out -notmatch 'RENOX_CLI_WORKER_UNAVAILABLE') { throw "renox dev did not print RENOX_CLI_WORKER_UNAVAILABLE" }
-          "windows-x64 smoke test of renox-${v}: ok" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-          # The runner exits with the last native exit code, here dev's expected 3.
+          # #532: the CLI pins the Windows worker, so renox dev downloads it
+          # into ~/.renox/bin, checks its sha256 and serves the app.
+          $log = Join-Path $work 'dev.log'
+          $err = Join-Path $work 'dev.err.log'
+          $dev = Start-Process -FilePath $exe -ArgumentList 'dev' -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err
+          if (-not $dev) { throw 'renox dev did not start' }
+          # Up to about 2 minutes: the first run downloads the worker.
+          $code = 0
+          for ($i = 0; $i -lt 120 -and $code -ne 200 -and -not $dev.HasExited; $i++) {
+            try { $code = (Invoke-WebRequest -Uri 'http://localhost:8787/api/health' -UseBasicParsing -TimeoutSec 2).StatusCode } catch { Start-Sleep -Milliseconds 500 }
+          }
+          # Stop renox dev and its renox-worker.exe: the whole process tree.
+          if (-not $dev.HasExited) { & taskkill /F /T /PID $dev.Id | Out-Null }
+          Write-Host '--- renox dev output'
+          Get-Content -LiteralPath $log, $err -ErrorAction SilentlyContinue | Write-Host
+          if ($code -ne 200) { throw "renox dev: GET /api/health did not answer 200 (last: $code)" }
+          Write-Host "GET /api/health -> $code"
+          "windows-x64 smoke test of renox-${v}: ok (renox dev served /api/health with the pinned worker)" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          # The runner exits with the last native exit code (taskkill's).
           exit 0
 
   # #440, D30: @renoxium/cli (one bundled file for Bun) and create-renox on
