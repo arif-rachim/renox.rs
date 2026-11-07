@@ -2,6 +2,26 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.5 (2026-11-07)
+
+A release of the same code as 0.1.4, made so that `@renoxium/cli` and `create-renox` are published by `release-cli.yml` through npm trusted publishing, with npm provenance. 0.1.4 of both was published by hand to register the names, so it has no provenance. The pinned `renox-worker` stays 0.3.0.
+
+**Install**
+
+```sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.5/install.sh | sh
+```
+
+On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex`.
+
+**CLI and SDK**
+
+- No change in behaviour from 0.1.4. The CLI, `create-renox` and `@renoxium/sdk` carry the version 0.1.5.
+
+**Release**
+
+- `@renoxium/cli` and `create-renox` are published by the workflow's OIDC identity, without a token, and carry npm provenance from this version on (D30, #440). Check with `npm view @renoxium/cli@0.1.5 dist.attestations`.
+
 ## 0.1.4 (2026-11-07)
 
 The tutorial template, `renox db seed` and `renox domains`, the first native Windows CLI, and the CLI and `create-renox` on npm (#483, #490, #492, #513, #440). The pinned `renox-worker` stays 0.3.0; the worker changes of #495 ship with the next `worker-v*` release and the CLI pin that follows it.

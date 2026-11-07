@@ -120,8 +120,8 @@ test("the legal pages carry the versions sign-up records", () => {
 // The templates rendered by the worker (`renox dev`).
 test.skipIf(!worker)("the worker renders sign-up, verification, the new-app flow, the checklist and the legal pages", async () => {
   const dev = await devWithData({
-    "pages/apps/new.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", platform_domain: "apps.example.test", templates: [{ id: "hello", name: "Hello", about: "One function" }], created: null, form_error: null, action_problem: null, name: "", template: "hello", install_url: "https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.4/install.sh" },
-    "pages/index.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", install_url: "https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.4/install.sh", docs_url: "https://renoxium.com/docs", steps: [{ done: true, text: "Verify your email address", href: null }, { done: false, text: "Create your first app from a template", href: "/apps/new" }] },
+    "pages/apps/new.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", platform_domain: "apps.example.test", templates: [{ id: "hello", name: "Hello", about: "One function" }], created: null, form_error: null, action_problem: null, name: "", template: "hello", install_url: "https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.5/install.sh" },
+    "pages/index.ts": { signed_in: true, impersonation: null, api_host: "api.renoxium.com", install_url: "https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.5/install.sh", docs_url: "https://renoxium.com/docs", steps: [{ done: true, text: "Verify your email address", href: null }, { done: false, text: "Create your first app from a template", href: "/apps/new" }] },
   });
   try {
     const page = async (path: string) => (await (await fetch(`${dev.base}${path}`)).text()).replaceAll(' dir="auto"', "");
