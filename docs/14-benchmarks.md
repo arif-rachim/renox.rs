@@ -28,7 +28,7 @@ Record CPU model, kernel, and Rust/Bun/Deno versions in every result file. Pass/
 | B11 | Throughput | Hello function, 4 vCPU, keep-alive | ≥ 40k req/s | < 15k req/s |
 | B12 | Noisy neighbor | Tenant A infinite loop + unbounded allocation while tenant B serves B6 | B's p99 changes ≤ 10%; A terminated at its CPU limit ± 5 ms | B's p99 changes > 25% |
 | B13 | Template DoS | Nested loops 10k × 10k | Stops at fuel within 50 ms; node unaffected | Render exceeds 500 ms |
-| B14 | Realtime | 10,000 idle WebSocket connections on one tenant (`bench/scenarios/B14`, `examples/chat`; dev container, debug build: `bench/results/2026-10-29-B14-dev-container.md`; `node-small` is O3, #158) | ≤ 50 MB total; isolate heap unchanged | > 150 MB |
+| B14 | Realtime | 10,000 idle WebSocket connections on one tenant (`bench/scenarios/B14`, `examples/chat`; dev container, debug build: `bench/results/2026-10-29-B14-dev-container.md`; `node-small`, release build: `bench/results/2026-11-07-B14-node-small-renox-worker.md`, #522) | ≤ 50 MB total; isolate heap unchanged | > 150 MB |
 | B15 | Deploy | `renox deploy` of the example app to a local control plane | ≤ 30 s end-to-end; rollback ≤ 5 s | > 60 s |
 | B16 | Dev loop | Edit one template, browser updated | ≤ 300 ms | > 1 s |
 | B17 | npm compatibility | Payment SDKs (Stripe, Checkout.com, Telr, PayTabs, Tabby), OAuth (arctic/oslo), WhatsApp Cloud API client, email (resend/nodemailer), zod, date-fns, Arabic-aware date/number formatting (Intl) | All run in the isolate with declared network allowlist | Any core package fails |
@@ -139,6 +139,14 @@ After F5-ALL the first request of a cell also loads the merged policy set (#276,
 | `/p/slow` shell header, cold / warm | 82–92 ms / 52 ms (the 50 ms shell delay) |
 
 Before and after: the policy set is already built once per deployment (per cell, shared by the pool's isolates through the authz slot), the anonymous principal costs two cache ops (`op_authz_principal_cached`, `op_authz_principal_set`) when `auth` is not installed, and the hub is a struct without a task, so none of the three levers the issue lists has a measurable effect to remove (each under 5 ms against an isolate start of 17–30 ms). The red tests came from absolute bounds (400 ms, 500 ms) on a cold first request on a loaded runner, where file system latency alone reached 248 ms here. Fix: the two tests assert the gap between the first chunk (or the shell) and the slow part (at least 300 ms, nominally 600 and 650 ms) plus the lower bound on the slow part, which load only increases. Result: `cargo test -p renox-cell --test streaming` green 10 times in a row under `nice -n 19` with `cargo test -p renox-cell` running beside it.
+
+### F5 B14 on `node-small` (#522, 2026-11-07)
+
+Measured on `node-small` with a release `renox-worker` built there from `main` 0344a48, the load generator (`bun`) on the same host: provisional (D31). The bench tenant's free-tier CPU limit is raised to 1000 ms (`B14_FREE_CPU_MS`), because a host stall refused the cold sign-in once (#523).
+
+| ID | Target | Fail threshold | Measured | Verdict | Result file |
+| --- | --- | --- | --- | --- | --- |
+| B14 | ≤ 50 MB for 10,000 idle connections; isolate heap unchanged | > 150 MB | **242.9 MB** RSS delta (median of 241.6, 242.9, 244.6; 24.9 KB per connection), isolate heap +4.63 MB; 10,000 of 10,000 sockets open in 13.6–15.7 s. The same as the dev container's debug build (243.6 MB); the crate alone holds them in 46.8 MB, so about 20 KB per connection is in the worker path. During run 3 the host's tunnel reconnected for about 6 s | FAIL (provisional); fix open in #522 | [B14 node-small](../bench/results/2026-11-07-B14-node-small-renox-worker.md) |
 
 ## What F0 must prove
 
