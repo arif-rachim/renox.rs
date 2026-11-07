@@ -620,7 +620,7 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - name: CLI tests that need no worker
-        run: cd cli && bun test tests/paths.test.ts tests/hash.test.ts tests/routes.test.ts tests/credentials-path.test.ts tests/worker-unavailable.test.ts
+        run: cd cli && bun test tests/paths.test.ts tests/hash.test.ts tests/routes.test.ts tests/credentials-path.test.ts tests/worker-unavailable.test.ts tests/fetch-worker.test.ts tests/install-ps1.test.ts
       - name: new, check, build of a blank app
         # Outside the repository: inside it, check would find the workspace's
         # typescript but not the app's own @renoxium/sdk (no bun install there).
