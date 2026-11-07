@@ -77,6 +77,11 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 url = "2"
 webpki-roots = "1.0"
 
+# The per-thread CPU clock of limits/cpu.rs on Windows (#527). The version is
+# the one deno_runtime already pulls in (Cargo.lock), so no new package.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Performance", "Win32_System_WindowsProgramming"] }
+
 [dev-dependencies]
 renox-runtime = { path = ".", default-features = false, features = ["test-hooks"] }
 eszip = "*"
