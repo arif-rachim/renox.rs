@@ -4,7 +4,7 @@ From an empty folder to an app at `https://<app>.renoxium.app` in about ten minu
 
 ## Prerequisites
 
-- **Linux or macOS** (x64 or arm64). **Windows:** use WSL 2 with Ubuntu (`wsl --install -d Ubuntu` in PowerShell, then run every command below inside the Ubuntu terminal).
+- **Linux or macOS** (x64 or arm64), or **Windows** (x64): natively with the PowerShell installer below, or inside WSL 2 with Ubuntu (`wsl --install -d Ubuntu`) like Linux.
 - **[Bun](https://bun.sh) 1.4 or newer** for `bun install` and `renox test`: `curl -fsSL https://bun.sh/install | bash`, then open a new terminal. `bun --version` prints `1.4.x` or newer.
 - `curl`, and a browser for the sign-in.
 
@@ -32,7 +32,49 @@ renox --version
 renox 0.1.7 (renox-worker 0.4.0)
 ```
 
-There is no npm package for the CLI: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. Verifying the signatures and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
+**Windows (x64), in PowerShell:** `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex` installs `renox.exe` and `renox-worker.exe`; `renox dev` and `renox test` run without WSL 2.
+
+**With Bun instead.** The CLI is also on npm as `@renoxium/cli`, a single JavaScript file that runs on Bun 1.4 or newer. It downloads the `renox-worker` into `~/.renox/bin` the first time `renox dev`, `renox test` or `renox migrate` needs it:
+
+```sh
+bun add -g @renoxium/cli          # installs the renox command for every folder
+bunx @renoxium/cli new my-app     # or run it once without installing
+```
+
+Use `-g`: `bun add @renoxium/cli` without it adds the CLI to the current project only, and you then run it as `bunx renox`. The SDK your app imports is a separate npm package, `@renoxium/sdk`.
+
+### Upgrade
+
+Upgrade with the same tool you installed with. `renox --version` shows what you have.
+
+| You installed with | Upgrade with |
+| --- | --- |
+| `install.sh` (Linux, macOS, WSL) | `curl -fsSL https://github.com/arif-rachim/renox.rs/releases/latest/download/install.sh \| sh` |
+| `install.ps1` (Windows) | `irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 \| iex` |
+| Bun (`@renoxium/cli`) | `bun add -g @renoxium/cli@latest` |
+
+The installers replace `renox` and its `renox-worker` in place. Set `RENOX_VERSION=0.1.6` before the line to install a given version instead of the newest one. In an app, upgrade the SDK on its own: `bun add @renoxium/sdk@latest`.
+
+If `renox --version` still prints the old version, you have two copies: the installer's (`~/.renox/bin`, or `%LOCALAPPDATA%\renox\bin` on Windows) and Bun's (`~/.bun/bin`). The one that comes first on your `PATH` wins. `which -a renox` (PowerShell: `Get-Command renox -All`) lists them; keep one. Verifying the signatures: [Developer experience](12-developer-experience.md#installing-the-cli).
+
+### Uninstall
+
+**Windows (`install.ps1`), in PowerShell:** remove the folder and its entry in your user `Path`, then open a new terminal:
+
+```powershell
+$dir = Join-Path $env:LOCALAPPDATA 'renox\bin'
+Remove-Item -Recurse -Force $dir
+$keep = [Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ -and $_ -ne $dir }
+[Environment]::SetEnvironmentVariable('Path', ($keep -join ';'), 'User')
+```
+
+If you installed with `RENOX_INSTALL_DIR`, use that folder for `$dir`.
+
+**Linux, macOS, WSL (`install.sh`):** `rm -rf ~/.renox/bin`, then delete the `export PATH="$HOME/.renox/bin:$PATH"` line from `~/.bashrc` or `~/.zshrc`.
+
+**Bun:** `bun remove -g @renoxium/cli`. The worker it downloaded is in `~/.renox/bin` (Windows: `%USERPROFILE%\.renox\bin`). Delete that folder too.
+
+The sign-in token stays until you delete it: `%APPDATA%\renox` on Windows, `~/.config/renox` elsewhere. Each app keeps its local build and database in its own `.renox/` folder. Deleting the app folder removes it.
 
 ## Your first app
 
