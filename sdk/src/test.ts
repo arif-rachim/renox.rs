@@ -281,7 +281,13 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
   const h = await harness();
   const s = await spec(h, options.project ?? process.env.RENOX_TEST_PROJECT ?? process.cwd());
   const w = await h.startTestWorker(s);
-  afterAll(() => w.stop());
+  const sqlite = new Database(w.db, { readonly: true });
+  // The database is closed before the worker's folder is removed: on Windows
+  // an open file cannot be deleted (EBUSY in `stop`).
+  afterAll(async () => {
+    sqlite.close();
+    await w.stop();
+  });
   const jars = new Map<string, Jar>();
   const jarOf = (user: string): Jar => {
     let j = jars.get(user);
@@ -291,8 +297,6 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
     }
     return j;
   };
-  const sqlite = new Database(w.db, { readonly: true });
-  afterAll(() => sqlite.close());
   const make = (user: string): TestApp => {
     const send = async (method: string, path: string, init: RequestInitLite = {}): Promise<Reply> => {
       const jar = jarOf(user);

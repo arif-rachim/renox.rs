@@ -13,7 +13,7 @@
 // seeds/*.sql and the --seed files). Exit codes per the CLI contract: 0
 // when every test passed, 2 when a test failed, 3 without a worker.
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { EnvironmentError, EXIT } from "../errors.ts";
@@ -51,9 +51,35 @@ export function harnessFile(dir: string, embedded: Embedded | null = EMBEDDED): 
   return file;
 }
 
+/**
+ * An app that depends on @renoxium/sdk must have it installed: its tests
+ * import `@renoxium/sdk/test`, and without `bun install` bun reports only
+ * "Cannot find module". A project without the dependency (a module's test
+ * app) is not checked.
+ */
+export function requireSdkInstalled(project: string, resolveFrom: (id: string, dir: string) => string = Bun.resolveSync): void {
+  const pkgFile = join(project, "package.json");
+  if (!existsSync(pkgFile)) return;
+  let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+  try {
+    pkg = JSON.parse(readFileSync(pkgFile, "utf8")) as typeof pkg;
+  } catch {
+    return;
+  }
+  if (pkg.dependencies?.["@renoxium/sdk"] === undefined && pkg.devDependencies?.["@renoxium/sdk"] === undefined) return;
+  try {
+    resolveFrom("@renoxium/sdk/package.json", project);
+  } catch {
+    throw new EnvironmentError("@renoxium/sdk is not installed in this app, and its tests import @renoxium/sdk/test", {
+      hint: `run \`bun install\` in ${project}, then renox test again`,
+    });
+  }
+}
+
 export async function runTests(project: string, args: string[], output: "inherit" | "pipe" = "inherit"): Promise<{ code: number; out: string }> {
   refuseNested();
   const bun = bunBinary();
+  requireSdkInstalled(project);
   const seeds: string[] = [];
   const patterns: string[] = [];
   for (let i = 0; i < args.length; i++) {

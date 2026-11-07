@@ -28,7 +28,7 @@
 
 import { bundledPackages, cyclonedx } from "../build/sbom.ts";
 import type { BunPlugin } from "bun";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
 import { forbiddenReason } from "@renox/artifact-validate";
@@ -47,6 +47,7 @@ import { isTimeZone, parseSchedule } from "../../../sdk/src/jobs.ts";
 import { toolInputSchema } from "../../../sdk/src/tools.ts";
 import { type ArtifactRoute, discoverFunctions, discoverJobs, discoverPages, discoverRealtime, discoverTools, discoverWebhooks, exportedString, type JobRoute, routeConflicts, routesOf, type Route, type ToolRoute } from "./routes.ts";
 import { type CompiledTemplate, TemplateCache, templateFiles, templatesKey, transpile } from "./templates-compile.ts";
+import { renameRetry } from "./rename.ts";
 import { type Json, validate } from "./schema.ts";
 import { schemas } from "./schemas.ts";
 import { formatSecret, scanBundle, SECRET_HINT, type ProjectSecret } from "./secrets.ts";
@@ -775,7 +776,7 @@ export async function buildArtifact(project: string, out: string, cache?: BuildC
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, text);
     }
-    renameSync(tmp, mapsDir);
+    renameRetry(tmp, mapsDir, { contentAddressed: true });
   }
   if (!existsSync(dir)) {
     const tmp = join(out, `.tmp-${hash}-${process.pid}`);
@@ -785,7 +786,7 @@ export async function buildArtifact(project: string, out: string, cache?: BuildC
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, bytes);
     }
-    renameSync(tmp, dir);
+    renameRetry(tmp, dir, { contentAddressed: true });
   }
   // The override originals the app was made against (drift detection on the next upgrade).
   const stored = storedOverrides(project, files);
