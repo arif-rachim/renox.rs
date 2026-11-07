@@ -15,6 +15,11 @@
 # given; the previous binary is kept as renox-worker.prev for rollback.
 #
 # Options for tests and air-gapped hosts:
+#   --worker-variant <default|pdf>
+#                            default: the release build (ctx.pdf.render answers pdf_unavailable).
+#                            pdf: the build with the pdf feature, renox-worker-<v>-<target>-pdf.gz,
+#                            SHA-256 verified then gunzipped. Use it on a node that runs apps with
+#                            tax_gcc invoices or reports. Recorded in /opt/renox/worker-variant.
 #   --worker-bin <file>      install this binary instead of downloading the release
 #   --litestream-bin <file>  install this binary instead of ops/scripts/fetch-litestream.sh
 #   --config <file>          install this worker.toml instead of the example
@@ -42,6 +47,7 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 worker_version=""
+worker_variant="default"
 node_id=""
 control_url=""
 region="me-central-1"
@@ -59,6 +65,48 @@ cloudflared_bin=""
 die() { echo "bootstrap-node: $*" >&2; exit 1; }
 need_value() { [[ $# -ge 2 && -n $2 ]] || die "$1 needs a value"; }
 
+worker_target() {
+  case $(uname -m) in
+    x86_64) echo x86_64-unknown-linux-gnu ;;
+    aarch64) echo aarch64-unknown-linux-gnu ;;
+    *) die "no renox-worker build for $(uname -m)" ;;
+  esac
+}
+
+# fetch_worker <version> <variant> <dest>: downloads the release asset of this
+# machine's target (renox-worker-<v>-<target>, or ...-pdf.gz for the pdf
+# variant), checks it against its .sha256, and writes the runnable binary to
+# <dest> (gunzipped for pdf). Nothing is written to <dest> on a failure.
+fetch_worker() {
+  local version=$1 variant=$2 dest=$3
+  local repo=${RENOX_RELEASE_REPO:-arif-rachim/renox.rs}
+  local base=${RENOX_RELEASE_BASE:-https://github.com/$repo/releases/download}
+  local asset
+  asset=renox-worker-$version-$(worker_target)
+  [[ $variant == pdf ]] && asset+=-pdf.gz
+  local work
+  work=$(mktemp -d)
+  curl --fail --silent --show-error --location --proto '=https,file' --retry 3 \
+    --output "$work/$asset" "$base/worker-v$version/$asset" || { rm -rf "$work"; die "download of $asset failed"; }
+  curl --fail --silent --show-error --location --proto '=https,file' --retry 3 \
+    --output "$work/$asset.sha256" "$base/worker-v$version/$asset.sha256" || { rm -rf "$work"; die "download of $asset.sha256 failed"; }
+  local expected actual
+  expected=$(awk '{ print $1; exit }' "$work/$asset.sha256")
+  [[ $expected =~ ^[0-9a-f]{64}$ ]] || { rm -rf "$work"; die "the .sha256 asset does not hold a SHA-256 digest"; }
+  actual=$(sha256sum "$work/$asset" | awk '{ print $1 }')
+  [[ $actual == "$expected" ]] || { rm -rf "$work"; die "checksum mismatch for $asset: expected $expected, got $actual"; }
+  if [[ $variant == pdf ]]; then
+    gunzip -c "$work/$asset" > "$work/unpacked" || { rm -rf "$work"; die "$asset is not a valid gzip file"; }
+    mv -f "$work/unpacked" "$dest"
+  else
+    mv -f "$work/$asset" "$dest"
+  fi
+  rm -rf "$work"
+}
+
+# Sourced by a test: only the functions above are wanted.
+if [[ ${BASH_SOURCE[0]} != "$0" ]]; then return 0; fi
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --worker-version) need_value "$@"; worker_version=$2; shift 2 ;;
@@ -68,6 +116,7 @@ while [[ $# -gt 0 ]]; do
     --blocked-addresses) need_value "$@"; blocked=$2; shift 2 ;;
     --node-token-file) need_value "$@"; node_token_file=$2; shift 2 ;;
     --health-listen) need_value "$@"; health_listen=$2; shift 2 ;;
+    --worker-variant) need_value "$@"; [[ $2 == default || $2 == pdf ]] || die "--worker-variant must be default or pdf"; worker_variant=$2; shift 2 ;;
     --upgrade) upgrade=1; shift ;;
     --worker-bin) need_value "$@"; worker_bin=$2; shift 2 ;;
     --litestream-bin) need_value "$@"; litestream_bin=$2; shift 2 ;;
@@ -75,7 +124,7 @@ while [[ $# -gt 0 ]]; do
     --no-enable) enable=0; shift ;;
     --single-host) single_host=1; shift ;;
     --cloudflared-bin) need_value "$@"; cloudflared_bin=$2; shift 2 ;;
-    -h | --help) sed -n '2,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h | --help) sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -108,21 +157,20 @@ if [[ -z $config_file ]]; then
   fi
 fi
 
-case $(uname -m) in
-  x86_64) target=x86_64-unknown-linux-gnu ;;
-  aarch64) target=aarch64-unknown-linux-gnu ;;
-  *) die "no renox-worker build for $(uname -m)" ;;
-esac
+target=$(worker_target)
 
 bin_dir=/opt/renox/bin
 etc_dir=/etc/renox
 state_dir=/var/lib/renox
 unit_dir=/etc/systemd/system
 version_file=/opt/renox/worker-version
+variant_file=/opt/renox/worker-variant
 
 # 1. Refuse a silent version change.
 installed=""
+installed_variant="default"
 if [[ -f $version_file ]]; then installed=$(<"$version_file"); fi
+if [[ -f $variant_file ]]; then installed_variant=$(<"$variant_file"); fi
 if [[ -n $installed && $installed != "$worker_version" && $upgrade -ne 1 ]]; then
   die "this node runs renox-worker $installed; pass --upgrade to install $worker_version"
 fi
@@ -154,23 +202,14 @@ install_worker() {
 if [[ -n $worker_bin ]]; then
   [[ -f $worker_bin ]] || die "--worker-bin $worker_bin does not exist"
   install_worker "$worker_bin"
-elif [[ $installed == "$worker_version" && -x $bin_dir/renox-worker ]]; then
-  echo "renox-worker $worker_version already installed"
+elif [[ $installed == "$worker_version" && $installed_variant == "$worker_variant" && -x $bin_dir/renox-worker ]]; then
+  echo "renox-worker $worker_version ($worker_variant) already installed"
 else
-  repo=${RENOX_RELEASE_REPO:-arif-rachim/renox.rs}
-  base=${RENOX_RELEASE_BASE:-https://github.com/$repo/releases/download}
-  asset=renox-worker-$worker_version-$target
-  curl --fail --silent --show-error --location --proto '=https,file' --retry 3 \
-    --output "$tmp/$asset" "$base/worker-v$worker_version/$asset"
-  curl --fail --silent --show-error --location --proto '=https,file' --retry 3 \
-    --output "$tmp/$asset.sha256" "$base/worker-v$worker_version/$asset.sha256"
-  expected=$(awk '{ print $1; exit }' "$tmp/$asset.sha256")
-  [[ $expected =~ ^[0-9a-f]{64}$ ]] || die "the .sha256 asset does not hold a SHA-256 digest"
-  actual=$(sha256sum "$tmp/$asset" | awk '{ print $1 }')
-  [[ $actual == "$expected" ]] || die "checksum mismatch for $asset: expected $expected, got $actual"
-  install_worker "$tmp/$asset"
+  fetch_worker "$worker_version" "$worker_variant" "$tmp/renox-worker"
+  install_worker "$tmp/renox-worker"
 fi
 printf '%s\n' "$worker_version" > "$version_file"
+printf '%s\n' "$worker_variant" > "$variant_file"
 
 if [[ -n $litestream_bin ]]; then
   [[ -f $litestream_bin ]] || die "--litestream-bin $litestream_bin does not exist"
@@ -268,7 +307,7 @@ systemctl daemon-reload
 
 if [[ $enable -eq 1 ]]; then
   systemctl enable renox-node.target renox-worker.service
-  if [[ -n $installed && $installed != "$worker_version" ]]; then
+  if [[ -n $installed && ( $installed != "$worker_version" || $installed_variant != "$worker_variant" ) ]]; then
     systemctl restart renox-worker.service
   else
     systemctl start renox-node.target

@@ -164,6 +164,8 @@ jobs:
           # Local backups without R2 (#517): sqlite3 and pg_restore for the real copies.
           command -v sqlite3 >/dev/null || sudo apt-get install -y --no-install-recommends sqlite3
           ops/scripts/backup-local.test.sh
+          # bootstrap-node.sh --worker-variant pdf (#525): fetch_worker against a file:// release.
+          ops/scripts/bootstrap-worker-variant.test.sh
           ops/scripts/firewall-single-host.test.sh
       # ops/observability (#296): promtool from the Prometheus release pinned
       # in ops/observability/prometheus.lock, its SHA-256 checked before the

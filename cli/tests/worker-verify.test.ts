@@ -268,6 +268,84 @@ describe("install.sh signature check", () => {
   });
 });
 
+// #524: install.sh RENOX_WORKER_VARIANT=pdf fetches the verified .gz and
+// installs the unpacked binary as renox-worker.
+describe("install.sh RENOX_WORKER_VARIANT=pdf", () => {
+  const INSTALL = join(import.meta.dir, "..", "scripts", "install.sh");
+  const os = process.platform === "darwin" ? "darwin" : "linux";
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  const cliAsset = `renox-0.1.0-${os}-${arch}`;
+  const cli = "#!/bin/sh\necho renox\n";
+  const unpacked = "#!/bin/sh\necho renox-worker with pdf\n";
+  const gz = Buffer.from(Bun.gzipSync(Buffer.from(unpacked)));
+  const pdfAsset = `renox-worker-9.9.9-${targetTriple()}-pdf.gz`;
+  let wrongSha = false;
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const path = new URL(req.url).pathname;
+      if (path === "/cli-v0.1.0/worker-version.txt") return new Response("9.9.9\n");
+      if (path === `/cli-v0.1.0/${cliAsset}`) return new Response(cli);
+      if (path === `/cli-v0.1.0/${cliAsset}.sha256`) return new Response(`${sha256Hex(cli)}  ${cliAsset}\n`);
+      if (path === `/worker-v9.9.9/${pdfAsset}`) return new Response(gz);
+      if (path === `/worker-v9.9.9/${pdfAsset}.sha256`) {
+        return new Response(`${wrongSha ? sha256Hex("something else") : sha256Hex(gz)}  ${pdfAsset}\n`);
+      }
+      if (path === `/worker-v9.9.9/${pdfAsset}.sigstore.json`) return new Response("{}");
+      return new Response("not found", { status: 404 });
+    },
+  });
+  afterAll(() => server.stop(true));
+
+  async function install(env: Record<string, string>): Promise<{ code: number; out: string; err: string; worker: string }> {
+    const d = dir();
+    const tools = join(d, "tools");
+    mkdirSync(tools);
+    const cosign = fakeCosign(0);
+    writeFileSync(join(tools, "cosign"), readFileSync(cosign.bin), { mode: 0o755 });
+    // Async: the fake release server above runs on this event loop.
+    const r = Bun.spawn(["sh", INSTALL, "0.1.0"], {
+      env: {
+        HOME: d,
+        PATH: `${tools}:/usr/bin:/bin`,
+        RENOX_INSTALL_DIR: join(d, "bin"),
+        RENOX_RELEASE_BASE: `http://127.0.0.1:${server.port}`,
+        ...env,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, out, err] = await Promise.all([r.exited, new Response(r.stdout).text(), new Response(r.stderr).text()]);
+    return { code, out, err, worker: join(d, "bin", "renox-worker") };
+  }
+
+  test("install.sh RENOX_WORKER_VARIANT=pdf verifies the .gz, unpacks it and installs renox-worker", async () => {
+    wrongSha = false;
+    const r = await install({ RENOX_WORKER_VARIANT: "pdf" });
+    expect(r.err).toContain(`${pdfAsset}: signature verified (release-worker on worker-v9.9.9)`);
+    expect(r.err).toContain("renox-worker 9.9.9 (pdf) installed");
+    expect(r.code).toBe(0);
+    expect(readFileSync(r.worker, "utf8")).toBe(unpacked);
+    expect(existsSync(`${r.worker}.tmp`)).toBe(false);
+  });
+
+  test("a .sha256 that does not match the .gz fails and installs no worker", async () => {
+    wrongSha = true;
+    const r = await install({ RENOX_WORKER_VARIANT: "pdf" });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`checksum mismatch for ${pdfAsset}`);
+    expect(existsSync(r.worker)).toBe(false);
+    expect(existsSync(`${r.worker}.tmp`)).toBe(false);
+  });
+
+  test("any other variant is refused", async () => {
+    const r = await install({ RENOX_WORKER_VARIANT: "huge" });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("RENOX_WORKER_VARIANT must be default or pdf");
+    expect(existsSync(r.worker)).toBe(false);
+  });
+});
+
 // #381: the variant with ctx.pdf has its own pins (the sha256 of the unpacked
 // binary). docs/24-threat-model.md section F, "Tampered release": a corrupted
 // pdf worker is refused like the default one.
