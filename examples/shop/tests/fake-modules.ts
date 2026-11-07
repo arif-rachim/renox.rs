@@ -9,9 +9,9 @@
 // the repository root is one process, and a global `renox:modules` would
 // reach every test file loaded after the shop's.
 import { plugin } from "bun";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
-const SHOP = join(import.meta.dir, "..") + "/";
+const SHOP = join(import.meta.dir, "..") + sep;
 
 plugin({
   name: "renox-modules-fake",
