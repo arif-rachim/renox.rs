@@ -9,10 +9,15 @@
 #   renox-<version>-windows-x64.exe          the binary
 #   renox-<version>-windows-x64.exe.sha256   its SHA-256 (hex, optionally followed by the file name)
 #
-# There is no native Windows renox-worker yet (#442): renox new, check and
-# build of an app without .html pages or policies, login, deploy, logs,
-# secrets and db work; renox dev, test and the other commands that run
-# templates need WSL 2.
+# The development renox-worker.exe (#531, #442) comes from the release
+# worker-v<worker version>, the version in the CLI release's worker-version.txt
+# (as install.sh does):
+#   renox-worker-<worker version>-x86_64-pc-windows-msvc.exe         the worker
+#   renox-worker-<worker version>-x86_64-pc-windows-msvc.exe.sha256  its SHA-256
+# It is installed beside renox.exe, after the same checksum check. When the
+# worker release has no Windows build, that is a warning: renox new, check and
+# build of an app without .html pages or policies, login, deploy, logs, secrets
+# and db work without it; renox dev and test need it, or WSL 2.
 #
 # Environment:
 #   RENOX_VERSION        the CLI version (default: the argument, else the newest cli-v* release)
@@ -20,6 +25,7 @@
 #   RENOX_RELEASE_BASE   replaces https://github.com/<repo>/releases/download (same layout:
 #                        <base>/<tag>/<asset>), for a mirror or a test
 #   RENOX_RELEASE_REPO   owner/repo (default: arif-rachim/renox.rs)
+#   RENOX_NO_WORKER=1    skip the worker
 #   RENOX_NO_MODIFY_PATH=1
 #                        do not add the install folder to the user Path
 #
@@ -73,6 +79,42 @@ try {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     $dest = Join-Path $dir 'renox.exe'
     Move-Item -Force -LiteralPath $file -Destination $dest
+
+    if ($env:RENOX_NO_WORKER -ne '1') {
+      # The worker version the CLI release is tested against. Without the file
+      # (an older release) or without a Windows build, warn and go on.
+      $workerVersion = ''
+      try {
+        $wvFile = Join-Path $tmp 'worker-version.txt'
+        Invoke-WebRequest -Uri "$base/cli-v$Version/worker-version.txt" -OutFile $wvFile -UseBasicParsing
+        $workerVersion = (Get-Content -Raw -LiteralPath $wvFile).Trim()
+      } catch {
+        Say "no worker-version.txt in cli-v$Version; dev and test need WSL 2"
+      }
+      if ($workerVersion) {
+        if ($workerVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') { throw "worker-version.txt does not hold a version" }
+        $wAsset = "renox-worker-$workerVersion-x86_64-pc-windows-msvc.exe"
+        $wFile = Join-Path $tmp $wAsset
+        $wSha = Join-Path $tmp "$wAsset.sha256"
+        $found = $true
+        try {
+          Invoke-WebRequest -Uri "$base/worker-v$workerVersion/$wAsset.sha256" -OutFile $wSha -UseBasicParsing
+          Invoke-WebRequest -Uri "$base/worker-v$workerVersion/$wAsset" -OutFile $wFile -UseBasicParsing
+        } catch {
+          $found = $false
+          Say "warning: no Windows renox-worker in worker-v$workerVersion; dev and test need WSL 2"
+        }
+        if ($found) {
+          $wExpected = ((Get-Content -Raw -LiteralPath $wSha).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($wExpected -notmatch '^[0-9a-f]{64}$') { throw "$wAsset.sha256 does not hold a SHA-256 digest" }
+          $wActual = (Get-FileHash -Algorithm SHA256 -LiteralPath $wFile).Hash.ToLowerInvariant()
+          if ($wActual -ne $wExpected) { throw "checksum mismatch for ${wAsset}: expected $wExpected, got $wActual; renox-worker.exe not installed" }
+          $wDest = Join-Path $dir 'renox-worker.exe'
+          Move-Item -Force -LiteralPath $wFile -Destination $wDest
+          Say "renox-worker $workerVersion -> $wDest (renox finds it beside itself and checks its sha256 before running it)"
+        }
+      }
+    }
   } finally {
     Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue
   }
@@ -87,7 +129,7 @@ try {
       Say "added $dir to your user Path; open a new terminal to use it"
     }
   }
-  Say "next: renox new my-app; cd my-app; renox build (renox dev needs WSL 2 for now)"
+  Say "next: renox new my-app; cd my-app; renox build (renox dev needs renox-worker.exe, or WSL 2)"
 } catch {
   Say $_.Exception.Message
   exit 1

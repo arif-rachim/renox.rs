@@ -17,6 +17,12 @@ const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 let scratch = "";
 let server: ReturnType<typeof Bun.serve> | undefined;
 let digest = sha(binary);
+// The worker release (#531): the CLI release's worker-version.txt names it.
+const workerVersion = "8.8.8";
+const workerAsset = `renox-worker-${workerVersion}-x86_64-pc-windows-msvc.exe`;
+const workerBinary = Buffer.from("MZ fake renox-worker.exe\n");
+let workerDigest = sha(workerBinary);
+let workerPublished = true;
 
 beforeAll(() => {
   scratch = mkdtempSync(join(tmpdir(), "renox-install-ps1-"));
@@ -26,6 +32,9 @@ beforeAll(() => {
       const path = new URL(req.url).pathname;
       if (path === `/cli-v${version}/${asset}`) return new Response(binary);
       if (path === `/cli-v${version}/${asset}.sha256`) return new Response(`${digest}  ${asset}\n`);
+      if (path === `/cli-v${version}/worker-version.txt`) return new Response(`${workerVersion}\n`);
+      if (workerPublished && path === `/worker-v${workerVersion}/${workerAsset}`) return new Response(workerBinary);
+      if (workerPublished && path === `/worker-v${workerVersion}/${workerAsset}.sha256`) return new Response(`${workerDigest}  ${workerAsset}\n`);
       return new Response("not found", { status: 404 });
     },
   });
@@ -71,4 +80,42 @@ test.skipIf(!pwsh)("a wrong sha256 exits 1 and installs nothing", async () => {
   expect(code).toBe(1);
   expect(err).toContain("checksum mismatch");
   expect(existsSync(join(dir, "renox.exe"))).toBe(false);
+}, PWSH_TIMEOUT);
+
+test.skipIf(!pwsh)("the worker is installed beside renox.exe as renox-worker.exe after its sha256 check (#531)", async () => {
+  digest = sha(binary);
+  workerDigest = sha(workerBinary);
+  workerPublished = true;
+  const dir = join(scratch, "worker-ok");
+  const { code, err } = await install(dir);
+  expect(code).toBe(0);
+  expect(err).toContain(`renox-worker ${workerVersion}`);
+  expect(readFileSync(join(dir, "renox.exe")).equals(binary)).toBe(true);
+  expect(readFileSync(join(dir, "renox-worker.exe")).equals(workerBinary)).toBe(true);
+}, PWSH_TIMEOUT);
+
+test.skipIf(!pwsh)("a wrong worker sha256 exits 1 and installs no worker (#531)", async () => {
+  digest = sha(binary);
+  workerDigest = sha(Buffer.from("something else"));
+  workerPublished = true;
+  const dir = join(scratch, "worker-bad");
+  const { code, err } = await install(dir);
+  expect(code).toBe(1);
+  expect(err).toContain("checksum mismatch");
+  expect(existsSync(join(dir, "renox-worker.exe"))).toBe(false);
+}, PWSH_TIMEOUT);
+
+test.skipIf(!pwsh)("a worker release without a Windows build is a warning, and the CLI still installs (#531)", async () => {
+  digest = sha(binary);
+  workerPublished = false;
+  const dir = join(scratch, "worker-missing");
+  try {
+    const { code, err } = await install(dir);
+    expect(code).toBe(0);
+    expect(err).toContain(`no Windows renox-worker in worker-v${workerVersion}`);
+    expect(readFileSync(join(dir, "renox.exe")).equals(binary)).toBe(true);
+    expect(existsSync(join(dir, "renox-worker.exe"))).toBe(false);
+  } finally {
+    workerPublished = true;
+  }
 }, PWSH_TIMEOUT);

@@ -45,3 +45,24 @@ test("RENOX_WORKER_PATH wins over the platform check", () => {
 test("the worker file is renox-worker on Linux", () => {
   if (process.platform === "linux") expect(WORKER_FILE).toBe("renox-worker");
 });
+
+test("win32-x64 is a known target, but without a pinned sha256 the gate still fires (#531)", () => {
+  let err: unknown;
+  try {
+    workerPath(undefined, empty, {}, undefined, {}, "win32-x64");
+  } catch (e) {
+    err = e;
+  }
+  expect(err).toBeInstanceOf(WorkerUnavailableError);
+  expect((err as WorkerUnavailableError).code).toBe(UNAVAILABLE);
+  expect(formatError("dev", err as WorkerUnavailableError)).toContain("not yet pinned");
+  const w = join(empty, "w531");
+  writeFileSync(w, "");
+  expect(workerPath(w, empty, {}, undefined, {}, "win32-x64")).toBe(resolve(w));
+});
+
+test("a pinned triple passes the gate and reaches the lookup (#531)", () => {
+  expect(() => workerPath(undefined, empty, { "x86_64-pc-windows-msvc": "a".repeat(64) }, undefined, {}, "win32-x64", empty)).toThrow(
+    "no renox-worker binary",
+  );
+});
