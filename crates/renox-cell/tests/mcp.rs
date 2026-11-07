@@ -199,6 +199,7 @@ fn node(with_auth: bool) -> Node {
         serde_json::json!({ "API_KEY": SECRET }).to_string(),
     )
     .unwrap();
+    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(

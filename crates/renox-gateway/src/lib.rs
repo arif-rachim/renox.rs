@@ -26,7 +26,9 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, Response, StatusCo
 use hyper_util::rt::{TokioIo, TokioTimer};
 use limits::{BodyCheck, ConnectionLimiter, IdleTimeout, connection_limit_response};
 use protocol::Http1Guard;
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
 use tower::ServiceExt;
 
 pub mod client_events;
@@ -325,7 +327,8 @@ impl Gateway {
     /// (#414, ADR D25): `cloudflared` reaches it through a `unix:` origin.
     /// A peer whose uid is in [`ClientIpConfig::trusted_socket_uids`] is a
     /// trusted proxy; any other local process is served as [`client_ip::LOCAL_PEER`]
-    /// and its forwarding headers are ignored.
+    /// and its forwarding headers are ignored. Unix hosts only (#530).
+    #[cfg(unix)]
     pub async fn serve_unix<D: CellDispatcher>(
         &self,
         listener: UnixListener,
@@ -479,14 +482,34 @@ fn is_transient_accept_error(e: &std::io::Error) -> bool {
     matches!(
         e.kind(),
         ConnectionAborted | ConnectionReset | Interrupted | WouldBlock | OutOfMemory
-    ) || matches!(e.raw_os_error(), Some(ENFILE | EMFILE | ENOBUFS | ENOMEM))
+    ) || e.raw_os_error().is_some_and(is_transient_os_code)
 }
 
 // Linux errno values for "out of descriptors or memory, try again later".
-const ENFILE: i32 = 23;
-const EMFILE: i32 = 24;
-const ENOBUFS: i32 = 105;
-const ENOMEM: i32 = 12;
+#[cfg(unix)]
+fn is_transient_os_code(code: i32) -> bool {
+    const ENFILE: i32 = 23;
+    const EMFILE: i32 = 24;
+    const ENOBUFS: i32 = 105;
+    const ENOMEM: i32 = 12;
+    matches!(code, ENFILE | EMFILE | ENOBUFS | ENOMEM)
+}
+
+// Winsock error codes for the same condition, and for a connection reset
+// while it sat in the accept queue (#530).
+#[cfg(windows)]
+fn is_transient_os_code(code: i32) -> bool {
+    const WSAEMFILE: i32 = 10024;
+    const WSAENOBUFS: i32 = 10055;
+    const WSAECONNRESET: i32 = 10054;
+    matches!(code, WSAEMFILE | WSAENOBUFS | WSAECONNRESET)
+}
+
+// Other targets: only the error kinds above count.
+#[cfg(not(any(unix, windows)))]
+fn is_transient_os_code(_code: i32) -> bool {
+    false
+}
 
 async fn handle<D: CellDispatcher>(
     State(state): State<AppState<D>>,

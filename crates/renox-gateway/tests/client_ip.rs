@@ -5,6 +5,8 @@
 //! `docs/24-threat-model.md` A, "Forged client-IP header" and "Local
 //! process forges the client-IP header".
 
+#![cfg(unix)]
+
 mod common;
 
 use std::net::IpAddr;

@@ -104,6 +104,11 @@ tracing-opentelemetry = { version = "0.34", default-features = false }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# `GetDiskFreeSpaceExW` for the disk monitor on Windows (src/disk.rs, #530); the
+# same windows-sys as renox-runtime, so no new package.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
 # The sandbox of #253 (src/sandbox/): Landlock rules and a seccomp
 # allowlist, both pure Rust (no libseccomp).
 [target.'cfg(target_os = "linux")'.dependencies]

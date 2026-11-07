@@ -401,6 +401,7 @@ fn sandbox_selftest(_config_path: PathBuf) -> ExitCode {
     ExitCode::FAILURE
 }
 
+#[cfg(unix)]
 /// `--child <tenant> --socket <path>` (#254): one paid tenant's own worker,
 /// started by the supervisor (`renox_cell::supervisor::child`).
 fn child(config_path: PathBuf, tenant: String, socket: PathBuf) -> ExitCode {
@@ -478,6 +479,7 @@ async fn run(config: WorkerConfig) -> ExitCode {
         }
     };
     let _flush = FlushOnDrop(provider);
+    let routes_file = config.routes_file.clone();
     let worker = match Worker::start(config).await {
         Ok(w) => w,
         Err(e) => {
@@ -485,16 +487,16 @@ async fn run(config: WorkerConfig) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mut hup = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
-        Ok(s) => s,
+    let mut reload = match ReloadTrigger::new(routes_file) {
+        Ok(t) => t,
         Err(e) => {
-            tracing::error!(error = %e, "install the SIGHUP handler");
+            tracing::error!(error = %e, "install the route reload trigger");
             return ExitCode::FAILURE;
         }
     };
     loop {
         tokio::select! {
-            _ = hup.recv() => {
+            () = reload.fired() => {
                 if let Err(e) = worker.reload_routes() {
                     tracing::error!(error = %e, "route table reload refused; the previous table stays in use");
                 }
@@ -503,6 +505,61 @@ async fn run(config: WorkerConfig) -> ExitCode {
                 tracing::info!("shutting down");
                 worker.shutdown().await;
                 return ExitCode::SUCCESS;
+            }
+        }
+    }
+}
+
+/// What asks the worker to re-read its routes file: `SIGHUP` on Unix.
+#[cfg(unix)]
+struct ReloadTrigger(tokio::signal::unix::Signal);
+
+#[cfg(unix)]
+impl ReloadTrigger {
+    fn new(_routes_file: PathBuf) -> std::io::Result<Self> {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).map(Self)
+    }
+
+    async fn fired(&mut self) {
+        self.0.recv().await;
+    }
+}
+
+/// Without signals (Windows, #442, #530) the routes file is polled: a change
+/// of its modification time asks for a reload.
+#[cfg(not(unix))]
+struct ReloadTrigger {
+    file: PathBuf,
+    seen: Option<std::time::SystemTime>,
+    tick: tokio::time::Interval,
+}
+
+#[cfg(not(unix))]
+impl ReloadTrigger {
+    const POLL: std::time::Duration = std::time::Duration::from_millis(500);
+
+    fn new(file: PathBuf) -> std::io::Result<Self> {
+        let seen = Self::mtime(&file);
+        Ok(Self {
+            file,
+            seen,
+            tick: tokio::time::interval(Self::POLL),
+        })
+    }
+
+    fn mtime(file: &std::path::Path) -> Option<std::time::SystemTime> {
+        std::fs::metadata(file).and_then(|m| m.modified()).ok()
+    }
+
+    /// Resolves when the file's mtime differs from the last one seen. A file
+    /// that is briefly missing (an editor replacing it) is not a change.
+    async fn fired(&mut self) {
+        loop {
+            self.tick.tick().await;
+            let now = Self::mtime(&self.file);
+            if now.is_some() && now != self.seen {
+                self.seen = now;
+                return;
             }
         }
     }

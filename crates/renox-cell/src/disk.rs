@@ -123,8 +123,9 @@ impl Usage {
 }
 
 /// `statvfs(2)` of the file system holding `path`, on every Unix target;
-/// elsewhere it answers `Unsupported`, the monitor logs one warning and
-/// stops, and the level stays `ok` (development hosts, #465).
+/// `GetDiskFreeSpaceExW` on Windows (#530); on any other target it answers
+/// `Unsupported`, the monitor logs one warning and stops, and the level
+/// stays `ok` (development hosts, #465).
 #[cfg(unix)]
 // The `statvfs` fields are C typedefs whose width depends on the target.
 #[allow(clippy::unnecessary_cast)]
@@ -149,7 +150,26 @@ pub fn usage(path: &Path) -> std::io::Result<Usage> {
     })
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn usage(path: &Path) -> std::io::Result<Usage> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    if wide[..wide.len() - 1].contains(&0) {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
+    let (mut available, mut total, mut free) = (0u64, 0u64, 0u64);
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path with no interior NUL,
+    // and the three out-pointers address live `u64`s the call writes; they
+    // are read only after the call reported success (non-zero).
+    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut available, &mut total, &mut free) };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(Usage { total, available })
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn usage(_path: &Path) -> std::io::Result<Usage> {
     Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
 }

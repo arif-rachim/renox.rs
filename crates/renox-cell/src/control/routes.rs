@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::control::degraded::SnapshotFile;
 use crate::manager::{CellManager, DeploymentLookup, DeploymentMeta};
-use crate::supervisor::{ProcessKind, ProcessLookup};
+use crate::process::{ProcessKind, ProcessLookup};
 use crate::tiers::TierName;
 
 /// A route entry with the F3 fields (`control-messages.schema.json`
