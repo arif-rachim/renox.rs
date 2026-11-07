@@ -4,12 +4,13 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 ## 0.1.6 (unreleased)
 
-The CLI pins `renox-worker` 0.4.0 (#526), the first worker release with the pdf variant and a native Windows build.
+The CLI pins `renox-worker` 0.4.0 (#526, #532), the first worker release with the pdf variant and a native Windows build.
 
 **Worker**
 
 - Pins `renox-worker` 0.4.0 for the four Linux and macOS targets, with the pdf variant available: `RENOX_WORKER_VARIANT=pdf` in `install.sh`, `fetch-worker.ts --pdf` from a checkout (#524, #526).
 - Apps with only `.html` pages and `public/` files (an empty `code.entry`, #495) now run in `renox dev` and `renox test`: 0.4.0 starts no isolate for them.
+- Pins the native Windows x64 development worker, `renox-worker-0.4.0-x86_64-pc-windows-msvc.exe`: on Windows, `renox dev`, `renox test`, `migrate` and apps with `.html` pages or policies run natively, without WSL 2, and no longer stop with `RENOX_CLI_WORKER_UNAVAILABLE` (#532, #442). `install.ps1` installs it beside `renox.exe`. No pdf variant on Windows.
 
 ## 0.1.5 (2026-11-07)
 

@@ -28,7 +28,7 @@ const dir = (): string => {
 };
 
 const TARGET = "x86_64-unknown-linux-gnu";
-const TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"].map((p) => targetTriple(...(p.split("-") as [string, string])));
+const TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"].map((p) => targetTriple(...(p.split("-") as [string, string])));
 const BODY = "#!/bin/sh\necho fake renox-worker\n";
 
 /** A fake worker and a pin table that pins it. */

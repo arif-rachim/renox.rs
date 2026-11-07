@@ -47,6 +47,8 @@ export const PINNED_WORKER: {
     "aarch64-unknown-linux-gnu": "09da4715aa2b42b0552a0a831b684cc59097af3aa69947e25c9956f81ea2a3ad",
     "x86_64-apple-darwin": "be34809364b249b51682c4640bce5f30dccbfb260ef810ee6238f3b9ce4e2c03",
     "aarch64-apple-darwin": "e0f097564663f1b37c9f059549e3a417fc82adafc2c4e871df8e1dd3345a60cd",
+    // The development worker for Windows (#531, #532): renox-worker-<version>-x86_64-pc-windows-msvc.exe.
+    "x86_64-pc-windows-msvc": "9ab68b85f0f8be0efbc46068804bc70feca1bf6499e2083e5954e1c8bf07eb95",
   },
   pdf: {
     "x86_64-unknown-linux-gnu": "0d7a56c84e4c3d657223e3223f67e05fb22e6f246efb32673522fffbd82fc71f",

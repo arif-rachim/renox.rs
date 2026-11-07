@@ -21,7 +21,7 @@ export { WORKER_FILE };
 
 export const UNAVAILABLE = "RENOX_CLI_WORKER_UNAVAILABLE";
 
-/** This platform has no renox-worker build, or none is pinned in this CLI yet (Windows today): the command needs one (#441, #442). */
+/** This platform has no renox-worker build, or none is pinned in this CLI (Windows arm64; Windows x64 is pinned from worker 0.4.0, #532): the command needs one (#441, #442). */
 export class WorkerUnavailableError extends EnvironmentError {
   readonly code = UNAVAILABLE;
   constructor(readonly target: string) {

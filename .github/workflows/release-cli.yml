@@ -129,7 +129,9 @@ jobs:
               echo "::warning::worker-v$WORKER predates signed releases (#129): its .sha256 assets are not signed"
             fi
             tail -n +2 <<< "$pins" | grep -v '^pdf ' | while read -r target hash; do
-              f="$dir/renox-worker-$WORKER-$target.sha256"
+              # The Windows build is an .exe (#532): its asset is renox-worker-<v>-x86_64-pc-windows-msvc.exe.sha256.
+              ext=""; [[ "$target" == *-windows-* ]] && ext=".exe"
+              f="$dir/renox-worker-$WORKER-$target$ext.sha256"
               [[ -f "$f" ]] || fail "worker-v$WORKER has no $target build, but PINNED_WORKER pins one"
               released=$(cut -d ' ' -f 1 "$f")
               [[ "$released" == "$hash" ]] || fail "PINNED_WORKER pins $hash for $target, worker-v$WORKER has $released"
