@@ -153,6 +153,7 @@ All commands as root on the host unless the step says otherwise.
      --blocked-addresses <public IPv4>,<public IPv6>,127.0.0.1 \
      --node-token-file /root/node.token.placeholder
    ```
+   Add `--worker-variant pdf` when the node runs apps that call `ctx.pdf` (the `tax_gcc` invoices, `reports`): the default release build answers `pdf_unavailable`. The script downloads `renox-worker-<version>-<target>-pdf.gz`, checks it against its `.sha256`, unpacks it and records the variant in `/opt/renox/worker-variant`. Changing the variant of an installed version needs no `--upgrade`; the worker restarts.
    This installs the worker, Litestream and cloudflared (each SHA-256 verified), the units and timers, the `renox-control` user, the group `renox-edge` and the user `renox-tunnel`, `/etc/tmpfiles.d/renox-edge.conf` (and `/run/renox-edge`), `/etc/renox/platform.key` (renox:renox 0400), and the templates `/etc/renox/worker.toml`, `control.env` and `tunnel/config.yml`. It enables nothing yet. Every template is written once; a second run leaves your edits alone, and sets `node.token` and `platform.key` back to renox:renox 0400 if an older bootstrap left them root:renox 0640 (the worker refuses those).
 6. **Control plane.** Fill in `/etc/renox/control.env`: every `@…@` value, the mail keys, the artifacts bucket, and `CONTROL_CF_*` (owner list, step 2; without them `addDomain` answers 503). Then:
    ```
