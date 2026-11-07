@@ -79,3 +79,24 @@ test("two v8 versions in the lockfile fail", () => {
   expect(p.exitCode).toBe(1);
   expect(p.stderr.toString()).toContain("more than one v8 version");
 });
+
+test("a windows-msvc target fetches the rusty_v8_*.lib.gz name (no lib prefix)", () => {
+  const winTarget = "x86_64-pc-windows-msvc";
+  const name = `rusty_v8_simdutf_release_${winTarget}.lib.gz`;
+  const winEntry = `v150.4.0/${name}`;
+  const winSums = join(dir, "win-checksums.txt");
+  writeFileSync(winSums, `${sha}  ${winEntry}\n${"0".repeat(64)}  ${entry}\n`);
+  writeFileSync(join(mirror, winEntry), archive);
+  const out = join(dir, "win");
+  const p = Bun.spawnSync(["bash", script, "fetch", winTarget, out], {
+    env: {
+      ...process.env,
+      RENOX_V8_MIRROR: `file://${mirror}`,
+      RENOX_V8_CHECKSUMS: winSums,
+      RENOX_CARGO_LOCK: join(dir, "Cargo.lock"),
+    },
+  });
+  expect(p.exitCode).toBe(0);
+  expect(p.stdout.toString().trim()).toBe(join(out, name));
+  expect(p.stderr.toString()).toContain("rusty_v8 archive verified");
+});
