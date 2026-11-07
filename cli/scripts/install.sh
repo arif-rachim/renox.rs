@@ -21,6 +21,10 @@
 #                        <base>/<tag>/<asset>), for a mirror or the release workflow's smoke test
 #   RENOX_RELEASE_REPO   owner/repo (default: arif-rachim/renox.rs)
 #   RENOX_NO_WORKER=1    skip the worker (renox new, check, and build of an app without templates/ do not need it)
+#   RENOX_WORKER_VARIANT=default|pdf
+#                        default: the release build; pdf: the build with ctx.pdf, fetched as
+#                        renox-worker-<version>-<rust target>-pdf.gz, verified, unpacked and
+#                        installed as renox-worker (default: default)
 #   RENOX_REQUIRE_SIGNATURE=1
 #                        refuse to install without a verified sigstore signature (needs cosign)
 #
@@ -156,6 +160,12 @@ mkdir -p "$DIR"
 fetch_verified "cli-v$version" "renox-$version-$os-$arch" "$DIR/renox" release-cli cli-v
 say "renox $version -> $DIR/renox"
 
+variant=${RENOX_WORKER_VARIANT:-default}
+case $variant in
+  default | pdf) ;;
+  *) die "RENOX_WORKER_VARIANT must be default or pdf" ;;
+esac
+
 if [ "${RENOX_NO_WORKER:-}" != 1 ]; then
   get "$BASE/cli-v$version/worker-version.txt" "$TMP/worker-version.txt"
   worker=$(tr -d ' \r\n' <"$TMP/worker-version.txt")
@@ -167,11 +177,24 @@ if [ "${RENOX_NO_WORKER:-}" != 1 ]; then
     darwin-arm64) target=aarch64-apple-darwin ;;
   esac
   asset="renox-worker-$worker-$target"
+  [ "$variant" = pdf ] && asset="$asset-pdf.gz"
   # Worker releases from 0.3.0 on carry all four targets; an older pin may
   # lack one, and the CLI still builds and checks without it.
   if (get "$BASE/worker-v$worker/$asset.sha256" "$TMP/probe") 2>/dev/null; then
-    fetch_verified "worker-v$worker" "$asset" "$DIR/renox-worker" release-worker worker-v
-    say "renox-worker $worker -> $DIR/renox-worker (renox finds it beside itself and checks its sha256 before running it)"
+    if [ "$variant" = pdf ]; then
+      # The .gz is what the .sha256 and the signature cover; unpack it only after both match.
+      fetch_verified "worker-v$worker" "$asset" "$TMP/$asset.verified" release-worker worker-v
+      gunzip -c "$TMP/$asset.verified" >"$DIR/renox-worker.tmp" || {
+        rm -f "$DIR/renox-worker.tmp"
+        die "could not unpack $asset; nothing installed"
+      }
+      chmod 755 "$DIR/renox-worker.tmp"
+      mv -f "$DIR/renox-worker.tmp" "$DIR/renox-worker"
+      say "renox-worker $worker (pdf) installed -> $DIR/renox-worker (renox finds it beside itself and checks its sha256 before running it)"
+    else
+      fetch_verified "worker-v$worker" "$asset" "$DIR/renox-worker" release-worker worker-v
+      say "renox-worker $worker -> $DIR/renox-worker (renox finds it beside itself and checks its sha256 before running it)"
+    fi
   else
     say "no renox-worker $worker build for $os-$arch yet; renox new, check, and build without templates/ work without it; renox dev needs RENOX_WORKER_PATH"
   fi

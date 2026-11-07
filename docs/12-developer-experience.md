@@ -98,10 +98,10 @@ For a worker use `release-worker\.yml@refs/tags/worker-v` and the worker release
 | Worker | `ctx.pdf.render` | How you get it |
 | --- | --- | --- |
 | Default release build, `renox-worker-<version>-<target>` | fails with `RENOX_INTERNAL`, `details.reason: "pdf_unavailable"`; everything else works | `install.sh`, `bun cli/scripts/fetch-worker.ts` |
-| PDF variant, `renox-worker-<version>-<target>-pdf.gz` | renders | `bun cli/scripts/fetch-worker.ts --pdf`, or by hand (below) |
+| PDF variant, `renox-worker-<version>-<target>-pdf.gz` | renders | `RENOX_WORKER_VARIANT=pdf` with `install.sh` (it verifies the `.gz`, unpacks it and installs it as `renox-worker`), `bun cli/scripts/fetch-worker.ts --pdf`, or by hand (below) |
 | Built from a checkout, `cargo build --release -p renox-cell --bin renox-worker` (the `pdf` feature is on by default) | renders | `RENOX_WORKER_PATH=target/release/renox-worker` (not verified) |
 
-The variant is published gzip-compressed: the `.gz` is what `SHA256SUMS`, its signature and the provenance cover, and the `.gz` is small enough for cosign. `SHA256SUMS.unpacked`, signed as well, lists the sha256 of each binary after `gunzip`, and the CLI pins those hashes beside the default ones (`PINNED_WORKER.pdf`), so it runs either build and refuses anything else with `RENOX_CLI_WORKER_UNVERIFIED`. `fetch-worker.ts --pdf` checks the `.gz` against its `.sha256`, unpacks it and installs it as `renox-worker`; run it without `--pdf` to go back. With an installed `renox` and no checkout, verify and unpack the variant by hand, then point `renox dev` at it:
+The variant is published gzip-compressed: the `.gz` is what `SHA256SUMS`, its signature and the provenance cover, and the `.gz` is small enough for cosign. `SHA256SUMS.unpacked`, signed as well, lists the sha256 of each binary after `gunzip`, and the CLI pins those hashes beside the default ones (`PINNED_WORKER.pdf`), so it runs either build and refuses anything else with `RENOX_CLI_WORKER_UNVERIFIED`. `fetch-worker.ts --pdf` checks the `.gz` against its `.sha256`, unpacks it and installs it as `renox-worker`; run it without `--pdf` to go back. `RENOX_WORKER_VARIANT=pdf sh install.sh` does the same for an installed `renox` (any other value but `default` is refused); run it without the variable to go back. With an installed `renox` and no checkout, verify and unpack the variant by hand, then point `renox dev` at it:
 
 ```sh
 v=0.4.0; a=renox-worker-$v-x86_64-unknown-linux-gnu-pdf
