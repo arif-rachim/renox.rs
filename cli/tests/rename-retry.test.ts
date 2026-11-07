@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { requireSdkInstalled } from "../src/commands/test.ts";
 import { EnvironmentError } from "../src/errors.ts";
-import { renameRetry } from "../src/lib/rename.ts";
+import { removeRetry, renameRetry } from "../src/lib/rename.ts";
 
 const root = mkdtempSync(join(tmpdir(), "renox-rename-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -60,4 +60,13 @@ test("renox test without bun install: names bun install", () => {
   writeFileSync(join(app, "package.json"), JSON.stringify({}));
   expect(() => requireSdkInstalled(app, missing)).not.toThrow();
   expect(() => requireSdkInstalled(join(root, "none"), missing)).not.toThrow();
+});
+
+test("removeRetry removes a folder, and a missing path is fine", () => {
+  const d = join(root, "gone");
+  mkdirSync(join(d, "sub"), { recursive: true });
+  writeFileSync(join(d, "sub", "f"), "x");
+  removeRetry(d);
+  expect(existsSync(d)).toBe(false);
+  expect(() => removeRetry(join(root, "never-was"))).not.toThrow();
 });

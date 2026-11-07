@@ -10,7 +10,7 @@
 // bypass). It never exists in what `renox build` or `renox deploy` produce.
 
 import { Database } from "bun:sqlite";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -19,6 +19,7 @@ import { check, type CheckReport } from "../commands/check.ts";
 import { migrateArtifact, type MigrateReport } from "../commands/migrate.ts";
 import { EnvironmentError, UserError } from "../errors.ts";
 import { readModulesTable } from "./modules/resolve.ts";
+import { removeRetry } from "./rename.ts";
 import { buildArtifact } from "./build.ts";
 import { hashFiles } from "./hash.ts";
 import { toPosix } from "./paths.ts";
@@ -339,7 +340,8 @@ export async function startTestWorker(spec: TestSpec): Promise<TestWorker> {
       w.kill("SIGTERM");
       await Promise.race([w.exited, Bun.sleep(3000)]);
       if (code === undefined) w.kill("SIGKILL");
-      rmSync(state, { recursive: true, force: true });
+      // On Windows the exited worker's files stay locked for a moment (EBUSY).
+      removeRetry(state);
     },
   };
 }

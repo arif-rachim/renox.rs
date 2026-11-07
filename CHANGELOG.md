@@ -12,6 +12,10 @@ Fixes from the first native Windows use of 0.1.6.
 - `renox dev` and `renox build` retry the rename of a just-written artifact or source-map folder while Windows reports `EPERM`, `EACCES` or `EBUSY` (a virus scanner or indexer holding it). An already existing content-addressed folder is kept. Before, `renox dev` printed `build failed: EPERM: operation not permitted, rename ...\.renox\sourcemaps\...` now and then.
 - `renox test` in an app whose `@renoxium/sdk` is not installed says to run `bun install`, instead of bun's `Cannot find module '@renoxium/sdk/test'`.
 
+**SDK**
+
+- `@renoxium/sdk/test`: `app()` closes its read-only database before the test worker's folder is removed. On Windows the open file made `renox test` end with `EBUSY: resource busy or locked, rm '...\renox-test-...'` and a failed unnamed test after the app's tests had passed. The CLI's harness also retries that removal and leaves the folder with a warning instead of failing.
+
 ## 0.1.6 (2026-11-07)
 
 The CLI pins `renox-worker` 0.4.0 (#526, #532), the first worker release with the pdf variant and a native Windows build.
