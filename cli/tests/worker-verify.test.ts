@@ -66,9 +66,10 @@ test("the pins are for the pinned worker version and known targets", () => {
 
 test("a worker with the pinned sha256 runs; one corrupted byte is refused with both hashes", () => {
   const { path, pinned } = pinnedWorker();
-  verifyPinned(path, TARGET, pinned);
+  // No pdf pins: the message names only the default build's (the real PINNED_WORKER.pdf would add " or <hex> (pdf)").
+  verifyPinned(path, TARGET, pinned, {});
   corrupt(path);
-  const e = refusal(() => verifyPinned(path, TARGET, pinned));
+  const e = refusal(() => verifyPinned(path, TARGET, pinned, {}));
   const actual = sha256Hex(readFileSync(path));
   expect(e.code).toBe(CODE);
   expect(e.exitCode).toBe(EXIT.ENVIRONMENT);
@@ -133,7 +134,7 @@ test("--worker: a pinned hash runs without cosign", () => {
 test("--worker: an unsigned worker, or a corrupted pinned one, is refused", () => {
   const { path, pinned } = pinnedWorker();
   corrupt(path);
-  const e = refusal(() => verifyExternal(path, { target: TARGET, pinned }));
+  const e = refusal(() => verifyExternal(path, { target: TARGET, pinned, pdf: {} }));
   expect(e.message).toContain(`it is not the pinned worker and has no signature (${path}.sigstore.json)`);
   expect(e.message).toContain(`expected sha256 ${pinned[TARGET]}, actual ${sha256Hex(readFileSync(path))}`);
   // A signature but no provenance.

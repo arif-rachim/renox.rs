@@ -36,7 +36,7 @@ On Linux or macOS (x64 or arm64):
 ```sh
 curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.5/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.3 (renox-worker 0.3.0)
+renox --version                          # renox 0.1.6 (renox-worker 0.4.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -112,7 +112,7 @@ gunzip -c $a.gz > renox-worker-pdf && chmod +x renox-worker-pdf
 renox dev --worker ./renox-worker-pdf
 ```
 
-`renox dev --worker` accepts it by its pinned hash once the CLI pins that worker release. `worker-v0.3.0`, which CLI 0.1.3 pins, has no PDF variant: until a CLI pins a release that does, use a checkout build through `RENOX_WORKER_PATH`. Production nodes run the variant their operator installs; apps that call `ctx.pdf` (the `tax_gcc` invoices, `reports`) need the PDF variant there too.
+`renox dev --worker` accepts it by its pinned hash: the CLI pins `worker-v0.4.0`, the first release with the PDF variant, for the four Linux and macOS targets (there is no PDF variant for Windows). `bun cli/scripts/fetch-worker.ts --pdf` and `RENOX_WORKER_VARIANT=pdf` in `install.sh` do the same steps. Production nodes run the variant their operator installs; apps that call `ctx.pdf` (the `tax_gcc` invoices, `reports`) need the PDF variant there too.
 
 ## Build with an AI agent
 
