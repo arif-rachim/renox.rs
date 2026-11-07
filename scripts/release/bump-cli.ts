@@ -6,6 +6,7 @@
 // Bumps the version and the install lines, dates the CHANGELOG entry
 // "## <version> (unreleased)" (write the notes first), runs the tests, then
 // commits, tags and pushes main. Pin a new worker first: bun run pin-worker.
+// bun run bump-version is the wizard over this and the worker steps.
 
 import {
   type Flags,
@@ -20,9 +21,11 @@ import {
   preflight,
   regenerateLlms,
   read,
+  renameUnreleased,
   replaceIn,
   review,
   run,
+  setUnreleased,
   today,
   write,
 } from "./lib.ts";
@@ -35,12 +38,18 @@ export const INSTALL_DOCS = [
   "docs/tutorial/01-install.md",
 ];
 
-const pkgVersion = (file: string): string => (JSON.parse(read(file)) as { version: string }).version;
+export const pkgVersion = (file: string): string => (JSON.parse(read(file)) as { version: string }).version;
 
-/** Applies every file change of a release from `from` to `to`, except www/public/llms-full.txt (regenerated). */
-export const applyCliBump = (from: string, to: string, date: string): void => {
+/**
+ * Applies every file change of a release from `from` to `to`, except
+ * www/public/llms-full.txt (regenerated). `notes` replaces the body of the
+ * unreleased CHANGELOG entry; without them the entry must exist.
+ */
+export const applyCliBump = (from: string, to: string, date: string, notes?: string): void => {
   // First: without release notes nothing else changes.
-  write("CHANGELOG.md", changelogRelease(read("CHANGELOG.md"), to, date));
+  let changelog = read("CHANGELOG.md");
+  changelog = notes === undefined ? renameUnreleased(changelog, to) : setUnreleased(changelog, to, notes);
+  write("CHANGELOG.md", changelogRelease(changelog, to, date));
   const f = escapeRe(from);
   for (const pkg of ["cli/package.json", "sdk/package.json"])
     replaceIn(pkg, new RegExp(`^  "version": "${f}",$`, "mu"), `  "version": "${to}",`);
@@ -61,26 +70,27 @@ const tests = (flags: Flags): void =>
     ["bun", "test", "cli/tests", "sdk/tests", "control/dashboard/tests/onboarding.test.ts", "www/tests/llms.test.ts"],
   );
 
-const tagOnly = (flags: Flags): void => {
+const watchHint = (tag: string): string =>
+  `pushed ${tag}. Watch: gh run list --workflow release-cli.yml -L1; gh run list --workflow release-sdk.yml -L1`;
+
+/** Tags the release commit already on main at `version` (default: cli/package.json's) and pushes the tag. */
+export const tagCli = (version: string | undefined, flags: Flags): void => {
   const current = pkgVersion("cli/package.json");
-  const version = flags.positional[0] ?? current;
-  if (version !== current) throw new Error(`cli/package.json says ${current}, not ${version}: run bump-cli ${version} instead`);
-  if (pkgVersion("sdk/package.json") !== version) throw new Error(`sdk/package.json is not ${version}`);
-  const tag = `cli-v${version}`;
+  const v = version ?? current;
+  if (v !== current) throw new Error(`cli/package.json says ${current}, not ${v}: run bump-cli ${v} instead`);
+  if (pkgVersion("sdk/package.json") !== v) throw new Error(`sdk/package.json is not ${v}`);
+  const tag = `cli-v${v}`;
   preflight(tag, flags);
   console.log(`tag ${tag} on ${run(["git", "log", "--oneline", "-1"], { quiet: true })}`);
   if (flags.dryRun) return console.log("dry run: nothing tagged or pushed.");
   confirm(`Tag ${tag} and push it (starts release-cli and release-sdk)?`, flags);
   run(["git", "tag", "-a", tag, "-m", tag]);
   run(["git", "push", "origin", tag]);
-  console.log(`\npushed ${tag}. Watch: gh run list --workflow release-cli.yml -L1; gh run list --workflow release-sdk.yml -L1`);
+  console.log(`\n${watchHint(tag)}`);
 };
 
-if (import.meta.main) cli(() => {
-  const flags = parseFlags(process.argv.slice(2));
-  if (flags.tagOnly) return tagOnly(flags);
-  const arg = flags.positional[0];
-  if (!arg) throw new Error("usage: bun run bump-cli <patch|minor|major|x.y.z> [--dry-run] [--yes] | --tag-only [x.y.z]");
+/** Bumps the CLI and SDK by `arg`, commits, tags cli-v<version> and pushes. Returns the version. */
+export const releaseCli = (arg: string, flags: Flags, notes?: string): string => {
   const from = pkgVersion("cli/package.json");
   const sdk = pkgVersion("sdk/package.json");
   if (sdk !== from) throw new Error(`cli/package.json (${from}) and sdk/package.json (${sdk}) differ; fix that first`);
@@ -89,12 +99,21 @@ if (import.meta.main) cli(() => {
   console.log(`CLI + SDK ${from} -> ${to} (tag ${tag})`);
   preflight(tag, flags);
 
-  applyCliBump(from, to, today());
+  applyCliBump(from, to, today(), notes);
   regenerateLlms();
   tests(flags);
   review(flags);
 
   confirm(`Commit, tag ${tag} and push to main?`, flags);
   commitTagPush(`Release ${tag}\n\nVersion ${to} for the CLI, create-renox and @renoxium/sdk; the install\nline moves to ${tag}; CHANGELOG dates the ${to} entry.`, tag);
-  console.log(`\npushed ${tag}. Watch: gh run list --workflow release-cli.yml -L1; gh run list --workflow release-sdk.yml -L1`);
+  console.log(`\n${watchHint(tag)}`);
+  return to;
+};
+
+if (import.meta.main) cli(() => {
+  const flags = parseFlags(process.argv.slice(2));
+  if (flags.tagOnly) return tagCli(flags.positional[0], flags);
+  const arg = flags.positional[0];
+  if (!arg) throw new Error("usage: bun run bump-cli <patch|minor|major|x.y.z> [--dry-run] [--yes] | --tag-only [x.y.z]");
+  releaseCli(arg, flags);
 });

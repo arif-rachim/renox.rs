@@ -2,7 +2,8 @@
 // A release commit goes straight to main with its tag: no branch, no PR.
 // See CLAUDE.md, "Releases".
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 export const ROOT = resolve(import.meta.dir, "../..");
@@ -277,4 +278,68 @@ export const changelogRelease = (changelog: string, version: string, date: strin
     section = lines.join("\n");
   }
   return changelog.slice(0, start) + section + changelog.slice(end);
+};
+
+/** The body of the "(unreleased)" entry (without its heading), or null. */
+export const unreleasedBody = (changelog: string): string | null => {
+  const start = changelog.search(UNRELEASED);
+  if (start === -1) return null;
+  const section = changelog.slice(start, sectionEnd(changelog, start));
+  return section.slice(section.indexOf("\n") + 1).trim();
+};
+
+/** Sets the "(unreleased)" entry to `## <version> (unreleased)` + `body`, replacing it or adding it first. */
+export const setUnreleased = (changelog: string, version: string, body: string): string => {
+  const entry = `## ${version} (unreleased)\n\n${body.trim()}\n\n`;
+  const start = changelog.search(UNRELEASED);
+  if (start !== -1) return changelog.slice(0, start) + entry + changelog.slice(sectionEnd(changelog, start));
+  const first = changelog.search(/^## /mu);
+  const at = first === -1 ? changelog.length : first;
+  return changelog.slice(0, at) + entry + changelog.slice(at);
+};
+
+/** Renames the "(unreleased)" entry to `version` when it carries another one (a minor instead of the patch). */
+export const renameUnreleased = (changelog: string, version: string): string => {
+  const found = unreleasedVersion(changelog);
+  return found && found !== version ? changelog.replace(UNRELEASED, `## ${version} (unreleased)`) : changelog;
+};
+
+/** The newest tag `<prefix><x.y.z>`, or null. */
+export const lastTag = (prefix: string): string | null => {
+  const tags = git("tag", "--list", `${prefix}*`).split("\n").filter((t) => /^\d+\.\d+\.\d+$/u.test(t.slice(prefix.length)));
+  tags.sort((a, b) => compare(b.slice(prefix.length), a.slice(prefix.length)));
+  return tags[0] ?? null;
+};
+
+/** Subjects of the non-merge commits since `tag` that touch `paths`, oldest first. */
+export const commitsSince = (tag: string | null, paths: string[]): string[] =>
+  git("log", "--no-merges", "--reverse", "--format=%s", ...(tag ? [`${tag}..HEAD`] : ["HEAD"]), "--", ...paths)
+    .split("\n")
+    .filter(Boolean);
+
+/** A numbered menu; returns the index of the choice (Enter: the first). */
+export const choose = (question: string, options: string[]): number => {
+  console.log(`\n${question}`);
+  options.forEach((o, i) => console.log(`  ${i + 1}) ${o}`));
+  for (;;) {
+    const answer = (prompt(`choice [1-${options.length}, Enter = 1]:`) ?? "").trim();
+    if (answer === "") return 0;
+    const n = Number(answer);
+    if (Number.isInteger(n) && n >= 1 && n <= options.length) return n - 1;
+    console.log("not a choice.");
+  }
+};
+
+/** Opens `text` in the git editor (VISUAL, EDITOR or core.editor) and returns what was saved. */
+export const editText = (text: string): string => {
+  const file = join(tmpdir(), `renox-release-notes-${process.pid}.md`);
+  writeFileSync(file, text);
+  const editor = process.env.VISUAL ?? process.env.EDITOR ?? git("var", "GIT_EDITOR");
+  const line = `${editor} "${file}"`;
+  const shell = process.platform === "win32" ? ["cmd", "/c", line] : ["sh", "-c", line];
+  const p = Bun.spawnSync(shell, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  if (p.exitCode !== 0) throw new Error(`editor exited with ${p.exitCode}: ${editor}`);
+  const out = readFileSync(file, "utf8").replace(/\r\n/gu, "\n");
+  rmSync(file, { force: true });
+  return out;
 };

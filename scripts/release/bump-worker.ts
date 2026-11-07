@@ -3,9 +3,10 @@
 // Releases renox-worker: sets the version of crates/renox-cell (Cargo.toml
 // and its Cargo.lock entry, which release-worker.yml checks against the tag),
 // checks the lockfile, then commits, tags worker-v<version> and pushes main.
-// When release-worker.yml is green: bun run pin-worker.
+// When release-worker.yml is green: bun run pin-worker (or bun run bump-version).
 
 import {
+  type Flags,
   cli,
   commitTagPush,
   confirm,
@@ -21,12 +22,16 @@ import {
 
 const MANIFEST = "crates/renox-cell/Cargo.toml";
 
-if (import.meta.main) cli(() => {
-  const flags = parseFlags(process.argv.slice(2));
-  const arg = flags.positional[0];
-  if (!arg) throw new Error("usage: bun run bump-worker <patch|minor|major|x.y.z> [--dry-run] [--yes]");
-  const from = /^version = "(\d+\.\d+\.\d+)"$/mu.exec(read(MANIFEST))?.[1];
-  if (!from) throw new Error(`${MANIFEST}: no version line`);
+/** The version in crates/renox-cell/Cargo.toml. */
+export const cargoVersion = (): string => {
+  const v = /^version = "(\d+\.\d+\.\d+)"$/mu.exec(read(MANIFEST))?.[1];
+  if (!v) throw new Error(`${MANIFEST}: no version line`);
+  return v;
+};
+
+/** Bumps renox-cell by `arg`, commits, tags worker-v<version> and pushes. Returns the version. */
+export const releaseWorker = (arg: string, flags: Flags): string => {
+  const from = cargoVersion();
   const to = nextVersion(from, arg);
   const tag = `worker-v${to}`;
   console.log(`renox-worker ${from} -> ${to} (tag ${tag})`);
@@ -43,4 +48,12 @@ if (import.meta.main) cli(() => {
   commitTagPush(`Release ${tag}\n\ncrates/renox-cell ${from} -> ${to}; the tag runs release-worker.yml.`, tag);
   console.log(`\npushed ${tag}. Watch: gh run watch $(gh run list --workflow release-worker.yml -L1 --json databaseId -q '.[0].databaseId')`);
   console.log("When it is green: bun run pin-worker");
+  return to;
+};
+
+if (import.meta.main) cli(() => {
+  const flags = parseFlags(process.argv.slice(2));
+  const arg = flags.positional[0];
+  if (!arg) throw new Error("usage: bun run bump-worker <patch|minor|major|x.y.z> [--dry-run] [--yes]");
+  releaseWorker(arg, flags);
 });

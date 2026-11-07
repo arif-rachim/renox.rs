@@ -16,7 +16,8 @@
     "test": "bun test --pass-with-no-tests",
     "bump-worker": "bun scripts/release/bump-worker.ts",
     "pin-worker": "bun scripts/release/pin-worker.ts",
-    "bump-cli": "bun scripts/release/bump-cli.ts"
+    "bump-cli": "bun scripts/release/bump-cli.ts",
+    "bump-version": "bun scripts/release/bump-version.ts"
   },
   "devDependencies": {
     "bun-types": "1.4.4",

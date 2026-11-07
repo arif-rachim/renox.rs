@@ -78,3 +78,14 @@ test("changelogAddWorkerLine adds under **Worker**, or creates the entry", () =>
   const out = changelogAddWorkerLine(released, "- Pins 0.5.0.", "0.1.7");
   expect(out).toContain("Intro.\n\n## 0.1.7 (unreleased)\n\n**Worker**\n\n- Pins 0.5.0.\n\n## 0.1.6");
 });
+
+test("setUnreleased replaces the unreleased entry or adds one; renameUnreleased moves its version", async () => {
+  const { setUnreleased, renameUnreleased, unreleasedBody } = await import("./lib.ts");
+  const replaced = setUnreleased(CHANGELOG, "0.2.0", "New notes.");
+  expect(replaced).toContain("Intro.\n\n## 0.2.0 (unreleased)\n\nNew notes.\n\n## 0.1.6 (2026-11-07)");
+  expect(replaced).not.toContain("Old line.");
+  const added = setUnreleased(changelogRelease(CHANGELOG, "0.1.7", "2026-11-08"), "0.1.8", "Next.");
+  expect(added).toContain("Intro.\n\n## 0.1.8 (unreleased)\n\nNext.\n\n## 0.1.7 (2026-11-08)");
+  expect(renameUnreleased(CHANGELOG, "0.2.0")).toContain("## 0.2.0 (unreleased)\n\nPins a new worker.");
+  expect(unreleasedBody(CHANGELOG)).toBe("Pins a new worker.\n\n**Worker**\n\n- Old line.");
+});

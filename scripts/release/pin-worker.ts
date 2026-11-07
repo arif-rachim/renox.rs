@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { INSTALL_DOCS } from "./bump-cli.ts";
 import {
+  type Flags,
   changelogAddWorkerLine,
   cli,
   commitTagPush,
@@ -100,22 +101,32 @@ const leftovers = (from: string): void => {
   if (out) console.log(`\nstill naming ${from} (check by hand; prose about history may stay):\n${out}\n`);
 };
 
-if (import.meta.main) cli(() => {
-  const flags = parseFlags(process.argv.slice(2));
+/** The version the CLI pins now. */
+export const pinnedVersion = (): string => currentPinned(read(VERIFY));
+
+/** Why the release `tag` cannot be pinned yet, or null when its checksum assets are there. */
+export const releaseNotReady = (tag: string): string | null => {
+  const view = Bun.spawnSync(["gh", "release", "view", tag, "--json", "assets", "-q", ".assets[].name"], { stdout: "pipe", stderr: "pipe" });
+  if (view.exitCode !== 0) return `no release ${tag} yet: is release-worker.yml finished? (gh run list --workflow release-worker.yml -L1)`;
+  const assets = new TextDecoder().decode(view.stdout).split(/\r?\n/u);
+  for (const need of ["SHA256SUMS", "SHA256SUMS.unpacked"])
+    if (!assets.includes(need)) return `${tag} has no ${need} yet: wait for release-worker.yml to finish`;
+  return null;
+};
+
+/** Pins worker `version` (default: crates/renox-cell's) in the CLI, commits and pushes main. */
+export const pinWorker = (version: string | undefined, flags: Flags): string => {
   const cargo = /^version = "(\d+\.\d+\.\d+)"$/mu.exec(read("crates/renox-cell/Cargo.toml"))?.[1];
-  const to = flags.positional[0] ?? cargo;
+  const to = version ?? cargo;
   if (!to) throw new Error("no version: pass one, or set crates/renox-cell/Cargo.toml");
-  const from = currentPinned(read(VERIFY));
+  const from = pinnedVersion();
   console.log(`pin renox-worker ${from} -> ${to}`);
   if (from === to) console.warn(`warning: the CLI already pins ${to}; the hashes are re-read from the release`);
   preflight(null, flags);
 
   const tag = `worker-v${to}`;
-  const view = Bun.spawnSync(["gh", "release", "view", tag, "--json", "assets", "-q", ".assets[].name"], { stdout: "pipe", stderr: "pipe" });
-  if (view.exitCode !== 0) throw new Error(`no release ${tag} yet: is release-worker.yml finished? (gh run list --workflow release-worker.yml -L1)`);
-  const assets = new TextDecoder().decode(view.stdout).split("\n");
-  for (const need of ["SHA256SUMS", "SHA256SUMS.unpacked"])
-    if (!assets.includes(need)) throw new Error(`${tag} has no ${need} yet: wait for release-worker.yml to finish`);
+  const notReady = releaseNotReady(tag);
+  if (notReady) throw new Error(notReady);
 
   const dir = mkdtempSync(join(tmpdir(), "renox-pin-"));
   try {
@@ -144,4 +155,10 @@ if (import.meta.main) cli(() => {
   confirm(`Commit "Pin renox-worker ${to} in the CLI" and push to main?`, flags);
   commitTagPush(`Pin renox-worker ${to} in the CLI\n\nPINNED_WORKER takes the sha256 of ${tag} (SHA256SUMS, and\nSHA256SUMS.unpacked for the pdf variant); WORKER_VERSION and the docs follow.`, null);
   console.log("\npushed. Next: write the CHANGELOG notes, then bun run bump-cli patch");
+  return to;
+};
+
+if (import.meta.main) cli(() => {
+  const flags = parseFlags(process.argv.slice(2));
+  pinWorker(flags.positional[0], flags);
 });
