@@ -1,11 +1,11 @@
-// bun run bump-cli <patch|minor|major|x.y.z> [--dry-run] [--yes]
-// bun run bump-cli --tag-only [x.y.z]      tag a release commit already on main
+// bun scripts/release/bump-cli.ts <patch|minor|major|x.y.z> [--dry-run] [--yes]
+// bun scripts/release/bump-cli.ts --tag-only [x.y.z]      tag a release commit already on main
 //
 // Releases the renox CLI, create-renox and @renoxium/sdk at one version: they
 // share the tag cli-v<version>, which runs release-cli.yml and release-sdk.yml.
 // Bumps the version and the install lines, dates the CHANGELOG entry
 // "## <version> (unreleased)" (write the notes first), runs the tests, then
-// commits, tags and pushes main. Pin a new worker first: bun run pin-worker.
+// commits, tags and pushes main. Pin a new worker first (pin-worker.ts).
 // bun run bump-version is the wizard over this and the worker steps.
 
 import {
@@ -114,6 +114,6 @@ if (import.meta.main) cli(() => {
   const flags = parseFlags(process.argv.slice(2));
   if (flags.tagOnly) return tagCli(flags.positional[0], flags);
   const arg = flags.positional[0];
-  if (!arg) throw new Error("usage: bun run bump-cli <patch|minor|major|x.y.z> [--dry-run] [--yes] | --tag-only [x.y.z]");
+  if (!arg) throw new Error("usage: bun scripts/release/bump-cli.ts <patch|minor|major|x.y.z> [--dry-run] [--yes] | --tag-only [x.y.z]");
   releaseCli(arg, flags);
 });

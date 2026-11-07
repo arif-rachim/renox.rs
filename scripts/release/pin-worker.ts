@@ -1,4 +1,4 @@
-// bun run pin-worker [x.y.z] [--dry-run] [--yes]
+// bun scripts/release/pin-worker.ts [x.y.z] [--dry-run] [--yes]
 //
 // Pins a released renox-worker in the CLI: run it after bump-worker's
 // release-worker.yml run is green. Takes the sha256 of each binary from the
@@ -154,7 +154,7 @@ export const pinWorker = (version: string | undefined, flags: Flags): string => 
 
   confirm(`Commit "Pin renox-worker ${to} in the CLI" and push to main?`, flags);
   commitTagPush(`Pin renox-worker ${to} in the CLI\n\nPINNED_WORKER takes the sha256 of ${tag} (SHA256SUMS, and\nSHA256SUMS.unpacked for the pdf variant); WORKER_VERSION and the docs follow.`, null);
-  console.log("\npushed. Next: write the CHANGELOG notes, then bun run bump-cli patch");
+  console.log("\npushed. Next: bun run bump-version (it releases the CLI)");
   return to;
 };
 

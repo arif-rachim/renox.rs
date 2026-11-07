@@ -298,7 +298,16 @@ const showState = (s: State): void => {
 const bumpChoice = (what: string, current: string, flags: Flags): string => {
   const kinds = ["patch", "minor", "major"];
   if (flags.yes || flags.dryRun) return "patch";
-  return kinds[choose(`${what} version (now ${current}):`, kinds.map((k) => `${k} -> ${nextVersion(current, k)}`))]!;
+  const c = choose(`${what} version (now ${current}):`, [...kinds.map((k) => `${k} -> ${nextVersion(current, k)}`), "type a version"]);
+  if (c < kinds.length) return kinds[c]!;
+  for (;;) {
+    const typed = (prompt(`${what} version (x.y.z, above ${current}):`) ?? "").trim();
+    try {
+      return nextVersion(current, typed);
+    } catch (e) {
+      console.log(e instanceof Error ? e.message : String(e));
+    }
+  }
 };
 
 /** Shows the drafted notes; lets the user take them, edit them in the git editor, or stop. */

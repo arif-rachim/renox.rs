@@ -108,7 +108,7 @@ export const git = (...args: string[]): string => run(["git", ...args], { quiet:
 const dirtyFiles = (): Set<string> => new Set(git("diff", "--name-only", "HEAD").split("\n").filter(Boolean));
 
 /** Files dirty before the script changed anything (a dry run leaves them alone). */
-let dirtyBefore = new Set<string>();
+let dirtyBefore: Set<string> | null = null;
 
 /**
  * main, clean tracked tree, equal to origin/main, tag free locally and on origin.
@@ -142,7 +142,7 @@ export const confirm = (question: string, flags: Flags): void => {
  * Shows the change; on a dry run, reverts the files the script changed (not
  * the ones that were dirty before it ran) and exits.
  */
-const changedByRun = (): string[] => [...dirtyFiles()].filter((f) => !dirtyBefore.has(f));
+const changedByRun = (): string[] => (dirtyBefore ? [...dirtyFiles()].filter((f) => !dirtyBefore!.has(f)) : []);
 
 export const review = (flags: Flags): void => {
   const changed = changedByRun();
@@ -153,7 +153,7 @@ export const review = (flags: Flags): void => {
       run(["git", "--no-pager", "diff", "HEAD", "--", ...changed]);
       run(["git", "checkout", "HEAD", "--", ...changed]);
     }
-    if (dirtyBefore.size) console.warn(`left as they were (dirty before the run): ${[...dirtyBefore].join(", ")}`);
+    if (dirtyBefore?.size) console.warn(`left as they were (dirty before the run): ${[...dirtyBefore].join(", ")}`);
     console.log("dry run: changes shown above and reverted; nothing committed, tagged or pushed.");
     process.exit(0);
   }
