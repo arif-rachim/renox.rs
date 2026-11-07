@@ -32,12 +32,13 @@
 //   platform.key            the dev platform key (page sessions survive restarts), 0600
 //   meters/, logs/          meter batches, tenant log lines
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, watch, writeFileSync, openSync, readSync, closeSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync, openSync, readSync, closeSync } from "node:fs";
 import { connect } from "node:net";
 import { join, resolve } from "node:path";
 
 import { CliError, EnvironmentError, EXIT, formatError, location } from "../errors.ts";
 import { artifactsDir, BuildCache, buildArtifact } from "../lib/build.ts";
+import { renameRetry } from "../lib/rename.ts";
 import { Symbolicator } from "../lib/sourcemap.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
 import { allHints, CLIENT_EVENTS_PATH, clientLine, handleBatch, injectDevMeta, type PageRoute } from "../dev/client-events.ts";
@@ -59,6 +60,9 @@ export const DEV_TENANT = "dev";
 
 /** Quiet time after the last save before a rebuild starts. */
 export const DEBOUNCE_MS = 30;
+
+/** The longest wait for the worker's "route table reloaded" before the browser reloads anyway (a RUST_LOG without it, an old worker). */
+export const ROUTES_RELOAD_TIMEOUT_MS = 2000;
 /** More worker exits than this within RESTART_WINDOW_MS end `renox dev` (exit 3). */
 export const MAX_RESTARTS = 5;
 export const RESTART_WINDOW_MS = 30_000;
@@ -95,7 +99,7 @@ function writeRoutes(path: string, hostname: string, hash: string): void {
   const entries = [{ hostname, tenant_id: DEV_TENANT, deployment_hash: hash, status: "active", updated_at: Date.now() }];
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify({ version: 0, entries }, null, 2)}\n`);
-  renameSync(tmp, path);
+  renameRetry(tmp, path);
 }
 
 /** Whether something accepts connections on `host:port` (false when the address family is missing). */
@@ -245,6 +249,18 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
     ].join("\n"),
   );
   const binary = opts.worker ?? workerPath();
+  // Resolved when the worker logs that it re-read the routes file. The
+  // browser is told to reload only then: on Windows the worker polls the file
+  // every 500 ms, so an immediate reload got the previous deployment.
+  const routeWaiters: Array<() => void> = [];
+  const routesReloaded = (timeoutMs = ROUTES_RELOAD_TIMEOUT_MS): Promise<void> =>
+    new Promise((resolve) => {
+      const t = setTimeout(resolve, timeoutMs);
+      routeWaiters.push(() => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
   const spawnWorker = (): Bun.Subprocess<"ignore", "ignore", "pipe"> => {
     let w: Bun.Subprocess<"ignore", "ignore", "pipe">;
     try {
@@ -252,7 +268,9 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         stdin: "ignore",
         stdout: "ignore",
         stderr: "pipe",
-        env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? (opts.jobs ? "warn,renox_cell::scheduler=info" : "warn") },
+        // renox_cell::worker=info for its "route table reloaded" line; its
+        // info lines are not printed (only WARN and ERROR are).
+        env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? (opts.jobs ? "warn,renox_cell::worker=info,renox_cell::scheduler=info" : "warn,renox_cell::worker=info") },
       });
     } catch (e) {
       throw new EnvironmentError(`cannot start renox-worker (${binary}): ${(e as Error).message}`, { hint: DOWNLOAD_HINT });
@@ -267,6 +285,7 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         while ((i = buf.indexOf("\n")) >= 0) {
           const line = buf.slice(0, i);
           buf = buf.slice(i + 1);
+          if (line.includes("route table reloaded")) for (const r of routeWaiters.splice(0)) r();
           if (/"level":"(WARN|ERROR)"/u.test(line)) {
             const short = process.env.RENOX_DEV_RAW === "1" ? `worker: ${line}` : workerLine(line);
             if (short !== null) log(short);
@@ -522,10 +541,13 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         last = r;
         if (r.hash !== current) {
           current = r.hash;
+          const reloaded = routesReloaded();
           writeRoutes(routes, host, current);
           // On Windows, kill(signal) terminates the process; the worker
           // watches the routes file and reloads it itself (#530).
           if (process.platform !== "win32") worker.kill("SIGHUP");
+          // The browser reloads against the new deployment, not the old one.
+          await reloaded;
         }
         writeTypes(project, r.manifest.routes.filter(hasPath), r.templates);
         const wasFailing = !status.lastBuild.ok;
