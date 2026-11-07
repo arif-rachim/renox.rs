@@ -386,6 +386,22 @@ jobs:
         run: cargo test --locked -p renox-cell --lib disk
       - run: sccache --show-stats
 
+  # The per-thread CPU clock on Windows (#527, parent #442): the pure units of
+  # `limits::cpu` (QueryThreadCycleTime clock, watchdog) run without V8, so
+  # no archive or sccache is needed. Same path filter as `macos`, which
+  # already covers renox-runtime.
+  windows-runtime:
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.macos == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      - name: Thread clock and watchdog units
+        run: cargo test --locked -p renox-runtime --no-default-features --lib limits::cpu
+
   # Runs on a TypeScript change and on a Rust change: the CLI template, shop
   # build and dev e2e tests run on a renox-worker binary (#186). The worker is
   # the one the rust job built from this commit; when rust is skipped
