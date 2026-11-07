@@ -11,3 +11,13 @@ The summary you will need most often:
 - Security: per-tenant limits are enforced in Rust; tenant `fetch` blocks private addresses; module SQL goes through the SQLite authorizer; secrets never reach logs. Threats, controls, and the per-phase security checklist: `docs/24-threat-model.md`. Every PR fills in the security section of the template.
 - Workflow: pick a GitHub issue (`[Fx-nn]` key), check its "Blocked by" list is closed, work on your own branch; a session usually takes a batch of issues from `docs/25-execution.md` on one branch and one PR. Protocol and directory ownership: `docs/22-development-plan.md`. Step list and session rules: `docs/25-execution.md`.
 - Language: everything in English.
+
+## Releases
+
+Release commits go straight to `main` with their tag: no branch, no PR (this exception is for release bumps only). Run from a clean `main` that equals `origin/main`; each command shows the diff and asks y/N before it commits, tags and pushes. `--dry-run` shows the change and reverts it; `--yes` skips the prompt; `--skip-tests` skips the local tests (typecheck still runs). On Windows the local tests are skipped (a CRLF checkout fails the cli tests on `main` too), and CI runs them after the push.
+
+1. `bun run bump-worker <patch|minor|major|x.y.z>`: `crates/renox-cell` version (Cargo.toml and Cargo.lock), then the tag `worker-v<v>`, which runs `release-worker.yml`.
+2. When that run is green: `bun run pin-worker [x.y.z]`. It writes the release's sha256 (`SHA256SUMS`, plus `SHA256SUMS.unpacked` for the pdf variant) into `PINNED_WORKER` (`cli/src/worker/verify.ts`), moves `WORKER_VERSION` and the docs, and adds a CHANGELOG line. It pushes to `main` with no tag.
+3. Write the notes under `## <v> (unreleased)` in `CHANGELOG.md`, push them, then run `bun run bump-cli <patch|minor|major|x.y.z>`. It moves the CLI, create-renox and `@renoxium/sdk` together (they share the tag `cli-v<v>`, which runs `release-cli.yml` and `release-sdk.yml`), updates the install lines, `bun.lock` and `llms-full.txt`, and dates the CHANGELOG entry. `bun run bump-cli --tag-only [x.y.z]` only tags a release commit that is already on `main`.
+
+The scripts live in `scripts/release/`, with tests in `bun test scripts/release`.
