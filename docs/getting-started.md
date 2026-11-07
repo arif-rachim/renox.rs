@@ -29,7 +29,7 @@ renox --version
 ```
 
 ```
-renox 0.1.3 (renox-worker 0.3.0)
+renox 0.1.6 (renox-worker 0.4.0)
 ```
 
 There is no npm package for the CLI: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. Verifying the signatures and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).

@@ -36,7 +36,7 @@ On Linux or macOS (x64 or arm64):
 ```sh
 curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.5/install.sh | sh
 export PATH="$HOME/.renox/bin:$PATH"    # the installer prints this line when ~/.renox/bin is not on PATH yet
-renox --version                          # renox 0.1.3 (renox-worker 0.3.0)
+renox --version                          # renox 0.1.6 (renox-worker 0.4.0)
 renox new demo --template hello && cd demo && bun install && renox dev
 ```
 
@@ -63,7 +63,7 @@ In PowerShell (x64):
 irm https://github.com/arif-rachim/renox.rs/releases/latest/download/install.ps1 | iex
 ```
 
-The CLI runs natively on Windows. `renox-worker.exe` (x64) is published in `worker-v*` releases for development only, and `install.ps1` installs it beside `renox.exe` after a SHA-256 check (a worker release without a Windows build is a warning, not a failure). The CLI uses it once it pins its SHA-256 (#442); until then `dev`, `test` and the worker-backed commands stop with `RENOX_CLI_WORKER_UNAVAILABLE` unless you set `RENOX_WORKER_PATH` to a `renox-worker.exe` you built or downloaded, or use WSL 2. `renox dev` reloads routes on Windows without `SIGHUP`: the worker watches the routes file (#530). What works natively without a worker: `new`, `check` and `build` of an app without `.html` pages or policies, `login`, `deploy`, `logs`, `secrets`, `db`, `add`, `remove` and `mcp`. CI builds `examples/hello` and `examples/npm-compat` on Windows and on Linux and compares the artifact hashes (`.github/workflows/ci.yml`, jobs `windows` and `windows-hash-parity`). What needs the worker, `RENOX_WORKER_PATH` or WSL 2 until #442: `dev`, `test`, `migrate`, and apps with `.html` pages or policies; these commands stop with `RENOX_CLI_WORKER_UNAVAILABLE`. `install.sh` stops with the same pointer when it runs under Git Bash, MSYS2 or Cygwin. WSL 2 is a Linux machine:
+The CLI runs natively on Windows (x64), and WSL 2 is optional. `renox-worker.exe` is published in `worker-v*` releases (from `worker-v0.4.0`) for development only: it runs isolates, without the production supervisor and sandbox. `install.ps1` installs it beside `renox.exe` after a SHA-256 check, and the CLI checks it against its pinned SHA-256 before running it (#532); from a checkout, `bun cli/scripts/fetch-worker.ts` puts it in `cli/bin/win32-x64/`. `dev`, `test`, `migrate` and apps with `.html` pages or policies work natively; there is no pdf variant for Windows. `renox dev` reloads routes on Windows without `SIGHUP`: the worker watches the routes file (#530). A CLI older than 0.1.6 pins no Windows worker: there these commands stop with `RENOX_CLI_WORKER_UNAVAILABLE` unless `RENOX_WORKER_PATH` names a `renox-worker.exe`. CI builds `examples/hello` and `examples/npm-compat` on Windows and on Linux and compares the artifact hashes, and runs `renox dev` and `renox test` of `examples/hello` with the pinned worker (`.github/workflows/ci.yml`, jobs `windows` and `windows-hash-parity`). Use `install.ps1` on Windows: `install.sh` stops with a pointer to it when it runs under Git Bash, MSYS2 or Cygwin. WSL 2 remains an option, and is a Linux machine:
 
 1. In PowerShell as administrator: `wsl --install -d Ubuntu`, then restart Windows.
 2. Open Ubuntu from the Start menu and create the Linux user it asks for.
@@ -112,7 +112,7 @@ gunzip -c $a.gz > renox-worker-pdf && chmod +x renox-worker-pdf
 renox dev --worker ./renox-worker-pdf
 ```
 
-`renox dev --worker` accepts it by its pinned hash once the CLI pins that worker release. `worker-v0.3.0`, which CLI 0.1.3 pins, has no PDF variant: until a CLI pins a release that does, use a checkout build through `RENOX_WORKER_PATH`. Production nodes run the variant their operator installs; apps that call `ctx.pdf` (the `tax_gcc` invoices, `reports`) need the PDF variant there too.
+`renox dev --worker` accepts it by its pinned hash: the CLI pins `worker-v0.4.0`, the first release with the PDF variant, for the four Linux and macOS targets (there is no PDF variant for Windows). `bun cli/scripts/fetch-worker.ts --pdf` and `RENOX_WORKER_VARIANT=pdf` in `install.sh` do the same steps. Production nodes run the variant their operator installs; apps that call `ctx.pdf` (the `tax_gcc` invoices, `reports`) need the PDF variant there too.
 
 ## Build with an AI agent
 

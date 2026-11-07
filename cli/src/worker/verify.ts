@@ -33,22 +33,29 @@ export const CODE = "RENOX_CLI_WORKER_UNVERIFIED";
  *
  * `pdf` pins the variant with the PDF engine (#381): the sha256 of the
  * binary after `gunzip`, from the release's signed `SHA256SUMS.unpacked`
- * (the asset itself, `-pdf.gz`, is what `SHA256SUMS` lists). Empty until a
- * worker release carries the variant; worker-v0.3.0 does not.
+ * (the asset itself, `-pdf.gz`, is what `SHA256SUMS` lists). Linux and
+ * macOS only: there is no pdf variant for Windows.
  */
 export const PINNED_WORKER: {
   version: string;
   sha256: Readonly<Record<string, string>>;
   pdf: Readonly<Record<string, string>>;
 } = {
-  version: "0.3.0",
+  version: "0.4.0",
   sha256: {
-    "x86_64-unknown-linux-gnu": "581f967a4e725ce38498dfac2e4fefdaceab3b0aeb988b5bf59803ce845ab805",
-    "aarch64-unknown-linux-gnu": "923c67f62f7ef6c8a40b9504bf0aaf11157617b0cba580b940549728557098ee",
-    "x86_64-apple-darwin": "60368601809636e8a8c6b531139aa7b5fd4cf750fa3caeb0b26d0c37f8bd945f",
-    "aarch64-apple-darwin": "e9ca33b1c26b86260517068399c194ff78af69bcf6239b79542b3a658b34253c",
+    "x86_64-unknown-linux-gnu": "5c49ef7210717ea579577387043126063bad828de258000bfdbba8be1cff0490",
+    "aarch64-unknown-linux-gnu": "09da4715aa2b42b0552a0a831b684cc59097af3aa69947e25c9956f81ea2a3ad",
+    "x86_64-apple-darwin": "be34809364b249b51682c4640bce5f30dccbfb260ef810ee6238f3b9ce4e2c03",
+    "aarch64-apple-darwin": "e0f097564663f1b37c9f059549e3a417fc82adafc2c4e871df8e1dd3345a60cd",
+    // The development worker for Windows (#531, #532): renox-worker-<version>-x86_64-pc-windows-msvc.exe.
+    "x86_64-pc-windows-msvc": "9ab68b85f0f8be0efbc46068804bc70feca1bf6499e2083e5954e1c8bf07eb95",
   },
-  pdf: {},
+  pdf: {
+    "x86_64-unknown-linux-gnu": "0d7a56c84e4c3d657223e3223f67e05fb22e6f246efb32673522fffbd82fc71f",
+    "aarch64-unknown-linux-gnu": "2990bf97c08b06a75442ff90df0fbd8cee2f866183558d162ad72bf3360bb9ad",
+    "x86_64-apple-darwin": "c84ca3fe000ce0cbdc0f9a813c86b3a2638eaa00fd928c1c5fa36369ddad63a6",
+    "aarch64-apple-darwin": "501fa872dc1b6bda8aa31129701379b42733633e4191e27e5f69216ccdc562ab",
+  },
 };
 
 export const OIDC_ISSUER = "https://token.actions.githubusercontent.com";
