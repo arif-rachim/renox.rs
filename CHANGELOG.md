@@ -2,7 +2,7 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
-## 0.1.4 (unreleased)
+## 0.1.4 (2026-11-07)
 
 The tutorial template, `renox db seed` and `renox domains`, the first native Windows CLI, and the CLI and `create-renox` on npm (#483, #490, #492, #513, #440). The pinned `renox-worker` stays 0.3.0; the worker changes of #495 ship with the next `worker-v*` release and the CLI pin that follows it.
 
