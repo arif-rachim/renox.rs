@@ -287,6 +287,9 @@ fn main() -> ExitCode {
             sandbox_selftest(PathBuf::from(p))
         }
         ["--config", p] => serve(PathBuf::from(p)),
+        // The supervisor's child process is Unix-only (#530); on Windows
+        // these arguments fall through to `usage()`.
+        #[cfg(unix)]
         ["--config", p, "--child", tenant, "--socket", socket] => {
             child(PathBuf::from(p), tenant.to_string(), PathBuf::from(socket))
         }
