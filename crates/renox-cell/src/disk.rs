@@ -122,10 +122,10 @@ impl Usage {
     }
 }
 
-/// `statvfs(2)` of the file system holding `path`. Linux with glibc only
-/// (where `libc` is a dependency, `src/alloc.rs`); elsewhere it answers
-/// `Unsupported` and the level stays `ok` (development hosts).
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+/// `statvfs(2)` of the file system holding `path`, on every Unix target;
+/// elsewhere it answers `Unsupported`, the monitor logs one warning and
+/// stops, and the level stays `ok` (development hosts, #465).
+#[cfg(unix)]
 // The `statvfs` fields are C typedefs whose width depends on the target.
 #[allow(clippy::unnecessary_cast)]
 pub fn usage(path: &Path) -> std::io::Result<Usage> {
@@ -149,7 +149,7 @@ pub fn usage(path: &Path) -> std::io::Result<Usage> {
     })
 }
 
-#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+#[cfg(not(unix))]
 pub fn usage(_path: &Path) -> std::io::Result<Usage> {
     Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
 }
@@ -185,6 +185,8 @@ struct Inner {
     available: AtomicU64,
     /// Level changes since start (metrics, tests).
     changes: AtomicU64,
+    /// The probe answered `Unsupported`: warned once, polling stops (#465).
+    unsupported: std::sync::atomic::AtomicBool,
     health: Option<Arc<Health>>,
     /// Called on each poll at `warn` or above (pruning).
     on_pressure: Mutex<Vec<OnLevel>>,
@@ -214,6 +216,7 @@ impl DiskMonitor {
                 used_centi_pct: AtomicU64::new(0),
                 available: AtomicU64::new(0),
                 changes: AtomicU64::new(0),
+                unsupported: std::sync::atomic::AtomicBool::new(false),
                 health,
                 on_pressure: Mutex::new(Vec::new()),
             }),
@@ -254,11 +257,26 @@ impl DiskMonitor {
         self.inner.changes.load(Ordering::SeqCst)
     }
 
+    /// The probe is unsupported on this platform; [`Self::spawn`] stops
+    /// and `/healthz` stays ok (#465).
+    pub fn unsupported(&self) -> bool {
+        self.inner.unsupported.load(Ordering::SeqCst)
+    }
+
     /// Polls now and returns the level. A failing probe keeps the level
     /// (logged): a node does not stop serving because `statvfs` failed once.
     pub fn poll(&self) -> Level {
         let usage = match (self.inner.probe)() {
             Ok(u) => u,
+            Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {
+                if !self.inner.unsupported.swap(true, Ordering::SeqCst) {
+                    tracing::warn!(
+                        path = %self.inner.path.display(),
+                        "disk usage unsupported on this platform; the disk monitor stops"
+                    );
+                }
+                return self.level();
+            }
             Err(e) => {
                 tracing::warn!(path = %self.inner.path.display(), error = %e, "disk usage unreadable");
                 return self.level();
@@ -321,6 +339,9 @@ impl DiskMonitor {
                 let m = me.clone();
                 // `statvfs` and the pruning callbacks block.
                 let _ = tokio::task::spawn_blocking(move || m.poll()).await;
+                if me.unsupported() {
+                    break;
+                }
                 tokio::time::sleep(every).await;
             }
         })
@@ -449,7 +470,43 @@ mod tests {
         assert_eq!(m.poll(), Level::Ok);
     }
 
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    fn unsupported_monitor(calls: Arc<AtomicU64>) -> DiskMonitor {
+        DiskMonitor::with_probe(
+            Path::new("/"),
+            Watermarks::default(),
+            None,
+            Box::new(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+            }),
+        )
+    }
+
+    #[test]
+    fn an_unsupported_probe_warns_once_and_stops() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let m = unsupported_monitor(calls.clone());
+        assert!(!m.unsupported());
+        for _ in 0..3 {
+            assert_eq!(m.poll(), Level::Ok);
+        }
+        assert!(m.unsupported());
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_probe_ends_the_poll_loop() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let m = unsupported_monitor(calls.clone());
+        tokio::time::timeout(Duration::from_secs(2), m.spawn(Duration::from_millis(1)))
+            .await
+            .expect("the poll loop stops")
+            .expect("the poll task does not panic");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(m.unsupported());
+    }
+
+    #[cfg(unix)]
     #[test]
     fn statvfs_reads_the_root_file_system() {
         let u = usage(Path::new("/")).unwrap();

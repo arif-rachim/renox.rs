@@ -99,8 +99,9 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = ["
 opentelemetry-http = { version = "0.33", default-features = false }
 tracing-opentelemetry = { version = "0.34", default-features = false }
 
-# malloc_trim after evictions (src/alloc.rs, #144).
-[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+# malloc_trim after evictions (src/alloc.rs, #144), and statvfs for the
+# disk monitor (src/disk.rs, #465).
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 # The sandbox of #253 (src/sandbox/): Landlock rules and a seccomp
