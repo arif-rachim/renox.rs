@@ -83,6 +83,7 @@ jobs:
             macos:
               - 'crates/renox-runtime/**'
               - 'crates/renox-data/**'
+              - 'crates/renox-cell/src/disk.rs'
               - 'Cargo.*'
               - 'rust-toolchain.toml'
               - '.cargo/**'
@@ -379,6 +380,10 @@ jobs:
       # CPU from faster concurrent requests.
       - name: Per-request CPU accounting
         run: cargo test --locked -p renox-runtime --test cpu_accounting
+      # The statvfs disk probe on macOS (#465): renox-cell's disk units,
+      # including the one-warning stop of an unsupported probe.
+      - name: Disk probe
+        run: cargo test --locked -p renox-cell --lib disk
       - run: sccache --show-stats
 
   # Runs on a TypeScript change and on a Rust change: the CLI template, shop
