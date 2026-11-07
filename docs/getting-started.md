@@ -13,7 +13,7 @@ From an empty folder to an app at `https://<app>.renoxium.app` in about ten minu
 One line installs `renox`, and the `renox-worker` it runs your app on locally, into `~/.renox/bin`. It installs a file only when its SHA-256 matches the release:
 
 ```sh
-curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.6/install.sh | sh
+curl -fsSL https://github.com/arif-rachim/renox.rs/releases/download/cli-v0.1.7/install.sh | sh
 ```
 
 If the installer says `~/.renox/bin` is not on your `PATH`, add it (and add the same line to `~/.bashrc` or `~/.zshrc`):
@@ -29,7 +29,7 @@ renox --version
 ```
 
 ```
-renox 0.1.6 (renox-worker 0.4.0)
+renox 0.1.7 (renox-worker 0.4.0)
 ```
 
 There is no npm package for the CLI: `npx renox` and `bunx renox` do not work. The SDK your app imports is the npm package `@renoxium/sdk`. Verifying the signatures and upgrading are in [Developer experience](12-developer-experience.md#installing-the-cli).
