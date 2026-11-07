@@ -48,13 +48,17 @@ use crate::control::secrets::ControlSecrets;
 use crate::control::{self, Controller, MeterPoster};
 use crate::manager::{CellManager, ManagerConfig, StaticTiers};
 use crate::pages::PlatformKey;
+#[cfg(unix)]
+use crate::process::{ProcessLookup, StaticProcesses};
 use crate::spool::{self, Queue};
-use crate::supervisor::{ProcessLookup, StaticProcesses, Supervisor};
+#[cfg(unix)]
+use crate::supervisor::Supervisor;
 
 /// The gateway's dispatcher: the shared process alone, or the supervisor
 /// of the process tiers in front of it (#254).
 enum Dispatch {
     Shared(Arc<GuardedDispatcher>),
+    #[cfg(unix)]
     Tiers(Supervisor<GuardedDispatcher>),
 }
 
@@ -134,6 +138,7 @@ impl renox_gateway::CellDispatcher for NodeDispatcher {
         let headers = req.headers().clone();
         let res = match &self.inner {
             Dispatch::Shared(d) => d.dispatch(ctx.clone(), req).await,
+            #[cfg(unix)]
             Dispatch::Tiers(s) => s.dispatch(ctx.clone(), req).await,
         };
         // #311: a statement found the file damaged mid-request (SQLITE_CORRUPT,
@@ -258,7 +263,8 @@ pub struct Worker {
     routes_file: PathBuf,
     /// The control-plane side of controlled mode (#55).
     pub controller: Option<Arc<Controller>>,
-    /// The process tiers (#254), with `[process] enabled`.
+    /// The process tiers (#254), with `[process] enabled`. Unix hosts only.
+    #[cfg(unix)]
     pub supervisor: Option<Supervisor<GuardedDispatcher>>,
     server: JoinHandle<std::io::Result<()>>,
     /// The background tasks (disk, pruning, health, spool, node listener).
@@ -492,10 +498,19 @@ impl Worker {
                 let addr = l.local_addr().map_err(io("read the listen address"))?;
                 (Listener::Tcp(l), addr)
             }
+            #[cfg(unix)]
             crate::config::Listen::Unix(path) => {
                 let l = bind_unix_listener(path, config.gateway.socket_gid)
                     .map_err(io("bind the listen socket"))?;
                 (Listener::Unix(l), SocketAddr::from(([0, 0, 0, 0], 0)))
+            }
+            // `WorkerConfig::parse` refuses `unix:` here; a hand-built config
+            // gets the same error.
+            #[cfg(not(unix))]
+            crate::config::Listen::Unix(_) => {
+                return Err(WorkerError::Config(
+                    crate::config::UNIX_LISTEN_REFUSED.into(),
+                ));
             }
         };
         let s3_for_prepare = s3.clone();
@@ -504,6 +519,7 @@ impl Worker {
             guard: s3.map(|store| Guard::new(store, health.clone(), config.artifacts_dir.clone())),
         });
         // Process tiers (#254): tenants placed in a child process of their own.
+        #[cfg(unix)]
         let supervisor = if config.process.enabled {
             let lookup: Arc<dyn ProcessLookup> = match &route_state {
                 Some(state) => state.clone(),
@@ -563,16 +579,20 @@ impl Worker {
             pruning.spawn(crate::pruning::SWEEP_INTERVAL),
         ];
         let dispatcher = Arc::new(NodeDispatcher {
+            #[cfg(unix)]
             inner: match &supervisor {
                 Some(s) => Dispatch::Tiers(s.clone()),
                 None => Dispatch::Shared(guarded),
             },
+            #[cfg(not(unix))]
+            inner: Dispatch::Shared(guarded),
             manager: manager.clone(),
             replication: replication.clone(),
             disk: disk.clone(),
         });
         let server = match listener {
             Listener::Tcp(l) => tokio::spawn(async move { gateway.serve(l, dispatcher).await }),
+            #[cfg(unix)]
             Listener::Unix(l) => {
                 tokio::spawn(async move { gateway.serve_unix(l, dispatcher).await })
             }
@@ -700,6 +720,7 @@ impl Worker {
             routes,
             routes_file: config.routes_file.clone(),
             controller,
+            #[cfg(unix)]
             supervisor,
             server,
             tasks,
@@ -733,6 +754,7 @@ impl Worker {
         if let Some(c) = &self.controller {
             c.stop();
         }
+        #[cfg(unix)]
         if let Some(s) = &self.supervisor {
             s.shutdown().await;
         }
@@ -747,6 +769,7 @@ impl Worker {
 /// The gateway's listener: TCP, or the unix socket behind `cloudflared`.
 enum Listener {
     Tcp(TcpListener),
+    #[cfg(unix)]
     Unix(tokio::net::UnixListener),
 }
 
@@ -755,6 +778,7 @@ enum Listener {
 /// of file), then the new one is mode 0660 in `gid` (the group `cloudflared`
 /// is in), or 0600 without a group. The mode is set before the first
 /// `accept`, and the trusted peer is still decided per connection by uid.
+#[cfg(unix)]
 pub fn bind_unix_listener(
     path: &Path,
     gid: Option<u32>,

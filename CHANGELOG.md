@@ -36,6 +36,7 @@ On Windows (x64, PowerShell): `irm https://github.com/arif-rachim/renox.rs/relea
 
 **CLI**
 
+- On Windows x64 the CLI can fetch, verify and run the native development `renox-worker.exe` (`fetch-worker.ts`, `install.ps1` installs it beside `renox.exe`); `renox dev` reloads routes there without `SIGHUP`. The CLI still reports `RENOX_CLI_WORKER_UNAVAILABLE` on Windows until the worker's SHA-256 is pinned (#531, #442).
 - `renox new <name> --template tutorial` writes the checkpoint of chapter 1 of the tutorial (`docs/tutorial/`), a board with one page, one API route and one test (#483).
 - `renox db seed` loads `seeds/*.sql` into the dev database: it applies the pending migrations, then runs the files in name order in one transaction; a failing statement rolls everything back and the error names `seeds/<file>:<line>` (#490).
 - The SQL lint (rule `sql-interpolation`) sees through type arguments: `db.query<T>(`, `queryOne<T>(` and `execute<T>(` are checked like the untyped calls, and `db.scoped(...)` and `tx.scoped(...)` count as receivers (#490).

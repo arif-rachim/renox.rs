@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { handlerResultHint, startDev } from "../src/commands/dev.ts";
 import { newApp } from "../src/commands/new.ts";
 import { testWorker } from "./worker-env.ts";
+import { freePort } from "./free-port.ts";
 
 const worker = testWorker();
 
@@ -28,7 +29,7 @@ test.skipIf(!worker)(
   async () => {
     const dir = newApp("result", "hello", mkdtempSync(join(tmpdir(), "renox-result-")));
     writeFileSync(join(dir, "functions/api/hello.ts"), "export const GET = async () => 41 + 1;\n");
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const lines: string[] = [];
     const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
     try {

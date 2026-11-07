@@ -22,6 +22,7 @@ import { startDev } from "../src/commands/dev.ts";
 import { newApp } from "../src/commands/new.ts";
 import { runTests } from "../src/commands/test.ts";
 import { buildArtifact } from "../src/lib/build.ts";
+import { freePort } from "./free-port.ts";
 
 const REPO = join(import.meta.dir, "../..");
 const STEPS = join(REPO, "examples/tutorial");
@@ -141,7 +142,7 @@ test.skipIf(!worker)(
   "renox new --template tutorial runs under renox dev: / and /api/health",
   async () => {
     const dir = newApp("my-board", "tutorial", mkdtempSync(join(tmpdir(), "renox-tutorial-dev-")));
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const dev = await startDev({ project: dir, port, log: () => {} });
     try {
       const home = await fetch(`http://localhost:${port}/`);

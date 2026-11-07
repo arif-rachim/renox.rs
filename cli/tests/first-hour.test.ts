@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { startDev, workerLine } from "../src/commands/dev.ts";
 import { newApp, nextSteps } from "../src/commands/new.ts";
 import { testWorker } from "./worker-env.ts";
+import { freePort } from "./free-port.ts";
 
 const worker = testWorker();
 
@@ -44,7 +45,7 @@ test.skipIf(!worker)(
   "a new hello app under renox dev: GET / is 200 and the terminal has no production-node warning",
   async () => {
     const dir = newApp("homepage", "hello", mkdtempSync(join(tmpdir(), "renox-first-")));
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const lines: string[] = [];
     const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
     try {

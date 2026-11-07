@@ -71,13 +71,13 @@ pub const WATCHDOG_INTERVAL: Duration = Duration::from_millis(1);
 
 const IDLE: u64 = u64::MAX;
 
-/// On macOS, how far past `fired_at` [`CpuWatch::now_ns`] lets the isolate
+/// On macOS and Windows, how far past `fired_at` [`CpuWatch::now_ns`] lets the isolate
 /// thread's readings go once the watchdog has fired: the ± 5 ms termination
 /// tail of `docs/contracts/ops.md` section 10 (#212). V8 keeps using CPU
 /// between `TerminateExecution` and its next interrupt check; 5-7 ms was
 /// seen on macOS ARM, which without the clamp billed 57.7 ms against a 50 ms
 /// limit.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 const TERMINATION_TAIL_NS: u64 = 5_000_000;
 
 /// Upper bound of `cpu_ms` returned by [`CpuLedger::release`], added to the
@@ -231,6 +231,143 @@ mod imp {
     }
 }
 
+#[cfg(windows)]
+mod imp {
+    use std::sync::{Arc, OnceLock};
+    use std::time::Duration;
+
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, STILL_ACTIVE};
+    use windows_sys::Win32::System::Performance::{
+        QueryPerformanceCounter, QueryPerformanceFrequency,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThreadId, GetExitCodeThread, OpenThread, THREAD_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::System::WindowsProgramming::QueryThreadCycleTime;
+
+    /// A real handle to the thread, owned by this value (`GetCurrentThread`
+    /// is only a pseudo handle that means "the caller"). While it is held the
+    /// thread object cannot go away: once the thread exits,
+    /// `GetExitCodeThread` reports its exit code instead of `STILL_ACTIVE`.
+    #[derive(Debug)]
+    struct Handle(HANDLE);
+
+    // SAFETY: a thread handle is a process-wide kernel object reference; the
+    // two calls made with it (`GetExitCodeThread`, `QueryThreadCycleTime`)
+    // are valid from any thread.
+    unsafe impl Send for Handle {}
+    unsafe impl Sync for Handle {}
+
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` is the handle `OpenThread` returned, closed
+            // exactly once here.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// CPU cycles per second of the thread cycle counter, measured once on
+    /// first use: the calling thread spins for 50 ms of
+    /// `QueryPerformanceCounter` time and the cycle delta is divided by the
+    /// QPC seconds. A result outside 0.5-6 GHz (a broken counter, a spin
+    /// that was descheduled) is replaced by 3 GHz. The conversion of cycles
+    /// to time is approximate when the CPU changes frequency afterwards; this
+    /// clock serves a dev-only worker on Windows (#442).
+    static CYCLES_PER_SEC: OnceLock<f64> = OnceLock::new();
+
+    const CALIBRATION_TICKS_NUM: i64 = 50; // milliseconds
+    const FALLBACK_HZ: f64 = 3.0e9;
+
+    fn qpc() -> i64 {
+        let mut v = 0i64;
+        // SAFETY: `v` is a valid out-pointer; the call cannot fail on
+        // Windows XP and later.
+        unsafe { QueryPerformanceCounter(&mut v) };
+        v
+    }
+
+    fn cycles_of_current_thread() -> Option<u64> {
+        let mut cycles = 0u64;
+        // SAFETY: the pseudo handle -2 (`GetCurrentThread`) is valid for the
+        // calling thread; `cycles` is a valid out-pointer.
+        let ok = unsafe { QueryThreadCycleTime((-2isize) as HANDLE, &mut cycles) };
+        (ok != 0).then_some(cycles)
+    }
+
+    fn calibrate() -> f64 {
+        let mut freq = 0i64;
+        // SAFETY: `freq` is a valid out-pointer.
+        unsafe { QueryPerformanceFrequency(&mut freq) };
+        if freq <= 0 {
+            return FALLBACK_HZ;
+        }
+        let Some(c0) = cycles_of_current_thread() else {
+            return FALLBACK_HZ;
+        };
+        let q0 = qpc();
+        let end = q0.saturating_add(freq / 1000 * CALIBRATION_TICKS_NUM);
+        let mut q1 = q0;
+        let mut x = 0u64;
+        while q1 < end {
+            x = x.wrapping_add(std::hint::black_box(1));
+            q1 = qpc();
+        }
+        std::hint::black_box(x);
+        let Some(c1) = cycles_of_current_thread() else {
+            return FALLBACK_HZ;
+        };
+        let secs = (q1 - q0) as f64 / freq as f64;
+        let hz = c1.saturating_sub(c0) as f64 / secs;
+        if (0.5e9..=6.0e9).contains(&hz) {
+            hz
+        } else {
+            FALLBACK_HZ
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Clock {
+        thread: Arc<Handle>,
+    }
+
+    impl Clock {
+        pub fn current() -> std::io::Result<Clock> {
+            // SAFETY: no pointers; returns a new handle or null.
+            let h =
+                unsafe { OpenThread(THREAD_QUERY_LIMITED_INFORMATION, 0, GetCurrentThreadId()) };
+            if h.is_null() {
+                return Err(std::io::Error::last_os_error());
+            }
+            // Calibrate here, on the thread that creates the first clock,
+            // so no watchdog read pays the 50 ms.
+            CYCLES_PER_SEC.get_or_init(calibrate);
+            Ok(Clock {
+                thread: Arc::new(Handle(h)),
+            })
+        }
+
+        /// `None` once the thread has exited.
+        pub fn now(&self) -> Option<Duration> {
+            let mut code = 0u32;
+            // SAFETY: the handle is held by `self.thread`; `code` is a valid
+            // out-pointer.
+            if unsafe { GetExitCodeThread(self.thread.0, &mut code) } == 0
+                || code != STILL_ACTIVE as u32
+            {
+                return None;
+            }
+            let mut cycles = 0u64;
+            // SAFETY: as above; `cycles` is a valid out-pointer. The handle
+            // has THREAD_QUERY_LIMITED_INFORMATION access, which this needs.
+            if unsafe { QueryThreadCycleTime(self.thread.0, &mut cycles) } == 0 {
+                return None;
+            }
+            let hz = *CYCLES_PER_SEC.get_or_init(calibrate);
+            Some(Duration::from_nanos((cycles as f64 * 1e9 / hz) as u64))
+        }
+    }
+}
+
 /// State shared by the isolate thread and its watchdog.
 pub struct CpuWatch {
     clock: ThreadCpuClock,
@@ -276,7 +413,7 @@ impl CpuWatch {
     /// request.
     pub fn now_ns(&self) -> u64 {
         let cpu = self.clock.now().map(|d| d.as_nanos() as u64).unwrap_or(0);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         {
             let fired_at = self.fired_at_ns.load(Ordering::SeqCst);
             if fired_at != IDLE {
@@ -378,11 +515,11 @@ impl RunEstimate {
         let published_plus_wall = self
             .last_cpu_delta
             .saturating_add(wall_now.saturating_sub(self.wall_at_change));
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         {
             published_plus_wall
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", windows)))]
         {
             // The clock is current here; the estimate is kept only so the
             // state is exercised identically on both OSes.
@@ -745,6 +882,7 @@ pub mod gc {
         static COUNT: Cell<u64> = const { Cell::new(0) };
     }
 
+    #[cfg(unix)]
     fn thread_cpu_ns() -> u64 {
         let mut ts = libc::timespec {
             tv_sec: 0,
@@ -757,6 +895,14 @@ pub mod gc {
             return 0;
         }
         ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+    }
+
+    #[cfg(windows)]
+    fn thread_cpu_ns() -> u64 {
+        super::ThreadCpuClock::current()
+            .ok()
+            .and_then(|c| c.now())
+            .map_or(0, |d| d.as_nanos() as u64)
     }
 
     pub fn gc_started() {
@@ -920,7 +1066,11 @@ mod tests {
         // shows a value from before the run: nothing published yet.
         assert_eq!(
             e.used(100, 1000, 90, 1000 + 2 * MS),
-            if cfg!(target_os = "macos") { 2 * MS } else { 0 }
+            if cfg!(any(target_os = "macos", windows)) {
+                2 * MS
+            } else {
+                0
+            }
         );
         // First publish, 1 ms of CPU late: 5 ms of CPU at wall +6 ms.
         assert_eq!(e.used(100, 1000, 100 + 5 * MS, 1000 + 6 * MS), 5 * MS);
@@ -928,7 +1078,7 @@ mod tests {
         let frozen = e.used(100, 1000, 100 + 5 * MS, 1000 + 9 * MS);
         assert_eq!(
             frozen,
-            if cfg!(target_os = "macos") {
+            if cfg!(any(target_os = "macos", windows)) {
                 8 * MS
             } else {
                 5 * MS
@@ -942,7 +1092,11 @@ mod tests {
         // A new run (a context switch rebased at cpu 200, wall 5000) resets.
         assert_eq!(
             e.used(200, 5000, 150, 5000 + MS),
-            if cfg!(target_os = "macos") { MS } else { 0 }
+            if cfg!(any(target_os = "macos", windows)) {
+                MS
+            } else {
+                0
+            }
         );
     }
 

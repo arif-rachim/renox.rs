@@ -42,12 +42,12 @@ Local builds still let the build script download the archive; set `RUSTY_V8_ARCH
 
 ### Adding a `v8` version or a target
 
-1. Find the archive name: `librusty_v8` + the enabled feature suffixes in this order (`_ptrcomp`, `_sandbox`, `_simdutf`; see `cargo tree -e features -i v8`) + `_release_<target>.a.gz`. Today it is `librusty_v8_simdutf_release_<target>.a.gz`.
+1. Find the archive name: `librusty_v8` + the enabled feature suffixes in this order (`_ptrcomp`, `_sandbox`, `_simdutf`; see `cargo tree -e features -i v8`) + `_release_<target>.a.gz`. Today it is `librusty_v8_simdutf_release_<target>.a.gz`; on Windows the upstream name has no `lib` prefix and ends in `.lib.gz` (`rusty_v8_simdutf_release_x86_64-pc-windows-msvc.lib.gz`), and `fetch` picks the suffix from the `-windows-msvc` target. The binding file needs no fetch: the `v8` crate ships `gen/src_binding_*.rs` for every target.
 2. Download it from `https://github.com/denoland/rusty_v8/releases/download/v<version>/<archive>` twice, from two different networks or machines, and check both give the same `sha256sum`. Upstream publishes no checksum file, so this first download is trusted; record where it came from in the PR.
 3. Add the line `<sha256>  v<version>/<archive>` to `v8-checksums.txt` and remove the lines of versions no longer in `Cargo.lock`.
 4. Bump the `v8` (and the Deno crates) in the same PR; Dependabot leaves them alone (`.github/dependabot.yml`).
 
-Current entries, all `v150.4.0`, one per target the worker release builds or will build:
+Current entries, all `v150.4.0`, one per target the worker release builds or will build (the Windows one only CI tests so far, #529):
 
 | Archive | Added | Downloads |
 | --- | --- | --- |
@@ -55,6 +55,7 @@ Current entries, all `v150.4.0`, one per target the worker release builds or wil
 | `librusty_v8_simdutf_release_aarch64-unknown-linux-gnu.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
 | `librusty_v8_simdutf_release_aarch64-apple-darwin.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
 | `librusty_v8_simdutf_release_x86_64-apple-darwin.a.gz` | 2026-10-29 (#139) | twice, same sha256 |
+| `rusty_v8_simdutf_release_x86_64-pc-windows-msvc.lib.gz` | 2026-11-07 (#529) | twice, same sha256, same machine (one network) |
 
 A second-network check is still owed for all four. `release-worker.yml` builds all four targets since #212 landed the macOS CPU-clock wall-time cross-check: within a slice the isolate thread holds V8 and runs JavaScript, so wall is a tight upper bound on CPU and does not lag like `thread_info(THREAD_BASIC_INFO)`.
 

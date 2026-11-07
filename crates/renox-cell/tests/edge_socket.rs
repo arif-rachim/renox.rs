@@ -7,6 +7,8 @@
 //!
 //! `docs/24-threat-model.md` A, "Local process forges the client-IP header".
 
+#![cfg(unix)]
+
 #[path = "support/control_stack.rs"]
 mod stack;
 

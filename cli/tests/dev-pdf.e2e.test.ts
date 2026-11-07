@@ -18,6 +18,7 @@ import { join } from "node:path";
 
 import { startDev } from "../src/commands/dev.ts";
 import { newApp } from "../src/commands/new.ts";
+import { freePort } from "./free-port.ts";
 
 const worker = process.env.RENOX_WORKER_PATH || undefined;
 const expectPdf = process.env.RENOX_WORKER_PDF;
@@ -63,7 +64,7 @@ test.skipIf(!worker || (expectPdf !== "1" && expectPdf !== "0"))(
     writeFileSync(join(dir, "pages/invoice.html"), INVOICE);
     mkdirSync(join(dir, "functions/api"), { recursive: true });
     writeFileSync(join(dir, "functions/api/invoice.ts"), HANDLER);
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const dev = await startDev({ project: dir, port, log: () => {} });
     try {
       const r = await fetch(`http://localhost:${port}/api/invoice`);

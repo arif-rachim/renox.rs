@@ -523,7 +523,9 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         if (r.hash !== current) {
           current = r.hash;
           writeRoutes(routes, host, current);
-          worker.kill("SIGHUP");
+          // On Windows, kill(signal) terminates the process; the worker
+          // watches the routes file and reloads it itself (#530).
+          if (process.platform !== "win32") worker.kill("SIGHUP");
         }
         writeTypes(project, r.manifest.routes.filter(hasPath), r.templates);
         const wasFailing = !status.lastBuild.ok;
@@ -578,7 +580,8 @@ export async function startDev(opts: DevOptions): Promise<DevServer> {
         }
       }
       proxy.stop(true);
-      worker.kill("SIGINT");
+      if (process.platform === "win32") worker.kill();
+      else worker.kill("SIGINT");
       const exited = await Promise.race([worker.exited.then(() => true), Bun.sleep(3000).then(() => false)]);
       if (!exited) worker.kill("SIGKILL");
     },

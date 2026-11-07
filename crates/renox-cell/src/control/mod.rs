@@ -598,7 +598,7 @@ mod tests {
     /// with it on, none.
     #[test]
     fn the_heartbeat_process_isolation_is_capped_and_empty_when_enabled() {
-        use crate::supervisor::ProcessKind;
+        use crate::process::ProcessKind;
         let s = RouteState::new("node-1", Arc::new(renox_gateway::RouteTable::new()));
         let entries = (0..MAX_OWN_IGNORED + 5)
             .map(|i| {

@@ -386,6 +386,93 @@ jobs:
         run: cargo test --locked -p renox-cell --lib disk
       - run: sccache --show-stats
 
+  # The per-thread CPU clock on Windows (#527, #529, parent #442). The pure
+  # units of `limits::cpu` (QueryThreadCycleTime clock, watchdog) run without
+  # V8; then the CPU-limit tests run on V8 from the verified prebuilt archive
+  # (rusty_v8 .lib.gz, ops/v8-archive.sh), like the `macos` job. Same path
+  # filter as `macos`, which already covers renox-runtime. The runner's bash
+  # provides sha256sum, curl and awk for ops/v8-archive.sh.
+  windows-runtime:
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.macos == 'true' }}
+    runs-on: windows-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      - name: Fetch and verify the rusty_v8 archive
+        run: |
+          archive=$(ops/v8-archive.sh fetch x86_64-pc-windows-msvc "$RUNNER_TEMP/rusty_v8")
+          # Bash prints /d/a/...; the v8 build script needs a Windows path.
+          echo "RUSTY_V8_ARCHIVE=$(cygpath -m "$archive")" >> "$GITHUB_ENV"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Rerun the v8 build script when its archive copy is gone
+        run: |
+          if [[ ! -d target/debug/gn_out ]]; then
+            rm -rf target/debug/build/v8-* target/debug/.fingerprint/v8-*
+          fi
+      - name: Thread clock and watchdog units
+        run: cargo test --locked -p renox-runtime --no-default-features --lib limits::cpu
+      # The acceptance test: the infinite loop is terminated at 50-55 ms of
+      # CPU. `-- cpu` filters to the serialised CPU tests (the heap test reads
+      # /proc, Linux only).
+      - name: CPU-limit tests
+        run: cargo test --locked -p renox-runtime --test limits --test termination -- cpu
+      - name: Per-request CPU accounting
+        run: cargo test --locked -p renox-runtime --test cpu_accounting
+      - run: sccache --show-stats
+
+  # renox-worker on Windows (#528, parent #442): the binary builds, clippy is
+  # clean for the crates #530 gated, and the renox-cell unit tests (including
+  # the `#[cfg(not(unix))]` config tests: unix listen, [process] and
+  # [replication] refused) and the renox-gateway tests pass. V8 comes from the
+  # verified prebuilt archive, like `windows-runtime`. Same path filter as the
+  # `rust` job, which covers renox-cell and renox-gateway.
+  windows-worker:
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.rust == 'true' }}
+    runs-on: windows-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      - name: Fetch and verify the rusty_v8 archive
+        run: |
+          archive=$(ops/v8-archive.sh fetch x86_64-pc-windows-msvc "$RUNNER_TEMP/rusty_v8")
+          # Bash prints /d/a/...; the v8 build script needs a Windows path.
+          echo "RUSTY_V8_ARCHIVE=$(cygpath -m "$archive")" >> "$GITHUB_ENV"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Rerun the v8 build script when its archive copy is gone
+        run: |
+          if [[ ! -d target/debug/gn_out ]]; then
+            rm -rf target/debug/build/v8-* target/debug/.fingerprint/v8-*
+          fi
+      - name: Build renox-worker
+        run: cargo build --locked -p renox-cell --bin renox-worker
+      # Same flags as `make rust-check` (-D warnings, --all-targets), for the
+      # crates this job builds.
+      - name: Clippy
+        run: cargo clippy --locked -p renox-cell -p renox-gateway -p renox-runtime --all-targets -- -D warnings
+      - name: renox-cell unit tests
+        run: cargo test --locked -p renox-cell --lib
+      - name: renox-gateway tests
+        run: cargo test --locked -p renox-gateway
+      - run: sccache --show-stats
+
   # Runs on a TypeScript change and on a Rust change: the CLI template, shop
   # build and dev e2e tests run on a renox-worker binary (#186). The worker is
   # the one the rust job built from this commit; when rust is skipped
@@ -533,7 +620,7 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - name: CLI tests that need no worker
-        run: cd cli && bun test tests/paths.test.ts tests/hash.test.ts tests/routes.test.ts tests/credentials-path.test.ts tests/worker-unavailable.test.ts
+        run: cd cli && bun test tests/paths.test.ts tests/hash.test.ts tests/routes.test.ts tests/credentials-path.test.ts tests/worker-unavailable.test.ts tests/install-ps1.test.ts
       - name: new, check, build of a blank app
         # Outside the repository: inside it, check would find the workspace's
         # typescript but not the app's own @renoxium/sdk (no bun install there).

@@ -11,7 +11,7 @@
 //
 // Release assets (.github/workflows/release-worker.yml, #154), on the release
 // tagged worker-v<version>:
-//   renox-worker-<version>-<target>          the binary (packaged: runs without a cargo registry)
+//   renox-worker-<version>-<target>[.exe]    the binary (packaged: runs without a cargo registry)
 //   renox-worker-<version>-<target>.sha256   its SHA-256 (hex, optionally followed by the file name)
 //   renox-worker-<version>-<target>-pdf.gz         the variant with `ctx.pdf`, gzip-compressed
 //   renox-worker-<version>-<target>-pdf.gz.sha256  the SHA-256 of the .gz
@@ -41,7 +41,12 @@ export const TARGETS: Record<string, string> = {
   "linux-arm64": "aarch64-unknown-linux-gnu",
   "darwin-x64": "x86_64-apple-darwin",
   "darwin-arm64": "aarch64-apple-darwin",
+  // #531: development worker only (isolates, no supervisor or sandbox); no pdf build.
+  "win32-x64": "x86_64-pc-windows-msvc",
 };
+
+/** The worker binary's file name on this platform; fetch-worker.ts and src/lib/worker.ts share it. */
+export const WORKER_FILE = process.platform === "win32" ? "renox-worker.exe" : "renox-worker";
 
 /** The Rust target triple of a Node platform and arch. */
 export function targetTriple(platform: string = process.platform, arch: string = process.arch): string {
@@ -59,7 +64,8 @@ export const assetName = (
   platform: string = process.platform,
   arch: string = process.arch,
   variant: WorkerVariant = "default",
-): string => `renox-worker-${version}-${targetTriple(platform, arch)}${variant === "pdf" ? "-pdf.gz" : ""}`;
+): string =>
+  `renox-worker-${version}-${targetTriple(platform, arch)}${variant === "pdf" ? "-pdf.gz" : platform === "win32" ? ".exe" : ""}`;
 
 export const releaseUrl = (version: string, asset: string, base = process.env.RENOX_RELEASE_BASE): string =>
   `${base ?? `https://github.com/${REPO}/releases/download`}/worker-v${version}/${asset}`;
@@ -84,6 +90,7 @@ export async function fetchWorker(
   variant: WorkerVariant = "default",
 ): Promise<string> {
   if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/u.test(version)) throw new Error(`invalid version ${version}`);
+  if (variant === "pdf" && process.platform === "win32") throw new Error(`no pdf renox-worker build for win32-${process.arch}`);
   const asset = assetName(version, process.platform, process.arch, variant);
   const [download, sum] = await Promise.all([get(releaseUrl(version, asset)), get(releaseUrl(version, `${asset}.sha256`))]);
   const expected = parseSha256File(new TextDecoder().decode(sum));
@@ -102,8 +109,8 @@ export async function fetchWorker(
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.renox-worker.${process.pid}`);
   writeFileSync(tmp, binary);
-  chmodSync(tmp, 0o755);
-  const target = join(dir, "renox-worker");
+  if (process.platform !== "win32") chmodSync(tmp, 0o755);
+  const target = join(dir, WORKER_FILE);
   renameSync(tmp, target);
   return target;
 }

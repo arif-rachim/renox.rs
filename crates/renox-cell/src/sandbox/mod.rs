@@ -488,6 +488,7 @@ mod tests {
     /// and "Local process forges the client-IP header": an escaped child
     /// cannot plant code or replace the socket `cloudflared` connects to).
     /// The socket takes no bind port.
+    #[cfg(unix)]
     #[test]
     fn children_keep_artifacts_read_exec_and_never_touch_the_listen_socket() {
         let text = "listen = \"unix:/run/renox-edge/worker.sock\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\nmode = \"controlled\"\nnode_id = \"n1\"\nfetch_blocked_addresses = [\"203.0.113.1\"]\n[control]\nurl = \"https://10.0.0.5:8788\"\nnode_token_file = \"node.token\"\n[sandbox]\nenabled = true\n";

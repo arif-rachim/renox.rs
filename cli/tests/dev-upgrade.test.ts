@@ -9,6 +9,7 @@ import { rmSync } from "node:fs";
 import { startDev } from "../src/commands/dev.ts";
 import { app } from "./authz-fixture.ts";
 import { testWorker } from "./worker-env.ts";
+import { freePort } from "./free-port.ts";
 
 const worker = testWorker();
 if (worker) process.env.RENOX_WORKER_PATH = worker;
@@ -35,7 +36,7 @@ test.skipIf(!worker)(
   "a WebSocket echo and an unbuffered SSE stream through the dev proxy",
   async () => {
     const dir = app(FILES);
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = freePort();
     const lines: string[] = [];
     const dev = await startDev({ project: dir, port, log: (l) => lines.push(l) });
     try {
