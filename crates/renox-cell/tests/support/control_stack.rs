@@ -443,8 +443,11 @@ impl Stack {
         assert_eq!(r.status, 201, "{}", r.text());
         let path = self.root.join(format!("{node_id}.token"));
         std::fs::write(&path, r.json()["token"].as_str().unwrap()).unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         path
     }
 

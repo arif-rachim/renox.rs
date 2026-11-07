@@ -9,6 +9,7 @@ import { gzipSync } from "node:zlib";
 
 import { sha256Hex } from "../src/lib/hash.ts";
 import {
+  WORKER_FILE,
   WORKER_VERSION,
   assetName,
   fetchWorker,
@@ -26,7 +27,7 @@ test("assets are named renox-worker-<version>-<target> on the worker-v<version> 
   // #381: the variant with ctx.pdf is published gzip-compressed, so the signed asset stays under cosign's 128 MiB.
   expect(assetName("0.4.0", "linux", "x64", "pdf")).toBe("renox-worker-0.4.0-x86_64-unknown-linux-gnu-pdf.gz");
   expect(assetName("0.4.0", "darwin", "arm64", "pdf")).toBe("renox-worker-0.4.0-aarch64-apple-darwin-pdf.gz");
-  expect(() => targetTriple("win32", "x64")).toThrow("no renox-worker build for win32-x64");
+  expect(() => targetTriple("win32", "arm64")).toThrow("no renox-worker build for win32-arm64");
   expect(releaseUrl("0.1.0", "renox-worker-0.1.0-x86_64-unknown-linux-gnu", undefined)).toBe(
     "https://github.com/arif-rachim/renox.rs/releases/download/worker-v0.1.0/renox-worker-0.1.0-x86_64-unknown-linux-gnu",
   );
@@ -108,5 +109,14 @@ test("fetch-worker --pdf verifies the .gz, unpacks it, and installs the binary w
     pdfSum = sha256Hex(good);
   } finally {
     delete process.env.RENOX_RELEASE_BASE;
+  }
+});
+
+test("the Windows worker is renox-worker-<version>-x86_64-pc-windows-msvc.exe; there is no pdf build (#531)", async () => {
+  expect(assetName("0.4.0", "win32", "x64")).toBe("renox-worker-0.4.0-x86_64-pc-windows-msvc.exe");
+  expect(targetTriple("win32", "x64")).toBe("x86_64-pc-windows-msvc");
+  expect(WORKER_FILE).toBe(process.platform === "win32" ? "renox-worker.exe" : "renox-worker");
+  if (process.platform === "win32") {
+    await expect(fetchWorker(undefined, mkdtempSync(join(tmpdir(), "renox-fetch-")), "pdf")).rejects.toThrow("no pdf renox-worker build for win32-x64");
   }
 });

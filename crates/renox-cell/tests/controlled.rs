@@ -5,6 +5,8 @@
 //! lines reach `POST /v1/ingest/logs`; a route update reaches the gateway and a
 //! new cell serves within 1 s; `/healthz` answers.
 
+#![cfg(unix)]
+
 #[path = "support/control_stack.rs"]
 mod stack;
 

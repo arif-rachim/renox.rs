@@ -5,7 +5,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { assetName, fetchWorker, releaseUrl, TARGETS, WORKER_VERSION } from "../../scripts/fetch-worker.ts";
+import { assetName, fetchWorker, releaseUrl, TARGETS, WORKER_FILE, WORKER_VERSION } from "../../scripts/fetch-worker.ts";
 import { EnvironmentError } from "../errors.ts";
 import { PINNED_WORKER, verifyPinned } from "../worker/verify.ts";
 
@@ -17,17 +17,19 @@ export const CACHE_DIR = join(homedir(), ".renox", "bin");
 
 export const DOWNLOAD_HINT = "run `bun cli/scripts/fetch-worker.ts` to download the release build, or set RENOX_WORKER_PATH to a renox-worker binary";
 
-/** The worker binary's file name on this platform. */
-export const WORKER_FILE = process.platform === "win32" ? "renox-worker.exe" : "renox-worker";
+export { WORKER_FILE };
 
 export const UNAVAILABLE = "RENOX_CLI_WORKER_UNAVAILABLE";
 
-/** This platform has no renox-worker build (Windows today): the command needs one (#441, #442). */
+/** This platform has no renox-worker build, or none is pinned in this CLI yet (Windows today): the command needs one (#441, #442). */
 export class WorkerUnavailableError extends EnvironmentError {
   readonly code = UNAVAILABLE;
   constructor(readonly target: string) {
     super(`${UNAVAILABLE}: renox-worker has no build for ${target}; this command needs it`, {
-      hint: "Run renox inside WSL 2 (wsl --install -d Ubuntu); a native Windows worker is #442. new, check and build of an app without .html pages or policies, login, deploy, logs, secrets and db work natively.",
+      hint:
+        target in TARGETS
+          ? "a native worker is published but not yet pinned in this CLI (#442); set RENOX_WORKER_PATH to a renox-worker.exe you built or downloaded, or use WSL 2 (wsl --install -d Ubuntu). new, check and build of an app without .html pages or policies, login, deploy, logs, secrets and db work natively."
+          : "Run renox inside WSL 2 (wsl --install -d Ubuntu); a native Windows worker is #442. new, check and build of an app without .html pages or policies, login, deploy, logs, secrets and db work natively.",
     });
   }
 }
@@ -58,7 +60,9 @@ export function workerPath(
     if (!existsSync(p)) throw new EnvironmentError(`RENOX_WORKER_PATH is ${p}, which does not exist`, { hint: DOWNLOAD_HINT });
     return p;
   }
-  if (!(target in TARGETS)) throw new WorkerUnavailableError(target);
+  // No build for the platform, or none pinned yet: a worker without a pinned sha256 would not verify (#531, F7-107).
+  const triple = TARGETS[target];
+  if (triple === undefined || pinned[triple] === undefined) throw new WorkerUnavailableError(target);
   for (const p of [join(binDir, `${process.platform}-${process.arch}`, WORKER_FILE), installed, join(cacheDir, WORKER_FILE)]) {
     if (p && existsSync(p)) {
       verifyPinned(p, undefined, pinned, pdf);

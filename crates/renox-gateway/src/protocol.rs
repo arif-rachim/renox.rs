@@ -428,8 +428,19 @@ pub struct Http1Guard<I> {
     /// The refusal ([`Violation::response`]) and the bytes of it written
     /// so far; once written, the read fails.
     rejecting: Option<(Vec<u8>, usize)>,
+    /// After the refusal: whether the write side is shut, and how many of
+    /// the client's remaining bytes were read and discarded (lingering
+    /// close, see [`LINGER_MAX_BYTES`]).
+    lingering: Option<(bool, usize)>,
     refused: Option<Arc<AtomicU64>>,
 }
+
+/// At most this many bytes of a refused request are read and discarded
+/// after the refusal is written. Closing a socket with unread input makes
+/// the OS reset the connection, and on Windows the reset discards the
+/// refusal before the client reads it (#530); draining first lets the
+/// client see the 431 or 400. The idle timeout bounds the time.
+const LINGER_MAX_BYTES: usize = 1024 * 1024;
 
 impl<I> Http1Guard<I> {
     pub fn new(inner: I, max_line: usize, refused: Option<Arc<AtomicU64>>) -> Self {
@@ -438,6 +449,7 @@ impl<I> Http1Guard<I> {
             framing: Http1Framing::new(max_line),
             switch: None,
             rejecting: None,
+            lingering: None,
             refused,
         }
     }
@@ -480,12 +492,42 @@ impl<I: AsyncRead + AsyncWrite + Unpin> AsyncRead for Http1Guard<I> {
                         Poll::Pending => return Poll::Pending,
                     }
                 }
-                // Flush (TLS buffers records), then fail the read so hyper
-                // closes the connection.
-                return match Pin::new(&mut this.inner).poll_flush(cx) {
-                    Poll::Pending => Poll::Pending,
-                    Poll::Ready(_) => Poll::Ready(Err(refused())),
+                // Flush (TLS buffers records), shut the write side so the
+                // client sees the end of the refusal, then read and discard
+                // what it still sends (lingering close) and fail the read so
+                // hyper closes the connection.
+                let Some((shut, drained)) = &mut this.lingering else {
+                    match Pin::new(&mut this.inner).poll_flush(cx) {
+                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Ok(())) => {
+                            this.lingering = Some((false, 0));
+                            continue;
+                        }
+                        Poll::Ready(Err(_)) => return Poll::Ready(Err(refused())),
+                    }
                 };
+                if !*shut {
+                    match Pin::new(&mut this.inner).poll_shutdown(cx) {
+                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Ok(())) => *shut = true,
+                        Poll::Ready(Err(_)) => return Poll::Ready(Err(refused())),
+                    }
+                }
+                let mut scratch = [0u8; 4096];
+                loop {
+                    let mut sink = ReadBuf::new(&mut scratch);
+                    match Pin::new(&mut this.inner).poll_read(cx, &mut sink) {
+                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Ok(())) if !sink.filled().is_empty() => {
+                            *drained += sink.filled().len();
+                            if *drained > LINGER_MAX_BYTES {
+                                return Poll::Ready(Err(refused()));
+                            }
+                        }
+                        // End of input, or a read error: done.
+                        Poll::Ready(_) => return Poll::Ready(Err(refused())),
+                    }
+                }
             }
             let before = buf.filled().len();
             match Pin::new(&mut this.inner).poll_read(cx, buf) {

@@ -451,6 +451,19 @@ fn default_max_cells() -> u32 {
     1000
 }
 
+/// Why `listen = "unix:..."` is refused where there are no unix sockets (#530).
+#[cfg(not(unix))]
+pub const UNIX_LISTEN_REFUSED: &str =
+    "listen = \"unix:…\" needs a Unix host; use ip:port on Windows";
+
+/// Why `[process] enabled = true` is refused off Unix (#442, #530).
+#[cfg(not(unix))]
+const PROCESS_REFUSED: &str = "[process] enabled = true needs a Unix host; the Windows worker is single-process (development only, #442)";
+
+/// Why `[replication] enabled = true` is refused off Unix (#442, #530).
+#[cfg(not(unix))]
+const REPLICATION_REFUSED: &str = "[replication] enabled = true needs a Unix host; the Windows worker is single-process (development only, #442)";
+
 /// `listen`: a TCP address or `unix:<path>` (#414).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "String")]
@@ -465,6 +478,9 @@ impl TryFrom<String> for Listen {
     fn try_from(s: String) -> Result<Self, String> {
         match s.strip_prefix("unix:") {
             Some("") => Err("listen = \"unix:\" needs a socket path".into()),
+            #[cfg(not(unix))]
+            Some(_) => Err(UNIX_LISTEN_REFUSED.into()),
+            #[cfg(unix)]
             Some(path) => Ok(Listen::Unix(PathBuf::from(path))),
             None => s
                 .parse()
@@ -796,6 +812,10 @@ impl WorkerConfig {
                 )));
             }
         }
+        #[cfg(not(unix))]
+        if c.replication.enabled {
+            return Err(ConfigError::Invalid(REPLICATION_REFUSED.into()));
+        }
         if c.replication.enabled {
             let r = &c.replication;
             match r.replica {
@@ -827,6 +847,10 @@ impl WorkerConfig {
                     "replication.endpoint is required with region = \"auto\" (Cloudflare R2: https://<account id>.r2.cloudflarestorage.com)".into(),
                 ));
             }
+        }
+        #[cfg(not(unix))]
+        if c.process.enabled {
+            return Err(ConfigError::Invalid(PROCESS_REFUSED.into()));
         }
         if !(c.process.child_idle_secs.is_finite() && c.process.child_idle_secs > 0.0) {
             return Err(ConfigError::Invalid(
@@ -979,6 +1003,7 @@ mod tests {
 
     /// #414: `listen = "unix:…"`, the client-address keys of `[gateway]`,
     /// users and groups resolved by name or number, and the refusals.
+    #[cfg(unix)]
     #[test]
     fn unix_listen_and_client_ip_keys() {
         let rest = "data_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
@@ -1175,6 +1200,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn process_section() {
         let base = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
@@ -1206,6 +1232,7 @@ mod tests {
     /// replica (`region = "auto"` and its endpoint, no KMS key) starts; R2
     /// without `endpoint` is refused, and so are the keys of the old
     /// residency rule (ADR D25).
+    #[cfg(unix)]
     #[test]
     fn replication_section() {
         let base = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
@@ -1268,5 +1295,51 @@ mod tests {
     fn unknown_keys_are_refused() {
         let text = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\nsurprise = 1\n";
         assert!(WorkerConfig::parse(text, Path::new("/")).is_err());
+    }
+
+    const MIN: &str = "listen = \"127.0.0.1:1\"\ndata_dir=\"d\"\nartifacts_dir=\"a\"\nroutes_file=\"r\"\nmeters_dir=\"m\"\nlogs_dir=\"l\"\n";
+
+    /// #530: the Windows worker is single-process; the Unix-only sections
+    /// are refused at parse, never ignored.
+    #[cfg(not(unix))]
+    #[test]
+    fn unix_only_sections_are_refused() {
+        let e = WorkerConfig::parse(
+            &format!("{MIN}[process]\nenabled = true\n"),
+            Path::new("/srv"),
+        )
+        .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("[process] enabled = true needs a Unix host")
+        );
+        let e = WorkerConfig::parse(
+            &format!("{MIN}[replication]\nenabled = true\nreplica = \"file\"\npath = \"r\"\n"),
+            Path::new("/srv"),
+        )
+        .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("[replication] enabled = true needs a Unix host")
+        );
+        let rest = &MIN[MIN.find('\n').unwrap() + 1..];
+        let e = WorkerConfig::parse(
+            &format!("listen = \"unix:run/w.sock\"\n{rest}"),
+            Path::new("/srv"),
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("needs a Unix host; use ip:port"));
+    }
+
+    /// #530: on a Unix host `[process] enabled = true` is still accepted.
+    #[cfg(unix)]
+    #[test]
+    fn process_enabled_is_accepted_on_unix() {
+        let c = WorkerConfig::parse(
+            &format!("{MIN}[process]\nenabled = true\n"),
+            Path::new("/srv"),
+        )
+        .unwrap();
+        assert!(c.process.enabled);
     }
 }

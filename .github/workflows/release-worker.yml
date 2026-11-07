@@ -64,6 +64,11 @@ on:
 permissions:
   contents: read
 
+# The Windows runner would default to pwsh; every script here is bash.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: release-worker-${{ github.ref }}
   cancel-in-progress: false
@@ -89,6 +94,8 @@ jobs:
           - aarch64-unknown-linux-gnu
           - aarch64-apple-darwin
           - x86_64-apple-darwin
+          # #528: Windows x86_64, default variant only (see exclude).
+          - x86_64-pc-windows-msvc
         # #381: `default` without the `pdf` feature, `pdf` with it.
         variant: [default, pdf]
         include:
@@ -115,6 +122,15 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-15-intel
             smoke: native
+          # #528: no smoke test: fetch-worker.ts and renox dev do not run on
+          # Windows yet (the CLI pin and fetch are F7-106, F7-107).
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            smoke: ''
+        exclude:
+          # The pdf variant on Windows is a follow-up (#528, out of scope).
+          - target: x86_64-pc-windows-msvc
+            variant: pdf
     runs-on: ${{ matrix.runner }}
     env:
       RUSTC_WRAPPER: sccache
@@ -183,6 +199,8 @@ jobs:
       - name: Fetch and verify the rusty_v8 archive
         run: |
           archive=$(ops/v8-archive.sh fetch "$TARGET" "$RUNNER_TEMP/rusty_v8")
+          # Bash prints /d/a/... on Windows; the v8 build script needs a Windows path.
+          [[ $TARGET == *windows-msvc ]] && archive=$(cygpath -m "$archive")
           echo "RUSTY_V8_ARCHIVE=$archive" >> "$GITHUB_ENV"
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Check the workspace has a renox-worker binary
@@ -216,14 +234,16 @@ jobs:
           [[ "$VARIANT" == pdf ]] && features=$features,pdf
           cargo build --release --locked -p renox-cell --bin renox-worker \
             --no-default-features --features "$features"
-          cp target/release/renox-worker target/renox-worker
+          exe=""; [[ $TARGET == *windows-msvc ]] && exe=.exe
+          cp "target/release/renox-worker$exe" "target/renox-worker$exe"
       # #401: the built binary reports the crate version, which the Version
       # step matched against the tag; a mismatch fails the release.
       - name: Version check
         env:
           CRATE_VERSION: ${{ steps.version.outputs.crate }}
         run: |
-          got=$(target/renox-worker --version)
+          exe=""; [[ $TARGET == *windows-msvc ]] && exe=.exe
+          got=$(target/renox-worker$exe --version)
           echo "$got" | tee -a "$GITHUB_STEP_SUMMARY"
           if [[ "$got" != "renox-worker $CRATE_VERSION" ]]; then
             echo "::error::renox-worker --version printed '$got', expected 'renox-worker $CRATE_VERSION'"
@@ -234,6 +254,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           # An unreleased build is 0.0.0-dev, still a semver for fetch-worker.ts.
+          exe=""; [[ $TARGET == *windows-msvc ]] && exe=.exe
           name="renox-worker-${VERSION:-0.0.0-dev}-$TARGET"
           mkdir dist
           if [[ "$VARIANT" == pdf ]]; then
@@ -246,8 +267,14 @@ jobs:
             (cd dist && shasum -a 256 "$name-pdf.gz" > "$name-pdf.gz.sha256")
             printf '%s  %s\n' "$(shasum -a 256 target/renox-worker | cut -d ' ' -f 1)" "$name-pdf" > "dist/$name-pdf.unpacked"
           else
-            cp target/renox-worker "dist/$name"
-            (cd dist && shasum -a 256 "$name" > "$name.sha256")
+            cp "target/renox-worker$exe" "dist/$name$exe"
+            if [[ -n "$exe" ]]; then
+              # Git Bash's sha256sum writes binary-mode lines ("<hash> *<name>");
+              # SHA256SUMS needs the two-space form shasum writes.
+              printf '%s  %s\n' "$(sha256sum "dist/$name$exe" | cut -d ' ' -f 1)" "$name$exe" > "dist/$name$exe.sha256"
+            else
+              (cd dist && shasum -a 256 "$name" > "$name.sha256")
+            fi
           fi
           ls -l dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -323,7 +350,8 @@ jobs:
       - name: Size check
         run: |
           mib() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1048576 }'; }
-          bin=target/renox-worker
+          exe=""; [[ $TARGET == *windows-msvc ]] && exe=.exe
+          bin=target/renox-worker$exe
           bin_bytes=$(wc -c < "$bin" | tr -d ' ')
           if [[ "$VARIANT" == pdf ]]; then
             asset=$(ls dist/*-pdf.gz)

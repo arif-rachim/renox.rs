@@ -270,11 +270,17 @@ pub fn run_hook(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                use std::os::unix::process::ExitStatusExt;
-                return status
-                    .code()
-                    .or_else(|| status.signal().map(|s| 128 + s))
-                    .unwrap_or(1);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    return status
+                        .code()
+                        .or_else(|| status.signal().map(|s| 128 + s))
+                        .unwrap_or(1);
+                }
+                // No signals off Unix: the plain exit code (#530).
+                #[cfg(not(unix))]
+                return status.code().unwrap_or(1);
             }
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
             _ => {

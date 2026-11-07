@@ -66,9 +66,13 @@ v8_version() {
 fetch() {
   local target=$1 dir=$2 version entries entry name out
   version=$(v8_version)
+  # Windows archives are named rusty_v8_*.lib.gz (no lib prefix, .lib
+  # extension; v8 build.rs static_lib_name), the others librusty_v8_*.a.gz.
+  local ext=.a.gz
+  [[ "$target" == *-windows-msvc ]] && ext=.lib.gz
   # The archive name carries the v8 crate's feature suffix (for example
   # _simdutf); the checksum file names the one archive per version and target.
-  entries=$(awk -v v="v$version/" -v t="_release_$target.a.gz" \
+  entries=$(awk -v v="v$version/" -v t="_release_$target$ext" \
     '!/^#/ && NF == 2 && index($2, v) == 1 && substr($2, length($2) - length(t) + 1) == t { print $2 }' "$checksums")
   [[ -n "$entries" ]] || die "no checksum for v8 $version on $target in $checksums; add one (ops/README.md)"
   [[ $(wc -l <<<"$entries") -eq 1 ]] || die "more than one archive for v8 $version on $target in $checksums"

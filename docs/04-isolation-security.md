@@ -60,6 +60,8 @@ All limits are measured per request and recorded for billing (`05-tenant-lifecyc
 | Secrets injected per deployment as frozen objects via an op | Secrets leaking through bundles, logs, or errors |
 | Append-only audit log | Forensics after an incident |
 
+The Windows `renox-worker.exe` runs isolates only: it has no supervisor, sandbox or cgroups (#531). It is a development worker for `renox dev` and `renox test` and never hosts tenants.
+
 ## Threat model (summary)
 
 | Threat | Actor | Primary control | Secondary control | Test |

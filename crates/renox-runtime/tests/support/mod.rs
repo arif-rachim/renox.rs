@@ -135,6 +135,8 @@ pub fn body_json(r: &http::Response<Bytes>) -> serde_json::Value {
 }
 
 /// Resident set size of this process in bytes (Linux).
+// /proc exists on Linux only; the callers are the Linux-only memory tests.
+#[cfg(target_os = "linux")]
 pub fn rss_bytes() -> u64 {
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
     let line = status.lines().find(|l| l.starts_with("VmRSS:")).unwrap();
@@ -144,6 +146,12 @@ pub fn rss_bytes() -> u64 {
         .parse::<u64>()
         .unwrap()
         * 1024
+}
+
+/// Off Linux there is no /proc reader: fail loudly, never report a fake number.
+#[cfg(not(target_os = "linux"))]
+pub fn rss_bytes() -> u64 {
+    unimplemented!("rss_bytes reads /proc/self/status (Linux only)")
 }
 
 pub fn percentile(sorted: &[Duration], p: f64) -> Duration {

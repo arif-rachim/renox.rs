@@ -18,6 +18,7 @@ pub mod manager;
 pub mod mcp;
 pub mod outbox;
 pub mod pages;
+pub mod process;
 pub mod pruning;
 pub mod ratelimit;
 pub mod realtime;
@@ -27,6 +28,7 @@ pub mod sandbox;
 pub mod scheduler;
 pub mod spool;
 pub mod storage;
+#[cfg(unix)]
 pub mod supervisor;
 pub mod tar_safe;
 pub mod telemetry;

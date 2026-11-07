@@ -366,11 +366,16 @@ impl Replication {
             }
         }
         for (database, pid) in to_stop {
+            // `[replication] enabled = true` is refused off Unix at config
+            // parse (#530), so no sidecar runs there.
+            #[cfg(unix)]
             if let Some(pid) = pid {
                 let _ = std::process::Command::new("kill")
                     .args(["-TERM", &pid.to_string()])
                     .status();
             }
+            #[cfg(not(unix))]
+            let _ = pid;
             tracing::info!(%database, "litestream stopped after eviction");
         }
         for database in to_start {
