@@ -1664,6 +1664,15 @@
                 "$ref": "#/$defs/fragmentName"
               }
             },
+            "status": {
+              "enum": [
+                200,
+                400,
+                409,
+                422
+              ],
+              "description": "1.9.0: the response status of an action result; absent = 200."
+            },
             "locale": {
               "$ref": "#/$defs/locale"
             },
@@ -4787,7 +4796,7 @@
         "op",
         "args"
       ],
-      "description": "ops.md section 25 (1.8.0): template id (relative to the module's tree for a module), data JSON, module; the rendered fragment as an HTML string.",
+      "description": "ops.md section 25 (1.8.0, module argument stated in 1.9.0): template id (relative to the module's tree for a module), data JSON, module; the rendered fragment as an HTML string.",
       "properties": {
         "$comment": {
           "type": "string"

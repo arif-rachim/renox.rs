@@ -1,4 +1,4 @@
-// TypeScript view of docs/contracts/ops.md, contract version 1.7.0.
+// TypeScript view of docs/contracts/ops.md, contract version 1.9.0.
 // Plain declarations, no implementation: the SDK package (#31) implements and
 // re-exports these types. Section numbers refer to ops.md.
 
@@ -794,7 +794,7 @@ export interface ActionContext extends Omit<Ctx, "db"> {
  * merged over its result as template data; `fragments` names the extra
  * fragments rendered out of band.
  */
-export type ActionResult = Response | (PageData & { fragments?: readonly string[] }) | void;
+export type ActionResult = Response | (PageData & { fragments?: readonly string[]; status?: 200 | 400 | 409 | 422 }) | void;
 
 export type Action = (ctx: ActionContext) => ActionResult | Promise<ActionResult>;
 
@@ -862,7 +862,7 @@ export type JobResult = { type: "ok" } | { type: "failed"; reason: "threw" | "no
 /** Bootstrap → Rust (ops.schema.json `$defs/pageResult`). */
 export type PageResult =
   | { type: "response" }
-  | { type: "render"; data_json: string; fragments: string[]; locale?: string; dir?: TextDirection }
+  | { type: "render"; data_json: string; fragments: string[]; status?: 200 | 400 | 409 | 422; locale?: string; dir?: TextDirection }
   | { type: "internal"; reason: PageInternalReason };
 
 export type PageInternalReason =

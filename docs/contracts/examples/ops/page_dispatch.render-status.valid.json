@@ -1,0 +1,20 @@
+{
+  "$comment": "valid: a plain form POST ?/save with an invalid phone re-renders the page with status 422 (ops.md section 14, 1.9.0)",
+  "dispatch": "page",
+  "invocation": {
+    "route": "/contact",
+    "phase": "action",
+    "action": "save",
+    "fragment": null,
+    "params": {},
+    "session": {
+      "id": "Q2hhbmdlTWVQbGVhc2UxMg"
+    }
+  },
+  "result": {
+    "type": "render",
+    "data_json": "{\"values\":{\"phone\":\"12\"},\"errors\":{\"phone\":\"invalid\"}}",
+    "fragments": [],
+    "status": 422
+  }
+}
