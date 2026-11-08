@@ -66,7 +66,7 @@ declare module "renox:modules" {
   };
   export const audit: {
     /** The trail, newest first (needs `audit.read`): the module's rows merged with the platform's decisions on sensitive actions. */
-    query(filter?: { actor?: string; action?: string; since?: number; until?: number; platform?: boolean; limit?: number; cursor?: string }): Promise<{ events: { id: string; at: number; kind?: string; actor_kind?: string; actor_id?: string; actor?: string; action: string; result: string; resource_type?: string; resource_id?: string; details?: unknown }[]; next: string | null }>;
+    query(filter?: { actor?: string; action?: string; since?: number; until?: number; platform?: boolean; limit?: number; cursor?: string }): Promise<{ events: { id: string; at: number; kind?: string; actor_kind?: string; actor_id?: string; action: string; result: string; resource_type?: string; resource_id?: string; details?: unknown }[]; next: string | null }>;
     record(event: { action: string; actor: { kind: "user" | "agent" | "system"; id: string; client?: string }; resource?: { type: string; id?: string }; result?: "ok" | "denied" | "failed"; details?: Record<string, unknown>; request_id?: string }): Promise<{ id: string }>;
   };
   /** A free start of a day: `start` and `end` are unix milliseconds, `staff` the booking staff id (here: the technician's user id). */

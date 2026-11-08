@@ -1,0 +1,126 @@
+// Messages to customers. `notifyCustomer` is the one place the app talks to a
+// customer. It records every message (app__customer_messages, with the channel
+// it took), picks the channel, and tells the staff member who is concerned, in
+// the app (the notifications module: the badge updates over SSE).
+//
+// The channel, for the kinds that go to the customer (lib/messages.ts):
+//   - the customer has a phone and app__settings.whatsapp_sandbox is not '1':
+//     WhatsApp, the kind's approved template in the customer's language;
+//   - the sandbox is on and the customer has a phone: the message is written to
+//     app__outbox_preview instead (the whatsapp module has no sandbox mode: it
+//     would send); the email below still goes, when there is an address;
+//   - no phone, or the sandbox is on: email, when the customer has an address;
+//   - neither: channel 'none', and the job's timeline says so when the message
+//     is about a job.
+// `quote_approved` and `quote_rejected` are the customer's own answer: only the
+// staff member is told.
+//
+// A module service that throws inside the caller's transaction rolls the whole
+// transaction back, so the address is checked first (a valid phone, an address
+// that is not suppressed) and a send that cannot work is skipped, not tried.
+import type { DbStatements } from "@renoxium/sdk";
+import { email, gcc, notifications, whatsapp } from "renox:modules";
+
+import { type Language, type MessageKind, renderMessage } from "./messages";
+import { fencedTo } from "./scope";
+import { brandName, getSettings } from "./settings";
+
+export type CustomerMessageKind = MessageKind | "quote_approved" | "quote_rejected";
+
+interface NotifyCtx {
+  readonly db: DbStatements;
+  readonly principal: { readonly id: string } | null;
+  /** The request's URL: its origin makes the customer's links absolute. Jobs have none (the `public_url` setting is used). */
+  readonly url?: URL;
+}
+
+export interface MessageData {
+  branch_id: string;
+  ref_id: string;
+  /** Who is told in the app: the dispatcher concerned. Optional: no staff notification without it. */
+  staff_user?: string;
+  /** The staff notification's title and link (a path of the app); its category is `staff_category`. */
+  title?: string;
+  link?: string;
+  staff_category?: string;
+  /** The job the message is about: a message nobody could receive is noted on its timeline. */
+  job_id?: string;
+  /** What the customer's own link opens, a path (`/l/approve/<token>`); put in the text as `{link}`. */
+  customer_link?: string;
+  /** The values of the kind's placeholders: `number`, `job`, `when`, `technician`, `amount`, `ends`. */
+  vars?: Record<string, string>;
+}
+
+type CustomerRow = { id: string; name: string; phone: string; email: string | null; language: string };
+
+const now = (): number => Math.floor(Date.now() / 1000);
+
+export type Channel = "whatsapp" | "email" | "preview" | "none" | "staff";
+
+/** Records the message for `customer`, sends it by the channel above, and notifies `data.staff_user`. */
+export async function notifyCustomer(ctx: NotifyCtx, customer: { id: string }, kind: CustomerMessageKind, data: MessageData): Promise<Channel> {
+  const sdb = fencedTo(ctx.db, data.branch_id);
+  let channel: Channel = "staff";
+  let template: string | null = null;
+  if (kind !== "quote_approved" && kind !== "quote_rejected") {
+    const row = await sdb.queryOne<CustomerRow>("select id, name, phone, email, language from app__customers where id = ?", [customer.id]);
+    if (row !== null) {
+      const sent = await deliver(ctx, sdb, row, kind, data);
+      channel = sent.channel;
+      template = sent.template;
+    } else channel = "none";
+    if (channel === "none" && data.job_id !== undefined) {
+      await sdb.execute("insert into app__job_events (job_id, branch_id, at, by_user_id, from_status, to_status, note) values (?, ?, ?, ?, null, null, ?)", [
+        data.job_id,
+        data.branch_id,
+        now(),
+        ctx.principal?.id ?? null,
+        `no channel: the customer has no phone and no email (${kind})`,
+      ]);
+    }
+  }
+  await ctx.db.execute("insert into app__customer_messages (branch_id, customer_id, kind, ref_id, by_user_id, created_at, channel, template) values (?, ?, ?, ?, ?, ?, ?, ?)", [
+    data.branch_id,
+    customer.id,
+    kind,
+    data.ref_id,
+    ctx.principal?.id ?? null,
+    now(),
+    channel,
+    template,
+  ]);
+  if (data.staff_user !== undefined && data.title !== undefined) {
+    await notifications.notify(data.staff_user, { category: data.staff_category ?? "quotes", title: data.title, ...(data.link === undefined ? {} : { link: data.link }) });
+  }
+  return channel;
+}
+
+async function deliver(ctx: NotifyCtx, sdb: ReturnType<typeof fencedTo>, c: CustomerRow, kind: MessageKind, data: MessageData): Promise<{ channel: Channel; template: string | null }> {
+  const settings = await getSettings(ctx.db);
+  const language: Language = c.language === "ar" ? "ar" : "en";
+  const origin = ctx.url?.origin ?? settings.public_url ?? "";
+  // `brand` is the company's name in the customer's language (the subject of the invoice mail carries it).
+  const vars = { brand: brandName(settings, language), name: c.name, link: data.customer_link === undefined ? "" : `${origin}${data.customer_link}`, ...data.vars };
+  const msg = renderMessage(kind, language, vars);
+  const phone = c.phone === "" ? null : await gcc.validatePhone(c.phone);
+  const hasPhone = phone !== null && phone.ok;
+  const sandbox = settings.whatsapp_sandbox === "1";
+  let channel: Channel = "none";
+  if (hasPhone && !sandbox) {
+    await whatsapp.sendTemplate(phone.value, msg.template, msg.params, msg.language);
+    return { channel: "whatsapp", template: msg.template };
+  }
+  if (hasPhone) {
+    await sdb.execute("insert into app__outbox_preview (branch_id, customer_id, channel, to_address, template, body, created_at) values (?, ?, 'whatsapp', ?, ?, ?, ?)", [data.branch_id, c.id, phone.value, msg.template, msg.body, now()]);
+    channel = "preview";
+  }
+  const mail = c.email ?? "";
+  const address = mail.trim();
+  if (address !== "" && !(await email.isSuppressed(address))) {
+    // The email module has no display name for the sender: the settings' sender name signs the text instead.
+    const sender = (settings.sender_name ?? "").trim();
+    await email.sendRaw({ to: address, subject: msg.subject, text: sender === "" ? msg.body : `${msg.body}\n\n${sender}` });
+    channel = "email";
+  }
+  return { channel, template: msg.template };
+}

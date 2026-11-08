@@ -33,6 +33,7 @@ For coding agents: `renox new` writes an `AGENTS.md`, a `CLAUDE.md` and a `.mcp.
 - [Partial rendering and realtime](https://renoxium.com/docs/realtime): htmx fragments, morphing and view transitions; SSE and WebSocket routes with topics and authorization
 - [Module system and inter-module communication](https://renoxium.com/docs/modules): the module system: manifest, permissions, services, events, hooks, slots, overrides, tables prefixed <module>__
 - [Authorization: RBAC, ABAC, and relations](https://renoxium.com/docs/authorization): Cedar policies, guard exports, r-can in templates, db.scoped(), roles and 2FA step-up
+- [Reference app: home services](https://renoxium.com/docs/reference-app): the home-services reference app (renox new --template home-services): roles, the flow from quotation to paid invoice, which module does what, adapting it for a client, the owner steps
 
 ## Modules
 

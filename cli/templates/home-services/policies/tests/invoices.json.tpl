@@ -1,0 +1,12 @@
+[
+  { "description": "an accountant with a recent second factor issues an invoice", "principal": { "type": "User", "id": "u_dxb_accountant", "roles": ["accountant"], "attrs": { "org": "org_dubai", "mfa_verified": true } }, "action": "invoice.issue", "expected": "allow" },
+  { "description": "an accountant without the second factor does not", "principal": { "type": "User", "id": "u_dxb_accountant", "roles": ["accountant"], "attrs": { "org": "org_dubai", "mfa_verified": false } }, "action": "invoice.issue", "expected": "deny" },
+  { "description": "an accountant with the second factor records a payment", "principal": { "type": "User", "id": "u_dxb_accountant", "roles": ["accountant"], "attrs": { "org": "org_dubai", "mfa_verified": true } }, "action": "invoice.pay", "expected": "allow" },
+  { "description": "an accountant without the second factor records none", "principal": { "type": "User", "id": "u_dxb_accountant", "roles": ["accountant"], "attrs": { "org": "org_dubai", "mfa_verified": false } }, "action": "invoice.pay", "expected": "deny" },
+  { "description": "an owner with the second factor issues an invoice", "principal": { "type": "User", "id": "u_owner", "roles": ["owner"], "attrs": { "org": "org_dubai", "mfa_verified": true } }, "action": "invoice.issue", "expected": "allow" },
+  { "description": "a dispatcher does not issue invoices, second factor or not", "principal": { "type": "User", "id": "u_dxb_dispatcher", "roles": ["dispatcher"], "attrs": { "org": "org_dubai", "mfa_verified": true } }, "action": "invoice.issue", "expected": "deny" },
+  { "description": "a branch manager does not issue invoices either", "principal": { "type": "User", "id": "u_dxb_manager", "roles": ["branch_manager"], "attrs": { "org": "org_dubai", "mfa_verified": true } }, "action": "invoice.issue", "expected": "deny" },
+  { "description": "a branch manager does not record payments", "principal": { "type": "User", "id": "u_dxb_manager", "roles": ["branch_manager"], "attrs": { "org": "org_dubai", "mfa_verified": true } }, "action": "invoice.pay", "expected": "deny" },
+  { "description": "a branch manager reads invoices", "principal": { "type": "User", "id": "u_dxb_manager", "roles": ["branch_manager"], "attrs": { "org": "org_dubai" } }, "action": "invoice.read", "expected": "allow" },
+  { "description": "a dispatcher does not read invoices", "principal": { "type": "User", "id": "u_dxb_dispatcher", "roles": ["dispatcher"], "attrs": { "org": "org_dubai" } }, "action": "invoice.read", "expected": "deny" }
+]

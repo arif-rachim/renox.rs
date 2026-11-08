@@ -1,6 +1,43 @@
-# examples/home-services
+# Home services: the Renoxium reference app
 
-A reference app for UAE home-services and facility-management companies: booking, jobs, photo reports, quotes, invoices and yearly contracts for one company with several branches, built only from Renoxium's official modules. This is the skeleton (epic #554); the plan is `docs/plans/2026-11-07-home-services-reference-app.md`.
+A reference app for UAE home-services and facility-management companies: booking, jobs, photo reports, quotes, invoices and yearly contracts for one company with several branches, built only from Renoxium's official modules. The guide is the "Reference app" page of the docs (https://renoxium.com/docs/reference-app); the plan is `docs/plans/2026-11-07-home-services-reference-app.md` in the Renoxium repository (epic #554).
+
+Start a copy with `renox new <name> --template home-services`; in the Renoxium repository it is `examples/home-services`.
+
+## Run it locally
+
+    bun install
+    renox check
+    renox db seed        # loads seeds/*.sql into the local database
+    renox dev            # http://localhost:8787
+
+The seed (`seeds/001_demo.sql`, see `seeds/README.md`) is the demo company FixIt Services: two branches (Dubai and Sharjah), staff in every role, customers and sites, the service catalogue, quotations in every state, jobs, visits, invoices and a contract. Every demo user signs in with the password written in the seed's comments: `owner@fixit.example` (owner), `manager.dubai@fixit.example`, `dispatcher.dubai@fixit.example`, `accountant.dubai@fixit.example`, `dispatcher.sharjah@fixit.example`, and the technicians `ali.dubai@fixit.example`, `bilal.dubai@fixit.example`, `hamad.sharjah@fixit.example`, `imran.sharjah@fixit.example`. The approval links of the seeded quotations are `/l/approve/demo-q000002-` and `/l/approve/demo-q000003-`, each followed by 30 `x`. The seeds are never applied to a deployed app.
+
+## Tests
+
+    renox test --seed seeds/001_demo.sql
+
+This runs the policy cases of `policies/tests/*.json`, then `tests/*.test.ts` on the worker, a fresh database per test file with the seed loaded. `.env.test` holds the test-only secrets (`TWOFA_KEY`, the WhatsApp verify token and app secret); never reuse them in production. Snapshots are written to `tests/__snapshots__/` on the first run; `renox test -u` rewrites them after an intended change. In the Renoxium repository the CLI runs from source: `RENOX_WORKER_PATH=<renox-worker> bun ../../cli/src/main.ts test --seed seeds/001_demo.sql`.
+
+## Owner steps to go live
+
+1. `renox login`, then `renox deploy` from this folder.
+2. Seller details: set `seller_name`, `seller_trn` (15 digits) and `seller_address` in the `tax_gcc` config of `renox.toml` before the first real invoice (the demo's TRN is a placeholder), and deploy again.
+3. The second factor: `renox secrets set TWOFA_KEY` (see the `2fa` module's README) before the first sign-in; sensitive actions (invoices, payments, settings, users) need it.
+4. Email (Resend): set `from` in the `email` module's config, verify the sending domain with the provider, and set the accounts email in `/admin/settings`. The `reports` module's nightly summary goes to the `email_to` of its config in `renox.toml`.
+5. WhatsApp: the steps below.
+6. The domain: `renox domains add <domain>`, create the records it prints, check with `renox domains status <domain>`, then set `public_url` in `app__settings` to the new address.
+7. Branding and data: name, colour, logo, footers and sender name at `/admin/settings`; the branches, users and roles at `/admin`; the catalogue at `/services`. Replace the demo rows.
+
+### WhatsApp (from the `whatsapp` module's README)
+
+1. In Meta for Developers create a Business app with the WhatsApp product, verify the business number, and note its Phone number ID; create a system user with `whatsapp_business_messaging` and a permanent token; note the App Secret and choose a verify token.
+2. `renox secrets set WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`.
+3. Set the callback URL to `https://<host>/whatsapp/webhook/whatsapp` with the verify token, and subscribe to `messages`.
+4. Submit the six templates of `i18n/whatsapp.*.json` (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`), in English and Arabic, and wait for Meta's approval. The parameters are the placeholders in the order they appear in the body.
+5. Set `whatsapp_sandbox` to `0` in `app__settings`, and `public_url` to the app's address (jobs have no request to take it from). For email, set `from` in the `email` module's config and verify the domain with the provider.
+
+## What it does
 
 Modules: `i18n`, `auth`, `org`, `twofa`, `audit`, `notifications`, `email`, `whatsapp`, `billing`, `booking`, `jobs`, `storage`, `tax_gcc`, `reports`, `admin`, `gcc`.
 
@@ -12,14 +49,6 @@ Visit report, what the platform does today: the PDF renderer of the worker reads
 
 Notifications (F7-124): `notifyCustomer` (`lib/notify.ts`) tells the customer by WhatsApp (an approved template, `i18n/whatsapp.{en,ar}.json`, in the customer's language) or by email, when a quotation is sent, a visit is scheduled or moved, the technician is on the way, and the report is ready (`invoice_due` and `amc_renewal` follow with invoicing and contracts). With `app__settings.whatsapp_sandbox = '1'` (the default) nothing goes out on WhatsApp: the message is written to `app__outbox_preview` and, when the customer has an email, the email still goes. A customer with neither phone nor email is noted on the job's timeline. The dispatcher who made the job is told when the visit is done, and a customer's WhatsApp reply "cancel" / "reschedule" (or «إلغاء» / «تغيير الموعد») becomes a row of `app__tasks` and a notification (`jobs/inbox-sweep.ts`, every minute: the `whatsapp` module has no inbound hook an app can fill, only its inbox). The report link in the message is `/l/report/<token>` (30 days), with the PDF at `/l/report/<token>/pdf`.
 
-Going live with WhatsApp (owner steps, from `modules/whatsapp/README.md`):
-
-1. In Meta for Developers create a Business app with the WhatsApp product, verify the business number, and note its Phone number ID; create a system user with `whatsapp_business_messaging` and a permanent token; note the App Secret and choose a verify token.
-2. `renox secrets set WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`.
-3. Set the callback URL to `https://<host>/whatsapp/webhook/whatsapp` with the verify token, and subscribe to `messages`.
-4. Submit the six templates of `i18n/whatsapp.*.json` (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`), in English and Arabic, and wait for Meta's approval. The parameters are the placeholders in the order they appear in the body.
-5. Set `whatsapp_sandbox` to `0` in `app__settings`, and `public_url` to the app's address (jobs have no request to take it from). For email, set `from` in the `email` module's config and verify the domain with the provider.
-
 Invoicing (F7-125): the accountant (or the owner) issues the FTA tax invoice of a done job from the job page (`POST /jobs/<id>/invoice`, `invoice.issue`: sensitive, so a recent second factor; a dispatcher or a branch manager is refused with 403). The lines are the approved quotation's (or, without one, the service at its catalogue price) plus the parts of the visit; the `tax_gcc` module issues the document (a gapless `INV-000001`, 5 % VAT, the customer's TRN) and the job becomes `invoiced`. The customer gets a link, `/l/invoice/<token>` (90 days), with the PDF at `/l/invoice/<token>/pdf?lang=en|ar`. `/invoices` lists the branch's invoices (open, part-paid, paid, credited, overdue past the due date, thirty days after issue); `/invoices/<number>` records cash, bank transfer or cheque payments (`invoice.pay`: sensitive, audited with the method, the amount and who recorded it; more than the balance is a 422) and issues a credit note for the whole invoice (`invoice.issue`), which cancels the job. `GET /customers/<id>/statement.pdf?lang=en|ar` is the customer's statement (`?format=json` shows the data). Only the accountant and the owner issue invoices and take payments; the branch manager reads them. Out of scope: online payment and deposits (D31) and the e-invoicing provider (the `tax_gcc` provider is a recording fake). Set `seller_name`, `seller_trn` (15 digits) and `seller_address` in the `tax_gcc` config of `renox.toml` before the first real invoice: the demo's TRN is a placeholder.
 
 Contracts (F7-126): an annual maintenance contract (AMC) lists services at sites of one customer with a visit frequency (`/contracts`, `/contracts/new`, `/contracts/<id>`; `contract.read` for the dispatcher, the manager, the owner and the accountant, `contract.write` for the dispatcher and above). A draft takes items (a site, a catalogue service, 1 to 52 visits a year); activating it needs at least one item (422 without) and, for a contract with a yearly price, issues the upfront tax invoice through `tax_gcc` (the price is before VAT; `billing` allows `upfront` only). That is `invoice.issue`, sensitive, so the owner with a recent second factor activates a priced contract and a dispatcher or a branch manager is refused with 403; a contract with no price needs no invoice. The invoice is a row of `app__job_invoices` with the contract in place of a job, so the list, payments and statement treat it like any other. Two scheduled jobs run every day in Asia/Dubai: `jobs/amc-visits.ts` (02:00) makes a `new` job for each item whose next visit falls due within 14 days (365 / visits a year days apart, counted from the contract start, so a term holds exactly that many; a second run makes none; an overdue visit becomes one job due today), and `jobs/amc-renewals.ts` (02:30) tells the customer (`amc_renewal`) and the staff member who made the contract once, 30 days before the end, and expires the contract the day after its last day. Renewing an active or expired contract copies it as a draft for the next year (once). The contract PDF is `/contracts/<id>/pdf?lang=en|ar` (`partials/pdf/contract.{en,ar}.html`). Tests run a job through the worker's outbox (`tests/run-job.ts`), the same way the minute sweep is run: the test harness has no `t.job()` helper.
@@ -29,7 +58,3 @@ Reports (F7-127): the owner and the accountant (`reports.view`, `reports.export`
 ## Install on a phone
 
 A technician opens `/me` on the phone and chooses "Add to Home Screen" (Chrome: Install app; Safari: Share, Add to Home Screen). The app then opens full screen with the company's name, colour and icon. `GET /me/manifest` (`functions/me/manifest.ts`) is the web app manifest: a function route, because the CLI's static content-type table has no `.webmanifest`, which also lets it carry `brand_name` and `brand_color` from `app__settings`. It needs `visit.perform` like `/me` (signed out is the auth module's 303), and the layout links it with `crossorigin="use-credentials"` so the browser sends the session cookie. `start_url` and `scope` are both `/me/`. The icons (`public/icons/icon-192.png`, `icon-512.png`) are solid squares in the seeded brand colour, made once by `bun scripts/make-icons.ts` and committed; replace them with the company's logo and keep the sizes. `public/me.js` (a public file, because the CSP refuses inline scripts) registers `public/sw.js` with scope `/me/`; the worker caches the static shell (icons, the font and the content-hashed CSS and JS the build gives public files) and nothing else. Pages, `/me/*`, uploads and the live channels always go to the network: the pages stay online-only, with no offline queue, background sync or push. Bump `hs-shell-v1` in `sw.js` to drop the cache of a previous version.
-
-    bun install
-    RENOX_WORKER_PATH=<renox-worker> bun ../../cli/src/main.ts check
-    RENOX_WORKER_PATH=<renox-worker> bun ../../cli/src/main.ts test --seed seeds/001_demo.sql

@@ -61,3 +61,35 @@ test("--template tutorial writes examples/tutorial/step-01, file for file (#430)
     else expect(got, f).toBe(want);
   }
 });
+
+test("--template home-services writes examples/home-services, and the new app passes renox check (#566)", async () => {
+  const { EXAMPLE_DIR, templateFiles } = await import("../../examples/home-services/sync-template.ts");
+  const dir = newApp("fixit", "home-services", scratch);
+  const files = (readdirSync(dir, { recursive: true, withFileTypes: true }) as Dirent[])
+    .filter((d) => d.isFile())
+    .map((d) => relative(dir, join(d.parentPath, d.name)).split("\\").join("/"))
+    .sort();
+  // The example's files, plus what `renox new` writes for every app.
+  const own = ["package.json", "tsconfig.json", ".gitignore", "AGENTS.md", "CLAUDE.md", ".mcp.json"];
+  expect(files).toEqual([...templateFiles(), ...own].sort());
+  for (const f of templateFiles()) {
+    const want = readFileSync(join(EXAMPLE_DIR, f));
+    const got = readFileSync(join(dir, f));
+    // renox.toml carries the new app's name; every other file, binaries included, is the example's byte for byte.
+    if (f === "renox.toml") expect(got.toString("utf8")).toBe(want.toString("utf8").replace('name = "home-services"', 'name = "fixit"'));
+    else expect(got.equals(want), f).toBe(true);
+  }
+  expect(readFileSync(join(dir, "README.md"), "utf8")).toStartWith("# Home services");
+  const worker = process.env.RENOX_WORKER_PATH;
+  if (!worker) return;
+  // What `bun install` would put in node_modules, then the check with types (it generates renox:modules from renox.lock).
+  const { mkdirSync, symlinkSync } = await import("node:fs");
+  const repo = join(import.meta.dir, "../..");
+  mkdirSync(join(dir, "node_modules/@renoxium"), { recursive: true });
+  symlinkSync(join(repo, "sdk"), join(dir, "node_modules/@renoxium/sdk"));
+  for (const pkg of ["typescript", "bun-types"]) symlinkSync(join(repo, "node_modules", pkg), join(dir, "node_modules", pkg));
+  const { check } = await import("../src/commands/check.ts");
+  const report = await check(dir, { types: "include" });
+  expect(report.errors.map((e) => e.message)).toEqual([]);
+  expect(report.findings).toEqual([]);
+}, 180_000);

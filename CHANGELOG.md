@@ -2,6 +2,13 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.9 (unreleased)
+
+**CLI**
+
+- `renox new <name> --template home-services` writes the reference app `examples/home-services` (#566): a bilingual app for a UAE home-services company built from 16 official modules, with its own `renox.toml`, `renox.lock`, demo seed (`renox db seed`) and tests (`renox test --seed seeds/001_demo.sql`). The template is generated from the example by `examples/home-services/sync-template.ts`, and images and fonts are written byte for byte. The guide is the new docs page "Reference app" (`docs/reference-app.md`).
+- The `storage` module has the service `uploadUrl(owner, name, { contentType, maxBytes, public })`: a signed URL for one browser `PUT` of up to `maxBytes` (capped at `max_upload_bytes`; SVG refused; the owner's quota checked at signing), for files past the 1 MiB action limit, and the browser helper `upload.js` (#581).
+
 ## 0.1.8 (2026-11-08)
 
 **Worker**

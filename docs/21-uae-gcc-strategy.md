@@ -62,6 +62,12 @@ Deferred on 2026-11-06 (D31): the starters below and the PSP and BNPL adapters o
 
 Starters for `renox new`: `booking` (salon/clinic/fitness/home services), `restaurant-ordering` (QR menu, WhatsApp orders, Talabat ingestion), `shop` (with Tabby and Apple Pay), `real-estate-crm` (brokers), `tourism-booking` (tours, yachts, desert safaris), `invoice` (B2B services with FTA tax invoices), `membership` (gyms, communities), `company-profile` (bilingual). Every starter ships EN/AR and uses the GCC modules.
 
+Shipped starters (`renox new <name> --template <starter>`):
+
+| Starter | Contents | Status |
+| --- | --- | --- |
+| `home-services` | Facility management and home services: customers and sites, quotations with an approval link, jobs and a live dispatch board, the technician's visit (photos, parts, signature) with a report PDF, FTA tax invoices with cash/transfer/cheque payments, AMC contracts, reports, a branded back office; EN/AR; 16 official modules, no online payments (D31). The app is `examples/home-services` ([Reference app](reference-app.md)) | Shipped (#566) |
+
 Dropped from earlier drafts: offline-first PWA for POS (optional later), Indonesian payment and logistics integrations.
 
 ## 5. Competitive landscape (UAE)
