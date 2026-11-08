@@ -802,6 +802,9 @@ impl CellManager {
                 &key.tenant_id,
                 crate::storage::limits_for(tier_name),
             ));
+            // One slot for the isolate, the page renderer and `ctx.render`'s
+            // renderer, so `r-can` in a fragment sees the same policies.
+            let authz_slot = renox_runtime::ops::authz::new_slot();
             let spec = IsolateSpec {
                 tenant_id: key.tenant_id.clone(),
                 deployment_hash: key.deployment_hash.clone(),
@@ -812,7 +815,8 @@ impl CellManager {
                 max_isolates: max_isolates(tier_name),
                 storage: Some(renox_runtime::StorageSlot(cell_storage.clone())),
                 ai: self.inner.ai.lock().expect("ai lock").clone(),
-                templates: crate::render::pdf_templates(&artifact_dir),
+                templates: crate::render::pdf_templates(&artifact_dir, Some(authz_slot.clone())),
+                authz: Some(renox_runtime::SharedAuthz(authz_slot)),
             };
             let prepare_db = async {
                 db.ready().await.map_err(CellError::Db)?;

@@ -26,6 +26,7 @@ impl TemplateHost for Echo {
         data_json: &str,
         locale: &str,
         dir: &str,
+        _principal: Option<std::sync::Arc<renox_authz::Principal>>,
     ) -> Result<(String, u64, f64), TemplateError> {
         if template.ends_with("missing") {
             return Err(TemplateError::Unknown);

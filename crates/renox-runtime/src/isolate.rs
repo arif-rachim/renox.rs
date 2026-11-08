@@ -96,6 +96,20 @@ pub struct IsolateSpec {
     pub ai: Option<crate::ops::ai::AiSlot>,
     /// ops.md 1.7.0 section 24: the cell's renderer for `ctx.pdf`.
     pub templates: Option<crate::ops::pdf::TemplateSlot>,
+    /// The deployment's authz slot, when the cell built `templates` with it
+    /// (`ctx.render` answers `r-can` from it, ops.md section 25). `None`:
+    /// the isolate makes its own.
+    pub authz: Option<SharedAuthz>,
+}
+
+/// An [`AuthzSlot`] the cell shares with the isolate (`IsolateSpec::authz`).
+#[derive(Clone)]
+pub struct SharedAuthz(pub AuthzSlot);
+
+impl std::fmt::Debug for SharedAuthz {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SharedAuthz")
+    }
 }
 
 /// The cell's file store, as an [`IsolateSpec`] carries it.
@@ -936,6 +950,10 @@ impl IsolateHandle {
                 .is_ok_and(|src| src.contains("can(\""))
         });
         let codeless = artifact.manifest.code.entry.is_empty();
+        let authz_slot = spec
+            .authz
+            .as_ref()
+            .map_or_else(crate::ops::authz::new_slot, |s| s.0.clone());
         let pool = Pool {
             runtime,
             spec: Arc::new(spec),
@@ -945,7 +963,7 @@ impl IsolateHandle {
             secrets: Arc::new(by_module),
             modules: Arc::new(modules),
             event_handlers: Arc::default(),
-            authz: crate::ops::authz::new_slot(),
+            authz: authz_slot,
             realtime: crate::ops::realtime::new_slot(),
             templates_use_can,
             sink,
