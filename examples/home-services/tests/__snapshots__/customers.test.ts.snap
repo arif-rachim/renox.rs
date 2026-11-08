@@ -8,7 +8,7 @@ exports[`the customer list is the branch's own a Dubai dispatcher sees Dubai cus
   <title>Customers · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -93,7 +93,7 @@ exports[`the customer list is the branch's own the list in Arabic, right to left
   <title>العملاء · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -178,7 +178,7 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <title>Marina Heights Property Management · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -262,7 +262,7 @@ exports[`a customer and a site are created in the dispatcher's branch the custom
   <title>Marina Heights Property Management · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -346,7 +346,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   <title>Service catalogue · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -453,7 +453,7 @@ exports[`the service catalogue a dispatcher reads the eight services, in English
   <title>قائمة الخدمات · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">

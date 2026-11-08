@@ -27,6 +27,8 @@ export const GET: Handler = async (ctx) => {
   const asked = ctx.url.searchParams.get("lang");
   const lang = asked === "ar" || asked === "en" ? asked : customer.language;
   const settings = await getSettings(ctx.db);
+  // Templates do not interpolate inside <style>: the colour goes in style attributes.
+  const color = brandColor(settings);
   const data = {
     number: quote.number,
     status: quote.status,
@@ -36,7 +38,7 @@ export const GET: Handler = async (ctx) => {
     customer: { name: customer.name, trn: customer.trn, phone: customer.phone },
     site,
     branch: { name: lang === "ar" ? branch.name_ar : branch.name_en },
-    brand: { name: settings.brand_name ?? "", color: brandColor(settings), footer: (lang === "ar" ? settings.brand_footer_ar : settings.brand_footer_en) ?? "" },
+    brand: { name: settings.brand_name ?? "", color, text_style: `color: ${color}`, rule_style: `border-bottom: 2pt solid ${color}`, footer: (lang === "ar" ? settings.brand_footer_ar : settings.brand_footer_en) ?? "" },
     lines: lineView(await linesOf(scoped, quote.id), lang),
     totals: { subtotal: quote.subtotal_fils / 100, vat: quote.vat_fils / 100, total: quote.total_fils / 100, total_text: aed(quote.total_fils) },
   };

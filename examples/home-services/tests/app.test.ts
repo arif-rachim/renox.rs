@@ -26,3 +26,15 @@ describe("the notifications list (the badge links to it)", () => {
     expect(res.headers.get("location") ?? "").toContain("/auth/login");
   });
 });
+
+describe("the brand stylesheet", () => {
+  test("serves the seeded brand colour as a CSS variable, linked by the layout", async () => {
+    const css = await t.request("GET", "/theme");
+    expect(css.status).toBe(200);
+    expect(css.headers.get("content-type") ?? "").toContain("text/css");
+    expect(css.html).toMatch(/^:root \{ --brand: #[0-9a-fA-F]{6}; \}/u);
+    const page = await t.page("/");
+    expect(page.html).toContain('<link rel="stylesheet" href="/theme">');
+    expect(page.html).not.toContain("{{ brand.color }}");
+  });
+});

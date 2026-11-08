@@ -8,7 +8,7 @@ exports[`the quotation list is the branch's own a Dubai dispatcher sees the six 
   <title>Quotations · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -102,7 +102,7 @@ exports[`the quotation list is the branch's own the list in Arabic, right to lef
   <title>عروض الأسعار · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -196,7 +196,7 @@ exports[`the quotation list is the branch's own the seeded quotation's page: lin
   <title>Q-000002 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -282,7 +282,7 @@ exports[`the customer's link the seeded approved quotation's link is used: its p
   <title>Q-000004 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -338,7 +338,7 @@ exports[`the customer's link the customer can reject, once, and the dispatcher i
   <title>Q-000003 · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">
@@ -404,7 +404,7 @@ exports[`who may use quotations the new-quotation page for a dispatcher: role: q
   <title>New quotation · FixIt Services</title>
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
-  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+  <link rel="stylesheet" href="/theme">
 </head>
 <body>
   <header class="site-header">

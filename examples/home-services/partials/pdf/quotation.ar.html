@@ -5,9 +5,9 @@
   <style>
     body { font-family: "Noto Naskh Arabic", "Noto Sans", sans-serif; font-size: 12pt; color: #1b1b1b; }
     h1 { font-size: 20pt; margin: 0 0 4pt; }
-    .brand { color: {{ brand.color }}; font-weight: bold; font-size: 14pt; }
+    .brand { font-weight: bold; font-size: 14pt; }
     table { width: 100%; border-collapse: collapse; margin-top: 12pt; }
-    th { text-align: right; border-bottom: 2pt solid {{ brand.color }}; padding: 4pt; }
+    th { text-align: right; padding: 4pt; }
     td { padding: 4pt; border-bottom: 0.5pt solid #ccc; }
     .num { text-align: left; }
     .totals td { border: 0; }
@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-  <p class="brand">{{ brand.name }}</p>
+  <p class="brand" :style="brand.text_style">{{ brand.name }}</p>
   <h1>عرض سعر {{ number }}</h1>
   <p>التاريخ: {{ created_at }} · صالح حتى: {{ valid_until }}</p>
   <p><strong>{{ customer.name }}</strong><br>
@@ -23,7 +23,7 @@
     <span dir="ltr">{{ customer.phone }}</span><br>
     <span r-if="site">{{ site.label }}، {{ site.area }}، {{ site.address }}</span></p>
   <table id="lines">
-    <thead><tr><th>الوصف</th><th class="num">الكمية</th><th class="num">سعر الوحدة (درهم)</th><th class="num">الصافي (درهم)</th><th class="num">الضريبة (درهم)</th><th class="num">الإجمالي (درهم)</th></tr></thead>
+    <thead><tr :style="brand.rule_style"><th>الوصف</th><th class="num">الكمية</th><th class="num">سعر الوحدة (درهم)</th><th class="num">الصافي (درهم)</th><th class="num">الضريبة (درهم)</th><th class="num">الإجمالي (درهم)</th></tr></thead>
     <tbody>
       <tr r-for="l in lines"><td>{{ l.description }}</td><td class="num">{{ l.qty }}</td><td class="num">{{ l.unit_price | number(2) }}</td><td class="num">{{ l.net | number(2) }}</td><td class="num">{{ l.vat | number(2) }} ({{ l.vat_rate }}%)</td><td class="num">{{ l.total | number(2) }}</td></tr>
     </tbody>
