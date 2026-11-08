@@ -1,9 +1,71 @@
 {
   "app": {
-    "lang": { "en": "English", "ar": "العربية" },
+    "lang": {
+      "en": "English",
+      "ar": "العربية"
+    },
     "home": {
       "lede": "Book a visit, follow your technician and get your report.",
       "signin": "Sign in"
+    }
+  },
+  "customers": {
+    "title": "Customers",
+    "branch": "Branch: {branch}",
+    "search": "Search by name or phone",
+    "search_submit": "Search",
+    "new": "New customer",
+    "none": "No customers found.",
+    "sites": "Sites",
+    "no_sites": "No sites yet.",
+    "details": "Customer",
+    "first_site": "First site",
+    "add_site": "Add a site",
+    "add_site_submit": "Add site",
+    "create": "Create customer",
+    "cancel": "Cancel",
+    "back": "All customers",
+    "kind": {
+      "company": "Property manager or company",
+      "household": "Household"
+    },
+    "f": {
+      "name": "Name",
+      "kind": "Type",
+      "phone": "Phone",
+      "trn": "TRN",
+      "email": "Email",
+      "language": "Language",
+      "site_label": "Site name",
+      "emirate": "Emirate",
+      "area": "Area",
+      "address": "Address",
+      "makani": "Makani number",
+      "lat": "Latitude",
+      "lng": "Longitude",
+      "notes": "Access notes"
+    }
+  },
+  "catalogue": {
+    "title": "Service catalogue",
+    "none": "No services.",
+    "saved": "Saved {code}.",
+    "edit": "Edit prices",
+    "save": "Save",
+    "on": "Active",
+    "off": "Off",
+    "f": {
+      "code": "Code",
+      "name": "Service",
+      "unit": "Per",
+      "price": "Price",
+      "vat": "VAT",
+      "active": "Active"
+    },
+    "unit": {
+      "visit": "visit",
+      "hour": "hour",
+      "unit": "unit"
     }
   }
 }

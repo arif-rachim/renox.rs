@@ -38,3 +38,17 @@ branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write"
 dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read"]
 technician = ["job.read", "visit.perform"]
 accountant = ["invoice.read", "invoice.issue", "invoice.pay", "report.view", "customer.read", "job.read", "contract.read"]
+
+# Customers and sites belong to one branch. The ownership rule fences them by
+# `branch_id`: `owner` names the column that db.scoped({ user_id }) is compared
+# to, and lib/scope.ts passes the branch id there. app__services is not owned:
+# branch_id null means "every branch", which the fence ("branch_id = ?") cannot
+# express, so the catalogue's loader filters it itself.
+[authz.ownership]
+app__customers = { owner = "branch_id" }
+app__sites = { owner = "branch_id" }
+
+[authz.entities]
+Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }
+Site = { table = "app__sites", attrs = ["branch_id", "customer_id"] }
+Service = { table = "app__services", attrs = ["branch_id", "active"] }

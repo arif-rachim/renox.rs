@@ -3,10 +3,72 @@
     "status": "Machine translated; not yet reviewed by a native speaker"
   },
   "app": {
-    "lang": { "en": "English", "ar": "العربية" },
+    "lang": {
+      "en": "English",
+      "ar": "العربية"
+    },
     "home": {
       "lede": "احجز زيارة، وتابع فنيك، واستلم تقريرك.",
       "signin": "تسجيل الدخول"
+    }
+  },
+  "customers": {
+    "title": "العملاء",
+    "branch": "الفرع: {branch}",
+    "search": "ابحث بالاسم أو الهاتف",
+    "search_submit": "بحث",
+    "new": "عميل جديد",
+    "none": "لا يوجد عملاء.",
+    "sites": "المواقع",
+    "no_sites": "لا توجد مواقع بعد.",
+    "details": "العميل",
+    "first_site": "الموقع الأول",
+    "add_site": "إضافة موقع",
+    "add_site_submit": "إضافة الموقع",
+    "create": "إنشاء العميل",
+    "cancel": "إلغاء",
+    "back": "كل العملاء",
+    "kind": {
+      "company": "مدير عقار أو شركة",
+      "household": "منزل"
+    },
+    "f": {
+      "name": "الاسم",
+      "kind": "النوع",
+      "phone": "الهاتف",
+      "trn": "الرقم الضريبي",
+      "email": "البريد الإلكتروني",
+      "language": "اللغة",
+      "site_label": "اسم الموقع",
+      "emirate": "الإمارة",
+      "area": "المنطقة",
+      "address": "العنوان",
+      "makani": "رقم مكاني",
+      "lat": "خط العرض",
+      "lng": "خط الطول",
+      "notes": "ملاحظات الدخول"
+    }
+  },
+  "catalogue": {
+    "title": "قائمة الخدمات",
+    "none": "لا توجد خدمات.",
+    "saved": "تم حفظ {code}.",
+    "edit": "تعديل الأسعار",
+    "save": "حفظ",
+    "on": "مفعّلة",
+    "off": "متوقفة",
+    "f": {
+      "code": "الرمز",
+      "name": "الخدمة",
+      "unit": "لكل",
+      "price": "السعر",
+      "vat": "الضريبة",
+      "active": "مفعّلة"
+    },
+    "unit": {
+      "visit": "زيارة",
+      "hour": "ساعة",
+      "unit": "وحدة"
     }
   }
 }
