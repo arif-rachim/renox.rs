@@ -157,6 +157,22 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 
 `@renoxium/sdk/test`: `policyCases(dir?)` and `policies()` run the policy test cases of `policies/tests/*.json` as tests (cli README, "Authorization").
 
+## Tests: `@renoxium/sdk/test` (#238)
+
+`app()` starts the worker of `renox test` on a fresh tenant file for the test file; the `TestApp` it returns has `request`, `page`, `action`, `as(user)`, `service(module)`, `ws`, `sse`, `logs`, `meters`, a read-only `db` and `dbFile` (`docs/12-developer-experience.md`, "renox test"). Two helpers stand in for hand-written outbox rows and JSON-RPC (#593):
+
+```ts
+const t = await app();
+await t.job("nightly");                                  // jobs/nightly.ts runs now; resolves after its commit
+const alice = t.as("alice");                             // signed in through the auth module's pages
+const p = await t.tool("create_job", { day: "2026-11-09" }, { as: alice }); // { ok, preview, confirmation }
+const r = await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirm: true }); // { ok, result }
+```
+
+- `job(name, { module?, timeoutMs? })` writes a tick of the job (as `renox jobs run`) and waits until its outbox row is gone; it rejects with the job's error text when a run fails, or after `timeoutMs` (10 s).
+- `tool(name, input, { as?, scope?, confirm? })` gets an agent token for `as` (default the calling user) through the `auth` module's OAuth flow, once per user and scope, then calls `tools/call` on `/mcp`. A refusal is `{ ok: false, error: { code, message } }` (`RENOX_FORBIDDEN`, `RENOX_TOOL_SCOPE`, ...). Without the `auth` module it throws.
+- `db` waits up to five seconds on the worker's write lock. A connection a test opens on `dbFile` with `bun:sqlite` should run `pragma busy_timeout = 5000` too, or it fails with `SQLITE_BUSY` while the worker writes.
+
 ## Reserved, not yet available
 
 Names reserved by ops.md section 8. They are not in `Ctx` yet, so using one is a type error until its phase ships.

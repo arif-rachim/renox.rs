@@ -394,6 +394,75 @@ const lineOf = (src: string, index: number): number => src.slice(0, index).split
  *   `<dep>` exports (a different version names both), from a dependency,
  *   listed in `[imports].views`.
  */
+/**
+ * `src` with comments and string literals blanked to spaces (newlines kept, so
+ * indexes and line numbers do not move). Template literals lose their text
+ * but keep the code of their `${…}` expressions.
+ */
+export function stripCommentsAndStrings(src: string): string {
+  const out = src.split("");
+  const blank = (from: number, to: number): void => {
+    for (let k = from; k < to; k++) if (out[k] !== "\n") out[k] = " ";
+  };
+  // Open template literals: the brace depth of each `${` being scanned as code.
+  const stack: number[] = [];
+  let depth = 0;
+  let i = 0;
+  const template = (from: number, scan: number = from): number => {
+    // Scan template text from `from`; return the index after it (or at a `${`).
+    let k = scan;
+    while (k < src.length) {
+      const c = src[k];
+      if (c === "\\") k += 2;
+      else if (c === "`") {
+        blank(from, k + 1);
+        return k + 1;
+      } else if (c === "$" && src[k + 1] === "{") {
+        blank(from, k + 2);
+        stack.push(depth);
+        depth = 0;
+        return k + 2;
+      } else k++;
+    }
+    blank(from, src.length);
+    return src.length;
+  };
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "/" && next === "/") {
+      let end = src.indexOf("\n", i);
+      if (end < 0) end = src.length;
+      blank(i, end);
+      i = end;
+    } else if (c === "/" && next === "*") {
+      let end = src.indexOf("*/", i + 2);
+      end = end < 0 ? src.length : end + 2;
+      blank(i, end);
+      i = end;
+    } else if (c === "'" || c === '"') {
+      let k = i + 1;
+      while (k < src.length && src[k] !== c && src[k] !== "\n") k += src[k] === "\\" ? 2 : 1;
+      blank(i, Math.min(k + 1, src.length));
+      i = k + 1;
+    } else if (c === "`") {
+      i = template(i, i + 1);
+    } else if (c === "{" && stack.length > 0) {
+      depth++;
+      i++;
+    } else if (c === "}" && stack.length > 0) {
+      if (depth === 0) {
+        depth = stack.pop() as number;
+        i = template(i, i + 1);
+      } else {
+        depth--;
+        i++;
+      }
+    } else i++;
+  }
+  return out.join("");
+}
+
 export function contractProblems(project: string, modules: BuiltModule[]): ContractProblem[] {
   const out: ContractProblem[] = [];
   const byName = new Map(modules.map((m) => [m.lock.name, m]));
@@ -419,11 +488,13 @@ export function contractProblems(project: string, modules: BuiltModule[]): Contr
           problem(m.index, byName.has(orig.trim()) ? `${who} imports ${orig.trim()} from renox:modules, but ${orig.trim()} is not in its [dependencies]` : `${who} imports ${orig.trim()} from renox:modules, which is not installed`);
       }
     }
+    // Calls are matched on the code alone: comments and strings are blanked.
+    const code = stripCommentsAndStrings(src);
     const calls: [number, string, string][] = [];
     for (const [local, dep] of bindings) {
-      for (const m of src.matchAll(new RegExp(`\\b${local}\\s*\\.\\s*([A-Za-z_$][\\w$]*)`, "gu"))) calls.push([m.index, dep, m[1] as string]);
+      for (const m of code.matchAll(new RegExp(`(?<![\\w$.])${local.replace(/\$/gu, "\\$")}\\s*\\.\\s*([A-Za-z_$][\\w$]*)`, "gu"))) calls.push([m.index, dep, m[1] as string]);
     }
-    for (const m of src.matchAll(/\bservices\s*\.\s*([a-z][a-z0-9_]*)\s*\.\s*([A-Za-z_$][\w$]*)/gu)) {
+    for (const m of code.matchAll(/\bservices\s*\.\s*([a-z][a-z0-9_]*)\s*\.\s*([A-Za-z_$][\w$]*)/gu)) {
       const dep = m[1] as string;
       if (!deps.has(dep)) problem(m.index, `${who} calls ${dep}.${m[2]}, but ${dep} is not in its [dependencies]`);
       calls.push([m.index, dep, m[2] as string]);

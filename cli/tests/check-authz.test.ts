@@ -49,6 +49,13 @@ test("missing-guard: a route checking an action a policy names needs a guard", (
   expect(lintMissingGuard(unguarded.replace("doc.edit", "doc.export"), "functions/docs/[id].ts", named)).toEqual([]);
 });
 
+test("missing-guard: a tool's action is its guard", () => {
+  const named = policyActions(`permit (principal, action == Renox::Action::"job.read", resource);`);
+  const code = `export const action = "job.read";\nexport async function run(ctx) {\n  await ctx.authz.can("job.read", { type: "Job", id: "1" });\n}`;
+  expect(lintMissingGuard(code, "functions/tools/t.ts", named)).toEqual([]);
+  expect(lintMissingGuard(code, "functions/api/x.ts", named)).toHaveLength(1);
+});
+
 test.skipIf(!worker)("renox check: an invalid policy fails with its file and line", async () => {
   const dir = app({ ...BASE, "policies/app/docs.cedar": `${POLICY}\npermit (principal, action == Renox::Action::"doc.purge", resource);\n` });
   try {

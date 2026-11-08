@@ -3,9 +3,9 @@
 // roles has unit, snapshot-per-role, install/upgrade and policy-case tests.
 
 import { expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { addModule } from "../src/commands/add.ts";
 import { runTests } from "../src/commands/test.ts";
@@ -122,6 +122,148 @@ test.skipIf(!worker)(
     expect(second.out).toContain("4 pass");
     expect(second.out).toContain("(pass) policy policies/tests/notes.json");
     expect(second.out).not.toContain("snapshots: +");
+  },
+  120_000,
+);
+
+// #593: `t.job` and `t.tool`. The fixture gains two jobs (one writes a row,
+// one throws), a `confirm` tool, the auth module (the agent tokens) and a
+// policy that lets a user whose email is verified call the tool.
+const HELPERS_TS = `import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
+import { app } from "@renoxium/sdk/test";
+
+const t = await app();
+const PASSWORD = "correct horse battery";
+
+async function user(name) {
+  const u = t.as(name);
+  expect((await u.action("/auth/register", "default", { email: name + "@example.com", password: PASSWORD, display_name: name })).status).toBe(200);
+  expect((await u.action("/auth/login", "default", { email: name + "@example.com", password: PASSWORD })).status).toBe(303);
+  return u;
+}
+
+/** A connection of the test's own on the tenant file, waiting on the worker's lock as the harness's does. */
+function own() {
+  const db = new Database(t.dbFile);
+  db.exec("pragma busy_timeout = 5000");
+  return db;
+}
+
+test("t.job runs the job once and resolves after its commit", async () => {
+  await t.job("ping");
+  expect(t.db.query("select count(*) as n from app__pings")).toEqual([{ n: 1 }]);
+  expect(t.db.query("select count(*) as n from renox__outbox where name = 'job:ping'")).toEqual([{ n: 0 }]);
+  // The test writes through its own connection while the outbox drains the second run.
+  const db = own();
+  const writes = (async () => {
+    for (let i = 0; i < 40; i++) {
+      db.query("insert into app__marks (n) values (?)").run(i);
+      await Bun.sleep(2);
+    }
+  })();
+  try {
+    await Promise.all([t.job("ping"), writes]);
+  } finally {
+    db.close();
+  }
+  expect(t.db.query("select count(*) as n from app__pings")).toEqual([{ n: 2 }]);
+  expect(t.db.query("select count(*) as n from app__marks")).toEqual([{ n: 40 }]);
+  // A job that throws: t.job rejects with its error text.
+  await expect(t.job("boom")).rejects.toThrow("boom: the job failed");
+  await expect(t.job("nope")).rejects.toThrow("no scheduled job nope in the app");
+});
+
+test("t.tool: preview then confirmed call; a token of another user is scoped", async () => {
+  const alice = await user("alice");
+  const bob = await user("bob");
+  // The policy lets a verified user call echo: alice is, bob is not.
+  const db = own();
+  try {
+    db.query("update auth__users set email_verified_at = ? where email = 'alice@example.com'").run(Date.now());
+  } finally {
+    db.close();
+  }
+  const preview = await t.tool("echo", { x: 1 }, { as: alice });
+  expect(preview.ok).toBe(true);
+  expect(preview.preview).toEqual({ echo: { x: 1 }, preview: true });
+  expect(typeof preview.confirmation?.token).toBe("string");
+  expect(preview.confirmation?.expires_at).toBeGreaterThan(Date.now());
+  // The preview is rolled back.
+  expect(t.db.query("select count(*) as n from app__echoes")).toEqual([{ n: 0 }]);
+
+  const done = await t.tool("echo", { x: 1 }, { as: alice, confirm: true });
+  expect(done).toEqual({ ok: true, result: { echo: { x: 1 }, preview: false } });
+  expect(t.db.query("select u.email from app__echoes e join auth__users u on u.id = e.user_id")).toEqual([{ email: "alice@example.com" }]);
+
+  // Bob's token is his: the action is refused for him, nothing is written.
+  const denied = await bob.tool("echo", { x: 2 }, { confirm: true });
+  expect(denied.ok).toBe(false);
+  expect(denied.error?.code).toBe("RENOX_FORBIDDEN");
+  // A token narrowed to another tool.
+  const narrow = await t.tool("echo", { x: 3 }, { as: alice, scope: "tools:other" });
+  expect(narrow).toMatchObject({ ok: false, error: { code: "RENOX_TOOL_SCOPE" } });
+  expect(t.db.query("select count(*) as n from app__echoes")).toEqual([{ n: 1 }]);
+});
+`;
+
+const ECHO_TS = `import { tool } from "@renoxium/sdk";
+
+const json = { type: "object", properties: { x: { type: "integer" } }, required: ["x"], additionalProperties: false };
+const input = {
+  "~standard": {
+    version: 1,
+    vendor: "fixture",
+    validate: (v) => (typeof v === "object" && v !== null && Number.isInteger(v.x) ? { value: { x: v.x } } : { issues: [{ message: "x is an integer", path: ["x"] }] }),
+    jsonSchema: { input: () => json },
+  },
+};
+
+export default tool({
+  name: "echo",
+  description: "Echo the input back, and record who called",
+  input,
+  action: "echo.call",
+  confirm: true,
+  async run(ctx) {
+    await ctx.db.execute("insert into app__echoes (user_id, x) values (?, ?)", [ctx.principal.id, ctx.tool.input.x]);
+    return { echo: ctx.tool.input, preview: ctx.tool.preview };
+  },
+});
+`;
+
+/** The fixture app with what `t.job` and `t.tool` need (#593). */
+async function helpersApp(): Promise<string> {
+  const dir = await fixtureApp();
+  const log = console.log;
+  console.log = () => {};
+  try {
+    for (const m of ["i18n", "auth"]) {
+      const source = `path:${relative(dir, join(repo, "modules", m))}`;
+      expect(await addModule(dir, m, { source, yes: true, ...(m === "auth" ? { mount: "/auth" } : {}) }, async () => true)).toBe(0);
+    }
+  } finally {
+    console.log = log;
+  }
+  write(dir, {
+    "renox.toml": `${readFileSync(join(dir, "renox.toml"), "utf8")}\n[authz]\nactions = ["echo.call"]\n`,
+    "migrations/001_app.sql": "create table app__pings (at integer not null);\ncreate table app__marks (n integer not null);\ncreate table app__echoes (user_id text not null, x integer not null);\n",
+    "jobs/ping.ts": `export const schedule = "0 0 1 1 *";\nexport async function run(ctx) {\n  await ctx.db.execute("insert into app__pings (at) values (?)", [Date.now()]);\n}\n`,
+    "jobs/boom.ts": `export const schedule = "0 0 1 1 *";\nexport async function run() {\n  throw new Error("boom: the job failed");\n}\n`,
+    "functions/tools/echo.ts": ECHO_TS,
+    "policies/app/echo.cedar": `permit (principal, action == Renox::Action::"echo.call", resource)\nwhen { principal has email_verified && principal.email_verified };\n`,
+    "tests/helpers.test.ts": HELPERS_TS,
+  });
+  return dir;
+}
+
+test.skipIf(!worker)(
+  "renox test: t.job runs a scheduled job now, t.tool calls an App MCP tool as a user's agent (#593)",
+  async () => {
+    const dir = await helpersApp();
+    const r = await runTests(dir, ["tests/helpers.test.ts"], "pipe");
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("2 pass");
   },
   120_000,
 );
