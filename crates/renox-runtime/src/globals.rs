@@ -35,7 +35,7 @@ use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_resp
 use crate::ops::secrets::op_secrets_get_all;
 use crate::ops::storage::{
     op_storage_delete, op_storage_get, op_storage_list, op_storage_put, op_storage_read,
-    op_storage_sign,
+    op_storage_sign, op_storage_sign_upload,
 };
 use crate::ops::webhook::op_webhook_verify;
 
@@ -131,6 +131,7 @@ deno_core::extension!(
         op_storage_read,
         op_storage_delete,
         op_storage_sign,
+        op_storage_sign_upload,
         op_storage_list,
         op_webhook_verify,
         op_ai_env,

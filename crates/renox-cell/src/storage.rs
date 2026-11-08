@@ -273,6 +273,11 @@ impl CellStorage {
         CellStorage { store, key, limits }
     }
 
+    /// The tier's per-file limit.
+    pub fn limits_file_bytes(&self) -> u64 {
+        self.limits.file_bytes
+    }
+
     pub fn store(&self) -> &Arc<dyn ObjectStore> {
         &self.store
     }
@@ -285,6 +290,40 @@ impl CellStorage {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect()
+    }
+
+    /// The base64url HMAC-SHA-256 of an upload URL (`ops.md` section 21, "Tenant uploads").
+    /// The message differs from the download one (`PUT` prefix, `max`, `ct`, `pub`), so
+    /// neither signature replays as the other. `ct` is as it appears in the URL.
+    pub fn mac_upload(&self, key: &str, exp: u64, max: u64, ct: &str, public: bool) -> String {
+        use base64::Engine;
+        let mut m = Hmac::<Sha256>::new_from_slice(&self.key).expect("any key length");
+        m.update(
+            format!(
+                "PUT /_files/{key}?exp={exp}&max={max}&ct={ct}&pub={}",
+                u8::from(public)
+            )
+            .as_bytes(),
+        );
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(m.finalize().into_bytes())
+    }
+
+    /// Whether `sig` signs this upload and `exp` (Unix seconds) is still in the future.
+    #[allow(clippy::too_many_arguments)]
+    pub fn verify_upload(
+        &self,
+        key: &str,
+        exp: u64,
+        max: u64,
+        ct: &str,
+        public: bool,
+        sig: &str,
+        now_s: u64,
+    ) -> bool {
+        if exp <= now_s {
+            return false;
+        }
+        crate::pages::session::same(&self.mac_upload(key, exp, max, ct, public), sig)
     }
 
     /// Whether `sig` signs `path` until `exp` (Unix seconds) and `exp` has not passed.
@@ -312,6 +351,18 @@ impl StorageHost for CellStorage {
 
     fn sign(&self, _tenant: &str, path: &str, exp: u64) -> String {
         self.mac(path, exp)
+    }
+
+    fn sign_upload(
+        &self,
+        _tenant: &str,
+        key: &str,
+        exp: u64,
+        max: u64,
+        ct: &str,
+        public: bool,
+    ) -> String {
+        self.mac_upload(key, exp, max, ct, public)
     }
 
     fn limits(&self, _tenant: &str) -> StorageLimits {

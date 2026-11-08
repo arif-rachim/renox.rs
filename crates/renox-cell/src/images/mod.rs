@@ -12,6 +12,11 @@
 //! | Transform | decode, resize, encode on the blocking pool (platform CPU); EXIF and GPS are dropped because nothing but pixels is re-encoded |
 //! | Rate | per tenant, 20 transforms per second, a burst of 100 (*proposed*): 429 `RENOX_IMAGE_RATE` |
 //!
+//! `PUT /_files/<key>` (#580, `ops.md` section 21, "Tenant uploads") is the one write: a browser's
+//! upload to a URL from `ctx.storage.signUpload`. The signature (`exp`, `max`, `ct`, `pub`, `sig`)
+//! decides everything; the body is read up to `max` and stored through the same
+//! [`store_file`] as `op_storage_put`.
+//!
 //! A cache hit never decodes; only a miss counts against the rate and is metered
 //! (`image` record, `IMG <w>w <fmt>`).
 //!
@@ -27,7 +32,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use renox_data::Value;
 use renox_runtime::ops::db::DbHandle;
-use renox_runtime::ops::storage::object_key;
+use renox_runtime::ops::storage::{
+    StorageHost, StoreError, StoreInput, check_key, object_key, store_file,
+};
 
 use crate::storage::CellStorage;
 
@@ -207,6 +214,8 @@ pub struct Files {
     pub tenant_id: String,
     pub widths: Vec<u32>,
     pub rate: Rate,
+    /// Owner (`app` or a module) -> its `allowed_types`, for `PUT /_files/<key>`.
+    pub allowed: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// One served answer, and an image variant the manager meters.
@@ -229,13 +238,29 @@ fn now_s() -> u64 {
 }
 
 fn error(status: u16, code: &str, request_id: &str, retry: Option<u64>) -> Served {
-    let body = serde_json::json!({ "error": { "code": code, "message": match code {
+    error_with(status, code, request_id, retry, None)
+}
+
+fn error_with(
+    status: u16,
+    code: &str,
+    request_id: &str,
+    retry: Option<u64>,
+    details: Option<(&str, serde_json::Value)>,
+) -> Served {
+    let mut body = serde_json::json!({ "error": { "code": code, "message": match code {
         "RENOX_IMAGE_RATE" => "Too many image transforms. Try again shortly.",
         "RENOX_STORAGE_NOT_FOUND" => "No stored file has this key.",
+        "RENOX_STORAGE_CONFLICT" => "The upload URL was already used.",
+        "RENOX_BODY_TOO_LARGE" => "The request body is too large.",
         "RENOX_VALIDATION" => "The request is not valid.",
         "RENOX_UNAVAILABLE" => "The service is temporarily unavailable.",
         _ => "The request could not be served.",
     }, "request_id": request_id } });
+    if let Some((message, d)) = details {
+        body["error"]["message"] = message.into();
+        body["error"]["details"] = d;
+    }
     let mut b = http::Response::builder()
         .status(status)
         .header("content-type", "application/json")
@@ -308,7 +333,12 @@ async fn stored_total(db: &DbHandle) -> u64 {
 }
 
 /// Serves one `/_img/…` or `/_files/…` request.
-pub async fn serve(files: &Files, parts: &http::request::Parts, request_id: &str) -> Served {
+pub async fn serve(
+    files: &Files,
+    parts: &http::request::Parts,
+    body: axum::body::Body,
+    request_id: &str,
+) -> Served {
     let path = parts.uri.path();
     let (image, key) = match (path.strip_prefix("/_img/"), path.strip_prefix("/_files/")) {
         (Some(k), _) => (true, k),
@@ -316,6 +346,10 @@ pub async fn serve(files: &Files, parts: &http::request::Parts, request_id: &str
         _ => return error(404, "RENOX_NOT_FOUND", request_id, None),
     };
     let key = percent_decode(key);
+    if !image && parts.method == http::Method::PUT {
+        return put(files, parts, body, &key, request_id).await;
+    }
+    drop(body);
     if parts.method != http::Method::GET && parts.method != http::Method::HEAD {
         return error(405, "RENOX_METHOD_NOT_ALLOWED", request_id, None);
     }
@@ -485,6 +519,278 @@ pub async fn serve(files: &Files, parts: &http::request::Parts, request_id: &str
         response: respond(out),
         created: Some((format!("IMG {width}w {}", format.as_str()), total)),
     }
+}
+
+/// One query parameter exactly as it appears in the URL (not decoded): the signed message
+/// holds `ct` in that spelling.
+fn raw_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    query
+        .split('&')
+        .filter_map(|p| p.split_once('='))
+        .find(|(k, _)| *k == name)
+        .map(|(_, v)| v)
+}
+
+/// The media type of a `Content-Type` value: no parameters, lower case.
+fn media_type(v: &str) -> String {
+    v.split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase()
+}
+
+/// The status of a storage refusal on a `PUT` (`errors.md` has none for the thrown codes).
+fn store_status(code: &str) -> u16 {
+    match code {
+        "RENOX_STORAGE_TYPE" => 415,
+        "RENOX_STORAGE_TOO_LARGE" | "RENOX_STORAGE_QUOTA" => 413,
+        _ => 500,
+    }
+}
+
+fn store_error(e: StoreError, request_id: &str) -> Served {
+    let status = store_status(e.code);
+    error_with(
+        status,
+        e.code,
+        request_id,
+        None,
+        Some((e.message, e.details)),
+    )
+}
+
+/// The SHA-256 of a signature, hex: what the single-use table keeps (never the signature).
+fn sig_hash(sig: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(sig.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Reads at most `max` bytes: `None` when the body is longer (the rest is never read).
+async fn read_limited(body: axum::body::Body, max: u64) -> Result<Option<Bytes>, ()> {
+    use http_body_util::BodyExt;
+    let mut body = body;
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|_| ())?;
+        if let Ok(data) = frame.into_data() {
+            if buf.len() as u64 + data.len() as u64 > max {
+                return Ok(None);
+            }
+            buf.extend_from_slice(&data);
+        }
+    }
+    Ok(Some(Bytes::from(buf)))
+}
+
+/// `PUT /_files/<key>?exp=&max=&ct=&pub=&sig=`: a browser's signed upload.
+async fn put(
+    files: &Files,
+    parts: &http::request::Parts,
+    body: axum::body::Body,
+    key: &str,
+    request_id: &str,
+) -> Served {
+    let not_found = || error(404, "RENOX_STORAGE_NOT_FOUND", request_id, None);
+    let query = parts.uri.query().unwrap_or("");
+    let number = |n: &str| raw_param(query, n).and_then(|v| v.parse::<u64>().ok());
+    let (Some(exp), Some(max), Some(ct), Some(sig)) = (
+        number("exp"),
+        number("max"),
+        raw_param(query, "ct"),
+        raw_param(query, "sig"),
+    ) else {
+        return not_found();
+    };
+    let public = match raw_param(query, "pub") {
+        Some("1") => true,
+        Some("0") => false,
+        _ => return not_found(),
+    };
+    // Nothing below is trusted before this: a missing, altered, expired or foreign
+    // (the download one) signature is a 404, as an unknown key would be.
+    if !files
+        .storage
+        .verify_upload(key, exp, max, ct, public, sig, now_s())
+    {
+        return not_found();
+    }
+    // The key rules of `op_storage_put`; the signer applied them already.
+    let owner = key.split('/').next().unwrap_or("");
+    if check_key(key, owner).is_err() {
+        return not_found();
+    }
+    let hash = sig_hash(sig);
+    if spent(&files.db, &hash).await {
+        return error_with(
+            409,
+            "RENOX_STORAGE_CONFLICT",
+            request_id,
+            None,
+            Some((
+                "The upload URL was already used.",
+                serde_json::json!({ "key": key.chars().take(64).collect::<String>() }),
+            )),
+        );
+    }
+    let signed_type = media_type(&percent_decode(ct));
+    let sent_type = parts
+        .headers
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(media_type)
+        .unwrap_or_default();
+    if sent_type != signed_type {
+        return error_with(
+            415,
+            "RENOX_STORAGE_TYPE",
+            request_id,
+            None,
+            Some((
+                "The content type is not the signed one.",
+                serde_json::json!({ "key": key, "declared": sent_type, "reason": "mismatch" }),
+            )),
+        );
+    }
+    // `max` is the body limit: a declared length over it is refused before a byte is read.
+    let limit = max.min(files.storage.limits_file_bytes());
+    let too_large = |received: Option<u64>| {
+        error_with(
+            413,
+            "RENOX_BODY_TOO_LARGE",
+            request_id,
+            None,
+            Some((
+                "The upload is over the signed limit.",
+                serde_json::json!({ "limit_bytes": limit, "received_bytes": received }),
+            )),
+        )
+    };
+    let declared = parts
+        .headers
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .or_else(|| axum::body::HttpBody::size_hint(&body).exact());
+    if let Some(n) = declared
+        && n > limit
+    {
+        return too_large(Some(n));
+    }
+    let bytes = match read_limited(body, limit).await {
+        Ok(Some(b)) => b,
+        Ok(None) => return too_large(None),
+        Err(()) => return error(400, "RENOX_VALIDATION", request_id, None),
+    };
+    // Reserved before the write so two concurrent PUTs cannot both succeed; given back when
+    // the store refuses, so a failed PUT does not spend the URL.
+    match reserve(&files.db, &hash).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return error_with(
+                409,
+                "RENOX_STORAGE_CONFLICT",
+                request_id,
+                None,
+                Some((
+                    "The upload URL was already used.",
+                    serde_json::json!({ "key": key.chars().take(64).collect::<String>() }),
+                )),
+            );
+        }
+        Err(()) => return error(503, "RENOX_UNAVAILABLE", request_id, Some(1)),
+    }
+    let allowed = files.allowed.get(owner).cloned().unwrap_or_default();
+    let host: &dyn StorageHost = files.storage.as_ref();
+    let stored = store_file(StoreInput {
+        host,
+        limits: host.limits(&files.tenant_id),
+        db: &files.db,
+        tx: None,
+        tenant_id: &files.tenant_id,
+        owner,
+        allowed: &allowed,
+        key,
+        bytes,
+        content_type: &signed_type,
+        public,
+        sanitised: false,
+    })
+    .await;
+    match stored {
+        Ok(s) => Served {
+            response: http::Response::builder()
+                .status(201)
+                .header("content-type", "application/json")
+                .header("cache-control", "no-store")
+                .body(Bytes::from(serde_json::to_vec(&s.file).unwrap_or_default()))
+                .expect("valid response"),
+            created: None,
+        },
+        Err(e) => {
+            release(&files.db, &hash).await;
+            store_error(e, request_id)
+        }
+    }
+}
+
+/// Whether this signature hash is in `renox__upload_sigs`.
+async fn spent(db: &DbHandle, hash: &str) -> bool {
+    let hash = hash.to_string();
+    let r = db
+        .call(move |db| {
+            db.with_policy(None, || {
+                db.query_one(
+                    "select 1 as n from renox__upload_sigs where sig_hash = ?",
+                    &[Value::Text(hash)],
+                )
+            })
+        })
+        .await;
+    matches!(r, Ok(Ok(Ok(Some(_)))))
+}
+
+/// Records the signature hash; `false` when it was already there. Rows older than 2 hours
+/// (a signature lives 1 hour at most) are deleted on each insert.
+async fn reserve(db: &DbHandle, hash: &str) -> Result<bool, ()> {
+    let hash = hash.to_string();
+    let now_ms = (now_s() * 1000) as i64;
+    let r = db
+        .call(move |db| {
+            db.with_policy(None, || {
+                db.execute(
+                    "delete from renox__upload_sigs where used_at < ?",
+                    &[Value::Integer(now_ms - 2 * 3600 * 1000)],
+                )?;
+                db.execute(
+                    "insert or ignore into renox__upload_sigs (sig_hash, used_at) values (?, ?)",
+                    &[Value::Text(hash), Value::Integer(now_ms)],
+                )
+            })
+        })
+        .await;
+    match r {
+        Ok(Ok(Ok(done))) => Ok(done.changes == 1),
+        _ => Err(()),
+    }
+}
+
+/// Gives a reserved signature back after a refused store.
+async fn release(db: &DbHandle, hash: &str) {
+    let hash = hash.to_string();
+    let _ = db
+        .call(move |db| {
+            db.with_policy(None, || {
+                db.execute(
+                    "delete from renox__upload_sigs where sig_hash = ?",
+                    &[Value::Text(hash)],
+                )
+            })
+        })
+        .await;
 }
 
 fn percent_decode(s: &str) -> String {

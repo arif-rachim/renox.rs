@@ -8691,6 +8691,7 @@ dependencies = [
  "bytes",
  "deno_ast",
  "form_urlencoded",
+ "futures-util",
  "getrandom 0.4.3",
  "hkdf 0.13.0",
  "hmac 0.13.0",

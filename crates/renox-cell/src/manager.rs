@@ -926,6 +926,7 @@ impl CellManager {
             db: db.clone(),
             tenant_id: key.tenant_id.clone(),
             widths,
+            allowed: isolate.storage_allowed_types(),
             rate: {
                 let (per_second, burst) = *self.inner.image_rate.lock().expect("rate lock");
                 crate::images::Rate::new(per_second, burst)
@@ -1242,7 +1243,7 @@ impl CellManager {
         if crate::images::handles(parts.uri.path())
             && let Some(files) = &cell.files
         {
-            let served = crate::images::serve(files, &parts, &ctx.request_id).await;
+            let served = crate::images::serve(files, &parts, body, &ctx.request_id).await;
             if let Some((route, stored)) = served.created {
                 self.record_image(
                     &ctx,

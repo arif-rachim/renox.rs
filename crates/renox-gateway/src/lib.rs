@@ -648,9 +648,17 @@ async fn route<D: CellDispatcher>(
     };
 
     // F1 has only function routes; the webhook limit applies once a route
-    // kind for it exists in the manifest.
-    let limit = inner.config.limits.body_limit(RouteKind::Function, None);
-    let mut req = match limits::check_body(req, limit).await {
+    // kind for it exists in the manifest. A `PUT` to `/_files/` is a signed
+    // upload (`artifact.md` 1.7): bounded by the per-file maximum, then by the
+    // signed `max` in the cell.
+    let kind = RouteKind::of_request(req.method(), req.uri().path());
+    let limit = inner.config.limits.body_limit(kind, None);
+    let checked = if kind == RouteKind::Upload {
+        limits::check_upload_body(req, limit).await
+    } else {
+        limits::check_body(req, limit).await
+    };
+    let mut req = match checked {
         BodyCheck::Ok(req) => req,
         BodyCheck::TooLarge { headers, .. } => {
             counters.body_too_large.fetch_add(1, Ordering::Relaxed);

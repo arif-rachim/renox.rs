@@ -102,12 +102,13 @@ The gateway serves plain HTTP/1.1 only. TLS, certificates (Cloudflare for SaaS f
 | `max_headers` | 100 | The protocol guard counts header lines (hyper's parser has the same limit) | 431 with `x-renox-request-id`, connection closed |
 | `max_body_bytes_default` | 1 MiB | Checked after routing, before dispatch: a declared `Content-Length` over the limit is refused before any body byte is read; a body of unknown length (chunked) is read at most up to the limit | 413 `RENOX_BODY_TOO_LARGE` (`errors.md` body: JSON, or the default HTML page when `Accept` prefers HTML) |
 | `max_body_bytes_webhook` | 5 MiB | Same, for webhook routes. F1 manifests have only function routes, so it is not used yet | 413 |
+| `max_body_bytes_upload` | 100 MiB | A `PUT` to a path under `/_files/` (`RouteKind::of_request`, signed tenant uploads, `ops.md` 1.10.0 section 21): the platform's per-file maximum (the paid tier's) instead of the default. A declared `Content-Length` over it is refused before any body byte is read; a body of unknown length is **not** buffered here (it reaches the cell as a stream capped at this limit), because the cell checks the signature first and then reads at most the signed `max`, which is never above this limit | 413 |
 | `header_read_timeout` | 10 s | hyper's HTTP/1.1 head timer (also between keep-alive requests) | connection closed |
 | `idle_timeout` | 60 s | `IdleTimeout` around the socket: no byte read or written for this long while waiting on the socket | connection closed |
 | `max_connections_per_ip` | 100 | `ConnectionLimiter` at accept (IPv6 by /64) | fixed `503` + `Retry-After: 1`, closed |
 | `max_connections_per_trusted_peer` | 10,000 | A second `ConnectionLimiter` for trusted proxies (see "Client address") | fixed `503`, closed |
 
-Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
+Every other method and path keeps the default limit; the upload limit is not an app override either. Per-app overrides are supported by `body_limit(kind, override)`, which takes `min(override, platform)`, but nothing passes an override yet: the manifest's `limits` object (`docs/contracts/artifact.md` section 3) has no body field, and adding one is a contract change.
 
 ## Protocol limits
 

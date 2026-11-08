@@ -47,6 +47,7 @@ const PLATFORM_MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_authz.sql"),
     include_str!("../migrations/0003_files.sql"),
     include_str!("../migrations/0004_webhook_events.sql"),
+    include_str!("../migrations/0005_upload_sigs.sql"),
 ];
 
 /// Savepoints one transaction may hold open at once (`ops.md` section 1).

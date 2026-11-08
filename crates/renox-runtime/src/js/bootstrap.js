@@ -57,6 +57,7 @@ import {
   op_storage_read,
   op_storage_delete,
   op_storage_sign,
+  op_storage_sign_upload,
   op_storage_list,
   op_webhook_verify,
   op_ai_env,
@@ -1233,6 +1234,16 @@ function makeStorage(module) {
       checkKey(key, "sign");
       if (typeof ttlSeconds !== "number" || !NumberIsInteger(ttlSeconds)) throw new TypeError("storage.sign: ttlSeconds must be an integer");
       return ObjectFreeze(await call(op_storage_sign, key, ttlSeconds, moduleArg(module)));
+    },
+    async signUpload(key, options) {
+      checkKey(key, "signUpload");
+      const contentType = options?.contentType;
+      if (typeof contentType !== "string" || contentType.length === 0) throw new TypeError("storage.signUpload: options.contentType is required");
+      const maxBytes = options?.maxBytes;
+      if (typeof maxBytes !== "number") throw new TypeError("storage.signUpload: options.maxBytes must be a number");
+      const ttlSeconds = options?.ttlSeconds ?? 900;
+      if (typeof ttlSeconds !== "number") throw new TypeError("storage.signUpload: options.ttlSeconds must be a number");
+      return ObjectFreeze(await call(op_storage_sign_upload, key, contentType, maxBytes, ttlSeconds, options?.public === true, moduleArg(module)));
     },
     async list(prefix, options = undefined) {
       if (typeof prefix !== "string") throw new TypeError("storage.list: prefix must be a string");
