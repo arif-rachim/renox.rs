@@ -281,9 +281,13 @@ export interface Db extends DbStatements {
 
 /**
  * The transaction of a job attempt or an event delivery (sections 15 and 20,
- * 1.11.0): its statements plus `scoped`, no nested `transaction`.
+ * 1.11.0): its statements plus `scoped`, no nested `transaction`
+ * (neither on `ctx.db` nor on what `scoped` returns).
  */
-export type TxDb = Pick<Db, "query" | "queryOne" | "execute" | "scoped">;
+export interface TxDb extends DbStatements {
+  /** The run's statements carrying `scope`, fenced as `Db.scoped` is; no `transaction`. */
+  scoped(scope: Scope): DbStatements;
+}
 
 // ---------------------------------------------------------------------------
 // Fetch (section 2): the standard signature; the allowlist and blocked ranges
