@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.9 (unreleased)
+
+**CLI**
+
+- `renox check` (#595): the MF7 module-call scan matches imported `renox:modules` bindings in code only (comments, strings and `ctx.<name>.x` no longer count), and `missing-guard` skips `functions/tools/**`, whose `action` the cell already checks.
+
 ## 0.1.8 (2026-11-08)
 
 **Worker**

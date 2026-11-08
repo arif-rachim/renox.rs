@@ -79,3 +79,26 @@ test.skipIf(!worker)("a module used without a declared dependency", async () => 
   expect(errors).toContainEqual({ file: "org/services.ts", message: "MF7: org imports auth from renox:modules, but auth is not in its [dependencies]" });
   expect(errors).toContainEqual({ file: "org/services.ts", message: "MF7: org reads auth__public_users_v1, but auth is not in its [dependencies]" });
 });
+
+// #595: the code scan follows imported bindings in code only.
+const ONLY_AUTH = (body: string): string => `import { auth } from "renox:modules";\nexport async function members(ctx) {\n${body}\n}\n`;
+
+test.skipIf(!worker)("MF7 ignores a local variable that is not an import", async () => {
+  const dir = await withOrg(ONLY_AUTH(`  const email = "a@b";\n  const me = await auth.currentUser();\n  return [email.trim(), me, ctx.auth.x];`));
+  expect(await mf7(dir)).toEqual([]);
+});
+
+test.skipIf(!worker)("MF7 ignores a comment naming a service", async () => {
+  const dir = await withOrg(`import { auth } from "renox:modules";\n// auth.signIn is not called here\n/* auth.other() */\nexport async function members(ctx) {\n  return auth.currentUser();\n}\n`);
+  expect(await mf7(dir)).toEqual([]);
+});
+
+test.skipIf(!worker)("MF7 ignores an action string inside a call of an exported service", async () => {
+  const dir = await withOrg(ONLY_AUTH("  const me = await auth.currentUser();\n  await auth.currentUser(\"auth.signIn\", `auth.other ${me?.id}`);\n  return me;"));
+  expect(await mf7(dir)).toEqual([]);
+});
+
+test.skipIf(!worker)("MF7 still reports an unknown service on an imported binding", async () => {
+  const dir = await withOrg(ONLY_AUTH("  const x = ctx.auth.signIn();\n  return auth.sendRow();"));
+  expect(await mf7(dir)).toEqual([{ file: "org/services.ts", message: "MF7: org calls auth.sendRow, which auth 1.0.0 does not export" }]);
+});
