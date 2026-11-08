@@ -1,5 +1,5 @@
 // The part of `renox:modules` the app uses so far: auth's currentUser, i18n's
-// detectLocale, notifications' badge, org's switcher and gcc's validators.
+// detectLocale, notifications' badge and notify, org's switcher and gcc's validators.
 // Later sub-issues add what they call.
 // `renox dev` writes the complete, generated types to .renox/types/ (#236);
 // this file keeps `bun run check` working without them.
@@ -12,6 +12,7 @@ declare module "renox:modules" {
   };
   export const notifications: {
     badge(): Promise<{ unread: number } | null>;
+    notify(user: string, item: { category: string; title: string; body?: string; link?: string }): Promise<{ id: number | null; channels: string[] }>;
   };
   export const org: {
     switcher(next?: string): Promise<{ current?: { id: string; locale?: string | null } | null } | null>;

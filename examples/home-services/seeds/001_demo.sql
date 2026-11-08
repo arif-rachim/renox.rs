@@ -80,3 +80,37 @@ insert or ignore into app__services (code, name_en, name_ar, unit, price_fils, v
   ('ELECTRICAL', 'Electrical', 'كهرباء', 'hour', 16000, 5, 1),
   ('HANDYMAN', 'Handyman', 'أعمال صيانة عامة', 'hour', 12000, 5, 1),
   ('AMC-VISIT', 'AMC visit', 'زيارة عقد الصيانة السنوي', 'visit', 20000, 5, 1);
+
+-- Six quotations of the Dubai branch, one per state (two are sent), written by
+-- the dispatcher. Amounts are fils with 5 % VAT per line, rounded half up.
+-- valid_until of the open ones is far ahead so the demo does not age.
+insert or ignore into app__quote_numbers (n, quote_id) values
+  (1, 'qt_seed_01'), (2, 'qt_seed_02'), (3, 'qt_seed_03'), (4, 'qt_seed_04'), (5, 'qt_seed_05'), (6, 'qt_seed_06');
+
+insert or ignore into app__quotes (id, branch_id, customer_id, site_id, number, status, valid_until, notes, subtotal_fils, vat_fils, total_fils, created_by, created_at, approved_at, approved_ip) values
+  ('qt_seed_01', 'br_dubai', 'cu_dxb_01', 'st_dxb_01a', 'Q-000001', 'draft', 2000000000, 'Three split units, access after 4 pm.', 45000, 2250, 47250, 'u_dxb_dispatcher', 1793300000, null, null),
+  ('qt_seed_02', 'br_dubai', 'cu_dxb_02', 'st_dxb_02a', 'Q-000002', 'sent', 2000000000, '', 70000, 3500, 73500, 'u_dxb_dispatcher', 1793310000, null, null),
+  ('qt_seed_03', 'br_dubai', 'cu_dxb_04', 'st_dxb_04a', 'Q-000003', 'sent', 2000000000, 'Tower A, level 12 pantry leak.', 48000, 2400, 50400, 'u_dxb_dispatcher', 1793320000, null, null),
+  ('qt_seed_04', 'br_dubai', 'cu_dxb_03', 'st_dxb_03a', 'Q-000004', 'approved', 2000000000, '', 36000, 1800, 37800, 'u_dxb_dispatcher', 1793330000, 1793340000, '203.0.113.7'),
+  ('qt_seed_05', 'br_dubai', 'cu_dxb_05', 'st_dxb_05a', 'Q-000005', 'rejected', 2000000000, '', 48000, 2400, 50400, 'u_dxb_dispatcher', 1793350000, 1793360000, '203.0.113.8'),
+  ('qt_seed_06', 'br_dubai', 'cu_dxb_01', 'st_dxb_01a', 'Q-000006', 'expired', 1793000100, '', 20000, 1000, 21000, 'u_dxb_dispatcher', 1792900000, null, null);
+
+insert or ignore into app__quote_lines (id, quote_id, branch_id, service_id, description_en, description_ar, qty, unit_price_fils, vat_rate, line_total_fils) values
+  (1, 'qt_seed_01', 'br_dubai', (select id from app__services where code = 'AC-SERVICE'), 'AC service', 'صيانة المكيف', 3, 15000, 5, 45000),
+  (2, 'qt_seed_02', 'br_dubai', (select id from app__services where code = 'DEEP-CLEAN'), 'Deep cleaning', 'تنظيف شامل', 1, 45000, 5, 45000),
+  (3, 'qt_seed_02', 'br_dubai', (select id from app__services where code = 'PEST'), 'Pest control', 'مكافحة الحشرات', 1, 25000, 5, 25000),
+  (4, 'qt_seed_03', 'br_dubai', (select id from app__services where code = 'PLUMBING'), 'Plumbing', 'سباكة', 2, 16000, 5, 32000),
+  (5, 'qt_seed_03', 'br_dubai', (select id from app__services where code = 'ELECTRICAL'), 'Electrical', 'كهرباء', 1, 16000, 5, 16000),
+  (6, 'qt_seed_04', 'br_dubai', (select id from app__services where code = 'AC-REPAIR'), 'AC repair', 'إصلاح المكيف', 2, 18000, 5, 36000),
+  (7, 'qt_seed_05', 'br_dubai', (select id from app__services where code = 'HANDYMAN'), 'Handyman', 'أعمال صيانة عامة', 4, 12000, 5, 48000),
+  (8, 'qt_seed_06', 'br_dubai', (select id from app__services where code = 'AMC-VISIT'), 'AMC visit', 'زيارة عقد الصيانة السنوي', 1, 20000, 5, 20000);
+
+-- Approval links of the demo: only the SHA-256 is stored. The tokens, for the
+-- demo and the tests only, are `demo-q00000N-` followed by x up to 43 characters:
+-- /l/approve/demo-q000002-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx opens Q-000002.
+-- Q-000004's link is used (the quotation is approved); Q-000006's has expired.
+insert or ignore into app__links (token_hash, kind, ref_id, expires_at, used_at) values
+  ('ebdc84017359a3692d7a92d3d2d388e90cfb83a278519a097f81ec905a89c025', 'approve', 'qt_seed_02', 2000000000, null),
+  ('82f6868fa96d8f7215cde1ded92d41d09a5360e3d172f657924ed1bab1e6b190', 'approve', 'qt_seed_03', 2000000000, null),
+  ('a2ba054280b1c9b65b7af7af382ee634160dfa4050d60d30dcde935cc2b25cc0', 'approve', 'qt_seed_04', 2000000000, 1793340000),
+  ('b7112cf3d15ad0bc22c8f6a6569695c3dc68c5342b1f3852b32083ed85f76c0d', 'approve', 'qt_seed_06', 1793000100, null);

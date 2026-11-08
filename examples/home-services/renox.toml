@@ -47,6 +47,11 @@ accountant = ["invoice.read", "invoice.issue", "invoice.pay", "report.view", "cu
 [authz.ownership]
 app__customers = { owner = "branch_id" }
 app__sites = { owner = "branch_id" }
+# Quotations and their lines, the same way (each line repeats the quotation's
+# branch_id). app__links and app__quote_numbers are not owned: a link is found
+# by the hash of its token, and the number sequence is company-wide.
+app__quotes = { owner = "branch_id" }
+app__quote_lines = { owner = "branch_id" }
 
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }

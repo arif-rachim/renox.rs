@@ -5,6 +5,8 @@
 import { ValidationError, validate, type StandardSchemaV1 } from "@renoxium/sdk";
 import { gcc } from "renox:modules";
 
+import type { LineInput } from "./quotes";
+
 type Raw = Record<string, unknown>;
 type Issues = { path: [string]; message: string }[];
 
@@ -133,6 +135,65 @@ export const serviceSchema = schema<ServiceInput>(async (raw) => {
   if (!/^\d{1,7}(\.\d{1,2})?$/u.test(price)) errors.price = "catalogue.err.price";
   if (Object.keys(errors).length > 0) return { errors };
   return { value: { id, price_fils: Math.round(Number(price) * 100), active: raw.active === "1" ? 1 : 0 } };
+});
+
+/** How many line rows the quotation form has. */
+export const LINE_SLOTS = 8;
+
+export interface QuoteInput {
+  site_id: string;
+  valid_days: number;
+  notes: string;
+  lines: LineInput[];
+}
+
+/** An amount in AED as typed ("120" or "120.50") in fils, or null when it is not one. */
+export function filsOf(typed: string): number | null {
+  return /^\d{1,7}(\.\d{1,2})?$/u.test(typed) ? Math.round(Number(typed) * 100) : null;
+}
+
+/**
+ * The quotation form: a site (the customer is the site's), a validity in days,
+ * notes and up to LINE_SLOTS lines named `service_N`, `desc_N`, `desc_ar_N`, `qty_N`,
+ * `price_N`. A row is a line when it names a service or has a description; a
+ * service line may leave the price to the catalogue, a free-text line needs one.
+ */
+export const quoteSchema = schema<QuoteInput>(async (raw) => {
+  const errors: Record<string, string> = {};
+  const site = text(raw, "site_id", 64);
+  const days = text(raw, "valid_days", 3) || "30";
+  const notes = text(raw, "notes", 1000);
+  if (!/^[A-Za-z0-9_-]{1,64}$/u.test(site)) errors.site_id = "quotes.err.site";
+  if (!/^\d{1,3}$/u.test(days) || Number(days) < 1 || Number(days) > 365) errors.valid_days = "quotes.err.valid";
+  if (notes.length > 1000) errors.notes = "quotes.err.notes";
+  const lines: LineInput[] = [];
+  for (let i = 0; i < LINE_SLOTS; i++) {
+    const service = text(raw, `service_${i}`, 12);
+    const desc = text(raw, `desc_${i}`, 200);
+    const descAr = text(raw, `desc_ar_${i}`, 200);
+    const qty = text(raw, `qty_${i}`, 8) || "1";
+    const price = text(raw, `price_${i}`, 12);
+    if (service === "" && desc === "") continue;
+    const serviceId = service === "" ? null : Number(service);
+    if (serviceId !== null && !(Number.isSafeInteger(serviceId) && serviceId >= 1)) errors[`service_${i}`] = "quotes.err.service";
+    if (desc.length > 200 || descAr.length > 200) errors[`desc_${i}`] = "quotes.err.desc";
+    const q = /^\d{1,3}(\.\d{1,2})?$/u.test(qty) ? Number(qty) : 0;
+    if (!(q > 0)) errors[`qty_${i}`] = "quotes.err.qty";
+    const fils = price === "" ? null : filsOf(price);
+    if (price !== "" && fils === null) errors[`price_${i}`] = "quotes.err.price";
+    if (serviceId === null && price === "" && errors[`price_${i}`] === undefined) errors[`price_${i}`] = "quotes.err.price_required";
+    lines.push({ service_id: serviceId, description_en: desc, description_ar: descAr, qty: q, unit_price_fils: fils });
+  }
+  if (lines.length === 0) errors.lines = "quotes.err.lines";
+  if (Object.keys(errors).length > 0) return { errors };
+  return { value: { site_id: site, valid_days: Number(days), notes, lines } };
+});
+
+/** The body of POST /api/quotes/draft: `{ "request": "<free text, 1 to 2000 characters>" }`. */
+export const draftRequestSchema = schema<{ request: string }>(async (raw) => {
+  const request = typeof raw.request === "string" ? raw.request.trim() : "";
+  if (request === "" || request.length > 2000) return { errors: { request: "quotes.err.request" } };
+  return { value: { request } };
 });
 
 /** The emirates' names for the select, in the page's language. */

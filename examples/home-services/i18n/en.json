@@ -67,5 +67,66 @@
       "hour": "hour",
       "unit": "unit"
     }
+  },
+  "quotes": {
+    "title": "Quotations",
+    "new": "New quotation",
+    "none": "No quotations found.",
+    "back": "All quotations",
+    "filter": "Filter",
+    "create": "Create quotation",
+    "lines": "Lines",
+    "send": "Send to the customer",
+    "new_link": "Issue a new approval link",
+    "link_note": "Send this link to the customer. It is shown only now and expires with the quotation.",
+    "pdf": "PDF",
+    "status": {
+      "draft": "Draft",
+      "sent": "Sent",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "expired": "Expired"
+    },
+    "f": {
+      "number": "Number",
+      "customer": "Customer",
+      "site": "Site",
+      "status": "Status",
+      "valid_until": "Valid until",
+      "valid_days": "Valid for (days)",
+      "answered_at": "Answered on",
+      "service": "Service",
+      "desc": "Description",
+      "desc_ar": "Description in Arabic",
+      "qty": "Qty",
+      "price": "Price (AED)",
+      "price_default": "catalogue price",
+      "unit_price": "Unit price",
+      "net": "Net",
+      "vat": "VAT",
+      "subtotal": "Subtotal",
+      "total": "Total",
+      "notes": "Notes"
+    },
+    "ai": {
+      "title": "AI draft",
+      "request": "What did the customer ask for?",
+      "draft": "Draft the lines",
+      "off": "AI is off. Add the lines by hand.",
+      "quota": "The AI allowance is used up. Add the lines by hand.",
+      "none": "The AI found nothing in the catalogue for this request.",
+      "done": "Suggested lines were added. Check them before you save."
+    }
+  },
+  "approve": {
+    "title": "Quotation {number}",
+    "for": "For: {name}",
+    "approve": "Approve",
+    "reject": "Reject",
+    "state": {
+      "approved": "This quotation is already approved. Thank you.",
+      "rejected": "This quotation is already rejected.",
+      "expired": "This quotation has expired."
+    }
   }
 }

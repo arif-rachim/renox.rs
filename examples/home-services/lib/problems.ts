@@ -25,6 +25,12 @@ export const FIELDS: Record<string, Text> = {
   access_notes: { en: "Access notes", ar: "ملاحظات الدخول" },
   service: { en: "Service", ar: "الخدمة" },
   price: { en: "Price", ar: "السعر" },
+  site_id: { en: "Site", ar: "الموقع" },
+  valid_days: { en: "Valid for (days)", ar: "صالح لمدة (أيام)" },
+  notes: { en: "Notes", ar: "ملاحظات" },
+  lines: { en: "Lines", ar: "البنود" },
+  desc: { en: "Description", ar: "الوصف" },
+  qty: { en: "Quantity", ar: "الكمية" },
 };
 
 /** What is wrong, by the issue message of lib/forms.ts. */
@@ -44,6 +50,16 @@ export const PROBLEMS: Record<string, Text> = {
   "customers.err.lat": { en: "Latitude is a number from -90 to 90.", ar: "خط العرض رقم بين -90 و90." },
   "customers.err.lng": { en: "Longitude is a number from -180 to 180.", ar: "خط الطول رقم بين -180 و180." },
   "customers.err.notes": { en: "Access notes are at most 500 characters.", ar: "ملاحظات الدخول 500 حرف كحد أقصى." },
+  "quotes.err.request": { en: "Describe the request in 1 to 2000 characters.", ar: "صف الطلب في 1 إلى 2000 حرف." },
+  "quotes.err.site": { en: "Choose a site of this branch.", ar: "اختر موقعاً من هذا الفرع." },
+  "quotes.err.valid": { en: "Enter a validity from 1 to 365 days.", ar: "أدخل مدة صلاحية من 1 إلى 365 يوماً." },
+  "quotes.err.notes": { en: "Notes are at most 1000 characters.", ar: "الملاحظات 1000 حرف كحد أقصى." },
+  "quotes.err.lines": { en: "Add at least one line.", ar: "أضف بنداً واحداً على الأقل." },
+  "quotes.err.service": { en: "Unknown service.", ar: "خدمة غير معروفة." },
+  "quotes.err.desc": { en: "A description is at most 200 characters.", ar: "الوصف 200 حرف كحد أقصى." },
+  "quotes.err.qty": { en: "Enter a quantity above 0 with at most two decimals.", ar: "أدخل كمية أكبر من 0 بخانتين عشريتين كحد أقصى." },
+  "quotes.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
+  "quotes.err.price_required": { en: "A line without a service needs a price in AED.", ar: "البند بدون خدمة يحتاج إلى سعر بالدرهم." },
   "catalogue.err.service": { en: "Unknown service.", ar: "خدمة غير معروفة." },
   "catalogue.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
 };
@@ -54,8 +70,15 @@ const escape = (s: string): string => s.replace(/[&<>"']/gu, (c) => `&#${c.charC
 export function unprocessable(locale: string, errors: Record<string, string>, back: string): Response {
   const ar = locale === "ar";
   const pick = (t: Text | undefined, fallback: string): string => (t === undefined ? fallback : ar ? t.ar : t.en);
+  // A line's field is `<name>_<row>` (`qty_2`): the label of the name, with the line number.
+  const label = (field: string): string => {
+    const m = /^(service|desc|desc_ar|qty|price)_(\d+)$/u.exec(field);
+    if (m === null) return pick(FIELDS[field], field);
+    const base = pick(FIELDS[m[1] === "desc_ar" ? "desc" : (m[1] as string)], field);
+    return `${base} (${ar ? "البند" : "line"} ${Number(m[2]) + 1})`;
+  };
   const items = Object.entries(errors)
-    .map(([field, key]) => `<li id="err-${escape(field)}"><strong>${escape(pick(FIELDS[field], field))}</strong>: ${escape(pick(PROBLEMS[key], key))}</li>`)
+    .map(([field, key]) => `<li id="err-${escape(field)}"><strong>${escape(label(field))}</strong>: ${escape(pick(PROBLEMS[key], key))}</li>`)
     .join("");
   const title = ar ? "تعذّر حفظ النموذج" : "The form could not be saved";
   const link = ar ? "العودة إلى النموذج" : "Back to the form";

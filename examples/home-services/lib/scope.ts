@@ -34,7 +34,12 @@ export async function branchOf(ctx: BranchCtx): Promise<Branch | null> {
  * db.scoped compares to `user_id`: the branch id goes there.
  */
 export function scopedDb(db: DbStatements, branch: Branch): Db {
-  return (db as Db).scoped({ user_id: branch.id });
+  return fencedTo(db, branch.id);
+}
+
+/** `db` fenced to the branch with this id: for the public pages, where the branch is the one a token's quotation belongs to. */
+export function fencedTo(db: DbStatements, branchId: string): Db {
+  return (db as Db).scoped({ user_id: branchId });
 }
 
 /** A request without a branch ends here: signed in people with no branch have nothing to see. */

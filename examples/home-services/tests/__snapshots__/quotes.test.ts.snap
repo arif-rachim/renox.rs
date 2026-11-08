@@ -1,0 +1,499 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the quotation list is the branch's own a Dubai dispatcher sees the six seeded quotations, one per state: role: quotes, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Quotations · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/quotes">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/quotes?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Quotations</h1>
+  <form class="search" action="/quotes" method="get">
+    <label>Status
+      <select name="status">
+        <option value="">—</option>
+        <option value="draft" dir="auto">Draft</option><option value="sent" dir="auto">Sent</option><option value="approved" dir="auto">Approved</option><option value="rejected" dir="auto">Rejected</option><option value="expired" dir="auto">Expired</option>
+      </select></label>
+    <button type="submit">Filter</button>
+    <a class="btn-brand" href="/quotes/new">New quotation</a>
+  </form>
+  <table id="quote-list">
+    <thead>
+      <tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th>Valid until</th></tr>
+    </thead>
+    <tbody>
+      <tr id="quote-qt_seed_05">
+        <td dir="ltr"><a href="/quotes/qt_seed_05" dir="auto">Q-000005</a></td>
+        <td dir="auto">Al Barsha Facilities LLC</td>
+        <td><span class="status status-rejected" dir="auto">Rejected</span></td>
+        <td dir="ltr">AED 504.00</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_04">
+        <td dir="ltr"><a href="/quotes/qt_seed_04" dir="auto">Q-000004</a></td>
+        <td dir="auto">Fatima Al Suwaidi</td>
+        <td><span class="status status-approved" dir="auto">Approved</span></td>
+        <td dir="ltr">AED 378.00</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_03">
+        <td dir="ltr"><a href="/quotes/qt_seed_03" dir="auto">Q-000003</a></td>
+        <td dir="auto">Marina Heights Property Management</td>
+        <td><span class="status status-sent" dir="auto">Sent</span></td>
+        <td dir="ltr">AED 504.00</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_02">
+        <td dir="ltr"><a href="/quotes/qt_seed_02" dir="auto">Q-000002</a></td>
+        <td dir="auto">Peter Nowak</td>
+        <td><span class="status status-sent" dir="auto">Sent</span></td>
+        <td dir="ltr">AED 735.00</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_01">
+        <td dir="ltr"><a href="/quotes/qt_seed_01" dir="auto">Q-000001</a></td>
+        <td dir="auto">Layla Haddad</td>
+        <td><span class="status status-draft" dir="auto">Draft</span></td>
+        <td dir="ltr">AED 472.50</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_06">
+        <td dir="ltr"><a href="/quotes/qt_seed_06" dir="auto">Q-000006</a></td>
+        <td dir="auto">Layla Haddad</td>
+        <td><span class="status status-expired" dir="auto">Expired</span></td>
+        <td dir="ltr">AED 210.00</td>
+        <td dir="ltr">2026-10-26</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the quotation list is the branch's own the list in Arabic, right to left: role: quotes, branch manager, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>عروض الأسعار · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/quotes">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مشرف</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/quotes?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>عروض الأسعار</h1>
+  <form class="search" action="/quotes" method="get">
+    <label>الحالة
+      <select name="status">
+        <option value="">—</option>
+        <option value="draft" dir="auto">مسودة</option><option value="sent" dir="auto">مرسل</option><option value="approved" dir="auto">موافق عليه</option><option value="rejected" dir="auto">مرفوض</option><option value="expired" dir="auto">منتهي</option>
+      </select></label>
+    <button type="submit">تصفية</button>
+    <a class="btn-brand" href="/quotes/new">عرض سعر جديد</a>
+  </form>
+  <table id="quote-list">
+    <thead>
+      <tr><th>الرقم</th><th>العميل</th><th>الحالة</th><th>الإجمالي</th><th>صالح حتى</th></tr>
+    </thead>
+    <tbody>
+      <tr id="quote-qt_seed_05">
+        <td dir="ltr"><a href="/quotes/qt_seed_05" dir="auto">Q-000005</a></td>
+        <td dir="auto">Al Barsha Facilities LLC</td>
+        <td><span class="status status-rejected" dir="auto">مرفوض</span></td>
+        <td dir="ltr">504.00 د.إ.</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_04">
+        <td dir="ltr"><a href="/quotes/qt_seed_04" dir="auto">Q-000004</a></td>
+        <td dir="auto">Fatima Al Suwaidi</td>
+        <td><span class="status status-approved" dir="auto">موافق عليه</span></td>
+        <td dir="ltr">378.00 د.إ.</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_03">
+        <td dir="ltr"><a href="/quotes/qt_seed_03" dir="auto">Q-000003</a></td>
+        <td dir="auto">Marina Heights Property Management</td>
+        <td><span class="status status-sent" dir="auto">مرسل</span></td>
+        <td dir="ltr">504.00 د.إ.</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_02">
+        <td dir="ltr"><a href="/quotes/qt_seed_02" dir="auto">Q-000002</a></td>
+        <td dir="auto">Peter Nowak</td>
+        <td><span class="status status-sent" dir="auto">مرسل</span></td>
+        <td dir="ltr">735.00 د.إ.</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_01">
+        <td dir="ltr"><a href="/quotes/qt_seed_01" dir="auto">Q-000001</a></td>
+        <td dir="auto">Layla Haddad</td>
+        <td><span class="status status-draft" dir="auto">مسودة</span></td>
+        <td dir="ltr">472.50 د.إ.</td>
+        <td dir="ltr">2033-05-18</td>
+      </tr><tr id="quote-qt_seed_06">
+        <td dir="ltr"><a href="/quotes/qt_seed_06" dir="auto">Q-000006</a></td>
+        <td dir="auto">Layla Haddad</td>
+        <td><span class="status status-expired" dir="auto">منتهي</span></td>
+        <td dir="ltr">210.00 د.إ.</td>
+        <td dir="ltr">2026-10-26</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the quotation list is the branch's own the seeded quotation's page: lines, totals, PDF links: role: quote, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Q-000002 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/quotes/qt_seed_02">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/quotes/qt_seed_02?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/quotes">All quotations</a></p>
+  <h1 dir="ltr">Q-000002</h1>
+  <p><span class="status status-sent" id="quote-status" dir="auto">Sent</span></p>
+  <dl class="detail">
+    <dt>Customer</dt>
+    <dd><a href="/customers/cu_dxb_02" dir="auto">Peter Nowak</a> <span dir="ltr">+971521110002</span></dd>
+    <dt>Site</dt>
+    <dd dir="auto">Villa · Al Barsha, Street 14, villa 22</dd>
+    <dt>Valid until</dt>
+    <dd dir="ltr">2033-05-18</dd>
+    
+    
+  </dl>
+  <table id="lines">
+    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th><th>Total</th></tr></thead>
+    <tbody>
+      <tr id="line-2">
+        <td dir="auto">Deep cleaning</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">AED 450.00</td>
+        <td dir="ltr">AED 450.00</td>
+        <td dir="ltr">AED 22.50 (5%)</td>
+        <td dir="ltr">AED 472.50</td>
+      </tr><tr id="line-3">
+        <td dir="auto">Pest control</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">AED 250.00</td>
+        <td dir="ltr">AED 250.00</td>
+        <td dir="ltr">AED 12.50 (5%)</td>
+        <td dir="ltr">AED 262.50</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th colspan="5">Subtotal</th><td dir="ltr" id="subtotal">AED 700.00</td></tr>
+      <tr><th colspan="5">VAT</th><td dir="ltr" id="vat">AED 35.00</td></tr>
+      <tr><th colspan="5">Total</th><td dir="ltr" id="total"><strong dir="auto">AED 735.00</strong></td></tr>
+    </tfoot>
+  </table>
+  
+  <p id="pdf-links">PDF: <a href="/quotes/qt_seed_02/pdf?lang=en">English</a> · <a href="/quotes/qt_seed_02/pdf?lang=ar">العربية</a></p>
+  <section>
+    <form method="post" action="?/send" hx-post="?/send" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <button type="submit">Issue a new approval link</button>
+    </form>
+  </section>
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the customer's link the seeded approved quotation's link is used: its page says approved, in Arabic too: role: approve link, used, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Q-000004 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/login">Sign in</a></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/l/approve/demo-q000004-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Quotation Q-000004</h1>
+  <p>For: Fatima Al Suwaidi</p>
+  <p class="notice" id="state-approved">This quotation is already approved. Thank you.</p>
+  
+  
+  <table id="lines">
+    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th><th>Total</th></tr></thead>
+    <tbody>
+      <tr>
+        <td dir="auto">AC repair</td>
+        <td dir="ltr">2</td>
+        <td dir="ltr">AED 180.00</td>
+        <td dir="ltr">AED 360.00</td>
+        <td dir="ltr">AED 18.00 (5%)</td>
+        <td dir="ltr">AED 378.00</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th colspan="5">Subtotal</th><td dir="ltr">AED 360.00</td></tr>
+      <tr><th colspan="5">VAT</th><td dir="ltr">AED 18.00</td></tr>
+      <tr><th colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 378.00</strong></td></tr>
+    </tfoot>
+  </table>
+  <p>Valid until: <span dir="ltr">2033-05-18</span></p>
+  
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the customer's link the customer can reject, once, and the dispatcher is told: role: approve link, open, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Q-000003 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/login">Sign in</a></span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/l/approve/demo-q000003-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Quotation Q-000003</h1>
+  <p>For: Marina Heights Property Management</p>
+  
+  
+  
+  <table id="lines">
+    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th><th>Total</th></tr></thead>
+    <tbody>
+      <tr>
+        <td dir="auto">Plumbing</td>
+        <td dir="ltr">2</td>
+        <td dir="ltr">AED 160.00</td>
+        <td dir="ltr">AED 320.00</td>
+        <td dir="ltr">AED 16.00 (5%)</td>
+        <td dir="ltr">AED 336.00</td>
+      </tr><tr>
+        <td dir="auto">Electrical</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">AED 160.00</td>
+        <td dir="ltr">AED 160.00</td>
+        <td dir="ltr">AED 8.00 (5%)</td>
+        <td dir="ltr">AED 168.00</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th colspan="5">Subtotal</th><td dir="ltr">AED 480.00</td></tr>
+      <tr><th colspan="5">VAT</th><td dir="ltr">AED 24.00</td></tr>
+      <tr><th colspan="5">Total</th><td dir="ltr"><strong dir="auto">AED 504.00</strong></td></tr>
+    </tfoot>
+  </table>
+  <p>Valid until: <span dir="ltr">2033-05-18</span></p>
+  <p dir="auto">Tower A, level 12 pantry leak.</p>
+  <section id="answer">
+    <form method="post" action="?/approve" hx-post="?/approve" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit" class="btn-brand">Approve</button></form>
+    <form method="post" action="?/reject" hx-post="?/reject" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><button type="submit">Reject</button></form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`who may use quotations the new-quotation page for a dispatcher: role: quote form, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>New quotation · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <style nonce="<nonce>">:root { --brand: {{ brand.color }}; }</style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">4</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/quotes/new">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/quotes/new?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/quotes">All quotations</a></p>
+  <h1>New quotation</h1>
+  <form method="post" action="?/create" hx-post="?/create" class="stack"><input type="hidden" name="_csrf" value="<csrf>">
+    <section class="stack narrow">
+      <p><label>Site
+        <select name="site_id" required>
+          <option value="">—</option>
+          <option value="st_dxb_05a" dir="auto">Al Barsha Facilities LLC · Building 9</option><option value="st_dxb_03a" dir="auto">Fatima Al Suwaidi · Home</option><option value="st_dxb_01a" dir="auto">Layla Haddad · Apartment</option><option value="st_dxb_04a" dir="auto">Marina Heights Property Management · Tower A</option><option value="st_dxb_04b" dir="auto">Marina Heights Property Management · Tower B</option><option value="st_dxb_02b" dir="auto">Peter Nowak · Office</option><option value="st_dxb_02a" dir="auto">Peter Nowak · Villa</option>
+        </select></label></p>
+      <p><label>Valid for (days) <input name="valid_days" type="number" min="1" max="365" value="30" dir="ltr"></label></p>
+    </section>
+    <section class="stack narrow" id="ai-draft">
+      <h2>AI draft</h2>
+      <p><label>What did the customer ask for? <textarea name="request" rows="3" maxlength="2000" dir="auto"></textarea></label></p>
+      <p><button type="submit" formaction="?/draft" id="draft-button">Draft the lines</button></p>
+      
+      
+      
+      
+    </section>
+    <h2>Lines</h2>
+    <table id="lines">
+      <thead><tr><th>Service</th><th>Description</th><th>Qty</th><th>Price (AED)</th></tr></thead>
+      <tbody>
+        <tr id="row-0">
+          <td><select name="service_0">
+            <option value="">—</option>
+            <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
+          </select></td>
+          <td><input name="desc_0" value="" maxlength="200" dir="auto"><input name="desc_ar_0" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
+          <td><input name="qty_0" value="1" size="5" dir="ltr" inputmode="decimal"></td>
+          <td><input name="price_0" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+        </tr><tr id="row-1">
+          <td><select name="service_1">
+            <option value="">—</option>
+            <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
+          </select></td>
+          <td><input name="desc_1" value="" maxlength="200" dir="auto"><input name="desc_ar_1" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
+          <td><input name="qty_1" value="1" size="5" dir="ltr" inputmode="decimal"></td>
+          <td><input name="price_1" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+        </tr><tr id="row-2">
+          <td><select name="service_2">
+            <option value="">—</option>
+            <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
+          </select></td>
+          <td><input name="desc_2" value="" maxlength="200" dir="auto"><input name="desc_ar_2" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
+          <td><input name="qty_2" value="1" size="5" dir="ltr" inputmode="decimal"></td>
+          <td><input name="price_2" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+        </tr><tr id="row-3">
+          <td><select name="service_3">
+            <option value="">—</option>
+            <option value="1" dir="auto">AC service (AC-SERVICE)</option><option value="2" dir="auto">AC repair (AC-REPAIR)</option><option value="3" dir="auto">Deep cleaning (DEEP-CLEAN)</option><option value="4" dir="auto">Pest control (PEST)</option><option value="5" dir="auto">Plumbing (PLUMBING)</option><option value="6" dir="auto">Electrical (ELECTRICAL)</option><option value="7" dir="auto">Handyman (HANDYMAN)</option><option value="8" dir="auto">AMC visit (AMC-VISIT)</option>
+          </select></td>
+          <td><input name="desc_3" value="" maxlength="200" dir="auto"><input name="desc_ar_3" value="" maxlength="200" dir="rtl" placeholder="Description in Arabic"></td>
+          <td><input name="qty_3" value="1" size="5" dir="ltr" inputmode="decimal"></td>
+          <td><input name="price_3" value="" size="9" dir="ltr" inputmode="decimal" placeholder="catalogue price"></td>
+        </tr>
+      </tbody>
+    </table>
+    <p><label>Notes <textarea name="notes" rows="3" maxlength="1000" dir="auto"></textarea></label></p>
+    <p><button type="submit" class="btn-brand">Create quotation</button> <a href="/quotes">Cancel</a></p>
+  </form>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
