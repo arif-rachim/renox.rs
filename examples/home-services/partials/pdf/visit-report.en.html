@@ -1,0 +1,58 @@
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <title>Visit report {{ job_number }}</title>
+  <style>
+    body { font-family: "Noto Sans", sans-serif; font-size: 11pt; color: #1b1b1b; }
+    h1 { font-size: 20pt; margin: 0 0 4pt; }
+    h2 { font-size: 13pt; margin: 14pt 0 4pt; }
+    .brand { font-weight: bold; font-size: 14pt; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+    th { text-align: left; padding: 4pt; }
+    td { padding: 4pt; border-bottom: 0.5pt solid #ccc; }
+    .num { text-align: right; }
+    .muted { color: #666; font-size: 9pt; }
+  </style>
+</head>
+<body>
+  <p class="brand" :style="brand.text_style">{{ brand.name }}</p>
+  <h1>Visit report {{ job_number }}</h1>
+  <p>{{ service }}<span r-if="branch.name"> · {{ branch.name }}</span></p>
+  <p><strong>{{ customer.name }}</strong><br>
+    {{ customer.phone }}<br>
+    <span r-if="site">{{ site.label }}, {{ site.area }}, {{ site.address }}</span></p>
+  <p>Technician: {{ technician }}<br>
+    Check-in: {{ checkin }}<span r-if="checkout"> · Check-out: {{ checkout }}</span></p>
+
+  <h2 r-if="summary">Summary</h2>
+  <p r-if="summary" id="summary">{{ summary }}</p>
+  <h2 r-if="notes">Technician's notes</h2>
+  <p r-if="notes" id="notes">{{ notes }}</p>
+
+  <h2 r-if="has_parts">Parts used</h2>
+  <table id="parts" r-if="has_parts">
+    <thead><tr :style="brand.rule_style"><th>Description</th><th class="num">Qty</th><th class="num">Unit price (AED)</th><th class="num">Total (AED)</th></tr></thead>
+    <tbody>
+      <tr r-for="p in parts"><td>{{ p.description }}</td><td class="num">{{ p.qty }}</td><td class="num">{{ p.unit_price | number(2) }}</td><td class="num">{{ p.total | number(2) }}</td></tr>
+    </tbody>
+  </table>
+  <p r-if="has_parts" class="num"><strong>Parts total (AED): {{ parts_total }}</strong></p>
+
+  <h2>Photos</h2>
+  <p r-if="no_photos" id="no-photos">No photos were taken at this visit.</p>
+  <r-group r-if="before">
+    <p><strong>Before</strong></p>
+    <p r-for="p in before"><img :src="p.src" alt=""> {{ p.caption }}</p>
+  </r-group>
+  <r-group r-if="after">
+    <p><strong>After</strong></p>
+    <p r-for="p in after"><img :src="p.src" alt=""> {{ p.caption }}</p>
+  </r-group>
+
+  <h2>Customer's signature</h2>
+  <p r-if="signature"><img :src="signature" alt="Signature"></p>
+  <p r-if="signed_by">Signed by {{ signed_by }}</p>
+  <p r-else>Not signed.</p>
+  <p class="muted">{{ brand.footer }}</p>
+</body>
+</html>

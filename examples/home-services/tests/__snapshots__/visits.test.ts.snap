@@ -1,0 +1,547 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the technician's day the check-in state of a visit, on a phone, in English: role: visit, check-in, technician, phone, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>J-000010 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Ali Hassan</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/me/visits/jb_seed_10">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/me/visits/jb_seed_10?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/me">My visits</a></p>
+  <h1 dir="ltr">J-000010</h1>
+  <p><span class="status status-in_progress" id="job-status" dir="auto">In progress</span></p>
+  <dl class="detail">
+    <dt>Customer</dt>
+    <dd dir="auto">Al Barsha Facilities LLC <a href="tel:+971561110005" dir="ltr">+971561110005</a></dd>
+    <dt>Site</dt>
+    <dd dir="auto">Building 9 · Al Barsha, Al Barsha 1, building 9<br></dd>
+    <dt>Service</dt>
+    <dd dir="auto">AC repair</dd>
+    <dt>Scheduled</dt>
+    <dd dir="ltr"><when></dd>
+  </dl>
+  <p dir="auto">Building 9, compressor noise.</p>
+
+  <section id="checkin">
+    <h2>Check in</h2>
+    <p class="muted">Check in when you arrive. Your position is saved if the browser shares it.</p>
+    <form method="post" action="?/checkin" hx-post="?/checkin" class="stack narrow" id="checkin-form"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="lat" id="checkin-lat">
+      <input type="hidden" name="lng" id="checkin-lng">
+      <p><button type="submit" class="btn-brand btn-big">Check in</button></p>
+    </form>
+  </section>
+
+  
+
+  <script nonce="<nonce>">
+    (() => {
+      // The browser's position at check-in, when it is shared: two hidden fields, optional.
+      const lat = document.getElementById("checkin-lat");
+      const lng = document.getElementById("checkin-lng");
+      if (lat && lng && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((p) => {
+          lat.value = String(p.coords.latitude);
+          lng.value = String(p.coords.longitude);
+        }, () => {}, { timeout: 8000, maximumAge: 60000 });
+      }
+      // A phone photo is several megabytes and a page action takes at most 1 MiB: a big one is
+      // scaled down (longest side 1600 px, JPEG) before it is posted.
+      for (const input of document.querySelectorAll('input[type="file"][name="photo"]')) {
+        input.addEventListener("change", async () => {
+          const file = input.files && input.files[0];
+          if (!file || file.size <= 900000 || !window.createImageBitmap) return;
+          try {
+            const bmp = await createImageBitmap(file);
+            const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+            const c = document.createElement("canvas");
+            c.width = Math.round(bmp.width * k);
+            c.height = Math.round(bmp.height * k);
+            c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+            const blob = await new Promise((done) => c.toBlob(done, "image/jpeg", 0.8));
+            if (!blob) return;
+            const dt = new DataTransfer();
+            dt.items.add(new File([blob], file.name.replace(/\\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }));
+            input.files = dt.files;
+          } catch (e) { /* the original goes up as it is */ }
+        });
+      }
+      // The signature: drawn on a canvas, posted as a PNG data URL kept in a hidden field after every stroke.
+      const canvas = document.getElementById("sig-canvas");
+      const data = document.getElementById("sig-data");
+      if (!canvas || !data) return;
+      const g = canvas.getContext("2d");
+      g.lineWidth = 2.5;
+      g.lineCap = "round";
+      g.strokeStyle = "#111";
+      let drawing = false;
+      const at = (e) => {
+        const r = canvas.getBoundingClientRect();
+        return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)];
+      };
+      canvas.addEventListener("pointerdown", (e) => {
+        drawing = true;
+        canvas.setPointerCapture(e.pointerId);
+        const [x, y] = at(e);
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x + 0.1, y + 0.1);
+        g.stroke();
+        e.preventDefault();
+      });
+      canvas.addEventListener("pointermove", (e) => {
+        if (!drawing) return;
+        const [x, y] = at(e);
+        g.lineTo(x, y);
+        g.stroke();
+        e.preventDefault();
+      });
+      const end = () => {
+        if (!drawing) return;
+        drawing = false;
+        data.value = canvas.toDataURL("image/png");
+      };
+      canvas.addEventListener("pointerup", end);
+      canvas.addEventListener("pointercancel", end);
+      document.getElementById("sig-clear")?.addEventListener("click", () => {
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        data.value = "";
+      });
+    })();
+  </script>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the visit page on a phone a closed visit with its photos, part, summary and report links, in English and in Arabic: role: visit, done, technician, phone, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>J-000012 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Ali Hassan</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/me/visits/jb_seed_12">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/me/visits/jb_seed_12?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/me">My visits</a></p>
+  <h1 dir="ltr">J-000012</h1>
+  <p><span class="status status-done" id="job-status" dir="auto">Done</span></p>
+  <dl class="detail">
+    <dt>Customer</dt>
+    <dd dir="auto">Fatima Al Suwaidi <a href="tel:+971551110003" dir="ltr">+971551110003</a></dd>
+    <dt>Site</dt>
+    <dd dir="auto">Home · Jumeirah, Jumeirah 1, villa 7<br></dd>
+    <dt>Service</dt>
+    <dd dir="auto">AC service</dd>
+    <dt>Scheduled</dt>
+    <dd dir="ltr"><when></dd>
+  </dl>
+  <p dir="auto">Service of two units.</p>
+
+  
+
+  <section id="visit">
+    <p id="visit-times" dir="ltr"><when> → <when></p>
+    <p id="visit-closed" class="muted">This visit is closed.</p>
+
+    <section id="photos">
+      <h2>Photos</h2>
+      
+        <h3 dir="auto">Before</h3>
+        
+          <ul class="photos" id="photos-before">
+            <li><small>Photo not stored</small><small dir="auto">A dirty filter</small></li>
+          </ul>
+        
+        
+      
+        <h3 dir="auto">After</h3>
+        
+          <ul class="photos" id="photos-after">
+            <li><small>Photo not stored</small><small dir="auto">The cleaned filter</small></li>
+          </ul>
+        
+        
+      
+    </section>
+
+    <section id="parts">
+      <h2>Parts used</h2>
+      <table class="parts-table">
+        <thead><tr><th>Part</th><th>Quantity</th><th>Total (AED)</th><th></th></tr></thead>
+        <tbody>
+          <tr id="part-2">
+            <td dir="auto">Filter set</td><td dir="ltr">2</td><td dir="ltr">50.00</td>
+            <td></td>
+          </tr>
+        </tbody>
+        <tfoot><tr><th colspan="2">Total (AED)</th><th dir="ltr" id="parts-total">50.00</th><th></th></tr></tfoot>
+      </table>
+      
+    </section>
+
+    <section id="notes">
+      <h2>Notes</h2>
+      <p dir="auto" id="notes-text">Two split units serviced: filters washed, coils cleaned, gas level checked.</p>
+    </section>
+
+    <section id="signature">
+      <h2>Customer&#39;s signature</h2>
+      
+      <p id="signed-by">Signed by Customer</p>
+      
+    </section>
+
+    <section id="summary">
+      <h2>Summary for the report</h2>
+      <p class="muted">Two sentences, drafted by the AI from your notes and parts when it is on. Edit them before the report is sent.</p>
+      <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+        <p><label>Summary (English) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">Both units serviced.</textarea></label></p>
+        <p><label>Summary (Arabic) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">تمت صيانة الوحدتين.</textarea></label></p>
+        <p><button type="submit">Save summary</button></p>
+      </form>
+    </section>
+
+    
+
+    <section id="report">
+      <h2>Visit report</h2>
+      <p class="work-links"><a href="/visits/vs_seed_12/report?lang=en">Report (English)</a> <a href="/visits/vs_seed_12/report?lang=ar">Report (Arabic)</a></p>
+    </section>
+  </section>
+
+  <script nonce="<nonce>">
+    (() => {
+      // The browser's position at check-in, when it is shared: two hidden fields, optional.
+      const lat = document.getElementById("checkin-lat");
+      const lng = document.getElementById("checkin-lng");
+      if (lat && lng && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((p) => {
+          lat.value = String(p.coords.latitude);
+          lng.value = String(p.coords.longitude);
+        }, () => {}, { timeout: 8000, maximumAge: 60000 });
+      }
+      // A phone photo is several megabytes and a page action takes at most 1 MiB: a big one is
+      // scaled down (longest side 1600 px, JPEG) before it is posted.
+      for (const input of document.querySelectorAll('input[type="file"][name="photo"]')) {
+        input.addEventListener("change", async () => {
+          const file = input.files && input.files[0];
+          if (!file || file.size <= 900000 || !window.createImageBitmap) return;
+          try {
+            const bmp = await createImageBitmap(file);
+            const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+            const c = document.createElement("canvas");
+            c.width = Math.round(bmp.width * k);
+            c.height = Math.round(bmp.height * k);
+            c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+            const blob = await new Promise((done) => c.toBlob(done, "image/jpeg", 0.8));
+            if (!blob) return;
+            const dt = new DataTransfer();
+            dt.items.add(new File([blob], file.name.replace(/\\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }));
+            input.files = dt.files;
+          } catch (e) { /* the original goes up as it is */ }
+        });
+      }
+      // The signature: drawn on a canvas, posted as a PNG data URL kept in a hidden field after every stroke.
+      const canvas = document.getElementById("sig-canvas");
+      const data = document.getElementById("sig-data");
+      if (!canvas || !data) return;
+      const g = canvas.getContext("2d");
+      g.lineWidth = 2.5;
+      g.lineCap = "round";
+      g.strokeStyle = "#111";
+      let drawing = false;
+      const at = (e) => {
+        const r = canvas.getBoundingClientRect();
+        return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)];
+      };
+      canvas.addEventListener("pointerdown", (e) => {
+        drawing = true;
+        canvas.setPointerCapture(e.pointerId);
+        const [x, y] = at(e);
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x + 0.1, y + 0.1);
+        g.stroke();
+        e.preventDefault();
+      });
+      canvas.addEventListener("pointermove", (e) => {
+        if (!drawing) return;
+        const [x, y] = at(e);
+        g.lineTo(x, y);
+        g.stroke();
+        e.preventDefault();
+      });
+      const end = () => {
+        if (!drawing) return;
+        drawing = false;
+        data.value = canvas.toDataURL("image/png");
+      };
+      canvas.addEventListener("pointerup", end);
+      canvas.addEventListener("pointercancel", end);
+      document.getElementById("sig-clear")?.addEventListener("click", () => {
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        data.value = "";
+      });
+    })();
+  </script>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the visit page on a phone a closed visit with its photos, part, summary and report links, in English and in Arabic: role: visit, done, technician, phone, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>J-000012 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Ali Hassan</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/me/visits/jb_seed_12">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · عضو</option>
+    </select>
+    <button type="submit">تبديل</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/me/visits/jb_seed_12?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/me">زياراتي</a></p>
+  <h1 dir="ltr">J-000012</h1>
+  <p><span class="status status-done" id="job-status" dir="auto">منجزة</span></p>
+  <dl class="detail">
+    <dt>العميل</dt>
+    <dd dir="auto">Fatima Al Suwaidi <a href="tel:+971551110003" dir="ltr">+971551110003</a></dd>
+    <dt>الموقع</dt>
+    <dd dir="auto">Home · Jumeirah, Jumeirah 1, villa 7<br></dd>
+    <dt>الخدمة</dt>
+    <dd dir="auto">صيانة المكيف</dd>
+    <dt>الموعد</dt>
+    <dd dir="ltr"><when></dd>
+  </dl>
+  <p dir="auto">Service of two units.</p>
+
+  
+
+  <section id="visit">
+    <p id="visit-times" dir="ltr"><when> → <when></p>
+    <p id="visit-closed" class="muted">هذه الزيارة مغلقة.</p>
+
+    <section id="photos">
+      <h2>الصور</h2>
+      
+        <h3 dir="auto">قبل</h3>
+        
+          <ul class="photos" id="photos-before">
+            <li><small>الصورة غير محفوظة</small><small dir="auto">A dirty filter</small></li>
+          </ul>
+        
+        
+      
+        <h3 dir="auto">بعد</h3>
+        
+          <ul class="photos" id="photos-after">
+            <li><small>الصورة غير محفوظة</small><small dir="auto">The cleaned filter</small></li>
+          </ul>
+        
+        
+      
+    </section>
+
+    <section id="parts">
+      <h2>القطع المستخدمة</h2>
+      <table class="parts-table">
+        <thead><tr><th>القطعة</th><th>الكمية</th><th>الإجمالي (درهم)</th><th></th></tr></thead>
+        <tbody>
+          <tr id="part-2">
+            <td dir="auto">Filter set</td><td dir="ltr">2</td><td dir="ltr">50.00</td>
+            <td></td>
+          </tr>
+        </tbody>
+        <tfoot><tr><th colspan="2">الإجمالي (درهم)</th><th dir="ltr" id="parts-total">50.00</th><th></th></tr></tfoot>
+      </table>
+      
+    </section>
+
+    <section id="notes">
+      <h2>الملاحظات</h2>
+      <p dir="auto" id="notes-text">Two split units serviced: filters washed, coils cleaned, gas level checked.</p>
+    </section>
+
+    <section id="signature">
+      <h2>توقيع العميل</h2>
+      
+      <p id="signed-by">وقّع: Customer</p>
+      
+    </section>
+
+    <section id="summary">
+      <h2>ملخص التقرير</h2>
+      <p class="muted">جملتان يصيغهما الذكاء الاصطناعي من ملاحظاتك وقطعك عند تشغيله. عدّلهما قبل إرسال التقرير.</p>
+      <form method="post" action="?/summary" hx-post="?/summary" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+        <p><label>الملخص (الإنجليزية) <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">Both units serviced.</textarea></label></p>
+        <p><label>الملخص (العربية) <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">تمت صيانة الوحدتين.</textarea></label></p>
+        <p><button type="submit">حفظ الملخص</button></p>
+      </form>
+    </section>
+
+    
+
+    <section id="report">
+      <h2>تقرير الزيارة</h2>
+      <p class="work-links"><a href="/visits/vs_seed_12/report?lang=en">التقرير (الإنجليزية)</a> <a href="/visits/vs_seed_12/report?lang=ar">التقرير (العربية)</a></p>
+    </section>
+  </section>
+
+  <script nonce="<nonce>">
+    (() => {
+      // The browser's position at check-in, when it is shared: two hidden fields, optional.
+      const lat = document.getElementById("checkin-lat");
+      const lng = document.getElementById("checkin-lng");
+      if (lat && lng && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((p) => {
+          lat.value = String(p.coords.latitude);
+          lng.value = String(p.coords.longitude);
+        }, () => {}, { timeout: 8000, maximumAge: 60000 });
+      }
+      // A phone photo is several megabytes and a page action takes at most 1 MiB: a big one is
+      // scaled down (longest side 1600 px, JPEG) before it is posted.
+      for (const input of document.querySelectorAll('input[type="file"][name="photo"]')) {
+        input.addEventListener("change", async () => {
+          const file = input.files && input.files[0];
+          if (!file || file.size <= 900000 || !window.createImageBitmap) return;
+          try {
+            const bmp = await createImageBitmap(file);
+            const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+            const c = document.createElement("canvas");
+            c.width = Math.round(bmp.width * k);
+            c.height = Math.round(bmp.height * k);
+            c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+            const blob = await new Promise((done) => c.toBlob(done, "image/jpeg", 0.8));
+            if (!blob) return;
+            const dt = new DataTransfer();
+            dt.items.add(new File([blob], file.name.replace(/\\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }));
+            input.files = dt.files;
+          } catch (e) { /* the original goes up as it is */ }
+        });
+      }
+      // The signature: drawn on a canvas, posted as a PNG data URL kept in a hidden field after every stroke.
+      const canvas = document.getElementById("sig-canvas");
+      const data = document.getElementById("sig-data");
+      if (!canvas || !data) return;
+      const g = canvas.getContext("2d");
+      g.lineWidth = 2.5;
+      g.lineCap = "round";
+      g.strokeStyle = "#111";
+      let drawing = false;
+      const at = (e) => {
+        const r = canvas.getBoundingClientRect();
+        return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)];
+      };
+      canvas.addEventListener("pointerdown", (e) => {
+        drawing = true;
+        canvas.setPointerCapture(e.pointerId);
+        const [x, y] = at(e);
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x + 0.1, y + 0.1);
+        g.stroke();
+        e.preventDefault();
+      });
+      canvas.addEventListener("pointermove", (e) => {
+        if (!drawing) return;
+        const [x, y] = at(e);
+        g.lineTo(x, y);
+        g.stroke();
+        e.preventDefault();
+      });
+      const end = () => {
+        if (!drawing) return;
+        drawing = false;
+        data.value = canvas.toDataURL("image/png");
+      };
+      canvas.addEventListener("pointerup", end);
+      canvas.addEventListener("pointercancel", end);
+      document.getElementById("sig-clear")?.addEventListener("click", () => {
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        data.value = "";
+      });
+    })();
+  </script>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;

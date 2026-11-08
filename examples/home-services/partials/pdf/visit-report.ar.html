@@ -1,0 +1,58 @@
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>تقرير الزيارة {{ job_number }}</title>
+  <style>
+    body { font-family: "Noto Naskh Arabic", "Noto Sans", sans-serif; font-size: 12pt; color: #1b1b1b; }
+    h1 { font-size: 20pt; margin: 0 0 4pt; }
+    h2 { font-size: 14pt; margin: 14pt 0 4pt; }
+    .brand { font-weight: bold; font-size: 14pt; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+    th { text-align: right; padding: 4pt; }
+    td { padding: 4pt; border-bottom: 0.5pt solid #ccc; }
+    .num { text-align: left; }
+    .muted { color: #666; font-size: 9pt; }
+  </style>
+</head>
+<body>
+  <p class="brand" :style="brand.text_style">{{ brand.name }}</p>
+  <h1>تقرير الزيارة {{ job_number }}</h1>
+  <p>{{ service }}<span r-if="branch.name"> · {{ branch.name }}</span></p>
+  <p><strong>{{ customer.name }}</strong><br>
+    <span dir="ltr">{{ customer.phone }}</span><br>
+    <span r-if="site">{{ site.label }}، {{ site.area }}، {{ site.address }}</span></p>
+  <p>الفني: {{ technician }}<br>
+    تسجيل الوصول: <span dir="ltr">{{ checkin }}</span><span r-if="checkout"> · تسجيل المغادرة: <span dir="ltr">{{ checkout }}</span></span></p>
+
+  <h2 r-if="summary">الملخص</h2>
+  <p r-if="summary" id="summary">{{ summary }}</p>
+  <h2 r-if="notes">ملاحظات الفني</h2>
+  <p r-if="notes" id="notes">{{ notes }}</p>
+
+  <h2 r-if="has_parts">القطع المستخدمة</h2>
+  <table id="parts" r-if="has_parts">
+    <thead><tr :style="brand.rule_style"><th>الوصف</th><th class="num">الكمية</th><th class="num">سعر الوحدة (درهم)</th><th class="num">الإجمالي (درهم)</th></tr></thead>
+    <tbody>
+      <tr r-for="p in parts"><td>{{ p.description }}</td><td class="num">{{ p.qty }}</td><td class="num">{{ p.unit_price | number(2) }}</td><td class="num">{{ p.total | number(2) }}</td></tr>
+    </tbody>
+  </table>
+  <p r-if="has_parts" class="num"><strong>إجمالي القطع (درهم): {{ parts_total }}</strong></p>
+
+  <h2>الصور</h2>
+  <p r-if="no_photos" id="no-photos">لم تُلتقط أي صور في هذه الزيارة.</p>
+  <r-group r-if="before">
+    <p><strong>قبل</strong></p>
+    <p r-for="p in before"><img :src="p.src" alt=""> {{ p.caption }}</p>
+  </r-group>
+  <r-group r-if="after">
+    <p><strong>بعد</strong></p>
+    <p r-for="p in after"><img :src="p.src" alt=""> {{ p.caption }}</p>
+  </r-group>
+
+  <h2>توقيع العميل</h2>
+  <p r-if="signature"><img :src="signature" alt="التوقيع"></p>
+  <p r-if="signed_by">وقّع: {{ signed_by }}</p>
+  <p r-else>غير موقّع.</p>
+  <p class="muted">{{ brand.footer }}</p>
+</body>
+</html>

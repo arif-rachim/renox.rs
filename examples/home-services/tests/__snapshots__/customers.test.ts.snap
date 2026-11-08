@@ -1,0 +1,553 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the customer list is the branch's own a Dubai dispatcher sees Dubai customers only: role: customers, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Customers · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/customers">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/customers?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Customers</h1>
+  <p class="muted">Branch: Dubai</p>
+  <form class="search" action="/customers" hx-get="/customers" hx-target="#customer-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
+    <input type="search" name="q" value="" placeholder="Search by name or phone" autocomplete="off" dir="auto">
+    <button type="submit">Search</button>
+    <a class="btn-brand" href="/customers/new">New customer</a>
+  </form>
+  <table id="customer-list">
+    <thead>
+      <tr><th>Name</th><th>Type</th><th>Phone</th><th>TRN</th><th>Sites</th></tr>
+    </thead>
+    <tbody>
+      <tr id="customer-cu_dxb_05">
+        <td><a href="/customers/cu_dxb_05" dir="auto">Al Barsha Facilities LLC</a></td>
+        <td>Property manager or company</td>
+        <td dir="ltr">+971561110005</td>
+        <td dir="ltr">100123456700011</td>
+        <td dir="auto">1</td>
+      </tr><tr id="customer-cu_dxb_03">
+        <td><a href="/customers/cu_dxb_03" dir="auto">Fatima Al Suwaidi</a></td>
+        <td>Household</td>
+        <td dir="ltr">+971551110003</td>
+        <td dir="ltr"></td>
+        <td dir="auto">1</td>
+      </tr><tr id="customer-cu_dxb_01">
+        <td><a href="/customers/cu_dxb_01" dir="auto">Layla Haddad</a></td>
+        <td>Household</td>
+        <td dir="ltr">+971501110001</td>
+        <td dir="ltr"></td>
+        <td dir="auto">1</td>
+      </tr><tr id="customer-cu_dxb_04">
+        <td><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></td>
+        <td>Property manager or company</td>
+        <td dir="ltr">+97144110004</td>
+        <td dir="ltr">100123456700003</td>
+        <td dir="auto">2</td>
+      </tr><tr id="customer-cu_dxb_02">
+        <td><a href="/customers/cu_dxb_02" dir="auto">Peter Nowak</a></td>
+        <td>Household</td>
+        <td dir="ltr">+971521110002</td>
+        <td dir="ltr"></td>
+        <td dir="auto">2</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the customer list is the branch's own the list in Arabic, right to left: role: customers, branch manager, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>العملاء · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/customers">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مشرف</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/customers?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>العملاء</h1>
+  <p class="muted">الفرع: دبي</p>
+  <form class="search" action="/customers" hx-get="/customers" hx-target="#customer-list" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:input[name=q], submit" hx-push-url="true">
+    <input type="search" name="q" value="" placeholder="ابحث بالاسم أو الهاتف" autocomplete="off" dir="auto">
+    <button type="submit">بحث</button>
+    <a class="btn-brand" href="/customers/new">عميل جديد</a>
+  </form>
+  <table id="customer-list">
+    <thead>
+      <tr><th>الاسم</th><th>النوع</th><th>الهاتف</th><th>الرقم الضريبي</th><th>المواقع</th></tr>
+    </thead>
+    <tbody>
+      <tr id="customer-cu_dxb_05">
+        <td><a href="/customers/cu_dxb_05" dir="auto">Al Barsha Facilities LLC</a></td>
+        <td>مدير عقار أو شركة</td>
+        <td dir="ltr">+971561110005</td>
+        <td dir="ltr">100123456700011</td>
+        <td dir="auto">1</td>
+      </tr><tr id="customer-cu_dxb_03">
+        <td><a href="/customers/cu_dxb_03" dir="auto">Fatima Al Suwaidi</a></td>
+        <td>منزل</td>
+        <td dir="ltr">+971551110003</td>
+        <td dir="ltr"></td>
+        <td dir="auto">1</td>
+      </tr><tr id="customer-cu_dxb_01">
+        <td><a href="/customers/cu_dxb_01" dir="auto">Layla Haddad</a></td>
+        <td>منزل</td>
+        <td dir="ltr">+971501110001</td>
+        <td dir="ltr"></td>
+        <td dir="auto">1</td>
+      </tr><tr id="customer-cu_dxb_04">
+        <td><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></td>
+        <td>مدير عقار أو شركة</td>
+        <td dir="ltr">+97144110004</td>
+        <td dir="ltr">100123456700003</td>
+        <td dir="auto">2</td>
+      </tr><tr id="customer-cu_dxb_02">
+        <td><a href="/customers/cu_dxb_02" dir="auto">Peter Nowak</a></td>
+        <td>منزل</td>
+        <td dir="ltr">+971521110002</td>
+        <td dir="ltr"></td>
+        <td dir="auto">2</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`a customer and a site are created in the dispatcher's branch the customer page, a seeded customer with two sites, in English and Arabic: role: customer, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Marina Heights Property Management · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/customers/cu_dxb_04">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/customers/cu_dxb_04?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/customers">All customers</a></p>
+  <h1 dir="auto">Marina Heights Property Management</h1>
+  <dl class="detail">
+    <dt>Type</dt>
+    <dd>Property manager or company</dd>
+    <dt>Phone</dt>
+    <dd dir="ltr">+97144110004</dd>
+    <dt>TRN</dt>
+    <dd dir="ltr">100123456700003</dd>
+    <dt>Email</dt>
+    <dd dir="ltr">ops@marinaheights.example</dd>
+    <dt>Language</dt>
+    <dd>English</dd>
+  </dl>
+  <h2>Sites</h2>
+  <ul id="sites">
+    <li id="site-st_dxb_04a" dir="auto">
+      <strong dir="auto">Tower A</strong> · Dubai Marina, Dubai<br>
+      Marina Heights A
+      <br>Makani number: <span dir="ltr">3011122233</span>
+      <br><small dir="auto">Technicians sign in at reception.</small>
+    </li><li id="site-st_dxb_04b" dir="auto">
+      <strong dir="auto">Tower B</strong> · Dubai Marina, Dubai<br>
+      Marina Heights B
+      <br>Makani number: <span dir="ltr">3011122244</span>
+      <br><small dir="auto">Technicians sign in at reception.</small>
+    </li>
+  </ul>
+  <section><form method="post" action="?/addSite" hx-post="?/addSite" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+    <h3>Add a site</h3>
+    
+<p><label>Site name <input name="label" maxlength="80" required></label></p>
+<p><label>Emirate <select name="emirate" required>
+  <option value="AE-AZ" dir="auto">Abu Dhabi</option><option value="AE-DU" selected dir="auto">Dubai</option><option value="AE-SH" dir="auto">Sharjah</option><option value="AE-AJ" dir="auto">Ajman</option><option value="AE-UQ" dir="auto">Umm Al Quwain</option><option value="AE-RK" dir="auto">Ras Al Khaimah</option><option value="AE-FU" dir="auto">Fujairah</option>
+</select></label></p>
+<p><label>Area <input name="area" maxlength="80" required></label></p>
+<p><label>Address <input name="address" maxlength="300" required></label></p>
+<p><label>Makani number <input name="makani" dir="ltr" inputmode="numeric" maxlength="20"></label></p>
+<p><label>Latitude <input name="lat" dir="ltr" inputmode="decimal" maxlength="20"></label></p>
+<p><label>Longitude <input name="lng" dir="ltr" inputmode="decimal" maxlength="20"></label></p>
+<p><label>Access notes <textarea name="access_notes" maxlength="500"></textarea></label></p>
+
+    <p><button type="submit" class="btn-brand">Add site</button></p>
+  </form></section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`a customer and a site are created in the dispatcher's branch the customer page, a seeded customer with two sites, in English and Arabic: role: customer, branch manager, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Marina Heights Property Management · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/customers/cu_dxb_04">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مشرف</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/customers/cu_dxb_04?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/customers">كل العملاء</a></p>
+  <h1 dir="auto">Marina Heights Property Management</h1>
+  <dl class="detail">
+    <dt>النوع</dt>
+    <dd>مدير عقار أو شركة</dd>
+    <dt>الهاتف</dt>
+    <dd dir="ltr">+97144110004</dd>
+    <dt>الرقم الضريبي</dt>
+    <dd dir="ltr">100123456700003</dd>
+    <dt>البريد الإلكتروني</dt>
+    <dd dir="ltr">ops@marinaheights.example</dd>
+    <dt>اللغة</dt>
+    <dd>English</dd>
+  </dl>
+  <h2>المواقع</h2>
+  <ul id="sites">
+    <li id="site-st_dxb_04a" dir="auto">
+      <strong dir="auto">Tower A</strong> · Dubai Marina, دبي<br>
+      Marina Heights A
+      <br>رقم مكاني: <span dir="ltr">3011122233</span>
+      <br><small dir="auto">Technicians sign in at reception.</small>
+    </li><li id="site-st_dxb_04b" dir="auto">
+      <strong dir="auto">Tower B</strong> · Dubai Marina, دبي<br>
+      Marina Heights B
+      <br>رقم مكاني: <span dir="ltr">3011122244</span>
+      <br><small dir="auto">Technicians sign in at reception.</small>
+    </li>
+  </ul>
+  <section><form method="post" action="?/addSite" hx-post="?/addSite" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+    <h3>إضافة موقع</h3>
+    
+<p><label>اسم الموقع <input name="label" maxlength="80" required></label></p>
+<p><label>الإمارة <select name="emirate" required>
+  <option value="AE-AZ" dir="auto">أبوظبي</option><option value="AE-DU" selected dir="auto">دبي</option><option value="AE-SH" dir="auto">الشارقة</option><option value="AE-AJ" dir="auto">عجمان</option><option value="AE-UQ" dir="auto">أم القيوين</option><option value="AE-RK" dir="auto">رأس الخيمة</option><option value="AE-FU" dir="auto">الفجيرة</option>
+</select></label></p>
+<p><label>المنطقة <input name="area" maxlength="80" required></label></p>
+<p><label>العنوان <input name="address" maxlength="300" required></label></p>
+<p><label>رقم مكاني <input name="makani" dir="ltr" inputmode="numeric" maxlength="20"></label></p>
+<p><label>خط العرض <input name="lat" dir="ltr" inputmode="decimal" maxlength="20"></label></p>
+<p><label>خط الطول <input name="lng" dir="ltr" inputmode="decimal" maxlength="20"></label></p>
+<p><label>ملاحظات الدخول <textarea name="access_notes" maxlength="500"></textarea></label></p>
+
+    <p><button type="submit" class="btn-brand">إضافة الموقع</button></p>
+  </form></section>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the service catalogue a dispatcher reads the eight services, in English and Arabic, and has no edit form: role: services, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Service catalogue · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/services">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/services?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Service catalogue</h1>
+  
+  <table id="services">
+    <thead>
+      <tr><th>Code</th><th>Service</th><th>Per</th><th>Price</th><th>VAT</th><th>Active</th></tr>
+    </thead>
+    <tbody>
+      <tr id="service-1">
+        <td dir="ltr">AC-SERVICE</td>
+        <td dir="auto">AC service</td>
+        <td>unit</td>
+        <td dir="ltr">AED 150.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr><tr id="service-2">
+        <td dir="ltr">AC-REPAIR</td>
+        <td dir="auto">AC repair</td>
+        <td>hour</td>
+        <td dir="ltr">AED 180.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr><tr id="service-3">
+        <td dir="ltr">DEEP-CLEAN</td>
+        <td dir="auto">Deep cleaning</td>
+        <td>visit</td>
+        <td dir="ltr">AED 450.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr><tr id="service-4">
+        <td dir="ltr">PEST</td>
+        <td dir="auto">Pest control</td>
+        <td>visit</td>
+        <td dir="ltr">AED 250.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr><tr id="service-5">
+        <td dir="ltr">PLUMBING</td>
+        <td dir="auto">Plumbing</td>
+        <td>hour</td>
+        <td dir="ltr">AED 160.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr><tr id="service-6">
+        <td dir="ltr">ELECTRICAL</td>
+        <td dir="auto">Electrical</td>
+        <td>hour</td>
+        <td dir="ltr">AED 160.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr><tr id="service-7">
+        <td dir="ltr">HANDYMAN</td>
+        <td dir="auto">Handyman</td>
+        <td>hour</td>
+        <td dir="ltr">AED 120.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr><tr id="service-8">
+        <td dir="ltr">AMC-VISIT</td>
+        <td dir="auto">AMC visit</td>
+        <td>visit</td>
+        <td dir="ltr">AED 200.00</td>
+        <td dir="ltr">5%</td>
+        <td>Active</td>
+      </tr>
+    </tbody>
+  </table>
+  
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the service catalogue a dispatcher reads the eight services, in English and Arabic, and has no edit form: role: services, branch manager, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>قائمة الخدمات · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Mona Manager</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/services">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مشرف</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/services?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>قائمة الخدمات</h1>
+  
+  <table id="services">
+    <thead>
+      <tr><th>الرمز</th><th>الخدمة</th><th>لكل</th><th>السعر</th><th>الضريبة</th><th>مفعّلة</th></tr>
+    </thead>
+    <tbody>
+      <tr id="service-1">
+        <td dir="ltr">AC-SERVICE</td>
+        <td dir="auto">صيانة المكيف</td>
+        <td>وحدة</td>
+        <td dir="ltr">150.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr><tr id="service-2">
+        <td dir="ltr">AC-REPAIR</td>
+        <td dir="auto">إصلاح المكيف</td>
+        <td>ساعة</td>
+        <td dir="ltr">180.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr><tr id="service-3">
+        <td dir="ltr">DEEP-CLEAN</td>
+        <td dir="auto">تنظيف شامل</td>
+        <td>زيارة</td>
+        <td dir="ltr">450.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr><tr id="service-4">
+        <td dir="ltr">PEST</td>
+        <td dir="auto">مكافحة الحشرات</td>
+        <td>زيارة</td>
+        <td dir="ltr">250.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr><tr id="service-5">
+        <td dir="ltr">PLUMBING</td>
+        <td dir="auto">سباكة</td>
+        <td>ساعة</td>
+        <td dir="ltr">160.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr><tr id="service-6">
+        <td dir="ltr">ELECTRICAL</td>
+        <td dir="auto">كهرباء</td>
+        <td>ساعة</td>
+        <td dir="ltr">160.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr><tr id="service-7">
+        <td dir="ltr">HANDYMAN</td>
+        <td dir="auto">أعمال صيانة عامة</td>
+        <td>ساعة</td>
+        <td dir="ltr">120.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr><tr id="service-8">
+        <td dir="ltr">AMC-VISIT</td>
+        <td dir="auto">زيارة عقد الصيانة السنوي</td>
+        <td>زيارة</td>
+        <td dir="ltr">200.00 د.إ.</td>
+        <td dir="ltr">5%</td>
+        <td>مفعّلة</td>
+      </tr>
+    </tbody>
+  </table>
+  
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
