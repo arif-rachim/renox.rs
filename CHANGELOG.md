@@ -6,6 +6,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **Worker**
 
+- Pins `renox-worker` 0.5.0.
 - `ctx.render(template, data)` renders a page or partial of the deployment to an HTML string (`op_render_template`, `ops.md` 1.8.0 section 25), in the request's locale and direction; the time counts as `render_ms` and `render_fuel`, a limit is `RENOX_RENDER_LIMIT`, an unknown id or one with `..` or a leading `/` is a `TypeError` (#577).
 - `ctx.render` and `ctx.pdf.render` of a module read the module's own tree: the op adds the prefix `modules/<name>/` (`ops.md` 1.9.0 sections 24 and 25) (#577).
 - A page action can return `{ status: 422, ...data }` (200, 400, 409 or 422): the page or the htmx fragment is rendered as before with that response status, and `status` is not template data; any other value is 500 `RENOX_INTERNAL` and the action's transaction is rolled back (`ops.md` 1.9.0 section 14) (#577).
