@@ -20,6 +20,7 @@ export interface StorageCtx {
     delete(key: string): Promise<boolean>;
     sign(key: string, ttl: number): Promise<{ url: string; expires_at: number }>;
     list(prefix: string, o?: { limit?: number; cursor?: string | null }): Promise<{ items: StoredFile[]; next_cursor: string | null }>;
+    signUpload(key: string, o: { contentType: string; maxBytes: number; ttlSeconds?: number; public?: boolean }): Promise<{ url: string; expires_at: number; max_bytes: number }>;
   };
   config: { max_upload_bytes?: number; allow_svg?: boolean; quota_mb?: number };
 }
@@ -131,4 +132,35 @@ export async function uploadWithin(ctx: StorageCtx, owner: unknown, name: unknow
     if (used + bytes.length > mb * 1024 * 1024) throw new UploadError(`over the ${mb} MB quota of this owner`, "QUOTA");
   }
   return upload(ctx, owner, name, bytes, contentType, opts);
+}
+
+/** How long a signed upload URL works (seconds): enough to pick a file and send it, short enough to be of no use later. */
+const UPLOAD_URL_SECONDS = 600;
+
+/**
+ * A signed URL for one browser `PUT` into an owner's folder (ops.md section 21,
+ * "Tenant uploads"), for files past the 1 MiB action limit. `maxBytes` is capped
+ * at `config.max_upload_bytes`; the owner's quota is checked at signing with
+ * `maxBytes` as the size (a replaced file counts once). SVG is always refused: the
+ * sanitiser runs only on the action path, and the PUT never enters an isolate.
+ * The caller records the key it signed (`keyOf(owner, name)`) after the PUT.
+ */
+export async function uploadUrl(
+  ctx: StorageCtx,
+  owner: unknown,
+  name: unknown,
+  o: { contentType?: unknown; maxBytes?: unknown; public?: unknown } = {},
+): Promise<{ url: string; expires_at: number; max_bytes: number; key: string }> {
+  const key = keyOf(owner, name);
+  if (typeof o.contentType !== "string" || o.contentType === "") throw new UploadError("contentType", "INVALID");
+  if (typeof o.maxBytes !== "number" || !Number.isInteger(o.maxBytes) || o.maxBytes < 1) throw new UploadError("maxBytes: a positive integer", "INVALID");
+  if (o.contentType.split(";")[0]?.trim().toLowerCase() === "image/svg+xml") throw new UploadError("SVG uploads go through the upload action, which sanitises them", "SVG");
+  const maxBytes = Math.min(o.maxBytes, Number(ctx.config.max_upload_bytes ?? 10 * 1024 * 1024));
+  const mb = Number(ctx.config.quota_mb ?? 0);
+  if (mb > 0) {
+    const used = (await allOf(ctx, owner)).filter((f) => f.key !== key).reduce((s, f) => s + f.bytes, 0);
+    if (used + maxBytes > mb * 1024 * 1024) throw new UploadError(`over the ${mb} MB quota of this owner`, "QUOTA");
+  }
+  const signed = await ctx.storage.signUpload(key, { contentType: o.contentType, maxBytes, ttlSeconds: UPLOAD_URL_SECONDS, public: o.public === true });
+  return { ...signed, key };
 }

@@ -45,9 +45,10 @@
           </ul>
           <p r-else class="muted"><r-t key="visits.photos.none" /></p>
         </r-group>
-        <r-group r-if="open"><x-form action="photo" enctype="multipart/form-data" hx-encoding="multipart/form-data" class="stack narrow" :id="'photo-form-' ~ ph.phase">
+        <r-group r-if="open"><x-form action="photo" class="stack narrow" :id="'photo-form-' ~ ph.phase">
           <input type="hidden" name="phase" :value="ph.phase">
-          <p><label><r-t key="visits.photos.file" /> <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment" required></label></p>
+          <input type="hidden" name="key" :id="'photo-key-' ~ ph.phase">
+          <p><label><r-t key="visits.photos.file" /> <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" :data-upload-action="'/me/visits/' ~ job.id ~ '?/photo_url'" data-key-field="key"> <span data-upload-status class="muted"></span></label></p>
           <p><label><r-t key="visits.photos.caption" /> <input name="caption" maxlength="200"></label></p>
           <p><small class="muted"><r-t key="visits.photos.limit" /></small></p>
           <p><button type="submit"><r-t key="visits.photos.add" /></button></p>
@@ -123,6 +124,7 @@
     </section>
   </section>
 
+  <script src="/upload.js" defer></script>
   <script>
     (() => {
       // The browser's position at check-in, when it is shared: two hidden fields, optional.
@@ -133,27 +135,6 @@
           lat.value = String(p.coords.latitude);
           lng.value = String(p.coords.longitude);
         }, () => {}, { timeout: 8000, maximumAge: 60000 });
-      }
-      // A phone photo is several megabytes and a page action takes at most 1 MiB: a big one is
-      // scaled down (longest side 1600 px, JPEG) before it is posted.
-      for (const input of document.querySelectorAll('input[type="file"][name="photo"]')) {
-        input.addEventListener("change", async () => {
-          const file = input.files && input.files[0];
-          if (!file || file.size <= 900000 || !window.createImageBitmap) return;
-          try {
-            const bmp = await createImageBitmap(file);
-            const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-            const c = document.createElement("canvas");
-            c.width = Math.round(bmp.width * k);
-            c.height = Math.round(bmp.height * k);
-            c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-            const blob = await new Promise((done) => c.toBlob(done, "image/jpeg", 0.8));
-            if (!blob) return;
-            const dt = new DataTransfer();
-            dt.items.add(new File([blob], file.name.replace(/\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }));
-            input.files = dt.files;
-          } catch (e) { /* the original goes up as it is */ }
-        });
       }
       // The signature: drawn on a canvas, posted as a PNG data URL kept in a hidden field after every stroke.
       const canvas = document.getElementById("sig-canvas");
