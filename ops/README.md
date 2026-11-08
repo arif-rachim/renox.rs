@@ -22,6 +22,7 @@ Operational files that the build and CI trust. Owned by code owners (`.github/CO
 | `scripts/fetch-cloudflared.sh` | Downloads the pinned binary, refuses a SHA-256 mismatch before it is installed, prints its path |
 | `scripts/firewall-single-host.sh` | nftables: inbound SSH only (22, or `--ssh-port <n>`); 80 and 443 closed (tunnel-only, #420); refuses unless SSH stays reachable on that port |
 | `scripts/backup-control-db.sh` | `pg_dump` encrypted with age, uploaded to R2 with a SigV4 PUT, read back |
+| `needrestart/renox.conf` | `/etc/needrestart/conf.d/renox.conf` on the single host (#546): needrestart lists the `renox-*` services after an `apt` run and never restarts them (`single-host.md`, "Packages and upgrades") |
 | `systemd/control.env.example` | Template of `/etc/renox/control.env` (0600); never installed as a unit |
 
 ## Verified prebuilt V8

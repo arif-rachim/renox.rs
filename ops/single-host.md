@@ -130,7 +130,7 @@ The worker's own public addresses still go into `fetch_blocked_addresses` (`ops/
 
 All commands as root on the host unless the step says otherwise.
 
-1. **Base.** Ubuntu 24.04 with current updates. sshd with key authentication only (port 22, or another port: the firewall step takes it). A host that already runs something (a web server, ufw, Docker) is cleared first: "A host that is not empty" below. Then: `apt-get install -y postgresql nftables age curl openssl git jq sqlite3` (`sqlite3` for the tenant snapshot and the restore drill; `age` and `pg_dump` for the control-database backup; `bootstrap-node.sh --single-host` warns when one is missing). If the provider's IPv6 egress is unreliable, apply "Host networking" below now.
+1. **Base.** Ubuntu 24.04 with current updates. sshd with key authentication only (port 22, or another port: the firewall step takes it). A host that already runs something (a web server, ufw, Docker) is cleared first: "A host that is not empty" below. Then: `NEEDRESTART_MODE=l apt-get install -y postgresql nftables age curl openssl git jq sqlite3` (`sqlite3` for the tenant snapshot and the restore drill; `age` and `pg_dump` for the control-database backup; `bootstrap-node.sh --single-host` warns when one is missing). If the provider's IPv6 egress is unreliable, apply "Host networking" below now.
 2. **Firewall.** `ops/scripts/firewall-single-host.sh --dry-run` shows the rules, then run it without `--dry-run`. Only the SSH port is opened; 80 and 443 stay closed. When sshd runs on another port, pass it: `--ssh-port 49222` (both runs). It refuses to change anything unless sshd listens on that port (Ubuntu 24.04 starts it through `ssh.socket`, which counts) and the SSH session you run it from arrived on it. Keep a second SSH session open while you run it the first time.
 3. **Source and Bun.** There is no application release tag: the only tags are the worker's (`worker-v*`, used in step 5). Deploy a reviewed commit of `main`, the one whose CI is green, and write its SHA down in the change log (`git -C /opt/renox/src rev-parse HEAD`); an upgrade is a checkout of a newer reviewed commit. Check it out into `/opt/renox/src` (root-owned). Install Bun 1.4.4 (the version CI uses): download `bun-linux-x64.zip` and `SHASUMS256.txt` from the `bun-v1.4.4` release and compare with `sha256sum`. Then `install -m 0755 bun /opt/renox/bin/bun`, and run `/opt/renox/bin/bun install --frozen-lockfile --production` in `/opt/renox/src`.
 
@@ -208,6 +208,15 @@ All commands as root on the host unless the step says otherwise.
 | `stat -c '%U:%G %a' /etc/renox/node.token /etc/renox/platform.key` | `renox:renox 400` twice |
 | `journalctl -u renox-backup-db -n 5` | last night's object key and size |
 | `journalctl -u renox-tunnel -n 20` | registered tunnel connections, no origin errors |
+
+### Packages and upgrades
+
+**Packages on a running host (#546).** Ubuntu's `needrestart` restarts every service that uses an upgraded library after an `apt` run. On `node-small`, `apt-get install sqlite3` upgraded `libsqlite3-0`, and needrestart restarted `renox-tunnel` on its own: the apps were unreachable for about 3 s. So every `apt-get` on the host runs with `NEEDRESTART_MODE=l` (list only):
+```
+NEEDRESTART_MODE=l apt-get install -y <package>      # or: NEEDRESTART_MODE=l apt-get upgrade
+needrestart -b                                        # NEEDRESTART-SVC: lines name the services still on the old library
+```
+Restart the services it lists in the next maintenance window (`systemctl restart renox-tunnel`, then the health checks above). `bootstrap-node.sh --single-host` also installs `/etc/needrestart/conf.d/renox.conf` (`ops/needrestart/renox.conf`), which puts every `renox-*` service on needrestart's never-restart list (`$nrconf{override_rc}`), so a plain `apt upgrade` or an unattended upgrade lists them but does not restart them. Other services (`fail2ban`, `fwupd`) are still restarted without `NEEDRESTART_MODE=l`.
 
 ### Signing in before the dashboard exists
 

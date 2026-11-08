@@ -101,3 +101,12 @@ test("the key-rotation procedure is the working one of #451: previous key, re-se
   expect(section).not.toContain("DO NOT RUN");
   for (const s of ["CONTROL_MASTER_KEY_PREVIOUS", "control/api/scripts/reseal.ts", "renox_cp_sealed_values_other_key", "#451"]) expect(section).toContain(s);
 });
+
+test("needrestart never restarts the renox-* services on its own (#546)", () => {
+  const conf = readFileSync(join(HERE, "../needrestart/renox.conf"), "utf8");
+  expect(conf).toMatch(/^\$nrconf\{override_rc\}\{qr\(\^renox-\)\} = 0;$/mu);
+  expect(readFileSync(join(HERE, "../scripts/bootstrap-node.sh"), "utf8")).toContain('"$here/needrestart/renox.conf" /etc/needrestart/conf.d/renox.conf');
+  const runbook = readFileSync(join(HERE, "../single-host.md"), "utf8");
+  expect(runbook).toContain("NEEDRESTART_MODE=l apt-get install -y postgresql");
+  expect(runbook).toContain("NEEDRESTART_MODE=l apt-get install -y <package>");
+});

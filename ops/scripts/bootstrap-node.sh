@@ -291,6 +291,9 @@ if [[ $single_host -eq 1 ]]; then
   install -m 0755 "$here/scripts/restore-check.sh" "$bin_dir/restore-check.sh"
   # #450: OnFailure= of the backup and billing units (renox-alert@.service).
   install -m 0755 "$here/scripts/renox-alert.sh" "$bin_dir/renox-alert.sh"
+  # #546: needrestart lists the renox-* services after an apt run, never restarts them.
+  install -d -m 0755 /etc/needrestart/conf.d
+  install -m 0644 -o root -g root "$here/needrestart/renox.conf" /etc/needrestart/conf.d/renox.conf
   # #545: the node's name in the alert (renox-alert@.service, a credential).
   printf '%s\n' "$node_id" > "$tmp/node-name"
   install -m 0644 -o root -g root "$tmp/node-name" "$etc_dir/node-name"
