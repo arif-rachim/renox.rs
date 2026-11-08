@@ -4876,7 +4876,7 @@
         "op",
         "args"
       ],
-      "description": "ops.md section 25 (1.8.0, module argument stated in 1.9.0): template id (relative to the module's tree for a module), data JSON, module; the rendered fragment as an HTML string.",
+      "description": "ops.md section 25 (1.8.0, module argument stated in 1.9.0, locale and dir in 1.10.2): template id (relative to the module's tree for a module), data JSON, module, locale and dir (added by the bootstrap from the request state; null means en and ltr); the rendered fragment as an HTML string.",
       "properties": {
         "$comment": {
           "type": "string"
@@ -4898,10 +4898,28 @@
             },
             {
               "$ref": "#/$defs/moduleArg"
+            },
+            {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-z]{2}(-[A-Z]{2})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            {
+              "enum": [
+                "ltr",
+                "rtl",
+                null
+              ]
             }
           ],
-          "minItems": 3,
-          "maxItems": 3
+          "minItems": 5,
+          "maxItems": 5
         },
         "result": {
           "type": "string"

@@ -26,6 +26,7 @@ export type Checks = [
   Expect<Equal<S.Params, C.Params>>,
   Expect<Equal<S.Db, C.Db>>,
   Expect<Equal<S.DbStatements, C.DbStatements>>,
+  Expect<Equal<S.TxDb, C.TxDb>>,
   Expect<Equal<S.ExecuteResult, C.ExecuteResult>>,
   Expect<Equal<S.Param, C.Param>>,
   Expect<Equal<S.Value, C.Value>>,

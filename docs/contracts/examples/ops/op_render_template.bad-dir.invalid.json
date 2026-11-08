@@ -1,0 +1,11 @@
+{
+  "$comment": "invalid (1.10.2): dir is ltr, rtl or null, never auto [expect: enum]",
+  "op": "op_render_template",
+  "args": [
+    "partials/receipt",
+    "{}",
+    "email",
+    "ar",
+    "auto"
+  ]
+}

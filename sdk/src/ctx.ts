@@ -2,7 +2,7 @@
 // 8, 15 to 20). Types identical to docs/contracts/ctx.d.ts; tests/contract.test-d.ts
 // enforces it.
 
-import type { Db, DbStatements } from "./db.ts";
+import type { Db, TxDb } from "./db.ts";
 import type { Session } from "./pages.ts";
 
 /** Standard `fetch`; the allowlist and blocked ranges are enforced in Rust. */
@@ -304,7 +304,7 @@ export interface JobInfo<P = unknown> {
 
 /** The ctx of `run`: the module's ctx without the request, with the attempt's transaction and the System principal. */
 export interface JobContext<P = unknown> extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
-  readonly db: DbStatements;
+  readonly db: TxDb;
   readonly job: JobInfo<P>;
 }
 
@@ -380,7 +380,7 @@ export interface DeliveredEvent<P = unknown> extends EventInfo {
  * in the emitter's current transaction.
  */
 export interface EventContext extends Omit<Ctx, "req" | "url" | "params" | "headers" | "db"> {
-  readonly db: DbStatements;
+  readonly db: TxDb;
   readonly event: EventInfo;
 }
 

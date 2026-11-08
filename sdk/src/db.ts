@@ -43,3 +43,9 @@ export interface Db extends DbStatements {
    */
   scoped(scope: Scope): Db;
 }
+
+/**
+ * The transaction of a job attempt or an event delivery (ops.md sections 15
+ * and 20): its statements plus `scoped`, no nested `transaction`.
+ */
+export type TxDb = Pick<Db, "query" | "queryOne" | "execute" | "scoped">;
