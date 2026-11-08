@@ -8,6 +8,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 - booking 1.0.1: `setHours` replaces a staff member's hours for that weekday or day instead of appending a row (migration 003 keeps the newest of duplicated rows and adds unique indexes); `setHours(staff, when, null)` closes it; the README names the `booking.manage` grant an app's own roles need (#572).
 - whatsapp 1.1.0: `sandbox = true` records each outgoing message as sent (`wa_id` `sandbox-<id>`, a template's name, language and components in `body`) without calling the Cloud API, and needs no `WHATSAPP_*` secrets; `api_host` points the module at a fake Cloud API in tests (the host must be in the app's network allow-list); a read-only `outbox(limit)` service lists outgoing messages (#591).
+- email 1.1.0: a display name on the sender, from the `from_name` config or per message (`send` and `sendRaw` take `from_name`; at most 80 characters, no `<`, `>` or line breaks; migration 004): mails go out as `"Name" <address>` (an RFC 5322 quoted name, `\` and `"` escaped) to Resend and SES; no name keeps the bare address; a config name that breaks the rule fails the message as `not_configured` (#611).
 
 ## 0.1.8 (2026-11-08)
 

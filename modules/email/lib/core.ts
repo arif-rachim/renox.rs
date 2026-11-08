@@ -18,7 +18,7 @@ export interface EmailCtx {
   db: Db;
   fetch: FetchFn;
   secrets: Record<string, string | undefined>;
-  config: { provider?: string; from?: string; ses_region?: string; sends_per_minute?: number };
+  config: { provider?: string; from?: string; from_name?: string; ses_region?: string; sends_per_minute?: number };
   events: { emit(name: string, payload: unknown): Promise<void> };
   /** `email.before_send` (this module's hook point): a filler that halts stops the message. */
   hooks?: { run(name: string, args?: unknown): Promise<{ halt: boolean }> };
@@ -42,6 +42,19 @@ export function address(v: unknown): string {
   return v.trim().toLowerCase();
 }
 
+/** A display name: at most 80 characters, no `<`, `>`, CR or LF (`"` and `\` are allowed and escaped by formatFrom). */
+export function fromName(v: unknown): string | null {
+  if (v === undefined || v === null || v === "") return null;
+  if (typeof v !== "string" || v.length > 80 || /[<>\r\n]/u.test(v)) throw new EmailError("a sender name of at most 80 characters without < > or line breaks", "INVALID");
+  return v;
+}
+
+/** The From header: `"Name" <address>` (an RFC 5322 quoted display name), or the bare address when the name is empty. */
+export function formatFrom(name: string | null | undefined, addr: string): string {
+  if (name === undefined || name === null || name === "" || addr === "") return addr;
+  return `"${name.replace(/[\\"]/gu, "\\$&")}" <${addr}>`;
+}
+
 const newId = (): string => {
   const b = new Uint8Array(8);
   crypto.getRandomValues(b);
@@ -53,17 +66,18 @@ export async function suppressed(ctx: EmailCtx, to: unknown): Promise<boolean> {
 }
 
 /** A message from one of the module's templates (lib/templates.ts) in the recipient's locale. */
-export async function sendTemplate(ctx: EmailCtx, to: unknown, template: unknown, data: unknown, opts: { locale?: unknown; reply_to?: unknown } = {}): Promise<{ id: string | null; cancelled?: true }> {
+export async function sendTemplate(ctx: EmailCtx, to: unknown, template: unknown, data: unknown, opts: { locale?: unknown; reply_to?: unknown; from_name?: unknown } = {}): Promise<{ id: string | null; cancelled?: true }> {
   if (typeof template !== "string") throw new EmailError("a template name", "INVALID");
   const locale = opts.locale === "ar" ? "ar" : "en";
   const m = renderMail(template, (data ?? {}) as Record<string, unknown>, locale);
   if (m === null) throw new EmailError(`no template ${template}`, "INVALID");
-  return sendRaw(ctx, { to, ...m, reply_to: opts.reply_to, template, locale });
+  return sendRaw(ctx, { to, ...m, reply_to: opts.reply_to, from_name: opts.from_name, template, locale });
 }
 
-/** A message given whole: `{ to, subject, text?, html?, reply_to? }`. */
-export async function sendRaw(ctx: EmailCtx, msg: { to?: unknown; subject?: unknown; text?: unknown; html?: unknown; reply_to?: unknown; template?: string; locale?: string }): Promise<{ id: string | null; cancelled?: true }> {
+/** A message given whole: `{ to, subject, text?, html?, reply_to?, from_name? }`. */
+export async function sendRaw(ctx: EmailCtx, msg: { to?: unknown; subject?: unknown; text?: unknown; html?: unknown; reply_to?: unknown; from_name?: unknown; template?: string; locale?: string }): Promise<{ id: string | null; cancelled?: true }> {
   const to = address(msg.to);
+  const name = fromName(msg.from_name);
   const replyTo = msg.reply_to === undefined || msg.reply_to === null || msg.reply_to === "" ? null : address(msg.reply_to);
   if (typeof msg.subject !== "string" || msg.subject.length === 0 || msg.subject.length > 998 || /[\r\n]/u.test(msg.subject)) throw new EmailError("a one-line subject", "INVALID");
   const text = typeof msg.text === "string" ? msg.text : "";
@@ -83,8 +97,8 @@ export async function sendRaw(ctx: EmailCtx, msg: { to?: unknown; subject?: unkn
   if (recent >= limit) throw new EmailError(`at most ${limit} messages a minute`, "RATE_LIMITED");
   const id = newId();
   await ctx.db.execute(
-    "insert into email__messages (id, to_address, subject, text_body, html_body, status, at, updated_at, template, locale, reply_to) values (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
-    [id, to, msg.subject, text, html, t, t, msg.template ?? null, msg.locale ?? null, replyTo],
+    "insert into email__messages (id, to_address, subject, text_body, html_body, status, at, updated_at, template, locale, reply_to, from_name) values (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
+    [id, to, msg.subject, text, html, t, t, msg.template ?? null, msg.locale ?? null, replyTo, name],
   );
   await ctx.events.emit("email.send_requested", { message_id: id });
   return { id };
@@ -186,17 +200,26 @@ export async function sendSes(fetchFn: FetchFn, access: string, secret: string, 
 
 /** The `email.send_requested` handler: one provider call; throws to have the outbox retry. */
 export async function deliverQueued(ctx: EmailCtx, id: string): Promise<SendResult | null> {
-  const m = await ctx.db.queryOne<{ id: string; to_address: string; subject: string; text_body: string; html_body: string; status: string; reply_to: string | null }>("select * from email__messages where id = ?", [id]);
+  const m = await ctx.db.queryOne<{ id: string; to_address: string; subject: string; text_body: string; html_body: string; status: string; reply_to: string | null; from_name: string | null }>("select * from email__messages where id = ?", [id]);
   if (m === null || m.status !== "queued") return null;
   const t = Date.now();
   if (await suppressed(ctx, m.to_address)) {
     await ctx.db.execute("update email__messages set status = 'suppressed', updated_at = ? where id = ?", [t, id]);
     return null;
   }
-  const from = ctx.config.from ?? "";
+  // A config name that breaks the rule fails the message as not configured instead of throwing (a throw would be retried).
+  let configName: string | null = null;
+  let badName = false;
+  try {
+    configName = fromName(ctx.config.from_name);
+  } catch {
+    badName = true;
+  }
+  const sender = badName ? "" : (ctx.config.from ?? "");
+  const from = formatFrom(m.from_name ?? configName, sender);
   const out: Outgoing = { from, to: m.to_address, reply_to: m.reply_to, subject: m.subject, text: m.text_body, html: m.html_body };
   let r: SendResult;
-  if (from === "") r = { ok: false, retry: false, status: 0, error: "not_configured" };
+  if (sender === "") r = { ok: false, retry: false, status: 0, error: "not_configured" };
   else if ((ctx.config.provider ?? "resend") === "ses") {
     const [a, s] = [ctx.secrets.EMAIL_SES_ACCESS_KEY, ctx.secrets.EMAIL_SES_SECRET_KEY];
     r = a && s ? await sendSes(ctx.fetch, a, s, ctx.config.ses_region ?? "me-central-1", out) : { ok: false, retry: false, status: 0, error: "not_configured" };

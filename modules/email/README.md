@@ -29,6 +29,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | --- | --- | --- |
 | `provider` | `resend` | `resend` or `ses` |
 | `from` | (empty) | The From address, on a domain verified with the provider. Until it is set, nothing is sent and messages end as `failed` with `not_configured` |
+| `from_name` | (empty) | The sender's display name: mails arrive as `"Name" <address>`. At most 80 characters, no `<`, `>` or line breaks; `"` and `\` are escaped. A message's own `from_name` wins |
 | `ses_region` | `me-central-1` | The SES region |
 | `sends_per_minute` | 120 | Past it, `send` refuses (`RATE_LIMITED`) |
 | `base_path` | `/email` | Where the log page is mounted |
@@ -37,8 +38,8 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 
 | Service | What it does |
 | --- | --- |
-| `send(to, template, data, { locale?, reply_to? })` | Queues one of the templates below in the recipient's locale (`en` or `ar`); the other language follows in the same message. Answers `{ id }`, or `{ id: null, cancelled: true }` when `email.before_send` halts. A suppressed address is refused with `SUPPRESSED` |
-| `sendRaw({ to, subject, text?, html?, reply_to? })` | Queues a message the caller wrote itself |
+| `send(to, template, data, { locale?, reply_to?, from_name? })` | Queues one of the templates below in the recipient's locale (`en` or `ar`); the other language follows in the same message. Answers `{ id }`, or `{ id: null, cancelled: true }` when `email.before_send` halts. A suppressed address is refused with `SUPPRESSED` |
+| `sendRaw({ to, subject, text?, html?, reply_to?, from_name? })` | Queues a message the caller wrote itself. `from_name` (same rule as the config) sets the display name of the sender for this message, over the config's; an invalid one is refused with `INVALID` |
 | `status(id)` | `{ status, attempts, error }`, where status is `queued`, `sent`, `failed` or `suppressed` |
 | `suppress(address, reason)`, `unsuppress(address)`, `isSuppressed(address)` | Manage the suppression list |
 

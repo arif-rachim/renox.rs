@@ -1,6 +1,6 @@
 [module]
 name = "email"
-version = "1.0.0"
+version = "1.1.0"
 description = "Transactional email: bilingual (English and Arabic) templates, Resend or Amazon SES, queued through the outbox with retries, a suppression list fed by bounces and complaints, a message log"
 
 [dependencies]
@@ -13,6 +13,7 @@ org = "^1.0"
 [config]
 provider = { type = "enum", values = ["resend", "ses"], default = "resend", description = "The sending provider" }
 from = { type = "string", default = "", max_length = 254, description = "The From address, on a domain verified with the provider" }
+from_name = { type = "string", default = "", max_length = 80, description = "The sender display name, sent as \"Name\" <address>; a message may set its own. No < > or line breaks" }
 ses_region = { type = "string", default = "me-central-1", max_length = 30, description = "The SES region (provider = ses)" }
 sends_per_minute = { type = "int", default = 120, min = 1, max = 6000, description = "Outgoing messages per minute for the tenant; past it, send rejects" }
 base_path = { type = "string", default = "/email", max_length = 100, description = "Where the app mounts the message log page" }
@@ -28,8 +29,8 @@ services = ["auth.loginUrl", "i18n.detectLocale"]
 views = ["auth__public_users_v1"]
 
 [exports.services]
-send = "Queue a template in the recipient's locale: (to, template, data, { locale?, reply_to? }) -> { id }; { id: null, cancelled: true } when email.before_send halts"
-sendRaw = "Queue a message given whole: ({ to, subject, text?, html?, reply_to? }) -> { id }"
+send = "Queue a template in the recipient's locale: (to, template, data, { locale?, reply_to?, from_name? }) -> { id }; { id: null, cancelled: true } when email.before_send halts"
+sendRaw = "Queue a message given whole: ({ to, subject, text?, html?, reply_to?, from_name? }) -> { id }"
 status = "A queued message's state: (id) -> { status, attempts, error } | null"
 suppress = "Stop sending to an address: (address, reason) -> { ok }"
 unsuppress = "Allow an address again: (address) -> { ok }"
