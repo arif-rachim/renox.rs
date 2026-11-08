@@ -29,15 +29,18 @@ tax_gcc = { version = "^1.0.0", mount = "/tax", config = { seller_name = "FixIt 
 # module reads its address from this config, which is static: it is the seed's
 # `accounts_email` setting, and changing the setting does not change it.
 reports = { version = "^1.0.0", mount = "/reports", config = { email_to = "accounts@fixit.example" } }
-admin = { version = "^1.0.0", mount = "/admin" }
+# The module's back office (users, audit, the dashboard cards of modules) is the
+# operator's, like the jobs runs page; the owner's back office is this app's own
+# /admin (pages/admin): the app's pages cannot share a path with a module's.
+admin = { version = "^1.0.0", mount = "/system/admin", config = { base_path = "/system/admin" } }
 gcc = { version = "^1.0.0" }
 
 [authz]
-actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.write"]
-sensitive = ["invoice.issue", "invoice.pay", "settings.write"]
+actions = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.read", "settings.write", "user.manage"]
+sensitive = ["invoice.issue", "invoice.pay", "settings.write", "user.manage"]
 
 [authz.default_roles]
-owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.write"]
+owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "reports.view", "reports.export", "settings.read", "settings.write", "user.manage"]
 branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "contract.read", "contract.write", "report.view"]
 dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read", "contract.write"]
 technician = ["job.read", "visit.perform"]
@@ -87,6 +90,9 @@ app__payments = { owner = "branch_id" }
 app__contracts = { owner = "branch_id" }
 app__contract_items = { owner = "branch_id" }
 app__contract_jobs = { owner = "branch_id" }
+
+# Staff invitations (F7-128): the app role chosen for an invited person, the same way.
+app__staff_invites = { owner = "branch_id" }
 
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }

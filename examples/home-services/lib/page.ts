@@ -4,7 +4,7 @@
 import type { DbStatements, LoaderContext } from "@renoxium/sdk";
 import { auth, i18n, notifications, org } from "renox:modules";
 
-import { brandColor, getSettings } from "./settings";
+import { brandColor, brandFooter, brandName, getSettings, logoSrc } from "./settings";
 
 type ShellCtx = Pick<LoaderContext, "setLocale" | "url"> & { readonly db: DbStatements };
 
@@ -15,6 +15,7 @@ export async function shell({ db, setLocale, url }: ShellCtx) {
   const r = await i18n.detectLocale({ user_id: user?.id ?? null, org_locale: switcher?.current?.locale ?? null });
   setLocale(r.locale, r.dir);
   const settings = await getSettings(db);
+  const lang = r.locale === "ar" ? "ar" : "en";
   return {
     auth_user: user,
     org_switcher: switcher,
@@ -22,10 +23,10 @@ export async function shell({ db, setLocale, url }: ShellCtx) {
     notif_badge: await notifications.badge(),
     locale: r.locale,
     brand: {
-      name: settings.brand_name ?? "",
-      logo: settings.brand_logo_key === undefined || settings.brand_logo_key === "" ? null : `/files/${settings.brand_logo_key}`,
+      name: brandName(settings, lang),
+      logo: logoSrc(settings),
       color: brandColor(settings),
-      footer: r.locale === "ar" ? (settings.brand_footer_ar ?? "") : (settings.brand_footer_en ?? ""),
+      footer: brandFooter(settings, lang),
     },
   };
 }

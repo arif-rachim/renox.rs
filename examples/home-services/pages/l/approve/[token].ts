@@ -8,6 +8,7 @@
 // the address, and the dispatcher who created it is notified. A tampered token
 // is a 404, a used one a 409 page, an expired one a 410 page.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
+import { audit } from "renox:modules";
 
 import { consumeLink, verifyLink } from "../../../lib/links";
 import { notifyCustomer } from "../../../lib/notify";
@@ -92,6 +93,8 @@ async function answer(ctx: ActionContext, to: "approved" | "rejected"): Promise<
   await expireDue(sdb, named.id);
   const quote = (await findQuote(sdb, named.id)) ?? named;
   if (!(await decide(sdb, quote.id, to, clientIp(ctx.headers)))) return refusal(409, quote.status === "expired" ? "expired" : "gone");
+  // The customer has no account: the trail names the link as the actor (the owner reads it at /admin/audit).
+  await audit.record({ action: "quote.link_answer", actor: { kind: "system", id: "customer-link" }, resource: { type: "Quote", id: quote.id }, details: { number: quote.number, to } });
   const customer = await sdb.queryOne<{ id: string; name: string }>("select id, name from app__customers where id = ?", [quote.customer_id]);
   if (customer !== null) {
     await notifyCustomer(ctx, customer, to === "approved" ? "quote_approved" : "quote_rejected", {

@@ -40,6 +40,8 @@ declare module "renox:modules" {
     nightly(nowMs: number): Promise<{ day: string; sent_to: string | null }>;
   };
   export const twofa: {
+    /** Whether a user has a second factor. */
+    isEnrolled(userId: string): Promise<boolean>;
     /** Resolves when this session verified a second factor recently; else throws STEP_UP_REQUIRED (403). */
     requireRecent(opts?: { within?: number; next?: string }): Promise<void>;
   };
@@ -47,8 +49,17 @@ declare module "renox:modules" {
     switcher(next?: string): Promise<{ current?: { id: string; locale?: string | null } | null } | null>;
     /** The members of an organisation (the caller must be one). */
     members(orgId: string): Promise<{ user_id: string; display_name: string; email: string; role: string }[]>;
+    /** A new organisation (the caller owns it and it becomes the active one) or the reason it was refused. */
+    createOrg(input: { name: string; slug?: string }): Promise<{ org: { id: string; slug: string; name: string } } | { error: string }>;
+    switchOrg(orgId: string): Promise<{ org: { id: string } } | { error: string }>;
+    listOrgs(userId: string): Promise<{ id: string; slug: string; name: string; role: string }[]>;
+    /** Invites by email (admin or owner of the organisation); the link goes out through the email module. */
+    invite(input: { org: string; email: string; role?: "member" | "admin" | "owner" }): Promise<{ invite_id: string; expires_at: number } | { error: string }>;
+    removeMember(input: { org: string; user: string }): Promise<{ ok: true } | { error: string }>;
   };
   export const audit: {
+    /** The trail, newest first (needs `audit.read`): the module's rows merged with the platform's decisions on sensitive actions. */
+    query(filter?: { actor?: string; action?: string; since?: number; until?: number; platform?: boolean; limit?: number; cursor?: string }): Promise<{ events: { id: string; at: number; kind?: string; actor_kind?: string; actor_id?: string; actor?: string; action: string; result: string; resource_type?: string; resource_id?: string; details?: unknown }[]; next: string | null }>;
     record(event: { action: string; actor: { kind: "user" | "agent" | "system"; id: string; client?: string }; resource?: { type: string; id?: string }; result?: "ok" | "denied" | "failed"; details?: Record<string, unknown>; request_id?: string }): Promise<{ id: string }>;
   };
   /** A free start of a day: `start` and `end` are unix milliseconds, `staff` the booking staff id (here: the technician's user id). */

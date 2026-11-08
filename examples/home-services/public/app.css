@@ -34,3 +34,13 @@ footer { padding: 1rem 1.5rem; text-align: center; }
 .parts-table { inline-size: 100%; }
 form.inline { display: inline; }
 @media (max-width: 40rem) { main { padding: 1rem; } .site-header { padding: .5rem 1rem; flex-wrap: wrap; } }
+
+/* The back office (pages/_layouts/back-office.html): a side menu and the page. */
+.backoffice { display: flex; gap: 1.5rem; align-items: flex-start; }
+.backoffice-nav { display: flex; flex-direction: column; gap: .5rem; padding: 1rem 0 1rem 1.5rem; min-inline-size: 11rem; }
+.backoffice-nav a { text-decoration: none; }
+.backoffice main { flex: 1; min-inline-size: 0; }
+.tiles { display: flex; gap: 1rem; flex-wrap: wrap; }
+.tile { border: 1px solid #ccc; border-top: 3px solid var(--brand); border-radius: .25rem; padding: .75rem 1rem; min-inline-size: 10rem; }
+.tile strong { display: block; font-size: 1.75rem; }
+@media (max-width: 40rem) { .backoffice { flex-direction: column; gap: 0; } .backoffice-nav { flex-direction: row; flex-wrap: wrap; padding: .5rem 1rem; } }

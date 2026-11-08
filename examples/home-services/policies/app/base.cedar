@@ -55,5 +55,5 @@ permit (principal in Renox::Role::"branch_manager", action == Renox::Action::"bo
 permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"booking.manage", resource);
 
 // A sensitive action needs a recent second factor.
-forbid (principal, action in [Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"settings.write"], resource)
+forbid (principal, action in [Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"settings.write", Renox::Action::"user.manage"], resource)
 unless { principal has mfa_verified && principal.mfa_verified };

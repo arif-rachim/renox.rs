@@ -1,5 +1,5 @@
 // The technicians of a branch: the members of its organisation who hold the
-// `technician` role. The role is a global assignment (renox__role_assignments),
+// `technician` role, global or scoped to the branch (renox__role_assignments),
 // so each member's roles are asked of `ctx.authz.roles`.
 import type { Authz } from "@renoxium/sdk";
 import { org } from "renox:modules";
@@ -18,7 +18,8 @@ export async function techniciansOf(ctx: TechCtx, branch: Branch): Promise<Techn
   const out: Technician[] = [];
   for (const m of members) {
     const roles = await ctx.authz.roles.list(m.user_id);
-    if (roles.some((r) => r.role === "technician")) out.push({ id: m.user_id, name: m.display_name });
+    // A role is global or scoped to one branch's organisation (lib/admin.ts): only this branch's counts.
+    if (roles.some((r) => r.role === "technician" && (r.scope_type === "global" || r.scope_id === branch.org_id))) out.push({ id: m.user_id, name: m.display_name });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }

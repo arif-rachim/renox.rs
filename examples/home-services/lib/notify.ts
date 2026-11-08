@@ -23,7 +23,7 @@ import { email, gcc, notifications, whatsapp } from "renox:modules";
 
 import { type Language, type MessageKind, renderMessage } from "./messages";
 import { fencedTo } from "./scope";
-import { getSettings } from "./settings";
+import { brandName, getSettings } from "./settings";
 
 export type CustomerMessageKind = MessageKind | "quote_approved" | "quote_rejected";
 
@@ -99,7 +99,8 @@ async function deliver(ctx: NotifyCtx, sdb: ReturnType<typeof fencedTo>, c: Cust
   const settings = await getSettings(ctx.db);
   const language: Language = c.language === "ar" ? "ar" : "en";
   const origin = ctx.url?.origin ?? settings.public_url ?? "";
-  const vars = { name: c.name, link: data.customer_link === undefined ? "" : `${origin}${data.customer_link}`, ...data.vars };
+  // `brand` is the company's name in the customer's language (the subject of the invoice mail carries it).
+  const vars = { brand: brandName(settings, language), name: c.name, link: data.customer_link === undefined ? "" : `${origin}${data.customer_link}`, ...data.vars };
   const msg = renderMessage(kind, language, vars);
   const phone = c.phone === "" ? null : await gcc.validatePhone(c.phone);
   const hasPhone = phone !== null && phone.ok;
@@ -116,7 +117,9 @@ async function deliver(ctx: NotifyCtx, sdb: ReturnType<typeof fencedTo>, c: Cust
   const mail = c.email ?? "";
   const address = mail.trim();
   if (address !== "" && !(await email.isSuppressed(address))) {
-    await email.sendRaw({ to: address, subject: msg.subject, text: msg.body });
+    // The email module has no display name for the sender: the settings' sender name signs the text instead.
+    const sender = (settings.sender_name ?? "").trim();
+    await email.sendRaw({ to: address, subject: msg.subject, text: sender === "" ? msg.body : `${msg.body}\n\n${sender}` });
     channel = "email";
   }
   return { channel, template: msg.template };

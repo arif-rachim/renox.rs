@@ -499,5 +499,111 @@
   },
   "invoice_page": {
     "title": "Tax invoice {number}"
+  },
+  "backoffice": {
+    "title": "Back office",
+    "open_work": "Work list",
+    "nav": {
+      "dashboard": "Dashboard",
+      "settings": "Branding",
+      "branches": "Branches",
+      "users": "People",
+      "audit": "Audit trail",
+      "menu": "Back office"
+    },
+    "tiles": {
+      "jobs_today": "Jobs today",
+      "open_invoices": "Open invoices",
+      "amc_renewals": "Contracts ending this month",
+      "branch": "Branch: {branch}"
+    },
+    "settings": {
+      "title": "Branding and settings",
+      "saved": "Saved.",
+      "logo_changed": "Logo replaced.",
+      "f": {
+        "brand_name": "Company name (English)",
+        "brand_name_ar": "Company name (Arabic)",
+        "logo": "Logo",
+        "color": "Brand colour",
+        "footer_en": "Footer (English)",
+        "footer_ar": "Footer (Arabic)",
+        "sender": "Sender name",
+        "accounts_email": "Accounts email",
+        "sandbox": "WhatsApp sandbox: show the messages here instead of sending them"
+      },
+      "logo_limit": "PNG, JPEG or WebP, up to 512 KB.",
+      "logo_none": "No logo yet.",
+      "sender_hint": "Signs the emails to customers.",
+      "accounts_hint": "The nightly report module reads its own address from renox.toml; this one is the invoices' contact.",
+      "save": "Save settings"
+    },
+    "branches": {
+      "title": "Branches",
+      "none": "No branches.",
+      "create": "Add a branch",
+      "create_submit": "Create branch",
+      "edit": "Edit",
+      "save": "Save",
+      "created": "Branch created.",
+      "updated": "Branch saved.",
+      "slug": "Address name",
+      "members": "Members",
+      "f": {
+        "name_en": "Name (English)",
+        "name_ar": "Name (Arabic)",
+        "phone": "Phone",
+        "emirate": "Emirate",
+        "area": "Area",
+        "address": "Address"
+      },
+      "note": "A branch is an organisation of the org module: its name there does not change here."
+    },
+    "users": {
+      "title": "People of the branch",
+      "branch": "Branch: {branch}",
+      "none": "No members.",
+      "invite": "Invite someone",
+      "invite_submit": "Send invitation",
+      "email": "Email",
+      "name": "Name",
+      "roles": "Roles",
+      "twofa": "Second factor",
+      "twofa_on": "On",
+      "twofa_off": "Off",
+      "twofa_needed": "Needs a second factor before sensitive actions.",
+      "setup": "Set up second factor (account page)",
+      "role": "Role",
+      "set_role": "Change role",
+      "remove": "Remove from branch",
+      "you": "You",
+      "pending": "Waiting for an answer",
+      "pending_none": "No pending invitations.",
+      "invited": "Invitation sent.",
+      "role_set": "Role changed.",
+      "removed": "Removed from the branch.",
+      "claimed": "Roles applied to people who joined.",
+      "no_role": "No role",
+      "role_names": {
+        "owner": "Owner",
+        "branch_manager": "Branch manager",
+        "dispatcher": "Dispatcher",
+        "technician": "Technician",
+        "accountant": "Accountant"
+      }
+    },
+    "audit": {
+      "title": "Audit trail",
+      "action": "Action",
+      "actor": "Actor",
+      "all": "All actions",
+      "filter": "Filter",
+      "when": "When",
+      "result": "Result",
+      "source": "Source",
+      "none": "No events match.",
+      "hint": "Sensitive decisions come from the platform's own record; the rest are written by the app.",
+      "denied": "The trail needs the audit.read action."
+    }
   }
 }

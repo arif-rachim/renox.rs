@@ -21,7 +21,7 @@
   },
   "invoice_due": {
     "template": "invoice_due",
-    "subject": "Tax invoice {number}",
+    "subject": "Tax invoice {number} from {brand}",
     "body": "Hello {name}, your tax invoice {number} for {amount} is ready: {link}"
   },
   "amc_renewal": {

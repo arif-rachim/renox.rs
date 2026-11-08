@@ -51,9 +51,9 @@ version = "1.0.0"
 source = "official"
 hash = "9efa4220677750186c5f2e70846746ce477f9da045046f37aaa28df77bf8c5db"
 isolation = "shared"
-mount = "/admin"
+mount = "/system/admin"
 dependencies = ["audit", "auth", "i18n"]
-config = { base_path = "/admin", title = "Admin" }
+config = { base_path = "/system/admin", title = "Admin" }
 approved = { tables = "admin__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]

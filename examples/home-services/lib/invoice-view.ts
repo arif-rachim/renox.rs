@@ -6,7 +6,7 @@ import type { DbStatements } from "@renoxium/sdk";
 import { type InvoiceRow, type PaymentRow, type TaxDocument, STATUSES } from "./invoices";
 import { aed } from "./money";
 import { day } from "./quotes";
-import { brandColor, getSettings } from "./settings";
+import { getSettings, pdfBrand } from "./settings";
 
 export type Language = "en" | "ar";
 
@@ -58,9 +58,7 @@ export function invoiceView(r: InvoiceRow) {
 
 /** The brand block every PDF carries (the colour goes in style attributes: templates do not interpolate inside <style>). */
 export async function brandOf(db: DbStatements, language: Language) {
-  const settings = await getSettings(db);
-  const color = brandColor(settings);
-  return { name: settings.brand_name ?? "", text_style: `color: ${color}`, rule_style: `border-bottom: 2pt solid ${color}`, footer: (language === "ar" ? settings.brand_footer_ar : settings.brand_footer_en) ?? "" };
+  return pdfBrand(await getSettings(db), language);
 }
 
 export const isStatus = (s: string): s is (typeof STATUSES)[number] => (STATUSES as readonly string[]).includes(s);

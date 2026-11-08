@@ -21,7 +21,7 @@
   },
   "invoice_due": {
     "template": "invoice_due",
-    "subject": "الفاتورة الضريبية {number}",
+    "subject": "الفاتورة الضريبية {number} من {brand}",
     "body": "مرحباً {name}، فاتورتك الضريبية {number} بمبلغ {amount} جاهزة: {link}"
   },
   "amc_renewal": {

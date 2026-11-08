@@ -12,7 +12,7 @@
 import type { DbStatements, Pdf, Storage } from "@renoxium/sdk";
 
 import { aed } from "./money";
-import { brandColor, getSettings } from "./settings";
+import { getSettings, pdfBrand } from "./settings";
 import { fencedTo, type Branch } from "./scope";
 import { memberName } from "./technicians";
 import { photosOf, partsOf, partTotal, visitById } from "./visit-data";
@@ -66,7 +66,6 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
   const own: ReportLang = customer?.language === "ar" ? "ar" : "en";
   const language: ReportLang = lang ?? own;
   const settings = await getSettings(sdb);
-  const color = brandColor(settings);
   const parts = (await partsOf(sdb, visit.id)).map((p) => ({ description: p.description, qty: p.qty, unit_price: p.unit_price_fils / 100, total: partTotal(p) / 100 }));
   const photos = (await photosOf(sdb, visit.id)).map((p) => ({ phase: p.phase, caption: p.caption, src: `/_img/${p.file_key}?w=480` }));
   let signature: string | null = null;
@@ -91,7 +90,7 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
     no_photos: photos.length === 0,
     signature,
     signed_by: visit.signed_by_name,
-    brand: { name: settings.brand_name ?? "", text_style: `color: ${color}`, rule_style: `border-bottom: 2pt solid ${color}`, footer: (language === "ar" ? settings.brand_footer_ar : settings.brand_footer_en) ?? "" },
+    brand: pdfBrand(settings, language),
   };
   return { visit, data, language, own };
 }
