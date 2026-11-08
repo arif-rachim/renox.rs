@@ -1,0 +1,270 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the seed the contract page: items, price with VAT, no visits yet: role: contract, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>AMC-000001 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/contracts/ct_seed_01">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/contracts/ct_seed_01?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/contracts">All contracts</a></p>
+  <h1 dir="ltr">AMC-000001</h1>
+  <p><span class="status status-active" id="contract-status" dir="auto">Active</span></p>
+  <dl class="detail">
+    <dt>Customer</dt>
+    <dd><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></dd>
+    <dt>Term</dt>
+    <dd dir="ltr"><day> → <day></dd>
+    <dt>Yearly price before VAT (AED)</dt>
+    <dd dir="ltr" id="contract-price">AED 4,800.00</dd>
+    <dt>VAT</dt>
+    <dd dir="ltr">AED 240.00</dd>
+    <dt>Total with VAT</dt>
+    <dd dir="ltr"><strong dir="auto">AED 5,040.00</strong></dd>
+    
+    
+    
+    
+    
+    
+  </dl>
+  <p class="muted" dir="auto">Monthly AC service of Tower A, quarterly pest control of Tower B.</p>
+  <p class="work-links"><a href="/contracts/ct_seed_01/pdf?lang=en">Contract (English PDF)</a> <a href="/contracts/ct_seed_01/pdf?lang=ar">Contract (Arabic PDF)</a></p>
+
+  <section id="items">
+    <h2>Services and sites</h2>
+    <table id="item-list">
+      <thead><tr><th>Site</th><th>Service</th><th>Visits a year</th><th>Next visit due</th></tr></thead>
+      <tbody>
+        <tr id="item-1">
+          <td dir="auto">Tower A<br><small class="muted" dir="auto">Dubai Marina, Marina Heights A</small></td>
+          <td dir="auto">AC service</td>
+          <td dir="ltr">12</td>
+          <td dir="ltr"><day></td>
+          
+        </tr><tr id="item-2">
+          <td dir="auto">Tower B<br><small class="muted" dir="auto">Dubai Marina, Marina Heights B</small></td>
+          <td dir="auto">Pest control</td>
+          <td dir="ltr">4</td>
+          <td dir="ltr"><day></td>
+          
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  
+
+  <section id="visits">
+    <h2>Visits made</h2>
+    <p class="muted">No visits yet. The daily job makes each visit as a job 14 days before it falls due.</p>
+  </section>
+
+  
+  <section id="renew">
+    <h2>Renew</h2>
+    <p class="muted">Makes a draft for the next year with the same items and price.</p>
+    <form method="post" action="?/renew" hx-post="?/renew" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><p><button type="submit" id="contract-renew">Renew for the next year</button></p></form>
+  </section>
+  <section id="cancel">
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><p><button type="submit">Cancel the contract</button></p></form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the seed the contract page: items, price with VAT, no visits yet: role: contract, dispatcher, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>AMC-000001 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/contracts/ct_seed_01">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · عضو</option>
+    </select>
+    <button type="submit">تبديل</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/contracts/ct_seed_01?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/contracts">كل العقود</a></p>
+  <h1 dir="ltr">AMC-000001</h1>
+  <p><span class="status status-active" id="contract-status" dir="auto">ساري</span></p>
+  <dl class="detail">
+    <dt>العميل</dt>
+    <dd><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></dd>
+    <dt>المدة</dt>
+    <dd dir="ltr"><day> → <day></dd>
+    <dt>السعر السنوي قبل الضريبة (درهم)</dt>
+    <dd dir="ltr" id="contract-price">4,800.00 د.إ.</dd>
+    <dt>الضريبة</dt>
+    <dd dir="ltr">240.00 د.إ.</dd>
+    <dt>الإجمالي مع الضريبة</dt>
+    <dd dir="ltr"><strong dir="auto">5,040.00 د.إ.</strong></dd>
+    
+    
+    
+    
+    
+    
+  </dl>
+  <p class="muted" dir="auto">Monthly AC service of Tower A, quarterly pest control of Tower B.</p>
+  <p class="work-links"><a href="/contracts/ct_seed_01/pdf?lang=en">العقد (PDF بالإنجليزية)</a> <a href="/contracts/ct_seed_01/pdf?lang=ar">العقد (PDF بالعربية)</a></p>
+
+  <section id="items">
+    <h2>الخدمات والمواقع</h2>
+    <table id="item-list">
+      <thead><tr><th>الموقع</th><th>الخدمة</th><th>الزيارات في السنة</th><th>موعد الزيارة القادمة</th></tr></thead>
+      <tbody>
+        <tr id="item-1">
+          <td dir="auto">Tower A<br><small class="muted" dir="auto">Dubai Marina, Marina Heights A</small></td>
+          <td dir="auto">صيانة المكيف</td>
+          <td dir="ltr">12</td>
+          <td dir="ltr"><day></td>
+          
+        </tr><tr id="item-2">
+          <td dir="auto">Tower B<br><small class="muted" dir="auto">Dubai Marina, Marina Heights B</small></td>
+          <td dir="auto">مكافحة الحشرات</td>
+          <td dir="ltr">4</td>
+          <td dir="ltr"><day></td>
+          
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  
+
+  <section id="visits">
+    <h2>الزيارات المنفذة</h2>
+    <p class="muted">لا توجد زيارات بعد. تنشئ المهمة اليومية كل زيارة كطلب عمل قبل موعدها بـ 14 يوماً.</p>
+  </section>
+
+  
+  <section id="renew">
+    <h2>التجديد</h2>
+    <p class="muted">ينشئ مسودة للسنة التالية بالبنود والسعر نفسهما.</p>
+    <form method="post" action="?/renew" hx-post="?/renew" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><p><button type="submit" id="contract-renew">التجديد للسنة التالية</button></p></form>
+  </section>
+  <section id="cancel">
+    <form method="post" action="?/cancel" hx-post="?/cancel" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><p><button type="submit">إلغاء العقد</button></p></form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the seed a Dubai dispatcher sees the Dubai contract and not the Sharjah one: role: contracts, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Maintenance contracts · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/contracts">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/contracts?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Maintenance contracts</h1>
+  <p><a class="btn-brand" href="/contracts/new" id="new-contract">New contract</a></p>
+  <form class="search" action="/contracts" method="get">
+    <label>Status
+      <select name="status">
+        <option value="">—</option>
+        <option value="draft" dir="auto">Draft</option><option value="active" dir="auto">Active</option><option value="expired" dir="auto">Expired</option><option value="cancelled" dir="auto">Cancelled</option>
+      </select></label>
+    <button type="submit">Filter</button>
+  </form>
+  <table id="contract-list">
+    <thead>
+      <tr><th>Contract</th><th>Customer</th><th>Status</th><th>Term</th><th>Price (AED)</th><th>Items</th></tr>
+    </thead>
+    <tbody>
+      <tr id="contract-AMC-000001">
+        <td dir="ltr"><a href="/contracts/ct_seed_01" dir="auto">AMC-000001</a></td>
+        <td><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></td>
+        <td><span class="status status-active" dir="auto">Active</span></td>
+        <td dir="ltr"><day> → <day></td>
+        <td dir="ltr">AED 4,800.00</td>
+        <td dir="ltr">2</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
