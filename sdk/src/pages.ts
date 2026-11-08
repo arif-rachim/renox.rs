@@ -44,7 +44,7 @@ export interface ActionContext extends Omit<Ctx, "db"> {
  * merged over its result as template data; `fragments` names the extra
  * fragments rendered out of band.
  */
-export type ActionResult = Response | (PageData & { fragments?: readonly string[] }) | void;
+export type ActionResult = Response | (PageData & { fragments?: readonly string[]; status?: 200 | 400 | 409 | 422 }) | void;
 
 export type Action = (ctx: ActionContext) => ActionResult | Promise<ActionResult>;
 

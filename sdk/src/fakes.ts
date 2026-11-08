@@ -9,7 +9,7 @@
 // The fakes follow the contract's rules (key prefix, ttl range, the
 // `StorageError` codes), never the network.
 
-import type { Ai, AiContent, AiRequest, AiResult, Storage, StoredFile, StoragePage, StoragePutOptions, WebhookProvider } from "./ctx.ts";
+import type { Ai, AiContent, AiRequest, AiResult, Storage, StorageSignUploadOptions, StorageUpload, StoredFile, StoragePage, StoragePutOptions, WebhookProvider } from "./ctx.ts";
 import { StorageError } from "./errors.ts";
 
 const KEY = /^[a-z0-9][a-z0-9/_.-]{0,255}$/u;
@@ -20,8 +20,9 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 /** An in-memory `ctx.storage` for `module` (keys under `<module>/`). */
-export function fakeStorage(module = "app", options: { maxFileBytes?: number; now?: () => number } = {}): Storage & { files: Map<string, { file: StoredFile; bytes: Uint8Array }> } {
+export function fakeStorage(module = "app", options: { maxFileBytes?: number; allowedTypes?: readonly string[]; now?: () => number } = {}): FakeStorage {
   const files = new Map<string, { file: StoredFile; bytes: Uint8Array }>();
+  const uploads = new Map<string, PendingUpload>();
   const now = options.now ?? Date.now;
   const check = (key: string): void => {
     if (!KEY.test(key) || key.split("/").some((s) => s === "" || s === "." || s === "..") || !key.startsWith(`${module}/`)) {
@@ -33,8 +34,10 @@ export function fakeStorage(module = "app", options: { maxFileBytes?: number; no
     if (f === undefined) throw new StorageError("RENOX_STORAGE_NOT_FOUND", "No stored file has this key.", { key });
     return f;
   };
-  return {
+  const fake: FakeStorage = {
     files,
+    uploads,
+    now,
     async put(key: string, bytes: Uint8Array, opts: StoragePutOptions): Promise<StoredFile> {
       check(key);
       if (bytes.length > (options.maxFileBytes ?? 10 * 1024 * 1024)) throw new StorageError("RENOX_STORAGE_TOO_LARGE", "The file is over the per-file limit.", { key });
@@ -62,6 +65,19 @@ export function fakeStorage(module = "app", options: { maxFileBytes?: number; no
       const exp = Math.floor(now() / 1000) + ttlSeconds;
       return { url: `/_files/${key}?exp=${exp}&sig=fake`, expires_at: exp * 1000 };
     },
+    async signUpload(key: string, opts: StorageSignUploadOptions): Promise<StorageUpload> {
+      check(key);
+      const ttl = opts.ttlSeconds ?? 900;
+      if (!Number.isInteger(ttl) || ttl < 60 || ttl > 3600) throw new RangeError("storage.signUpload: ttl is 60 to 3600 seconds");
+      if (options.allowedTypes !== undefined && !options.allowedTypes.includes(opts.contentType)) throw new StorageError("RENOX_STORAGE_TYPE", "The content type is not allowed for this file.", { key, reason: "not_allowed" });
+      const limit = options.maxFileBytes ?? 10 * 1024 * 1024;
+      if (!Number.isInteger(opts.maxBytes) || opts.maxBytes < 1 || opts.maxBytes > limit) throw new StorageError("RENOX_STORAGE_TOO_LARGE", "The upload limit is over the per-file limit.", { key, limit_bytes: limit });
+      const exp = Math.floor(now() / 1000) + ttl;
+      const pub = opts.public === true ? 1 : 0;
+      const url = `/_files/${key}?exp=${exp}&max=${opts.maxBytes}&ct=${encodeURIComponent(opts.contentType)}&pub=${pub}&sig=fake`;
+      uploads.set(url, { key, exp, max: opts.maxBytes, contentType: opts.contentType, public: pub === 1, used: false });
+      return { url, expires_at: exp * 1000, max_bytes: opts.maxBytes };
+    },
     async list(prefix: string, opts: { limit?: number; cursor?: string | null } = {}): Promise<StoragePage> {
       const p = prefix === "" ? `${module}/` : prefix;
       if (!p.startsWith(`${module}/`)) throw new StorageError("RENOX_STORAGE_KEY", "The storage key is not allowed.", { key: p });
@@ -71,6 +87,40 @@ export function fakeStorage(module = "app", options: { maxFileBytes?: number; no
       return { items: page.map((k) => (files.get(k) as { file: StoredFile }).file), next_cursor: keys.length > limit ? (page[page.length - 1] ?? null) : null };
     },
   };
+  return fake;
+}
+
+interface PendingUpload {
+  key: string;
+  exp: number;
+  max: number;
+  contentType: string;
+  public: boolean;
+  used: boolean;
+}
+
+/** What `fakeStorage` returns: `Storage` plus the in-memory files and the signed upload URLs. */
+export type FakeStorage = Storage & {
+  files: Map<string, { file: StoredFile; bytes: Uint8Array }>;
+  uploads: Map<string, PendingUpload>;
+  now: () => number;
+};
+
+/**
+ * The browser's `PUT` to a URL from `storage.signUpload`, against a `fakeStorage` (ops.md 1.10.0, section 21,
+ * "Tenant uploads"): an unknown or expired URL is `RENOX_STORAGE_NOT_FOUND`, a body over `max` is 413
+ * `RENOX_BODY_TOO_LARGE`, a `contentType` other than the signed one is `RENOX_STORAGE_TYPE`, a second success
+ * on the same URL is `RENOX_STORAGE_CONFLICT`. A refused upload does not spend the URL. Returns the `StoredFile`.
+ */
+export async function fakeUpload(storage: FakeStorage, url: string, bytes: Uint8Array, contentType: string): Promise<StoredFile> {
+  const up = storage.uploads.get(url);
+  if (up === undefined || storage.now() >= up.exp * 1000) throw new StorageError("RENOX_STORAGE_NOT_FOUND", "No stored file has this key.", {});
+  if (up.used) throw new StorageError("RENOX_STORAGE_CONFLICT", "The upload URL was already used.", { key: up.key });
+  if (bytes.length > up.max) throw Object.assign(new Error("The upload is over the signed limit."), { code: "RENOX_BODY_TOO_LARGE" as const, status: 413, details: { limit_bytes: up.max, received_bytes: bytes.length } });
+  if (contentType !== up.contentType) throw new StorageError("RENOX_STORAGE_TYPE", "The content type is not the signed one.", { key: up.key, declared: contentType, reason: "mismatch" });
+  const file = await storage.put(up.key, bytes, { contentType, public: up.public });
+  up.used = true;
+  return file;
 }
 
 /** One recorded answer: text, or a tool call the code under test must answer. */

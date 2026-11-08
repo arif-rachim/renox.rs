@@ -436,6 +436,19 @@ export interface StoragePutOptions {
   /** Set only by the `storage` module's SVG sanitiser. */
   readonly sanitised?: boolean;
 }
+export interface StorageSignUploadOptions {
+  readonly contentType: string;
+  readonly maxBytes: number;
+  readonly ttlSeconds?: number;
+  readonly public?: boolean;
+}
+export interface StorageUpload {
+  /** `/_files/<key>?exp=&max=&ct=&pub=&sig=`, same origin. */
+  readonly url: string;
+  /** Milliseconds since the epoch, as `sign`. */
+  readonly expires_at: number;
+  readonly max_bytes: number;
+}
 export interface Storage {
   put(key: string, bytes: Uint8Array, options: StoragePutOptions): Promise<StoredFile>;
   get(key: string): Promise<StoredFile>;
@@ -443,6 +456,11 @@ export interface Storage {
   delete(key: string): Promise<boolean>;
   /** A signed URL on the app's host, `/_files/<key>?exp=&sig=`, valid for 60 s to 7 days. */
   sign(key: string, ttlSeconds: number): Promise<{ readonly url: string; readonly expires_at: number }>;
+  /**
+   * 1.10.0: a signed upload URL on the app's host for one browser `PUT` of at most `maxBytes` bytes of
+   * `contentType`, valid `ttlSeconds` (60 to 3600, default 900). The URL accepts one successful PUT (section 21).
+   */
+  signUpload(key: string, options: StorageSignUploadOptions): Promise<StorageUpload>;
   list(prefix: string, options?: { readonly limit?: number; readonly cursor?: string | null }): Promise<StoragePage>;
 }
 

@@ -1,4 +1,4 @@
-//! Issue #322: `ctx.pdf` (`docs/contracts/ops.md` 1.7.0 section 24).
+//! Issue #322: `ctx.pdf` (`docs/contracts/ops.md` 1.7.0 section 24); #578: no images (1.10.1).
 //! V8-linked for the op; the layout checks need no isolate.
 //!
 //! A bilingual tax invoice (English and Arabic, right-to-left blocks, a
@@ -174,4 +174,49 @@ async fn ctx_pdf_renders_meters_and_refuses_past_the_page_limit() {
     let v = body_json(&big.response);
     assert_eq!(v["code"], "RENOX_PDF_LIMIT", "{v}");
     assert_eq!(v["name"], "PdfLimitError");
+}
+
+/// Issue #578 (`ops.md` 1.10.1 section 24): no image is rendered. An `<img>`
+/// is dropped, whether a data URI or a tenant `/_img` key, at block level or
+/// inside a paragraph; the text around it stays, the render does not fail,
+/// and the PDF holds no image (no `/XObject`, no image item in the layout).
+#[test]
+fn an_img_element_is_dropped_never_rendered_and_never_an_error() {
+    const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    let html = format!(
+        r#"<html><body>
+  <h1>Visit report</h1>
+  <img src="{PNG}" alt="before photo">
+  <p>Before <img src="/_img/x"> photo: kitchen sink</p>
+  <div><img src="/_img/x?w=320"></div>
+  <p>Signed by Amina at 10:42</p>
+</body></html>"#
+    );
+    let doc = layout(&html, &PdfOptions::default()).unwrap();
+    fn images(frame: &typst::layout::Frame) -> usize {
+        frame
+            .items()
+            .map(|(_, item)| match item {
+                typst::layout::FrameItem::Group(g) => images(&g.frame),
+                typst::layout::FrameItem::Image(..) => 1,
+                _ => 0,
+            })
+            .sum()
+    }
+    let n: usize = doc.pages().iter().map(|p| images(&p.frame)).sum();
+    assert_eq!(n, 0, "no image item in the layout");
+    let text: String = text_runs(&doc)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect::<Vec<_>>()
+        .join(" ");
+    for word in ["Visit report", "Before", "kitchen sink", "Signed by Amina"] {
+        assert!(text.contains(word), "{word} in {text}");
+    }
+    let pdf = html_to_pdf(&html, &PdfOptions::default()).unwrap();
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(
+        !pdf.windows(b"/XObject".len()).any(|w| w == b"/XObject"),
+        "the PDF holds no XObject"
+    );
 }

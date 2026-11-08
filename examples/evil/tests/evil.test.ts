@@ -59,6 +59,7 @@ function ctx(path: string, over: Partial<Ctx> = {}): Ctx {
       delete: () => Promise.reject(new Error("no storage in unit tests")),
       sign: () => Promise.reject(new Error("no storage in unit tests")),
       list: () => Promise.reject(new Error("no storage in unit tests")),
+      signUpload: () => Promise.reject(new Error("no storage in unit tests")),
     },
     ai: { chat: () => Promise.reject(new Error("no ai in unit tests")) },
     pdf: { render: () => Promise.reject(new Error("no pdf in unit tests")) },
