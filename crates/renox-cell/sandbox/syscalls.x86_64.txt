@@ -65,6 +65,8 @@ openat
 pidfd_open
 pipe2
 pkey_alloc
+pkey_free
+pkey_mprotect
 poll
 prctl
 pread64

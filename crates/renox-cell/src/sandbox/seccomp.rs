@@ -127,6 +127,30 @@ mod tests {
         }
     }
 
+    /// V8 uses memory protection keys for JIT write protection when the CPU
+    /// and kernel offer PKU: `pkey_alloc`, then `pkey_mprotect` and
+    /// `pkey_free` (#608). A list without the last two killed the worker
+    /// under enforce on such hosts.
+    #[test]
+    fn both_lists_allow_the_pku_calls_of_v8() {
+        for (list, arch) in [
+            (
+                include_str!("../../sandbox/syscalls.x86_64.txt"),
+                TargetArch::x86_64,
+            ),
+            (
+                include_str!("../../sandbox/syscalls.aarch64.txt"),
+                TargetArch::aarch64,
+            ),
+        ] {
+            let n = names(list);
+            for call in ["pkey_alloc", "pkey_mprotect", "pkey_free"] {
+                assert!(n.contains(call), "{arch:?}: {call} is missing");
+            }
+            compile(&n, SandboxMode::Enforce, arch).unwrap_or_else(|e| panic!("{arch:?}: {e}"));
+        }
+    }
+
     #[test]
     fn the_lists_never_allow_what_an_escape_would_want_first() {
         // Kernel attack surface an escaped isolate reaches for and the

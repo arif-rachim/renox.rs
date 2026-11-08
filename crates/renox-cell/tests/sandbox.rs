@@ -14,6 +14,10 @@
 //! deployment through the control plane: the artifact is downloaded into
 //! an `artifacts_dir` outside `data_dir` (the `ops/worker.toml.example`
 //! layout), prepared and served.
+//!
+//! Issue #608: on a CPU with memory protection keys (`pku` in
+//! `/proc/cpuinfo`), the PKU calls V8 makes survive the compiled enforce
+//! filter.
 #![cfg(target_os = "linux")]
 
 #[path = "support/fake_control.rs"]
@@ -372,4 +376,73 @@ async fn a_controlled_worker_activates_through_the_control_plane_under_enforce()
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The child half of `the_pku_calls_survive_the_enforce_filter`: a no-op
+/// unless the parent started this binary with `RENOX_PKU_CHILD=1`.
+#[test]
+fn pku_child() {
+    if std::env::var_os("RENOX_PKU_CHILD").is_none() {
+        return;
+    }
+    renox_cell::sandbox::seccomp::apply(renox_cell::config::SandboxMode::Enforce, &[])
+        .expect("load the enforce filter");
+    // SAFETY: plain system calls on a private anonymous page this test owns.
+    unsafe {
+        let page = libc::mmap(
+            std::ptr::null_mut(),
+            4096,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+            -1,
+            0,
+        );
+        assert_ne!(page, libc::MAP_FAILED, "mmap");
+        let key = libc::syscall(libc::SYS_pkey_alloc, 0u64, 0u64);
+        assert!(key >= 0, "pkey_alloc: {}", std::io::Error::last_os_error());
+        let r = libc::syscall(
+            libc::SYS_pkey_mprotect,
+            page as u64,
+            4096u64,
+            (libc::PROT_READ | libc::PROT_WRITE) as u64,
+            key as u64,
+        );
+        assert_eq!(r, 0, "pkey_mprotect: {}", std::io::Error::last_os_error());
+        let r = libc::syscall(libc::SYS_pkey_free, key as u64);
+        assert_eq!(r, 0, "pkey_free: {}", std::io::Error::last_os_error());
+        libc::munmap(page, 4096);
+    }
+    println!("pku calls survived the enforce filter");
+}
+
+/// #608: `pkey_alloc`, `pkey_mprotect` and `pkey_free` under the compiled
+/// enforce filter, in a child process (the filter cannot be removed once
+/// loaded). Skipped on a CPU without `pku`.
+#[test]
+fn the_pku_calls_survive_the_enforce_filter() {
+    if no_seccomp() {
+        return;
+    }
+    let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    if !cpuinfo
+        .lines()
+        .filter(|l| l.starts_with("flags"))
+        .any(|l| l.split_whitespace().any(|f| f == "pku"))
+    {
+        eprintln!("skipped: this CPU has no pku flag (memory protection keys)");
+        return;
+    }
+    let out = Command::new(std::env::current_exe().unwrap())
+        .env("RENOX_PKU_CHILD", "1")
+        .env_remove("RENOX_TEST_SANDBOX")
+        .args(["pku_child", "--exact", "--nocapture", "--test-threads=1"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains("pku calls survived the enforce filter"),
+        "the child died: {:?}\nstdout:\n{stdout}\nstderr:\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
