@@ -1,0 +1,275 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`jobs per technician normal case: the owner sees the Dubai technicians' finished visits, not Sharjah's: role: technicians, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Jobs per technician · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/reports/technicians">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/reports/technicians?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <nav class="work-links" id="report-nav">
+    <a href="/reports">Sales (VAT)</a>
+    <a href="/reports/technicians">Jobs per technician</a>
+    <a href="/reports/amc">Contract renewals</a>
+    <a href="/reports/outstanding">Outstanding invoices</a>
+  </nav>
+  <h1>Jobs per technician</h1>
+  <form class="search" action="/reports/technicians" method="get">
+    <label>From <input type="date" name="from" value="<day>" dir="ltr"></label>
+    <label>To <input type="date" name="to" value="<day>" dir="ltr"></label>
+    <button type="submit">Show</button>
+  </form>
+  <table id="report-technicians">
+    <thead><tr><th>Technician</th><th>Jobs done</th><th>Hours on site</th><th>Parts (AED)</th></tr></thead>
+    <tbody>
+      <tr><td dir="auto">Ali Hassan</td><td dir="ltr">1</td><td dir="ltr">0.91</td><td dir="ltr">AED 50.00</td></tr><tr><td dir="auto">Bilal Raza</td><td dir="ltr">2</td><td dir="ltr">2.06</td><td dir="ltr">AED 225.00</td></tr>
+    </tbody>
+  </table>
+  <section id="export">
+    <h2>Export</h2>
+    <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="from" value="<day>"><input type="hidden" name="to" value="<day>">
+      <p><label>Format
+        <select name="format"><option value="csv">CSV</option><option value="xlsx">Excel (.xlsx)</option></select></label></p>
+      <p><button type="submit">Download</button></p>
+    </form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`jobs per technician normal case: the owner sees the Dubai technicians' finished visits, not Sharjah's: role: technicians, owner, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>الأعمال لكل فني · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/reports/technicians">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · مالك</option><option value="org_sharjah" dir="auto">Sharjah · مالك</option>
+    </select>
+    <button type="submit">تبديل</button>
+    <a href="/org/members">الأعضاء</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/reports/technicians?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <nav class="work-links" id="report-nav">
+    <a href="/reports">المبيعات (الضريبة)</a>
+    <a href="/reports/technicians">الأعمال لكل فني</a>
+    <a href="/reports/amc">تجديد العقود</a>
+    <a href="/reports/outstanding">الفواتير المستحقة</a>
+  </nav>
+  <h1>الأعمال لكل فني</h1>
+  <form class="search" action="/reports/technicians" method="get">
+    <label>من <input type="date" name="from" value="<day>" dir="ltr"></label>
+    <label>إلى <input type="date" name="to" value="<day>" dir="ltr"></label>
+    <button type="submit">عرض</button>
+  </form>
+  <table id="report-technicians">
+    <thead><tr><th>الفني</th><th>الأعمال المنجزة</th><th>ساعات العمل في الموقع</th><th>القطع (درهم)</th></tr></thead>
+    <tbody>
+      <tr><td dir="auto">Ali Hassan</td><td dir="ltr">1</td><td dir="ltr">0.91</td><td dir="ltr">50.00 د.إ.</td></tr><tr><td dir="auto">Bilal Raza</td><td dir="ltr">2</td><td dir="ltr">2.06</td><td dir="ltr">225.00 د.إ.</td></tr>
+    </tbody>
+  </table>
+  <section id="export">
+    <h2>تصدير</h2>
+    <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="from" value="<day>"><input type="hidden" name="to" value="<day>">
+      <p><label>الصيغة
+        <select name="format"><option value="csv">CSV</option><option value="xlsx">Excel (.xlsx)</option></select></label></p>
+      <p><button type="submit">تنزيل</button></p>
+    </form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`contract renewals normal case: the Dubai contract ends within 90 days and is due; Sharjah's is not shown: role: amc, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Contract renewals · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/reports/amc">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/reports/amc?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <nav class="work-links" id="report-nav">
+    <a href="/reports">Sales (VAT)</a>
+    <a href="/reports/technicians">Jobs per technician</a>
+    <a href="/reports/amc">Contract renewals</a>
+    <a href="/reports/outstanding">Outstanding invoices</a>
+  </nav>
+  <h1>Contract renewals</h1>
+  <p class="muted">Maintenance contracts that end in the period (the next 90 days unless you choose another).</p>
+  <form class="search" action="/reports/amc" method="get">
+    <label>From <input type="date" name="from" value="<day>" dir="ltr"></label>
+    <label>To <input type="date" name="to" value="<day>" dir="ltr"></label>
+    <button type="submit">Show</button>
+  </form>
+  <table id="report-amc">
+    <thead><tr><th>Contract</th><th>Customer</th><th>Ends on</th><th>Yearly price (AED)</th><th>Renewal</th></tr></thead>
+    <tbody>
+      <tr id="amc-AMC-000001">
+        <td dir="ltr"><a href="/contracts/ct_seed_01" dir="auto">AMC-000001</a></td>
+        <td><a href="/customers/cu_dxb_04" dir="auto">Marina Heights Property Management</a></td>
+        <td dir="ltr"><day></td>
+        <td dir="ltr">AED 4,800.00</td>
+        <td><span class="status status-renewal-due" dir="auto">Due</span> </td>
+      </tr>
+    </tbody>
+  </table>
+  <section id="export">
+    <h2>Export</h2>
+    <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <input type="hidden" name="from" value="<day>"><input type="hidden" name="to" value="<day>">
+      <p><label>Format
+        <select name="format"><option value="csv">CSV</option><option value="xlsx">Excel (.xlsx)</option></select></label></p>
+      <p><button type="submit">Download</button></p>
+    </form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`outstanding invoices normal case: INV-000001's balance is in the first bucket: role: outstanding, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Outstanding invoices · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/reports/outstanding">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/reports/outstanding?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <nav class="work-links" id="report-nav">
+    <a href="/reports">Sales (VAT)</a>
+    <a href="/reports/technicians">Jobs per technician</a>
+    <a href="/reports/amc">Contract renewals</a>
+    <a href="/reports/outstanding">Outstanding invoices</a>
+  </nav>
+  <h1>Outstanding invoices</h1>
+  <p class="muted">Open invoices by age since issue, in AED, as of <span dir="ltr"><day></span></p>
+  <table id="report-outstanding">
+    <thead><tr><th>Customer</th><th>0-30 days</th><th>31-60 days</th><th>Over 60 days</th><th>Balance</th></tr></thead>
+    <tbody>
+      <tr><td><a href="/customers/cu_dxb_01" dir="auto">Layla Haddad</a></td><td dir="ltr">AED 207.00</td><td dir="ltr">AED 0.00</td><td dir="ltr">AED 0.00</td><td dir="ltr"><strong dir="auto">AED 207.00</strong></td></tr>
+    </tbody>
+    <tfoot>
+      <tr><th>Total</th><td dir="ltr">AED 207.00</td><td dir="ltr">AED 0.00</td><td dir="ltr">AED 0.00</td><td dir="ltr"><strong dir="auto">AED 207.00</strong></td></tr>
+    </tfoot>
+  </table>
+  <section id="export">
+    <h2>Export</h2>
+    <form method="post" action="?/export" hx-post="?/export" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      
+      <p><label>Format
+        <select name="format"><option value="csv">CSV</option><option value="xlsx">Excel (.xlsx)</option></select></label></p>
+      <p><button type="submit">Download</button></p>
+    </form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;

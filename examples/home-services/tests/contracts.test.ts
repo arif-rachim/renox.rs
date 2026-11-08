@@ -139,6 +139,10 @@ describe("create and activate", () => {
     expect(bad.html).toContain('id="err-ends_on"');
     expect(bad.html).toContain('id="err-price"');
     expect((await dispatcher.action(`/contracts/${id}`, "item", { site_id: "st_dxb_05a", service: serviceId("PEST"), visits: "0" })).status).toBe(422);
+    // A date that is not a day (month 13) is a 422, not an error.
+    const notADay = await dispatcher.action("/contracts/new", "create", form({ starts_on: "2026-13-45" }));
+    expect(notADay.status).toBe(422);
+    expect(notADay.html).toContain('id="err-starts_on"');
     expect(itemRows(id)).toHaveLength(2);
   });
 
