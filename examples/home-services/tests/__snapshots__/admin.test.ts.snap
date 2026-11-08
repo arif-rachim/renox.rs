@@ -1,0 +1,137 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`/admin per role normal case: the owner sees the dashboard with the branch's three numbers: role: dashboard, owner, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Back office · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Omar Owner</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/admin">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · owner</option><option value="org_sharjah" dir="auto">Sharjah · owner</option>
+    </select>
+    <button type="submit">Switch</button>
+    <a href="/org/members">Members</a>
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/admin?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <div class="backoffice">
+    <nav class="backoffice-nav" aria-label="Back office">
+      <a href="/admin">Dashboard</a>
+      <a href="/admin/settings">Branding</a>
+      <a href="/admin/branches">Branches</a>
+      <a href="/admin/users">People</a>
+      <a href="/admin/audit">Audit trail</a>
+      <a href="/">Work list</a>
+    </nav>
+    <main>
+      
+  
+  <h1>Back office</h1>
+  <p>Branch: Dubai</p>
+  <section class="tiles" id="tiles">
+    <article class="tile" id="tile-jobs"><span>Jobs today</span><strong dir="ltr"><n></strong><a href="/jobs">Jobs</a></article>
+    <article class="tile" id="tile-invoices"><span>Open invoices</span><strong dir="ltr"><n></strong><a href="/invoices?status=open">Invoices</a></article>
+    <article class="tile" id="tile-amc"><span>Contracts ending this month</span><strong dir="ltr"><n></strong><a href="/reports/amc">Contract renewals</a></article>
+  </section>
+
+    </main>
+  </div>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`people the users page lists the branch with roles and who has a second factor: role: users table, owner, en 1`] = `
+"<table id="staff">
+    <thead><tr><th>Name</th><th>Email</th><th>Roles</th><th>Second factor</th><th></th></tr></thead>
+    <tbody>
+      <tr id="staff-u_dxb_ali">
+        <td dir="auto">Ali Hassan</td>
+        <td dir="ltr">ali.dubai@fixit.example</td>
+        <td><span class="role" dir="auto">Technician</span> </td>
+        <td>Off
+          </td>
+        <td>
+          <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_ali">
+            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" selected dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <button type="submit">Change role</button></form>
+          <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_ali"><button type="submit">Remove from branch</button></form>
+        </td>
+      </tr><tr id="staff-u_dxb_accountant">
+        <td dir="auto">Aziz Accountant</td>
+        <td dir="ltr">accountant.dubai@fixit.example</td>
+        <td><span class="role" dir="auto">Accountant</span> </td>
+        <td>Off
+          <small class="problem"> Needs a second factor before sensitive actions.</small></td>
+        <td>
+          <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_accountant">
+            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" selected dir="auto">Accountant</option></select>
+            <button type="submit">Change role</button></form>
+          <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_accountant"><button type="submit">Remove from branch</button></form>
+        </td>
+      </tr><tr id="staff-u_dxb_bilal">
+        <td dir="auto">Bilal Raza</td>
+        <td dir="ltr">bilal.dubai@fixit.example</td>
+        <td><span class="role" dir="auto">Technician</span> </td>
+        <td>Off
+          </td>
+        <td>
+          <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_bilal">
+            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" selected dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <button type="submit">Change role</button></form>
+          <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_bilal"><button type="submit">Remove from branch</button></form>
+        </td>
+      </tr><tr id="staff-u_dxb_dispatcher">
+        <td dir="auto">Dina Dispatcher</td>
+        <td dir="ltr">dispatcher.dubai@fixit.example</td>
+        <td><span class="role" dir="auto">Dispatcher</span> </td>
+        <td>Off
+          </td>
+        <td>
+          <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_dispatcher">
+            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" dir="auto">Branch manager</option><option value="dispatcher" selected dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <button type="submit">Change role</button></form>
+          <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_dispatcher"><button type="submit">Remove from branch</button></form>
+        </td>
+      </tr><tr id="staff-u_dxb_manager">
+        <td dir="auto">Mona Manager</td>
+        <td dir="ltr">manager.dubai@fixit.example</td>
+        <td><span class="role" dir="auto">Branch manager</span> </td>
+        <td>Off
+          </td>
+        <td>
+          <form method="post" action="?/role" hx-post="?/role" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_manager">
+            <select name="role"><option value="owner" dir="auto">Owner</option><option value="branch_manager" selected dir="auto">Branch manager</option><option value="dispatcher" dir="auto">Dispatcher</option><option value="technician" dir="auto">Technician</option><option value="accountant" dir="auto">Accountant</option></select>
+            <button type="submit">Change role</button></form>
+          <form method="post" action="?/remove" hx-post="?/remove" class="inline"><input type="hidden" name="_csrf" value="<csrf>"><input type="hidden" name="user_id" value="u_dxb_manager"><button type="submit">Remove from branch</button></form>
+        </td>
+      </tr><tr id="staff-u_owner">
+        <td dir="auto">Omar Owner<small> (You)</small></td>
+        <td dir="ltr">owner@fixit.example</td>
+        <td><span class="role" dir="auto">Owner</span> </td>
+        <td>On
+          </td>
+        <td>
+          
+          
+        </td>
+      </tr>
+    </tbody>
+  </table>"
+`;
