@@ -175,7 +175,7 @@ All commands as root on the host unless the step says otherwise.
     8. In the `renoxium.com` zone create the three DNS-only CNAMEs to `renoxium.app` (the apex flattened) and every TXT record of the answers, and keep them.
 
     The job reads each custom hostname every minute. `GET /v1/apps/<app>/domains/<hostname>` moves to `state: verified`, `status: active`, `ssl_status: active`. Check `https://dashboard.renoxium.com/` and `https://renoxium.com/`. A domain detached by the status poll (three negative answers over at least 30 minutes; an API error never counts) comes back when you repeat its `POST …/domains`: it answers 201 with the same custom hostname and is read at the next tick.
-10. **Backups.** While R2 is off, "Local backups (no R2)" under "Backups": enable both timers and run `restore-check.sh` once. With R2: `/etc/renox/backup-age.pub` and `/etc/renox/secrets/r2-backup.env` in place, then `systemctl start renox-backup-db.service` once. Check its journal line (`backup-control-db: renox -> renoxium-backups/control-db/…`), then `systemctl enable --now renox-backup-db.timer`. Then "Tenant files to R2" (steps 1 to 4 under "Backups"), and run both restore drills once.
+10. **Backups.** Without `R2_ENDPOINT` in `/etc/renox/secrets/r2-backup.env`, "Local backups (no R2)" under "Backups": enable both timers and run `restore-check.sh` once. On a host whose control dumps go to R2 (`node-small`), "Which check covers which backup" below. With R2: `/etc/renox/backup-age.pub` and `/etc/renox/secrets/r2-backup.env` in place, then `systemctl start renox-backup-db.service` once. Check its journal line (`backup-control-db: renox -> renoxium-backups/control-db/…`), then `systemctl enable --now renox-backup-db.timer`. Then "Tenant files to R2" (steps 1 to 4 under "Backups"), and run both restore drills once.
 11. **Alerts for failed units (#450).** `renox-backup-db.service` and `renox-billing.service` start `renox-alert@<unit>.service` when they fail (`OnFailure=`). It posts to the webhook in `/etc/renox/secrets/alert.env`, the same receiver as Alertmanager (`ops/observability/README.md`, "Alertmanager on the single host"):
     ```
     printf 'ALERT_WEBHOOK_URL=%s\n' '<https webhook url>' | install -m 0600 -o root -g root /dev/stdin /etc/renox/secrets/alert.env
@@ -190,6 +190,16 @@ All commands as root on the host unless the step says otherwise.
     ```
     It uses `CONTROL_DATABASE_URL` from `control.env`, as the control API does.
 
+    **Backfill.** Each pass recomputes only the last 48 closed hours and the current one (`LOOKBACK_HOURS` in `control/billing/src/rollup.ts`), so hours older than that, for example after the timer was off for a few days, need one run with `--from` and `--to` in Unix milliseconds (the hours to recompute; idempotent). Run it as the unit runs, through `systemd-run` with the unit's user, `EnvironmentFile` and `WorkingDirectory`, so `control.env` never reaches the operator's shell:
+    ```
+    from=$(date -u -d '2026-11-01 00:00' +%s)000; to=$(date -u -d '2026-11-07 00:00' +%s)000
+    systemd-run --wait --pipe --collect --unit renox-billing-backfill \
+      -p User=renox-control -p Group=renox-control -p EnvironmentFile=/etc/renox/control.env \
+      -p WorkingDirectory=/opt/renox/src/control/billing -p Environment=HOME=/var/lib/renox-control \
+      /opt/renox/bin/bun /opt/renox/src/control/billing/src/main.ts --from "$from" --to "$to"
+    ```
+    It logs one `rollup` line per pass, like the timer's runs; check with the `meters_hourly` row of the health checks.
+
 ### Health checks after every change
 
 | Check | Expect |
@@ -197,7 +207,7 @@ All commands as root on the host unless the step says otherwise.
 | `systemctl is-active renox-worker renox-control renox-tunnel` | `active` three times |
 | `systemctl list-timers 'renox-*'` | the backup timer and the billing timer, each with a next run |
 | `systemctl status renox-billing.service` | the last run `status=0/SUCCESS`, less than about an hour ago |
-| `sudo -u postgres psql renox -c 'select max(hour) from meters_hourly'` | the current or the previous hour once traffic has arrived (usage is not stuck at zero) |
+| `sudo -u postgres psql renox -c 'select to_timestamp(max(hour_start)/1000) from meters_hourly'` | the current or the previous hour once traffic has arrived (usage is not stuck at zero); `hour_start` is in Unix milliseconds |
 | `nft list table inet renox_single_host` | the input chain with `tcp dport <ssh port> accept` (22, or the `--ssh-port` of step 2) and no other `tcp dport` rule |
 | From another machine: `nc -z -w 3 <node address> 22`, then `80`, `443`, `5432`, `8787`, `8788` | 22 open; every other port refused or timed out |
 | `ss -tlnp` on the host | nothing listening on a public address but sshd; `127.0.0.1:8787`, `8788`, `9090`, `5432`, `20241` only on loopback |
@@ -271,7 +281,7 @@ rm -f "$jar"
 
 ### Local backups (no R2)
 
-R2 is deferred (#516). Until it is enabled, the host keeps its own copies on its disk (#517); with no `R2_ENDPOINT` in `/etc/renox/secrets/r2-backup.env`, `renox-backup-db.service` takes this path.
+Without R2 the host keeps its own copies on its disk (#517); with no `R2_ENDPOINT` in `/etc/renox/secrets/r2-backup.env`, `renox-backup-db.service` takes this path. The tenant snapshot below is local in either case. On `node-small` the control dump already goes to R2 (the file has `R2_ENDPOINT`, #538), while the weekly tenant snapshot is written locally.
 
 | What | Where (root, 0700 directories, 0600 files) | When | Keeps |
 | --- | --- | --- | --- |
@@ -280,11 +290,24 @@ R2 is deferred (#516). Until it is enabled, the host keeps its own copies on its
 
 `BACKUP_KEEP_DAYS` (default 14) sets the retention of both; the scripts are `backup-control-db.sh` and `backup-tenant-files.sh`, installed in `/opt/renox/bin` by `bootstrap-node.sh --single-host`, which also creates `/var/backups/renox`. Enable both timers with `systemctl enable --now renox-backup-db.timer renox-backup-tenants.timer`, start each service once and look at `ls -la /var/backups/renox/control-db /var/backups/renox/tenants/*`. The journal says `backup-control-db: renox -> /var/backups/renox/control-db/<file> (<bytes> bytes)` and one `backup-tenant-files:` line per tenant.
 
-**Monthly restore drill.** `/opt/renox/bin/restore-check.sh --pg-user postgres` restores the newest control dump into the scratch database `renox_restore_check` (`createdb`, `pg_restore --no-owner --exit-on-error`, `select count(*) from tenants`, `dropdb`) and opens the newest tenant copy with `pragma quick_check`. A corrupt dump is refused before any database is touched. It exits 1 on any failure and 0 when both pass; note the date in `ops/security/keys.md`, "Drill record".
+**Monthly restore drill.** `/opt/renox/bin/restore-check.sh --pg-user postgres` restores the newest control dump into the scratch database `renox_restore_check` (`createdb`, `pg_restore --no-owner --exit-on-error`, `select count(*) from tenants`, `dropdb`) and opens the newest tenant copy with `pragma quick_check`. A corrupt dump is refused before any database is touched. It exits 1 on any failure and 0 when every step it ran passes; note the date in `ops/security/keys.md`, "Drill record". `--tenants-only` and `--control-only` run one step alone.
 
 **A disk failure is not covered until R2 is enabled.** These copies protect against a bad migration, an accidental erasure or a corrupt file, not against losing the disk.
 
-### R2 backups (deferred, #516)
+### Which check covers which backup
+
+| Backup | Where on `node-small` | Its check |
+| --- | --- | --- |
+| Control database | R2, `renoxium-backups/control-db/…dump.age` (`R2_ENDPOINT` set), age-encrypted to `/etc/renox/backup-age.pub` | "Restore drill" below, from the owner's workstation: the private key is never on the host, so the host cannot test-restore it |
+| Control database, a host without R2 | `/var/backups/renox/control-db/` | `restore-check.sh --control-only` (or without flags) |
+| Tenant files | `/var/backups/renox/tenants/` (weekly, `renox-backup-tenants`) | `restore-check.sh --tenants-only`; it names the snapshot it checked |
+
+Without a flag, `restore-check.sh` on a host with `R2_ENDPOINT` and no local dump prints `restore-check: control dump is in R2; run the Restore drill from the workstation`, skips that step, and exits 0 when the tenant step passes (#538). With neither a local dump nor an R2 configuration it still exits 1. On `node-small`:
+```
+sudo /opt/renox/bin/restore-check.sh --pg-user postgres     # or: --tenants-only
+```
+
+### R2 backups
 
 | What | Where | How often | Keeps |
 | --- | --- | --- | --- |
@@ -360,7 +383,7 @@ For a host installed with the old DNS-only layout (the worker's own TLS on 443, 
 2. Enable the Cloudflare for SaaS fallback origin `renoxium.app` and wait until it shows Active. It can only become Active after step 1 made the apex proxied. If Cloudflare refuses the apex, see owner list step 2.
 3. The platform's domains: their rows from the old layout stay `verified` (served meanwhile), and the domain job creates a custom hostname for each within a minute of the restart (a pending custom hostname is not a miss). Read the records to create with `GET /v1/apps/<dashboard app>/domains/dashboard.renoxium.com` and `GET /v1/apps/<www app>/domains/{renoxium.com,www.renoxium.com}` as the platform tenant (`verification`; the app names as in "Before you start"), create those TXT records in the `renoxium.com` zone, and change the three records to DNS-only CNAMEs to `renoxium.app` (the apex by CNAME flattening). Remove the old `_renox-verify` TXT records; nothing reads them any more.
 
-**Step 4, check from outside, through Cloudflare.** Every app name (`https://<app>.renoxium.app/` for each app of `GET /v1/ops/nodes/node-small`'s tenants), `https://renoxium.com/`, `https://www.renoxium.com/`, `https://dashboard.renoxium.com/` (sign in), `https://api.renoxium.com/v1/healthz`, `https://mcp.renoxium.com/`. Each answers through Cloudflare (`cf-ray` header, Cloudflare's certificate), with `strict-transport-security`. A request log line in `journalctl -u renox-worker` shows the visitor's address, not `127.0.0.1`. `GET /v1/apps/<app>/domains/<hostname>` shows `status: active` for the three platform domains. Record the Orange-to-Orange result for the grey `renoxium.com` records in ADR D25, and whether Cloudflare accepted the apex as fallback origin in ADR D26. If any check fails and cannot be fixed within the window: **Rollback**.
+**Step 4, check from outside, through Cloudflare.** Every app name (`https://<app>.renoxium.app/` for each app of `GET /v1/ops/nodes/node-small`'s tenants), `https://renoxium.com/`, `https://www.renoxium.com/`, `https://dashboard.renoxium.com/` (sign in), `https://api.renoxium.com/v1/healthz`, and the MCP resource at `https://mcp.renoxium.com/.well-known/oauth-protected-resource` (200, JSON) or `https://mcp.renoxium.com/mcp` (the MCP endpoint itself; nothing is served at `/`). Each answers through Cloudflare (`cf-ray` header, Cloudflare's certificate), with `strict-transport-security`. A request log line in `journalctl -u renox-worker` shows the visitor's address, not `127.0.0.1`. `GET /v1/apps/<app>/domains/<hostname>` shows `status: active` for the three platform domains. Record the Orange-to-Orange result for the grey `renoxium.com` records in ADR D25, and whether Cloudflare accepted the apex as fallback origin in ADR D26. If any check fails and cannot be fixed within the window: **Rollback**.
 
 **Step 5, only after step 4 passed.**
 1. Close 80 and 443: run `ops/scripts/firewall-single-host.sh` of the new commit (same `--ssh-port`). From outside, `nc -z` on 80 and 443 fails and 22 still answers.

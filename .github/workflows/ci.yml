@@ -167,6 +167,8 @@ jobs:
           # Local backups without R2 (#517): sqlite3 and pg_restore for the real copies.
           command -v sqlite3 >/dev/null || sudo apt-get install -y --no-install-recommends sqlite3
           ops/scripts/backup-local.test.sh
+          # restore-check.sh's steps on a local and an R2 host (#538): stub Postgres tools.
+          ops/scripts/restore-check.test.sh
           # bootstrap-node.sh --worker-variant pdf (#525): fetch_worker against a file:// release.
           ops/scripts/bootstrap-worker-variant.test.sh
           ops/scripts/firewall-single-host.test.sh

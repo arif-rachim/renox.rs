@@ -82,7 +82,7 @@ test("the runbook installs both and checks them", () => {
   const runbook = readFileSync(join(HERE, "../single-host.md"), "utf8");
   expect(runbook).toContain("systemctl enable --now renox-billing.timer");
   expect(runbook).toContain("/etc/renox/secrets/alert.env");
-  expect(runbook).toContain("select max(hour) from meters_hourly");
+  expect(runbook).toContain("select to_timestamp(max(hour_start)/1000) from meters_hourly");
 });
 
 test("Alertmanager has a real receiver whose URL lives outside the repository", () => {

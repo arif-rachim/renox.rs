@@ -27,7 +27,8 @@
 #      with it the webhook receives the failed unit's name
 #   12 renox-billing.service: one pass on the same database
 #   and renox-backup-tenants.service: a snapshot of the tenant files under
-#      /var/backups/renox/tenants (#544: sqlite3 from install step 1)
+#      /var/backups/renox/tenants (#544: sqlite3 from install step 1), and
+#      restore-check.sh with the control dump in R2 (#538)
 #   and the runbook's "Health checks after every change".
 #
 # Since ADR D25 the single host has no TLS, ACME or certificate renewal of its
@@ -368,6 +369,12 @@ if dx systemctl start renox-backup-tenants.service >/dev/null 2>&1; then
   if [[ $snaps -ge 1 ]]; then pass "backups: renox-backup-tenants.service writes $snaps tenant snapshot(s) under /var/backups/renox/tenants"
   else fail "backups: no tenant snapshot: $(journal renox-backup-tenants 10)"; fi
 else fail "backups: renox-backup-tenants.service: $(journal renox-backup-tenants 20)"; fi
+# #538: this host's control dumps went to the fake R2 (step 10), as on
+# node-small, so there is no local dump: the drill skips that step with its
+# line and passes on the tenant snapshot.
+if out=$(dx /opt/renox/bin/restore-check.sh --pg-user postgres 2>&1) && grep -q 'control dump is in R2; run the Restore drill from the workstation' <<< "$out" && grep -q 'quick_check ok' <<< "$out"; then
+  pass "backups: restore-check.sh on an R2 host skips the control dump and checks the tenant snapshot"
+else fail "backups: restore-check.sh on an R2 host: $out"; fi
 
 # Health checks after every change (ops/single-host.md), the rows that make
 # sense without Cloudflare and a second machine.
