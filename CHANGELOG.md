@@ -7,6 +7,11 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 **CLI**
 
 - `renox check` (#595): the MF7 module-call scan matches imported `renox:modules` bindings in code only (comments, strings and `ctx.<name>.x` no longer count), and `missing-guard` skips `functions/tools/**`, whose `action` the cell already checks.
+- `renox test`: the test worker looks for outbox rows written from another connection every 50 ms (`[jobs] poll_ms`), the harness writes a job tick as `renox jobs run` does (`runJob`), and its own SQLite connections wait on the worker's lock (`busy_timeout = 5000`) (#593).
+
+**SDK**
+
+- `@renoxium/sdk/test`: `t.job(name, { module?, timeoutMs? })` runs a scheduled job now and resolves after its commit (rejects with the job's error text); `t.tool(name, input, { as?, scope?, confirm? })` calls an App MCP tool as a user's agent (the auth module's OAuth flow, then `tools/call`, with the confirmation loop); `t.db` waits on the worker's write lock instead of failing with `SQLITE_BUSY` (#593).
 
 ## 0.1.8 (2026-11-08)
 
