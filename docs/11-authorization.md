@@ -53,6 +53,8 @@ Modules ship default policies under `modules/<module>/policies/`. The app adds p
 | UI | `r-can="invoice.refund" :resource="inv"` | Hides elements only; **not a safeguard** |
 | Realtime | `Origin` check at upgrade; topics as Cedar resources, deny when no policy permits | Prevents cross-site sockets and subscribing to other users' topics |
 
+`renox check` reports `missing-guard` (error) for a page or function that calls `ctx.authz.require`, `can` or `canBatch` with a literal action a policy names but exports no `guard`; files under `functions/tools/` are skipped, because the tool's `action` is its guard and the cell checks it before `run`.
+
 Fail-closed rules (#118): every decision defaults to deny. No permitting policy, `forbid` matching, an unknown or anonymous principal, a missing entity or attribute, and an evaluation error each deny, and an error is logged with its reason (`authz_explain` shows it). A policy that does not validate against the merged schema (an unknown action or entity type) refuses `renox check` and the build (V24, V25), so it never reaches a cell. A realtime topic is a resource like any other: a subscribe no policy permits is refused. Tests: `crates/renox-authz/tests/fail_closed.rs`, `tests/schema_errors.rs`, `cli/tests/build-authz.test.ts`.
 
 Example: the refund button is hidden because `inv.amount > 10,000,000`. The user still sends `POST ?/refund` with curl. The action calls `authz.require("invoice.refund", invoiceFromDb)` and Cedar denies with the same policy. Template and action cannot disagree because the source of truth is one.
