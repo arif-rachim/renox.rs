@@ -3,9 +3,9 @@
 # a download whose SHA-256 differs. One line per Rust target:
 #   <rust target>  <sha256 of the release binary>  <asset name>
 # The release assets are bare binaries (no tarball). Both digests were taken
-# from two downloads that matched (2026-11-02); upstream publishes no
+# from two downloads that matched (2026-11-08); upstream publishes no
 # checksum file for the bare binaries.
-# How to bump: ops/README.md, "cloudflared and lego".
-version 2026.10.0
-x86_64-unknown-linux-gnu  d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db  cloudflared-linux-amd64
-aarch64-unknown-linux-gnu  e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08  cloudflared-linux-arm64
+# How to bump: ops/README.md, "cloudflared".
+version 2026.10.7
+x86_64-unknown-linux-gnu  1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872  cloudflared-linux-amd64
+aarch64-unknown-linux-gnu  3df43aedc9ff291d1735b5cb576cb97e0b157488796db2e32b28aecabb445775  cloudflared-linux-arm64
