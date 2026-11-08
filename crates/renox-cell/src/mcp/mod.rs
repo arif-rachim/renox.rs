@@ -780,8 +780,9 @@ async fn call(
                 serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
             if preview && value.get("error").is_some() {
                 // The preview failed: nothing to confirm, so no token. The
-                // tool's error object stays readable (text and structured).
-                let mut r = tool_result(value, false);
+                // result keeps the shape of a preview, without
+                // `confirmation`, so the agent reads the tool's error.
+                let mut r = tool_result(serde_json::json!({ "preview": value }), false);
                 r["isError"] = serde_json::Value::Bool(true);
                 r
             } else if preview {

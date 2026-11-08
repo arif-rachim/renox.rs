@@ -557,7 +557,11 @@ async fn a_preview_that_returns_an_error_gets_no_confirmation() {
     assert_eq!(preview.status, 200, "{}", preview.body);
     assert_eq!(preview.body["result"]["isError"], true, "{}", preview.body);
     let content = &preview.body["result"]["structuredContent"];
-    assert_eq!(content["error"]["code"], "slot_taken", "{}", preview.body);
+    assert_eq!(
+        content["preview"]["error"]["code"], "slot_taken",
+        "{}",
+        preview.body
+    );
     assert!(content.get("confirmation").is_none(), "{}", preview.body);
     let sent = n
         .rpc(

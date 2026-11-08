@@ -10,7 +10,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 - Scheduled jobs and event handlers get `ctx.db.scoped(scope)`: the run's statements carry the scope and are fenced as on a request (owner predicate, `RENOX_DB_SCOPE` `owner_mismatch`); the scope is explicit, never derived from the System principal (`ops.md` 1.11.0) (#612).
 - The gateway answers no CORS preflight (405, `Allow: GET, HEAD, PUT`) and adds no `Access-Control-*` header for `PUT /_files/`, whatever `security.cors` says: signed uploads stay same origin (`ops.md` section 21) (#607).
 - The seccomp allowlist includes `pkey_mprotect` and `pkey_free`, which V8 calls on CPUs with memory protection keys; a worker under `[sandbox] mode = "enforce"` on such a host was killed with SIGSYS (#608).
-- App MCP: a `confirm: true` tool whose preview returns an object with a top-level `error` gets a tool error (`isError: true`, the object as structured content) and no confirmation token (#609).
+- App MCP: a `confirm: true` tool whose preview returns an object with a top-level `error` gets a tool error (`isError: true`, `structuredContent.preview` holds the object) and no confirmation token, so the call cannot be confirmed (#609).
 
 **SDK**
 
