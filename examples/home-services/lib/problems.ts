@@ -49,6 +49,12 @@ export const FIELDS: Record<string, Text> = {
   cheque_number: { en: "Cheque number", ar: "رقم الشيك" },
   cheque_date: { en: "Cheque date", ar: "تاريخ الشيك" },
   reason: { en: "Reason", ar: "السبب" },
+  customer_id: { en: "Customer", ar: "العميل" },
+  starts_on: { en: "Starts on", ar: "تاريخ البدء" },
+  ends_on: { en: "Ends on", ar: "تاريخ الانتهاء" },
+  visits: { en: "Visits a year", ar: "الزيارات في السنة" },
+  item: { en: "Item", ar: "البند" },
+  items: { en: "Items", ar: "البنود" },
 };
 
 /** What is wrong, by the issue message of lib/forms.ts. */
@@ -103,6 +109,16 @@ export const PROBLEMS: Record<string, Text> = {
   "invoices.err.cheque_number": { en: "A cheque needs its number.", ar: "الشيك يحتاج إلى رقمه." },
   "invoices.err.reason": { en: "Give a reason of 3 to 200 characters.", ar: "اكتب سبباً من 3 إلى 200 حرف." },
   "invoices.err.overpay": { en: "The payment is more than the balance of the invoice.", ar: "الدفعة أكبر من رصيد الفاتورة." },
+  "contracts.err.customer": { en: "Choose a customer of this branch.", ar: "اختر عميلاً من هذا الفرع." },
+  "contracts.err.date": { en: "Enter a date as YYYY-MM-DD.", ar: "أدخل التاريخ بصيغة YYYY-MM-DD." },
+  "contracts.err.term": { en: "The contract cannot end before it starts.", ar: "لا يمكن أن ينتهي العقد قبل أن يبدأ." },
+  "contracts.err.price": { en: "Enter the yearly price in AED, for example 2400 or 2400.50.", ar: "أدخل السعر السنوي بالدرهم، مثل 2400 أو 2400.50." },
+  "contracts.err.notes": { en: "Notes are at most 1000 characters.", ar: "الملاحظات 1000 حرف كحد أقصى." },
+  "contracts.err.site": { en: "Choose a site of this customer.", ar: "اختر موقعاً من مواقع هذا العميل." },
+  "contracts.err.service": { en: "Choose a service.", ar: "اختر خدمة." },
+  "contracts.err.visits": { en: "Enter 1 to 52 visits a year.", ar: "أدخل من 1 إلى 52 زيارة في السنة." },
+  "contracts.err.item": { en: "Unknown item.", ar: "بند غير معروف." },
+  "contracts.err.no_items": { en: "Add at least one service and site before activating.", ar: "أضف خدمة وموقعاً واحداً على الأقل قبل التفعيل." },
   "catalogue.err.service": { en: "Unknown service.", ar: "خدمة غير معروفة." },
   "catalogue.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
 };
@@ -115,7 +131,7 @@ export function unprocessable(locale: string, errors: Record<string, string>, ba
   const pick = (t: Text | undefined, fallback: string): string => (t === undefined ? fallback : ar ? t.ar : t.en);
   // A line's field is `<name>_<row>` (`qty_2`): the label of the name, with the line number.
   const label = (field: string): string => {
-    const m = /^(service|desc|desc_ar|qty|price)_(\d+)$/u.exec(field);
+    const m = /^(service|desc|desc_ar|qty|price|site_id|visits)_(\d+)$/u.exec(field);
     if (m === null) return pick(FIELDS[field], field);
     const base = pick(FIELDS[m[1] === "desc_ar" ? "desc" : (m[1] as string)], field);
     return `${base} (${ar ? "البند" : "line"} ${Number(m[2]) + 1})`;

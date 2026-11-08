@@ -116,7 +116,7 @@ export type Outcome = { ok: true; job: JobRow } | { ok: false; status: 403 | 404
 const fail = (status: 403 | 404 | 409 | 422, message: string): Outcome => ({ ok: false, status, message });
 
 /** The card the board shows for a job. The language of a pushed card is the app's default (it goes to every subscriber). */
-export async function cardOf(ctx: JobCtx, branch: Branch, sdb: Db, job: JobRow) {
+export async function cardOf(ctx: Pick<JobCtx, "db">, branch: Branch, sdb: Db, job: JobRow) {
   const customer = await sdb.queryOne<{ name: string }>("select name from app__customers where id = ?", [job.customer_id]);
   const service = await ctx.db.queryOne<{ name_en: string }>("select name_en from app__services where id = ?", [job.service_id]);
   return {
@@ -132,11 +132,11 @@ export async function cardOf(ctx: JobCtx, branch: Branch, sdb: Db, job: JobRow) 
 }
 
 /** Publishes the job's card to the branch's board as out-of-band swaps (partials/job-card.html). */
-async function publishCard(ctx: JobCtx, branch: Branch, sdb: Db, job: JobRow): Promise<void> {
+async function publishCard(ctx: Pick<JobCtx, "db" | "realtime">, branch: Branch, sdb: Db, job: JobRow): Promise<void> {
   await ctx.realtime.publish(topicOf(branch.id), { fragment: "partials/job-card", data: { j: await cardOf(ctx, branch, sdb, job) } });
 }
 
-async function record(ctx: JobCtx, sdb: Db, branch: Branch, job: JobRow, from: JobStatus | null, to: JobStatus, note: string): Promise<void> {
+async function record(ctx: Pick<JobCtx, "principal">, sdb: Db, branch: Branch, job: JobRow, from: JobStatus | null, to: JobStatus, note: string): Promise<void> {
   const by = ctx.principal?.id ?? null;
   await sdb.execute("insert into app__job_events (job_id, branch_id, at, by_user_id, from_status, to_status, note) values (?, ?, ?, ?, ?, ?, ?)", [job.id, branch.id, now(), by, from, to, note]);
   await audit.record({ action: "job.transition", actor: { kind: "user", id: by ?? "unknown" }, resource: { type: "Job", id: job.id }, details: { number: job.number, from, to, note } });
@@ -228,16 +228,32 @@ export async function createJob(ctx: JobCtx, input: NewJob): Promise<Outcome> {
     const live = await sdb.queryOne<{ number: string }>("select number from app__jobs where quote_id = ? and status != 'cancelled'", [input.quote_id]);
     if (live !== null) return fail(409, `Job ${live.number} already exists for this quotation.`);
   }
+  return insertJob(ctx, branch, sdb, { site, serviceId: service.id, quoteId: input.quote_id, priority: input.priority, description: input.description, by: userId, note: input.quote_id === null ? "created" : "created from a quotation" });
+}
+
+/**
+ * Writes a `new` job (the next company-wide number, the first timeline event,
+ * the audit record) and publishes its card. The caller has checked the site,
+ * the service and the quotation. `by` is the user the job is made for
+ * (`created_by`: who is told about it later); the scheduled job of a contract
+ * (lib/contracts.ts) uses the contract's creator and has no principal.
+ */
+export async function insertJob(
+  ctx: Pick<JobCtx, "db" | "principal" | "realtime">,
+  branch: Branch,
+  sdb: Db,
+  j: { site: { id: string; customer_id: string }; serviceId: number; quoteId: string | null; priority: Priority; description: string; by: string; note: string },
+): Promise<Outcome & { ok: true }> {
   const id = newId();
   const n = await ctx.db.execute("insert into app__job_numbers (job_id) values (?)", [id]);
   const number = `J-${String(Number(n.lastInsertRowid)).padStart(6, "0")}`;
   const t = now();
   await sdb.execute(
     "insert into app__jobs (id, branch_id, customer_id, site_id, quote_id, number, status, priority, service_id, description, created_by, created_at, updated_at) values (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?)",
-    [id, branch.id, site.customer_id, site.id, input.quote_id, number, input.priority, service.id, input.description, userId, t, t],
+    [id, branch.id, j.site.customer_id, j.site.id, j.quoteId, number, j.priority, j.serviceId, j.description, j.by, t, t],
   );
   const job = (await findJob(sdb, id)) as JobRow;
-  await record(ctx, sdb, branch, job, null, "new", input.quote_id === null ? "created" : "created from a quotation");
+  await record(ctx, sdb, branch, job, null, "new", j.note);
   await publishCard(ctx, branch, sdb, job);
   return { ok: true, job };
 }

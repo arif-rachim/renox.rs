@@ -352,7 +352,8 @@
       "reference": "Reference",
       "cheque_number": "Cheque number",
       "cheque_date": "Cheque date",
-      "reason": "Reason"
+      "reason": "Reason",
+      "contract": "Contract"
     },
     "pay": {
       "title": "Record a payment",
@@ -376,6 +377,76 @@
       "cheque_number": "A cheque needs its number.",
       "reason": "Give a reason of 3 to 200 characters.",
       "overpay": "The payment is more than the balance of the invoice."
+    }
+  },
+  "contracts": {
+    "title": "Maintenance contracts",
+    "back": "All contracts",
+    "new": "New contract",
+    "create": "Create the draft",
+    "none": "No contracts found.",
+    "filter": "Filter",
+    "cancel": "Cancel the contract",
+    "items": "Services and sites",
+    "add_item": "Add a service at a site",
+    "remove": "Remove",
+    "no_items": "No items yet.",
+    "visits": "Visits made",
+    "no_visits": "No visits yet. The daily job makes each visit as a job 14 days before it falls due.",
+    "pdf_en": "Contract (English PDF)",
+    "pdf_ar": "Contract (Arabic PDF)",
+    "price_hint": "The yearly price before VAT. The tax invoice adds 5 % VAT; a contract with no price issues no invoice.",
+    "status": {
+      "draft": "Draft",
+      "active": "Active",
+      "expired": "Expired",
+      "cancelled": "Cancelled"
+    },
+    "f": {
+      "number": "Contract",
+      "customer": "Customer",
+      "status": "Status",
+      "term": "Term",
+      "price": "Price (AED)",
+      "price_year": "Yearly price before VAT (AED)",
+      "vat": "VAT",
+      "total": "Total with VAT",
+      "items": "Items",
+      "item": "Item",
+      "site": "Site",
+      "service": "Service",
+      "visits": "Visits a year",
+      "next_visit": "Next visit due",
+      "due": "Due",
+      "job": "Job",
+      "starts": "Starts on",
+      "ends": "Ends on (blank: one year)",
+      "notes": "Notes",
+      "invoice": "Upfront invoice",
+      "renewed_from": "Renews",
+      "renewal": "Renewed by"
+    },
+    "activate": {
+      "title": "Activate",
+      "hint": "Activating issues the upfront tax invoice for the yearly price (needs a recent second factor and the right to issue invoices) and starts the visits.",
+      "submit": "Activate the contract"
+    },
+    "renew": {
+      "title": "Renew",
+      "hint": "Makes a draft for the next year with the same items and price.",
+      "submit": "Renew for the next year"
+    },
+    "err": {
+      "customer": "Choose a customer of this branch.",
+      "date": "Enter a date as YYYY-MM-DD.",
+      "term": "The contract cannot end before it starts.",
+      "price": "Enter the yearly price in AED, for example 2400 or 2400.50.",
+      "notes": "Notes are at most 1000 characters.",
+      "site": "Choose a site of this customer.",
+      "service": "Choose a service.",
+      "visits": "Enter 1 to 52 visits a year.",
+      "item": "Unknown item.",
+      "no_items": "Add at least one service and site before activating."
     }
   },
   "invoice_page": {

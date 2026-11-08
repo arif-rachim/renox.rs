@@ -34,13 +34,15 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
   const doc = await documentOf(invoice.invoice_id);
   if (doc === null) return null;
   const customer = await findCustomer(sdb, invoice.customer_id);
-  const job = await sdb.queryOne<{ number: string }>("select number from app__jobs where id = ?", [invoice.job_id]);
+  // An invoice is a job's, or a maintenance contract's upfront invoice (no job).
+  const job = invoice.job_id === null ? null : await sdb.queryOne<{ number: string }>("select number from app__jobs where id = ?", [invoice.job_id]);
+  const contract = await sdb.queryOne<{ id: string; number: string }>("select c.id, c.number from app__job_invoices i join app__contracts c on c.id = i.contract_id where i.invoice_id = ?", [invoice.invoice_id]);
   const open = invoice.status === "issued" || invoice.status === "part-paid";
   const canPay = open && (await ctx.authz.can("invoice.pay"));
   const canIssue = invoice.status !== "credited" && (await ctx.authz.can("invoice.issue"));
   const lang = customer?.language === "ar" ? "ar" : "en";
   return {
-    invoice: { ...invoiceView(invoice), job_number: job?.number ?? "" },
+    invoice: { ...invoiceView(invoice), job_number: job?.number ?? contract?.number ?? "", origin: contract === null ? "job" : "contract", origin_href: contract === null ? `/jobs/${invoice.job_id}` : `/contracts/${contract.id}` },
     customer: customer === null ? null : { id: customer.id, name: customer.name, language: customer.language },
     document: documentView(doc, locale === "ar" ? "ar" : "en"),
     payments: (await paymentsOf(sdb, invoice.invoice_id)).map(paymentView),

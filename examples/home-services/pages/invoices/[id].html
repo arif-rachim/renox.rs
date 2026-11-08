@@ -6,8 +6,8 @@
   <dl class="detail">
     <dt><r-t key="invoices.f.customer" /></dt>
     <dd><a r-if="customer" :href="'/customers/' ~ customer.id">{{ customer.name }}</a></dd>
-    <dt><r-t key="invoices.f.job" /></dt>
-    <dd dir="ltr"><a :href="'/jobs/' ~ invoice.job_id">{{ invoice.job_number }}</a></dd>
+    <dt r-if="invoice.job_id"><r-t key="invoices.f.job" /></dt><dt r-else><r-t key="invoices.f.contract" /></dt>
+    <dd dir="ltr"><a :href="invoice.origin_href">{{ invoice.job_number }}</a></dd>
     <dt><r-t key="invoices.f.issued" /></dt>
     <dd dir="ltr">{{ invoice.issued }}</dd>
     <dt><r-t key="invoices.f.due" /></dt>

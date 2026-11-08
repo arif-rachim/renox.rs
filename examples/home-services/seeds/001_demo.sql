@@ -375,3 +375,18 @@ insert or ignore into app__job_invoices (job_id, branch_id, customer_id, invoice
 
 insert or ignore into app__payments (id, branch_id, invoice_id, method, amount_fils, received_at, reference, cheque_number, cheque_date, recorded_by, created_at) values
   (1, 'br_dubai', 'INV-000001', 'cheque', 15000, (cast(strftime('%s', 'now', '-3 days') as integer)), 'First instalment', '000123', '2026-11-05', 'u_dxb_accountant', (cast(strftime('%s', 'now', '-3 days') as integer)));
+
+-- Maintenance contracts (F7-126): one active contract per branch, a property
+-- manager each. Days are Dubai days relative to the day the seed is loaded, and
+-- every next visit is more than 14 days away, so the visits job makes no job
+-- until a test (or the calendar) brings one due. No upfront invoice is seeded.
+insert or ignore into app__contract_numbers (n, contract_id) values (1, 'ct_seed_01'), (2, 'ct_seed_02');
+
+insert or ignore into app__contracts (id, branch_id, customer_id, number, status, starts_on, ends_on, price_fils, vat_rate, billing, notes, invoice_id, renewed_from, renewal_notified_on, created_by, created_at, activated_at) values
+  ('ct_seed_01', 'br_dubai', 'cu_dxb_04', 'AMC-000001', 'active', date('now', '+4 hours', '-60 days'), date('now', '+4 hours', '-60 days', '+364 days'), 480000, 5, 'upfront', 'Monthly AC service of Tower A, quarterly pest control of Tower B.', null, null, null, 'u_dxb_dispatcher', cast(strftime('%s', 'now', '-60 days') as integer), cast(strftime('%s', 'now', '-60 days') as integer)),
+  ('ct_seed_02', 'br_sharjah', 'cu_shj_04', 'AMC-000002', 'active', date('now', '+4 hours', '-30 days'), date('now', '+4 hours', '-30 days', '+364 days'), 240000, 5, 'upfront', 'Twice a year deep cleaning of the main tower.', null, null, null, 'u_shj_dispatcher', cast(strftime('%s', 'now', '-30 days') as integer), cast(strftime('%s', 'now', '-30 days') as integer));
+
+insert or ignore into app__contract_items (id, contract_id, branch_id, site_id, service_id, visits_per_year, next_visit_on) values
+  (1, 'ct_seed_01', 'br_dubai', 'st_dxb_04a', (select id from app__services where code = 'AC-SERVICE'), 12, date('now', '+4 hours', '+20 days')),
+  (2, 'ct_seed_01', 'br_dubai', 'st_dxb_04b', (select id from app__services where code = 'PEST'), 4, date('now', '+4 hours', '+50 days')),
+  (3, 'ct_seed_02', 'br_sharjah', 'st_shj_04a', (select id from app__services where code = 'DEEP-CLEAN'), 2, date('now', '+4 hours', '+40 days'));

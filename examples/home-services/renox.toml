@@ -36,7 +36,7 @@ sensitive = ["invoice.issue", "invoice.pay", "settings.write"]
 [authz.default_roles]
 owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.write"]
 branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "contract.read", "contract.write", "report.view"]
-dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read"]
+dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read", "contract.write"]
 technician = ["job.read", "visit.perform"]
 accountant = ["invoice.read", "invoice.issue", "invoice.pay", "report.view", "customer.read", "job.read", "contract.read"]
 
@@ -77,6 +77,13 @@ app__tasks = { owner = "branch_id" }
 # with an explicit branch_id (lib/invoices.ts).
 app__job_invoices = { owner = "branch_id" }
 app__payments = { owner = "branch_id" }
+
+# Maintenance contracts, their items and the visits made for them (F7-126), the
+# same way (each row repeats the contract's branch_id). app__contract_numbers is
+# the company-wide sequence, not owned.
+app__contracts = { owner = "branch_id" }
+app__contract_items = { owner = "branch_id" }
+app__contract_jobs = { owner = "branch_id" }
 
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }

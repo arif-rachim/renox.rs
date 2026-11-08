@@ -28,7 +28,8 @@ export type InvoiceStatus = (typeof STATUSES)[number];
 
 export type InvoiceRow = {
   invoice_id: string;
-  job_id: string;
+  /** null for a maintenance contract's upfront invoice (the contract is in app__job_invoices.contract_id). */
+  job_id: string | null;
   branch_id: string;
   customer_id: string;
   total_fils: number;

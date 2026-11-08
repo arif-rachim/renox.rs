@@ -28,6 +28,11 @@ export async function branchOf(ctx: BranchCtx): Promise<Branch | null> {
   return ctx.db.queryOne<Branch>("select id, org_id, name_en, name_ar, slug, emirate, area from app__branches where org_id = ?", [orgId]);
 }
 
+/** The branch with this id: for scheduled jobs, which have no principal and so no active organisation. */
+export async function branchById(db: DbStatements, id: string): Promise<Branch | null> {
+  return db.queryOne<Branch>("select id, org_id, name_en, name_ar, slug, emirate, area from app__branches where id = ?", [id]);
+}
+
 /**
  * `db` fenced to `branch`: app__customers and app__sites statements get
  * `branch_id = <branch>` added, and an insert must carry that branch_id.
