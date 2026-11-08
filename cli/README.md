@@ -164,7 +164,7 @@ With a `renox.lock`, `renox build` writes an artifact 1.1 (`docs/contracts/artif
 - **Overrides.** The app's `overrides/<name>/(pages|partials)/….html` are compiled in place of the original and carried with `overrides.json`, which holds the original's sha256 at the installed version. The app keeps its own `overrides.json` at the project root: the hash each override was made against. When the module's original no longer has that hash, `renox build` warns with a unified diff of the override against the new original ("Template override drifted"), and `renox check` reports it: a warning, or an error with `--strict`. Fix the override, then delete its entry from the root `overrides.json` to record the new original.
 - **`modules`.** The manifest's `modules` field holds the lock entries, the manifest's permissions, and the exports (service names, event payload schemas, hook names, views).
 
-`renox check` also compares what each module's code uses against the manifests (`docs/23-failure-modes.md`, "Module contract broken on upgrade"; MF7):
+`renox check` also compares what each module's code uses against the manifests (`docs/23-failure-modes.md`, "Module contract broken on upgrade"; MF7). The code scan follows imported bindings only (`import { auth } from "renox:modules"`, then `auth.<service>`); comments and strings are not scanned:
 
 - every `renox:modules` import is a declared dependency (the app may import every installed module);
 - every `<dep>.<service>` call or `ctx.services.<dep>.<service>` is exported by the installed `<dep>` and listed in `[imports].services`;

@@ -8,6 +8,13 @@
 // the *test* artifact only: it imports `renox:modules` and calls the
 // service like any app code, so the broker's checks apply (it is not a
 // bypass). It never exists in what `renox build` or `renox deploy` produce.
+//
+// `runJob` (`t.job`, #593) writes a tick of a scheduled job into the tenant
+// file the way `renox jobs run` does. It is not a route: app code cannot
+// write `renox__*` tables (the SQLite authorizer refuses them), so the tick
+// is written from this process, and the test worker looks for due outbox
+// rows every `JOBS_POLL_MS` (`[jobs] poll_ms`, as `renox dev` does) to pick
+// it up.
 
 import { Database } from "bun:sqlite";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
@@ -15,6 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
 import { addModule } from "../commands/add.ts";
+import { ulid } from "../commands/jobs.ts";
 import { check, type CheckReport } from "../commands/check.ts";
 import { migrateArtifact, type MigrateReport } from "../commands/migrate.ts";
 import { EnvironmentError, UserError } from "../errors.ts";
@@ -40,6 +48,10 @@ export interface TestSpec {
 export const SERVICE_PATH = "/__renox_test/service";
 export const TEST_TENANT = "test";
 export const TEST_HOST = "test.localhost";
+/** How often the test worker looks for outbox rows written from another connection (a `runJob` tick). */
+export const JOBS_POLL_MS = 50;
+/** How long a connection of the harness waits for the worker's write lock. */
+export const BUSY_TIMEOUT_MS = 5000;
 
 const SERVICE_JS = `import * as modules from "renox:modules";
 export async function POST(ctx) {
@@ -241,6 +253,12 @@ export function testWorkerConfig(state: string, artifacts: string, port: number)
     `idle_timeout_secs = 600`,
     `meter_flush_ms = 1000`,
     `default_tier = "free"`,
+    // The scheduler as in production (enabled is the worker's default), and a
+    // poll for the ticks `runJob` writes from another connection (#593).
+    "",
+    "[jobs]",
+    "enabled = true",
+    `poll_ms = ${JOBS_POLL_MS}`,
     "",
   ].join("\n");
 }
@@ -306,6 +324,7 @@ export async function startTestWorker(spec: TestSpec): Promise<TestWorker> {
   const db = join(state, "data", TEST_TENANT, "app.db");
   if (spec.seeds.length) {
     const sqlite = new Database(db);
+    sqlite.exec(`pragma busy_timeout = ${BUSY_TIMEOUT_MS}`);
     try {
       for (const s of spec.seeds) sqlite.exec(readFileSync(s, "utf8"));
     } finally {
@@ -344,6 +363,51 @@ export async function startTestWorker(spec: TestSpec): Promise<TestWorker> {
       removeRetry(state);
     },
   };
+}
+
+/** The scheduled jobs of the test artifact, as `<module>:<name>`. */
+function jobsOf(spec: TestSpec): Set<string> {
+  const manifest = JSON.parse(readFileSync(join(spec.artifacts, spec.hash, "manifest.json"), "utf8")) as { routes: { kind: string; module?: string; name?: string }[] };
+  // The owner as the runtime reads it (`route_owner`): `modules/<name>/...` is a module's code, anything else the app's.
+  const owner = (code = ""): string => /^modules\/([^/]+)\//u.exec(code)?.[1] ?? "app";
+  return new Set(manifest.routes.filter((r) => r.kind === "job").map((r) => `${owner(r.module)}:${r.name}`));
+}
+
+/**
+ * A tick of the scheduled job `module`/`name` now, written into the tenant
+ * file `db` with the statements of `renox jobs run` (`runNow` in
+ * commands/jobs.ts): one `job:<name>` row of `renox__outbox` and the
+ * `job_tick:<module>:<name>` meta row, or the waiting row's tick moved
+ * (coalescing). An IMMEDIATE transaction that waits on the worker's lock.
+ * Returns the row id and its attempts so far (a coalesced row may have
+ * failed before).
+ */
+export function runJob(spec: TestSpec, db: string, module: string, name: string, now = Date.now()): { id: string; attempts: number } {
+  const jobs = jobsOf(spec);
+  if (!jobs.has(`${module}:${name}`)) {
+    const known = [...jobs].sort().join(", ") || "none";
+    throw new UserError(`no scheduled job ${name} in ${module === "app" ? "the app" : `module ${module}`} (jobs: ${known})`);
+  }
+  const sqlite = new Database(db);
+  sqlite.exec(`pragma busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  try {
+    return sqlite.transaction(() => {
+      const key = `job_tick:${module}:${name}`;
+      const tick = sqlite.query("select value from renox__outbox_meta where key = ?").get(key) as { value: number } | null;
+      const waiting = sqlite.query("select id, attempts from renox__outbox where name = ? and target = ? and payload = 'null'").get(`job:${name}`, module) as { id: string; attempts: number } | null;
+      if (tick !== null && waiting) {
+        sqlite.query("update renox__outbox_meta set value = max(value, ?) where key = ?").run(now, key);
+        sqlite.query("update renox__outbox set next_at = min(next_at, ?) where id = ?").run(now, waiting.id);
+        return waiting;
+      }
+      const id = ulid(now);
+      sqlite.query("insert into renox__outbox (id, target, name, payload, module, created_at, attempts, next_at) values (?, ?, ?, 'null', ?, ?, 0, ?)").run(id, module, `job:${name}`, module, now, now);
+      sqlite.query("insert into renox__outbox_meta (key, value) values (?, ?) on conflict (key) do update set value = excluded.value").run(key, now);
+      return { id, attempts: 0 };
+    }).immediate();
+  } finally {
+    sqlite.close();
+  }
 }
 
 /** What installing or upgrading a module reported. */
