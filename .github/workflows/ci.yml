@@ -637,7 +637,7 @@ jobs:
         run: bun cli/scripts/build-hash.ts examples/hello examples/npm-compat > hashes-windows.txt
       # #532: the pinned renox-worker.exe of worker-v<WORKER_VERSION>, checked
       # against PINNED_WORKER, runs renox dev and renox test natively.
-      - name: renox dev and renox test of examples/hello with the pinned worker
+      - name: renox dev of examples/hello, renox test of hello and shop, with the pinned worker
         env:
           RENOX_WORKER_PATH: ""
         run: |
@@ -659,6 +659,9 @@ jobs:
           taskkill //F //T //PID "$(cat "/proc/$pid/winpid")" > /dev/null 2>&1 || kill "$pid" 2>/dev/null || true
           echo "--- renox dev output"; cat "$RUNNER_TEMP/dev.log"
           [[ "$code" == 200 && "$body" == '{"ok":true}' ]]
+          bun "$cli" test
+          # #442: the shop's tests too (modules, pages, the e2e build).
+          cd ../shop
           bun "$cli" test
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
