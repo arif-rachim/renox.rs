@@ -347,7 +347,12 @@ export async function requireRecent(ctx: TwofaCtx, opts: { within?: number; next
 }
 
 /** auth's principal hook filler: `mfa_verified` while this session's verification is within the step-up window. */
-export async function principalFiller(ctx: TwofaCtx, args: { principal: { id: string; attrs: Record<string, unknown> } }): Promise<undefined> {
+export async function principalFiller(ctx: TwofaCtx, args: { principal: { id: string; attrs: Record<string, unknown> }; agent?: boolean }): Promise<undefined> {
+  // An agent token (#590): no request and no session to read, and never a second factor.
+  if (args.agent === true) {
+    args.principal.attrs.mfa_verified = false;
+    return undefined;
+  }
   const s = await session();
   if (s === null || s.user.id !== args.principal.id) {
     args.principal.attrs.mfa_verified = false;

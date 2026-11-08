@@ -204,3 +204,32 @@ describe.skipIf(!worker)("2fa", () => {
     }
   });
 });
+
+// #590: an agent token's principal runs auth.principal without a request
+// (the cell's /mcp check); the 2fa filler must not need a session there,
+// and an agent never counts as mfa_verified.
+describe.skipIf(!worker)("2fa and an agent token", () => {
+  test("an agent token works on /mcp with the 2fa filler installed; mfa_verified stays false", async () => {
+    const REDIRECT = "https://agent.example/callback";
+    const VERIFIER = "agent-verifier-0123456789abcdefghijklmnopqrstuvwxyz";
+    const omar = t.as("omar");
+    await omar.action("/auth/register", "default", { email: "omar@example.com", password: PASSWORD, display_name: "Omar" });
+    expect(authCookie(await omar.action("/auth/login", "default", { email: "omar@example.com", password: PASSWORD, next: "/" }))).toBe(true);
+    const reg = await t.request("POST", "/auth/oauth/register", { body: { client_name: "Agent", redirect_uris: [REDIRECT] } });
+    const clientId = reg.json<{ client_id: string }>().client_id;
+    const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(VERIFIER)));
+    const challenge = btoa(String.fromCharCode(...d)).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+    const allow = await omar.action("/auth/oauth/consent", "allow", { response_type: "code", client_id: clientId, redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256" });
+    expect(allow.status).toBe(303);
+    const code = new URL(allow.headers.get("location") as string).searchParams.get("code") as string;
+    const tok = await t.request("POST", "/auth/oauth/token", {
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: clientId, code_verifier: VERIFIER }).toString(),
+    });
+    expect(tok.status).toBe(200);
+    const token = tok.json<{ access_token: string }>().access_token;
+    const list = await t.request("POST", "/mcp", { headers: { authorization: `Bearer ${token}` }, body: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} } });
+    expect(list.status).toBe(200);
+    expect(JSON.stringify(t.logs())).not.toContain("auth.currentSession threw");
+  });
+});
