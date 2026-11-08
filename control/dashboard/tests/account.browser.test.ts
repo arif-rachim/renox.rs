@@ -258,7 +258,7 @@ describe.skipIf(skip)("device approval and tokens in Chromium", () => {
     await s.p.waitForSelector("#device-request:not([hidden])");
     expect(await s.p.textContent("#device-user-code")).toBe(code);
     expect(await s.p.textContent("#device-name")).toStartWith("renox CLI on ");
-    expect(await s.p.locator('#device-scopes input[name="scope"]').count()).toBe(10);
+    expect(await s.p.locator('#device-scopes input[name="scope"]').count()).toBe(11);
     expect(await s.p.isChecked('#device-scopes input[value="registry:publish"]')).toBe(true);
     await s.p.click('#device-scopes input[value="registry:publish"]');
     await s.p.click("#device-approve");
