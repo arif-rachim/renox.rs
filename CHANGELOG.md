@@ -2,6 +2,20 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.9 (unreleased)
+
+**Worker**
+
+- `r-can` inside a `ctx.render` fragment answers for the request's principal against the deployment's policies, as on a page: a permitted principal sees the block, others and anonymous do not; realtime fragments still deny (`ops.md` section 25) (#603).
+- Scheduled jobs and event handlers get `ctx.db.scoped(scope)`: the run's statements carry the scope and are fenced as on a request (owner predicate, `RENOX_DB_SCOPE` `owner_mismatch`); the scope is explicit, never derived from the System principal (`ops.md` 1.11.0) (#612).
+- The gateway answers no CORS preflight (405, `Allow: GET, HEAD, PUT`) and adds no `Access-Control-*` header for `PUT /_files/`, whatever `security.cors` says: signed uploads stay same origin (`ops.md` section 21) (#607).
+- The seccomp allowlist includes `pkey_mprotect` and `pkey_free`, which V8 calls on CPUs with memory protection keys; a worker under `[sandbox] mode = "enforce"` on such a host was killed with SIGSYS (#608).
+- App MCP: a `confirm: true` tool whose preview returns an object with a top-level `error` gets a tool error (`isError: true`, the object as structured content) and no confirmation token (#609).
+
+**SDK**
+
+- `JobContext.db` and `EventContext.db` are the new `TxDb` (statements plus `scoped`, no `transaction`), so `ctx.db.scoped(...)` type-checks in jobs and event handlers (#612).
+
 ## 0.1.8 (2026-11-08)
 
 **Worker**
