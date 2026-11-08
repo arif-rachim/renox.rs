@@ -12,6 +12,7 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 | `renox test` | Run TS tests in the production runtime, including policy test cases and per-role template snapshots |
 | `renox deploy` | Bundle, upload, validate, activate; `--rollback <hash>` |
 | `renox logs --follow` | Tenant logs |
+| `renox apps list` / `rm <name>` / `restore <name>` | The tenant's apps. `rm` stops serving an app at once (type its name again, or `--yes`); `restore` brings it back within 7 days, then it is purged with its deployments, secrets and its own database (a database shared with the tenant's other apps is never touched; deploy-api.md 0.7 section 3). `list --deleted` shows what can still be restored |
 | `renox authz explain` | Explain a policy decision |
 | `renox db export` / `import` / `restore` | Download the production database; import a file into a staging app; restore a point in time into a new app. The local database of `renox dev` is `.renox/data/dev/app.db`, a plain SQLite file any SQLite client opens |
 | `renox <command> --help` | The usage of any command; an unknown command or flag is named, with a suggestion |

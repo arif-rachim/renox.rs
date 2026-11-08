@@ -33,6 +33,9 @@ Deploy and operate:
   domains list [--app <name>] [--json]
   domains status <hostname> [--app <name>] [--json]
   domains rm <hostname> [--app <name>] [--json]
+  apps list [--deleted] [--json]
+  apps rm <name> [--yes] [--json]
+  apps restore <name> [--json]
   tokens list
   tokens create <name> --scope <s>... [--expires-days <n>]
   tokens revoke <id>

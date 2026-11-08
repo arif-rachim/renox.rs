@@ -25,6 +25,9 @@ export interface App {
   created_at: number;
   active_deployment: string | null;
   hostnames: string[];
+  /** 0.7 (#536): only in `listApps?deleted=true`. */
+  deleted_at?: number;
+  restorable_until?: number;
 }
 
 export type DeploymentState = "uploaded" | "validated" | "rejected" | "activating" | "active" | "superseded" | "suspended" | "pruned";
@@ -70,6 +73,8 @@ export interface TenantView {
   first_deploy_at?: number | null;
   restrictions?: string[];
   erasure: { state: "pending" | "erasing" | "done" | "failed"; requested_at: number; completed_at: number | null; failure: string | null; replica_purged_at?: number | null } | null;
+  /** 0.7 (#536): the tenant-wide permissions the caller holds; absent from an older API. */
+  permissions?: string[];
 }
 
 /** `getMfa` (deploy-api.md 0.4 section 18): with a token, `session_state` is null and `verified_at` is the token's own. */
@@ -496,6 +501,21 @@ export class Api {
 
   listApps(): Promise<Result<{ apps: App[] }>> {
     return this.json("GET", "/v1/apps");
+  }
+
+  /** `listApps?deleted=true` (deploy-api.md 0.7 section 3, #536): the deleted apps still restorable. */
+  listDeletedApps(): Promise<Result<{ apps: App[] }>> {
+    return this.json("GET", "/v1/apps?deleted=true");
+  }
+
+  /** `deleteApp` (0.7): stops serving now; restorable for 7 days. */
+  deleteApp(app: string): Promise<Result<{ name: string; deleted_at: number; restorable_until: number }>> {
+    return this.json("DELETE", `/v1/apps/${encodeURIComponent(app)}`, { confirm: app });
+  }
+
+  /** `restoreApp` (0.7): within the 7 days. */
+  restoreApp(app: string): Promise<Result<App>> {
+    return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/restore`);
   }
 
   createApp(name: string): Promise<Result<App>> {

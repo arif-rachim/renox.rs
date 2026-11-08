@@ -87,7 +87,7 @@ The permission each operation needs is `ROUTE_PERMISSIONS` in `src/tenancy/roles
 
 ### Roles
 
-The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table against it). The five permissions below the line are held by signed-in users only, never by a token. Ownership moves only by an owner transfer, which the owner proposes and the new owner accepts.
+The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table against it). `team:read`, `team:write`, `billing` and `tenant:delete` are held by signed-in users only, never by a token (`billing` with the owner-token exception below); `apps:delete` is a token scope from deploy-api.md 0.7 (#536). Ownership moves only by an owner transfer, which the owner proposes and the new owner accepts.
 
 | Permission | owner | admin | developer | viewer |
 | --- | --- | --- | --- | --- |
@@ -108,6 +108,10 @@ The matrix (source: `MATRIX` in `src/tenancy/roles.ts`; a test checks this table
 | `tenant:delete` | yes | — | — | — |
 
 `deploy` covers upload, sourcemaps, activate and rollback; `secrets:read` lists names only. `billing` (deploy-api.md 0.5.1, "Owner token rule") is the owner's session or a token the owner created; a member's, bootstrap, impersonation or app-scoped token is 403, and with a token the payment-method operations and a change to a paid plan need a second factor in the last 15 minutes. A developer's `tokens:write` lists and revokes their own tokens; owners and admins see all of the tenant's. Deploying needs a verified email address.
+
+### Deleting one app
+
+`src/apps/delete.ts`, `src/apps/purge.ts` (#536; deploy-api.md 0.7 section 3): `DELETE /v1/apps/{app}` (`deleteApp`, `apps:delete`, `{ confirm: "<app>" }`) sets `apps.deleted_at` (migration `0033_apps_deleted.sql`), removes the app's route entries in one delta, deletes its Cloudflare custom hostnames and detaches its domains, and answers `{ name, deleted_at, restorable_until }`. A deleted app is 404 on every app endpoint (`requireApp`), absent from `listApps` and listed by `listApps?deleted=true`; its name stays reserved. `POST /v1/apps/{app}/restore` (`restoreApp`) within 7 days clears `deleted_at` and re-publishes the active deployment. `sweepAppDeletions` (every 10 minutes in `main.ts`) purges an app 7 days after its deletion: its own database on the nodes (`nodeDropTenant?database=…&purge_replica=true`, retried while a node does not answer), the remaining custom hostnames, then its rows, its unshared artifacts, source maps and exports; the name goes to quarantine (`src/apps/slugs.ts`). Meters and audit rows stay. 409 while a restore or an import holds the app (`src/apps/busy.ts`, per API process) or the tenant moves.
 
 ### Account endpoints
 

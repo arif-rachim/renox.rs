@@ -94,7 +94,7 @@ export function registerSecrets(app: Hono<Env>, deps: Deps): void {
     const hash = pathParam(c, "hash", "Sha256");
     const version = Number(c.req.query("version"));
     if (!Number.isInteger(version) || version < 0) throw invalid("version", "must be a non-negative integer");
-    const owners = await db.query<{ tenant_id: string }>("select tenant_id from apps where name = $1", [appName]);
+    const owners = await db.query<{ tenant_id: string }>("select tenant_id from apps where name = $1 and deleted_at is null", [appName]);
     const tenant = owners[0]?.tenant_id;
     if (tenant === undefined) throw notFound();
     const d: DeploymentRow = await requireDeployment(db, tenant, appName, hash);

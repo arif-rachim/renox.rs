@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
-// renox: new, build, dev, check, authz, mcp, login, tokens, deploy, logs, secrets, domains, db. docs/12-developer-experience.md.
+// renox: new, build, dev, check, authz, mcp, login, tokens, deploy, logs, secrets, domains, apps, db. docs/12-developer-experience.md.
 // Exit codes: src/errors.ts and cli/README.md, "Exit codes".
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { run as add } from "./commands/add.ts";
+import { run as apps } from "./commands/apps.ts";
 import { run as authz } from "./commands/authz.ts";
 import { run as build } from "./commands/build.ts";
 import { run as check } from "./commands/check.ts";
@@ -37,7 +38,7 @@ const VERSION_LINE = `renox ${CLI_VERSION} (renox-worker ${PINNED_WORKER.version
 /** The whole help, grouped (lib/usage.ts, #449). */
 const USAGE = overview(VERSION_LINE.replace(/^renox /u, ""));
 
-const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, jobs, test, mcp, publish, approve, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), domains: (a) => domains(a), db: (a) => db(a) };
+const COMMANDS: Record<string, (args: string[]) => number | Promise<number>> = { new: newApp, build, dev, check, add, authz, remove, migrate, jobs, test, mcp, publish, approve, login: (a) => login(a), tokens: (a) => tokens(a), deploy: (a) => deploy(a), logs: (a) => logs(a), secrets: (a) => secrets(a), domains: (a) => domains(a), apps: (a) => apps(a), db: (a) => db(a) };
 
 /**
  * dev, test and migrate always run the worker. build needs it for .html files

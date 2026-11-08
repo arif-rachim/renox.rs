@@ -226,7 +226,11 @@
       "stat_live": "apps live",
       "stat_requests": "requests today (UTC)",
       "stat_storage": "database storage used",
-      "from_template": "From a template"
+      "from_template": "From a template",
+      "deleted_h": "Deleted apps",
+      "deleted_until": "Deleted, restorable until {at}",
+      "restore": "Restore",
+      "restored": "{name} is restored and served again."
     },
     "new": {
       "is_live": "is live",
@@ -303,7 +307,12 @@
       "erasure_pending": "Requested: it starts within the hour.",
       "erasure_erasing": "In progress: routes, tokens, the node's copy, the replica, exports and records are being deleted.",
       "erasure_done": "Done: the tenant's data is gone from the node, the replica store and the exports.",
-      "erasure_failed": "A step still failed after 24 hours; an operator has been alerted."
+      "erasure_failed": "A step still failed after 24 hours; an operator has been alerted.",
+      "app_delete_h": "Delete this app",
+      "app_delete_explain": "Deleting the app stops serving it now and detaches its custom domains. You can restore it for 7 days from the apps page or with renox apps restore; after that it is purged with its deployments, secrets and its own database.",
+      "app_delete_type": "Type the app name to confirm",
+      "app_delete_button": "Delete this app",
+      "app_delete_mismatch": "The name you typed is not the app name; nothing was deleted."
     },
     "domains": {
       "intro": "Serve the app on your own hostname. Use a name such as www.example.com; for the bare domain, redirect it to www at your registrar.",

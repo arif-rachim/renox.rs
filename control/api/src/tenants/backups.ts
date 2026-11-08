@@ -23,6 +23,7 @@ import type { Deps, Env } from "../context.ts";
 import type { Db } from "../db/db.ts";
 import { pathParam } from "../http.ts";
 import { requireApp } from "../apps/repo.ts";
+import { holdingApps } from "../apps/busy.ts";
 import { tenantDb } from "../tenancy/scope.ts";
 import { lastFailover, nodeCall, nodeTarget } from "../workers/failover.ts";
 import { recordReplication } from "../workers/health.ts";
@@ -48,7 +49,7 @@ const lastSeen = new WeakMap<Deps, Map<string, NodeStatus>>();
 
 /** The database id of an app (deploy-api.md section 3): its own, or the tenant's shared file. */
 export async function databaseOf(db: Db, tenantId: string, app: string): Promise<string> {
-  const rows = await db.query<{ database: string | null }>("select database from apps where tenant_id = $1 and name = $2", [tenantId, app]);
+  const rows = await db.query<{ database: string | null }>("select database from apps where tenant_id = $1 and name = $2 and deleted_at is null", [tenantId, app]);
   return rows[0]?.database ?? tenantId;
 }
 
@@ -231,75 +232,81 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const body = await jsonBody<{ timestamp: number; target: "new_app"; name: string }>(c, "RestoreRequest");
     const taken = await crossTenant(db, "app names are unique across the platform").query("select 1 from apps where name = $1", [body.name]);
     if (taken.length > 0) throw conflict("name", "not available");
-    const active = await db.query<{ hash: string }>("select hash from deployments where tenant_id = $1 and app = $2 and state = 'active'", [tenant, source.name]);
-    const hash = active[0]?.hash;
-    if (hash === undefined) throw conflict("app", "the source app has no active deployment");
-    const sourceDb = await databaseOf(db, tenant, source.name);
-    const database = `${tenant}.${body.name}`;
-    const { node, target } = await nodeOf(deps, db, tenant);
-    const res = await nodeCall(deps)(target, "POST", `/nodes/${node}/tenants/${tenant}/restore`, {
-      type: "restore_request",
-      schema_version: 0,
-      tenant_id: tenant,
-      database,
-      source_database: sourceDb,
-      timestamp: body.timestamp,
-      reason: "restore",
-      deadline_ms: 60_000,
-    }, 61_000).catch(() => ({ status: 0, body: null }));
-    if (res.status === 422) throw new ApiError("RENOX_RESTORE_POINT_UNKNOWN", [{ field: "timestamp", reason: "no generation covers it" }]);
-    if (res.status !== 200) throw unavailable("restore", res.status === 0 ? "node unreachable" : `node answered ${res.status}`);
-    const restored = res.body as { generation: string; restored_to: number | null };
-    const now = deps.now();
-    await db.transaction(async (tx) => {
-      await tx.query("insert into apps (name, tenant_id, created_at, staging, database) values ($1, $2, $3, false, $4)", [body.name, tenant, now, database]);
-      await tx.query("insert into secret_sets (app, tenant_id, version) values ($1, $2, 0)", [body.name, tenant]);
-      const [d] = await tx.query<{ size_bytes: unknown; manifest: unknown }>("select size_bytes, manifest from deployments where tenant_id = $1 and app = $2 and hash = $3", [tenant, source.name, hash]);
-      await tx.query("insert into deployments (tenant_id, app, hash, state, created_at, updated_at, size_bytes, manifest) values ($1, $2, $3, 'validated', $4, $4, $5, $6::text::jsonb)", [
-        tenant,
-        body.name,
-        hash,
-        now,
-        d?.size_bytes ?? 0,
-        JSON.stringify(d?.manifest ?? null),
-      ]);
-      for (const p of await tx.query<{ kind: string; value: string }>("select kind, value from permissions where tenant_id = $1 and app = $2 and hash = $3", [tenant, source.name, hash])) {
-        await tx.query("insert into permissions (tenant_id, app, hash, kind, value, approved_at) values ($1, $2, $3, $4, $5, $6)", [tenant, body.name, hash, p.kind, p.value, now]);
-      }
+    // 0.7 (#536): the source app cannot be deleted while its restore runs.
+    return holdingApps(deps, tenant, [source.name], "restore in progress", async () => {
+      const active = await db.query<{ hash: string }>("select hash from deployments where tenant_id = $1 and app = $2 and state = 'active'", [tenant, source.name]);
+      const hash = active[0]?.hash;
+      if (hash === undefined) throw conflict("app", "the source app has no active deployment");
+      const sourceDb = await databaseOf(db, tenant, source.name);
+      const database = `${tenant}.${body.name}`;
+      const { node, target } = await nodeOf(deps, db, tenant);
+      const res = await nodeCall(deps)(target, "POST", `/nodes/${node}/tenants/${tenant}/restore`, {
+        type: "restore_request",
+        schema_version: 0,
+        tenant_id: tenant,
+        database,
+        source_database: sourceDb,
+        timestamp: body.timestamp,
+        reason: "restore",
+        deadline_ms: 60_000,
+      }, 61_000).catch(() => ({ status: 0, body: null }));
+      if (res.status === 422) throw new ApiError("RENOX_RESTORE_POINT_UNKNOWN", [{ field: "timestamp", reason: "no generation covers it" }]);
+      if (res.status !== 200) throw unavailable("restore", res.status === 0 ? "node unreachable" : `node answered ${res.status}`);
+      const restored = res.body as { generation: string; restored_to: number | null };
+      const now = deps.now();
+      await db.transaction(async (tx) => {
+        await tx.query("insert into apps (name, tenant_id, created_at, staging, database) values ($1, $2, $3, false, $4)", [body.name, tenant, now, database]);
+        await tx.query("insert into secret_sets (app, tenant_id, version) values ($1, $2, 0)", [body.name, tenant]);
+        const [d] = await tx.query<{ size_bytes: unknown; manifest: unknown }>("select size_bytes, manifest from deployments where tenant_id = $1 and app = $2 and hash = $3", [tenant, source.name, hash]);
+        await tx.query("insert into deployments (tenant_id, app, hash, state, created_at, updated_at, size_bytes, manifest) values ($1, $2, $3, 'validated', $4, $4, $5, $6::text::jsonb)", [
+          tenant,
+          body.name,
+          hash,
+          now,
+          d?.size_bytes ?? 0,
+          JSON.stringify(d?.manifest ?? null),
+        ]);
+        for (const p of await tx.query<{ kind: string; value: string }>("select kind, value from permissions where tenant_id = $1 and app = $2 and hash = $3", [tenant, source.name, hash])) {
+          await tx.query("insert into permissions (tenant_id, app, hash, kind, value, approved_at) values ($1, $2, $3, $4, $5, $6)", [tenant, body.name, hash, p.kind, p.value, now]);
+        }
+      });
+      const by: Actor = { actor: actorOf(c.get("principal")), requestId: c.get("requestId"), now };
+      const deployment = await activate(deps, db, body.name, hash, by);
+      const [view] = await appViews(db, deps.config.platformDomain, [await requireApp(db, tenant, body.name)]);
+      await audited(deps, c, { app: source.name, new_app: body.name, timestamp: String(body.timestamp), generation: restored.generation });
+      await platformLine(deps, db, tenant, source.name, "restore", `restore of ${sourceDb} as of ${body.timestamp} into ${body.name}`);
+      return c.json({ app: view, deployment: deploymentView(deployment), source_app: source.name, database, generation: restored.generation, restored_to: restored.restored_to }, 201);
     });
-    const by: Actor = { actor: actorOf(c.get("principal")), requestId: c.get("requestId"), now };
-    const deployment = await activate(deps, db, body.name, hash, by);
-    const [view] = await appViews(db, deps.config.platformDomain, [await requireApp(db, tenant, body.name)]);
-    await audited(deps, c, { app: source.name, new_app: body.name, timestamp: String(body.timestamp), generation: restored.generation });
-    await platformLine(deps, db, tenant, source.name, "restore", `restore of ${sourceDb} as of ${body.timestamp} into ${body.name}`);
-    return c.json({ app: view, deployment: deploymentView(deployment), source_app: source.name, database, generation: restored.generation, restored_to: restored.restored_to }, 201);
   });
 
   app.post("/v1/apps/:app/db/import", operation(deps, "importDatabase"), tenantAuth(deps, "apps:write"), async (c) => {
     const db = tenantDb(deps, c);
     const tenant = db.tenantId;
     const row = await requireApp(db, tenant, pathParam(c, "app", "AppName"));
-    const flags = await db.query<{ staging: boolean; database: string | null }>("select staging, database from apps where tenant_id = $1 and name = $2", [tenant, row.name]);
+    const flags = await db.query<{ staging: boolean; database: string | null }>("select staging, database from apps where tenant_id = $1 and name = $2 and deleted_at is null", [tenant, row.name]);
     if (flags[0]?.staging !== true || flags[0].database === null) throw new ApiError("RENOX_IMPORT_REJECTED", [{ field: "app", reason: "not a staging app" }]);
     await assertNotMoving(db, tenant);
-    const tierRows = await db.query<{ tier: "free" | "paid" }>("select tier from tenants where id = $1", [tenant]);
-    const bytes = await readBody(c, DB_QUOTA_BYTES[tierRows[0]?.tier ?? "free"]);
     const database = flags[0].database;
-    const { node, target } = await nodeOf(deps, db, tenant);
-    let res: Response;
-    try {
-      res = await fetchNode(deps, target, "PUT", `/nodes/${node}/tenants/${tenant}/import?database=${encodeURIComponent(database)}`, bytes);
-    } catch {
-      throw unavailable("node", "unreachable");
-    }
-    const answer = (await res.json().catch(() => null)) as { tables?: string[]; error?: { details?: { field: string; reason: string }[] } } | null;
-    if (res.status === 422) throw new ApiError("RENOX_IMPORT_REJECTED", answer?.error?.details ?? [{ field: "file", reason: "refused by the node" }]);
-    if (res.status === 413) throw new ApiError("RENOX_BODY_TOO_LARGE");
-    if (res.status !== 200) throw unavailable("node", `import answered ${res.status}`);
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    await audited(deps, c, { app: row.name, size_bytes: String(bytes.length), sha256 });
-    await platformLine(deps, db, tenant, row.name, "import", `import into ${database} (${bytes.length} bytes)`);
-    return c.json({ app: row.name, database, size_bytes: bytes.length, sha256, tables: answer?.tables ?? [] });
+    // 0.7 (#536): the app cannot be deleted while its import runs.
+    return holdingApps(deps, tenant, [row.name], "import in progress", async () => {
+      const tierRows = await db.query<{ tier: "free" | "paid" }>("select tier from tenants where id = $1", [tenant]);
+      const bytes = await readBody(c, DB_QUOTA_BYTES[tierRows[0]?.tier ?? "free"]);
+      const { node, target } = await nodeOf(deps, db, tenant);
+      let res: Response;
+      try {
+        res = await fetchNode(deps, target, "PUT", `/nodes/${node}/tenants/${tenant}/import?database=${encodeURIComponent(database)}`, bytes);
+      } catch {
+        throw unavailable("node", "unreachable");
+      }
+      const answer = (await res.json().catch(() => null)) as { tables?: string[]; error?: { details?: { field: string; reason: string }[] } } | null;
+      if (res.status === 422) throw new ApiError("RENOX_IMPORT_REJECTED", answer?.error?.details ?? [{ field: "file", reason: "refused by the node" }]);
+      if (res.status === 413) throw new ApiError("RENOX_BODY_TOO_LARGE");
+      if (res.status !== 200) throw unavailable("node", `import answered ${res.status}`);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      await audited(deps, c, { app: row.name, size_bytes: String(bytes.length), sha256 });
+      await platformLine(deps, db, tenant, row.name, "import", `import into ${database} (${bytes.length} bytes)`);
+      return c.json({ app: row.name, database, size_bytes: bytes.length, sha256, tables: answer?.tables ?? [] });
+    });
   });
 }
 

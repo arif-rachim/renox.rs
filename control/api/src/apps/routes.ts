@@ -2,11 +2,12 @@ import type { Hono } from "hono";
 import { operation } from "../audit.ts";
 import { tenantAuth } from "../auth/middleware.ts";
 import { tenantDb } from "../tenancy/scope.ts";
-import { conflict } from "../errors.ts";
+import { ApiError, conflict } from "../errors.ts";
 import { jsonBody, pathParam } from "../http.ts";
 import { num } from "../db/db.ts";
 import type { Deps, Env } from "../context.ts";
 import { appViews, requireApp } from "./repo.ts";
+import { deleteApp, listDeleted, restoreApp } from "./delete.ts";
 
 export function registerApps(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps", operation(deps, "createApp"), tenantAuth(deps, "apps:write"), async (c) => {
@@ -32,8 +33,12 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
 
   app.get("/v1/apps", operation(deps, "listApps"), tenantAuth(deps, "apps:read"), async (c) => {
     const db = tenantDb(deps, c);
+    // 0.7 (#536): `?deleted=true` lists the deleted apps still restorable.
+    const deleted = c.req.query("deleted");
+    if (deleted !== undefined && deleted !== "true" && deleted !== "false") throw new ApiError("RENOX_VALIDATION", [{ field: "deleted", reason: "must be true or false" }]);
+    if (deleted === "true") return c.json({ apps: await listDeleted(deps, db) });
     const rows = await db.query<{ name: string; tenant_id: string; created_at: unknown }>(
-      "select name, tenant_id, created_at from apps where tenant_id = $1 order by name",
+      "select name, tenant_id, created_at from apps where tenant_id = $1 and deleted_at is null order by name",
       [db.tenantId],
     );
     const apps = await appViews(
@@ -48,6 +53,24 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
     const db = tenantDb(deps, c);
     const row = await requireApp(db, db.tenantId, pathParam(c, "app", "AppName"));
     const [view] = await appViews(db, deps.config.platformDomain, [row]);
+    return c.json(view);
+  });
+
+  // 0.7 (#536): soft delete with a 7-day restore window (src/apps/delete.ts, purge.ts).
+  app.delete("/v1/apps/:app", operation(deps, "deleteApp"), tenantAuth(deps, "apps:delete"), async (c) => {
+    const db = tenantDb(deps, c);
+    const name = pathParam(c, "app", "AppName");
+    await requireApp(db, db.tenantId, name);
+    const body = await jsonBody<{ confirm: string }>(c, "DeleteAppRequest");
+    if (body.confirm !== name) throw new ApiError("RENOX_VALIDATION", [{ field: "confirm", reason: "must be the app name" }]);
+    const { result, removals } = await deleteApp(deps, db, name);
+    c.set("auditTarget", { deleted_at: String(result.deleted_at), restorable_until: String(result.restorable_until), routes_removed: String(removals.length) });
+    return c.json(result);
+  });
+
+  app.post("/v1/apps/:app/restore", operation(deps, "restoreApp"), tenantAuth(deps, "apps:delete"), async (c) => {
+    const db = tenantDb(deps, c);
+    const view = await restoreApp(deps, db, pathParam(c, "app", "AppName"));
     return c.json(view);
   });
 }

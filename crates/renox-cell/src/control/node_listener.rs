@@ -369,7 +369,20 @@ impl NodeListener {
             },
             (Method::DELETE, "") => {
                 let purge = query_param(&query, "purge_replica").is_some_and(|v| v == "true");
-                self.drop_tenant(&tenant, purge).await
+                // 0.7 (#536): `database=<tenant_id>.<app>` drops one app's own database only.
+                let database = query_param(&query, "database");
+                if let Some(d) = &database {
+                    if !database_of(&tenant, d) {
+                        return validation("database", "not a database of this tenant");
+                    }
+                    if d == &tenant {
+                        return validation(
+                            "database",
+                            "the tenant's shared file is dropped with the tenant only",
+                        );
+                    }
+                }
+                self.drop_tenant(&tenant, database.as_deref(), purge).await
             }
             (Method::POST, "move") => match read_json(req).await {
                 Ok(body) => self.move_tenant(&tenant, body).await,
@@ -495,10 +508,18 @@ impl NodeListener {
     /// deleted from the replica store (`replication::purge`). A store that
     /// fails is 503 `RENOX_BACKUP_UNAVAILABLE` and nothing is reported
     /// purged; the control plane retries.
-    async fn drop_tenant(&self, tenant: &str, purge: bool) -> Resp {
-        let drained = self.manager.drain_tenant(tenant);
+    ///
+    /// With `database` (0.7, the purge of one deleted app, #536): only the
+    /// cells that open that database drain, its file closes, and only its
+    /// generations are purged; the tenant's other databases keep serving.
+    async fn drop_tenant(&self, tenant: &str, database: Option<&str>, purge: bool) -> Resp {
+        let drained = match database {
+            Some(d) => self.manager.drain_database(d),
+            None => self.manager.drain_tenant(tenant),
+        };
+        let key = database.unwrap_or(tenant);
         let deadline = Instant::now() + Duration::from_secs(25);
-        while self.manager.db_open(tenant) && Instant::now() < deadline {
+        while self.manager.db_open(key) && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         if purge {
@@ -509,7 +530,7 @@ impl NodeListener {
                         r.section().stop_grace_ms.min(10_000),
                     ))
                     .await;
-                    crate::replication::purge::purge(r.section(), tenant).await
+                    crate::replication::purge::purge_scoped(r.section(), tenant, database).await
                 }
                 None => Ok(crate::replication::purge::Purged { deleted: 0 }),
             };
@@ -529,40 +550,44 @@ impl NodeListener {
                 .unwrap_or(0);
             tracing::info!(
                 tenant_id = tenant,
+                database = key,
                 cells_drained = drained,
                 generations = purged.deleted,
-                "tenant dropped and its replica purged (erasure)"
+                "dropped and its replica purged (erasure or app purge)"
             );
-            return json_response(
-                StatusCode::OK,
-                json!({
-                    "type": "tenant_dropped",
-                    "schema_version": 0,
-                    "node_id": self.node_id,
-                    "tenant_id": tenant,
-                    "cells_drained": drained,
-                    "file": "kept",
-                    "replica_generations_deleted": purged.deleted,
-                    "replica_purged_at": at,
-                }),
-            );
-        }
-        tracing::info!(
-            tenant_id = tenant,
-            cells_drained = drained,
-            "tenant dropped on request of the control plane (moved away)"
-        );
-        json_response(
-            StatusCode::OK,
-            json!({
+            let mut body = json!({
                 "type": "tenant_dropped",
                 "schema_version": 0,
                 "node_id": self.node_id,
                 "tenant_id": tenant,
                 "cells_drained": drained,
                 "file": "kept",
-            }),
-        )
+                "replica_generations_deleted": purged.deleted,
+                "replica_purged_at": at,
+            });
+            if let Some(d) = database {
+                body["database"] = json!(d);
+            }
+            return json_response(StatusCode::OK, body);
+        }
+        tracing::info!(
+            tenant_id = tenant,
+            database = key,
+            cells_drained = drained,
+            "dropped on request of the control plane"
+        );
+        let mut body = json!({
+            "type": "tenant_dropped",
+            "schema_version": 0,
+            "node_id": self.node_id,
+            "tenant_id": tenant,
+            "cells_drained": drained,
+            "file": "kept",
+        });
+        if let Some(d) = database {
+            body["database"] = json!(d);
+        }
+        json_response(StatusCode::OK, body)
     }
 
     /// `VACUUM INTO` a temporary file next to the tenant file (the cells

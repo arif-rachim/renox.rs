@@ -38,6 +38,8 @@ export const ACTIONS = [
   // deploy-api.md 0.5 section 19: the module registry.
   "registry:read",
   "registry:publish",
+  // deploy-api.md 0.7 section 3 (#536): deleteApp and restoreApp.
+  "apps:delete",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 

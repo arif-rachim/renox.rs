@@ -9,7 +9,9 @@ import { contentHash } from "@renox/artifact-validate";
 
 import { setOsvFetch } from "../../api/src/deployments/advisories.ts";
 import { helloArtifact, upload } from "../../api/tests/artifacts.ts";
-import { assertScoped, createApp_, registeredNode, scopedToken, tenant } from "../../api/tests/helpers.ts";
+import { addMember, assertScoped, createApp_, registeredNode, scopedToken, signup, tenant } from "../../api/tests/helpers.ts";
+import { createTenantToken } from "../../api/src/auth/tokens.ts";
+import { load as settingsLoad, actions as settingsActions } from "../pages/apps/[app]/settings.ts";
 import { load as appsLoad, actions as appsActions } from "../pages/apps/index.ts";
 import { load as overviewLoad, actions as overviewActions } from "../pages/apps/[app]/index.ts";
 import { load as deploymentsLoad, actions as deploymentsActions } from "../pages/apps/[app]/deployments.ts";
@@ -354,5 +356,60 @@ describe("secrets (3.9)", () => {
     expect(d.calls.sent.length).toBe(before);
     const r = data(await secretsActions.set(actionCtx(d, "/apps/hello/secrets", "set", { name: "KEY", value: VALUE }, { params: HELLO })));
     expect((r.action_problem as { status: number }).status).toBe(403);
+  });
+});
+
+/** #536 (deploy-api.md 0.7 section 3): "Delete this app" on the settings page, "Deleted apps" with Restore on /apps. */
+describe("delete and restore one app", () => {
+  test("the owner deletes from the settings page (typed name), goes to /apps, sees it restorable, and restores it", async () => {
+    const { d } = await signedIn();
+    const page = data(await settingsLoad(loaderCtx(d, "/apps/hello/settings", { params: HELLO })));
+    expect(page.can_delete).toBe(true);
+    expect(data(await appsLoad(loaderCtx(d, "/apps"))).deleted).toEqual([]);
+    // A wrong name is refused before any API call.
+    const before = d.calls.sent.length;
+    const wrong = data(await settingsActions.delete_app(actionCtx(d, "/apps/hello/settings", "delete_app", { confirm: "hellp" }, { params: HELLO })));
+    expect(wrong.delete_error).toBe("The name you typed is not the app name; nothing was deleted.");
+    expect(d.calls.sent.length).toBe(before);
+    const done = (await settingsActions.delete_app(actionCtx(d, "/apps/hello/settings", "delete_app", { confirm: "hello" }, { params: HELLO }))) as Response;
+    expect(done).toBeInstanceOf(Response);
+    expect(done.status).toBe(303);
+    expect(done.headers.get("location")).toBe("/apps");
+    expect(d.calls.sent.at(-1)).toMatchObject({ method: "DELETE", url: `${API_ORIGIN}/v1/apps/hello`, body: JSON.stringify({ confirm: "hello" }) });
+    const list = data(await appsLoad(loaderCtx(d, "/apps")));
+    expect(list.apps).toEqual([]);
+    const until = new Date(d.h.clock.now + 7 * 86_400_000).toISOString().slice(0, 16).replace("T", " ");
+    expect(list.deleted).toEqual([{ name: "hello", until: `Deleted, restorable until ${until} UTC` }]);
+    const restored = data(await appsActions.restore(actionCtx(d, "/apps", "restore", { name: "hello" })));
+    expect(restored.restored).toBe("hello is restored and served again.");
+    const after = data(await appsLoad(loaderCtx(d, "/apps")));
+    expect((after.apps as { name: string }[]).map((a) => a.name)).toEqual(["hello"]);
+    expect(after.deleted).toEqual([]);
+  });
+
+  test("a developer's session sees no Delete section, and the API refuses the delete anyway", async () => {
+    const d = await dash();
+    await tenant(d.h, "t_hello");
+    await signup(d.h, "dev@hello.test");
+    const uid = await addMember(d.h, "t_hello", "dev@hello.test", "developer");
+    const admin = await createTenantToken(d.h.db, "t_hello", "seed", ["*"], 30, d.h.clock.now);
+    await createApp_(d.h, admin.token, "hello");
+    const token = (await createTenantToken(d.h.db, "t_hello", "dashboard", ["*"], 1, d.h.clock.now, uid)).token;
+    expect(await signinActions.default(actionCtx(d, "/signin", "default", { token, next: "/apps" }))).toBeInstanceOf(Response);
+    const page = data(await settingsLoad(loaderCtx(d, "/apps/hello/settings", { params: HELLO })));
+    expect(page.can_delete).toBe(false);
+    const r = data(await settingsActions.delete_app(actionCtx(d, "/apps/hello/settings", "delete_app", { confirm: "hello" }, { params: HELLO })));
+    expect((r.delete_problem as { status: number }).status).toBe(403);
+  });
+
+  test("the strings in Arabic", async () => {
+    const { d } = await signedIn();
+    const ar = { headers: { "accept-language": "ar" } };
+    const wrong = data(await settingsActions.delete_app(actionCtx(d, "/apps/hello/settings", "delete_app", { confirm: "x" }, { params: HELLO, ...ar })));
+    expect(wrong.delete_error).toBe("الاسم الذي كتبته ليس اسم التطبيق؛ لم يُحذف شيء.");
+    await settingsActions.delete_app(actionCtx(d, "/apps/hello/settings", "delete_app", { confirm: "hello" }, { params: HELLO }));
+    const list = data(await appsLoad(loaderCtx(d, "/apps", ar)));
+    expect(String((list.deleted as { until: string }[])[0]?.until)).toStartWith("محذوف، يمكن استعادته حتى ");
+    expect(data(await appsActions.restore(actionCtx(d, "/apps", "restore", { name: "hello" }, ar))).restored).toBe("تمت استعادة hello ويُقدَّم من جديد.");
   });
 });

@@ -16,6 +16,17 @@
         </tbody>
       </table>
 
+      <section id="delete-app" r-if="can_delete">
+        <h2><r-t key="dash.settings.app_delete_h" /></h2>
+        <p><r-t key="dash.settings.app_delete_explain" /></p>
+        <p class="problem" r-if="delete_error">{{ delete_error }}</p>
+        <x-problem :problem="delete_problem" r-if="delete_problem" />
+        <x-form action="delete_app" class="row">
+          <label><r-t key="dash.settings.app_delete_type" /> <input name="confirm" required maxlength="50" autocomplete="off" spellcheck="false" :placeholder="app"></label>
+          <button type="submit" class="danger"><r-t key="dash.settings.app_delete_button" /></button>
+        </x-form>
+      </section>
+
       <h2><r-t key="dash.settings.delete_h" /></h2>
       <div id="erasure" r-if="erasure">
         <p :class="erasure.state">{{ erasure.text }}</p>

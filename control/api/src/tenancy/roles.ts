@@ -4,15 +4,17 @@
 // that both agree.
 //
 // Permissions are the token scopes of docs/contracts/deploy-api.md section 2
-// (the `x-renox-scope` of each operation) plus five that only a signed-in user
-// holds: a token never manages the team, billing, or deletes.
+// (the `x-renox-scope` of each operation) plus four that only a signed-in user
+// holds: a token never manages the team or billing, or erases the tenant.
+// From deploy-api.md 0.7 (#536) `apps:delete` is a token scope too: the CLI's
+// `renox apps rm` deletes an app with a token (the role still caps it).
 
 import { ACTIONS, type Action } from "../auth/tokens.ts";
 
 export const ROLES = ["owner", "admin", "developer", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
-export const SESSION_PERMISSIONS = ["team:read", "team:write", "billing", "apps:delete", "tenant:delete"] as const;
+export const SESSION_PERMISSIONS = ["team:read", "team:write", "billing", "tenant:delete"] as const;
 export type SessionPermission = (typeof SESSION_PERMISSIONS)[number];
 export type Permission = Action | SessionPermission;
 
@@ -59,6 +61,9 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   createApp: "apps:write",
   listApps: "apps:read",
   getApp: "apps:read",
+  // deploy-api.md 0.7 section 3 (#536): soft delete and restore of one app.
+  deleteApp: "apps:delete",
+  restoreApp: "apps:delete",
   uploadDeployment: "deploy",
   listDeployments: "apps:read",
   getDeployment: "apps:read",

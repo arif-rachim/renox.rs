@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.8 (unreleased)
+
+**CLI**
+
+- `renox apps list`, `renox apps rm <name>` and `renox apps restore <name>` (#536): delete one app without erasing the tenant. `rm` asks for the name again (or `--yes`), stops serving the app at once and keeps it restorable for 7 days; then the platform purges it. Needs a token with the scope `apps:delete` (owners and admins; a new `renox login` token has it).
+
 ## 0.1.7 (2026-11-07)
 
 Fixes from the first native Windows use of 0.1.6. The pinned `renox-worker` stays 0.4.0.

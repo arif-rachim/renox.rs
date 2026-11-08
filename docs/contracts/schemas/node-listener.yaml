@@ -137,13 +137,18 @@ paths:
         Without the parameter the answer and the replica are unchanged.
       x-renox-caller: control plane (callback token)
       x-renox-audit: failover or deleteTenant on the control plane (the erasure record gets `replica_purged_at`); the node logs one platform line
-      x-renox-errors: [RENOX_UNAUTHENTICATED, RENOX_BACKUP_UNAVAILABLE]
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_BACKUP_UNAVAILABLE]
       parameters:
         - name: purge_replica
           in: query
           required: false
-          description: "0.4.1: true deletes every replica generation of the tenant's databases. Only the erasure sends it."
+          description: "0.4.1: true deletes every replica generation of the tenant's databases. Only the erasure sends it. With `database` (0.7), only that database's generations."
           schema: { type: boolean, default: false }
+        - name: database
+          in: query
+          required: false
+          description: "0.7 (#536, the purge of one deleted app): drop only this database of the tenant, an app's own database `<tenant_id>.<app>`: only the cells that open it drain, and with `purge_replica=true` only its generations are deleted. The tenant's shared file (`database = tenant_id`) is 400 `RENOX_VALIDATION`; so is a database of another tenant."
+          schema: { $ref: "control-messages.schema.json#/$defs/database_id" }
       responses:
         "200":
           description: Dropped.
@@ -153,6 +158,8 @@ paths:
               examples:
                 dropped: { value: { type: tenant_dropped, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, cells_drained: 2, file: kept } }
                 purged: { value: { type: tenant_dropped, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, cells_drained: 2, file: removed, replica_generations_deleted: 3, replica_purged_at: 1793319000000 } }
+                one-database: { value: { type: tenant_dropped, schema_version: 0, node_id: node-dxb-01, tenant_id: t_hello, database: t_hello.staging, cells_drained: 1, file: kept, replica_generations_deleted: 2, replica_purged_at: 1794005000000 } }
+        "400": { $ref: "#/components/responses/Validation" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "503":
           description: "0.4.1: `purge_replica=true` and the replica store did not answer; nothing was purged."

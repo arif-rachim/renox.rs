@@ -547,6 +547,7 @@
         "schema_version": { "$ref": "#/$defs/schema_version" },
         "node_id": { "$ref": "#/$defs/node_id" },
         "tenant_id": { "$ref": "#/$defs/tenant_id" },
+        "database": { "$ref": "#/$defs/database_id", "description": "0.7 (deploy-api.md section 15): present when the call named one database (`?database=`); only that database was dropped." },
         "cells_drained": { "type": "integer", "minimum": 0 },
         "file": {
           "enum": ["kept", "removed"],
