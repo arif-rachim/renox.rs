@@ -63,12 +63,16 @@ export const applyCliBump = (from: string, to: string, date: string, notes?: str
   }
 };
 
-const tests = (flags: Flags): void =>
+const tests = (flags: Flags): void => {
+  // The dashboard and the examples read the SDK's types from sdk/dist (package.json "exports"), which is
+  // built only by `bun install`: a dist older than sdk/src fails the dashboard check on an op it lacks.
+  run(["bun", "sdk/scripts/prepare.mjs"]);
   guard(
     flags,
     ["bun", "run", "--filter", "@renox/cli", "--filter", "@renoxium/sdk", "--filter", "@renox/dashboard", "check"],
     ["bun", "test", "cli/tests", "sdk/tests", "control/dashboard/tests/onboarding.test.ts", "www/tests/llms.test.ts"],
   );
+};
 
 const watchHint = (tag: string): string =>
   `pushed ${tag}. Watch: gh run list --workflow release-cli.yml -L1; gh run list --workflow release-sdk.yml -L1`;
