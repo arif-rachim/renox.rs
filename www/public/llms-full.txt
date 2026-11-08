@@ -2525,6 +2525,8 @@ Modules ship default policies under `modules/<module>/policies/`. The app adds p
 | UI | `r-can="invoice.refund" :resource="inv"` | Hides elements only; **not a safeguard** |
 | Realtime | `Origin` check at upgrade; topics as Cedar resources, deny when no policy permits | Prevents cross-site sockets and subscribing to other users' topics |
 
+`renox check` reports `missing-guard` (error) for a page or function that calls `ctx.authz.require`, `can` or `canBatch` with a literal action a policy names but exports no `guard`; files under `functions/tools/` are skipped, because the tool's `action` is its guard and the cell checks it before `run`.
+
 Fail-closed rules (#118): every decision defaults to deny. No permitting policy, `forbid` matching, an unknown or anonymous principal, a missing entity or attribute, and an evaluation error each deny, and an error is logged with its reason (`authz_explain` shows it). A policy that does not validate against the merged schema (an unknown action or entity type) refuses `renox check` and the build (V24, V25), so it never reaches a cell. A realtime topic is a resource like any other: a subscribe no policy permits is refused. Tests: `crates/renox-authz/tests/fail_closed.rs`, `tests/schema_errors.rs`, `cli/tests/build-authz.test.ts`.
 
 Example: the refund button is hidden because `inv.amount > 10,000,000`. The user still sends `POST ?/refund` with curl. The action calls `authz.require("invoice.refund", invoiceFromDb)` and Cedar denies with the same policy. Template and action cannot disagree because the source of truth is one.
@@ -2602,7 +2604,9 @@ A tenant needs one CLI and an editor. Dev mode runs the same data plane as produ
 
 - `request`, `page`, `action`, each with its own cookie jar per user (`as(user)`), so session and CSRF work as in a browser;
 - `service(module).<name>(...)`, through the broker like app code;
-- a read-only `db` for assertions;
+- a read-only `db` for assertions; it waits up to five seconds on the worker's write lock (`pragma busy_timeout = 5000`), and a test that opens `dbFile` with its own `bun:sqlite` connection should run the same pragma, or it fails with `SQLITE_BUSY` while the worker writes;
+- `job(name, { module?, timeoutMs? })`, which runs a scheduled job now as a tick of its schedule (the rows `renox jobs run` writes; the test worker looks for them every 50 ms) and resolves after the run committed, or rejects with the job's error text (#593). The scheduler runs as in production, so a test should not wait for a schedule: call `job`;
+- `tool(name, input, { as?, scope?, confirm? })`, which calls an App MCP tool on `/mcp` as the agent of `as` (default the calling user, signed in): it takes an agent token through the `auth` module's OAuth flow once per user and scope, then `tools/call`. A `confirm` tool answers `{ ok, preview, confirmation }`; with `confirm: true` the confirmation is sent back and the final `{ ok, result }` returned; a refusal is `{ ok: false, error: { code, message } }` (`RENOX_FORBIDDEN`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_INPUT`; `RENOX_TOOL_ERROR` for a result with `isError`). Without the `auth` module it throws (#593);
 - `snapshot(html, { role })`, with request ids, nonces and CSRF tokens stripped;
 - `installModule(name, source)` and `.upgrade(source)`, which return what `renox check` and the migration plan report;
 - `policyCases()`, which reads `policies/tests/*.json` (`{ principal, action, resource, expected }`) as pending tests until Cedar is wired (F5).
@@ -3141,7 +3145,7 @@ With a `renox.lock`, `renox build` writes an artifact 1.1 (`docs/contracts/artif
 - **Overrides.** The app's `overrides/<name>/(pages|partials)/….html` are compiled in place of the original and carried with `overrides.json`, which holds the original's sha256 at the installed version. The app keeps its own `overrides.json` at the project root: the hash each override was made against. When the module's original no longer has that hash, `renox build` warns with a unified diff of the override against the new original ("Template override drifted"), and `renox check` reports it: a warning, or an error with `--strict`. Fix the override, then delete its entry from the root `overrides.json` to record the new original.
 - **`modules`.** The manifest's `modules` field holds the lock entries, the manifest's permissions, and the exports (service names, event payload schemas, hook names, views).
 
-`renox check` also compares what each module's code uses against the manifests (`docs/23-failure-modes.md`, "Module contract broken on upgrade"; MF7):
+`renox check` also compares what each module's code uses against the manifests (`docs/23-failure-modes.md`, "Module contract broken on upgrade"; MF7). The code scan follows imported bindings only (`import { auth } from "renox:modules"`, then `auth.<service>`); comments and strings are not scanned:
 
 - every `renox:modules` import is a declared dependency (the app may import every installed module);
 - every `<dep>.<service>` call or `ctx.services.<dep>.<service>` is exported by the installed `<dep>` and listed in `[imports].services`;
@@ -3461,6 +3465,22 @@ Comparisons of secrets go through `timingSafeEqual` (`crypto.ts`).
 | `ScopedDb`, `ActionName` | The type of `ctx.db.scoped(...)`, and the `<resource>.<verb>` string type |
 
 `@renoxium/sdk/test`: `policyCases(dir?)` and `policies()` run the policy test cases of `policies/tests/*.json` as tests (cli README, "Authorization").
+
+## Tests: `@renoxium/sdk/test` (#238)
+
+`app()` starts the worker of `renox test` on a fresh tenant file for the test file; the `TestApp` it returns has `request`, `page`, `action`, `as(user)`, `service(module)`, `ws`, `sse`, `logs`, `meters`, a read-only `db` and `dbFile` (`docs/12-developer-experience.md`, "renox test"). Two helpers stand in for hand-written outbox rows and JSON-RPC (#593):
+
+```ts
+const t = await app();
+await t.job("nightly");                                  // jobs/nightly.ts runs now; resolves after its commit
+const alice = t.as("alice");                             // signed in through the auth module's pages
+const p = await t.tool("create_job", { day: "2026-11-09" }, { as: alice }); // { ok, preview, confirmation }
+const r = await t.tool("create_job", { day: "2026-11-09" }, { as: alice, confirm: true }); // { ok, result }
+```
+
+- `job(name, { module?, timeoutMs? })` writes a tick of the job (as `renox jobs run`) and waits until its outbox row is gone; it rejects with the job's error text when a run fails, or after `timeoutMs` (10 s).
+- `tool(name, input, { as?, scope?, confirm? })` gets an agent token for `as` (default the calling user) through the `auth` module's OAuth flow, once per user and scope, then calls `tools/call` on `/mcp`. A refusal is `{ ok: false, error: { code, message } }` (`RENOX_FORBIDDEN`, `RENOX_TOOL_SCOPE`, ...). Without the `auth` module it throws.
+- `db` waits up to five seconds on the worker's write lock. A connection a test opens on `dbFile` with `bun:sqlite` should run `pragma busy_timeout = 5000` too, or it fails with `SQLITE_BUSY` while the worker writes.
 
 ## Reserved, not yet available
 
