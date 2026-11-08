@@ -288,13 +288,16 @@ jobs:
           echo "rust tests: ${crates:-the whole workspace}" | tee -a "$GITHUB_STEP_SUMMARY"
       # #253: renox-cell's suite runs under the worker's seccomp allowlist
       # (enforce: a syscall outside it kills the test process).
+      # TEMPORARY (#608 task 1): audit mode, the runner's pku flag and every
+      # type=1326 record, to name the syscalls V8 makes on PKU CPUs. Reverted
+      # in the same PR.
+      - name: pku flag (#608)
+        run: grep -c pku /proc/cpuinfo || true
       - run: make rust-test
         env:
-          RENOX_TEST_SANDBOX: enforce
-      # A process the seccomp filter killed leaves a kernel audit record
-      # (type=1326) naming the syscall; printed when the tests failed.
-      - name: seccomp kills (on failure)
-        if: failure()
+          RENOX_TEST_SANDBOX: audit
+      - name: seccomp audit records (#608)
+        if: always()
         run: sudo dmesg | grep -E 'type=1326|seccomp' | tail -50 || true
       # The worker the ts job runs the CLI template, shop build and dev e2e
       # tests with (#186): built from this commit, without the test-hooks
