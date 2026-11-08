@@ -1,0 +1,12 @@
+{
+  "_meta": {
+    "status": "Machine translated; not yet reviewed by a native speaker"
+  },
+  "app": {
+    "lang": { "en": "English", "ar": "العربية" },
+    "home": {
+      "lede": "احجز زيارة، وتابع فنيك، واستلم تقريرك.",
+      "signin": "تسجيل الدخول"
+    }
+  }
+}

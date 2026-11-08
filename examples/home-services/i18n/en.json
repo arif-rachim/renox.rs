@@ -1,0 +1,9 @@
+{
+  "app": {
+    "lang": { "en": "English", "ar": "العربية" },
+    "home": {
+      "lede": "Book a visit, follow your technician and get your report.",
+      "signin": "Sign in"
+    }
+  }
+}

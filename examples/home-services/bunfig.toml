@@ -1,0 +1,2 @@
+[test]
+# `renox test` is the runner; no unit test here needs fake modules yet.

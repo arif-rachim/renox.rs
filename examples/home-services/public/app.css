@@ -1,0 +1,13 @@
+/* home-services: the platform stylesheet (renox-ui.css, copied unchanged) plus
+   this app's layer. --brand comes from app__settings.brand_color (layout). */
+:root { --brand: #e8634a; }
+.site-header { display: flex; gap: 1rem; align-items: center; padding: .75rem 1.5rem; border-bottom: 3px solid var(--brand); }
+.site-header a { text-decoration: none; }
+.brand-link { display: inline-flex; gap: .5rem; align-items: center; }
+.brand-logo { block-size: 2rem; inline-size: auto; }
+.site-header .spacer { flex: 1; }
+.i18n-language { display: flex; gap: .5rem; }
+main { padding: 1.5rem; max-inline-size: 72rem; margin-inline: auto; }
+footer { padding: 1rem 1.5rem; text-align: center; }
+.btn-brand { background: var(--brand); color: #fff; padding: .5rem 1rem; border-radius: 999px; text-decoration: none; display: inline-block; }
+:lang(ar) { direction: rtl; }

@@ -1,0 +1,11 @@
+{
+  "name": "@renox-examples/home-services",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@renoxium/sdk": "workspace:*"
+  }
+}
