@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 
-import { fakeAi, fakeStorage, signWebhook } from "../src/fakes.ts";
+import { fakeAi, fakeStorage, fakeUpload, signWebhook } from "../src/fakes.ts";
 
 test("fakeStorage keeps files under the module prefix and refuses like the ops", async () => {
   const s = fakeStorage("app", { now: () => 1_000_000 });
@@ -42,4 +42,33 @@ test("signWebhook signs as each provider does", async () => {
   expect(stripe.headers.get("stripe-signature")).toBe(`t=1000,v1=${createHmac("sha256", "whsec").update("1000.x").digest("hex")}`);
   const generic = await signWebhook("generic", "k", "x", { header: "X-Sig" });
   expect(generic.headers.get("x-sig")).toBe(createHmac("sha256", "k").update("x").digest("hex"));
+});
+
+test("fakeStorage().signUpload signs like op_storage_sign_upload and refuses at signing", async () => {
+  const s = fakeStorage("app", { now: () => 1_000_000, maxFileBytes: 1000, allowedTypes: ["application/pdf"] });
+  const u = await s.signUpload("app/up/a.pdf", { contentType: "application/pdf", maxBytes: 500 });
+  expect(u).toEqual({ url: "/_files/app/up/a.pdf?exp=1900&max=500&ct=application%2Fpdf&pub=0&sig=fake", expires_at: 1_900_000, max_bytes: 500 });
+  expect((await s.signUpload("app/up/b.pdf", { contentType: "application/pdf", maxBytes: 1, ttlSeconds: 60, public: true })).url).toContain("exp=1060&max=1&ct=application%2Fpdf&pub=1");
+  await expect(s.signUpload("app/up/a.pdf", { contentType: "application/pdf", maxBytes: 5, ttlSeconds: 30 })).rejects.toBeInstanceOf(RangeError);
+  await expect(s.signUpload("app/up/a.pdf", { contentType: "application/pdf", maxBytes: 5, ttlSeconds: 3601 })).rejects.toBeInstanceOf(RangeError);
+  await expect(s.signUpload("app/up/a.pdf", { contentType: "image/png", maxBytes: 5 })).rejects.toMatchObject({ code: "RENOX_STORAGE_TYPE" });
+  await expect(s.signUpload("app/up/a.pdf", { contentType: "application/pdf", maxBytes: 1001 })).rejects.toMatchObject({ code: "RENOX_STORAGE_TOO_LARGE" });
+  await expect(s.signUpload("app/up/a.pdf", { contentType: "application/pdf", maxBytes: 0 })).rejects.toMatchObject({ code: "RENOX_STORAGE_TOO_LARGE" });
+  await expect(s.signUpload("tax/x.pdf", { contentType: "application/pdf", maxBytes: 5 })).rejects.toMatchObject({ code: "RENOX_STORAGE_KEY" });
+});
+
+test("fakeUpload enforces max, type, expiry and single use, and stores like put", async () => {
+  let t = 1_000_000;
+  const s = fakeStorage("app", { now: () => t });
+  const { url } = await s.signUpload("app/up/a.txt", { contentType: "text/plain", maxBytes: 4, public: true });
+  await expect(fakeUpload(s, url, new Uint8Array(5), "text/plain")).rejects.toMatchObject({ code: "RENOX_BODY_TOO_LARGE" });
+  await expect(fakeUpload(s, url, new Uint8Array(2), "text/csv")).rejects.toMatchObject({ code: "RENOX_STORAGE_TYPE" });
+  await expect(fakeUpload(s, `${url}x`, new Uint8Array(2), "text/plain")).rejects.toMatchObject({ code: "RENOX_STORAGE_NOT_FOUND" });
+  const f = await fakeUpload(s, url, new TextEncoder().encode("abcd"), "text/plain");
+  expect(f).toMatchObject({ key: "app/up/a.txt", bytes: 4, content_type: "text/plain", public: true });
+  expect(new TextDecoder().decode(await s.read("app/up/a.txt"))).toBe("abcd");
+  await expect(fakeUpload(s, url, new Uint8Array(1), "text/plain")).rejects.toMatchObject({ code: "RENOX_STORAGE_CONFLICT" });
+  const again = await s.signUpload("app/up/b.txt", { contentType: "text/plain", maxBytes: 4 });
+  t += 901_000;
+  await expect(fakeUpload(s, again.url, new Uint8Array(1), "text/plain")).rejects.toMatchObject({ code: "RENOX_STORAGE_NOT_FOUND" });
 });

@@ -41,6 +41,8 @@ export const RENOX_ERROR_CODES = [
   "RENOX_STORAGE_TOO_LARGE",
   "RENOX_STORAGE_KEY",
   "RENOX_STORAGE_NOT_FOUND",
+  // ops 1.10.0: a reused upload URL (section 21).
+  "RENOX_STORAGE_CONFLICT",
   "RENOX_AI_QUOTA",
   "RENOX_AI_UNAVAILABLE",
   "RENOX_PDF_LIMIT",
@@ -305,7 +307,7 @@ export class JobStateError extends RenoxError {
 }
 
 // Storage, AI and PDF (ops.md sections 21, 23 and 24, 1.7.0)
-export type StorageErrorCode = "RENOX_STORAGE_QUOTA" | "RENOX_STORAGE_TYPE" | "RENOX_STORAGE_TOO_LARGE" | "RENOX_STORAGE_KEY" | "RENOX_STORAGE_NOT_FOUND";
+export type StorageErrorCode = "RENOX_STORAGE_QUOTA" | "RENOX_STORAGE_TYPE" | "RENOX_STORAGE_TOO_LARGE" | "RENOX_STORAGE_KEY" | "RENOX_STORAGE_NOT_FOUND" | "RENOX_STORAGE_CONFLICT";
 export type AiErrorCode = "RENOX_AI_QUOTA" | "RENOX_AI_UNAVAILABLE";
 
 /** One of the storage refusals (section 21). */

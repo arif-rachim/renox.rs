@@ -143,6 +143,9 @@
       "$ref": "#/$defs/call_op_storage_sign"
     },
     {
+      "$ref": "#/$defs/call_op_storage_sign_upload"
+    },
+    {
       "$ref": "#/$defs/call_op_storage_list"
     },
     {
@@ -4359,6 +4362,83 @@
             },
             "expires_at": {
               "type": "integer"
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "not": {
+        "required": [
+          "result",
+          "error"
+        ]
+      }
+    },
+    "call_op_storage_sign_upload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "args"
+      ],
+      "description": "ops.md section 21 (1.10.0): a signed upload URL on the app's host for one PUT, ttl 60 s to 1 h, max_bytes from 1.",
+      "properties": {
+        "$comment": {
+          "type": "string"
+        },
+        "op": {
+          "const": "op_storage_sign_upload"
+        },
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/storageKey"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 3600
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/moduleArg"
+            }
+          ],
+          "minItems": 6,
+          "maxItems": 6
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "url",
+            "expires_at",
+            "max_bytes"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^/_files/[a-z0-9][a-z0-9/_.-]*\\?exp=[0-9]+&max=[0-9]+&ct=[A-Za-z0-9%._~-]+&pub=[01]&sig=[A-Za-z0-9_-]+$"
+            },
+            "expires_at": {
+              "type": "integer"
+            },
+            "max_bytes": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         },

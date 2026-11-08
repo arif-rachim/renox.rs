@@ -1,0 +1,17 @@
+{
+  "$comment": "valid (1.10.0): a 20 MiB PDF upload URL for 15 minutes",
+  "op": "op_storage_sign_upload",
+  "args": [
+    "app/uploads/contract-1.pdf",
+    "application/pdf",
+    20971520,
+    900,
+    false,
+    null
+  ],
+  "result": {
+    "url": "/_files/app/uploads/contract-1.pdf?exp=1793405400&max=20971520&ct=application%2Fpdf&pub=0&sig=Q2hhcmFjdGVycw",
+    "expires_at": 1793405400000,
+    "max_bytes": 20971520
+  }
+}
