@@ -513,6 +513,11 @@ export class Api {
     return this.json("DELETE", `/v1/apps/${encodeURIComponent(app)}`, { confirm: app });
   }
 
+  /** `renameApp` (0.7, #537): the app under its new name; the old hostname stops being served. */
+  renameApp(app: string, name: string): Promise<Result<App>> {
+    return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/rename`, { name });
+  }
+
   /** `restoreApp` (0.7): within the 7 days. */
   restoreApp(app: string): Promise<Result<App>> {
     return this.json("POST", `/v1/apps/${encodeURIComponent(app)}/restore`);

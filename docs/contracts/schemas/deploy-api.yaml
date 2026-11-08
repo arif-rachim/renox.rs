@@ -217,7 +217,18 @@ paths:
               examples:
                 live: { $ref: "#/components/examples/AppLive" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
-        "404": { $ref: "#/components/responses/NotFound" }
+        "404":
+          description: >-
+            No such app in the caller's tenant. 0.7 (#537): when the caller's own tenant renamed an
+            app away from this name in the last 90 days (and the name is not live again), the 404
+            carries `details: [{ field: renamed_to, reason: <new name> }]`, so a client with a stale
+            name (a `renox.toml`) can say where the app went. Another tenant never gets the detail.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                app: { value: { error: { code: RENOX_NOT_FOUND, message: Not found., request_id: 01JBQ3Z7MA0000000000000013 } } }
+                renamed: { value: { error: { code: RENOX_NOT_FOUND, message: Not found., request_id: 01JBQ3Z7MA0000000000000051, details: [{ field: renamed_to, reason: dashboard }] } } }
     delete:
       operationId: deleteApp
       tags: [apps]
@@ -298,6 +309,71 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "503": { $ref: "#/components/responses/Unavailable" }
+
+  /v1/apps/{app}/rename:
+    parameters:
+      - $ref: "#/components/parameters/App"
+    post:
+      operationId: renameApp
+      tags: [apps]
+      summary: Rename one app (deploy-api.md section 3, 0.7)
+      description: >-
+        In one transaction the app takes the new name with everything it holds (deployments,
+        secrets, custom domains, client error groups, exports, module installs, advisories; meters
+        and log lines follow), the route entries of `<old>.<platform domain>` are removed and the
+        same entries are written for `<new>.<platform domain>` (one route delta: the old hostname in
+        `removals`, the new one and the custom domains in `upserts`). The active deployment keeps
+        serving (V3 is checked at upload only); the database id does not change. The old name goes
+        to quarantine for 90 days (only this tenant may take it again) and `getApp` of the old name
+        answers this tenant a 404 with `renamed_to`. Answers the app under its new name.
+      x-renox-scope: apps:delete
+      x-renox-audit: renameApp (app, from, to, routes_removed, routes_written)
+      x-renox-errors: [RENOX_VALIDATION, RENOX_UNAUTHENTICATED, RENOX_TOKEN_SCOPE, RENOX_NOT_FOUND, RENOX_CONFLICT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RenameAppRequest" }
+            examples:
+              rename: { value: { name: dashboard } }
+            x-renox-invalid-examples:
+              no-name: { value: {}, x-expect: name }
+              bad-name: { value: { name: "Dashboard App" }, x-expect: pattern }
+      responses:
+        "200":
+          description: The app under its new name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+              examples:
+                renamed: { $ref: "#/components/examples/AppRenamed" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/TokenScope" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: >-
+            The new name is not available (in use by any app, a deleted one included, reserved, or
+            in another tenant's quarantine; the answer never says which, nor who holds it), or a
+            restore, an import or a move involves the app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                taken:
+                  value:
+                    error:
+                      code: RENOX_CONFLICT
+                      message: The request conflicts with the current state.
+                      request_id: 01JBQ3Z7MA0000000000000052
+                      details: [{ field: name, reason: not available }]
+                importing:
+                  value:
+                    error:
+                      code: RENOX_CONFLICT
+                      message: The request conflicts with the current state.
+                      request_id: 01JBQ3Z7MA0000000000000053
+                      details: [{ field: app, reason: import in progress }]
 
   /v1/apps/{app}/deployments:
     parameters:
@@ -3953,6 +4029,14 @@ components:
       properties:
         confirm: { $ref: "#/components/schemas/AppName", description: "Must equal the app name of the path (400 otherwise)." }
 
+    RenameAppRequest:
+      type: object
+      additionalProperties: false
+      description: "0.7 (section 3, #537): the body of `renameApp`."
+      required: [name]
+      properties:
+        name: { $ref: "#/components/schemas/AppName", description: "The new name; it must differ from the current one (400 otherwise)." }
+
     AppDeleted:
       type: object
       additionalProperties: false
@@ -5187,6 +5271,8 @@ components:
       value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: null, hostnames: [hello.renoxium.app] }
     AppRestored:
       value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renoxium.app] }
+    AppRenamed:
+      value: { name: dashboard, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [dashboard.renoxium.app, www.example.com] }
     AppLive:
       value: { name: hello, tenant_id: t_hello, created_at: 1793318300000, active_deployment: "802957869194e4c16e462dfcb50bfa6b3e435fca606b96a1223e2b7e21271d7a", hostnames: [hello.renoxium.app, www.example.com] }
     DeploymentValidated:

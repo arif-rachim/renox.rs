@@ -42,6 +42,7 @@ const APP_DELETES = [
   "delete from app_modules where tenant_id = $1 and app = $2",
   "delete from deployment_advisories where tenant_id = $1 and app = $2",
   "delete from deployments where tenant_id = $1 and app = $2",
+  "delete from app_renames where tenant_id = $1 and new_name = $2",
   "delete from apps where tenant_id = $1 and name = $2 and deleted_at is not null",
 ];
 

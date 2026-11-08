@@ -413,3 +413,48 @@ describe("delete and restore one app", () => {
     expect(data(await appsActions.restore(actionCtx(d, "/apps", "restore", { name: "hello" }, ar))).restored).toBe("تمت استعادة hello ويُقدَّم من جديد.");
   });
 });
+
+/** #537 (deploy-api.md 0.7 section 3): "Rename this app" on the settings page. */
+describe("rename one app", () => {
+  test("the owner sees the new hostname's domain and the sign-in warning, renames, and goes to the new settings page", async () => {
+    const { d, owner } = await signedIn();
+    const page = data(await settingsLoad(loaderCtx(d, "/apps/hello/settings", { params: HELLO })));
+    const rename = page.rename as { domain: string; explain: string; signin: string };
+    expect(rename.domain).toBe("renox.app");
+    expect(rename.explain).toContain("under renox.app");
+    expect(rename.signin).toStartWith("https://hello.renox.app stops being served now: anyone signed in there must sign in again");
+    // A bad or unchanged name is refused before any API call.
+    const before = d.calls.sent.length;
+    expect(data(await settingsActions.rename_app(actionCtx(d, "/apps/hello/settings", "rename_app", { name: "Hello World" }, { params: HELLO }))).rename_error).toContain("1 to 50 lower-case");
+    expect(data(await settingsActions.rename_app(actionCtx(d, "/apps/hello/settings", "rename_app", { name: "hello" }, { params: HELLO }))).rename_error).toBe("That is the app's current name; nothing was renamed.");
+    expect(d.calls.sent.length).toBe(before);
+    const done = (await settingsActions.rename_app(actionCtx(d, "/apps/hello/settings", "rename_app", { name: "greet" }, { params: HELLO }))) as Response;
+    expect(done).toBeInstanceOf(Response);
+    expect(done.status).toBe(303);
+    expect(done.headers.get("location")).toBe("/apps/greet/settings");
+    expect(d.calls.sent.at(-1)).toMatchObject({ method: "POST", url: `${API_ORIGIN}/v1/apps/hello/rename`, body: JSON.stringify({ name: "greet" }) });
+    expect(((await (await d.h.request("GET", "/v1/apps", { token: owner })).json()) as { apps: { name: string }[] }).apps.map((a) => a.name)).toEqual(["greet"]);
+    // A name in use is the API's 409, shown as a problem.
+    await createApp_(d.h, owner, "taken");
+    const taken = data(await settingsActions.rename_app(actionCtx(d, "/apps/greet/settings", "rename_app", { name: "taken" }, { params: { app: "greet" } })));
+    expect((taken.rename_problem as { status: number }).status).toBe(409);
+  });
+
+  test("a developer's session sees no Rename section, and the API refuses the rename anyway; the strings in Arabic", async () => {
+    const d = await dash();
+    await tenant(d.h, "t_hello");
+    await signup(d.h, "dev@hello.test");
+    const uid = await addMember(d.h, "t_hello", "dev@hello.test", "developer");
+    const admin = await createTenantToken(d.h.db, "t_hello", "seed", ["*"], 30, d.h.clock.now);
+    await createApp_(d.h, admin.token, "hello");
+    const token = (await createTenantToken(d.h.db, "t_hello", "dashboard", ["*"], 1, d.h.clock.now, uid)).token;
+    expect(await signinActions.default(actionCtx(d, "/signin", "default", { token, next: "/apps" }))).toBeInstanceOf(Response);
+    const page = data(await settingsLoad(loaderCtx(d, "/apps/hello/settings", { params: HELLO })));
+    expect(page.rename).toBeNull();
+    const r = data(await settingsActions.rename_app(actionCtx(d, "/apps/hello/settings", "rename_app", { name: "greet" }, { params: HELLO })));
+    expect((r.rename_problem as { status: number }).status).toBe(403);
+    const ar = { headers: { "accept-language": "ar" } };
+    const same = data(await settingsActions.rename_app(actionCtx(d, "/apps/hello/settings", "rename_app", { name: "hello" }, { params: HELLO, ...ar })));
+    expect(same.rename_error).toBe("هذا هو الاسم الحالي للتطبيق؛ لم تتغير التسمية.");
+  });
+});

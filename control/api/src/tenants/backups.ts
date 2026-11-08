@@ -232,6 +232,8 @@ export function registerBackupActions(app: Hono<Env>, deps: Deps): void {
     const body = await jsonBody<{ timestamp: number; target: "new_app"; name: string }>(c, "RestoreRequest");
     const taken = await crossTenant(db, "app names are unique across the platform").query("select 1 from apps where name = $1", [body.name]);
     if (taken.length > 0) throw conflict("name", "not available");
+    // 0.7 (#537): a renamed app keeps its database id `<tenant_id>.<old name>`; a restore never writes over it.
+    if ((await db.query("select 1 from apps where tenant_id = $1 and database = $2", [tenant, `${tenant}.${body.name}`])).length > 0) throw conflict("name", "not available");
     // 0.7 (#536): the source app cannot be deleted while its restore runs.
     return holdingApps(deps, tenant, [source.name], "restore in progress", async () => {
       const active = await db.query<{ hash: string }>("select hash from deployments where tenant_id = $1 and app = $2 and state = 'active'", [tenant, source.name]);

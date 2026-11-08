@@ -16,6 +16,19 @@
         </tbody>
       </table>
 
+      <section id="rename-app" r-if="rename">
+        <h2><r-t key="dash.settings.app_rename_h" /></h2>
+        <p>{{ rename.explain }}</p>
+        <p class="muted">{{ rename.signin }}</p>
+        <p class="problem" r-if="rename_error">{{ rename_error }}</p>
+        <x-problem :problem="rename_problem" r-if="rename_problem" />
+        <x-form action="rename_app" class="row">
+          <label><r-t key="dash.settings.app_rename_new" /> <input name="name" required maxlength="50" pattern="[a-z][a-z0-9-]{0,49}" autocomplete="off" spellcheck="false" :placeholder="app"></label>
+          <span class="muted" dir="ltr">.{{ rename.domain }}</span>
+          <button type="submit"><r-t key="dash.settings.app_rename_button" /></button>
+        </x-form>
+      </section>
+
       <section id="delete-app" r-if="can_delete">
         <h2><r-t key="dash.settings.app_delete_h" /></h2>
         <p><r-t key="dash.settings.app_delete_explain" /></p>

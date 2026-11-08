@@ -8,6 +8,7 @@ import { num } from "../db/db.ts";
 import type { Deps, Env } from "../context.ts";
 import { appViews, requireApp } from "./repo.ts";
 import { deleteApp, listDeleted, restoreApp } from "./delete.ts";
+import { renameApp, renamedTo } from "./rename.ts";
 
 export function registerApps(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps", operation(deps, "createApp"), tenantAuth(deps, "apps:write"), async (c) => {
@@ -16,6 +17,8 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
     const { name, staging = false } = await jsonBody<{ name: string; staging?: boolean }>(c, "CreateAppRequest");
     const now = deps.now();
     const created = await db.transaction(async (tx) => {
+      // 0.7 (#537): a renamed app keeps its database id `<tenant_id>.<old name>`; a new staging app does not take it.
+      if (staging && (await tx.query("select 1 from apps where tenant_id = $1 and database = $2", [tenant, `${tenant}.${name}`])).length > 0) return false;
       // 0.3 (deploy-api.md section 3): a staging app gets a database of its own.
       const rows = await tx.query(
         "insert into apps (name, tenant_id, created_at, staging, database) values ($1, $2, $3, $4, $5) on conflict (name) do nothing returning name",
@@ -23,6 +26,8 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
       );
       if (rows.length === 0) return false;
       await tx.query("insert into secret_sets (app, tenant_id, version) values ($1, $2, 0)", [name, tenant]);
+      // 0.7 (#537): the name is live again; it no longer hints at the app it was renamed to.
+      await tx.query("delete from app_renames where tenant_id = $1 and old_name = $2", [tenant, name]);
       return true;
     });
     // The same answer whoever holds the name: no owner is revealed.
@@ -51,7 +56,12 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
 
   app.get("/v1/apps/:app", operation(deps, "getApp"), tenantAuth(deps, "apps:read"), async (c) => {
     const db = tenantDb(deps, c);
-    const row = await requireApp(db, db.tenantId, pathParam(c, "app", "AppName"));
+    const name = pathParam(c, "app", "AppName");
+    const row = await requireApp(db, db.tenantId, name).catch(async (e: unknown) => {
+      // 0.7 (#537): to the tenant that renamed it, the old name's 404 names the new one.
+      const to = e instanceof ApiError && e.code === "RENOX_NOT_FOUND" ? await renamedTo(db, db.tenantId, name, deps.now()) : null;
+      throw to === null ? e : new ApiError("RENOX_NOT_FOUND", [{ field: "renamed_to", reason: to }]);
+    });
     const [view] = await appViews(db, deps.config.platformDomain, [row]);
     return c.json(view);
   });
@@ -71,6 +81,17 @@ export function registerApps(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps/:app/restore", operation(deps, "restoreApp"), tenantAuth(deps, "apps:delete"), async (c) => {
     const db = tenantDb(deps, c);
     const view = await restoreApp(deps, db, pathParam(c, "app", "AppName"));
+    return c.json(view);
+  });
+
+  // 0.7 (#537): rename one app; it keeps its deployments, data, secrets, domains, logs and meters (src/apps/rename.ts).
+  app.post("/v1/apps/:app/rename", operation(deps, "renameApp"), tenantAuth(deps, "apps:delete"), async (c) => {
+    const db = tenantDb(deps, c);
+    const from = pathParam(c, "app", "AppName");
+    await requireApp(db, db.tenantId, from);
+    const { name } = await jsonBody<{ name: string }>(c, "RenameAppRequest");
+    const { view, removed, written } = await renameApp(deps, db, from, name);
+    c.set("auditTarget", { from, to: name, routes_removed: String(removed), routes_written: String(written) });
     return c.json(view);
   });
 }

@@ -64,6 +64,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission | "account" | "public"
   // deploy-api.md 0.7 section 3 (#536): soft delete and restore of one app.
   deleteApp: "apps:delete",
   restoreApp: "apps:delete",
+  // deploy-api.md 0.7 section 3 (#537): the old hostname stops serving, as with a delete; owner and admin.
+  renameApp: "apps:delete",
   uploadDeployment: "deploy",
   listDeployments: "apps:read",
   getDeployment: "apps:read",

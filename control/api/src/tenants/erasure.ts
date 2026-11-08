@@ -91,6 +91,7 @@ const RECORD_DELETES = [
   "delete from invitations where tenant_id = $1",
   "delete from owner_transfers where tenant_id = $1",
   "delete from device_codes where tenant_id = $1",
+  "delete from app_renames where tenant_id = $1",
   "delete from apps where tenant_id = $1",
 ];
 

@@ -36,6 +36,7 @@ Deploy and operate:
   apps list [--deleted] [--json]
   apps rm <name> [--yes] [--json]
   apps restore <name> [--json]
+  apps rename <old> <new> [--yes] [--json]
   tokens list
   tokens create <name> --scope <s>... [--expires-days <n>]
   tokens revoke <id>

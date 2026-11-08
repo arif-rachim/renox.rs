@@ -94,18 +94,28 @@ export function registerSecrets(app: Hono<Env>, deps: Deps): void {
     const hash = pathParam(c, "hash", "Sha256");
     const version = Number(c.req.query("version"));
     if (!Number.isInteger(version) || version < 0) throw invalid("version", "must be a non-negative integer");
-    const owners = await db.query<{ tenant_id: string }>("select tenant_id from apps where name = $1 and deleted_at is null", [appName]);
-    const tenant = owners[0]?.tenant_id;
-    if (tenant === undefined) throw notFound();
-    const d: DeploymentRow = await requireDeployment(db, tenant, appName, hash);
+    let owners = await db.query<{ tenant_id: string; name: string }>("select tenant_id, name from apps where name = $1 and deleted_at is null", [appName]);
+    // 0.7 (#537): a cell created before a rename still asks under the old
+    // name (its route entry named it); while the old name is in quarantine
+    // only the renaming tenant can hold it, so the hint resolves it.
+    if (owners.length === 0) {
+      owners = await db.query<{ tenant_id: string; name: string }>(
+        "select a.tenant_id, a.name from app_renames r join apps a on a.tenant_id = r.tenant_id and a.name = r.new_name and a.deleted_at is null where r.old_name = $1 and r.until > $2",
+        [appName, deps.now()],
+      );
+    }
+    if (owners.length !== 1) throw notFound();
+    const tenant = (owners[0] as { tenant_id: string }).tenant_id;
+    const current = (owners[0] as { name: string }).name;
+    const d: DeploymentRow = await requireDeployment(db, tenant, current, hash);
     const pinned = d.state === "active" || d.state === "activating" ? d.secrets_version : null;
     if (pinned === null || pinned !== version) throw notFound();
     if ((await ownerFor(db, tenant, await healthyNodes(db))) !== node) throw notFound();
     const declared = ((d.manifest?.permissions as { secrets?: string[] } | undefined)?.secrets ?? []).slice();
-    const secrets = await valuesAt(db, keysOf(deps), tenant, appName, version, declared);
-    deps.log.info("secret bundle served", { request_id: c.get("requestId"), actor: actorOf(c.get("principal")), app: appName, hash, version, names: Object.keys(secrets) });
+    const secrets = await valuesAt(db, keysOf(deps), tenant, current, version, declared);
+    deps.log.info("secret bundle served", { request_id: c.get("requestId"), actor: actorOf(c.get("principal")), app: current, hash, version, names: Object.keys(secrets) });
     return c.json(
-      { type: "secrets_bundle", schema_version: 0, tenant_id: tenant, app: appName, deployment_hash: hash, version, secrets },
+      { type: "secrets_bundle", schema_version: 0, tenant_id: tenant, app: current, deployment_hash: hash, version, secrets },
       200,
       { "cache-control": "no-store" },
     );
