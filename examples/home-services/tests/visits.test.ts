@@ -4,6 +4,7 @@
 // below). The AI is off on the worker (no provider), so the summary fields stay
 // empty there; the draft itself is tested with a fake `ai`.
 import { Database } from "bun:sqlite";
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { fakeAi } from "@renoxium/sdk/fakes";
 import { snapshot, app } from "@renoxium/sdk/test";
@@ -231,11 +232,30 @@ describe("the technician's flow from scheduled to done", () => {
     expect((await dina.page(`/visits/${visitId}/report`)).html.startsWith("%PDF")).toBe(true);
     expect((await accountant.page(`/visits/${visitId}/report`)).status).toBe(200);
     const data = (await dina.page(`/visits/${visitId}/report?format=json&lang=ar`)).json<Record<string, unknown>>();
-    expect(data).toMatchObject({ job_number: "J-000006", no_photos: false, has_parts: true, signed_by: "Layla Hassan", signature: true, parts_total: "25.00" });
+    expect(data).toMatchObject({ job_number: "J-000006", no_photos: false, has_parts: true, signed_by: "Layla Hassan", parts_total: "25.00" });
     expect((data.before as unknown[]).length).toBe(1);
     expect((data.after as unknown[]).length).toBe(1);
-    expect(String(((data.before as { src: string }[])[0] as { src: string }).src)).toMatch(/^\/_img\/app\/visits\/vs_[0-9a-f]{16}\/before\//u);
+    // No pictures reach the PDF: each photo is printed by phase, caption and file key; the signature by the signer and the time.
+    const before = data.before as { phase: string; caption: string; file_key: string }[];
+    const after = data.after as { phase: string; caption: string; file_key: string }[];
+    expect(before[0]).toMatchObject({ phase: "before", caption: "The leaking pipe" });
+    expect(after[0]).toMatchObject({ phase: "after", caption: "The new joint" });
+    expect(before[0]?.file_key).toMatch(/^app\/visits\/vs_[0-9a-f]{16}\/before\//u);
+    expect(data.signed_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/u);
+    expect(data).not.toHaveProperty("signature");
     expect(String(data.technician)).toContain("Ali");
+  });
+
+  test("the report templates print the caption list, the file key and the signer, and carry no <img>", () => {
+    for (const lang of ["en", "ar"]) {
+      const html = readFileSync(new URL(`../partials/pdf/visit-report.${lang}.html`, import.meta.url), "utf8");
+      expect(html).not.toContain("<img");
+      expect(html).toContain("{{ p.caption }}");
+      expect(html).toContain("{{ p.file_key }}");
+      expect(html).toContain("{{ signed_by }}");
+      expect(html).toContain("{{ signed_at }}");
+    }
+    expect(readFileSync(new URL("../partials/pdf/visit-report.en.html", import.meta.url), "utf8")).toContain("Signed by {{ signed_by }} at {{ signed_at }}");
   });
 
   test("error case: the report is not for another technician (403) nor another branch (404), and not before check-out (409)", async () => {
@@ -264,7 +284,7 @@ describe("a visit without photos", () => {
     expect(jobOf(NOPHOTOS).status).toBe("done");
     const visit = visitOf(NOPHOTOS);
     const data = (await ali.page(`/visits/${visit?.id}/report?format=json&lang=en`)).json<Record<string, unknown>>();
-    expect(data).toMatchObject({ no_photos: true, has_parts: false, signature: false, signed_by: "" });
+    expect(data).toMatchObject({ no_photos: true, has_parts: false, signed_by: "" });
     expect((await ali.page(`/visits/${visit?.id}/report`)).html.startsWith("%PDF")).toBe(true);
     expect(visit?.report_key).toBe(`app/visits/${visit?.id}/report-${ownLang(NOPHOTOS)}.pdf`);
   });
