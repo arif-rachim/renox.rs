@@ -93,7 +93,7 @@ export async function checkIn(ctx: VisitCtx, rawJobId: unknown, position: { lat:
     p.branch.id,
     p.job.id,
     who,
-    await memberName(p.branch, who),
+    await memberName(ctx.db, p.branch, who),
     now(),
     position.lat,
     position.lng,

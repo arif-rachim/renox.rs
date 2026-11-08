@@ -54,6 +54,35 @@ permit (principal in Renox::Role::"owner", action == Renox::Action::"booking.man
 permit (principal in Renox::Role::"branch_manager", action == Renox::Action::"booking.manage", resource);
 permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"booking.manage", resource);
 
+// App MCP tools (functions/tools): an agent runs as the user whose token it
+// holds. A token has no session, so its principal has no `org` (org sets it from
+// the session's active organisation) and NO ROLES: the cell adds the role
+// assignments to a session's principal only, and auth's verifyAgentToken gives
+// none. So the policies above, which are all about roles, deny every tool call.
+// Two things stand in for them:
+//  - the cell's check of a tool's `action` (before `run`) passes a signed-in
+//    token's user for the two read and write actions, as long as the evaluation
+//    names no roles. A token's principal is told from a session's by its
+//    attributes: `email_verified` (a user, not the anonymous visitor) and no
+//    `created_at` (auth.principal sets it for sessions and verifyAgentToken does
+//    not). Pages and `r-can` evaluations name no roles either, so this must not
+//    match a session: it does not;
+//  - inside `run`, lib/tools.ts reads the user's roles for the branch from
+//    renox__role_assignments (ctx.authz.roles) and asks `can` with them in
+//    `context.staff_roles`; the permits below decide, and the cases of
+//    policies/tests/tools.json pin them. Only app code names `staff_roles`.
+permit (principal, action in [Renox::Action::"job.read", Renox::Action::"job.write"], resource)
+when { principal has email_verified && principal.email_verified && !(principal has created_at) && !(context has staff_roles) };
+permit (principal, action in [Renox::Action::"job.read", Renox::Action::"job.write", Renox::Action::"job.dispatch", Renox::Action::"booking.manage"], resource)
+when { context has staff_roles && (context.staff_roles.contains("owner") || context.staff_roles.contains("branch_manager") || context.staff_roles.contains("dispatcher")) };
+permit (principal, action == Renox::Action::"job.read", resource)
+when { context has staff_roles && (context.staff_roles.contains("technician") || context.staff_roles.contains("accountant")) };
+
+// A technician's token reads only their own jobs, as a technician's session does.
+forbid (principal, action == Renox::Action::"job.read", resource is App::Job)
+when { context has staff_roles && context.staff_roles.contains("technician") }
+unless { resource.mine == "yes" };
+
 // A sensitive action needs a recent second factor.
 forbid (principal, action in [Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"settings.write", Renox::Action::"user.manage"], resource)
 unless { principal has mfa_verified && principal.mfa_verified };

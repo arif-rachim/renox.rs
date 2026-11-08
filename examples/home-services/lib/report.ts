@@ -62,7 +62,7 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
     ? ((await ctx.db.queryOne<{ technician_name: string }>("select technician_name from app__visits where id = ?", [visit.id]))?.technician_name ?? "")
     : branch === null
       ? visit.technician_user_id
-      : await memberName({ org_id: branch.org_id } as Branch, visit.technician_user_id);
+      : await memberName(ctx.db, branch, visit.technician_user_id);
   const own: ReportLang = customer?.language === "ar" ? "ar" : "en";
   const language: ReportLang = lang ?? own;
   const settings = await getSettings(sdb);

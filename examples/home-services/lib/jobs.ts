@@ -126,7 +126,7 @@ export async function cardOf(ctx: Pick<JobCtx, "db">, branch: Branch, sdb: Db, j
     priority: job.priority,
     customer: customer?.name ?? "",
     service: service?.name_en ?? "",
-    technician: job.technician_user_id === null ? "" : await memberName(branch, job.technician_user_id),
+    technician: job.technician_user_id === null ? "" : await memberName(ctx.db, branch, job.technician_user_id),
     start: job.scheduled_start === null ? "" : `${dayOf(job.scheduled_start)} ${clock(job.scheduled_start)}`,
   };
 }
@@ -169,7 +169,7 @@ export async function transition(ctx: JobCtx & { readonly url?: URL }, id: unkno
   await publishCard(ctx, branch, sdb, after);
   // The customer hears that the technician is on the way (F7-124).
   if (to === "en_route") {
-    const technician = after.technician_user_id === null ? "" : await memberName(branch, after.technician_user_id);
+    const technician = after.technician_user_id === null ? "" : await memberName(ctx.db, branch, after.technician_user_id);
     await notifyCustomer(ctx, { id: after.customer_id }, "technician_on_the_way", { branch_id: branch.id, ref_id: after.id, job_id: after.id, vars: { job: after.number, technician } });
   }
   return { ok: true, job: after };
