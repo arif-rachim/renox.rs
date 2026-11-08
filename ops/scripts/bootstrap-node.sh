@@ -291,6 +291,12 @@ if [[ $single_host -eq 1 ]]; then
   install -m 0755 "$here/scripts/restore-check.sh" "$bin_dir/restore-check.sh"
   # #450: OnFailure= of the backup and billing units (renox-alert@.service).
   install -m 0755 "$here/scripts/renox-alert.sh" "$bin_dir/renox-alert.sh"
+  # #546: needrestart lists the renox-* services after an apt run, never restarts them.
+  install -d -m 0755 /etc/needrestart/conf.d
+  install -m 0644 -o root -g root "$here/needrestart/renox.conf" /etc/needrestart/conf.d/renox.conf
+  # #545: the node's name in the alert (renox-alert@.service, a credential).
+  printf '%s\n' "$node_id" > "$tmp/node-name"
+  install -m 0644 -o root -g root "$tmp/node-name" "$etc_dir/node-name"
   if ! id -u renox-control >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/renox-control --no-create-home --shell /usr/sbin/nologin renox-control
   fi
@@ -302,6 +308,13 @@ if [[ $single_host -eq 1 ]]; then
   }
   write_once "$here/systemd/control.env.example" "$etc_dir/control.env" 0600
   write_once "$here/cloudflared/config.yml.example" "$etc_dir/tunnel/config.yml" 0644
+  # #544: the commands the single host's units run (the backups, the drill).
+  # Install step 1 of ops/single-host.md installs them; a warning, not a stop.
+  missing=()
+  for cmd in age sqlite3 pg_dump; do command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd"); done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "bootstrap-node: warning: missing commands the single-host units need: ${missing[*]} (ops/single-host.md, install step 1)" >&2
+  fi
 fi
 systemctl daemon-reload
 

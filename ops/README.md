@@ -19,9 +19,11 @@ Operational files that the build and CI trust. Owned by code owners (`.github/CO
 | `single-host.md` | The runbook of the single host (#366, #420): worker, control plane, Postgres and the tunnel on one machine behind Cloudflare, tunnel-only (ADR D25), from an empty host to live, and the cut-over of an existing host ("Single host" below) |
 | `cloudflared.lock` | cloudflared version and SHA-256 per target (#366); lego is gone with the worker's TLS (#420) |
 | `cloudflared/config.yml.example` | The tunnel's ingress, the host's only way in: `api` and `mcp.renoxium.com` → `http://127.0.0.1:8787`; `*.renoxium.app`, `renoxium.app` and everything else (the Cloudflare for SaaS custom hostnames) → `unix:/run/renox-edge/worker.sock`; `Host` kept |
+| `scripts/pin-cloudflared.sh` | Moves `cloudflared.lock` to another release: two downloads per target, written only when their SHA-256 match (#547) |
 | `scripts/fetch-cloudflared.sh` | Downloads the pinned binary, refuses a SHA-256 mismatch before it is installed, prints its path |
 | `scripts/firewall-single-host.sh` | nftables: inbound SSH only (22, or `--ssh-port <n>`); 80 and 443 closed (tunnel-only, #420); refuses unless SSH stays reachable on that port |
 | `scripts/backup-control-db.sh` | `pg_dump` encrypted with age, uploaded to R2 with a SigV4 PUT, read back |
+| `needrestart/renox.conf` | `/etc/needrestart/conf.d/renox.conf` on the single host (#546): needrestart lists the `renox-*` services after an `apt` run and never restarts them (`single-host.md`, "Packages and upgrades") |
 | `systemd/control.env.example` | Template of `/etc/renox/control.env` (0600); never installed as a unit |
 
 ## Verified prebuilt V8
@@ -162,6 +164,8 @@ Tests, all without network or accounts:
 | Test | Runs in | Proves |
 | --- | --- | --- |
 | `fetch-cloudflared.test.sh` | CI ops step | A binary or tarball matching the lock is installed; one changed byte, another hash in the lock, an unknown target are refused and leave nothing behind |
+| `pin-cloudflared.test.sh` | CI ops step | `pin-cloudflared.sh` (#547): matching downloads rewrite the version, both digests and the date, and `fetch-cloudflared.sh` accepts the result; two downloads that differ, a missing release and a malformed version leave the lock unchanged |
+| `restore-check.test.sh` | CI ops step | `restore-check.sh` (#538): `--tenants-only`, `--control-only`, an R2 host without a local dump (the control step skipped with its line, exit 0 on the tenant copy), no dump and no R2 (exit 1); the R2 endpoint never printed |
 | `backup-control-db.test.sh` | CI ops step | A fake S3 that verifies each request's SigV4 signature: the object decrypts to the dump and is not it in the clear; a failing `pg_dump` uploads nothing; bad credentials files are refused, including 0440 outside `$CREDENTIALS_DIRECTORY`, not owned by root, or with an other bit (#395); the secret never in curl's argv |
 | `production-install.test.sh` | Called by `bootstrap-node.test.sh` when Bun is present | Step 3 of `single-host.md` (#400): `bun install --frozen-lockfile --production` on the tracked files succeeds with a PATH that holds no other `tsc`; the SDK's `prepare` skips its build there; neither PGlite nor typescript is installed; the control API starts from that tree and stops only at the Postgres connection; a dev install still builds `sdk/dist` |
 | `firewall-single-host.test.sh` | CI ops step (two containers) | Refuses without sshd, with sshd on another port, from a session on another port, with a bad `--ssh-port`; once applied only 22 answers from outside and 80, 443, 8787, 5432 do not (tunnel-only); a second run is a no-op; `--ssh-port 49222` opens 49222 and closes 22 |
@@ -170,4 +174,4 @@ Tests, all without network or accounts:
 
 ### cloudflared
 
-Bump like Litestream: download the new release twice (two networks if possible), check both give the same `sha256sum`, replace the version and the lines in the lock, and run the fetch test.
+Bump like Litestream: download the new release twice (two networks if possible), check both give the same `sha256sum`, replace the version and the lines in the lock, and run the fetch test. `ops/scripts/pin-cloudflared.sh <version>` does the two downloads per target and rewrites the lock only when they match (#547); a second network is still a second run from another machine. The trigger is the tunnel's own log line, `Your version <v> is outdated. We recommend upgrading it to <new>` in `journalctl -u renox-tunnel`; read the upstream `RELEASE_NOTES` between the two versions and quote the relevant lines in the PR. The host step is in `single-host.md`, "Packages and upgrades".
