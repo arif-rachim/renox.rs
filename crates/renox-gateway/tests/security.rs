@@ -193,3 +193,52 @@ async fn report_only_mode() {
             .contains("report-uri /__renox/events?kind=csp")
     );
 }
+
+/// #607: a signed upload stays same origin (`ops.md` section 21): even with
+/// `security.cors` listing an origin, `PUT /_files/` gets no preflight answer
+/// and no `Access-Control-*` header, while other paths are unchanged.
+#[tokio::test]
+async fn files_put_gets_no_cors_preflight_or_headers() {
+    let dir = tempfile::tempdir().unwrap();
+    write_manifest(
+        dir.path(),
+        HASH_B,
+        serde_json::json!({
+            "artifact": { "version": 1 },
+            "security": {
+                "cors": { "origins": ["https://other.test"], "methods": ["GET", "PUT"] }
+            }
+        }),
+    );
+    let cell = FakeDispatcher::new();
+    let app = gateway(dir.path()).router(cell.clone());
+
+    let mut pre = request("b.test", "/_files/k");
+    *pre.method_mut() = Method::OPTIONS;
+    pre.headers_mut()
+        .insert("origin", "https://other.test".parse().unwrap());
+    pre.headers_mut()
+        .insert("access-control-request-method", "PUT".parse().unwrap());
+    let resp = app.clone().oneshot(pre).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(resp.headers()["allow"], "GET, HEAD, PUT");
+    assert!(resp.headers().get("access-control-allow-origin").is_none());
+    assert_eq!(cell.count(), 0);
+
+    let mut put = request("b.test", "/_files/k");
+    *put.method_mut() = Method::PUT;
+    put.headers_mut()
+        .insert("origin", "https://other.test".parse().unwrap());
+    let resp = app.clone().oneshot(put).await.unwrap();
+    assert!(resp.headers().get("access-control-allow-origin").is_none());
+    assert_eq!(cell.count(), 1, "the cell answers the PUT");
+
+    let mut get = request("b.test", "/api/x");
+    get.headers_mut()
+        .insert("origin", "https://other.test".parse().unwrap());
+    let resp = app.oneshot(get).await.unwrap();
+    assert_eq!(
+        resp.headers()["access-control-allow-origin"],
+        "https://other.test"
+    );
+}

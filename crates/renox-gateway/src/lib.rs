@@ -22,7 +22,9 @@ use std::time::{Duration, Instant};
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, Response, StatusCode, header};
+use axum::http::{
+    HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, header,
+};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use limits::{BodyCheck, ConnectionLimiter, IdleTimeout, connection_limit_response};
 use protocol::Http1Guard;
@@ -604,6 +606,23 @@ async fn route<D: CellDispatcher>(
     if req.uri().path().starts_with(PLATFORM_PREFIX) {
         return platform_path(state, req, &entry, &host, &info, client).await;
     }
+    // A signed upload stays same origin (`ops.md` section 21): no preflight
+    // answer and no `Access-Control-*` header for `PUT /_files/`, whatever
+    // `security.cors` says (#607).
+    let kind = RouteKind::of_request(req.method(), req.uri().path());
+    if req.method() == Method::OPTIONS
+        && req.uri().path().starts_with("/_files/")
+        && req
+            .headers()
+            .get("access-control-request-method")
+            .is_some_and(|m| m.as_bytes().eq_ignore_ascii_case(b"PUT"))
+    {
+        return Response::builder()
+            .status(StatusCode::METHOD_NOT_ALLOWED)
+            .header(header::ALLOW, "GET, HEAD, PUT")
+            .body(Body::empty())
+            .expect("valid response");
+    }
     match security::cors::preflight(&info.security.cors, req.method(), req.headers()) {
         security::cors::Preflight::No => {}
         security::cors::Preflight::Allowed(headers) => {
@@ -651,7 +670,6 @@ async fn route<D: CellDispatcher>(
     // kind for it exists in the manifest. A `PUT` to `/_files/` is a signed
     // upload (`artifact.md` 1.7): bounded by the per-file maximum, then by the
     // signed `max` in the cell.
-    let kind = RouteKind::of_request(req.method(), req.uri().path());
     let limit = inner.config.limits.body_limit(kind, None);
     let checked = if kind == RouteKind::Upload {
         limits::check_upload_body(req, limit).await
@@ -688,7 +706,9 @@ async fn route<D: CellDispatcher>(
     }
     counters.dispatched.fetch_add(1, Ordering::Relaxed);
     let mut resp = state.dispatcher.dispatch(ctx, req).await;
-    security::cors::apply(&info.security.cors, &request_headers, resp.headers_mut());
+    if kind != RouteKind::Upload {
+        security::cors::apply(&info.security.cors, &request_headers, resp.headers_mut());
+    }
     // #207: no tenant cookie may reach another tenant's host.
     let rewrites = security::cookies::apply(resp.headers_mut(), &host);
     log_cookie_rewrites(&inner.cookie_warnings, &entry, &rewrites);
