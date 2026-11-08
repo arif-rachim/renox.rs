@@ -175,6 +175,27 @@ export async function transition(ctx: JobCtx & { readonly url?: URL }, id: unkno
   return { ok: true, job: after };
 }
 
+/**
+ * Cancels an `invoiced` job because its invoice was credited (lib/invoices.ts):
+ * the one way out of `invoiced`, which the table of `TRANSITIONS` does not
+ * offer, so a job cannot be cancelled after it was invoiced without a credit
+ * note. The event, the audit record and the card are `transition`'s.
+ */
+export async function cancelInvoiced(ctx: JobCtx, id: unknown, note: string): Promise<Outcome> {
+  const branch = await branchOf(ctx);
+  if (branch === null) return fail(403, "No branch is active for this account.");
+  const sdb = scopedDb(ctx.db, branch);
+  const job = await findJob(sdb, id);
+  if (job === null) return fail(404, "Job not found");
+  if (job.status !== "invoiced") return fail(409, `A ${job.status.replace("_", " ")} job is not cancelled by a credit note.`);
+  const won = await sdb.execute("update app__jobs set status = 'cancelled', updated_at = ? where id = ? and status = 'invoiced'", [now(), job.id]);
+  if (won.changes !== 1) return fail(409, "The job changed meanwhile; reload it.");
+  const after = (await findJob(sdb, job.id)) as JobRow;
+  await record(ctx, sdb, branch, after, "invoiced", "cancelled", note);
+  await publishCard(ctx, branch, sdb, after);
+  return { ok: true, job: after };
+}
+
 export interface NewJob {
   site_id: string;
   quote_id: string | null;

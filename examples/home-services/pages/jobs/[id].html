@@ -93,6 +93,17 @@
     <p r-if="visit.closed" class="work-links"><a :href="'/visits/' ~ visit.id ~ '/report?lang=en'"><r-t key="visits.report.en" /></a> <a :href="'/visits/' ~ visit.id ~ '/report?lang=ar'"><r-t key="visits.report.ar" /></a></p>
   </section>
 
+  <section id="invoice" r-if="invoice">
+    <h2><r-t key="invoices.f.number" /></h2>
+    <p><a :href="'/invoices/' ~ invoice.id" dir="ltr">{{ invoice.id }}</a> · {{ ('invoices.status.' ~ invoice.status) | t }}</p>
+  </section>
+
+  <section id="invoice-issue" r-if="can_invoice">
+    <h2><r-t key="invoices.issue" /></h2>
+    <p class="muted"><r-t key="invoices.issue_hint" /></p>
+    <form method="post" :action="'/jobs/' ~ job.id ~ '/invoice?/default'" class="stack narrow"><x-csrf /><p><button type="submit" class="btn-brand"><r-t key="invoices.issue" /></button></p></form>
+  </section>
+
   <section id="timeline">
     <h2><r-t key="jobs.timeline" /></h2>
     <ol class="timeline">

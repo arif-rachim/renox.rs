@@ -5,5 +5,6 @@
   <nav class="work-links" r-if="auth_user">
     <a href="/jobs" r-can="job.read"><r-t key="app.nav.jobs" /></a>
     <a href="/dispatch" r-can="job.dispatch"><r-t key="app.nav.board" /></a>
+    <a href="/invoices" r-can="invoice.read"><r-t key="invoices.title" /></a>
   </nav>
 </r-layout>

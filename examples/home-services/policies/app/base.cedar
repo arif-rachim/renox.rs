@@ -6,7 +6,7 @@
 // A signed-in member of the active branch may do what their role allows.
 permit (principal in Renox::Role::"owner", action, resource)
 when { principal has org };
-permit (principal in Renox::Role::"branch_manager", action in [Renox::Action::"customer.read", Renox::Action::"customer.write", Renox::Action::"quote.read", Renox::Action::"quote.write", Renox::Action::"quote.approve", Renox::Action::"job.read", Renox::Action::"job.write", Renox::Action::"job.dispatch", Renox::Action::"visit.perform", Renox::Action::"invoice.read", Renox::Action::"invoice.issue", Renox::Action::"contract.read", Renox::Action::"contract.write", Renox::Action::"report.view"], resource)
+permit (principal in Renox::Role::"branch_manager", action in [Renox::Action::"customer.read", Renox::Action::"customer.write", Renox::Action::"quote.read", Renox::Action::"quote.write", Renox::Action::"quote.approve", Renox::Action::"job.read", Renox::Action::"job.write", Renox::Action::"job.dispatch", Renox::Action::"visit.perform", Renox::Action::"invoice.read", Renox::Action::"contract.read", Renox::Action::"contract.write", Renox::Action::"report.view"], resource)
 when { principal has org };
 permit (principal in Renox::Role::"dispatcher", action in [Renox::Action::"customer.read", Renox::Action::"customer.write", Renox::Action::"quote.read", Renox::Action::"quote.write", Renox::Action::"job.read", Renox::Action::"job.write", Renox::Action::"job.dispatch", Renox::Action::"contract.read"], resource)
 when { principal has org };

@@ -1,0 +1,323 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the seed the accountant's list shows it as open, with its balance: role: invoices, accountant, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Invoices · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Aziz Accountant</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/invoices">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/invoices?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Invoices</h1>
+  <form class="search" action="/invoices" method="get">
+    <label>Status
+      <select name="status">
+        <option value="">—</option>
+        <option value="open" dir="auto">Open</option><option value="overdue" dir="auto">Overdue</option><option value="issued" dir="auto">Issued</option><option value="part-paid" dir="auto">Part paid</option><option value="paid" dir="auto">Paid</option><option value="credited" dir="auto">Credited</option>
+      </select></label>
+    <button type="submit">Filter</button>
+  </form>
+  <table id="invoice-list">
+    <thead>
+      <tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Total</th><th>Balance</th><th>Due</th></tr>
+    </thead>
+    <tbody>
+      <tr id="invoice-INV-000001">
+        <td dir="ltr"><a href="/invoices/INV-000001" dir="auto">INV-000001</a></td>
+        <td><a href="/customers/cu_dxb_01" dir="auto">Layla Haddad</a></td>
+        <td><span class="status status-part-paid" dir="auto">Part paid</span></td>
+        <td dir="ltr">AED 357.00</td>
+        <td dir="ltr">AED 207.00</td>
+        <td dir="ltr"><day></td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the seed the invoice page: the module's document, the cheque, the payment form: role: invoice, accountant, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>INV-000001 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Aziz Accountant</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/invoices/INV-000001">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/invoices/INV-000001?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/invoices">All invoices</a></p>
+  <h1 dir="ltr">INV-000001</h1>
+  <p><span class="status status-part-paid" id="invoice-status" dir="auto">Part paid</span> </p>
+  <dl class="detail">
+    <dt>Customer</dt>
+    <dd><a href="/customers/cu_dxb_01" dir="auto">Layla Haddad</a></dd>
+    <dt>Job</dt>
+    <dd dir="ltr"><a href="/jobs/jb_seed_13" dir="auto">J-000013</a></dd>
+    <dt>Issued</dt>
+    <dd dir="ltr"><day></dd>
+    <dt>Due</dt>
+    <dd dir="ltr"><day></dd>
+    
+    
+  </dl>
+  <p class="work-links"><a href="/invoices/INV-000001/pdf?lang=en">Invoice (English PDF)</a> <a href="/invoices/INV-000001/pdf?lang=ar">Invoice (Arabic PDF)</a> <a href="/customers/cu_dxb_01/statement.pdf?lang=ar">Customer statement (PDF)</a></p>
+
+  <table id="invoice-lines">
+    <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Net</th><th>VAT</th></tr></thead>
+    <tbody>
+      <tr>
+        <td dir="auto">Plumbing</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">AED 160.00</td>
+        <td dir="ltr">AED 160.00</td>
+        <td dir="ltr">AED 8.00 (5 %)</td>
+      </tr><tr>
+        <td dir="auto">Kitchen mixer tap</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">AED 180.00</td>
+        <td dir="ltr">AED 180.00</td>
+        <td dir="ltr">AED 9.00 (5 %)</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th colspan="4">Subtotal</th><td dir="ltr">AED 340.00</td></tr>
+      <tr><th colspan="4">VAT</th><td dir="ltr">AED 17.00</td></tr>
+      <tr><th colspan="4">Total</th><td dir="ltr"><strong id="invoice-total" dir="auto">AED 357.00</strong></td></tr>
+      <tr><th colspan="4">Paid</th><td dir="ltr" id="invoice-paid">AED 150.00</td></tr>
+      <tr><th colspan="4">Balance</th><td dir="ltr" id="invoice-balance">AED 207.00</td></tr>
+    </tfoot>
+  </table>
+
+  <section id="payments">
+    <h2>Payments</h2>
+    <table id="payment-list">
+      <thead><tr><th>Date received</th><th>Method</th><th>Amount (AED)</th><th>Reference</th></tr></thead>
+      <tbody>
+        <tr id="payment-1">
+          <td dir="ltr"><day></td>
+          <td dir="auto">Cheque <span dir="ltr">#000123 · <day></span></td>
+          <td dir="ltr">AED 150.00</td>
+          <td dir="auto">First instalment</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="pay">
+    <h2>Record a payment</h2>
+    <form method="post" action="?/pay" hx-post="?/pay" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>Method
+        <select name="method" id="pay-method">
+          <option value="cash" dir="auto">Cash</option><option value="transfer" dir="auto">Bank transfer</option><option value="cheque" dir="auto">Cheque</option>
+        </select></label></p>
+      <p><label>Amount (AED) <input name="amount" inputmode="decimal" dir="ltr" required></label></p>
+      <p><label>Date received <input type="date" name="received_on" value="<day>" dir="ltr"></label></p>
+      <p><label>Reference <input name="reference" maxlength="120"></label></p>
+      <p><label>Cheque number <input name="cheque_number" maxlength="40" dir="ltr"></label></p>
+      <p><label>Cheque date <input type="date" name="cheque_date" dir="ltr"></label></p>
+      <p><small class="muted">A cheque needs its number and date. More than the balance is refused.</small></p>
+      <p><button type="submit" class="btn-brand">Record payment</button></p>
+    </form>
+  </section>
+
+  <section id="link">
+    <h2>Link for the customer</h2>
+    
+    <form method="post" action="?/link" hx-post="?/link" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><p><button type="submit">Make a new link</button></p></form>
+  </section>
+
+  <section id="credit">
+    <h2>Credit note</h2>
+    <p class="muted">Credits the whole invoice and cancels the job. Payments already received are not refunded here.</p>
+    <form method="post" action="?/credit" hx-post="?/credit" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>Reason <input name="reason" maxlength="200" required></label></p>
+      <p><button type="submit">Issue the credit note</button></p>
+    </form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;
+
+exports[`the seed the invoice page: the module's document, the cheque, the payment form: role: invoice, accountant, ar 1`] = `
+"<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>INV-000001 · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Aziz Accountant</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">الإشعارات <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/invoices/INV-000001">
+    <select name="org" aria-label="المؤسسة">
+      <option value="org_dubai" selected dir="auto">Dubai · عضو</option>
+    </select>
+    <button type="submit">تبديل</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <a href="/invoices/INV-000001?lang=en" lang="en">English</a><strong lang="ar">العربية</strong>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <p><a href="/invoices">كل الفواتير</a></p>
+  <h1 dir="ltr">INV-000001</h1>
+  <p><span class="status status-part-paid" id="invoice-status" dir="auto">مدفوعة جزئياً</span> </p>
+  <dl class="detail">
+    <dt>العميل</dt>
+    <dd><a href="/customers/cu_dxb_01" dir="auto">Layla Haddad</a></dd>
+    <dt>المهمة</dt>
+    <dd dir="ltr"><a href="/jobs/jb_seed_13" dir="auto">J-000013</a></dd>
+    <dt>تاريخ الإصدار</dt>
+    <dd dir="ltr"><day></dd>
+    <dt>الاستحقاق</dt>
+    <dd dir="ltr"><day></dd>
+    
+    
+  </dl>
+  <p class="work-links"><a href="/invoices/INV-000001/pdf?lang=en">الفاتورة (PDF بالإنجليزية)</a> <a href="/invoices/INV-000001/pdf?lang=ar">الفاتورة (PDF بالعربية)</a> <a href="/customers/cu_dxb_01/statement.pdf?lang=ar">كشف حساب العميل (PDF)</a></p>
+
+  <table id="invoice-lines">
+    <thead><tr><th>الوصف</th><th>الكمية</th><th>سعر الوحدة</th><th>الصافي</th><th>الضريبة</th></tr></thead>
+    <tbody>
+      <tr>
+        <td dir="auto">Plumbing</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">160.00 د.إ.</td>
+        <td dir="ltr">160.00 د.إ.</td>
+        <td dir="ltr">8.00 د.إ. (5 %)</td>
+      </tr><tr>
+        <td dir="auto">Kitchen mixer tap</td>
+        <td dir="ltr">1</td>
+        <td dir="ltr">180.00 د.إ.</td>
+        <td dir="ltr">180.00 د.إ.</td>
+        <td dir="ltr">9.00 د.إ. (5 %)</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr><th colspan="4">المجموع الفرعي</th><td dir="ltr">340.00 د.إ.</td></tr>
+      <tr><th colspan="4">الضريبة</th><td dir="ltr">17.00 د.إ.</td></tr>
+      <tr><th colspan="4">الإجمالي</th><td dir="ltr"><strong id="invoice-total" dir="auto">357.00 د.إ.</strong></td></tr>
+      <tr><th colspan="4">المدفوع</th><td dir="ltr" id="invoice-paid">150.00 د.إ.</td></tr>
+      <tr><th colspan="4">الرصيد</th><td dir="ltr" id="invoice-balance">207.00 د.إ.</td></tr>
+    </tfoot>
+  </table>
+
+  <section id="payments">
+    <h2>الدفعات</h2>
+    <table id="payment-list">
+      <thead><tr><th>تاريخ الاستلام</th><th>الطريقة</th><th>المبلغ (درهم)</th><th>المرجع</th></tr></thead>
+      <tbody>
+        <tr id="payment-1">
+          <td dir="ltr"><day></td>
+          <td dir="auto">شيك <span dir="ltr">#000123 · <day></span></td>
+          <td dir="ltr">150.00 د.إ.</td>
+          <td dir="auto">First instalment</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="pay">
+    <h2>تسجيل دفعة</h2>
+    <form method="post" action="?/pay" hx-post="?/pay" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>الطريقة
+        <select name="method" id="pay-method">
+          <option value="cash" dir="auto">نقداً</option><option value="transfer" dir="auto">تحويل بنكي</option><option value="cheque" dir="auto">شيك</option>
+        </select></label></p>
+      <p><label>المبلغ (درهم) <input name="amount" inputmode="decimal" dir="ltr" required></label></p>
+      <p><label>تاريخ الاستلام <input type="date" name="received_on" value="<day>" dir="ltr"></label></p>
+      <p><label>المرجع <input name="reference" maxlength="120"></label></p>
+      <p><label>رقم الشيك <input name="cheque_number" maxlength="40" dir="ltr"></label></p>
+      <p><label>تاريخ الشيك <input type="date" name="cheque_date" dir="ltr"></label></p>
+      <p><small class="muted">الشيك يحتاج إلى رقمه وتاريخه. لا يُقبل مبلغ أكبر من الرصيد.</small></p>
+      <p><button type="submit" class="btn-brand">تسجيل الدفعة</button></p>
+    </form>
+  </section>
+
+  <section id="link">
+    <h2>رابط العميل</h2>
+    
+    <form method="post" action="?/link" hx-post="?/link" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>"><p><button type="submit">إنشاء رابط جديد</button></p></form>
+  </section>
+
+  <section id="credit">
+    <h2>إشعار دائن</h2>
+    <p class="muted">يلغي الفاتورة كاملة ويلغي المهمة. لا تُرد الدفعات المستلمة من هنا.</p>
+    <form method="post" action="?/credit" hx-post="?/credit" class="stack narrow"><input type="hidden" name="_csrf" value="<csrf>">
+      <p><label>السبب <input name="reason" maxlength="200" required></label></p>
+      <p><button type="submit">إصدار الإشعار الدائن</button></p>
+    </form>
+  </section>
+
+  </main>
+  <footer><small dir="auto">فيكس إت للخدمات ذ.م.م، دبي</small></footer>
+
+
+</body></html>"
+`;

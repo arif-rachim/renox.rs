@@ -347,3 +347,31 @@ insert or ignore into app__visit_parts (id, branch_id, visit_id, description, qt
 
 -- The technician's name on each visit (what the customer's report page shows).
 update app__visits set technician_name = (select display_name from auth__users where id = technician_user_id) where technician_name = '';
+
+-- Invoicing: the invoiced job J-000013 has its tax invoice INV-000001, issued by
+-- the tax_gcc module (its document, written here the way the module does), and
+-- a first cheque of 150.00 against its 357.00: part-paid. The sequence goes on
+-- at INV-000002. Dates are relative to the day the seed is loaded, so the
+-- invoice is never overdue in a test.
+insert or ignore into tax_gcc__sequences (prefix, next) values ('INV', 2);
+insert or ignore into tax_gcc__documents (number, kind, against, body, standard, zero, exempt, vat, issued_at) values
+  ('INV-000001', 'invoice', null,
+   json_object(
+     'kind', 'invoice',
+     'title', json_object('en', 'Tax Invoice', 'ar', 'فاتورة ضريبية'),
+     'number', 'INV-000001',
+     'issued_at', (cast(strftime('%s', 'now', '-5 days') as integer) * 1000),
+     'seller', json_object('name', 'FixIt Services LLC', 'trn', '100000000000003', 'address', 'Dubai'),
+     'buyer', json_object('name', 'Layla Haddad', 'trn', null, 'address', 'Apartment, Dubai Marina, Marina Crown, flat 1203'),
+     'lines', json_array(
+       json_object('description', 'Plumbing', 'quantity', 1, 'unit_fils', 16000, 'rate', 'standard', 'net_fils', 16000, 'vat_fils', 800),
+       json_object('description', 'Kitchen mixer tap', 'quantity', 1, 'unit_fils', 18000, 'rate', 'standard', 'net_fils', 18000, 'vat_fils', 900)),
+     'totals', json_object('standard', 34000, 'zero', 0, 'exempt', 0, 'vat', 1700, 'total', 35700, 'vat_rate', 5, 'currency', 'AED',
+       'display', json_object('standard', '340.00', 'zero', '0.00', 'exempt', '0.00', 'vat', '17.00', 'total', '357.00'))),
+   34000, 0, 0, 1700, (cast(strftime('%s', 'now', '-5 days') as integer) * 1000));
+
+insert or ignore into app__job_invoices (job_id, branch_id, customer_id, invoice_id, total_fils, due_at, credit_note_id, created_by, created_at) values
+  ('jb_seed_13', 'br_dubai', 'cu_dxb_01', 'INV-000001', 35700, (cast(strftime('%s', 'now', '+25 days') as integer)), null, 'u_dxb_accountant', (cast(strftime('%s', 'now', '-5 days') as integer)));
+
+insert or ignore into app__payments (id, branch_id, invoice_id, method, amount_fils, received_at, reference, cheque_number, cheque_date, recorded_by, created_at) values
+  (1, 'br_dubai', 'INV-000001', 'cheque', 15000, (cast(strftime('%s', 'now', '-3 days') as integer)), 'First instalment', '000123', '2026-11-05', 'u_dxb_accountant', (cast(strftime('%s', 'now', '-3 days') as integer)));

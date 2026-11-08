@@ -42,6 +42,13 @@ export const FIELDS: Record<string, Text> = {
   summary_en: { en: "Summary (English)", ar: "الملخص (الإنجليزية)" },
   summary_ar: { en: "Summary (Arabic)", ar: "الملخص (العربية)" },
   phase: { en: "Photo phase", ar: "مرحلة الصورة" },
+  method: { en: "Method", ar: "الطريقة" },
+  amount: { en: "Amount", ar: "المبلغ" },
+  received_on: { en: "Date received", ar: "تاريخ الاستلام" },
+  reference: { en: "Reference", ar: "المرجع" },
+  cheque_number: { en: "Cheque number", ar: "رقم الشيك" },
+  cheque_date: { en: "Cheque date", ar: "تاريخ الشيك" },
+  reason: { en: "Reason", ar: "السبب" },
 };
 
 /** What is wrong, by the issue message of lib/forms.ts. */
@@ -89,6 +96,13 @@ export const PROBLEMS: Record<string, Text> = {
   "visits.err.signature": { en: "Draw the signature first.", ar: "ارسم التوقيع أولاً." },
   "visits.err.signed_by": { en: "Enter the name of the person signing.", ar: "أدخل اسم الموقّع." },
   "visits.err.phase": { en: "Choose before or after.", ar: "اختر قبل أو بعد." },
+  "invoices.err.method": { en: "Choose cash, bank transfer or cheque.", ar: "اختر نقداً أو تحويلاً بنكياً أو شيكاً." },
+  "invoices.err.amount": { en: "Enter the amount in AED, for example 120 or 120.50.", ar: "أدخل المبلغ بالدرهم، مثل 120 أو 120.50." },
+  "invoices.err.date": { en: "Enter a date as YYYY-MM-DD.", ar: "أدخل التاريخ بصيغة YYYY-MM-DD." },
+  "invoices.err.reference": { en: "A reference is at most 120 characters.", ar: "المرجع 120 حرفاً كحد أقصى." },
+  "invoices.err.cheque_number": { en: "A cheque needs its number.", ar: "الشيك يحتاج إلى رقمه." },
+  "invoices.err.reason": { en: "Give a reason of 3 to 200 characters.", ar: "اكتب سبباً من 3 إلى 200 حرف." },
+  "invoices.err.overpay": { en: "The payment is more than the balance of the invoice.", ar: "الدفعة أكبر من رصيد الفاتورة." },
   "catalogue.err.service": { en: "Unknown service.", ar: "خدمة غير معروفة." },
   "catalogue.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
 };

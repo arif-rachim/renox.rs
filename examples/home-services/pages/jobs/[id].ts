@@ -18,6 +18,7 @@ import { imageOf, partsOf, partTotal, photosOf, visitOfJob } from "../../lib/vis
 import { summarySchema } from "../../lib/visit-forms";
 import { setSummary } from "../../lib/visits";
 import { assignSchema, scheduleSchema, statusSchema } from "../../lib/job-forms";
+import { invoiceOfJob } from "../../lib/invoices";
 import { assign, eventsOf, findJob, jobResource, schedule, TRANSITIONS, transition, type JobRow, type Outcome } from "../../lib/jobs";
 import { shell } from "../../lib/page";
 import { unprocessable } from "../../lib/problems";
@@ -83,8 +84,13 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
       parts_total: aed(parts.reduce((n, p) => n + partTotal(p), 0)),
     };
   }
+  // The invoice, for whoever may read invoices; the button, for whoever may issue one (accountant, owner, with the second factor).
+  const reads = await ctx.authz.can("invoice.read");
+  const invoice = reads ? await invoiceOfJob(scoped, branch.id, job.id) : null;
   return {
     visit,
+    invoice: invoice === null ? null : { id: invoice.invoice_id, status: invoice.status },
+    can_invoice: job.status === "done" && (await ctx.authz.can("invoice.issue")),
     can_edit_summary: visit !== null && (await ctx.authz.can("job.write")),
     job: {
       id: job.id,

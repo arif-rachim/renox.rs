@@ -3,10 +3,11 @@
 // so a copy of the database opens nothing. No secret is involved: a link is
 // valid because its hash is on file, before it expires and (for `approve`)
 // until it is used once. A `report` link (the visit report, `/l/report/<token>`)
-// opens as often as the customer likes until it expires.
+// and an `invoice` link (`/l/invoice/<token>`) open as often as the customer
+// likes until they expire.
 import type { DbStatements } from "@renoxium/sdk";
 
-export type LinkKind = "approve" | "report";
+export type LinkKind = "approve" | "report" | "invoice";
 
 type LinkRow = {
   ref_id: string;

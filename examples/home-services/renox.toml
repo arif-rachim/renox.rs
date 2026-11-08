@@ -35,7 +35,7 @@ sensitive = ["invoice.issue", "invoice.pay", "settings.write"]
 
 [authz.default_roles]
 owner = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "invoice.pay", "contract.read", "contract.write", "report.view", "settings.write"]
-branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "invoice.issue", "contract.read", "contract.write", "report.view"]
+branch_manager = ["customer.read", "customer.write", "quote.read", "quote.write", "quote.approve", "job.read", "job.write", "job.dispatch", "visit.perform", "invoice.read", "contract.read", "contract.write", "report.view"]
 dispatcher = ["customer.read", "customer.write", "quote.read", "quote.write", "job.read", "job.write", "job.dispatch", "contract.read"]
 technician = ["job.read", "visit.perform"]
 accountant = ["invoice.read", "invoice.issue", "invoice.pay", "report.view", "customer.read", "job.read", "contract.read"]
@@ -71,6 +71,12 @@ app__visit_parts = { owner = "branch_id" }
 # app__inbox_seen is the sweep's own bookkeeping, not owned.
 app__outbox_preview = { owner = "branch_id" }
 app__tasks = { owner = "branch_id" }
+
+# Invoices and their payments, the same way (each payment repeats the invoice's
+# branch_id). app__invoice_status is a view: not ownable, so it is always read
+# with an explicit branch_id (lib/invoices.ts).
+app__job_invoices = { owner = "branch_id" }
+app__payments = { owner = "branch_id" }
 
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }

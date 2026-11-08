@@ -308,5 +308,77 @@
     "summary": "Summary",
     "parts": "Parts used",
     "pdf": "Download the PDF"
+  },
+  "invoices": {
+    "title": "Invoices",
+    "back": "All invoices",
+    "none": "No invoices found.",
+    "filter": "Filter",
+    "payments": "Payments",
+    "no_payments": "No payments yet.",
+    "pdf_en": "Invoice (English PDF)",
+    "pdf_ar": "Invoice (Arabic PDF)",
+    "statement": "Customer statement (PDF)",
+    "issue": "Issue the tax invoice",
+    "issue_hint": "Needs a recent second factor. The customer gets a link to the invoice.",
+    "view": "Invoice {number}",
+    "status": {
+      "issued": "Issued",
+      "part-paid": "Part paid",
+      "paid": "Paid",
+      "credited": "Credited",
+      "overdue": "Overdue",
+      "open": "Open"
+    },
+    "method": {
+      "cash": "Cash",
+      "transfer": "Bank transfer",
+      "cheque": "Cheque"
+    },
+    "f": {
+      "number": "Invoice",
+      "customer": "Customer",
+      "status": "Status",
+      "total": "Total",
+      "paid": "Paid",
+      "balance": "Balance",
+      "due": "Due",
+      "issued": "Issued",
+      "job": "Job",
+      "credit_note": "Credit note",
+      "method": "Method",
+      "amount": "Amount (AED)",
+      "date": "Date received",
+      "reference": "Reference",
+      "cheque_number": "Cheque number",
+      "cheque_date": "Cheque date",
+      "reason": "Reason"
+    },
+    "pay": {
+      "title": "Record a payment",
+      "submit": "Record payment",
+      "hint": "A cheque needs its number and date. More than the balance is refused."
+    },
+    "credit": {
+      "title": "Credit note",
+      "hint": "Credits the whole invoice and cancels the job. Payments already received are not refunded here.",
+      "submit": "Issue the credit note"
+    },
+    "link": {
+      "title": "Link for the customer",
+      "submit": "Make a new link"
+    },
+    "err": {
+      "method": "Choose cash, bank transfer or cheque.",
+      "amount": "Enter the amount in AED, for example 120 or 120.50.",
+      "date": "Enter a date as YYYY-MM-DD.",
+      "reference": "A reference is at most 120 characters.",
+      "cheque_number": "A cheque needs its number.",
+      "reason": "Give a reason of 3 to 200 characters.",
+      "overpay": "The payment is more than the balance of the invoice."
+    }
+  },
+  "invoice_page": {
+    "title": "Tax invoice {number}"
   }
 }
