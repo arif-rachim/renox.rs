@@ -181,7 +181,7 @@ All commands as root on the host unless the step says otherwise.
     printf 'ALERT_WEBHOOK_URL=%s\n' '<https webhook url>' | install -m 0600 -o root -g root /dev/stdin /etc/renox/secrets/alert.env
     systemctl start renox-alert@test.service     # a test alert: "test failed on node-small" arrives
     ```
-    Without the file a failure is only in the journal (`journalctl -u 'renox-alert@*'`).
+    Without the file a failure is only in the journal: `renox-alert@<unit>.service` still runs and succeeds (#545; the unit's `SetCredential=` fallback stands in for the missing file), and `journalctl -u 'renox-alert@*'` shows `renox-alert: no alert.env; <unit> failed on node-small`. The node's name comes from `/etc/renox/node-name`, which `bootstrap-node.sh` writes from `--node-id`; the Linux host name follows it in brackets when the two differ.
 12. **Billing rollup (#450).** `control/billing` turns the meter records into hourly usage (`meters_hourly`), which usage, quotas, the tier machine and invoices read. Nothing else runs it:
     ```
     systemctl start renox-billing.service         # one pass now

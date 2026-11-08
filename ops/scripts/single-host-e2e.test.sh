@@ -23,7 +23,8 @@
 #      tunnel's socket with the Host header cloudflared forwards
 #   10 renox-backup-db.service: a real pg_dump of the control database,
 #      encrypted to the age key and uploaded to a fake S3 on loopback
-#   11 renox-alert@.service: the webhook receives the failed unit's name
+#   11 renox-alert@.service: without alert.env it logs and succeeds (#545),
+#      with it the webhook receives the failed unit's name
 #   12 renox-billing.service: one pass on the same database
 #   and renox-backup-tenants.service: a snapshot of the tenant files under
 #      /var/backups/renox/tenants (#544: sqlite3 from install step 1)
@@ -341,6 +342,10 @@ srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
 srv.serve_forever()
 PY
 docker exec -d "$name" python3 /root/hook.py /root/alerts.log
+# #545: before alert.env exists the alert unit still succeeds and logs.
+if dx systemctl start renox-alert@e2e-none.service >/dev/null 2>&1 && journal 'renox-alert@e2e-none' 10 | grep -q 'renox-alert: no alert.env; e2e-none failed on node-small'; then
+  pass "step 11: without alert.env, renox-alert@ exits 0 and logs 'no alert.env; <unit> failed on <node>'"
+else fail "step 11: renox-alert@ without alert.env: $(dx systemctl show -p Result --value renox-alert@e2e-none.service 2>/dev/null) $(journal 'renox-alert@e2e-none' 5)"; fi
 sh_in 'printf "ALERT_WEBHOOK_URL=https://127.0.0.1:9598/hook\n" > /etc/renox/secrets/alert.env && chmod 0600 /etc/renox/secrets/alert.env'
 dx systemctl start renox-alert@e2e-test.service >/dev/null 2>&1 || true
 alerted=0

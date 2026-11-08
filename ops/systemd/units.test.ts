@@ -39,7 +39,11 @@ test("a failed backup or rollup starts renox-alert@, which reads its webhook fro
   expect(key(unit("renox-backup-db.service"), "OnFailure")).toEqual(["renox-alert@%n.service"]);
   const a = unit("renox-alert@.service");
   expect(key(a, "ExecStart")).toEqual(["/opt/renox/bin/renox-alert.sh %i"]);
-  expect(key(a, "LoadCredential")).toEqual(["alert.env:/etc/renox/secrets/alert.env"]);
+  expect(key(a, "LoadCredential")).toEqual(["alert.env:/etc/renox/secrets/alert.env", "node-name:/etc/renox/node-name"]);
+  // #545: a missing alert.env is not 243/CREDENTIALS: SetCredential= of the same
+  // name is the fallback, a comment line the script skips before it logs and exits 0.
+  expect(key(a, "SetCredential")).toEqual(["alert.env:# renox-alert: no alert.env on this host", "node-name:-"]);
+  expect(readFileSync(join(HERE, "../scripts/renox-alert.sh"), "utf8")).toContain('echo "renox-alert: no alert.env; $text"');
   expect(existsSync(join(HERE, "../scripts/renox-alert.sh"))).toBe(true);
   expect(readFileSync(join(HERE, "../scripts/bootstrap-node.sh"), "utf8")).toContain('"$here/scripts/renox-alert.sh" "$bin_dir/renox-alert.sh"');
 });

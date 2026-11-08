@@ -2,9 +2,16 @@
 # renox-backup-db.service and renox-billing.service starts this with the
 # failed unit's name. ops/scripts/renox-alert.sh posts it to the webhook in
 # /etc/renox/secrets/alert.env (ALERT_WEBHOOK_URL), the same receiver
-# Alertmanager uses, with the host name and the unit's last journal lines;
+# Alertmanager uses, with the node's name and the unit's last journal lines;
 # without the file it only logs. The URL is a secret: it reaches the script
 # through LoadCredential, never a command line.
+# #545: LoadCredential= alone fails the unit (243/CREDENTIALS) when its file
+# is missing. A SetCredential= of the same name is the fallback systemd uses
+# then (systemd 255, Ubuntu 24.04: "not considered fatal"), so the script
+# runs, reads only the fallback's comment line, logs and exits 0.
+# node-name (written by bootstrap-node.sh from --node-id) names the node in
+# the alert; /etc/renox is closed to this unit's dynamic user, hence a
+# credential too, with the host name as the fallback.
 [Unit]
 Description=Alert the operator: %i failed
 Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.md
@@ -12,6 +19,9 @@ Documentation=https://github.com/arif-rachim/renox.rs/blob/main/ops/single-host.
 [Service]
 Type=oneshot
 LoadCredential=alert.env:/etc/renox/secrets/alert.env
+SetCredential=alert.env:# renox-alert: no alert.env on this host
+LoadCredential=node-name:/etc/renox/node-name
+SetCredential=node-name:-
 ExecStart=/opt/renox/bin/renox-alert.sh %i
 DynamicUser=yes
 # The journal of the failed unit: the systemd-journal group reads it.
