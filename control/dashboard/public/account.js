@@ -323,6 +323,21 @@
     return msg("err_workspace") + " " + (p.kind === "start" ? msg("id_bad_start") : msg("id_bad_char")) + " " + shown;
   }
 
+  /** #540: the Turnstile widget of the sign-up (absent without RENOX_CAPTCHA_SITE_KEY). Its callbacks are globals, so the page needs no inline script. */
+  const captchaApi = () => (window.turnstile && typeof window.turnstile.getResponse === "function" ? window.turnstile : null);
+  window.renoxCaptchaOk = () => error("");
+  window.renoxCaptchaError = () => error(msg("captcha_error"));
+  function captchaToken(form) {
+    const t = captchaApi();
+    const fromApi = t ? t.getResponse() : "";
+    const field = form.elements["cf-turnstile-response"];
+    return fromApi || (field ? field.value : "") || "";
+  }
+  function captchaReset() {
+    const t = captchaApi();
+    if (t && typeof t.reset === "function") t.reset();
+  }
+
   function signupPage() {
     const form = $("signup-form");
     const nameEl = form.elements.tenant_name;
@@ -357,10 +372,20 @@
       };
       if (body.password.length < 12) return error(msg("err_password"));
       if (!f.dpa.checked) return error(msg("err_accept"));
+      if ($("captcha")) {
+        const token = captchaToken(form);
+        if (!token) return error(msg("captcha_required"));
+        body.captcha_token = token;
+      }
       busy(form, true);
       const r = await call("POST", "/v1/account/signup", body);
       busy(form, false);
       if (!r.ok) {
+        // A Turnstile token is single use: whatever the answer, the next try needs a fresh one.
+        if ($("captcha")) captchaReset();
+        const why = reasonOf(r, "captcha_token");
+        if (why === "required") return error(msg("captcha_required"));
+        if (why === "rejected") return error(msg("captcha_rejected"));
         if (r.status === 409) return error(msg("err_taken") + " " + msg("id_try") + " " + suggestId(body.tenant_id));
         if (reasonOf(r, "email") === "disposable") return error(msg("err_disposable"));
         if (r.status === 429) return error(msg("err_too_many"));

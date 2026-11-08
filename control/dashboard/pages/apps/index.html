@@ -19,6 +19,25 @@
       </article>
       <div class="card card-text" r-empty="apps"><p><r-t key="dash.apps.empty" /> <code>renox deploy</code> <r-t key="dash.apps.empty_after" /></p></div>
     </div>
+    <p class="notice" r-if="restored">{{ restored }}</p>
+    <x-problem :problem="restore_problem" r-if="restore_problem" />
+    <section id="deleted-apps" r-if="deleted">
+      <h2><r-t key="dash.apps.deleted_h" /></h2>
+      <table class="list">
+        <tbody>
+          <tr r-for="d in deleted">
+            <td><code>{{ d.name }}</code></td>
+            <td>{{ d.until }}</td>
+            <td>
+              <x-form action="restore" hx-target="#page" hx-swap="outerHTML" class="inline">
+                <input type="hidden" name="name" :value="d.name">
+                <button type="submit"><r-t key="dash.apps.restore" /></button>
+              </x-form>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
     <h2><r-t key="dash.apps.new" /></h2>
     <p class="notice" r-if="created"><r-t key="dash.apps.created" /> {{ created }}. <r-t key="dash.apps.deploy_with" /> <code>renox deploy</code> <r-t key="dash.apps.from_folder" /></p>
     <p class="problem" r-if="create_error">{{ create_error }}</p>

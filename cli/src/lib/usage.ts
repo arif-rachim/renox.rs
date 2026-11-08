@@ -71,6 +71,13 @@ export const HELP: Record<string, CommandHelp> = {
     summary: "The app's custom domains. add prints the CNAME and the two TXT records to create; status shows pending, then verified. Use www.<domain>, not the apex.",
     flags: ["--app", "--json"],
   },
+  apps: {
+    group: "Deploy and operate",
+    usage: ["apps list [--deleted] [--json]", "apps rm <name> [--yes] [--json]", "apps restore <name> [--json]", "apps rename <old> <new> [--yes] [--json]"],
+    summary:
+      "The tenant's apps. rm stops serving an app now (type its name again, or --yes); restore brings it back within 7 days, then it is purged. rename moves an app to <new>.<platform domain> with its deployments, data, secrets and domains; in the app's folder it offers to update renox.toml (--yes updates it).",
+    flags: ["--deleted", "--json", "--yes", "-y"],
+  },
   tokens: { group: "Deploy and operate", usage: ["tokens list", "tokens create <name> --scope <s>... [--expires-days <n>]", "tokens revoke <id>"], summary: "Tenant tokens for CI and scripts; a new value is shown once.", flags: ["--scope", "--expires-days"] },
   db: {
     group: "Deploy and operate",

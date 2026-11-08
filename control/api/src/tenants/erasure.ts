@@ -20,7 +20,9 @@
 import type { Hono } from "hono";
 import { operation, writeAudit } from "../audit.ts";
 import { tenantAuth } from "../auth/middleware.ts";
-import type { Deps, Env } from "../context.ts";
+import type { Deps, Env, Principal } from "../context.ts";
+import { ACTIONS, allows } from "../auth/tokens.ts";
+import { PERMISSIONS, roleAllows, type Permission } from "../tenancy/roles.ts";
 import { num, type Db } from "../db/db.ts";
 import { ApiError, conflict, notFound } from "../errors.ts";
 import { jsonBody, pathParam } from "../http.ts";
@@ -89,6 +91,7 @@ const RECORD_DELETES = [
   "delete from invitations where tenant_id = $1",
   "delete from owner_transfers where tenant_id = $1",
   "delete from device_codes where tenant_id = $1",
+  "delete from app_renames where tenant_id = $1",
   "delete from apps where tenant_id = $1",
 ];
 
@@ -267,6 +270,18 @@ export async function newTenantRestrictions(db: Db, tenantId: string, createdAt:
   return ["reduced_quotas", "no_custom_domain"];
 }
 
+/**
+ * deploy-api.md 0.7 section 3 (#536): the tenant-wide permissions the caller
+ * holds, so a client (the dashboard's settings page) shows only what it may
+ * do. A token: its unscoped scopes, capped by its user's current role; a
+ * session: its role's permissions.
+ */
+export function callerPermissions(p: Principal | undefined): Permission[] {
+  if (p === undefined || p.kind !== "tenant") return [];
+  if (p.via === "session") return PERMISSIONS.filter((x) => roleAllows(p.role, x));
+  return ACTIONS.filter((a) => allows(p.scopes, a) && (p.role === null || roleAllows(p.role, a)));
+}
+
 export function registerErasure(app: Hono<Env>, deps: Deps): void {
   app.get("/v1/tenants/:tenant_id", operation(deps, "getTenant"), tenantAuth(deps, "apps:read"), async (c) => {
     const db = tenantDb(deps, c);
@@ -277,7 +292,7 @@ export function registerErasure(app: Hono<Env>, deps: Deps): void {
     // deploy-api.md 0.5 section 21 (#326): the first activation, and the new-tenant limits still in force.
     const first = (await db.query<Record<string, unknown>>("select min(activated_at) as t from deployments where tenant_id = $1 and activated_at is not null", [db.tenantId]))[0]?.t;
     const restrictions = await newTenantRestrictions(db, db.tenantId, num(r.created_at), deps.now());
-    return c.json({ tenant_id: r.id, name: r.name, tier: r.tier, state: r.state, created_at: num(r.created_at), first_deploy_at: first === null || first === undefined ? null : num(first), restrictions, erasure: await erasureOf(db, db.tenantId) });
+    return c.json({ tenant_id: r.id, name: r.name, tier: r.tier, state: r.state, created_at: num(r.created_at), first_deploy_at: first === null || first === undefined ? null : num(first), restrictions, erasure: await erasureOf(db, db.tenantId), permissions: callerPermissions(c.get("principal")) });
   });
 
   app.delete("/v1/tenants/:tenant_id", operation(deps, "deleteTenant"), tenantAuth(deps, "tenant:delete"), async (c) => {

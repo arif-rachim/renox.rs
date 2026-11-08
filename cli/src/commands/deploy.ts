@@ -105,11 +105,18 @@ async function ok<T>(res: Response, ...statuses: number[]): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** The app, created on first deploy (deploy-api.md section 3). */
+/**
+ * The app, created on first deploy (deploy-api.md section 3). A name the
+ * tenant renamed away (0.7, #537: the 404 carries `renamed_to`) stops the
+ * deploy instead of creating a new app under the old name.
+ */
 async function ensureApp(io: Io, name: string, out: (l: string) => void): Promise<App> {
   const res = await apiRequest(io, "GET", `/v1/apps/${name}`);
   if (res.status !== 404) return ok<App>(res, 200);
-  await res.body?.cancel().catch(() => {});
+  const renamed = (await errorBody(res)).details?.find((d) => d.field === "renamed_to")?.reason;
+  if (typeof renamed === "string" && APP.test(renamed)) {
+    throw new UserError(`renamed to ${renamed}; update renox.toml`, { hint: `the app ${name} is now ${renamed}: set [app] name = "${renamed}" in renox.toml, then run renox deploy again` });
+  }
   const created = await apiRequest(io, "POST", "/v1/apps", { json: { name } });
   const app = await ok<App>(created, 201);
   out(`  Created app ${name}`);
