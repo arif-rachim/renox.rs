@@ -60,6 +60,12 @@ app__quote_lines = { owner = "branch_id" }
 app__jobs = { owner = "branch_id" }
 app__job_events = { owner = "branch_id" }
 
+# Visits, their photos and their parts, the same way (each row repeats the
+# job's branch_id).
+app__visits = { owner = "branch_id" }
+app__visit_photos = { owner = "branch_id" }
+app__visit_parts = { owner = "branch_id" }
+
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }
 Site = { table = "app__sites", attrs = ["branch_id", "customer_id"] }

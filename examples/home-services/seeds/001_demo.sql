@@ -319,3 +319,28 @@ insert or ignore into app__job_events (id, job_id, branch_id, at, by_user_id, fr
   (32, 'jb_seed_19', 'br_sharjah', 1793400100, 'u_shj_dispatcher', 'new', 'done', ''),
   (33, 'jb_seed_20', 'br_sharjah', 1793400000, 'u_shj_dispatcher', null, 'new', 'created'),
   (34, 'jb_seed_20', 'br_sharjah', 1793400100, 'u_shj_dispatcher', 'new', 'cancelled', '');
+
+-- The visits of the jobs that are done or invoiced (jb_seed_11, 12, 13, 19): check-in and check-out,
+-- notes, a summary in both languages, two photos each and one part. The photo files are stored by
+-- POST /api/dev/seed-visit-photos (dev only); width and height stay null until then.
+insert or ignore into app__visits (id, branch_id, job_id, technician_user_id, checkin_at, checkout_at, notes, summary_en, summary_ar, signed_by_name) values
+  ('vs_seed_11', 'br_dubai', 'jb_seed_11', 'u_dxb_bilal', (select scheduled_start from app__jobs where id = 'jb_seed_11') + 300, (select scheduled_start from app__jobs where id = 'jb_seed_11') + 3300, 'TV mounted on the living-room wall and the curtain rail fixed. Customer asked for a cable cover next time.', 'The TV was mounted on the living-room wall and the curtain rail was fixed. A cable cover can be added at the next visit.', 'تم تركيب التلفاز على جدار غرفة المعيشة وإصلاح سكة الستائر. يمكن إضافة غطاء للكابلات في الزيارة القادمة.', 'Customer'),
+  ('vs_seed_12', 'br_dubai', 'jb_seed_12', 'u_dxb_ali', (select scheduled_start from app__jobs where id = 'jb_seed_12') + 240, (select scheduled_start from app__jobs where id = 'jb_seed_12') + 3500, 'Two split units serviced: filters washed, coils cleaned, gas level checked.', 'Both split units were serviced, with the filters washed and the coils cleaned. The gas level is normal.', 'تمت صيانة الوحدتين، مع غسل المرشحات وتنظيف الملفات. مستوى الغاز طبيعي.', 'Customer'),
+  ('vs_seed_13', 'br_dubai', 'jb_seed_13', 'u_dxb_bilal', (select scheduled_start from app__jobs where id = 'jb_seed_13') + 600, (select scheduled_start from app__jobs where id = 'jb_seed_13') + 5000, 'Kitchen tap replaced with a new mixer; the old washer was worn out.', 'The kitchen tap was replaced with a new mixer. The old one had a worn washer.', 'تم استبدال صنبور المطبخ بخلاط جديد. كان الصنبور القديم يحتوي على حشية متآكلة.', 'Customer'),
+  ('vs_seed_19', 'br_sharjah', 'jb_seed_19', 'u_shj_hamad', (select scheduled_start from app__jobs where id = 'jb_seed_19') + 300, (select scheduled_start from app__jobs where id = 'jb_seed_19') + 10500, 'Deep clean of the whole flat; kitchen and two bathrooms descaled.', 'The whole flat was deep cleaned. The kitchen and both bathrooms were descaled.', 'تم تنظيف الشقة بالكامل بعمق. وأُزيلت الترسبات من المطبخ والحمّامين.', 'Customer');
+
+insert or ignore into app__visit_photos (id, branch_id, visit_id, phase, file_key, caption, created_at) values
+  (1, 'br_dubai', 'vs_seed_11', 'before', 'app/visits/vs_seed_11/before/seed.png', 'The bare wall', 1793400100),
+  (2, 'br_dubai', 'vs_seed_11', 'after', 'app/visits/vs_seed_11/after/seed.png', 'The mounted TV', 1793400100),
+  (3, 'br_dubai', 'vs_seed_12', 'before', 'app/visits/vs_seed_12/before/seed.png', 'A dirty filter', 1793400100),
+  (4, 'br_dubai', 'vs_seed_12', 'after', 'app/visits/vs_seed_12/after/seed.png', 'The cleaned filter', 1793400100),
+  (5, 'br_dubai', 'vs_seed_13', 'before', 'app/visits/vs_seed_13/before/seed.png', 'The old tap', 1793400100),
+  (6, 'br_dubai', 'vs_seed_13', 'after', 'app/visits/vs_seed_13/after/seed.png', 'The new mixer', 1793400100),
+  (7, 'br_sharjah', 'vs_seed_19', 'before', 'app/visits/vs_seed_19/before/seed.png', 'The kitchen before', 1793400100),
+  (8, 'br_sharjah', 'vs_seed_19', 'after', 'app/visits/vs_seed_19/after/seed.png', 'The kitchen after', 1793400100);
+
+insert or ignore into app__visit_parts (id, branch_id, visit_id, description, qty, unit_price_fils) values
+  (1, 'br_dubai', 'vs_seed_11', 'Wall bracket', 1, 4500),
+  (2, 'br_dubai', 'vs_seed_12', 'Filter set', 2, 2500),
+  (3, 'br_dubai', 'vs_seed_13', 'Kitchen mixer tap', 1, 18000),
+  (4, 'br_sharjah', 'vs_seed_19', 'Descaling kit', 1, 3500);

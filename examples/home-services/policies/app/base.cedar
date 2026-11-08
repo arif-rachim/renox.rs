@@ -20,6 +20,12 @@ when { principal has org };
 forbid (principal in Renox::Role::"technician", action == Renox::Action::"job.read", resource is App::Job)
 unless { resource.mine == "yes" };
 
+// A visit is performed by the technician whose job it is, whatever else their
+// role allows (an owner or a manager does not check in to someone else's job).
+// The route guards check `visit.perform` without a job.
+forbid (principal, action == Renox::Action::"visit.perform", resource is App::Job)
+unless { resource.mine == "yes" };
+
 // Dispatching is per branch: the dispatch socket's guard names the branch by
 // its slug, and only a member of its organisation (the session's active one) passes.
 forbid (principal, action == Renox::Action::"job.dispatch", resource is App::Branch)

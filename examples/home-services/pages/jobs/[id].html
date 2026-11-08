@@ -69,6 +69,30 @@
     </x-form>
   </section>
 
+  <section id="visit" r-if="visit">
+    <h2><r-t key="visits.visit" /></h2>
+    <p dir="ltr" id="visit-times">{{ visit.checkin }}<r-group r-if="visit.checkout"> → {{ visit.checkout }}</r-group></p>
+    <p r-if="visit.notes" dir="auto">{{ visit.notes }}</p>
+    <ul class="photos" r-if="visit.before" id="photos-before">
+      <li r-for="p in visit.before"><x-image r-if="p.image" :src="p.image" width="120" :alt="p.caption" class="thumb"></x-image><small r-else><r-t key="visits.photos.not_stored" /></small><small r-if="p.caption">{{ p.caption }}</small></li>
+    </ul>
+    <ul class="photos" r-if="visit.after" id="photos-after">
+      <li r-for="p in visit.after"><x-image r-if="p.image" :src="p.image" width="120" :alt="p.caption" class="thumb"></x-image><small r-else><r-t key="visits.photos.not_stored" /></small><small r-if="p.caption">{{ p.caption }}</small></li>
+    </ul>
+    <ul r-if="visit.parts" id="visit-parts">
+      <li r-for="p in visit.parts" dir="auto">{{ p.qty }} × {{ p.description }} · <span dir="ltr">{{ p.total }}</span></li>
+    </ul>
+    <p r-if="visit.signed_by" id="signed-by"><r-t key="visits.signature.saved" :name="visit.signed_by" /></p>
+    <r-group r-if="can_edit_summary">
+      <x-form action="summary" class="stack narrow">
+        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">{{ visit.summary_en }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">{{ visit.summary_ar }}</textarea></label></p>
+        <p><button type="submit"><r-t key="visits.summary.save" /></button></p>
+      </x-form>
+    </r-group>
+    <p r-if="visit.closed" class="work-links"><a :href="'/visits/' ~ visit.id ~ '/report?lang=en'"><r-t key="visits.report.en" /></a> <a :href="'/visits/' ~ visit.id ~ '/report?lang=ar'"><r-t key="visits.report.ar" /></a></p>
+  </section>
+
   <section id="timeline">
     <h2><r-t key="jobs.timeline" /></h2>
     <ol class="timeline">

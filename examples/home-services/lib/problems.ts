@@ -37,6 +37,11 @@ export const FIELDS: Record<string, Text> = {
   slot: { en: "Slot", ar: "الموعد" },
   technician: { en: "Technician", ar: "الفني" },
   to: { en: "Status", ar: "الحالة" },
+  signature: { en: "Signature", ar: "التوقيع" },
+  signed_by: { en: "Name of the person signing", ar: "اسم الموقّع" },
+  summary_en: { en: "Summary (English)", ar: "الملخص (الإنجليزية)" },
+  summary_ar: { en: "Summary (Arabic)", ar: "الملخص (العربية)" },
+  phase: { en: "Photo phase", ar: "مرحلة الصورة" },
 };
 
 /** What is wrong, by the issue message of lib/forms.ts. */
@@ -75,6 +80,15 @@ export const PROBLEMS: Record<string, Text> = {
   "jobs.err.note": { en: "A note is at most 200 characters.", ar: "الملاحظة 200 حرف كحد أقصى." },
   "jobs.err.technician": { en: "Choose a technician.", ar: "اختر فنياً." },
   "jobs.err.status": { en: "Choose a status.", ar: "اختر حالة." },
+  "visits.err.position": { en: "The position is not valid.", ar: "الموقع غير صالح." },
+  "visits.err.part": { en: "Name the part (up to 200 characters).", ar: "سمِّ القطعة (حتى 200 حرف)." },
+  "visits.err.qty": { en: "Enter a quantity above 0 with at most two decimals.", ar: "أدخل كمية أكبر من 0 بخانتين عشريتين كحد أقصى." },
+  "visits.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
+  "visits.err.notes": { en: "Notes are at most 2000 characters.", ar: "الملاحظات 2000 حرف كحد أقصى." },
+  "visits.err.summary": { en: "A summary is at most 400 characters.", ar: "الملخص 400 حرف كحد أقصى." },
+  "visits.err.signature": { en: "Draw the signature first.", ar: "ارسم التوقيع أولاً." },
+  "visits.err.signed_by": { en: "Enter the name of the person signing.", ar: "أدخل اسم الموقّع." },
+  "visits.err.phase": { en: "Choose before or after.", ar: "اختر قبل أو بعد." },
   "catalogue.err.service": { en: "Unknown service.", ar: "خدمة غير معروفة." },
   "catalogue.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
 };

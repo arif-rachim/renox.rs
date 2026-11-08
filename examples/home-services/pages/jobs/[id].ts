@@ -5,13 +5,18 @@
 // The schedule form is a slot picker: `?day=YYYY-MM-DD&technician=<user id>`
 // lists the free starts `booking` offers that day (the branch's hours, the
 // technician's free time), and POST ?/schedule books one. POST ?/assign,
-// ?/cancel and ?/status need `job.dispatch`; a refusal of the rules answers
+// ?/cancel and ?/status need `job.dispatch`, ?/summary (the visit's report
+// summary) `job.write`; a refusal of the rules answers
 // 409 (a taken slot names the next free one) or 422 with the reason.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import { bookingService, clock, ensureSynced, slotsOn } from "../../lib/booking-sync";
 import { findCustomer } from "../../lib/customers";
 import { check } from "../../lib/forms";
+import { aed } from "../../lib/money";
+import { imageOf, partsOf, partTotal, photosOf, visitOfJob } from "../../lib/visit-data";
+import { summarySchema } from "../../lib/visit-forms";
+import { setSummary } from "../../lib/visits";
 import { assignSchema, scheduleSchema, statusSchema } from "../../lib/job-forms";
 import { assign, eventsOf, findJob, jobResource, schedule, TRANSITIONS, transition, type JobRow, type Outcome } from "../../lib/jobs";
 import { shell } from "../../lib/page";
@@ -52,7 +57,35 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
     const found = await slotsOn(bookingService(service.code), pickDay, staff);
     slots = found.map((s) => ({ value: `${s.staff}@${s.start}`, label: `${clock(Math.floor(s.start / 1000))}–${clock(Math.floor(s.end / 1000))} · ${names.get(s.staff) ?? s.staff}` }));
   }
+  // The visit, if the technician has checked in: read by everyone who reads the job; `job.write` edits the summary.
+  const visitRow = await visitOfJob(scoped, job.id);
+  let visit = null;
+  if (visitRow !== null) {
+    const photos = await photosOf(scoped, visitRow.id);
+    const thumbs = async (phase: string) => {
+      const out = [];
+      for (const p of photos.filter((x) => x.phase === phase)) out.push({ id: p.id, caption: p.caption, image: p.width !== null && p.height !== null ? await imageOf(ctx.storage, p) : null });
+      return out;
+    };
+    const parts = await partsOf(scoped, visitRow.id);
+    visit = {
+      id: visitRow.id,
+      checkin: when(visitRow.checkin_at),
+      checkout: visitRow.checkout_at === null ? "" : when(visitRow.checkout_at),
+      notes: visitRow.notes,
+      summary_en: visitRow.summary_en,
+      summary_ar: visitRow.summary_ar,
+      signed_by: visitRow.signed_by_name,
+      closed: visitRow.checkout_at !== null,
+      before: await thumbs("before"),
+      after: await thumbs("after"),
+      parts: parts.map((p) => ({ id: p.id, description: p.description, qty: p.qty, total: aed(partTotal(p)) })),
+      parts_total: aed(parts.reduce((n, p) => n + partTotal(p), 0)),
+    };
+  }
   return {
+    visit,
+    can_edit_summary: visit !== null && (await ctx.authz.can("job.write")),
     job: {
       id: job.id,
       number: job.number,
@@ -112,7 +145,36 @@ async function denied(ctx: ActionContext): Promise<Response | null> {
 /** A successful change answers by redirecting to the job (a reload shows the new timeline); a refusal is its status with the reason. */
 const answer = (r: Outcome, back: string): Response => (r.ok ? new Response(null, { status: 303, headers: { location: back, "cache-control": "no-store" } }) : plain(r.status, r.message));
 
+/** The refusal of `job.write` as the 403 the route would answer, or null when allowed. */
+async function deniedWrite(ctx: ActionContext): Promise<Response | null> {
+  try {
+    await ctx.authz.require("job.write");
+    return null;
+  } catch (e) {
+    if ((e as { code?: string }).code === "RENOX_FORBIDDEN") return plain(403, "Forbidden");
+    throw e;
+  }
+}
+
 export const actions = {
+  /** A dispatcher's edit of the visit's report summary (the report is rebuilt). */
+  async summary(ctx: ActionContext) {
+    const page = await shell(ctx);
+    const refused = await deniedWrite(ctx);
+    if (refused !== null) return refused;
+    const input = await check(ctx.form, summarySchema);
+    if ("errors" in input) return unprocessable(page.locale, input.errors, `/jobs/${ctx.params.id}`);
+    const branch = await branchOf(ctx);
+    if (branch === null) return noBranch();
+    const scoped = scopedDb(ctx.db, branch);
+    const job = await findJob(scoped, ctx.params.id);
+    if (job === null) return plain(404, "Job not found");
+    const visit = await visitOfJob(scoped, job.id);
+    if (visit === null) return plain(409, "This job has no visit yet.");
+    await setSummary(ctx, scoped, visit, input.value);
+    return answer({ ok: true, job }, `/jobs/${ctx.params.id}`);
+  },
+
   async schedule(ctx: ActionContext) {
     const page = await shell(ctx);
     const refused = await denied(ctx);

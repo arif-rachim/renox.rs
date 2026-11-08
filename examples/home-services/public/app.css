@@ -22,3 +22,15 @@ footer { padding: 1rem 1.5rem; text-align: center; }
 .job-card em { font-style: normal; font-weight: 600; }
 .timeline { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
 .work-links { display: flex; gap: 1rem; }
+
+/* The technician's visit (phone first). */
+.btn-big { font-size: 1.125rem; padding: .75rem 1.5rem; }
+.visit-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.visit-item { display: flex; flex-wrap: wrap; gap: .25rem .75rem; padding: .75rem; border: 1px solid #cfcfcf; border-inline-start: 4px solid var(--brand); border-radius: .5rem; align-items: baseline; }
+.photos { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+.photos li { display: flex; flex-direction: column; gap: .125rem; max-inline-size: 10rem; }
+.thumb { max-inline-size: 100%; block-size: auto; border-radius: .25rem; }
+.sig-canvas { inline-size: 100%; max-inline-size: 20rem; aspect-ratio: 2 / 1; border: 1px dashed #777; border-radius: .25rem; background: #fff; touch-action: none; }
+.parts-table { inline-size: 100%; }
+form.inline { display: inline; }
+@media (max-width: 40rem) { main { padding: 1rem; } .site-header { padding: .5rem 1rem; flex-wrap: wrap; } }

@@ -209,5 +209,95 @@
     "offline": "Not connected. Reload the page.",
     "unassigned": "No technician yet",
     "empty": "Nothing here."
+  },
+  "visits": {
+    "title": "My visits",
+    "today": "Today",
+    "none": "No visits for you today.",
+    "open": "Open",
+    "back": "My visits",
+    "f": {
+      "customer": "Customer",
+      "site": "Site",
+      "service": "Service",
+      "when": "Scheduled",
+      "technician": "Technician",
+      "checkin": "Checked in",
+      "checkout": "Checked out",
+      "phone": "Phone"
+    },
+    "checkin": {
+      "title": "Check in",
+      "hint": "Check in when you arrive. Your position is saved if the browser shares it.",
+      "submit": "Check in",
+      "done": "Checked in at {when}"
+    },
+    "photos": {
+      "title": "Photos",
+      "before": "Before",
+      "after": "After",
+      "none": "No photos yet.",
+      "file": "Photo",
+      "caption": "Caption",
+      "add": "Add a photo",
+      "limit": "A photo is at most 10 MB (JPEG, PNG or WebP).",
+      "not_stored": "Photo not stored"
+    },
+    "parts": {
+      "title": "Parts used",
+      "description": "Part",
+      "qty": "Quantity",
+      "price": "Unit price (AED)",
+      "add": "Add part",
+      "none": "No parts yet.",
+      "remove": "Remove",
+      "total": "Total (AED)"
+    },
+    "notes": {
+      "title": "Notes",
+      "save": "Save notes"
+    },
+    "signature": {
+      "title": "Customer's signature",
+      "name": "Name of the person signing",
+      "draw": "Sign in the box",
+      "clear": "Clear",
+      "save": "Save signature",
+      "saved": "Signed by {name}",
+      "none": "Not signed yet."
+    },
+    "checkout": {
+      "title": "Check out",
+      "hint": "Check out when the work is finished. Photos and a signature are not required.",
+      "submit": "Check out",
+      "done": "Checked out at {when}"
+    },
+    "summary": {
+      "title": "Summary for the report",
+      "hint": "Two sentences, drafted by the AI from your notes and parts when it is on. Edit them before the report is sent.",
+      "en": "Summary (English)",
+      "ar": "Summary (Arabic)",
+      "save": "Save summary",
+      "ai_off": "The AI draft is off: write the summary yourself."
+    },
+    "report": {
+      "title": "Visit report",
+      "en": "Report (English)",
+      "ar": "Report (Arabic)"
+    },
+    "closed": "This visit is closed.",
+    "visit": "Visit",
+    "open_visit": "Open the visit",
+    "err": {
+      "position": "The position is not valid.",
+      "part": "Name the part (up to 200 characters).",
+      "qty": "Enter a quantity above 0 with at most two decimals.",
+      "price": "Enter the price in AED, for example 120 or 120.50.",
+      "notes": "Notes are at most 2000 characters.",
+      "summary": "A summary is at most 400 characters.",
+      "signature": "Draw the signature first.",
+      "signed_by": "Enter the name of the person signing.",
+      "phase": "Choose before or after."
+    }
   }
 }
