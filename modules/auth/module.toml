@@ -1,6 +1,6 @@
 [module]
 name = "auth"
-version = "1.0.0"
+version = "1.1.0"
 description = "Users, passwords (argon2id), sessions, and the login, register and account pages"
 
 # The page locale of auth's pages (#244): auth passes the user to i18n.
@@ -49,7 +49,7 @@ loginUrl = "The module's login page with a safe `next`"
 sendMagicLink = "Mail a one-time sign-in link: { email } -> the same message whether or not the account exists"
 requestPasswordReset = "Mail a one-time password reset link: { email } -> the same message in every case"
 confirmPasswordReset = "Set a new password with a reset token: { token, password } -> { cookie } or { error }"
-verifyAgentToken = "The cell's check of an agent token on /mcp (#286): token -> { principal, scopes, client } or null"
+verifyAgentToken = "The cell's check of an agent token on /mcp (#286): token -> { principal: { id, attrs, roles }, scopes, client } or null; attrs.org is the org chosen at consent (#590)"
 oauthMetadata = "RFC 8414 metadata of the authorization server for agents: issuer -> the metadata object (the cell serves it, #286)"
 listAgentTokens = "The signed-in user's connected agents (live tokens), newest first"
 revokeAgentToken = "Disconnect one of the signed-in user's agents: id -> true when a token was revoked"
@@ -91,8 +91,12 @@ args = { type = "object", required = ["action", "user_id", "client_name", "scope
 description = "An agent was connected or disconnected; the audit library fills it to write an audit row (#288); never the token"
 
 [exports.hooks."auth.principal"]
-args = { type = "object", required = ["principal"], properties = { principal = { type = "object", required = ["id", "attrs"], properties = { id = { type = "string" }, attrs = { type = "object" } } } } }
-description = "Extend the principal's attrs in place (2fa: mfa_verified; org: org); only the platform's user attributes are kept (#291)"
+args = { type = "object", required = ["principal"], properties = { principal = { type = "object", required = ["id", "attrs"], properties = { id = { type = "string" }, attrs = { type = "object" } } }, agent = { type = "boolean" }, org_id = { type = ["string", "null"] } } }
+description = "Extend the principal's attrs in place (2fa: mfa_verified; org: org); for an agent token agent is true and org_id is the org chosen at consent; only the user attributes are kept"
+
+[exports.hooks."auth.agent_orgs"]
+args = { type = "object", required = ["user_id", "orgs"], properties = { user_id = { type = "string" }, orgs = { type = "array", items = { type = "object", required = ["id", "name"], properties = { id = { type = "string" }, name = { type = "string" } } } } } }
+description = "The organisations a user may let an agent act in, on the consent page: append { id, name } to orgs (org fills it, #590)"
 
 [exports.hooks."auth.send_otp"]
 args = { type = "object", required = ["to", "code", "purpose"], properties = { to = { type = "string" }, code = { type = "string" }, purpose = { enum = ["login", "verify"] } } }

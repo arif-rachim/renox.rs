@@ -105,3 +105,64 @@ describe.skipIf(!worker)("invite_member through /mcp", () => {
     expect(nc.status).toBe(403);
   });
 });
+
+// #590: org fills auth.agent_orgs (the consent page's choice) and sets an
+// agent principal's `org` to the organisation chosen at consent, while the
+// user is still a member of it.
+describe.skipIf(!worker)("the organisation of an agent token", () => {
+  type Verified = { principal: { id: string; attrs: Record<string, unknown>; roles: unknown[] } };
+  test("one org: no choice, it is the token's; two: the user picks one, another is 422; removed from it, no org", async () => {
+    const lena = await user("tool-lena");
+    expect((await lena.action("/org", "create", { name: "Lena Labs", slug: "" })).status).toBe(303);
+    const L = ((await lena.service("org").currentOrg()) as { id: string }).id;
+    const kai = await user("tool-kai");
+    expect((await kai.action("/org", "create", { name: "Kai Kitchens", slug: "" })).status).toBe(303);
+    const K = ((await kai.service("org").currentOrg()) as { id: string }).id;
+    const kaiId = ((await kai.service("auth").currentUser()) as { id: string }).id;
+
+    // One organisation: the page has no select, only K as a hidden field; the token carries K.
+    const reg = await t.request("POST", "/auth/oauth/register", { body: { client_name: "Org Agent", redirect_uris: [REDIRECT] } });
+    const clientId = reg.json<{ client_id: string }>().client_id;
+    const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: REDIRECT, code_challenge: await challengeOf(VERIFIER), code_challenge_method: "S256" });
+    const one = await kai.page(`/auth/oauth/consent?${q}`);
+    expect(one.status).toBe(200);
+    expect(one.html).not.toContain("<select");
+    expect(one.html).toContain(`name="org_id" value="${K}"`);
+    const first = (await t.service("auth").verifyAgentToken(await agentToken(kai))) as Verified;
+    expect(first.principal.attrs.org).toBe(K);
+    expect(first.principal.attrs.mfa_verified).toBe(false);
+
+    // Kai joins Lena Labs as a member: two organisations, the page asks.
+    expect((await lena.action("/org/members", "invite", { email: "tool-kai@example.com", role: "member" })).status).toBe(200);
+    const rows = t.db.query<{ url: string }>("select url from orgmail__sent where mail_to = 'tool-kai@example.com' order by seq desc limit 1");
+    const path = new URL(rows[0]?.url as string).pathname;
+    expect((await kai.action(path, "accept", {})).status).toBe(303);
+    const two = await kai.page(`/auth/oauth/consent?${q}`);
+    expect(two.html).toContain('<select name="org_id">');
+    expect(two.html).toContain(`<option value="${K}" dir="auto">Kai Kitchens</option>`);
+    expect(two.html).toContain(`<option value="${L}" dir="auto">Lena Labs</option>`);
+    // An organisation Kai is not a member of, or no choice: 422.
+    const other = await user("tool-other");
+    await other.action("/org", "create", { name: "Other Org", slug: "" });
+    const O = ((await other.service("org").currentOrg()) as { id: string }).id;
+    expect((await kai.action("/auth/oauth/consent", "allow", { ...Object.fromEntries(q), org_id: O })).status).toBe(422);
+    expect((await kai.action("/auth/oauth/consent", "allow", Object.fromEntries(q))).status).toBe(422);
+    // Kai picks Lena Labs: the token acts there, whatever the session's active organisation.
+    const allow = await kai.action("/auth/oauth/consent", "allow", { ...Object.fromEntries(q), org_id: L });
+    expect(allow.status).toBe(303);
+    const code = new URL(allow.headers.get("location") as string).searchParams.get("code") as string;
+    const tok = await t.request("POST", "/auth/oauth/token", {
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: clientId, code_verifier: VERIFIER }).toString(),
+    });
+    const token = tok.json<{ access_token: string }>().access_token;
+    expect(t.db.query("select org_id from auth__agent_tokens where user_id = ? order by created_at desc, rowid desc limit 1", [kaiId])).toEqual([{ org_id: L }]);
+    expect(((await t.service("auth").verifyAgentToken(token)) as Verified).principal.attrs.org).toBe(L);
+
+    // Lena removes Kai: the token has no organisation any more.
+    expect(await lena.service("org").removeMember({ org: L, user: kaiId })).toEqual({ ok: true });
+    const after = (await t.service("auth").verifyAgentToken(token)) as Verified;
+    expect(after.principal.attrs).not.toHaveProperty("org");
+    expect(after.principal.id).toBe(kaiId);
+  });
+});

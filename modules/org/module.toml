@@ -1,6 +1,6 @@
 [module]
 name = "org"
-version = "1.0.0"
+version = "1.1.0"
 description = "Organisations, memberships with roles, invitations, and the active organisation of a session"
 
 [dependencies]
@@ -14,8 +14,9 @@ invite_days = { type = "int", min = 1, max = 30, default = 7, description = "An 
 [permissions]
 tables = "org__*"
 slots = ["app.header", "admin.sidebar"]
-# #292: `org` on the principal (the session's active organisation).
-hooks = ["auth.principal"]
+# #292: `org` on the principal (the session's active organisation, or an
+# agent token's organisation); #590: the organisations an agent may act in.
+hooks = ["auth.principal", "auth.agent_orgs"]
 
 [imports]
 services = ["auth.currentSession", "auth.loginUrl", "auth.refreshPrincipal", "i18n.detectLocale"]

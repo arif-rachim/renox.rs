@@ -86,6 +86,8 @@ export default tool({
 
 Tool inputs are validated by the declared schema before `run`; outputs are serialized with a size cap and labeled as application data.
 
+**What an agent token may do (#590).** An agent token authorizes like the user's session, so an app authorizes its tools with the policies it already has for pages. The principal has the same attributes (`email_verified`, `phone_verified`, `created_at`, and what the `auth.principal` hook's fillers add) and the user's role assignments, global and scoped. `org` is the organisation the user picked on the consent page; a user of exactly one organisation gets it without a choice. It holds only while the user is still a member, and tools take no `org` argument. `mfa_verified` is always false for an agent token. The cell caches a verified token for 60 seconds and drops the user's tokens on `authz.roles_changed` and `auth.principal_changed`, so a revoked role or a removed membership applies to the next call.
+
 Status: served by the cell since #285 (`crates/renox-cell/src/mcp/`, README "App MCP"); resources and server-initiated SSE are not served yet.
 
 ## 3. In-app agents: tenant code calling models

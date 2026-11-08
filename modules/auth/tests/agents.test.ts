@@ -157,3 +157,89 @@ describe.skipIf(!worker)("OAuth for agents", () => {
     expect(anon.headers.get("location")).toStartWith("/auth/login?next=");
   });
 });
+
+// #590: the principal of an agent token is the user's (attributes from the
+// auth.principal hook, roles), in the organisation chosen at consent. The
+// otpbox fixture fills auth.agent_orgs from otpbox__orgs and, for an agent,
+// sets `org` from `org_id` while the user still has it (as org does).
+describe.skipIf(!worker)("an agent token's principal (#590)", () => {
+  type Verified = { principal: { id: string; attrs: Record<string, unknown>; roles: { role: string; scope_type: string; scope_id: string | null }[] } };
+  const idOf = (email: string) => t.db.query<{ id: string }>("select id from auth__users where email = ?", [email])[0]?.id as string;
+  const addOrg = (userId: string, org: string, name: string) => t.service("otpbox").addOrg(userId, org, name);
+  async function consent(u: TestApp, clientId: string): Promise<{ consent: string; fields: Record<string, string>; html: string }> {
+    const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: REDIRECT, state: "s1", code_challenge: await challengeOf(VERIFIER), code_challenge_method: "S256" });
+    const consent = (await u.request("GET", `/auth/oauth/authorize?${q}`)).headers.get("location") as string;
+    const page = await u.page(consent);
+    expect(page.status).toBe(200);
+    return { consent, fields: Object.fromEntries(new URL(consent, "https://x").searchParams), html: page.html };
+  }
+  async function allow(u: TestApp, clientId: string, fields: Record<string, string>): Promise<string> {
+    const r = await u.action("/auth/oauth/consent", "allow", fields);
+    expect(r.status).toBe(303);
+    const c = new URL(r.headers.get("location") as string).searchParams.get("code") as string;
+    const tok = await token(clientId, c);
+    expect(tok.status).toBe(200);
+    return tok.json<{ access_token: string }>().access_token;
+  }
+
+  test("no organisation: no choice, no org; the hook ran (filler attrs, mfa_verified forced false); the user's roles", async () => {
+    const u = await user("agent-nora");
+    const id = idOf("agent-nora@example.com");
+    // A role through the app (app code may assign any): /api/principal POST grants `editor` to the signed-in user.
+    expect((await u.request("POST", "/api/principal")).status).toBe(200);
+    const clientId = await client();
+    const c = await consent(u, clientId);
+    expect(c.html).not.toContain('name="org_id"');
+    const tok = await allow(u, clientId, c.fields);
+    expect(t.db.query("select org_id from auth__agent_tokens where user_id = ?", [id])).toEqual([{ org_id: null }]);
+    const v = (await t.service("auth").verifyAgentToken(tok)) as Verified;
+    expect(v.principal.attrs).toEqual({ email_verified: false, phone_verified: false, created_at: expect.any(Number), mfa_verified: false });
+    expect(v.principal.roles).toEqual([{ role: "editor", scope_type: "global", scope_id: null }]);
+  });
+
+  test("one organisation: no select, the token carries it; verifyAgentToken returns attrs.org and roles", async () => {
+    const u = await user("agent-omar");
+    const id = idOf("agent-omar@example.com");
+    await addOrg(id, "o_one", "Only Org");
+    const clientId = await client();
+    const c = await consent(u, clientId);
+    expect(c.html).not.toContain("<select");
+    expect(c.html).toContain('name="org_id" value="o_one"');
+    // Allowed without the field too (an agent's own form): the only organisation.
+    const tok = await allow(u, clientId, c.fields);
+    expect(t.db.query("select org_id from auth__agent_tokens where user_id = ?", [id])).toEqual([{ org_id: "o_one" }]);
+    const v = (await t.service("auth").verifyAgentToken(tok)) as Verified;
+    expect(v.principal.id).toBe(id);
+    expect(v.principal.attrs.org).toBe("o_one");
+    expect(v.principal.attrs.mfa_verified).toBe(false);
+    expect(v.principal.attrs).not.toHaveProperty("not_in_the_schema");
+    expect(v.principal.roles).toEqual([]);
+  });
+
+  test("two organisations: the page asks; an org not in the list is 422; a valid one is stored; removed from it, no org", async () => {
+    const u = await user("agent-tara");
+    const id = idOf("agent-tara@example.com");
+    await addOrg(id, "o_a", "Alpha");
+    await addOrg(id, "o_b", "Beta");
+    const clientId = await client();
+    const c = await consent(u, clientId);
+    expect(c.html).toContain('<select name="org_id">');
+    expect(c.html).toContain('<option value="o_a" dir="auto">Alpha</option>');
+    expect(c.html).toContain('<option value="o_b" dir="auto">Beta</option>');
+    expect(c.html).toContain("Organisation the agent acts in");
+    // Not a member of o_other, and no choice among two: 422, no code.
+    for (const org_id of ["o_other", undefined]) {
+      const bad = await u.action("/auth/oauth/consent", "allow", org_id === undefined ? c.fields : { ...c.fields, org_id });
+      expect(bad.status).toBe(422);
+    }
+    expect(t.db.query("select count(*) as n from auth__oauth_codes where user_id = ?", [id])).toEqual([{ n: 0 }]);
+    const tok = await allow(u, clientId, { ...c.fields, org_id: "o_b" });
+    expect(t.db.query("select org_id from auth__oauth_codes where user_id = ?", [id])).toEqual([{ org_id: "o_b" }]);
+    expect(t.db.query("select org_id from auth__agent_tokens where user_id = ?", [id])).toEqual([{ org_id: "o_b" }]);
+    expect(((await t.service("auth").verifyAgentToken(tok)) as Verified).principal.attrs.org).toBe("o_b");
+    // Removed from o_b after the consent: the token has no org any more.
+    await t.service("otpbox").removeOrg(id, "o_b");
+    const after = (await t.service("auth").verifyAgentToken(tok)) as Verified;
+    expect(after.principal.attrs).not.toHaveProperty("org");
+  });
+});

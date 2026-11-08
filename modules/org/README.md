@@ -106,6 +106,15 @@ A member sees a select of their organisations, labelled with their role in each.
 
 `tests/tools.test.ts` drives it end to end with an agent token from auth's OAuth flow.
 
+## The organisation of an agent token
+
+org fills two of auth's hooks for agents (#590):
+
+- `auth.agent_orgs`: the user's organisations, for the consent page. With two or more, the user picks the one the agent acts in; with one, it is that one.
+- `auth.principal` with `agent: true`: `org` is the token's `org_id` while the user is still a member of it, and is left unset otherwise. A session's principal is unchanged: `org` is its active organisation.
+
+Removing a member emits `auth.principal_changed`, so the cell drops the user's cached tokens. `tests/tools.test.ts` covers one organisation, two, a choice outside the list, and a removal.
+
 ## Tables and views
 
 - `org__orgs`

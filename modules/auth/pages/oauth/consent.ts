@@ -3,7 +3,13 @@
 // it has no script and cannot be framed (the platform's default headers).
 // Allow issues a single-use code and sends the browser back to the client;
 // Deny sends `access_denied`.
-import { checkAuthorize, denied, issueCode } from "../../lib/agents.ts";
+//
+// #590: the organisation the agent acts in. The `auth.agent_orgs` hook
+// lists the user's organisations (org fills it): with two or more the page
+// asks (`org_id`), with one it is that one, with none there is none. Allow
+// refuses an `org_id` outside the list (422); the code, then the token,
+// carry it, and it becomes `principal.org` of the agent.
+import { agentOrgs, checkAuthorize, denied, issueCode, pickOrg } from "../../lib/agents.ts";
 import { type AuthCtx, currentSession, redirectWith } from "../../lib/core.ts";
 import { localized } from "../../lib/locale.ts";
 
@@ -36,8 +42,9 @@ const describe = (scope: string): { all: boolean; tool: string } => ({ all: scop
 export const load = localized(async (ctx: Page) => {
   const c = await check(ctx, false);
   if ("redirect" in c) return c.redirect;
-  if ("error" in c.r) return { error: c.r.description, fields: [], client_name: "", scopes: [], user: c.s.user };
+  if ("error" in c.r) return { error: c.r.description, fields: [], client_name: "", scopes: [], user: c.s.user, orgs: [], org_choice: false, org_single: null };
   const q = ctx.url.searchParams;
+  const orgs = await agentOrgs(ctx, c.s.user.id);
   return {
     error: null,
     user: c.s.user,
@@ -45,6 +52,9 @@ export const load = localized(async (ctx: Page) => {
     redirect_host: new URL(c.r.redirect_uri).host,
     scopes: c.r.scopes.map((s) => ({ scope: s, ...describe(s) })),
     fields: FIELDS.filter((f) => q.get(f) !== null).map((f) => ({ name: f, value: q.get(f) as string })),
+    orgs,
+    org_choice: orgs.length > 1,
+    org_single: orgs.length === 1 ? (orgs[0]?.id ?? null) : null,
   };
 });
 
@@ -53,7 +63,10 @@ export const actions = {
     const c = await check(ctx, true);
     if ("redirect" in c) return c.redirect;
     if ("error" in c.r) return new Response(`${c.r.error}: ${c.r.description}\n`, { status: 400 });
-    return new Response(null, { status: 303, headers: { location: await issueCode(ctx, c.s.user, c.r), "cache-control": "no-store" } });
+    const chosen = ctx.form.get("org_id");
+    const org = pickOrg(await agentOrgs(ctx, c.s.user.id), typeof chosen === "string" ? chosen : null);
+    if (org === null) return new Response("invalid_request: org_id is not one of your organisations\n", { status: 422 });
+    return new Response(null, { status: 303, headers: { location: await issueCode(ctx, c.s.user, c.r, org.org_id), "cache-control": "no-store" } });
   }),
   deny: localized(async (ctx: Page) => {
     const c = await check(ctx, true);

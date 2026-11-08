@@ -45,11 +45,14 @@ fn sha(s: &str) -> String {
         .collect()
 }
 
+// #590: the principal carries the token's organisation and the user's role
+// assignments, `{ role, scope_type, scope_id }`, as the auth module answers.
 const AUTH: &str = r#"
 export async function verifyAgentToken(ctx, token) {
-  const row = await ctx.db.queryOne("select user_id, scopes, revoked from auth__agent_tokens where token = ?", [token]);
+  const row = await ctx.db.queryOne("select user_id, scopes, revoked, org from auth__agent_tokens where token = ?", [token]);
   if (!row || row.revoked) return null;
-  return { principal: { id: row.user_id, attrs: { org: "o_1" } }, scopes: JSON.parse(row.scopes), client: { name: "test-agent", model: "m1" } };
+  const roles = (await ctx.authz.roles.list(row.user_id)).map((r) => ({ role: r.role, scope_type: r.scope_type, scope_id: r.scope_id }));
+  return { principal: { id: row.user_id, attrs: { org: row.org }, roles }, scopes: JSON.parse(row.scopes), client: { name: "test-agent", model: "m1" } };
 }
 export async function oauthMetadata(ctx, issuer) {
   return { issuer, token_endpoint: `${issuer}/token`, code_challenge_methods_supported: ["S256"] };
@@ -64,6 +67,25 @@ export async function POST(ctx) {
   await ctx.events.emit("auth.agent_token_revoked", { token_hash: hash });
   return Response.json({ ok: true });
 }
+"#;
+
+// #590: `POST /roles?op=assign|revoke&user=..&org=..` changes a
+// `dispatcher` role scoped to an organisation (emits `authz.roles_changed`).
+const ROLES: &str = r#"
+export async function POST(ctx) {
+  const q = ctx.url.searchParams;
+  const scope = { type: "org", id: q.get("org") };
+  if (q.get("op") === "assign") await ctx.authz.roles.assign(q.get("user"), "dispatcher", scope);
+  else await ctx.authz.roles.revoke(q.get("user"), "dispatcher", scope);
+  return Response.json({ ok: true });
+}
+"#;
+
+// #590: the role and organisation policies an app has for its pages.
+const DISPATCH_POLICIES: &str = r#"
+permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"job.dispatch", resource);
+permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"job.update", resource is App::Job)
+when { principal has org && principal.org == resource.org };
 "#;
 
 fn tool(name: &str, run: &str, action: &str, confirm: bool) -> String {
@@ -86,9 +108,9 @@ fn module_entry() -> serde_json::Value {
     })
 }
 
-fn artifact(store: &Path, with_auth: bool) -> String {
+fn artifact(store: &Path, with_auth: bool, dispatch: bool) -> String {
     let tmp = scratch("artifact");
-    let tools: Vec<(&str, String, &str, bool)> = vec![
+    let mut tools: Vec<(&str, String, &str, bool)> = vec![
         ("list_notes", "return await ctx.db.query('select text from app__notes order by text');".into(), "note.read", false),
         ("delete_notes", "await ctx.db.execute('delete from app__notes'); return { deleted: true, preview: ctx.tool.preview, client: ctx.tool.client.name };".into(), "note.delete", true),
         ("purge", "return 1;".into(), "note.purge", false),
@@ -96,6 +118,11 @@ fn artifact(store: &Path, with_auth: bool) -> String {
         ("leak", "return { key: ctx.secrets.API_KEY };".into(), "note.read", false),
         ("thrower", "throw new Error('failed with ' + ctx.secrets.API_KEY);".into(), "note.read", false),
     ];
+    if dispatch {
+        // #590: the route action needs the org-scoped role; `run` asks
+        // about each job with the org policy.
+        tools.push(("dispatch_jobs", "const jobs = await ctx.db.query('select id, org from app__jobs order by id'); return await ctx.authz.canBatch('job.update', jobs.map((j) => ({ type: 'Job', id: j.id, org: j.org })));".into(), "job.dispatch", false));
+    }
     let mut code: Vec<(String, String)> = tools
         .iter()
         .map(|(n, run, a, c)| (format!("functions/tools/{n}"), tool(n, run, a, *c)))
@@ -108,15 +135,25 @@ fn artifact(store: &Path, with_auth: bool) -> String {
         code.push(("modules/auth/services".into(), AUTH.into()));
         code.push(("modules/auth/functions/revoke".into(), REVOKE.into()));
     }
+    if dispatch {
+        code.push(("functions/roles".into(), ROLES.into()));
+    }
     for (id, src) in &code {
         let p = tmp.join("code").join(format!("{id}.js"));
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, src).unwrap();
     }
-    let app_sql =
-        "create table app__notes (text text);\ninsert into app__notes values ('a'), ('b');\n";
-    let auth_sql = "create table auth__agent_tokens (token text primary key, user_id text, scopes text, revoked integer default 0);\n\
-        insert into auth__agent_tokens (token, user_id, scopes) values ('tok_full', 'u_alice', '[\"tools:*\"]'), ('tok_limited', 'u_bob', '[\"tools:list_notes\"]'), ('tok_rate', 'u_carol', '[\"list_notes\"]');\n";
+    let mut app_sql =
+        "create table app__notes (text text);\ninsert into app__notes values ('a'), ('b');\n"
+            .to_string();
+    if dispatch {
+        app_sql.push_str("create table app__jobs (id text primary key, org text);\ninsert into app__jobs values ('j1', 'o_1'), ('j2', 'o_2');\n");
+    }
+    let app_sql = app_sql.as_str();
+    // `org`: the organisation chosen at consent (#590).
+    let auth_sql = "create table auth__agent_tokens (token text primary key, user_id text, scopes text, revoked integer default 0, org text default 'o_1');\n\
+        insert into auth__agent_tokens (token, user_id, scopes) values ('tok_full', 'u_alice', '[\"tools:*\"]'), ('tok_limited', 'u_bob', '[\"tools:list_notes\"]'), ('tok_rate', 'u_carol', '[\"list_notes\"]');\n\
+        insert into auth__agent_tokens (token, user_id, scopes, org) values ('tok_dan', 'u_dan', '[\"tools:*\"]', 'o_1'), ('tok_dan_o2', 'u_dan', '[\"tools:*\"]', 'o_2'), ('tok_erin', 'u_erin', '[\"tools:*\"]', 'o_2');\n";
     let mut sums = serde_json::Map::new();
     std::fs::create_dir_all(tmp.join("migrations/app")).unwrap();
     std::fs::write(tmp.join("migrations/app/001_init.sql"), app_sql).unwrap();
@@ -133,6 +170,9 @@ fn artifact(store: &Path, with_auth: bool) -> String {
     .unwrap();
     std::fs::create_dir_all(tmp.join("policies/app")).unwrap();
     std::fs::write(tmp.join("policies/app/notes.cedar"), POLICIES).unwrap();
+    if dispatch {
+        std::fs::write(tmp.join("policies/app/dispatch.cedar"), DISPATCH_POLICIES).unwrap();
+    }
     let entry: BTreeMap<String, String> = code
         .iter()
         .map(|(id, _)| (id.clone(), format!("{id}.js")))
@@ -149,6 +189,9 @@ fn artifact(store: &Path, with_auth: bool) -> String {
     if with_auth {
         routes.push(serde_json::json!({ "kind": "function", "method": "POST", "path": "/auth/revoke", "module": "modules/auth/functions/revoke", "export": "POST" }));
     }
+    if dispatch {
+        routes.push(serde_json::json!({ "kind": "function", "method": "POST", "path": "/roles", "module": "functions/roles", "export": "POST" }));
+    }
     let mut manifest = serde_json::json!({
         "artifact": { "version": 1 },
         "app": { "name": "notes", "timezone": "Asia/Dubai" },
@@ -159,6 +202,12 @@ fn artifact(store: &Path, with_auth: bool) -> String {
     });
     if with_auth {
         manifest["modules"] = serde_json::json!([module_entry()]);
+    }
+    if dispatch {
+        manifest["authz"] = serde_json::json!({
+            "actions": ["note.read", "note.delete", "note.purge", "job.dispatch", "job.update"],
+            "entities": { "Job": { "table": "app__jobs", "attrs": ["org"] } },
+        });
     }
     std::fs::write(
         tmp.join("manifest.json"),
@@ -188,11 +237,17 @@ struct Node {
 }
 
 fn node(with_auth: bool) -> Node {
+    node_with(with_auth, false)
+}
+
+/// `dispatch`: also the #590 fixture (an org-scoped `dispatcher` role, jobs
+/// of two organisations, `POST /roles`).
+fn node_with(with_auth: bool, dispatch: bool) -> Node {
     // One subscriber for the binary: the in-memory exporter of the span test (#295).
     exporter();
     let data = scratch("data");
     let artifacts = scratch("artifacts");
-    let hash = artifact(&artifacts, with_auth);
+    let hash = artifact(&artifacts, with_auth, dispatch);
     std::fs::create_dir_all(data.join("t_mcp")).unwrap();
     std::fs::write(
         data.join("t_mcp/secrets.json"),
@@ -602,6 +657,105 @@ async fn a_revoked_token_is_refused_after_the_event() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     eprintln!("revocation effective after {:?}", t0.elapsed());
+}
+
+/// #590: `verifyAgentToken`'s org-scoped roles and organisation make the
+/// app's role and org policies work in `tools/call`: a `dispatcher` of
+/// `o_1` whose token carries `o_1` passes the route action and may update
+/// only `o_1`'s job; the same user's token for `o_2` does not have the role;
+/// a `dispatcher` of `o_2` may update only `o_2`'s job.
+#[tokio::test]
+async fn org_scoped_roles_of_the_token_apply_in_a_call() {
+    let n = node_with(true, true);
+    for (user, org) in [("u_dan", "o_1"), ("u_erin", "o_2")] {
+        let r = n
+            .send(
+                "POST",
+                &format!("/roles?op=assign&user={user}&org={org}"),
+                None,
+                None,
+            )
+            .await;
+        assert_eq!(r.status, 200, "{}", r.body);
+    }
+    let dan = n
+        .call("tok_dan", "dispatch_jobs", serde_json::json!({}))
+        .await;
+    assert_eq!(dan.status, 200, "{}", dan.body);
+    assert_eq!(
+        dan.body["result"]["structuredContent"],
+        serde_json::json!([true, false])
+    );
+    let erin = n
+        .call("tok_erin", "dispatch_jobs", serde_json::json!({}))
+        .await;
+    assert_eq!(erin.status, 200, "{}", erin.body);
+    assert_eq!(
+        erin.body["result"]["structuredContent"],
+        serde_json::json!([false, true])
+    );
+    let other = n
+        .call("tok_dan_o2", "dispatch_jobs", serde_json::json!({}))
+        .await;
+    assert_eq!(
+        (other.status, error_code(&other)),
+        (403, "RENOX_FORBIDDEN"),
+        "{}",
+        other.body
+    );
+    // A user without the role is refused.
+    let alice = n
+        .call("tok_full", "dispatch_jobs", serde_json::json!({}))
+        .await;
+    assert_eq!((alice.status, error_code(&alice)), (403, "RENOX_FORBIDDEN"));
+}
+
+/// #590: a role revoke emits `authz.roles_changed`, which drops the user's
+/// cached tokens: the next call is denied within one outbox round trip,
+/// not after the 60 s cache.
+#[tokio::test]
+async fn a_role_change_drops_the_cached_token() {
+    let n = node_with(true, true);
+    let r = n
+        .send("POST", "/roles?op=assign&user=u_dan&org=o_1", None, None)
+        .await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    let t0 = Instant::now();
+    // The assign itself drops the cache too; wait until the role is seen.
+    loop {
+        if n.call("tok_dan", "dispatch_jobs", serde_json::json!({}))
+            .await
+            .status
+            == 200
+        {
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the role was not seen"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let r = n
+        .send("POST", "/roles?op=revoke&user=u_dan&org=o_1", None, None)
+        .await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    let t0 = Instant::now();
+    loop {
+        let r = n
+            .call("tok_dan", "dispatch_jobs", serde_json::json!({}))
+            .await;
+        if r.status == 403 {
+            assert_eq!(error_code(&r), "RENOX_FORBIDDEN");
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the cached token kept the revoked role"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    eprintln!("role revoke effective after {:?}", t0.elapsed());
 }
 
 /// No secret value in any output or log line (`docs/20` section 5).

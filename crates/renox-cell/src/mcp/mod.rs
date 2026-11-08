@@ -10,7 +10,8 @@
 //! One `tools/call`, in order:
 //!
 //! 1. the agent token (`Authorization: Bearer`): `auth.verifyAgentToken`,
-//!    cached per token hash for 60 s and dropped on `auth.agent_token_revoked`
+//!    cached per token hash for 60 s and dropped on `auth.agent_token_revoked`,
+//!    and per user on `authz.roles_changed` and `auth.principal_changed`
 //!    (401 with `WWW-Authenticate` otherwise);
 //! 2. the token's scopes (403 `RENOX_TOOL_SCOPE`);
 //! 3. the per-token rate limit (429, `Retry-After`);
@@ -64,6 +65,9 @@ pub const CALLS_PER_MINUTE: u32 = 60;
 pub const CONFIRM_TTL: Duration = Duration::from_secs(600);
 /// The event that drops a token from the cache.
 pub const REVOKED_EVENT: &str = "auth.agent_token_revoked";
+/// The events that drop a user's cached tokens (#590): the user's roles,
+/// or what the principal hook's fillers set (the organisation), changed.
+pub const USER_EVENTS: [&str; 2] = ["authz.roles_changed", "auth.principal_changed"];
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -137,17 +141,22 @@ fn now_ms() -> u64 {
 impl Mcp {
     /// The outbox delivered `auth.agent_token_revoked`: drop the token
     /// (`token_hash`, hex SHA-256 of the token) or every token of `user_id`;
-    /// without either, every cached token.
+    /// without either, every cached token. On one of [`USER_EVENTS`]
+    /// (#590): every token of `user_id` (without it, every cached token), so
+    /// the next call asks `auth` again for the roles and the organisation.
     pub fn on_event(&self, name: &str, payload: &str) -> bool {
-        if name != REVOKED_EVENT {
+        let user_event = USER_EVENTS.contains(&name);
+        if name != REVOKED_EVENT && !user_event {
             return false;
         }
         let v: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
         let mut tokens = self.tokens.lock().expect("mcp lock");
-        match (
-            v.get("token_hash").and_then(|h| h.as_str()),
-            v.get("user_id").and_then(|u| u.as_str()),
-        ) {
+        let token_hash = if user_event {
+            None
+        } else {
+            v.get("token_hash").and_then(|h| h.as_str())
+        };
+        match (token_hash, v.get("user_id").and_then(|u| u.as_str())) {
             (Some(h), _) => tokens.retain(|k, _| hex(k) != h),
             (None, Some(u)) => tokens.retain(|_, (a, _)| a.principal.id != u),
             (None, None) => tokens.clear(),
@@ -618,7 +627,7 @@ pub(crate) async fn serve(
     }
 }
 
-/// `{ principal: { id, attrs?, roles? }, scopes, client: { name, model? } }`.
+/// `{ principal: { id, attrs?, roles?: [{ role, scope_type, scope_id }] }, scopes, client: { name, model? } }`.
 fn agent_of(v: &serde_json::Value) -> Option<Agent> {
     let p = v.get("principal")?;
     let id = p.get("id")?.as_str()?;
@@ -631,15 +640,26 @@ fn agent_of(v: &serde_json::Value) -> Option<Agent> {
     {
         principal = principal.with_attr(k, val.clone());
     }
+    // #590: the user's role assignments as `renox__role_assignments` holds
+    // them, `{ role, scope_type, scope_id }`; a `global` one has no scope id.
     for r in p
         .get("roles")
         .and_then(|r| r.as_array())
         .into_iter()
         .flatten()
     {
-        if let Some(role) = r.as_str() {
-            principal = principal.with_role(role, "global", None);
-        }
+        let Some(role) = r.get("role").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let scope_type = r
+            .get("scope_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("global");
+        let scope_id = r
+            .get("scope_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| scope_type != "global" && !s.is_empty());
+        principal = principal.with_role(role, scope_type, scope_id);
     }
     let scopes = v
         .get("scopes")?
