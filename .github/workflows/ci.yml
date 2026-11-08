@@ -20,9 +20,11 @@ on:
       - main
   pull_request:
 
+# A push run on main is never cancelled: it is the one that builds and uploads renox-worker-ci-packaged
+# for the ts job of later pull requests (#520). Pull request runs still cancel their older run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
