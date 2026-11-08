@@ -11,6 +11,7 @@ import type { ActionContext, Db, DbStatements, Principal, Realtime } from "@reno
 import { audit } from "renox:modules";
 
 import { bookingService, bookVisit, cancelVisit, clock, ensureSynced, isTaken, nextFree, OFFSET_MS, slotsOn } from "./booking-sync";
+import { notifyCustomer } from "./notify";
 import { day as dayOf } from "./quotes";
 import { branchOf, scopedDb, type Branch } from "./scope";
 import { memberName, techniciansOf } from "./technicians";
@@ -166,6 +167,11 @@ export async function transition(ctx: JobCtx & { readonly url?: URL }, id: unkno
   const after = (await findJob(sdb, job.id)) as JobRow;
   await record(ctx, sdb, branch, after, job.status, to, note);
   await publishCard(ctx, branch, sdb, after);
+  // The customer hears that the technician is on the way (F7-124).
+  if (to === "en_route") {
+    const technician = after.technician_user_id === null ? "" : await memberName(branch, after.technician_user_id);
+    await notifyCustomer(ctx, { id: after.customer_id }, "technician_on_the_way", { branch_id: branch.id, ref_id: after.id, job_id: after.id, vars: { job: after.number, technician } });
+  }
   return { ok: true, job: after };
 }
 
@@ -264,6 +270,8 @@ export async function schedule(ctx: JobCtx, id: unknown, technicianId: string, s
   const after = (await findJob(sdb, job.id)) as JobRow;
   await record(ctx, sdb, branch, after, job.status, "scheduled", `${moved ? "moved to" : "scheduled for"} ${dayLabel(startMs)} with ${tech.name}${note === "" ? "" : `: ${note}`}`);
   await publishCard(ctx, branch, sdb, after);
+  // The customer hears the time (a move too), in the language of their file (F7-124).
+  await notifyCustomer(ctx, { id: after.customer_id }, "visit_scheduled", { branch_id: branch.id, ref_id: after.id, job_id: after.id, vars: { job: after.number, when: dayLabel(startMs), technician: tech.name } });
   return { ok: true, job: after };
 }
 

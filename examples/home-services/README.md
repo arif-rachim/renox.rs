@@ -10,6 +10,16 @@ The technician's visit (F7-123): `/me` (today's visits) and `/me/visits/<job id>
 
 Visit report, what the platform does today: the PDF renderer of the worker reads no images (`crates/renox-runtime/src/ops/pdf.rs`: "No images, no includes"), although `ops.md` section 24 says an `<img>` may be a data URI or a `/_img` key. The report therefore lists each photo by phase and caption and names the signer; the templates already carry the `<img>` elements, so photos and the signature appear once the renderer reads them. A page action takes at most 1 MiB at the gateway, so the visit page scales a big photo down on the phone before it is posted; the 10 MiB limit of the `storage` module is the action's own check.
 
+Notifications (F7-124): `notifyCustomer` (`lib/notify.ts`) tells the customer by WhatsApp (an approved template, `i18n/whatsapp.{en,ar}.json`, in the customer's language) or by email, when a quotation is sent, a visit is scheduled or moved, the technician is on the way, and the report is ready (`invoice_due` and `amc_renewal` follow with invoicing and contracts). With `app__settings.whatsapp_sandbox = '1'` (the default) nothing goes out on WhatsApp: the message is written to `app__outbox_preview` and, when the customer has an email, the email still goes. A customer with neither phone nor email is noted on the job's timeline. The dispatcher who made the job is told when the visit is done, and a customer's WhatsApp reply "cancel" / "reschedule" (or «إلغاء» / «تغيير الموعد») becomes a row of `app__tasks` and a notification (`jobs/inbox-sweep.ts`, every minute: the `whatsapp` module has no inbound hook an app can fill, only its inbox). The report link in the message is `/l/report/<token>` (30 days), with the PDF at `/l/report/<token>/pdf`.
+
+Going live with WhatsApp (owner steps, from `modules/whatsapp/README.md`):
+
+1. In Meta for Developers create a Business app with the WhatsApp product, verify the business number, and note its Phone number ID; create a system user with `whatsapp_business_messaging` and a permanent token; note the App Secret and choose a verify token.
+2. `renox secrets set WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`.
+3. Set the callback URL to `https://<host>/whatsapp/webhook/whatsapp` with the verify token, and subscribe to `messages`.
+4. Submit the six templates of `i18n/whatsapp.*.json` (`quote_sent`, `visit_scheduled`, `technician_on_the_way`, `report_ready`, `invoice_due`, `amc_renewal`), in English and Arabic, and wait for Meta's approval. The parameters are the placeholders in the order they appear in the body.
+5. Set `whatsapp_sandbox` to `0` in `app__settings`, and `public_url` to the app's address (jobs have no request to take it from). For email, set `from` in the `email` module's config and verify the domain with the provider.
+
     bun install
     RENOX_WORKER_PATH=<renox-worker> bun ../../cli/src/main.ts check
     RENOX_WORKER_PATH=<renox-worker> bun ../../cli/src/main.ts test --seed seeds/001_demo.sql

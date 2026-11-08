@@ -38,9 +38,13 @@ export function scopedDb(db: DbStatements, branch: Branch): Db {
   return fencedTo(db, branch.id);
 }
 
-/** `db` fenced to the branch with this id: for the public pages, where the branch is the one a token's quotation belongs to. */
+/** `db` fenced to the branch with this id: for the public pages, where the branch is the one a token's quotation belongs to, and for jobs (see below). */
 export function fencedTo(db: DbStatements, branchId: string): Db {
-  return (db as Db).scoped({ user_id: branchId });
+  const d = db as Db;
+  // A scheduled job's `db` is the run's transaction and has no `scoped`: its
+  // statements are unfenced (app code may; renox.toml [authz.ownership]) and
+  // name the branch themselves, as every owned row's insert does.
+  return typeof d.scoped === "function" ? d.scoped({ user_id: branchId }) : d;
 }
 
 /** A request without a branch ends here: signed in people with no branch have nothing to see. */

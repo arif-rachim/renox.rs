@@ -66,6 +66,12 @@ app__visits = { owner = "branch_id" }
 app__visit_photos = { owner = "branch_id" }
 app__visit_parts = { owner = "branch_id" }
 
+# What the customers are told and what they answer (F7-124): the preview of a
+# sandboxed WhatsApp message and the dispatcher's tasks, the same way.
+# app__inbox_seen is the sweep's own bookkeeping, not owned.
+app__outbox_preview = { owner = "branch_id" }
+app__tasks = { owner = "branch_id" }
+
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }
 Site = { table = "app__sites", attrs = ["branch_id", "customer_id"] }

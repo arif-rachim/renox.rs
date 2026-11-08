@@ -1,5 +1,6 @@
 // The part of `renox:modules` the app uses so far: auth's currentUser, i18n's
-// detectLocale, notifications' badge and notify, org's switcher and gcc's validators.
+// detectLocale, notifications' badge and notify, whatsapp's templates and inbox, email's
+// raw send, org's switcher and gcc's validators.
 // Later sub-issues add what they call.
 // `renox dev` writes the complete, generated types to .renox/types/ (#236);
 // this file keeps `bun run check` working without them.
@@ -13,6 +14,17 @@ declare module "renox:modules" {
   export const notifications: {
     badge(): Promise<{ unread: number } | null>;
     notify(user: string, item: { category: string; title: string; body?: string; link?: string }): Promise<{ id: number | null; channels: string[] }>;
+  };
+  export const whatsapp: {
+    /** Queues an approved template; the module's outbox sends it. `to` is E.164. */
+    sendTemplate(to: string, name: string, params?: string[], language?: string): Promise<{ id: string }>;
+    send(to: string, text: string): Promise<{ id: string }>;
+    /** Messages newest first; an inbound one has direction "in". */
+    inbox(filter?: { phone?: string; direction?: "in" | "out"; limit?: number }): Promise<{ id: string; direction: "in" | "out"; kind: string; phone: string; body: string; status: string; at: number }[]>;
+  };
+  export const email: {
+    sendRaw(msg: { to: string; subject: string; text?: string; html?: string; reply_to?: string }): Promise<{ id: string | null; cancelled?: true }>;
+    isSuppressed(address: string): Promise<boolean>;
   };
   export const org: {
     switcher(next?: string): Promise<{ current?: { id: string; locale?: string | null } | null } | null>;

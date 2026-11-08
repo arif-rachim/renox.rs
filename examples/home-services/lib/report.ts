@@ -40,9 +40,11 @@ const base64 = (bytes: Uint8Array): string => {
  * What the report's template is given, in the customer's language unless
  * `lang` says otherwise. `visitId` must be one the caller has already found
  * through the branch-scoped database: it is read here by id alone. Null when
- * there is no such visit.
+ * there is no such visit. `publicView` is for the customer's link (no signed-in
+ * user): the technician's name is the one kept on the visit, because the org
+ * module answers its members only to a member.
  */
-export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportLang) {
+export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportLang, publicView = false) {
   const visit = await visitById(ctx.db, visitId);
   if (visit === null) return null;
   // Everything else is read through the visit's own branch.
@@ -56,7 +58,11 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
   const site = await sdb.queryOne<{ label: string; area: string; address: string }>("select label, area, address from app__sites where id = ?", [job.site_id]);
   const service = await sdb.queryOne<{ name_en: string; name_ar: string }>("select name_en, name_ar from app__services where id = ?", [job.service_id]);
   const branch = await sdb.queryOne<{ name_en: string; name_ar: string; org_id: string }>("select name_en, name_ar, org_id from app__branches where id = ?", [job.branch_id]);
-  const technician = branch === null ? visit.technician_user_id : await memberName({ org_id: branch.org_id } as Branch, visit.technician_user_id);
+  const technician = publicView
+    ? ((await ctx.db.queryOne<{ technician_name: string }>("select technician_name from app__visits where id = ?", [visit.id]))?.technician_name ?? "")
+    : branch === null
+      ? visit.technician_user_id
+      : await memberName({ org_id: branch.org_id } as Branch, visit.technician_user_id);
   const own: ReportLang = customer?.language === "ar" ? "ar" : "en";
   const language: ReportLang = lang ?? own;
   const settings = await getSettings(sdb);
@@ -95,8 +101,8 @@ export async function reportData(ctx: ReportCtx, visitId: string, lang?: ReportL
  * language, saves its key as the visit's `report_key`. Null when there is no
  * such visit (see `reportData`).
  */
-export async function buildReport(ctx: ReportCtx, visitId: string, lang?: ReportLang): Promise<{ key: string; bytes: Uint8Array; lang: ReportLang } | null> {
-  const r = await reportData(ctx, visitId, lang);
+export async function buildReport(ctx: ReportCtx, visitId: string, lang?: ReportLang, publicView = false): Promise<{ key: string; bytes: Uint8Array; lang: ReportLang } | null> {
+  const r = await reportData(ctx, visitId, lang, publicView);
   if (r === null) return null;
   const bytes = await ctx.pdf.render(`partials/pdf/visit-report.${r.language}`, r.data, { page: "A4" });
   const key = `app/visits/${r.visit.id}/report-${r.language}.pdf`;

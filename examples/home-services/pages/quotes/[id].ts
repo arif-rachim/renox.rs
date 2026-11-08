@@ -85,6 +85,8 @@ export const actions = {
       staff_user: ctx.principal?.id ?? quote.created_by,
       title: `Quotation ${quote.number} for ${customer.name} is ready to send`,
       link: `/quotes/${quote.id}`,
+      customer_link: path,
+      vars: { number: quote.number },
     });
     const data = await view(ctx, branch, page.locale, `${ctx.url.origin}${path}`);
     return { ...page, ...(data as NonNullable<typeof data>) };

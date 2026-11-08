@@ -2,10 +2,11 @@
 // The token is 32 random bytes (base64url); the table keeps only its SHA-256,
 // so a copy of the database opens nothing. No secret is involved: a link is
 // valid because its hash is on file, before it expires and (for `approve`)
-// until it is used once.
+// until it is used once. A `report` link (the visit report, `/l/report/<token>`)
+// opens as often as the customer likes until it expires.
 import type { DbStatements } from "@renoxium/sdk";
 
-export type LinkKind = "approve";
+export type LinkKind = "approve" | "report";
 
 type LinkRow = {
   ref_id: string;

@@ -299,5 +299,14 @@
       "signed_by": "Enter the name of the person signing.",
       "phase": "Choose before or after."
     }
+  },
+  "report_page": {
+    "title": "Visit report {job}",
+    "service": "Service",
+    "technician": "Technician",
+    "visit": "Visit",
+    "summary": "Summary",
+    "parts": "Parts used",
+    "pdf": "Download the PDF"
   }
 }

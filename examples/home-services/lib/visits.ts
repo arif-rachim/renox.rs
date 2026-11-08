@@ -11,9 +11,12 @@
 // page shows them through short-lived signed URLs.
 import type { Ai, Db, Storage } from "@renoxium/sdk";
 import { type JobCtx, type JobRow, findJob, jobResource, transition } from "./jobs";
+import { issueLink } from "./links";
+import { notifyCustomer } from "./notify";
 import { buildReport } from "./report";
 import { branchOf, scopedDb, type Branch } from "./scope";
 import { draftSummary } from "./summary";
+import { memberName } from "./technicians";
 import { type PartRow, type PhotoRow, type VisitRow, bytesOfDataUrl, partsOf, photoLimitMessage, visitOfJob } from "./visit-data";
 import type { PartInput, Phase } from "./visit-forms";
 
@@ -21,6 +24,8 @@ export const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const EXTENSION: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 /** The largest signature image (a canvas drawing is a few kilobytes). */
 const MAX_SIGNATURE_BYTES = 200_000;
+/** How long the customer's link to the report works: 30 days. */
+const REPORT_LINK_SECONDS = 30 * 24 * 3600;
 
 /** What the visit's actions need of the ctx. */
 export interface VisitCtx extends JobCtx {
@@ -82,11 +87,13 @@ export async function checkIn(ctx: VisitCtx, rawJobId: unknown, position: { lat:
     if (!moved.ok) return fail(moved.status === 403 ? 403 : moved.status === 404 ? 404 : 409, moved.message);
   }
   const id = `vs_${token()}`;
-  await p.sdb.execute("insert into app__visits (id, branch_id, job_id, technician_user_id, checkin_at, checkin_lat, checkin_lng) values (?, ?, ?, ?, ?, ?, ?)", [
+  const who = ctx.principal?.id ?? p.job.technician_user_id ?? "";
+  await p.sdb.execute("insert into app__visits (id, branch_id, job_id, technician_user_id, technician_name, checkin_at, checkin_lat, checkin_lng) values (?, ?, ?, ?, ?, ?, ?, ?)", [
     id,
     p.branch.id,
     p.job.id,
-    ctx.principal?.id ?? p.job.technician_user_id ?? "",
+    who,
+    await memberName(p.branch, who),
     now(),
     position.lat,
     position.lng,
@@ -219,5 +226,18 @@ export async function checkOut(ctx: VisitCtx, rawJobId: unknown): Promise<Result
   }
   await p.sdb.execute("update app__visits set checkout_at = ?, summary_en = ?, summary_ar = ? where id = ?", [now(), en, ar, visit.value.id]);
   await buildReport(ctx, visit.value.id);
+  // The customer gets the link to the report; the dispatcher who made the job is told it is done (F7-124).
+  const link = await issueLink(ctx, "report", visit.value.id, REPORT_LINK_SECONDS);
+  await notifyCustomer(ctx, { id: p.job.customer_id }, "report_ready", {
+    branch_id: p.branch.id,
+    ref_id: visit.value.id,
+    job_id: p.job.id,
+    customer_link: link,
+    vars: { job: p.job.number },
+    staff_user: p.job.created_by,
+    title: `Visit of job ${p.job.number} is done`,
+    link: `/jobs/${p.job.id}`,
+    staff_category: "jobs",
+  });
   return { ok: true, value: { visit: (await visitOfJob(p.sdb, p.job.id)) as VisitRow, ai } };
 }

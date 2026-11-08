@@ -344,3 +344,6 @@ insert or ignore into app__visit_parts (id, branch_id, visit_id, description, qt
   (2, 'br_dubai', 'vs_seed_12', 'Filter set', 2, 2500),
   (3, 'br_dubai', 'vs_seed_13', 'Kitchen mixer tap', 1, 18000),
   (4, 'br_sharjah', 'vs_seed_19', 'Descaling kit', 1, 3500);
+
+-- The technician's name on each visit (what the customer's report page shows).
+update app__visits set technician_name = (select display_name from auth__users where id = technician_user_id) where technician_name = '';
