@@ -198,12 +198,21 @@ export async function addStaff(ctx: Managed, st: { id?: unknown; name?: unknown;
   return { id: st.id };
 }
 
-/** Weekly hours (weekday 0-6) or a dated exception (day YYYY-MM-DD; open = close = 0 closes the day), in minutes from local midnight. */
-export async function setHours(ctx: Managed, staff: unknown, when: unknown, open: unknown, close: unknown) {
+/** Weekly hours (weekday 0-6) or a dated exception (day YYYY-MM-DD; open = close = 0 closes the day), in minutes from local midnight. Setting again replaces; `open` null deletes the row. */
+export async function setHours(ctx: Managed, staff: unknown, when: unknown, open: unknown, close?: unknown) {
   await ctx.authz?.require("booking.manage");
+  const weekly = typeof when === "number" && Number.isInteger(when) && when >= 0 && when <= 6;
+  const daily = typeof when === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(when);
+  if (!weekly && !daily) throw new BookingError("a weekday 0-6 or a day YYYY-MM-DD", "INVALID");
+  const col = weekly ? "weekday" : "day";
+  if (open === null) {
+    await ctx.db.execute(`delete from booking__hours where staff_id = ? and ${col} = ?`, [staff, when]);
+    return true;
+  }
   if (typeof open !== "number" || typeof close !== "number" || open < 0 || close > 1440 || close < open) throw new BookingError("open and close: minutes from midnight", "INVALID");
-  if (typeof when === "number" && Number.isInteger(when) && when >= 0 && when <= 6) await ctx.db.execute("insert into booking__hours (staff_id, weekday, open_min, close_min) values (?, ?, ?, ?)", [staff, when, open, close]);
-  else if (typeof when === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(when)) await ctx.db.execute("insert into booking__hours (staff_id, day, open_min, close_min) values (?, ?, ?, ?)", [staff, when, open, close]);
-  else throw new BookingError("a weekday 0-6 or a day YYYY-MM-DD", "INVALID");
+  await ctx.db.execute(
+    `insert into booking__hours (staff_id, ${col}, open_min, close_min) values (?, ?, ?, ?) on conflict (staff_id, ${col}) where ${col} is not null do update set open_min = excluded.open_min, close_min = excluded.close_min`,
+    [staff, when, open, close],
+  );
   return true;
 }

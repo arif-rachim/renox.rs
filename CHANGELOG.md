@@ -2,6 +2,12 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.9 (unreleased)
+
+**Modules**
+
+- booking 1.0.1: `setHours` replaces a staff member's hours for that weekday or day instead of appending a row (migration 003 keeps the newest of duplicated rows and adds unique indexes); `setHours(staff, when, null)` closes it; the README names the `booking.manage` grant an app's own roles need (#572).
+
 ## 0.1.8 (2026-11-08)
 
 **Worker**

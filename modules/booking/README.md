@@ -21,9 +21,9 @@ booking = { version = "^1.0", mount = "/booking", config = { slot_minutes = 15, 
 To set up the catalogue, an admin's app code calls:
 - `booking.addService({ id, name, minutes, buffer?, deposit_fils?, cancel_hours? })`
 - `booking.addStaff({ id, name, user_id, services })`
-- `booking.setHours(staff, weekday | "YYYY-MM-DD", open_min, close_min)`
+- `booking.setHours(staff, weekday | "YYYY-MM-DD", open_min, close_min)` replaces that weekday's or day's hours (calling it twice leaves one row); `booking.setHours(staff, when, null)` deletes them (closed).
 
-All three need `booking.manage`.
+All three need `booking.manage`. An app with its own roles grants `booking.manage` to the role that sets up the catalogue, for example in `policies/app/base.cedar`: `permit(principal in Role::"owner", action == Action::"booking.manage", resource);`
 
 ## Services and events
 
@@ -51,7 +51,8 @@ The calendar's `<mount>/sse/calendar` subscribes the staff member to `calendar:<
 
 Default policy:
 - `admin` has `booking.manage` and `booking.view_calendar`;
-- `staff` has `booking.view_calendar` and may subscribe to `calendar:*`.
+- `staff` has `booking.view_calendar` and may subscribe to `calendar:*`;
+- an app with its own roles grants `booking.manage` to its catalogue role in `policies/app/base.cedar`: `permit(principal in Role::"owner", action == Action::"booking.manage", resource);`.
 
 ## Not built
 
