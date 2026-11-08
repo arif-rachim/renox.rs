@@ -778,7 +778,10 @@ async fn call(
         InvokeOutcome::Ok(json) => {
             let value: serde_json::Value =
                 serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
-            if preview {
+            if preview && value.get("error").is_some() {
+                // The preview failed: nothing to confirm, so no token.
+                tool_result(value, true)
+            } else if preview {
                 let expires = now_ms() + CONFIRM_TTL.as_millis() as u64;
                 let token = cell
                     .mcp
