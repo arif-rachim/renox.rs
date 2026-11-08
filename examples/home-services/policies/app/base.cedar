@@ -15,6 +15,14 @@ when { principal has org };
 permit (principal in Renox::Role::"accountant", action in [Renox::Action::"invoice.read", Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"report.view", Renox::Action::"customer.read", Renox::Action::"job.read", Renox::Action::"contract.read"], resource)
 when { principal has org };
 
+// The reports of the `reports` module (its page at /reports) and the app's own
+// reports under /reports/*: the owner (the blanket permit above) and the
+// accountant. The module's default policy grants them to its own admin and
+// finance roles only. reports.export is sensitive in the module (each decision
+// is audited); it carries customers and amounts out of the app.
+permit (principal in Renox::Role::"accountant", action in [Renox::Action::"reports.view", Renox::Action::"reports.export"], resource)
+when { principal has org };
+
 // A technician reads only their own jobs: `mine` is computed per job
 // (lib/jobs.ts jobResource). The route guards check `job.read` without a job.
 forbid (principal in Renox::Role::"technician", action == Renox::Action::"job.read", resource is App::Job)

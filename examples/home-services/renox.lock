@@ -152,7 +152,7 @@ hash = "ff1db1530bd04699df641f5b555f0cbc648bbf148a35ea46f3cbf7d8c4fcdca4"
 isolation = "shared"
 mount = "/reports"
 dependencies = ["auth", "email", "i18n", "tax_gcc"]
-config = { email_to = "", base_path = "/reports" }
+config = { email_to = "accounts@fixit.example", base_path = "/reports" }
 approved = { tables = "reports__*", network = [], secrets = [], slots = [], hooks = [] }
 
 [[module]]

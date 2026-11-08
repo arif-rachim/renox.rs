@@ -6,7 +6,11 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/u;
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
 /** A real calendar day written `YYYY-MM-DD`. */
-export const validDay = (s: string): boolean => DATE.test(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
+export function validDay(s: string): boolean {
+  if (!DATE.test(s)) return false;
+  const ms = Date.parse(`${s}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === s;
+}
 
 /** How many item rows the new-contract form has (more are added on the contract's page while it is a draft). */
 export const ITEM_SLOTS = 4;

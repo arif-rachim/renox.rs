@@ -449,6 +449,54 @@
       "no_items": "Add at least one service and site before activating."
     }
   },
+  "appreports": {
+    "nav": {
+      "sales": "Sales (VAT)",
+      "technicians": "Jobs per technician",
+      "amc": "Contract renewals",
+      "outstanding": "Outstanding invoices"
+    },
+    "from": "From",
+    "to": "To",
+    "show": "Show",
+    "none": "No data for this period.",
+    "export": "Export",
+    "format": "Format",
+    "download": "Download",
+    "technicians": {
+      "title": "Jobs per technician"
+    },
+    "amc": {
+      "title": "Contract renewals",
+      "hint": "Maintenance contracts that end in the period (the next 90 days unless you choose another)."
+    },
+    "outstanding": {
+      "title": "Outstanding invoices",
+      "hint": "Open invoices by age since issue, in AED, as of"
+    },
+    "col": {
+      "technician": "Technician",
+      "jobs_done": "Jobs done",
+      "hours": "Hours on site",
+      "parts": "Parts (AED)",
+      "contract": "Contract",
+      "customer": "Customer",
+      "ends_on": "Ends on",
+      "price": "Yearly price (AED)",
+      "renewal": "Renewal",
+      "days_0_30": "0-30 days",
+      "days_31_60": "31-60 days",
+      "days_over_60": "Over 60 days",
+      "balance": "Balance",
+      "total": "Total"
+    },
+    "renewal": {
+      "renewed": "Renewed",
+      "expired": "Expired",
+      "reminded": "Customer reminded",
+      "due": "Due"
+    }
+  },
   "invoice_page": {
     "title": "Tax invoice {number}"
   }

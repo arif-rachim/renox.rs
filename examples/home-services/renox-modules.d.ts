@@ -1,6 +1,6 @@
 // The part of `renox:modules` the app uses so far: auth's currentUser, i18n's
 // detectLocale, notifications' badge and notify, whatsapp's templates and inbox, email's
-// raw send, tax_gcc's invoices, twofa's step-up, org's switcher and gcc's validators.
+// raw send, tax_gcc's invoices, reports' csv, twofa's step-up, org's switcher and gcc's validators.
 // Later sub-issues add what they call.
 // `renox dev` writes the complete, generated types to .renox/types/ (#236);
 // this file keeps `bun run check` working without them.
@@ -31,6 +31,13 @@ declare module "renox:modules" {
     issue(input: { buyer: { name: string; trn?: string; address?: string }; lines: { description: string; quantity: number; unit_fils: number; rate?: "standard" | "zero" | "exempt" }[] }): Promise<unknown>;
     creditNote(invoice: string, lines: unknown[] | undefined, reason: string): Promise<unknown>;
     invoice(number: string): Promise<unknown | null>;
+  };
+  /** The reports module: the app's own reports are exported through `csv` (amounts stay in the rows' units). */
+  export const reports: {
+    /** Rows as RFC 4180 CSV with a UTF-8 BOM and a formula guard; `headers` orders the columns. */
+    csv(rows: readonly Record<string, unknown>[], headers?: string[]): Promise<string>;
+    /** The nightly report for the day before `nowMs`: kept as a snapshot and emailed when `email_to` is set. */
+    nightly(nowMs: number): Promise<{ day: string; sent_to: string | null }>;
   };
   export const twofa: {
     /** Resolves when this session verified a second factor recently; else throws STEP_UP_REQUIRED (403). */
