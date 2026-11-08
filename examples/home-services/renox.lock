@@ -36,9 +36,9 @@ approved = { tables = "i18n__*", network = [], secrets = [], slots = [], hooks =
 
 [[module]]
 name = "auth"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "b6b1aaba1da4cb3ca6c3604806fa2ac1da3332fe199b2fb4a8b9a027de4cd411"
+hash = "5ee2604452fa8537667958e965c1e4137d78bc62f6909e473aae07531060f986"
 isolation = "shared"
 mount = "/auth"
 dependencies = ["i18n"]
@@ -91,31 +91,31 @@ approved = { tables = "notifications__*", network = [], secrets = [], slots = ["
 
 [[module]]
 name = "org"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "7504cf39710d2c852f40d93f458e8e823c212a661908462dbda58d9fec15d70f"
+hash = "c03739685cf87f6d6a88a06d1ef50f9b65c79f854ee79d54b6c2a2c6287a111c"
 isolation = "shared"
 mount = "/org"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/org", invite_days = 7 }
-approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal"] }
+approved = { tables = "org__*", network = [], secrets = [], slots = ["app.header", "admin.sidebar"], hooks = ["auth.principal", "auth.agent_orgs"] }
 
 [[module]]
 name = "email"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "17c9c32bd49fdaadec430676684fe57ef8e365d897a06587a1be3d4f46c3b6ca"
+hash = "ba038395534c5fb0070f8837640c761960a9d5230f49d97e1dea3c3dd9c41545"
 isolation = "shared"
 mount = "/email"
 dependencies = ["auth", "i18n"]
-config = { provider = "resend", from = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
+config = { provider = "resend", from = "", from_name = "", ses_region = "me-central-1", sends_per_minute = 120, base_path = "/email" }
 approved = { tables = "email__*", network = ["api.resend.com", "email.me-central-1.amazonaws.com", "email.eu-west-1.amazonaws.com", "email.us-east-1.amazonaws.com"], secrets = ["EMAIL_RESEND_KEY", "EMAIL_SES_ACCESS_KEY", "EMAIL_SES_SECRET_KEY", "EMAIL_WEBHOOK_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_mail", "org.send_mail"] }
 
 [[module]]
 name = "booking"
-version = "1.0.0"
+version = "1.0.1"
 source = "official"
-hash = "63a5369115e2fb2e53ea40e1d13d9c4b94871628dbdd2b479d2343fe87d66651"
+hash = "7c33ceb9a874af7d5996cbccc271ae3bf931bf01cfc4cf544286e882c1d03351"
 isolation = "shared"
 mount = "/booking"
 dependencies = ["auth", "billing", "email", "i18n"]
@@ -146,9 +146,9 @@ approved = { tables = "tax_gcc__*", network = [], secrets = [], slots = [], hook
 
 [[module]]
 name = "reports"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "ff1db1530bd04699df641f5b555f0cbc648bbf148a35ea46f3cbf7d8c4fcdca4"
+hash = "27bcd15c5b6be45c9a42bd035cb429e7b7dc0b686d3527d53cce511a22dae191"
 isolation = "shared"
 mount = "/reports"
 dependencies = ["auth", "email", "i18n", "tax_gcc"]
@@ -157,9 +157,9 @@ approved = { tables = "reports__*", network = [], secrets = [], slots = [], hook
 
 [[module]]
 name = "twofa"
-version = "1.0.0"
+version = "1.0.1"
 source = "official"
-hash = "bdb7c0d207c3c46654d151b4e9367060d7882504bf759f4e01739825bbce7560"
+hash = "97d9fcd761fb6d623fd4ac4225b62b122f893035613d49841f8de642c9e78003"
 isolation = "shared"
 mount = "/2fa"
 dependencies = ["auth", "i18n"]
@@ -168,11 +168,11 @@ approved = { tables = "twofa__*", network = [], secrets = ["TWOFA_KEY"], slots =
 
 [[module]]
 name = "whatsapp"
-version = "1.0.0"
+version = "1.1.0"
 source = "official"
-hash = "c332b16993958f70ddfbc2b9b19243df66a44ed75df5e07426f96cea86618215"
+hash = "8000bf02afdb68398997885bf1350a584d0a6b2fefb262d3bedea627eb2d7da4"
 isolation = "shared"
 mount = "/whatsapp"
 dependencies = []
-config = { api_version = "v21.0", sends_per_minute = 60, otp_template = "", otp_language = "en" }
+config = { api_version = "v21.0", sends_per_minute = 60, otp_template = "", otp_language = "en", sandbox = false, api_host = "https://graph.facebook.com" }
 approved = { tables = "whatsapp__*", network = ["graph.facebook.com"], secrets = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET"], slots = [], hooks = ["notifications.deliver", "auth.send_otp"] }
