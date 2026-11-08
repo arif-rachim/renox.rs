@@ -39,6 +39,22 @@ if grep -q "url = \"$secret\"" "$tmp/stdin"; then pass "curl gets the URL on std
 if grep -q 'pg_dump failed' "$tmp/args"; then pass "the body carries the unit's last journal lines"; else fail "the body carries the journal lines"; fi
 
 out=$(ALERT_ENV="$tmp/none.env" "$alert" renox-billing.service 2>&1) && grep -q "only in this journal" <<< "$out" && pass "no alert.env: exit 0, journal only" || fail "no alert.env: $out"
+# #545: the unit's SetCredential= fallback when /etc/renox/secrets/alert.env
+# is missing: one comment line, no newline. Exit 0 and the log line.
+printf '# renox-alert: no alert.env on this host' > "$tmp/fallback.env"
+rm -f "$tmp/args"
+out=$(ALERT_ENV="$tmp/fallback.env" "$alert" renox-backup-tenants.service 2>&1) && grep -q "^renox-alert: no alert.env; renox-backup-tenants.service failed on " <<< "$out" \
+  && pass "only the fallback credential: exit 0, 'no alert.env; <unit> failed on <node>' in the journal" || fail "fallback credential: $out"
+if [[ ! -e $tmp/args ]]; then pass "the fallback sends nothing"; else fail "the fallback called curl"; fi
+out=$(ALERT_ENV="$tmp/none.env" "$alert" renox-billing.service 2>&1) && grep -q "^renox-alert: no alert.env; renox-billing.service failed on " <<< "$out" \
+  && pass "no alert.env at all: the same log line" || fail "no alert.env log line: $out"
+# The node's name (#545, task 4): from the node-name credential, the host name beside it.
+printf 'node-small\n' > "$tmp/node-name"
+out=$(NODE_NAME_FILE="$tmp/node-name" ALERT_ENV="$tmp/alert.env" "$alert" renox-billing.service 2>&1)
+if grep -q "renox-billing.service failed on node-small" <<< "$out" && grep -q '"node": "node-small"' "$tmp/args"; then pass "the alert names the node from node-name"; else fail "node name: $out"; fi
+printf -- '-' > "$tmp/node-dash"
+out=$(NODE_NAME_FILE="$tmp/node-dash" ALERT_ENV="$tmp/none.env" "$alert" x.service 2>&1)
+if grep -q "x.service failed on $(hostname)$" <<< "$out"; then pass "the node-name fallback (-) gives the host name"; else fail "node-name fallback: $out"; fi
 printf 'OTHER=1\n' > "$tmp/bad.env"
 if ALERT_ENV="$tmp/bad.env" "$alert" x.service >/dev/null 2>&1; then fail "an unknown key is refused"; else pass "an unknown key is refused"; fi
 printf 'ALERT_WEBHOOK_URL=http://hooks.example.test/x\n' > "$tmp/http.env"

@@ -271,6 +271,9 @@ if docker exec "$name" test -e /etc/renox/worker.toml; then fail "a refused run 
 if single --control-url http://127.0.0.1:8788 --blocked-addresses 203.0.113.10,2001:db8::10,127.0.0.1 >/dev/null 2>"$ctx/err"; then
   pass "--single-host installs the node"
 else fail "--single-host installs the node: $(cat "$ctx/err")"; fi
+# #544: this image has age but neither sqlite3 nor pg_dump; the run warns and goes on.
+if grep -q 'warning: missing commands the single-host units need: sqlite3 pg_dump ' "$ctx/err"; then pass "--single-host warns about the missing sqlite3 and pg_dump"
+else fail "--single-host warns about missing commands: $(cat "$ctx/err")"; fi
 toml=$(docker exec "$name" cat /etc/renox/worker.toml)
 grep -q '^url = "http://127.0.0.1:8788"$' <<< "$toml" && pass "worker.toml: [control] url is the loopback node listener" || fail "worker.toml control url"
 grep -q '^fetch_blocked_addresses = \["203.0.113.10", "2001:db8::10", "127.0.0.1"\]$' <<< "$toml" && pass "worker.toml: fetch_blocked_addresses lists the public addresses and 127.0.0.1" || fail "worker.toml blocked addresses"
@@ -292,6 +295,9 @@ done
 modes=$(docker exec "$name" stat -c '%n %a %U' /etc/renox/control.env /etc/renox/secrets /etc/renox/tunnel/config.yml)
 grep -q '^/etc/renox/control.env 600 root$' <<< "$modes" && grep -q '^/etc/renox/secrets 700 root$' <<< "$modes" && pass "control.env is 0600 root, secrets/ is 0700 root" || fail "modes: $modes"
 if docker exec "$name" id -u renox-control >/dev/null 2>&1; then pass "the renox-control user exists"; else fail "the renox-control user exists"; fi
+# #545: the node's name for the alert; #546: needrestart leaves the renox-* services alone.
+if [[ $(docker exec "$name" stat -c '%a %U' /etc/renox/node-name 2>&1) == "644 root" && $(docker exec "$name" cat /etc/renox/node-name) == node-single ]]; then pass "/etc/renox/node-name holds the node id (0644 root)"; else fail "/etc/renox/node-name"; fi
+if docker exec "$name" grep -qF '$nrconf{override_rc}{qr(^renox-)} = 0;' /etc/needrestart/conf.d/renox.conf; then pass "/etc/needrestart/conf.d/renox.conf keeps the renox-* services from automatic restarts"; else fail "the needrestart drop-in"; fi
 # #414, #420: cloudflared's static user in the socket's group; the socket's directory by tmpfiles.
 if [[ $(docker exec "$name" id -gn renox-tunnel 2>&1 || true) == renox-edge ]]; then pass "renox-tunnel exists, primary group renox-edge"; else fail "the renox-tunnel user"; fi
 if docker exec "$name" grep -qx 'd /run/renox-edge 0750 renox renox-edge -' /etc/tmpfiles.d/renox-edge.conf; then pass "/run/renox-edge comes from tmpfiles (renox:renox-edge 0750)"; else fail "the tmpfiles entry of /run/renox-edge"; fi

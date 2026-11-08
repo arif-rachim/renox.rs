@@ -20,9 +20,11 @@ on:
       - main
   pull_request:
 
+# A push run on main is never cancelled: it is the one that builds and uploads renox-worker-ci-packaged
+# for the ts job of later pull requests (#520). Pull request runs still cancel their older run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -159,11 +161,16 @@ jobs:
           # backup script (fakes, no network), the tunnel-only firewall (only
           # SSH open) in two containers.
           ops/scripts/fetch-cloudflared.test.sh
+          ops/scripts/pin-cloudflared.test.sh
+          # renox-alert.sh (#450, #545): stubs for curl and journalctl, no network.
+          ops/scripts/renox-alert.test.sh
           command -v age >/dev/null || sudo apt-get install -y --no-install-recommends age
           ops/scripts/backup-control-db.test.sh
           # Local backups without R2 (#517): sqlite3 and pg_restore for the real copies.
           command -v sqlite3 >/dev/null || sudo apt-get install -y --no-install-recommends sqlite3
           ops/scripts/backup-local.test.sh
+          # restore-check.sh's steps on a local and an R2 host (#538): stub Postgres tools.
+          ops/scripts/restore-check.test.sh
           # bootstrap-node.sh --worker-variant pdf (#525): fetch_worker against a file:// release.
           ops/scripts/bootstrap-worker-variant.test.sh
           ops/scripts/firewall-single-host.test.sh
