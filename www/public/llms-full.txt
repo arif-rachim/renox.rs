@@ -2919,6 +2919,8 @@ export default tool({
 
 Tool inputs are validated by the declared schema before `run`; outputs are serialized with a size cap and labeled as application data.
 
+**What an agent token may do (#590).** An agent token authorizes like the user's session, so an app authorizes its tools with the policies it already has for pages. The principal has the same attributes (`email_verified`, `phone_verified`, `created_at`, and what the `auth.principal` hook's fillers add) and the user's role assignments, global and scoped. `org` is the organisation the user picked on the consent page; a user of exactly one organisation gets it without a choice. It holds only while the user is still a member, and tools take no `org` argument. `mfa_verified` is always false for an agent token. The cell caches a verified token for 60 seconds and drops the user's tokens on `authz.roles_changed` and `auth.principal_changed`, so a revoked role or a removed membership applies to the next call.
+
 Status: served by the cell since #285 (`crates/renox-cell/src/mcp/`, README "App MCP"); resources and server-initiated SSE are not served yet.
 
 ## 3. In-app agents: tenant code calling models
@@ -4454,7 +4456,8 @@ All durable: written in the transaction of the request, delivered after it commi
 | --- | --- | --- |
 | `auth.before_register` | Before a user is created (`{ email, display_name }`) | Halt with its own response: invite-only, a domain allowlist |
 | `auth.after_login` | After the password, magic link, OAuth, phone or passkey check, before any session starts (`{ user_id, next?, resume }`) | Halt with its own response, so no session starts. To resume later, keep `resume` (a single-use ticket, valid 10 minutes) and call `auth.resumeLogin(resume)`, which starts the session. 2fa does this |
-| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org`. Keys outside the platform's user attributes are dropped |
+| `auth.principal` | Once per request, while the cell resolves the principal (`{ principal: { id, attrs } }`), and in `verifyAgentToken` (`{ principal, agent: true, org_id }`, #590) | Extend `principal.attrs` in place: 2fa sets `mfa_verified`, org sets `org` (for an agent, `org_id` while the user is a member). Keys outside the platform's user attributes are dropped |
+| `auth.agent_orgs` | The consent page of an agent, and its Allow (`{ user_id, orgs: [] }`, #590) | Append `{ id, name }` for each organisation the user may let the agent act in. org fills it |
 | `auth.send_otp` | A one-time code must reach a phone (`{ to, code, purpose: "login" \| "verify" }`) | Deliver it. whatsapp fills it (#290); an SMS module will in F7. Never log the code |
 | `auth.send_sms` | Declared for F7 (`{ to, text }`) | Nothing fills it yet |
 | `auth.agent_audit` | An agent was connected or disconnected (`{ action: "connect" \| "revoke", user_id, client_name, scopes, at }`) | Write an audit row (the `audit` library, #288). Never carries the token |
@@ -4546,13 +4549,16 @@ auth is the OAuth 2.1 authorization server for the app's `/mcp` (`docs/20-ai-age
 - Registration: `POST <mount>/oauth/register` (RFC 7591). Public clients only (`token_endpoint_auth_method: "none"`). Redirect URIs must be `https`, or `http` on loopback.
 - Authorization: `GET <mount>/oauth/authorize`. PKCE S256 is required. A signed-out user goes to the login page first.
 - Consent: `<mount>/oauth/consent` lists the client, the user, where it returns, and each scope (`tools:*` or `tools:<name>`), with Allow and Deny. It runs no script of its own and cannot be framed.
+- The organisation (#590): the page runs the hook `auth.agent_orgs`, which org fills with the user's organisations. With two or more, the user picks one (`<select name="org_id">`). With one, it is that one, with no choice. With none, there is none. Allow refuses an `org_id` outside the list (422). The code stores the choice and the token copies it (`org_id`).
 - Codes: one minute, single use, stored hashed. A failed exchange also burns the code.
 - Token: `POST <mount>/oauth/token` returns `renox_agt_<64 hex>`, valid one hour, with no refresh token. Only its SHA-256 is stored (`auth__agent_tokens`).
 - Revoking: the account page's "Connected agents" lists each live token with its client, scopes and last use. "Disconnect" revokes one and emits `auth.agent_token_revoked`, and the cell refuses the token from then on.
+- What `verifyAgentToken` returns (#590): `{ principal: { id, attrs, roles }, scopes, client: { name } }`. The principal is built as for a session. `attrs` holds `email_verified`, `phone_verified`, `created_at`, and what the `auth.principal` hook's fillers add. The hook runs with `agent: true` and the token's `org_id`, and org sets `org` to it while the user is still a member. Only the platform's user attributes are kept, and `mfa_verified` is always false. `roles` are the user's role assignments, `[{ role, scope_type, scope_id }]`. The cell drops the user's cached tokens on `authz.roles_changed` and `auth.principal_changed`.
 
-Proof: `tests/oauth.test.ts`:
+Proof: `tests/oauth.test.ts` and `tests/agents.test.ts`:
 
 - the full flow;
+- the principal of a token: the hook's attributes, the roles, and the organisation with none, one or two (the select, 422 outside the list, gone once the user leaves it);
 - a wrong verifier and a reused code;
 - a narrowed scope;
 - deny;
@@ -4749,9 +4755,9 @@ booking = { version = "^1.0", mount = "/booking", config = { slot_minutes = 15, 
 To set up the catalogue, an admin's app code calls:
 - `booking.addService({ id, name, minutes, buffer?, deposit_fils?, cancel_hours? })`
 - `booking.addStaff({ id, name, user_id, services })`
-- `booking.setHours(staff, weekday | "YYYY-MM-DD", open_min, close_min)`
+- `booking.setHours(staff, weekday | "YYYY-MM-DD", open_min, close_min)` replaces that weekday's or day's hours (calling it twice leaves one row); `booking.setHours(staff, when, null)` deletes them (closed).
 
-All three need `booking.manage`.
+All three need `booking.manage`. An app with its own roles grants `booking.manage` to the role that sets up the catalogue, for example in `policies/app/base.cedar`: `permit(principal in Role::"owner", action == Action::"booking.manage", resource);`
 
 ## Services and events
 
@@ -4779,7 +4785,8 @@ The calendar's `<mount>/sse/calendar` subscribes the staff member to `calendar:<
 
 Default policy:
 - `admin` has `booking.manage` and `booking.view_calendar`;
-- `staff` has `booking.view_calendar` and may subscribe to `calendar:*`.
+- `staff` has `booking.view_calendar` and may subscribe to `calendar:*`;
+- an app with its own roles grants `booking.manage` to its catalogue role in `policies/app/base.cedar`: `permit(principal in Role::"owner", action == Action::"booking.manage", resource);`.
 
 ## Not built
 
@@ -4837,6 +4844,7 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 | --- | --- | --- |
 | `provider` | `resend` | `resend` or `ses` |
 | `from` | (empty) | The From address, on a domain verified with the provider. Until it is set, nothing is sent and messages end as `failed` with `not_configured` |
+| `from_name` | (empty) | The sender's display name: mails arrive as `"Name" <address>`. At most 80 characters, no `<`, `>` or line breaks; `"` and `\` are escaped. A message's own `from_name` wins |
 | `ses_region` | `me-central-1` | The SES region |
 | `sends_per_minute` | 120 | Past it, `send` refuses (`RATE_LIMITED`) |
 | `base_path` | `/email` | Where the log page is mounted |
@@ -4845,8 +4853,8 @@ email = { version = "^1.0", mount = "/email", config = { provider = "resend", fr
 
 | Service | What it does |
 | --- | --- |
-| `send(to, template, data, { locale?, reply_to? })` | Queues one of the templates below in the recipient's locale (`en` or `ar`); the other language follows in the same message. Answers `{ id }`, or `{ id: null, cancelled: true }` when `email.before_send` halts. A suppressed address is refused with `SUPPRESSED` |
-| `sendRaw({ to, subject, text?, html?, reply_to? })` | Queues a message the caller wrote itself |
+| `send(to, template, data, { locale?, reply_to?, from_name? })` | Queues one of the templates below in the recipient's locale (`en` or `ar`); the other language follows in the same message. Answers `{ id }`, or `{ id: null, cancelled: true }` when `email.before_send` halts. A suppressed address is refused with `SUPPRESSED` |
+| `sendRaw({ to, subject, text?, html?, reply_to?, from_name? })` | Queues a message the caller wrote itself. `from_name` (same rule as the config) sets the display name of the sender for this message, over the config's; an invalid one is refused with `INVALID` |
 | `status(id)` | `{ status, attempts, error }`, where status is `queued`, `sent`, `failed` or `suppressed` |
 | `suppress(address, reason)`, `unsuppress(address)`, `isSuppressed(address)` | Manage the suppression list |
 
@@ -5321,6 +5329,7 @@ Through `import { org } from "renox:modules"`. A call the signed-in user's membe
 | `invite({ org, email, role })` | Admin or owner. The link goes out through `org.send_mail`. Returns `{ invite_id, expires_at }` or `{ error }` |
 | `revokeInvite({ org, invite })` | Withdraw a pending invitation |
 | `acceptInvite(token)` | Join as the signed-in user. The invitation works once, before it expires, and only for the email it was sent to |
+| `rename({ org, name })` | Rename the organisation (admin or owner; 1 to 80 characters, `{ error }` otherwise). The slug stays. Emits `org.renamed` |
 | `setRole({ org, user, role })`, `removeMember({ org, user })` | See the roles above. `removeMember` with your own id means leaving |
 | `switcher(next?)` | The data of the switcher partial, for a page's `load` |
 
@@ -5367,6 +5376,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.created` | `{ org_id, user_id, at }` | event |
 | `org.member_added` | `{ org_id, user_id, role, at }` | event: at creation (the owner) and on every accepted invitation |
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
+| `org.renamed` | `{ org_id, name }` | event: an admin or owner renamed the organisation; the slug stays |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
 | `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
 
@@ -5379,6 +5389,15 @@ A member sees a select of their organisations, labelled with their role in each.
 - `confirm = true`: the first call is a preview, rolled back, that returns a confirmation token. The agent repeats the call with that token to send the invitation.
 
 `tests/tools.test.ts` drives it end to end with an agent token from auth's OAuth flow.
+
+## The organisation of an agent token
+
+org fills two of auth's hooks for agents (#590):
+
+- `auth.agent_orgs`: the user's organisations, for the consent page. With two or more, the user picks the one the agent acts in; with one, it is that one.
+- `auth.principal` with `agent: true`: `org` is the token's `org_id` while the user is still a member of it, and is left unset otherwise. A session's principal is unchanged: `org` is its active organisation.
+
+Removing a member emits `auth.principal_changed`, so the cell drops the user's cached tokens. `tests/tools.test.ts` covers one organisation, two, a choice outside the list, and a removal.
 
 ## Tables and views
 
@@ -5449,7 +5468,17 @@ The CSV has a UTF-8 BOM, so Excel opens Arabic text correctly. A cell that start
 
 `jobs/nightly.ts` runs at 03:00 UTC. It does the same as the `nightly(now_ms)` service, which can also be called directly:
 - keeps yesterday's sales and cash totals in `reports__snapshots`;
-- when `email_to` is set, sends them as CSV through `email.sendRaw`.
+- sends them as CSV through `email.sendRaw` to the addresses of the `reports.nightly_to` hook, else to `email_to`; with neither, no mail is sent.
+
+### Nightly summary: where it goes
+
+`reports.nightly_to` is a hook point (`args = { to: string[] }`). An app (or a module) fills it from `hooks.ts` with `permissions.hooks = ["reports.nightly_to"]` and pushes its addresses onto `args.to`, for example the one a back-office setting holds. When `to` ends up non-empty the summary goes there (one mail per address); otherwise it goes to `email_to`. The CSV stays in the body; there are no attachments.
+
+## Services
+
+| Service | What it does |
+| --- | --- |
+| `xlsx(sheet, rows)` | Rows (`string \| number \| null` cells) as a one-sheet `.xlsx`, returned as bytes. Numbers stay numbers and strings are never formulas. `sheet` is 1 to 31 characters without `[ ] : * ? / \`; at most 100,000 cells; anything else is a `ValidationError` |
 
 ## Not built
 
@@ -5676,6 +5705,8 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `sends_per_minute` | 60 | Outgoing messages per minute for the tenant; past it, the send services reject |
 | `otp_template` | `""` | An approved authentication template with one parameter, the code. When empty, codes go as plain text, which works only inside a 24-hour window |
 | `otp_language` | `en` | That template's language |
+| `sandbox` | `false` | Development and tests: record each message as sent, call no API, need no secrets (see "Sandbox") |
+| `api_host` | `https://graph.facebook.com` | Tests only: a fake Cloud API, an `https://` origin. `[permissions] network` stays `graph.facebook.com`, so another host works only where the app's network allow-list includes it (`renox test`, `renox dev`) |
 
 ## Services
 
@@ -5687,6 +5718,7 @@ whatsapp fills `notifications.deliver` and `auth.send_otp`, so `notifications` a
 | `verifyOtp(phone, code)` | `{ ok }`. A code is 6 digits, lasts 5 minutes, allows 5 attempts and works once. A wrong, expired, used or exhausted code, an unknown phone and a malformed code all give `{ ok: false }` |
 | `linkPhone(userId, phone)` | `{ ok }`. Makes the phone the user's WhatsApp contact, but only within 10 minutes after `verifyOtp` succeeded for it |
 | `inbox({ phone?, direction?, limit? })` | Messages newest first. An OTP's body shows as `[otp]` |
+| `outbox(limit?)` | Outgoing messages newest first, read-only, with status and body. An OTP's body shows as `[otp]` |
 | `chatLink(phone, text)` | `{ url }`, a `wa.me` link with a prefilled message |
 
 Phones are E.164 (`+9715…`). Spaces, dashes and a leading `00` are accepted.
@@ -5704,6 +5736,19 @@ Phones are E.164 (`+9715…`). Spaces, dashes and a leading `00` are accepted.
 - `whatsapp__otp` keeps an HMAC of the code (keyed with `WHATSAPP_APP_SECRET`), never the code.
 - The queued message carries the code sealed with AES-GCM under a key derived from the same secret.
 - Its body is cleared once the message is sent or fails.
+
+## Sandbox
+
+With `sandbox = true` an app uses the module exactly as in production while nothing leaves the host.
+
+- Each queued message is marked `sent` by the outbox handler with `wa_id = sandbox-<id>`, and the Cloud API is not called. No `WHATSAPP_*` secret is needed.
+- A template keeps its rendered form in `body`: `{ "name", "language", "components" }` as JSON, the same components the Cloud API would receive. A text keeps its text. An OTP's body is cleared, as for a real send.
+- Read what would have been sent with `whatsapp.outbox(limit?)` (an app's dev page or test), or `inbox({ direction: "out" })`.
+- `sendOtp` works without `WHATSAPP_APP_SECRET`, but the code is never delivered, so a sandbox app cannot complete `verifyOtp` unless a test plants the code.
+
+```toml
+whatsapp = { version = "^1.1", mount = "/whatsapp", config = { sandbox = true } }
+```
 
 ## Webhook
 
