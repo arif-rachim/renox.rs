@@ -710,6 +710,8 @@ enum ThreadReply {
     /// JSON, and an action's out-of-band fragments.
     Render {
         data_json: String,
+        /// An action result's `status` (ops.md 1.9.0 section 14).
+        status: Option<u16>,
         fragments: Vec<String>,
         /// `setLocale` (ops.md 1.3.0 section 14, "Locale").
         locale: Option<String>,
@@ -1678,6 +1680,7 @@ impl Pool {
                     template: route_def.page().and_then(|p| p.template.clone()),
                     fragment,
                     data_json: "{}".into(),
+                    status: None,
                     oob_fragments: Vec::new(),
                     locale: None,
                     dir: None,
@@ -1892,6 +1895,7 @@ impl Pool {
             }
             ThreadReply::Render {
                 data_json,
+                status,
                 fragments,
                 locale,
                 dir,
@@ -1937,6 +1941,7 @@ impl Pool {
                         template: route_def.page().and_then(|p| p.template.clone()),
                         fragment,
                         data_json,
+                        status,
                         oob_fragments: if htmx { fragments } else { Vec::new() },
                         locale,
                         dir,
@@ -2608,7 +2613,7 @@ async fn create_worker(
             tenant_id: ctx.spec.tenant_id.clone(),
             gateway: ctx.spec.ai.as_ref().map(|s| s.0.clone()),
         }));
-        state.put(Rc::new(crate::ops::pdf::PdfEnv {
+        state.put(Rc::new(crate::ops::pdf::TemplateEnv {
             templates: ctx.spec.templates.as_ref().map(|s| s.0.clone()),
         }));
         state.put(Rc::new(crate::ops::webhook::WebhookEnv {
@@ -4597,6 +4602,7 @@ fn finish_dispatch(
             ),
             Some(data_json) => ThreadReply::Render {
                 data_json,
+                status: o.status,
                 fragments: o.fragments.unwrap_or_default(),
                 locale: o.locale,
                 dir: o.dir,

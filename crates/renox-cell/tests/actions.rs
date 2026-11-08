@@ -99,6 +99,35 @@ export const actions = {
 export function load() { return new Response("ts-only"); }
 "#;
 
+/// #577 (`ops.md` 1.9.0 section 14, "Status"): an invalid form answers 422
+/// with the page re-rendered.
+const SIGNUP_HTML: &str = r##"<!doctype html><html><body>
+<x-form action="invalid"><input name="phone" value="{{ values.phone ?? '' }}"><button>Go</button></x-form>
+<p id="err">{{ errors.phone ?? "" }}</p>
+<span id="badge" r-fragment="badge">err:{{ errors.phone ?? "none" }}</span>
+</body></html>"##;
+
+const SIGNUP_JS: &str = r#"
+export function load() { return { values: {}, errors: {} }; }
+export const actions = {
+  async invalid({ form }) {
+    return { status: 422, values: { phone: form.get("phone") }, errors: { phone: "too short" } };
+  },
+  async teapot({ db }) {
+    return { status: 418, errors: { phone: "teapot" } };
+  },
+  async conflict() {
+    return { status: 409, errors: { phone: "taken" }, fragments: ["badge"] };
+  },
+  async redirectish() {
+    return { status: 303 };
+  },
+  async fine() {
+    return { status: 200, errors: { phone: "fine" } };
+  },
+};
+"#;
+
 const API_JS: &str = r#"
 export function POST() { return Response.json({ ok: true }); }
 "#;
@@ -107,6 +136,7 @@ fn write_artifact(artifacts: &Path) -> String {
     let mut project = TemplateProject::new();
     project.insert("pages/cart.html", CART_HTML);
     project.insert("pages/about.html", "<p>About</p>");
+    project.insert("pages/signup.html", SIGNUP_HTML);
     let compiled = Compiler::default()
         .compile(&project)
         .unwrap_or_else(|d| panic!("{d:?}"));
@@ -119,6 +149,7 @@ fn write_artifact(artifacts: &Path) -> String {
     let code = [
         ("pages/cart", CART_JS),
         ("pages/tsonly", TSONLY_JS),
+        ("pages/signup", SIGNUP_JS),
         ("functions/api/x", API_JS),
     ];
     for (id, js) in code {
@@ -151,6 +182,8 @@ fn write_artifact(artifacts: &Path) -> String {
             { "kind": "page", "path": "/cart", "module": "pages/cart", "load": true,
               "actions": ["add", "boom", "bad", "go", "ghost", "nested"], "template": "pages/cart" },
             { "kind": "page", "path": "/tsonly", "module": "pages/tsonly", "load": true, "actions": ["default", "object"] },
+            { "kind": "page", "path": "/signup", "module": "pages/signup", "load": true,
+              "actions": ["invalid", "teapot", "conflict", "redirectish", "fine"], "template": "pages/signup" },
             { "kind": "page", "path": "/about", "template": "pages/about" },
             { "kind": "function", "method": "POST", "path": "/api/x", "module": "functions/api/x", "export": "POST" }
         ],
@@ -546,4 +579,95 @@ meter_flush_ms = 50
 
     worker.shutdown().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// #577 (`ops.md` 1.9.0 section 14, "Status"): an action's `status` is the
+/// response status of the re-rendered page; the key is not template data;
+/// any other value is a 500 and the transaction is rolled back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_action_result_status_is_the_response_status() {
+    let root = scratch("status");
+    std::fs::create_dir_all(root.join("artifacts")).unwrap();
+    let text = r#"
+listen = "127.0.0.1:0"
+data_dir = "data"
+artifacts_dir = "artifacts"
+routes_file = "routes.json"
+meters_dir = "meters"
+logs_dir = "logs"
+idle_timeout_secs = 60
+meter_flush_ms = 50
+"#;
+    let config = WorkerConfig::parse(text, &root).unwrap();
+    let hash = write_artifact(&config.artifacts_dir);
+    let routes = serde_json::json!({ "version": 0, "entries": [
+        { "hostname": "shop.test", "tenant_id": "t_shop", "deployment_hash": hash, "status": "active", "updated_at": 1 }
+    ]});
+    std::fs::write(&config.routes_file, routes.to_string()).unwrap();
+    let worker = Worker::start(config.clone()).await.unwrap();
+    let addr = worker.addr;
+
+    let first = http(addr, "GET", "/signup", &[], "").await;
+    assert_eq!(first.status, 200, "{}", first.body);
+    let cookies = first.set_cookies();
+    let sid = cookies[0].split(';').next().unwrap().to_string();
+    let csrf = cookies[1].split(';').next().unwrap().to_string();
+    let token = csrf.strip_prefix("__Host-renox_csrf=").unwrap().to_string();
+    let jar = format!("{sid}; {csrf}");
+    let post = |action: &'static str, htmx: bool| {
+        let jar = jar.clone();
+        let token = token.clone();
+        async move {
+            let mut h = vec![
+                ("cookie", jar.as_str()),
+                FORM,
+                ("x-renox-csrf", token.as_str()),
+            ];
+            if htmx {
+                h.push(("hx-request", "true"));
+            }
+            http(addr, "POST", &format!("/signup?/{action}"), &h, "phone=12").await
+        }
+    };
+
+    // 422: the whole page again, with the values and the errors; `status`
+    // itself is not template data.
+    let r = post("invalid", false).await;
+    assert_eq!(r.status, 422, "{}", r.body);
+    assert!(r.body.contains("<html"), "{}", r.body);
+    assert!(r.body.contains("too short"), "{}", r.body);
+    assert!(r.body.contains("value=\"12\""), "{}", r.body);
+    assert!(!r.body.contains("422"), "{}", r.body);
+
+    // 409 with an out-of-band fragment over htmx carries the status too.
+    let r = post("conflict", true).await;
+    assert_eq!(r.status, 409, "{}", r.body);
+    assert!(!r.body.contains("<html"), "{}", r.body);
+    assert!(r.body.contains("err:taken"), "{}", r.body);
+
+    // An htmx 422 with the HX-Target fragment: the fragment, status 422.
+    let mut h = vec![
+        ("cookie", jar.as_str()),
+        FORM,
+        ("x-renox-csrf", token.as_str()),
+        ("hx-request", "true"),
+        ("hx-target", "badge"),
+    ];
+    let r = http(addr, "POST", "/signup?/invalid", &h, "phone=12").await;
+    assert_eq!(r.status, 422, "{}", r.body);
+    assert!(r.body.starts_with("<span id=\"badge\""), "{}", r.body);
+    assert!(r.body.contains("err:too short"), "{}", r.body);
+    h.clear();
+
+    // 200 explicit is the default.
+    let r = post("fine", false).await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert!(r.body.contains("fine"), "{}", r.body);
+
+    // Any other status is a 500, never the page.
+    for action in ["teapot", "redirectish"] {
+        let r = post(action, false).await;
+        assert_eq!(r.status, 500, "{action}: {}", r.body);
+        assert!(!r.body.contains("teapot"), "{}", r.body);
+    }
 }

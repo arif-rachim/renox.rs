@@ -27,6 +27,9 @@ pub struct PageRender {
     /// Out-of-band fragments to render after the main output (an action's
     /// `{ fragments }`, #41); empty after `load`.
     pub oob_fragments: Vec<String>,
+    /// The response status of an action result (`ops.md` 1.9.0 section 14):
+    /// one of 200, 400, 409, 422; `None` = 200.
+    pub status: Option<u16>,
     /// The page's locale from `setLocale` (`ops.md` 1.3.0 section 14,
     /// "Locale"); `None` = `en`.
     pub locale: Option<String>,

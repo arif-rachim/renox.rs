@@ -29,6 +29,7 @@ use crate::ops::realtime::{
     op_realtime_close, op_realtime_publish, op_realtime_send, op_realtime_subscribe,
     op_realtime_unsubscribe,
 };
+use crate::ops::render::op_render_template;
 use crate::ops::request::RequestTable;
 use crate::ops::response::{ResponseSinks, StreamEvents, op_response_end, op_response_write};
 use crate::ops::secrets::op_secrets_get_all;
@@ -136,6 +137,7 @@ deno_core::extension!(
         op_ai_gateway,
         op_ai_meter,
         op_render_pdf,
+        op_render_template,
         op_password_hash,
         op_password_verify,
         op_log,

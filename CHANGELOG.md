@@ -2,6 +2,14 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.8 (unreleased)
+
+**Worker**
+
+- `ctx.render(template, data)` renders a page or partial of the deployment to an HTML string (`op_render_template`, `ops.md` 1.8.0 section 25), in the request's locale and direction; the time counts as `render_ms` and `render_fuel`, a limit is `RENOX_RENDER_LIMIT`, an unknown id or one with `..` or a leading `/` is a `TypeError` (#577).
+- `ctx.render` and `ctx.pdf.render` of a module read the module's own tree: the op adds the prefix `modules/<name>/` (`ops.md` 1.9.0 sections 24 and 25) (#577).
+- A page action can return `{ status: 422, ...data }` (200, 400, 409 or 422): the page or the htmx fragment is rendered as before with that response status, and `status` is not template data; any other value is 500 `RENOX_INTERNAL` and the action's transaction is rolled back (`ops.md` 1.9.0 section 14) (#577).
+
 ## 0.1.7 (2026-11-07)
 
 Fixes from the first native Windows use of 0.1.6. The pinned `renox-worker` stays 0.4.0.

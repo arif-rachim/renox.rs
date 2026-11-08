@@ -63,6 +63,7 @@ import {
   op_ai_gateway,
   op_ai_meter,
   op_render_pdf,
+  op_render_template,
 } from "ext:core/ops";
 
 const {
@@ -1067,18 +1068,44 @@ function makeAi(module) {
   });
 }
 
-/** `ctx.pdf` (ops.md 1.7.0 section 24): a template of the deployment, rendered and converted in Rust. */
-const pdf = ObjectFreeze({
-  async render(template, data, options = undefined) {
-    if (typeof template !== "string" || template.length === 0) throw new TypeError("pdf.render: template is a template id");
+/**
+ * `ctx.pdf` (ops.md 1.7.0 section 24): a template of the caller, rendered and
+ * converted in Rust. The module argument is the caller's own (null for the
+ * app), so the op adds the prefix `modules/<name>/` (1.9.0).
+ */
+function makePdf(m) {
+  const module = m === "app" ? null : m;
+  return ObjectFreeze({
+    async render(template, data, options = undefined) {
+      if (typeof template !== "string" || template.length === 0) throw new TypeError("pdf.render: template is a template id");
+      const json = JSONStringify(data ?? {}, dataReplacer);
+      try {
+        return await op_render_pdf(currentToken(), template, json ?? "{}", JSONStringify(options ?? {}), module);
+      } catch (e) {
+        throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
+      }
+    },
+  });
+}
+
+/**
+ * `ctx.render` (ops.md 1.8.0 section 25): a template of the caller as an HTML
+ * fragment, in the request's locale and direction (`setLocale`; `en` and
+ * `ltr` outside a page).
+ */
+function makeRender(m) {
+  const module = m === "app" ? null : m;
+  return async (template, data = undefined) => {
+    if (typeof template !== "string" || template.length === 0) throw new TypeError("render: template is a template id");
     const json = JSONStringify(data ?? {}, dataReplacer);
+    const st = stateVar.get();
     try {
-      return await op_render_pdf(currentToken(), template, json ?? "{}", JSONStringify(options ?? {}));
+      return await op_render_template(currentToken(), template, json ?? "{}", module, st?.locale ?? null, st?.dir ?? null);
     } catch (e) {
       throw e instanceof RangeError || e instanceof TypeError ? e : toRenoxError(e);
     }
-  },
-});
+  };
+}
 
 /** Direct mode: the Anthropic Messages API with the app's own key, through `fetch`. */
 async function aiDirect(module, env, body) {
@@ -1556,7 +1583,8 @@ function moduleFields(m) {
     jobs: makeJobs(m),
     storage: makeStorage(m),
     ai: makeAi(m),
-    pdf,
+    pdf: makePdf(m),
+    render: makeRender(m),
     authz: makeAuthz(m),
     realtime: makeRealtime(m),
     password,
@@ -1772,7 +1800,7 @@ function dataReplacer(_key, value) {
  * parsed by the cell (the B9 path). Dates become ISO strings (toJSON),
  * undefined and functions are dropped, a cycle or bytes are refused.
  */
-function pageResult(res) {
+function pageResult(res, status = undefined) {
   if (res === null || typeof res !== "object" || ArrayIsArray(res)) {
     return { kind: KIND_PAGE_INTERNAL, reason: "load_result", name: res === null ? "null" : ArrayIsArray(res) ? "array" : typeof res };
   }
@@ -1783,6 +1811,7 @@ function pageResult(res) {
     return { kind: KIND_PAGE_INTERNAL, reason: "data_not_serialisable", name: safeString(e?.message) };
   }
   const out = { kind: KIND_RENDER, data_json: json };
+  if (status !== undefined) out.status = status;
   // ops.md 1.3.0 section 14, "Locale": platform values beside the data.
   const st = stateVar.get();
   if (st?.locale !== undefined) {
@@ -1853,6 +1882,15 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
       return { kind: KIND_PAGE_INTERNAL, reason: "action_result", name: res === null ? "null" : ArrayIsArray(res) ? "array" : typeof res };
     }
   }
+  // ops.md 1.9.0 section 14, "Status": 200, 400, 409 or 422, an integer.
+  let status;
+  if (!response && res.status !== undefined) {
+    status = res.status;
+    if (status !== 200 && status !== 400 && status !== 409 && status !== 422) {
+      await rollback();
+      return { kind: KIND_PAGE_INTERNAL, reason: "action_result", name: "status" };
+    }
+  }
   let fragments = [];
   if (!response && res.fragments !== undefined) {
     const list = res.fragments;
@@ -1874,6 +1912,7 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
   if (response) return serializeResponse(res, wantBody);
   const actionData = { ...res };
   delete actionData.fragments;
+  delete actionData.status;
   let data = actionData;
   if (load !== null) {
     const loaded = await load(st.ctxOf(owner));
@@ -1881,7 +1920,7 @@ async function runAction(action, load, st, owner, page, req, wantBody) {
     if (loaded === null || typeof loaded !== "object" || ArrayIsArray(loaded)) return pageResult(loaded);
     data = { ...loaded, ...actionData };
   }
-  const out = pageResult(data);
+  const out = pageResult(data, status);
   if (out.kind === KIND_RENDER) out.fragments = fragments;
   return out;
 }
