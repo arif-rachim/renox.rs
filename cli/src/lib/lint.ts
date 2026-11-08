@@ -758,7 +758,8 @@ export function exportsGuard(src: string): boolean {
  * move the check into the guard.
  */
 export function lintMissingGuard(src: string, file: string, policyActions: ReadonlySet<string>): Finding[] {
-  if (!/^(pages|functions)\//u.test(file) || exportsGuard(src)) return [];
+  // A tool (`functions/tools/`) has no `guard`: its `ToolRoute.action` is the guard, and the cell checks it before `run`.
+  if (!/^(pages|functions)\//u.test(file) || file.startsWith("functions/tools/") || exportsGuard(src)) return [];
   const tokens = tokenize(src);
   for (let k = 0; k + 3 < tokens.length; k++) {
     const [authz, dot, name, open] = [tokens[k], tokens[k + 1], tokens[k + 2], tokens[k + 3]] as Token[];

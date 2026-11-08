@@ -8,6 +8,8 @@
 //   await t.service("notes").add("hello");         // through the broker (a test-only route)
 //   const { html } = await t.as("bob").page("/notes/");
 //   snapshot(html, { role: "admin" });
+//   await t.job("nightly");                        // a scheduled job, run now (#593)
+//   await t.tool("echo", { x: 1 }, { as: alice, confirm: true }); // an App MCP tool as alice's agent
 //
 // Bun-only (bun:test, bun:sqlite): not part of the runtime-neutral SDK
 // surface, and never loaded by tenant code in production.
@@ -23,6 +25,7 @@ interface Harness {
   startTestWorker(spec: Spec): Promise<Worker>;
   changeModule(project: string, name: string, source: string, scratch?: { project: string; db: string }, worker?: string, version?: string): Promise<ModuleChange & { db: string }>;
   evaluatePolicies(spec: Spec, casesFrom?: string): Promise<{ file: string; case: PolicyCase; result: { allow: boolean; reason: string }; ok: boolean }[]>;
+  runJob(spec: Spec, db: string, module: string, name: string): { id: string; attempts: number };
   SERVICE_PATH: string;
 }
 interface Spec {
@@ -100,10 +103,31 @@ export interface TestApp {
   action(path: string, name: string, form: Record<string, string>, options?: { user?: string }): Promise<Reply>;
   /** Call an installed module's service through the broker. */
   service(module: string): ServiceProxy;
-  /** Read-only SQL on the tenant file, for assertions. */
+  /**
+   * Read-only SQL on the tenant file, for assertions. The connection waits
+   * up to five seconds on the worker's write lock (`pragma busy_timeout =
+   * 5000`); a test's own `bun:sqlite` connection should do the same, or it
+   * fails with SQLITE_BUSY while the worker writes (the outbox, a job).
+   */
   db: { query<T = Record<string, unknown>>(sql: string, params?: (string | number | null)[]): T[] };
-  /** The tenant file itself (to age a row in an expiry test, open it with bun:sqlite). */
+  /** The tenant file itself (to age a row in an expiry test, open it with bun:sqlite and `pragma busy_timeout = 5000`). */
   dbFile: string;
+  /**
+   * Runs the scheduled job `jobs/<name>.ts` (of the app, or of `module`)
+   * now, as a tick of its schedule (`renox jobs run`), and resolves after
+   * the run committed (its outbox row is gone). Rejects with the run's
+   * error when an attempt fails, or after `timeoutMs` (default 10 s).
+   */
+  job(name: string, options?: { module?: string; timeoutMs?: number }): Promise<void>;
+  /**
+   * Calls the App MCP tool `name` (`POST /mcp`, `tools/call`) as the agent
+   * of `as` (default this user): an agent token from the auth module's OAuth
+   * flow (registration, consent, token), kept per user and scope for the
+   * app's lifetime. A `confirm` tool answers its preview and `confirmation`;
+   * with `confirm: true` the call is repeated with the confirmation and the
+   * final result returned. Needs the `auth` module.
+   */
+  tool(name: string, input: Record<string, unknown>, options?: ToolOptions): Promise<ToolReply>;
   /** The same app as another user: a separate session (cookie jar). */
   as(user: string): TestApp;
   /** Read a cookie of this user's jar, or plant one (an attacker's token, a forged state). */
@@ -117,6 +141,108 @@ export interface TestApp {
   /** Meter records so far (flushed about every second). */
   meters(): Record<string, unknown>[];
   stop(): Promise<void>;
+}
+
+export interface ToolOptions {
+  /** The user whose agent calls the tool (a signed-in `TestApp`); default the calling app's user. */
+  as?: TestApp;
+  /** The token's scope (`tools:<name> ...`); default every tool. */
+  scope?: string;
+  /** Confirm a `confirm` tool's preview: the second call runs for real. */
+  confirm?: boolean;
+}
+
+/** What a tool call answered (`ok: false`: an error before `run`, or a result with `isError`). */
+export interface ToolReply {
+  ok: boolean;
+  /** `structuredContent` of the result (the final result of a confirmed call). */
+  result?: unknown;
+  /** A `confirm` tool's preview (its first call, rolled back). */
+  preview?: unknown;
+  confirmation?: { token: string; expires_at: number };
+  /** `RENOX_FORBIDDEN`, `RENOX_TOOL_SCOPE`, `RENOX_TOOL_INPUT`, `RENOX_TOOL_CONFIRM`, ...; `RENOX_TOOL_ERROR` for a result with `isError`. */
+  error?: { code: string; message: string };
+}
+
+/** The requests `t.tool` makes, as a user of the app (`TestApp.request` and `action`). */
+export interface ToolClient {
+  request(method: string, path: string, init?: RequestInitLite): Promise<Reply>;
+  action(path: string, name: string, form: Record<string, string>): Promise<Reply>;
+}
+
+/** The fixed redirect URI of the test agent's OAuth client. */
+export const TOOL_REDIRECT_URI = "https://test.localhost/cb";
+const TOOL_VERIFIER = "renox-test-agent-verifier-0123456789abcdefghijklmnop";
+
+const base64url = (b: Uint8Array): string => btoa(String.fromCharCode(...b)).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+
+/**
+ * An agent token for `user` (signed in on its own jar) through the auth
+ * module's OAuth flow, as an MCP client runs it: the resource metadata
+ * names the authorization server (404: no `auth` module), then
+ * registration, the consent page's `allow` action, the token exchange.
+ * `app` makes the requests without a session, `user` the consent.
+ * @internal exported for the SDK's tests.
+ */
+export async function agentToken(app: ToolClient, user: ToolClient, scope?: string): Promise<string> {
+  const meta = await app.request("GET", "/.well-known/oauth-protected-resource/mcp", { headers: { accept: "application/json" } });
+  const server = meta.status === 200 ? meta.json<{ authorization_servers?: string[] }>().authorization_servers?.[0] : undefined;
+  if (server === undefined) throw new Error("t.tool needs the auth module");
+  const issuer = new URL(server).pathname.replace(/\/$/u, "");
+  const reg = await app.request("POST", `${issuer}/register`, { headers: { accept: "application/json" }, body: { client_name: "renox test agent", redirect_uris: [TOOL_REDIRECT_URI] } });
+  if (reg.status !== 201) throw new Error(`t.tool: the client registration answered ${reg.status}: ${reg.html}`);
+  const clientId = reg.json<{ client_id: string }>().client_id;
+  const challenge = base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(TOOL_VERIFIER))));
+  const form: Record<string, string> = { response_type: "code", client_id: clientId, redirect_uri: TOOL_REDIRECT_URI, code_challenge: challenge, code_challenge_method: "S256" };
+  if (scope !== undefined) form.scope = scope;
+  const allow = await user.action(`${issuer}/consent`, "allow", form);
+  const location = allow.headers.get("location");
+  const code = location === null ? null : new URL(location, TOOL_REDIRECT_URI).searchParams.get("code");
+  if (allow.status !== 303 || code === null) throw new Error(`t.tool: the consent answered ${allow.status} without a code (is the user signed in?)`);
+  const tok = await app.request("POST", `${issuer}/token`, {
+    headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: TOOL_REDIRECT_URI, client_id: clientId, code_verifier: TOOL_VERIFIER }).toString(),
+  });
+  if (tok.status !== 200) throw new Error(`t.tool: the token endpoint answered ${tok.status}: ${tok.html}`);
+  return tok.json<{ access_token: string }>().access_token;
+}
+
+type RpcAnswer = {
+  result?: { isError?: boolean; content?: { type: string; text?: string }[]; structuredContent?: unknown };
+  error?: { code: number; message: string; data?: { code?: string } };
+};
+
+let rpcSeq = 0;
+
+/**
+ * One `tools/call` with the agent `token`; with `confirm`, a preview's
+ * confirmation is sent back (`_meta["renox/confirmation"]`) and the final
+ * result returned.
+ * @internal exported for the SDK's tests.
+ */
+export async function callTool(app: ToolClient, token: string, name: string, input: Record<string, unknown>, confirm = false): Promise<ToolReply> {
+  const once = async (confirmation?: string): Promise<ToolReply> => {
+    const params = { name, arguments: input, ...(confirmation === undefined ? {} : { _meta: { "renox/confirmation": confirmation } }) };
+    const res = await app.request("POST", "/mcp", { headers: { accept: "application/json", authorization: `Bearer ${token}` }, body: { jsonrpc: "2.0", id: ++rpcSeq, method: "tools/call", params } });
+    let body: RpcAnswer;
+    try {
+      body = res.json<RpcAnswer>();
+    } catch {
+      // A 429 has no body.
+      return { ok: false, error: { code: `HTTP_${res.status}`, message: res.html === "" ? `HTTP ${res.status}` : res.html } };
+    }
+    if (body.error) return { ok: false, error: { code: body.error.data?.code ?? String(body.error.code), message: body.error.message } };
+    const r = body.result ?? {};
+    if (r.isError) return { ok: false, error: { code: "RENOX_TOOL_ERROR", message: r.content?.[0]?.text ?? "The tool failed." } };
+    const out = r.structuredContent as { preview?: unknown; confirmation?: { token: string; expires_at: number } } | undefined;
+    if (confirmation === undefined && typeof out === "object" && out !== null && "preview" in out && out.confirmation !== undefined) {
+      return { ok: true, preview: out.preview, confirmation: out.confirmation };
+    }
+    return { ok: true, result: out };
+  };
+  const first = await once();
+  if (!confirm || first.confirmation === undefined) return first;
+  return once(first.confirmation.token);
 }
 
 /** One SSE event as received (ops.md section 18, "On the wire"). */
@@ -282,6 +408,8 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
   const s = await spec(h, options.project ?? process.env.RENOX_TEST_PROJECT ?? process.cwd());
   const w = await h.startTestWorker(s);
   const sqlite = new Database(w.db, { readonly: true });
+  // Wait on the worker's write lock instead of failing with SQLITE_BUSY.
+  sqlite.exec("pragma busy_timeout = 5000");
   // The database is closed before the worker's folder is removed: on Windows
   // an open file cannot be deleted (EBUSY in `stop`).
   afterAll(async () => {
@@ -297,6 +425,9 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
     }
     return j;
   };
+  // Agent tokens of `t.tool`, per user and scope, for the app's lifetime.
+  const tokens = new Map<string, Promise<string>>();
+  const userOf = new WeakMap<TestApp, string>();
   const make = (user: string): TestApp => {
     const send = async (method: string, path: string, init: RequestInitLite = {}): Promise<Reply> => {
       const jar = jarOf(user);
@@ -354,6 +485,45 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
         }),
       db: { query: <T>(sql: string, params: (string | number | null)[] = []) => sqlite.query(sql).all(...params) as T[] },
       dbFile: w.db,
+      async job(name, o = {}) {
+        const module = o.module ?? "app";
+        const ms = o.timeoutMs ?? 10_000;
+        const run = h.runJob(s, w.db, module, name);
+        const deadline = Date.now() + ms;
+        let last: string | null = null;
+        for (;;) {
+          const row = sqlite.query("select attempts, last_error from renox__outbox where id = ? and target = ?").get(run.id, module) as { attempts: number; last_error: string | null } | null;
+          if (row === null) return;
+          if (row.last_error !== null) last = row.last_error;
+          // An attempt of this run failed: its row waits for the retry.
+          // The outbox keeps only the code (`threw`); the tenant log line of
+          // the attempt (request id `<row id>_<attempt>`) has the thrown text.
+          if (row.attempts > run.attempts && row.last_error !== null) {
+            const rid = `${run.id}_${row.attempts}`;
+            let line: { fields?: { cause_message?: unknown } } | undefined;
+            // The log line may be written just after the outbox row.
+            for (let i = 0; i < 10 && line === undefined; i++) {
+              line = w.logs().find((l) => l.request_id === rid) as typeof line;
+              if (line === undefined) await Bun.sleep(50);
+            }
+            const cause = line?.fields?.cause_message;
+            throw new Error(`t.job("${name}"): the run failed: ${typeof cause === "string" ? `${cause} (${row.last_error})` : row.last_error}`);
+          }
+          if (Date.now() > deadline) throw new Error(`t.job("${name}"): the run did not finish within ${ms} ms${last === null ? "" : ` (last error: ${last})`}`);
+          await Bun.sleep(50);
+        }
+      },
+      async tool(name, input, o = {}) {
+        const as = o.as ?? self;
+        const key = JSON.stringify([userOf.get(as) ?? user, o.scope ?? null]);
+        let token = tokens.get(key);
+        if (token === undefined) {
+          token = agentToken(self, as, o.scope);
+          tokens.set(key, token);
+          token.catch(() => tokens.delete(key));
+        }
+        return callTool(self, await token, name, input, o.confirm === true);
+      },
       as: (other) => make(other),
       cookie: (name, value) => {
         const jar = jarOf(user);
@@ -364,6 +534,7 @@ export async function app(options: { project?: string } = {}): Promise<TestApp> 
       meters: () => w.meters(),
       stop: () => w.stop(),
     };
+    userOf.set(self, user);
     return self;
   };
   return make("anonymous");
