@@ -123,6 +123,8 @@ renox-cell = { path = ".", default-features = false, features = ["test-support"]
 # tests/images.rs and tests/storage.rs build their test pictures with it,
 # whatever features the crate under test has.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+# tests/storage.rs: an upload body of unknown length (a chunked stream).
+futures-util = { version = "0.3.34", default-features = false }
 # tests/telemetry.rs: the in-memory span exporter.
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "process"] }

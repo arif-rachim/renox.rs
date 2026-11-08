@@ -266,21 +266,24 @@ impl PageRenderer {
         }))
     }
 
-    /// Renders a `partial` template for a realtime `fragment` payload
-    /// (`ops.md` 1.5.0 section 18): `data_json` is the payload's `data`,
-    /// under the default render limits. Blocking: call on the render pool.
-    /// `(html, fuel, ms)`.
+    /// Renders a `partial` or `page` template for a realtime `fragment`
+    /// payload (`ops.md` 1.5.0 section 18) or `ctx.render` (section 25):
+    /// `data_json` is the payload's `data`, under the default render
+    /// limits, in `locale` and `dir` (`None`: `en` and the locale's
+    /// default). Blocking: call on the render pool. `(html, fuel, ms)`.
     pub fn render_partial(
         &self,
         id: &str,
         data_json: &str,
+        locale: Option<&str>,
+        dir: Option<&str>,
     ) -> Result<(String, u64, f64), PartialError> {
-        if !self.partials.contains(id) {
+        if !self.partials.contains(id) && !self.fragments.contains_key(id) {
             return Err(PartialError::Unknown);
         }
         let data: Value =
             serde_json::from_str(data_json).map_err(|e| PartialError::Failed(e.to_string()))?;
-        let cx = self.context(None);
+        let cx = Self::with_locale_tag(self.context(None), locale, dir);
         self.renderer
             .render(RenderTarget::Page(id), data, &cx, &RenderLimits::DEFAULT)
             .map(|o| (o.html, o.fuel_used, o.ms))
@@ -392,16 +395,20 @@ impl PageRenderer {
     /// The page's locale and direction from `setLocale` (`ops.md` section
     /// 14, "Locale"); invalid values were refused by the bootstrap and are
     /// ignored here.
-    fn with_locale(mut cx: RenderContext, page: &PageRender) -> RenderContext {
-        if let Some(tag) = page
-            .locale
-            .as_deref()
-            .filter(|t| renox_template::render::i18n::valid_locale(t))
-        {
+    fn with_locale(cx: RenderContext, page: &PageRender) -> RenderContext {
+        Self::with_locale_tag(cx, page.locale.as_deref(), page.dir.as_deref())
+    }
+
+    fn with_locale_tag(
+        mut cx: RenderContext,
+        locale: Option<&str>,
+        dir: Option<&str>,
+    ) -> RenderContext {
+        if let Some(tag) = locale.filter(|t| renox_template::render::i18n::valid_locale(t)) {
             cx.locale = renox_template::Locale::parse(tag);
             cx.lang = Some(tag.to_string());
         }
-        cx.dir = page.dir.as_deref().and_then(Dir::parse);
+        cx.dir = dir.and_then(Dir::parse);
         cx
     }
 
@@ -564,7 +571,7 @@ impl PageRenderer {
             Ok((html, fuel, ms, authz_evals)) => Rendered {
                 // A whole page gets the shell tags; fragments do not.
                 response: html_response(
-                    200,
+                    page.status.unwrap_or(200),
                     request_id,
                     if head {
                         Bytes::new()
@@ -951,9 +958,33 @@ pub type SharedPages = Arc<PageRenderer>;
 /// its templates, rendered like pages, then converted by the runtime.
 struct PdfTemplates(PageRenderer);
 
+use renox_runtime::ops::pdf::TemplateError;
+
 impl renox_runtime::ops::pdf::TemplateHost for PdfTemplates {
     fn render(&self, template: &str, data_json: &str) -> Result<String, String> {
         self.0.render_document(template, data_json)
+    }
+
+    fn render_fragment(
+        &self,
+        template: &str,
+        data_json: &str,
+        locale: &str,
+        dir: &str,
+    ) -> Result<(String, u64, f64), TemplateError> {
+        let some = |s: &str| (!s.is_empty()).then_some(s.to_string());
+        self.0
+            .render_partial(
+                template,
+                data_json,
+                some(locale).as_deref(),
+                some(dir).as_deref(),
+            )
+            .map_err(|e| match e {
+                PartialError::Unknown => TemplateError::Unknown,
+                PartialError::Limit(l) => TemplateError::Limit(l),
+                PartialError::Failed(m) => TemplateError::Failed(m),
+            })
     }
 }
 

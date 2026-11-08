@@ -13,6 +13,7 @@ pub mod net_policy;
 pub mod password;
 pub mod pdf;
 pub mod realtime;
+pub mod render;
 pub mod secrets;
 pub mod storage;
 pub mod webhook;

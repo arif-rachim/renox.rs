@@ -81,6 +81,33 @@ pub enum PdfError {
 /// its data, as HTML.
 pub trait TemplateHost: Send + Sync {
     fn render(&self, template: &str, data_json: &str) -> Result<String, String>;
+
+    /// `ctx.render` (`ops.md` section 25): a page or partial of the
+    /// deployment as a fragment, in the request's `locale` and `dir` (empty
+    /// strings: `en` and the locale's default). `(html, fuel, ms)`. Blocking.
+    /// The default knows no template, so a host without it answers
+    /// [`TemplateError::Unknown`].
+    fn render_fragment(
+        &self,
+        template: &str,
+        data_json: &str,
+        locale: &str,
+        dir: &str,
+    ) -> Result<(String, u64, f64), TemplateError> {
+        let _ = (template, data_json, locale, dir);
+        Err(TemplateError::Unknown)
+    }
+}
+
+/// Why `ctx.render` failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TemplateError {
+    /// Not a template of the deployment.
+    Unknown,
+    /// A render limit (`fuel`, `iterations`, ...): `RENOX_RENDER_LIMIT`.
+    Limit(&'static str),
+    /// The render failed (the cause, for the tenant log).
+    Failed(String),
 }
 
 /// What the cell gives an [`crate::IsolateSpec`].
@@ -482,12 +509,12 @@ mod ops {
     use super::*;
     use crate::ops::request::{live_request, op_error};
 
-    /// The renderer of one isolate's `ctx.pdf`.
-    pub struct PdfEnv {
+    /// The renderer of one isolate's `ctx.pdf` and `ctx.render`.
+    pub struct TemplateEnv {
         pub templates: Option<Arc<dyn TemplateHost>>,
     }
 
-    /// `op_render_pdf(token, template, dataJson, optionsJson)`: the PDF bytes.
+    /// `op_render_pdf(token, template, dataJson, optionsJson, module)`: the PDF bytes.
     #[op2]
     #[buffer]
     pub(crate) async fn op_render_pdf(
@@ -496,9 +523,12 @@ mod ops {
         #[string] template: String,
         #[string] data_json: String,
         #[string] options_json: String,
+        #[string] module: Option<String>,
     ) -> Result<Vec<u8>, JsErrorBox> {
         let request = live_request(&state.borrow(), token)?;
-        let host = state.borrow().borrow::<Rc<PdfEnv>>().templates.clone();
+        let template = crate::ops::render::template_id(&template, module.as_deref())
+            .map_err(|m| JsErrorBox::type_error(format!("pdf.render: {m}")))?;
+        let host = state.borrow().borrow::<Rc<TemplateEnv>>().templates.clone();
         let Some(host) = host else {
             return Err(op_error(
                 "RENOX_INTERNAL",

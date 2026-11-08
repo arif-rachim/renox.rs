@@ -39,6 +39,10 @@ pub struct GatewayLimits {
     /// Body limit for webhook routes. No F1 route kind maps to it yet; the
     /// route kind arrives with the manifest change that adds it.
     pub max_body_bytes_webhook: u64,
+    /// Body limit for a `PUT` to `/_files/…` (signed tenant uploads, `artifact.md` 1.7): the
+    /// platform's per-file maximum (the paid tier's, `ops.md` section 21). The cell applies
+    /// the signed `max` as the real limit after it has checked the signature.
+    pub max_body_bytes_upload: u64,
     /// Time a client has to send a complete request head.
     pub header_read_timeout: Duration,
     /// A connection with no bytes read or written for this long is closed.
@@ -58,6 +62,7 @@ impl Default for GatewayLimits {
             max_headers: 100,
             max_body_bytes_default: 1024 * 1024,
             max_body_bytes_webhook: 5 * 1024 * 1024,
+            max_body_bytes_upload: 100 * 1024 * 1024,
             header_read_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_secs(60),
             max_connections_per_ip: 100,
@@ -71,6 +76,20 @@ impl Default for GatewayLimits {
 pub enum RouteKind {
     Function,
     Webhook,
+    /// `PUT /_files/…` ([`RouteKind::of_request`]).
+    Upload,
+}
+
+impl RouteKind {
+    /// The kind the gateway applies to a request that matched no route kind of its own:
+    /// `Upload` for a `PUT` under `/_files/`, `Function` otherwise.
+    pub fn of_request(method: &axum::http::Method, path: &str) -> RouteKind {
+        if method == axum::http::Method::PUT && path.starts_with("/_files/") {
+            RouteKind::Upload
+        } else {
+            RouteKind::Function
+        }
+    }
 }
 
 impl GatewayLimits {
@@ -80,6 +99,7 @@ impl GatewayLimits {
         let platform = match kind {
             RouteKind::Function => self.max_body_bytes_default,
             RouteKind::Webhook => self.max_body_bytes_webhook,
+            RouteKind::Upload => self.max_body_bytes_upload,
         };
         app_override.map_or(platform, |o| o.min(platform))
     }
@@ -134,6 +154,22 @@ pub async fn check_body(req: Request<Body>, limit: u64) -> BodyCheck {
         },
         Err(_) => BodyCheck::Unreadable,
     }
+}
+
+/// The body limit of an upload: a declared length over it is refused before any byte is read;
+/// a body of unknown length is not buffered here (the cell reads it up to the signed `max`,
+/// which is never above this limit, and this limit still cuts the stream if it is reached).
+pub async fn check_upload_body(req: Request<Body>, limit: u64) -> BodyCheck {
+    let hint = axum::body::HttpBody::size_hint(req.body());
+    if hint.exact().is_some() {
+        return check_body(req, limit).await;
+    }
+    let (parts, body) = req.into_parts();
+    let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
+    BodyCheck::Ok(Request::from_parts(
+        parts,
+        Body::new(Limited::new(body, limit_usize)),
+    ))
 }
 
 /// A platform error response in the format of `docs/contracts/errors.md`

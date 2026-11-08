@@ -710,6 +710,8 @@ enum ThreadReply {
     /// JSON, and an action's out-of-band fragments.
     Render {
         data_json: String,
+        /// An action result's `status` (ops.md 1.9.0 section 14).
+        status: Option<u16>,
         fragments: Vec<String>,
         /// `setLocale` (ops.md 1.3.0 section 14, "Locale").
         locale: Option<String>,
@@ -1019,6 +1021,11 @@ impl IsolateHandle {
     /// The deployment's manifest.
     pub fn manifest(&self) -> &crate::manifest::Manifest {
         &self.inner.artifact.manifest
+    }
+
+    /// Each owner's `allowed_types` for stored files (`app` and the installed modules).
+    pub fn storage_allowed_types(&self) -> BTreeMap<String, Vec<String>> {
+        storage_allowed_types(&self.inner.artifact.manifest, &self.inner.modules)
     }
 
     /// The `tool` routes of the deployment (ops.md 1.5.0 section 19).
@@ -1678,6 +1685,7 @@ impl Pool {
                     template: route_def.page().and_then(|p| p.template.clone()),
                     fragment,
                     data_json: "{}".into(),
+                    status: None,
                     oob_fragments: Vec::new(),
                     locale: None,
                     dir: None,
@@ -1892,6 +1900,7 @@ impl Pool {
             }
             ThreadReply::Render {
                 data_json,
+                status,
                 fragments,
                 locale,
                 dir,
@@ -1937,6 +1946,7 @@ impl Pool {
                         template: route_def.page().and_then(|p| p.template.clone()),
                         fragment,
                         data_json,
+                        status,
                         oob_fragments: if htmx { fragments } else { Vec::new() },
                         locale,
                         dir,
@@ -2247,6 +2257,33 @@ fn ai_base() -> String {
         return b;
     }
     crate::ops::ai::ANTHROPIC_BASE.to_string()
+}
+
+/// Owner (`app` or a module) -> its `[storage] allowed_types` (empty: the platform defaults),
+/// for `op_storage_*` and the cell's `PUT /_files/<key>` (ops.md section 21).
+fn storage_allowed_types(
+    manifest: &crate::manifest::Manifest,
+    modules: &ModuleRegistry,
+) -> BTreeMap<String, Vec<String>> {
+    let types = |v: Option<&serde_json::Value>| -> Vec<String> {
+        v.and_then(|s| s.get("allowed_types"))
+            .and_then(|t| t.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut allowed = BTreeMap::new();
+    allowed.insert(
+        crate::ops::modules::APP.to_string(),
+        types(manifest.storage.as_ref()),
+    );
+    for m in modules.modules() {
+        allowed.insert(m.name.clone(), types(m.storage.as_ref()));
+    }
+    allowed
 }
 
 /// The owner of a code entry id: `modules/<name>/…` is module `name`, else the app.
@@ -2578,24 +2615,7 @@ async fn create_worker(
             ctx.link.clone(),
         ))));
         // ops.md 1.7.0 section 21: the file store and each owner's allowed types.
-        let types = |v: Option<&serde_json::Value>| -> Vec<String> {
-            v.and_then(|s| s.get("allowed_types"))
-                .and_then(|t| t.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|x| x.as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
-        let mut allowed = BTreeMap::new();
-        allowed.insert(
-            crate::ops::modules::APP.to_string(),
-            types(ctx.artifact.manifest.storage.as_ref()),
-        );
-        for m in ctx.modules.modules() {
-            allowed.insert(m.name.clone(), types(m.storage.as_ref()));
-        }
+        let allowed = storage_allowed_types(&ctx.artifact.manifest, &ctx.modules);
         let (mode, key_name) = crate::ops::ai::mode_of(
             ctx.artifact.manifest.ai.as_ref(),
             &ctx.artifact.manifest.permissions.secrets,
@@ -2608,7 +2628,7 @@ async fn create_worker(
             tenant_id: ctx.spec.tenant_id.clone(),
             gateway: ctx.spec.ai.as_ref().map(|s| s.0.clone()),
         }));
-        state.put(Rc::new(crate::ops::pdf::PdfEnv {
+        state.put(Rc::new(crate::ops::pdf::TemplateEnv {
             templates: ctx.spec.templates.as_ref().map(|s| s.0.clone()),
         }));
         state.put(Rc::new(crate::ops::webhook::WebhookEnv {
@@ -4597,6 +4617,7 @@ fn finish_dispatch(
             ),
             Some(data_json) => ThreadReply::Render {
                 data_json,
+                status: o.status,
                 fragments: o.fragments.unwrap_or_default(),
                 locale: o.locale,
                 dir: o.dir,

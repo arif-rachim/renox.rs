@@ -80,6 +80,22 @@ export function load() {
 }
 "#;
 
+/// #577 (`ops.md` 1.8.0 section 25): `ctx.render` from a loader, in the
+/// request's locale.
+const NOTE_JS: &str = r#"
+export async function load(ctx) {
+  const before = await ctx.render("partials/badge", { n: 3 });
+  ctx.setLocale("ar");
+  const frag = await ctx.render("partials/badge", { n: 3 });
+  const doc = await ctx.render("pages/receipt", { n: 4 });
+  let unknown = null;
+  try { await ctx.render("partials/nope", {}); } catch (e) { unknown = e.name; }
+  let escaped = null;
+  try { await ctx.render("../secret", {}); } catch (e) { escaped = e.name; }
+  return Response.json({ before, frag, doc, unknown, escaped });
+}
+"#;
+
 const EVIL_JS: &str = r#"
 export function load() {
   const list = Array.from({ length: 10000 }, (_, i) => i);
@@ -107,6 +123,11 @@ fn write_artifact(artifacts: &Path) -> String {
         "<r-layout use=\"main\"><p>About {{ title ?? \"us\" }}</p></r-layout>",
     );
     project.insert("pages/broken.html", "<p>{{ x }}</p>");
+    project.insert("partials/badge.html", "<b>n={{ n }}</b>");
+    project.insert(
+        "pages/receipt.html",
+        "<!doctype html><html><body><p>n={{ n }}</p></body></html>",
+    );
     project.insert("pages/throws.html", "<p>{{ x }}</p>");
     project.insert(
         "pages/_error.html",
@@ -132,6 +153,7 @@ fn write_artifact(artifacts: &Path) -> String {
         ("pages/broken", BROKEN_JS),
         ("pages/throws", THROWS_JS),
         ("pages/evil", EVIL_JS),
+        ("pages/note", NOTE_JS),
     ];
     for (id, js) in code {
         let p = tmp.join("code").join(format!("{id}.js"));
@@ -152,7 +174,8 @@ fn write_artifact(artifacts: &Path) -> String {
             { "kind": "page", "path": "/logout", "module": "pages/logout", "load": true },
             { "kind": "page", "path": "/broken", "module": "pages/broken", "load": true, "template": "pages/broken" },
             { "kind": "page", "path": "/throws", "module": "pages/throws", "load": true, "template": "pages/throws" },
-            { "kind": "page", "path": "/evil", "module": "pages/evil", "load": true, "template": "pages/evil" }
+            { "kind": "page", "path": "/evil", "module": "pages/evil", "load": true, "template": "pages/evil" },
+            { "kind": "page", "path": "/note", "module": "pages/note", "load": true }
         ],
         "templates": compiled.manifest_entries(),
         "permissions": { "network": [], "secrets": [] }
@@ -612,6 +635,7 @@ permit (principal in Renox::Role::"finance", action == Renox::Action::"invoice.e
             { "type": "Invoice", "id": "i1", "org": "o_1" }
         ]})
         .to_string(),
+        status: None,
         oob_fragments: Vec::new(),
         locale: None,
         dir: None,
@@ -644,4 +668,37 @@ permit (principal in Renox::Role::"finance", action == Renox::Action::"invoice.e
     let out = renderer.render_page(&page(finance), "req_2", None, None, false, None);
     let html = String::from_utf8_lossy(out.response.body()).into_owned();
     assert!(html.contains(r#"href="/export""#), "{html}");
+}
+
+/// #577: `ctx.render` renders a partial and a page as fragments with the
+/// request's locale and direction (`ar`: `dir="rtl"`; before `setLocale`:
+/// `en`, `ltr`), refuses unknown ids and `..`, and meters `render_ms`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ctx_render_uses_the_requests_locale() {
+    let e = env();
+    let hash = write_artifact(&e.config.artifacts_dir);
+    let routes = serde_json::json!({ "version": 0, "entries": [
+        { "hostname": "shop.test", "tenant_id": "t_shop", "deployment_hash": hash, "status": "active", "updated_at": 1 }
+    ]});
+    std::fs::write(&e.config.routes_file, routes.to_string()).unwrap();
+    let worker = Worker::start(e.config.clone()).await.unwrap();
+    let addr = worker.addr;
+
+    let r = http(addr, "GET", "/note", &[HTML]).await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(v["before"], r#"<b dir="auto">n=3</b>"#, "{v}");
+    assert_eq!(v["frag"], r#"<b dir="auto">n=3</b>"#, "{v}");
+    let doc = v["doc"].as_str().unwrap();
+    assert!(doc.contains(r#"<html lang="ar" dir="rtl">"#), "{doc}");
+    assert!(!doc.contains("<script"), "{doc}");
+    assert_eq!(v["unknown"], "TypeError", "{v}");
+    assert_eq!(v["escaped"], "TypeError", "{v}");
+
+    let rec = &record_for(&e.config.meters_dir, "GET /note", 1).await[0];
+    assert!(rec["render_fuel"].as_u64().unwrap() > 0, "{rec}");
+    assert!(rec["render_ms"].as_f64().unwrap() > 0.0, "{rec}");
+
+    worker.shutdown().await;
+    let _ = std::fs::remove_dir_all(&e.root);
 }

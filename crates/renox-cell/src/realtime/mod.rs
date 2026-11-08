@@ -105,10 +105,11 @@ impl CellRealtime {
                     return Err(unknown_fragment(&fragment));
                 };
                 let id = partial_id(&fragment, &module);
-                let rendered =
-                    tokio::task::spawn_blocking(move || pages.render_partial(&id, &data))
-                        .await
-                        .map_err(|_| unknown_fragment(&fragment))?;
+                let rendered = tokio::task::spawn_blocking(move || {
+                    pages.render_partial(&id, &data, None, None)
+                })
+                .await
+                .map_err(|_| unknown_fragment(&fragment))?;
                 let (html, fuel, ms) = rendered.map_err(|e| match e {
                     crate::render::PartialError::Unknown => unknown_fragment(&fragment),
                     crate::render::PartialError::Limit(limit) => RtError {
@@ -143,22 +144,7 @@ fn unknown_fragment(fragment: &str) -> RtError {
     }
 }
 
-/// `partials/chat-message.html` of module `chat` is the template id
-/// `modules/chat/partials/chat-message`; the app's has no prefix.
-pub fn partial_id(fragment: &str, module: &str) -> String {
-    let f = fragment.strip_suffix(".html").unwrap_or(fragment);
-    let f = f.trim_start_matches('/');
-    if module == "app" || module.is_empty() {
-        f.to_string()
-    } else {
-        let prefix = format!("modules/{module}/");
-        if f.starts_with(&prefix) {
-            f.to_string()
-        } else {
-            format!("{prefix}{f}")
-        }
-    }
-}
+pub use renox_runtime::ops::render::partial_id;
 
 impl RealtimeHost for CellRealtime {
     fn subscribe(&self, conn: &str, topic: &str) -> Result<(), RtError> {
@@ -640,25 +626,4 @@ pub(crate) async fn serve(
 
 fn to_body(r: Response<Bytes>) -> Response<Body> {
     r.map(Body::from)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn partial_ids() {
-        assert_eq!(
-            partial_id("partials/chat-message.html", "app"),
-            "partials/chat-message"
-        );
-        assert_eq!(
-            partial_id("partials/item", "chat"),
-            "modules/chat/partials/item"
-        );
-        assert_eq!(
-            partial_id("modules/chat/partials/item", "chat"),
-            "modules/chat/partials/item"
-        );
-    }
 }

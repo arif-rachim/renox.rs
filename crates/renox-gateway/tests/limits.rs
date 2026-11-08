@@ -266,3 +266,76 @@ async fn chunked_body_is_cut_at_the_limit() {
     assert_eq!(resp.headers()["x-body-len"], "1000");
     assert_eq!(cell.count(), 1);
 }
+
+/// #580: a signed tenant upload is bounded by the platform's per-file maximum
+/// (`max_body_bytes_upload`, 100 MiB), not by the 1 MiB default: a 2 MiB `PUT /_files/x` is
+/// dispatched with its whole body, while a 2 MiB `POST /` is still 413 and never dispatched.
+#[tokio::test]
+async fn a_put_to_files_gets_the_upload_limit_and_every_other_request_keeps_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let gw = gateway_with(GatewayLimits::default(), dir.path());
+    let cell = FakeDispatcher::new();
+    let app = gw.router(cell.clone());
+    let two_mib = || Body::from(vec![b'x'; 2 * 1024 * 1024]);
+
+    let mut req = request("a.test", "/_files/app/x");
+    *req.method_mut() = axum::http::Method::PUT;
+    *req.body_mut() = two_mib();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers()["x-body-len"], (2 * 1024 * 1024).to_string());
+    assert_eq!(cell.count(), 1);
+
+    for (method, path) in [
+        (axum::http::Method::POST, "/"),
+        (axum::http::Method::POST, "/_files/app/x"),
+        (axum::http::Method::PUT, "/api/_files/app/x"),
+    ] {
+        let mut req = request("a.test", path);
+        *req.method_mut() = method;
+        *req.body_mut() = two_mib();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
+    }
+    assert_eq!(
+        cell.count(),
+        1,
+        "the refused requests were never dispatched"
+    );
+}
+
+/// #580: a declared `Content-Length` of 101 MiB on `PUT /_files/x` is refused before a body
+/// byte is read (the header is enough, nothing is allocated or sent).
+#[tokio::test]
+async fn a_101_mib_put_to_files_is_413_and_never_dispatched() {
+    let (addr, cell, _dir) = start(GatewayLimits::default()).await;
+    let mut s = TcpStream::connect(addr).await.unwrap();
+    let req = "PUT /_files/app/x HTTP/1.1\r\nHost: a.test\r\nContent-Type: image/png\r\nContent-Length: 105906176\r\n\r\n";
+    s.write_all(req.as_bytes()).await.unwrap();
+    let out = read_all(&mut s).await;
+    assert!(out.starts_with("HTTP/1.1 413"), "{out:?}");
+    assert!(out.contains("\"code\":\"RENOX_BODY_TOO_LARGE\""), "{out}");
+    assert_eq!(cell.count(), 0);
+}
+
+/// #580: an upload of unknown length (chunked) is not buffered by the gateway: the cell
+/// receives the stream (and applies the signed `max`), and the platform limit still holds.
+#[tokio::test]
+async fn a_chunked_upload_reaches_the_cell_as_a_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let limits = GatewayLimits {
+        max_body_bytes_upload: 1000,
+        ..GatewayLimits::default()
+    };
+    let gw = gateway_with(limits, dir.path());
+    let cell = FakeDispatcher::new();
+    let app = gw.router(cell.clone());
+    let chunks = (0..10).map(|_| Ok::<_, std::io::Error>(vec![b'x'; 100]));
+    let mut req = request("a.test", "/_files/app/x");
+    *req.method_mut() = axum::http::Method::PUT;
+    *req.body_mut() = Body::from_stream(futures_util::stream::iter(chunks));
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers()["x-body-len"], "1000");
+    assert_eq!(cell.count(), 1);
+}

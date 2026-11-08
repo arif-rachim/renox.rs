@@ -24,6 +24,9 @@ pub const MAX_KEY_LEN: usize = 256;
 /// The shortest and longest `op_storage_sign` ttl.
 pub const MIN_TTL_SECONDS: u32 = 60;
 pub const MAX_TTL_SECONDS: u32 = 604_800;
+/// The `op_storage_sign_upload` ttl range and default (`ops.md` section 21).
+pub const MIN_UPLOAD_TTL_SECONDS: u32 = 60;
+pub const MAX_UPLOAD_TTL_SECONDS: u32 = 3600;
 
 /// A boxed future the host returns; it may run on any runtime.
 pub type HostFuture<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
@@ -55,6 +58,17 @@ pub trait StorageHost: Send + Sync {
     fn delete(&self, object: String) -> HostFuture<()>;
     /// The hex HMAC of `<path>?exp=<exp>` for a signed URL (`/_files/…`, `/_img/…`).
     fn sign(&self, tenant: &str, path: &str, exp: u64) -> String;
+    /// The base64url HMAC-SHA-256 of `PUT /_files/<key>?exp=<exp>&max=<max>&ct=<ct>&pub=<0|1>`
+    /// for a signed upload URL; `ct` is the content type as it appears in the URL (urlencoded).
+    fn sign_upload(
+        &self,
+        tenant: &str,
+        key: &str,
+        exp: u64,
+        max: u64,
+        ct: &str,
+        public: bool,
+    ) -> String;
     fn limits(&self, tenant: &str) -> StorageLimits;
     /// Width and height of an image, when the bytes are one the host decodes.
     fn dimensions(&self, bytes: &[u8]) -> Option<(u32, u32)>;
@@ -170,6 +184,33 @@ pub const DEFAULT_TYPES: &[&str] = &[
     "text/csv",
 ];
 
+/// `encodeURIComponent`: what a content type looks like in an upload URL's `ct`.
+pub fn encode_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
+        {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Whether `declared` (lower case, no parameters) is in the owner's list (empty: the defaults).
+pub fn type_listed(declared: &str, allowed: &[String]) -> bool {
+    if allowed.is_empty() {
+        DEFAULT_TYPES.contains(&declared)
+    } else {
+        allowed.iter().any(|t| t == declared)
+    }
+}
+
 /// Whether a put of `declared` with these bytes is allowed: the declared
 /// type in the owner's list, agreeing with the sniffed one (a text type
 /// may be declared for text bytes), SVG only when sanitised.
@@ -185,12 +226,7 @@ pub fn check_type(
         .unwrap_or("")
         .trim()
         .to_ascii_lowercase();
-    let in_list = if allowed.is_empty() {
-        DEFAULT_TYPES.contains(&declared.as_str())
-    } else {
-        allowed.iter().any(|t| t == &declared)
-    };
-    if !in_list {
+    if !type_listed(&declared, allowed) {
         return Err("not_allowed");
     }
     if declared == "image/svg+xml" {
@@ -226,6 +262,8 @@ pub struct StorageEnv {
 
 #[cfg(feature = "v8")]
 pub(crate) use ops::*;
+#[cfg(feature = "v8")]
+pub use ops::{StoreError, StoreInput, Stored, store_file};
 
 #[cfg(feature = "v8")]
 mod ops {
@@ -239,7 +277,7 @@ mod ops {
     use sha2::{Digest, Sha256};
 
     use super::*;
-    use crate::ops::db::DbEnv;
+    use crate::ops::db::{DbEnv, DbHandle};
     use crate::ops::request::{live_request, op_error};
 
     fn now_ms() -> i64 {
@@ -386,52 +424,108 @@ mod ops {
         }
     }
 
-    #[op2]
-    #[serde]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn op_storage_put(
-        state: Rc<RefCell<OpState>>,
-        token: u32,
-        #[string] key: String,
-        #[buffer] bytes: JsBuffer,
-        #[string] content_type: String,
-        public: bool,
-        sanitised: bool,
-        #[string] module: Option<String>,
-    ) -> Result<StoredFile, JsErrorBox> {
-        live_request(&state.borrow(), token)?;
-        let owner = owner(&module);
-        check_key(&key, &owner).map_err(|r| key_error(&key, r))?;
-        let env = envs(&state);
-        let host = host(&env.storage)?;
-        let limits = host.limits(&env.storage.tenant_id);
-        let bytes = Bytes::copy_from_slice(&bytes);
+    /// What [`store_file`] stores and checks against.
+    pub struct StoreInput<'a> {
+        pub host: &'a dyn StorageHost,
+        pub limits: StorageLimits,
+        pub db: &'a DbHandle,
+        /// The open transaction of a page action, `None` for autocommit.
+        pub tx: Option<u32>,
+        pub tenant_id: &'a str,
+        /// The owner of the key (`app` or a module); `allowed` is its `allowed_types`.
+        pub owner: &'a str,
+        pub allowed: &'a [String],
+        pub key: &'a str,
+        pub bytes: Bytes,
+        pub content_type: &'a str,
+        pub public: bool,
+        pub sanitised: bool,
+    }
+
+    /// A stored file and the tenant's stored bytes after it.
+    pub struct Stored {
+        pub file: StoredFile,
+        pub total: u64,
+    }
+
+    /// A storage refusal: the `errors.md` code, its details and message.
+    #[derive(Debug)]
+    pub struct StoreError {
+        pub code: &'static str,
+        pub details: serde_json::Value,
+        pub message: &'static str,
+    }
+
+    impl StoreError {
+        fn internal(e: impl std::fmt::Display) -> StoreError {
+            tracing::warn!(error = %e, "storage unavailable");
+            StoreError {
+                code: "RENOX_INTERNAL",
+                details: serde_json::json!({ "reason": "storage" }),
+                message: "The file store is unavailable.",
+            }
+        }
+    }
+
+    /// The checks and writes of `op_storage_put` (per-file limit, sniffing and
+    /// type, quota, the object, the `renox__files` upsert), shared with the
+    /// cell's `PUT /_files/<key>` (`ops.md` section 21, "Tenant uploads").
+    /// The caller has checked the key.
+    pub async fn store_file(i: StoreInput<'_>) -> Result<Stored, StoreError> {
+        let StoreInput {
+            host,
+            limits,
+            db,
+            tx,
+            tenant_id,
+            owner,
+            allowed,
+            key,
+            bytes,
+            content_type,
+            public,
+            sanitised,
+        } = i;
         if bytes.len() as u64 > limits.file_bytes {
-            return Err(op_error(
-                "RENOX_STORAGE_TOO_LARGE",
-                serde_json::json!({ "key": key, "bytes": bytes.len(), "limit": limits.file_bytes }),
-                "The file is over the per-file limit.",
-            ));
+            return Err(StoreError {
+                code: "RENOX_STORAGE_TOO_LARGE",
+                details: serde_json::json!({ "key": key, "bytes": bytes.len(), "limit": limits.file_bytes }),
+                message: "The file is over the per-file limit.",
+            });
         }
         let sniffed = sniff(&bytes);
-        let allowed = env.storage.allowed.get(&owner).cloned().unwrap_or_default();
-        check_type(&content_type, sniffed, &allowed, sanitised).map_err(|reason| {
-            op_error(
-                "RENOX_STORAGE_TYPE",
-                serde_json::json!({ "key": key, "declared": content_type, "sniffed": sniffed, "reason": reason }),
-                "The content type is not allowed for this file.",
-            )
+        check_type(content_type, sniffed, allowed, sanitised).map_err(|reason| StoreError {
+            code: "RENOX_STORAGE_TYPE",
+            details: serde_json::json!({ "key": key, "declared": content_type, "sniffed": sniffed, "reason": reason }),
+            message: "The content type is not allowed for this file.",
         })?;
-        let previous = file_row(&state, token, key.clone())
-            .await?
-            .map_or(0, |f| f.bytes);
-        let total = stored_total(&state, token).await?;
+        let (previous, total) = {
+            let k = key.to_string();
+            db.call_tx(tx, move |db, t| {
+                db.with_policy(None, || {
+                    let sql = "select coalesce((select bytes from renox__files where key = ?), 0) as prev, \
+                               coalesce((select sum(bytes) from renox__files), 0) as total";
+                    let p = [Value::Text(k)];
+                    let row = match t {
+                        Some(t) => t.query_one(sql, &p),
+                        None => db.query_one(sql, &p),
+                    }?;
+                    let n = |c: &str| match row.as_ref().and_then(|r| r.get(c)) {
+                        Some(Value::Integer(n)) => (*n).max(0) as u64,
+                        _ => 0,
+                    };
+                    Ok((n("prev"), n("total")))
+                })?
+            })
+            .await
+            .map_err(StoreError::internal)?
+        };
         if total.saturating_sub(previous) + bytes.len() as u64 > limits.quota_bytes {
-            return Err(op_error(
-                "RENOX_STORAGE_QUOTA",
-                serde_json::json!({ "key": key, "stored_bytes": total, "limit": limits.quota_bytes }),
-                "The tenant's storage quota would be exceeded.",
-            ));
+            return Err(StoreError {
+                code: "RENOX_STORAGE_QUOTA",
+                details: serde_json::json!({ "key": key, "stored_bytes": total, "limit": limits.quota_bytes }),
+                message: "The tenant's storage quota would be exceeded.",
+            });
         }
         let content_type = content_type
             .split(';')
@@ -447,7 +541,7 @@ mod ops {
                 (None, None)
             };
         let file = StoredFile {
-            key: key.clone(),
+            key: key.to_string(),
             bytes: bytes.len() as u64,
             content_type: content_type.clone(),
             sha256: Sha256::digest(&bytes)
@@ -459,18 +553,11 @@ mod ops {
             public,
             created_at: now_ms(),
         };
-        host.put(
-            object_key(&env.storage.tenant_id, &key),
-            bytes,
-            content_type,
-        )
-        .await
-        .map_err(unavailable)?;
-        let Some(db) = env.db.db.clone() else {
-            return Err(unavailable("no database"));
-        };
-        let tx = request_tx(&state, token)?;
+        host.put(object_key(tenant_id, key), bytes, content_type)
+            .await
+            .map_err(StoreError::internal)?;
         let row = file.clone();
+        let owner = owner.to_string();
         db.call_tx(tx, move |db, t| {
             db.with_policy(None, || {
                 let sql = "insert into renox__files (key, module, bytes, content_type, sha256, width, height, public, created_at) \
@@ -497,9 +584,54 @@ mod ops {
             })?
         })
         .await
-        .map_err(db_err)?;
-        record_total(&state, token, total.saturating_sub(previous) + file.bytes);
-        Ok(file)
+        .map_err(StoreError::internal)?;
+        let total = total.saturating_sub(previous) + file.bytes;
+        Ok(Stored { file, total })
+    }
+
+    #[op2]
+    #[serde]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn op_storage_put(
+        state: Rc<RefCell<OpState>>,
+        token: u32,
+        #[string] key: String,
+        #[buffer] bytes: JsBuffer,
+        #[string] content_type: String,
+        public: bool,
+        sanitised: bool,
+        #[string] module: Option<String>,
+    ) -> Result<StoredFile, JsErrorBox> {
+        live_request(&state.borrow(), token)?;
+        let owner = owner(&module);
+        check_key(&key, &owner).map_err(|r| key_error(&key, r))?;
+        let env = envs(&state);
+        let host = host(&env.storage)?;
+        let limits = host.limits(&env.storage.tenant_id);
+        let bytes = Bytes::copy_from_slice(&bytes);
+        let Some(db) = env.db.db.clone() else {
+            return Err(unavailable("no database"));
+        };
+        let allowed = env.storage.allowed.get(&owner).cloned().unwrap_or_default();
+        let tx = request_tx(&state, token)?;
+        let stored = store_file(StoreInput {
+            host: host.as_ref(),
+            limits,
+            db: &db,
+            tx,
+            tenant_id: &env.storage.tenant_id,
+            owner: &owner,
+            allowed: &allowed,
+            key: &key,
+            bytes,
+            content_type: &content_type,
+            public,
+            sanitised,
+        })
+        .await
+        .map_err(|e| op_error(e.code, e.details, e.message))?;
+        record_total(&state, token, stored.total);
+        Ok(stored.file)
     }
 
     #[op2]
@@ -612,6 +744,86 @@ mod ops {
         Ok(Signed {
             url: format!("{path}?exp={exp}&sig={sig}"),
             expires_at: exp * 1000,
+        })
+    }
+
+    #[derive(Serialize)]
+    pub(crate) struct SignedUpload {
+        url: String,
+        expires_at: u64,
+        max_bytes: u64,
+    }
+
+    /// `ctx.storage.signUpload` (`ops.md` section 21, "Tenant uploads"): a URL that accepts
+    /// one browser `PUT` of at most `max_bytes` bytes of `content_type`.
+    #[op2]
+    #[serde]
+    pub(crate) async fn op_storage_sign_upload(
+        state: Rc<RefCell<OpState>>,
+        token: u32,
+        #[string] key: String,
+        #[string] content_type: String,
+        max_bytes: f64,
+        ttl_seconds: f64,
+        public: bool,
+        #[string] module: Option<String>,
+    ) -> Result<SignedUpload, JsErrorBox> {
+        live_request(&state.borrow(), token)?;
+        let (min, max) = (MIN_UPLOAD_TTL_SECONDS, MAX_UPLOAD_TTL_SECONDS);
+        if ttl_seconds.fract() != 0.0
+            || ttl_seconds < f64::from(min)
+            || ttl_seconds > f64::from(max)
+        {
+            return Err(JsErrorBox::range_error(format!(
+                "storage.signUpload: ttl is {min} to {max} seconds"
+            )));
+        }
+        let owner = owner(&module);
+        check_key(&key, &owner).map_err(|r| key_error(&key, r))?;
+        let env = envs(&state);
+        let host = host(&env.storage)?;
+        let declared = content_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        let allowed = env.storage.allowed.get(&owner).cloned().unwrap_or_default();
+        let refused = if !type_listed(&declared, &allowed) {
+            Some("not_allowed")
+        } else if declared == "image/svg+xml" {
+            // A browser upload is never sanitised (only the storage module's sanitiser sets that).
+            Some("svg_unsanitised")
+        } else {
+            None
+        };
+        if let Some(reason) = refused {
+            return Err(op_error(
+                "RENOX_STORAGE_TYPE",
+                serde_json::json!({ "key": key, "declared": content_type, "reason": reason }),
+                "The content type is not allowed for this file.",
+            ));
+        }
+        let limit = host.limits(&env.storage.tenant_id).file_bytes;
+        if max_bytes.fract() != 0.0 || max_bytes < 1.0 || max_bytes > limit as f64 {
+            return Err(op_error(
+                "RENOX_STORAGE_TOO_LARGE",
+                serde_json::json!({ "key": key, "limit_bytes": limit }),
+                "The upload limit is over the per-file limit.",
+            ));
+        }
+        let max_bytes = max_bytes as u64;
+        let exp = (now_ms() / 1000) as u64 + ttl_seconds as u64;
+        // `ct` exactly as the browser will send it back; the signature covers this spelling.
+        let ct = encode_component(&content_type);
+        let sig = host.sign_upload(&env.storage.tenant_id, &key, exp, max_bytes, &ct, public);
+        Ok(SignedUpload {
+            url: format!(
+                "/_files/{key}?exp={exp}&max={max_bytes}&ct={ct}&pub={}&sig={sig}",
+                u8::from(public)
+            ),
+            expires_at: exp * 1000,
+            max_bytes,
         })
     }
 
