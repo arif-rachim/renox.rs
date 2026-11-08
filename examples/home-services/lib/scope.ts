@@ -11,6 +11,7 @@ export type Branch = {
   org_id: string;
   name_en: string;
   name_ar: string;
+  slug: string;
   emirate: string;
   area: string;
 };
@@ -24,7 +25,7 @@ interface BranchCtx {
 export async function branchOf(ctx: BranchCtx): Promise<Branch | null> {
   const orgId = ctx.principal?.attrs.org;
   if (typeof orgId !== "string" || orgId === "") return null;
-  return ctx.db.queryOne<Branch>("select id, org_id, name_en, name_ar, emirate, area from app__branches where org_id = ?", [orgId]);
+  return ctx.db.queryOne<Branch>("select id, org_id, name_en, name_ar, slug, emirate, area from app__branches where org_id = ?", [orgId]);
 }
 
 /**

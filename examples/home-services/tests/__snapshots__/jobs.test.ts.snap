@@ -1,0 +1,94 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the job list is the branch's own filters by status, technician and day: role: jobs, new, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Jobs · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/jobs">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/jobs?status=new&amp;lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Jobs</h1>
+  <form class="search" action="/jobs" method="get">
+    <label>Status
+      <select name="status">
+        <option value="">—</option>
+        <option value="new" selected dir="auto">New</option><option value="scheduled" dir="auto">Scheduled</option><option value="en_route" dir="auto">En route</option><option value="in_progress" dir="auto">In progress</option><option value="done" dir="auto">Done</option><option value="invoiced" dir="auto">Invoiced</option><option value="cancelled" dir="auto">Cancelled</option>
+      </select></label>
+    <label>Technician
+      <select name="technician">
+        <option value="">—</option>
+        <option value="u_dxb_ali" dir="auto">Ali Hassan</option><option value="u_dxb_bilal" dir="auto">Bilal Raza</option>
+      </select></label>
+    <label>Day <input type="date" name="day" value="" dir="ltr"></label>
+    <button type="submit">Filter</button>
+    <a class="btn-brand" href="/jobs/new">New job</a>
+    <a href="/dispatch">Dispatch board</a>
+  </form>
+  <table id="job-list">
+    <thead>
+      <tr><th>Number</th><th>Customer</th><th>Service</th><th>Status</th><th>Technician</th><th>Scheduled</th></tr>
+    </thead>
+    <tbody>
+      <tr id="job-jb_seed_01">
+        <td dir="ltr"><a href="/jobs/jb_seed_01" dir="auto">J-000001</a></td>
+        <td dir="auto">Layla Haddad</td>
+        <td dir="auto">AC repair</td>
+        <td><span class="status status-new" dir="auto">New</span></td>
+        <td dir="auto"></td>
+        <td dir="ltr">Not scheduled</td>
+      </tr><tr id="job-jb_seed_02">
+        <td dir="ltr"><a href="/jobs/jb_seed_02" dir="auto">J-000002</a></td>
+        <td dir="auto">Peter Nowak</td>
+        <td dir="auto">Electrical</td>
+        <td><span class="status status-new" dir="auto">New</span></td>
+        <td dir="auto"></td>
+        <td dir="ltr">Not scheduled</td>
+      </tr><tr id="job-jb_seed_03">
+        <td dir="ltr"><a href="/jobs/jb_seed_03" dir="auto">J-000003</a></td>
+        <td dir="auto">Marina Heights Property Management</td>
+        <td dir="auto">Plumbing</td>
+        <td><span class="status status-new" dir="auto">New</span></td>
+        <td dir="auto"></td>
+        <td dir="ltr">Not scheduled</td>
+      </tr><tr id="job-jb_seed_04">
+        <td dir="ltr"><a href="/jobs/jb_seed_04" dir="auto">J-000004</a></td>
+        <td dir="auto">Al Barsha Facilities LLC</td>
+        <td dir="auto">Handyman</td>
+        <td><span class="status status-new" dir="auto">New</span></td>
+        <td dir="auto"></td>
+        <td dir="ltr">Not scheduled</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;

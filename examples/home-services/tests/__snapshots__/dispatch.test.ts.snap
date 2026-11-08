@@ -1,0 +1,100 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the board page columns by status, with the branch's cards and the socket of its branch: role: dispatch board, dispatcher, en 1`] = `
+"<!DOCTYPE html><html lang="en" dir="ltr"><head><meta name="renox-request-id" content="<request-id>"><meta name="renox-deployment" content="<deployment>"><script nonce="<nonce>" src="/__renox/client.js?v=<version>"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>Dispatch board · FixIt Services</title>
+  <link rel="stylesheet" href="/renox-ui.<hash>.css">
+  <link rel="stylesheet" href="/app.<hash>.css">
+  <link rel="stylesheet" href="/theme">
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand-link"><strong dir="auto">FixIt Services</strong></a>
+    <span class="spacer"></span>
+    <span class="renox-user-menu"><a href="/auth/account" dir="auto">Dina Dispatcher</a></span><a class="renox-notif-badge" href="/notifications" hx-ext="sse" sse-connect="/notifications/sse/notifications">Notifications <span id="notif-count" class="renox-notif-count" sse-swap="notif-badge" hx-swap="outerHTML" dir="auto">0</span></a><span class="renox-org-switcher">
+  <form method="post" action="/org?/switch">
+    <input type="hidden" name="_csrf" value="<csrf>">
+    <input type="hidden" name="next" value="/dispatch">
+    <select name="org" aria-label="Organisation">
+      <option value="org_dubai" selected dir="auto">Dubai · member</option>
+    </select>
+    <button type="submit">Switch</button>
+    
+  </form>
+</span>
+    <nav class="i18n-language" aria-label="Language">
+      <strong lang="en">English</strong><a href="/dispatch?lang=ar" lang="ar">العربية</a>
+    </nav>
+  </header>
+  <main>
+    
+  
+  <h1>Dispatch board</h1>
+  <p class="muted" id="board-state" data-socket="/ws/dispatch/dubai" data-offline="Not connected. Reload the page.">Live: the board updates when a job changes.</p>
+  <div class="board" id="board">
+    <section class="board-column" aria-labelledby="head-new">
+      <h2 id="head-new" dir="auto">New</h2>
+      <div id="col-new" class="board-cards">
+        <article id="job-jb_seed_01" class="job-card priority-urgent"><a href="/jobs/jb_seed_01" dir="ltr">J-000001</a> <strong dir="auto">Layla Haddad</strong> <span dir="auto">AC repair</span> <small></small> </article><article id="job-jb_seed_02" class="job-card priority-normal"><a href="/jobs/jb_seed_02" dir="ltr">J-000002</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Electrical</span> <small></small> </article><article id="job-jb_seed_03" class="job-card priority-high"><a href="/jobs/jb_seed_03" dir="ltr">J-000003</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Plumbing</span> <small></small> </article><article id="job-jb_seed_04" class="job-card priority-low"><a href="/jobs/jb_seed_04" dir="ltr">J-000004</a> <strong dir="auto">Al Barsha Facilities LLC</strong> <span dir="auto">Handyman</span> <small></small> </article>
+      </div>
+    </section><section class="board-column" aria-labelledby="head-scheduled">
+      <h2 id="head-scheduled" dir="auto">Scheduled</h2>
+      <div id="col-scheduled" class="board-cards">
+        <article id="job-jb_seed_05" class="job-card priority-normal"><a href="/jobs/jb_seed_05" dir="ltr">J-000005</a> <strong dir="auto">Layla Haddad</strong> <span dir="auto">AC service</span> <small></small> <em dir="auto">Ali Hassan</em></article><article id="job-jb_seed_06" class="job-card priority-normal"><a href="/jobs/jb_seed_06" dir="ltr">J-000006</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Pest control</span> <small></small> <em dir="auto">Ali Hassan</em></article><article id="job-jb_seed_07" class="job-card priority-high"><a href="/jobs/jb_seed_07" dir="ltr">J-000007</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Plumbing</span> <small></small> <em dir="auto">Bilal Raza</em></article><article id="job-jb_seed_08" class="job-card priority-normal"><a href="/jobs/jb_seed_08" dir="ltr">J-000008</a> <strong dir="auto">Fatima Al Suwaidi</strong> <span dir="auto">Deep cleaning</span> <small></small> <em dir="auto">Bilal Raza</em></article>
+      </div>
+    </section><section class="board-column" aria-labelledby="head-en_route">
+      <h2 id="head-en_route" dir="auto">En route</h2>
+      <div id="col-en_route" class="board-cards">
+        <article id="job-jb_seed_09" class="job-card priority-high"><a href="/jobs/jb_seed_09" dir="ltr">J-000009</a> <strong dir="auto">Marina Heights Property Management</strong> <span dir="auto">Electrical</span> <small></small> <em dir="auto">Bilal Raza</em></article>
+      </div>
+    </section><section class="board-column" aria-labelledby="head-in_progress">
+      <h2 id="head-in_progress" dir="auto">In progress</h2>
+      <div id="col-in_progress" class="board-cards">
+        <article id="job-jb_seed_10" class="job-card priority-normal"><a href="/jobs/jb_seed_10" dir="ltr">J-000010</a> <strong dir="auto">Al Barsha Facilities LLC</strong> <span dir="auto">AC repair</span> <small></small> <em dir="auto">Ali Hassan</em></article>
+      </div>
+    </section><section class="board-column" aria-labelledby="head-done">
+      <h2 id="head-done" dir="auto">Done</h2>
+      <div id="col-done" class="board-cards">
+        <article id="job-jb_seed_11" class="job-card priority-normal"><a href="/jobs/jb_seed_11" dir="ltr">J-000011</a> <strong dir="auto">Peter Nowak</strong> <span dir="auto">Handyman</span> <small></small> <em dir="auto">Bilal Raza</em></article>
+      </div>
+    </section>
+  </div>
+  <p><a href="/jobs">Jobs</a></p>
+  <script nonce="<nonce>">
+    (() => {
+      // One socket per page. Every message is a fragment the server rendered
+      // (partials/job-card.html): a \`delete\` of the card's old place, then the
+      // card put first in its column. The feed's \`{ table, rowid, op }\` frames
+      // are JSON, not HTML, and are skipped.
+      const state = document.getElementById("board-state");
+      const url = new URL(state.dataset.socket, location.href);
+      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(url);
+      socket.addEventListener("message", (e) => {
+        if (typeof e.data !== "string" || e.data.trimStart().startsWith("{")) return;
+        const tpl = document.createElement("template");
+        tpl.innerHTML = e.data;
+        for (const el of tpl.content.querySelectorAll("[hx-swap-oob]")) {
+          const mode = el.getAttribute("hx-swap-oob");
+          if (mode === "delete") {
+            const old = document.getElementById(el.id);
+            if (old) old.remove();
+          } else if (mode === "afterbegin") {
+            const col = document.getElementById(el.id);
+            if (col) col.prepend(...el.childNodes);
+          }
+        }
+      });
+      socket.addEventListener("close", () => { state.textContent = state.dataset.offline || "Not connected. Reload the page."; });
+    })();
+  </script>
+
+  </main>
+  <footer><small dir="auto">FixIt Services LLC, Dubai</small></footer>
+
+
+</body></html>"
+`;

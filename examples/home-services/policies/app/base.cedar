@@ -15,6 +15,31 @@ when { principal has org };
 permit (principal in Renox::Role::"accountant", action in [Renox::Action::"invoice.read", Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"report.view", Renox::Action::"customer.read", Renox::Action::"job.read", Renox::Action::"contract.read"], resource)
 when { principal has org };
 
+// A technician reads only their own jobs: `mine` is computed per job
+// (lib/jobs.ts jobResource). The route guards check `job.read` without a job.
+forbid (principal in Renox::Role::"technician", action == Renox::Action::"job.read", resource is App::Job)
+unless { resource.mine == "yes" };
+
+// Dispatching is per branch: the dispatch socket's guard names the branch by
+// its slug, and only a member of its organisation (the session's active one) passes.
+forbid (principal, action == Renox::Action::"job.dispatch", resource is App::Branch)
+unless { principal has org && resource.org_id == principal.org };
+
+// The dispatch board: dispatchers, branch managers and owners subscribe to
+// `jobs:<branch id>`. The socket subscribes only after its guard let the branch in.
+permit (principal in Renox::Role::"owner", action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
+when { resource.name like "jobs:*" };
+permit (principal in Renox::Role::"branch_manager", action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
+when { resource.name like "jobs:*" };
+permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"realtime.subscribe", resource is Renox::Topic)
+when { resource.name like "jobs:*" };
+
+// Dispatchers (and above) manage the booking catalogue the app mirrors
+// (lib/booking-sync.ts calls addService, addStaff and setHours as the signed-in user).
+permit (principal in Renox::Role::"owner", action == Renox::Action::"booking.manage", resource);
+permit (principal in Renox::Role::"branch_manager", action == Renox::Action::"booking.manage", resource);
+permit (principal in Renox::Role::"dispatcher", action == Renox::Action::"booking.manage", resource);
+
 // A sensitive action needs a recent second factor.
 forbid (principal, action in [Renox::Action::"invoice.issue", Renox::Action::"invoice.pay", Renox::Action::"settings.write"], resource)
 unless { principal has mfa_verified && principal.mfa_verified };

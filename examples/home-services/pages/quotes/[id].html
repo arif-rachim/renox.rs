@@ -32,7 +32,7 @@
     </tfoot>
   </table>
   <p r-if="quote.notes"><strong><r-t key="quotes.f.notes" />:</strong> {{ quote.notes }}</p>
-  <p id="pdf-links"><r-t key="quotes.pdf" />: <a :href="'/quotes/' ~ quote.id ~ '/pdf?lang=en'">English</a> · <a :href="'/quotes/' ~ quote.id ~ '/pdf?lang=ar'">العربية</a></p>
+  <p id="pdf-links"><r-t key="quotes.pdf" />: <a :href="'/quotes/' ~ quote.id ~ '/pdf?lang=en'">English</a> · <a :href="'/quotes/' ~ quote.id ~ '/pdf?lang=ar'">العربية</a><r-group r-if="quote.status == 'approved'"> · <a id="make-job" r-can="job.write" :href="'/jobs/new?quote=' ~ quote.id"><r-t key="jobs.new" /></a></r-group></p>
   <section r-can="quote.write" r-if="can_send">
     <x-form action="send" class="stack narrow">
       <button type="submit" class="btn-brand" r-if="is_draft"><r-t key="quotes.send" /></button>

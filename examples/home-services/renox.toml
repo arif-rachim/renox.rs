@@ -21,7 +21,8 @@ whatsapp = { version = "^1.0.0", mount = "/whatsapp" }
 # billing is booking's dependency; no PSP is configured (D31: no payments).
 billing = { version = "^1.0.0" }
 booking = { version = "^1.0.0", mount = "/booking", config = { slot_minutes = 30, hold_minutes = 10 } }
-jobs = { version = "^1.0.0", mount = "/jobs" }
+# The module's runs page is the operator's; /jobs is this app's own work list.
+jobs = { version = "^1.0.0", mount = "/system/jobs" }
 storage = { version = "^1.0.0", mount = "/files", config = { quota_mb = 500, max_upload_bytes = 10485760 } }
 tax_gcc = { version = "^1.0.0", mount = "/tax", config = { seller_name = "FixIt Services LLC", seller_trn = "100000000000003", seller_address = "Dubai" } }
 reports = { version = "^1.0.0", mount = "/reports" }
@@ -53,7 +54,25 @@ app__sites = { owner = "branch_id" }
 app__quotes = { owner = "branch_id" }
 app__quote_lines = { owner = "branch_id" }
 
+# Jobs and their timeline, the same way. app__job_numbers is the company-wide
+# sequence, and app__branch_hours and app__booking_sync are read by branch id
+# by lib/booking-sync.ts: none of the three is owned.
+app__jobs = { owner = "branch_id" }
+app__job_events = { owner = "branch_id" }
+
 [authz.entities]
 Customer = { table = "app__customers", attrs = ["branch_id", "kind"] }
 Site = { table = "app__sites", attrs = ["branch_id", "customer_id"] }
 Service = { table = "app__services", attrs = ["branch_id", "active"] }
+# Job: `mine` ("yes"/"no") is computed for the signed-in user from
+# technician_user_id (lib/jobs.ts jobResource): a technician reads only their own
+# jobs (policies/app/base.cedar). Branch is what the dispatch socket's guard
+# loads from its URL (`/ws/dispatch/dubai`: the slug), to compare its
+# organisation with the principal's.
+Job = { table = "app__jobs", attrs = ["branch_id", "status", "mine"] }
+Branch = { table = "app__branches", id = "slug", attrs = ["org_id"] }
+
+# Every committed change of a job reaches the board of its branch as
+# `{ table, rowid, op }`; the transition also publishes the re-rendered card.
+[realtime.feeds]
+app__jobs = "jobs:{branch_id}"

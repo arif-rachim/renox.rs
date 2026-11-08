@@ -2,4 +2,8 @@
   <h1>{{ brand.name }}</h1>
   <p><r-t key="app.home.lede" /></p>
   <p><a class="btn-brand" href="/auth/login"><r-t key="app.home.signin" /></a></p>
+  <nav class="work-links" r-if="auth_user">
+    <a href="/jobs" r-can="job.read"><r-t key="app.nav.jobs" /></a>
+    <a href="/dispatch" r-can="job.dispatch"><r-t key="app.nav.board" /></a>
+  </nav>
 </r-layout>

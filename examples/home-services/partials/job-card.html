@@ -1,0 +1,2 @@
+<div :id="'job-' ~ j.id" hx-swap-oob="delete"></div>
+<div :id="'col-' ~ j.status" hx-swap-oob="afterbegin"><article :id="'job-' ~ j.id" :class="'job-card priority-' ~ j.priority"><a :href="'/jobs/' ~ j.id" dir="ltr">{{ j.number }}</a> <strong>{{ j.customer }}</strong> <span>{{ j.service }}</span> <small dir="ltr">{{ j.start }}</small> <em r-if="j.technician">{{ j.technician }}</em></article></div>

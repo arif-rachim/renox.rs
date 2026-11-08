@@ -31,6 +31,12 @@ export const FIELDS: Record<string, Text> = {
   lines: { en: "Lines", ar: "البنود" },
   desc: { en: "Description", ar: "الوصف" },
   qty: { en: "Quantity", ar: "الكمية" },
+  quote_id: { en: "Quotation", ar: "عرض السعر" },
+  priority: { en: "Priority", ar: "الأولوية" },
+  description: { en: "Description", ar: "الوصف" },
+  slot: { en: "Slot", ar: "الموعد" },
+  technician: { en: "Technician", ar: "الفني" },
+  to: { en: "Status", ar: "الحالة" },
 };
 
 /** What is wrong, by the issue message of lib/forms.ts. */
@@ -60,6 +66,15 @@ export const PROBLEMS: Record<string, Text> = {
   "quotes.err.qty": { en: "Enter a quantity above 0 with at most two decimals.", ar: "أدخل كمية أكبر من 0 بخانتين عشريتين كحد أقصى." },
   "quotes.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
   "quotes.err.price_required": { en: "A line without a service needs a price in AED.", ar: "البند بدون خدمة يحتاج إلى سعر بالدرهم." },
+  "jobs.err.site": { en: "Choose a site of this branch.", ar: "اختر موقعاً من هذا الفرع." },
+  "jobs.err.quote": { en: "Choose a quotation of this branch.", ar: "اختر عرض سعر من هذا الفرع." },
+  "jobs.err.service": { en: "Choose a service.", ar: "اختر خدمة." },
+  "jobs.err.priority": { en: "Choose low, normal, high or urgent.", ar: "اختر منخفضة أو عادية أو عالية أو عاجلة." },
+  "jobs.err.description": { en: "The description is at most 1000 characters.", ar: "الوصف 1000 حرف كحد أقصى." },
+  "jobs.err.slot": { en: "Choose one of the free slots.", ar: "اختر أحد المواعيد المتاحة." },
+  "jobs.err.note": { en: "A note is at most 200 characters.", ar: "الملاحظة 200 حرف كحد أقصى." },
+  "jobs.err.technician": { en: "Choose a technician.", ar: "اختر فنياً." },
+  "jobs.err.status": { en: "Choose a status.", ar: "اختر حالة." },
   "catalogue.err.service": { en: "Unknown service.", ar: "خدمة غير معروفة." },
   "catalogue.err.price": { en: "Enter the price in AED, for example 120 or 120.50.", ar: "أدخل السعر بالدرهم، مثل 120 أو 120.50." },
 };

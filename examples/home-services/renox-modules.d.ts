@@ -16,6 +16,22 @@ declare module "renox:modules" {
   };
   export const org: {
     switcher(next?: string): Promise<{ current?: { id: string; locale?: string | null } | null } | null>;
+    /** The members of an organisation (the caller must be one). */
+    members(orgId: string): Promise<{ user_id: string; display_name: string; email: string; role: string }[]>;
+  };
+  export const audit: {
+    record(event: { action: string; actor: { kind: "user" | "agent" | "system"; id: string; client?: string }; resource?: { type: string; id?: string }; result?: "ok" | "denied" | "failed"; details?: Record<string, unknown>; request_id?: string }): Promise<{ id: string }>;
+  };
+  /** A free start of a day: `start` and `end` are unix milliseconds, `staff` the booking staff id (here: the technician's user id). */
+  type Slot = { start: number; end: number; staff: string };
+  export const booking: {
+    addService(s: { id: string; name: string; minutes: number; buffer?: number; deposit_fils?: number; cancel_hours?: number }): Promise<{ id: string }>;
+    addStaff(s: { id: string; name: string; user_id?: string; services: string[] }): Promise<{ id: string }>;
+    setHours(staff: string, when: number | string, openMin: number, closeMin: number): Promise<true>;
+    slots(service: string, day: string, opts?: { staff?: string }): Promise<Slot[]>;
+    hold(service: string, staff: string, start: number, customer: string): Promise<{ id: string; expires_at: number; pay_url: string | null }>;
+    confirm(id: string): Promise<{ id: string; status: string }>;
+    cancel(id: string): Promise<boolean>;
   };
   /** Each validator answers the normalised value or the reason it failed. */
   type Checked = { ok: true; value: string } | { ok: false; reason: string };

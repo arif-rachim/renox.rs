@@ -73,7 +73,7 @@ version = "1.0.0"
 source = "official"
 hash = "f4ebf4cf30f1c4b7701e31b3d1aa712aa1875ddd0fd4f0a09d4f782310e95275"
 isolation = "shared"
-mount = "/jobs"
+mount = "/system/jobs"
 dependencies = ["auth", "i18n"]
 config = { base_path = "/jobs" }
 approved = { network = [], secrets = [], slots = ["admin.sidebar"], hooks = [] }

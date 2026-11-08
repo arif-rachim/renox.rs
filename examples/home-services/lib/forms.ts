@@ -11,7 +11,7 @@ type Raw = Record<string, unknown>;
 type Issues = { path: [string]; message: string }[];
 
 /** A Standard Schema whose `run` returns the value, or the field to key map of what is wrong. */
-function schema<T>(run: (raw: Raw) => Promise<{ value: T } | { errors: Record<string, string> }>): StandardSchemaV1<unknown, T> {
+export function schema<T>(run: (raw: Raw) => Promise<{ value: T } | { errors: Record<string, string> }>): StandardSchemaV1<unknown, T> {
   return {
     "~standard": {
       version: 1,
@@ -27,7 +27,7 @@ function schema<T>(run: (raw: Raw) => Promise<{ value: T } | { errors: Record<st
 }
 
 /** The trimmed string of a form field ("" when absent), cut at `max` + 1 so an over-long value fails its limit. */
-const text = (raw: Raw, key: string, max: number): string => (typeof raw[key] === "string" ? (raw[key] as string).trim().slice(0, max + 1) : "");
+export const text = (raw: Raw, key: string, max: number): string => (typeof raw[key] === "string" ? (raw[key] as string).trim().slice(0, max + 1) : "");
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 

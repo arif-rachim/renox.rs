@@ -7,6 +7,10 @@
     "home": {
       "lede": "Book a visit, follow your technician and get your report.",
       "signin": "Sign in"
+    },
+    "nav": {
+      "jobs": "Jobs",
+      "board": "Dispatch board"
     }
   },
   "customers": {
@@ -128,5 +132,82 @@
       "rejected": "This quotation is already rejected.",
       "expired": "This quotation has expired."
     }
+  },
+  "jobs": {
+    "title": "Jobs",
+    "mine": "My jobs",
+    "new": "New job",
+    "none": "No jobs found.",
+    "back": "All jobs",
+    "filter": "Filter",
+    "create": "Create job",
+    "from_quote": "From the approved quotation {number}",
+    "blank": "Without a quotation",
+    "board": "Dispatch board",
+    "unscheduled": "Not scheduled",
+    "any_technician": "Any technician",
+    "any_day": "Any day",
+    "status": {
+      "new": "New",
+      "scheduled": "Scheduled",
+      "en_route": "En route",
+      "in_progress": "In progress",
+      "done": "Done",
+      "invoiced": "Invoiced",
+      "cancelled": "Cancelled"
+    },
+    "priority": {
+      "low": "Low",
+      "normal": "Normal",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "f": {
+      "number": "Number",
+      "customer": "Customer",
+      "site": "Site",
+      "service": "Service",
+      "status": "Status",
+      "priority": "Priority",
+      "technician": "Technician",
+      "when": "Scheduled",
+      "day": "Day",
+      "description": "Description",
+      "quote": "Quotation",
+      "note": "Note",
+      "created": "Created"
+    },
+    "timeline": "Timeline",
+    "created_event": "Created",
+    "changed": "{from} to {to}",
+    "schedule": {
+      "title": "Schedule the visit",
+      "day": "Day",
+      "technician": "Technician",
+      "show": "Show free slots",
+      "pick": "Free slots",
+      "submit": "Schedule",
+      "none": "No free slot on this day.",
+      "current": "Booked: {when} with {technician}"
+    },
+    "assign": {
+      "title": "Assign a technician",
+      "submit": "Assign"
+    },
+    "move": {
+      "title": "Move the job on",
+      "submit": "Move"
+    },
+    "cancel": {
+      "title": "Cancel the job",
+      "submit": "Cancel the job"
+    }
+  },
+  "dispatch": {
+    "title": "Dispatch board",
+    "live": "Live: the board updates when a job changes.",
+    "offline": "Not connected. Reload the page.",
+    "unassigned": "No technician yet",
+    "empty": "Nothing here."
   }
 }
