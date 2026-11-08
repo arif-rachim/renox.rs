@@ -96,6 +96,10 @@ exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted
       </select>
       <button type="submit">Invite</button>
     </form>
+    <form method="post" action="?/rename" hx-post="?/rename"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>Organisation name <input type="text" name="name" value="Acme Trading" required maxlength="80" dir="auto"></label>
+      <button type="submit">Save</button>
+    </form>
     <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
       <label>Default language
         <select name="locale">
@@ -151,6 +155,10 @@ exports[`org in both directions every page in en (ltr) and ar (rtl), snapshotted
         <option value="owner">مالك</option>
       </select>
       <button type="submit">دعوة</button>
+    </form>
+    <form method="post" action="?/rename" hx-post="?/rename"><input type="hidden" name="_csrf" value="<csrf>">
+      <label>اسم المؤسسة <input type="text" name="name" value="Acme Trading" required maxlength="80" dir="auto"></label>
+      <button type="submit">حفظ</button>
     </form>
     <form method="post" action="?/locale" hx-post="?/locale"><input type="hidden" name="_csrf" value="<csrf>">
       <label>اللغة الافتراضية

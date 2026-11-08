@@ -38,6 +38,7 @@ acceptInvite = "Accept an invitation as the signed-in user (once, before it expi
 setRole = "Change a member's role (admin or owner; only an owner grants or removes owner): { org, user, role } -> { ok } or { error }"
 removeMember = "Remove a member, or leave (any member for themselves); the last owner stays: { org, user } -> { ok } or { error }"
 setOrgLocale = "Set the organisation's default locale (admin or owner): { org, locale } (null clears it) -> { ok } or { error }"
+rename = "Rename the organisation (admin or owner); the slug stays: { org, name } (1 to 80 characters) -> { ok } or { error }"
 switcher = "What the switcher partial renders, for a page's load: (next?) -> { orgs, current, action, ... } or null"
 
 [exports.events."org.created"]
@@ -51,6 +52,10 @@ description = "A user joined an organisation (as its creator or through an invit
 [exports.events."org.member_removed"]
 payload = { type = "object", required = ["org_id", "user_id", "by", "at"], additionalProperties = false, properties = { org_id = { type = "string" }, user_id = { type = "string" }, by = { type = "string" }, at = { type = "integer" } } }
 description = "A member was removed or left (by = who did it)"
+
+[exports.events."org.renamed"]
+payload = { type = "object", required = ["org_id", "name"], additionalProperties = false, properties = { org_id = { type = "string" }, name = { type = "string" } } }
+description = "An organisation was renamed (name is the new name; the slug does not change)"
 
 [exports.hooks."org.before_invite"]
 args = { type = "object", required = ["org_id", "email", "role", "invited_by"], properties = { org_id = { type = "string" }, email = { type = "string" }, role = { type = "string" }, invited_by = { type = "string" } } }

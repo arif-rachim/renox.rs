@@ -40,6 +40,10 @@
       </select>
       <button type="submit"><r-t key="org.members.invite" /></button>
     </x-form>
+    <x-form action="rename">
+      <label><r-t key="org.members.name" /> <input type="text" name="name" :value="org.name" required maxlength="80"></label>
+      <button type="submit"><r-t key="org.members.save" /></button>
+    </x-form>
     <x-form action="locale">
       <label><r-t key="org.members.language" />
         <select name="locale">

@@ -22,4 +22,5 @@ export const on = {
   "org.created": record,
   "org.member_added": record,
   "org.member_removed": record,
+  "org.renamed": record,
 };

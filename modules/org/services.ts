@@ -68,6 +68,12 @@ export async function setOrgLocale(ctx: OrgCtx, input: { org: string; locale: st
   return r.ok ? { ok: true } : { error: r.error };
 }
 
+/** Rename the organisation (admin or owner); the slug stays: { org, name } (1 to 80 characters) -> { ok } or { error } */
+export async function rename(ctx: OrgCtx, input: { org: string; name: string }): Promise<{ ok: true } | { error: string }> {
+  const r = await core.rename(ctx, input);
+  return r.ok ? { ok: true } : { error: r.error };
+}
+
 /** For a page's load: `org_switcher: await org.switcher(url.pathname)` feeds the switcher partial. */
 export async function switcher(ctx: OrgCtx, next?: string): Promise<Switcher | null> {
   return core.switcher(ctx, next);

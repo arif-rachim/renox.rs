@@ -23,6 +23,7 @@
       "email": "Email",
       "invite": "Invite",
       "leave": "Leave {org}",
+      "name": "Organisation name",
       "language": "Default language",
       "language_none": "None (each member's own)",
       "save": "Save"

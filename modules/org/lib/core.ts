@@ -349,6 +349,18 @@ export async function setOrgLocale(ctx: OrgCtx, input: { org?: unknown; locale?:
   return { ok: true };
 }
 
+/** Rename `org` (admin or owner); the slug, and so the URLs, stay. Emits `org.renamed`. */
+export async function rename(ctx: OrgCtx, input: { org?: unknown; name?: unknown }): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  const s = await requireSession();
+  const orgId = String(input?.org ?? "");
+  await requireRole(ctx, orgId, s.user.id, "admin");
+  const name = typeof input?.name === "string" ? input.name.trim() : "";
+  if (name.length < 1 || name.length > 80) return { ok: false, error: "Give the organisation a name of 1 to 80 characters." };
+  await ctx.db.execute("update org__orgs set name = ? where id = ?", [name, orgId]);
+  await ctx.events.emit("org.renamed", { org_id: orgId, name });
+  return { ok: true, name };
+}
+
 export const LAST_OWNER = "An organisation keeps at least one owner: make someone else owner first.";
 
 /** Change `user`'s role in `org`. Admins manage admins and members only; an owner manages everyone. */

@@ -47,6 +47,7 @@ Through `import { org } from "renox:modules"`. A call the signed-in user's membe
 | `invite({ org, email, role })` | Admin or owner. The link goes out through `org.send_mail`. Returns `{ invite_id, expires_at }` or `{ error }` |
 | `revokeInvite({ org, invite })` | Withdraw a pending invitation |
 | `acceptInvite(token)` | Join as the signed-in user. The invitation works once, before it expires, and only for the email it was sent to |
+| `rename({ org, name })` | Rename the organisation (admin or owner; 1 to 80 characters, `{ error }` otherwise). The slug stays. Emits `org.renamed` |
 | `setRole({ org, user, role })`, `removeMember({ org, user })` | See the roles above. `removeMember` with your own id means leaving |
 | `switcher(next?)` | The data of the switcher partial, for a page's `load` |
 
@@ -93,6 +94,7 @@ A member sees a select of their organisations, labelled with their role in each.
 | `org.created` | `{ org_id, user_id, at }` | event |
 | `org.member_added` | `{ org_id, user_id, role, at }` | event: at creation (the owner) and on every accepted invitation |
 | `org.member_removed` | `{ org_id, user_id, by, at }` | event |
+| `org.renamed` | `{ org_id, name }` | event: an admin or owner renamed the organisation; the slug stays |
 | `org.before_invite` | `{ org_id, email, role, invited_by }` | hook: a filler may halt (seat limits, a domain allowlist). Its response is the answer and no invitation is created |
 | `org.send_mail` | `{ to, template: "org_invite", args: { url, org_name, role, expires_days, invited_by, locale } }` | hook: fill it to deliver invitations; the `email` module fills it. `locale` is the organisation's (`null` when unset) |
 

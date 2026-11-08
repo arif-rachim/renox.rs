@@ -289,6 +289,29 @@ describe.skipIf(!worker)("org", () => {
     snapshot(stable(latn.html), { role: "members owner ar latn" });
   });
 
+  test("rename (#610): an admin renames, the slug stays, the event fires once; a member and bad names are refused", async () => {
+    const oliveId = ((await org(olive).members(A)) as { user_id: string; email: string }[]).find((m) => m.email === "olive@example.com")?.user_id as string;
+    expect(t.db.query("select name from org__orgs where id = ?", [A])).toEqual([{ name: "Acme Trading" }]);
+    // Ann is an admin: trimmed, saved, the slug unchanged, one event.
+    expect(await org(ann).rename({ org: A, name: "  Acme Trading Group  " })).toEqual({ ok: true });
+    expect(t.db.query("select name, slug from org__orgs where id = ?", [A])).toEqual([{ name: "Acme Trading Group", slug: "acme-trading" }]);
+    expect(await events("org.renamed", 1)).toEqual([{ org_id: A, user_id: "", role: null }]);
+    expect(((await org(olive).listOrgs(oliveId)) as { id: string; name: string }[]).find((o) => o.id === A)?.name).toBe("Acme Trading Group");
+    // A member is refused; so are an empty, a blank and an 81-character name; nothing changes.
+    await refused(org(mo).rename({ org: A, name: "Hijacked" }));
+    expect(await org(ann).rename({ org: A, name: "" })).toEqual({ error: expect.any(String) });
+    expect(await org(ann).rename({ org: A, name: "   " })).toEqual({ error: expect.any(String) });
+    expect(await org(ann).rename({ org: A, name: "x".repeat(81) })).toEqual({ error: expect.any(String) });
+    expect(t.db.query("select name from org__orgs where id = ?", [A])).toEqual([{ name: "Acme Trading Group" }]);
+    expect(await events("org.renamed", 1)).toHaveLength(1);
+    expect(await org(ann).rename({ org: A, name: "x".repeat(80) })).toEqual({ ok: true });
+    // The members page form, then back to the original name for the snapshots.
+    expect((await mo.action("/org/members", "rename", { name: "Nope" })).status).toBe(403);
+    expect((await olive.action("/org/members", "rename", { name: "Acme Trading" })).html).toContain("Name saved.");
+    expect(t.db.query("select name from org__orgs where id = ?", [A])).toEqual([{ name: "Acme Trading" }]);
+    expect(await events("org.renamed", 3)).toHaveLength(3);
+  });
+
   test("the public view has the three columns; another module may read it", () => {
     const cols = t.db.query<{ name: string }>("select name from pragma_table_info('org__public_members_v1')").map((c) => c.name);
     expect(cols).toEqual(["org_id", "user_id", "role"]);
