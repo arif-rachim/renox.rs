@@ -9,6 +9,11 @@ exports[`the seed the accountant's list shows it as open, with its balance: role
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -73,6 +78,11 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
@@ -202,6 +212,11 @@ exports[`the seed the invoice page: the module's document, the cheque, the payme
   <link rel="stylesheet" href="/renox-ui.<hash>.css">
   <link rel="stylesheet" href="/app.<hash>.css">
   <link rel="stylesheet" href="/theme">
+  <link rel="manifest" href="/me/manifest" crossorigin="use-credentials">
+  <meta name="theme-color" content="#1f6f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.<hash>.png">
+  <script src="/me.<hash>.js" defer nonce="<nonce>"></script>
 </head>
 <body>
   <header class="site-header">
