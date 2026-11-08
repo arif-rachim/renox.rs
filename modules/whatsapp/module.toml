@@ -1,6 +1,6 @@
 [module]
 name = "whatsapp"
-version = "1.0.0"
+version = "1.1.0"
 description = "WhatsApp Cloud API: notifications, OTP, approved templates, a signed inbound webhook into a light inbox, a chat-to-order link"
 
 [config]
@@ -8,6 +8,8 @@ api_version = { type = "string", default = "v21.0", max_length = 10, description
 sends_per_minute = { type = "int", default = 60, min = 1, max = 6000, description = "Outgoing messages per minute for the tenant; past it, send rejects" }
 otp_template = { type = "string", default = "", max_length = 100, description = "An approved authentication template for OTPs (one parameter: the code); empty sends a plain text" }
 otp_language = { type = "string", default = "en", max_length = 10, description = "The OTP template's language code" }
+sandbox = { type = "bool", default = false, description = "Development and tests: record each message as sent with its rendered template, call no API and need no secrets; read them with outbox" }
+api_host = { type = "string", default = "https://graph.facebook.com", max_length = 200, description = "Tests only: a fake Cloud API (an https:// origin); it works only where the app's network allow-list includes the host" }
 
 [permissions]
 tables = "whatsapp__*"
@@ -22,6 +24,7 @@ sendOtp = "Send a 6-digit code to a phone: (phone) -> { sent: true, expires_in }
 verifyOtp = "Check a code: (phone, code) -> { ok } (5 minutes, 5 attempts, single use)"
 linkPhone = "Make a phone the user's WhatsApp contact after verifyOtp succeeded for it: (user_id, phone) -> { ok }"
 inbox = "Messages newest first: ({ phone?, direction?, limit? }) -> rows (OTP bodies never shown)"
+outbox = "Outgoing messages newest first, read-only: (limit?) -> rows with status and body (OTP bodies never shown); in sandbox, what would have been sent"
 chatLink = "A wa.me link with a prefilled message: (phone, text) -> { url }"
 
 [exports.events."whatsapp.send_requested"]

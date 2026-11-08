@@ -1,0 +1,11 @@
+# The app the whatsapp module's sandbox test runs in (#591): sandbox = true and
+# no .env.test, so no WHATSAPP_* secret exists.
+[app]
+name = "wasandbox"
+timezone = "Asia/Dubai"
+
+[modules]
+i18n = { version = "^1.0", source = "path:../../../i18n", config = { digits = "auto" } }
+auth = { version = "^1.0", source = "path:../../../auth", mount = "/auth" }
+notifications = { version = "^1.0", source = "path:../../../notifications", mount = "/notifications", config = { channels = "whatsapp" } }
+whatsapp = { version = "^1.0", source = "path:../..", mount = "/whatsapp", config = { sandbox = true } }

@@ -9,6 +9,8 @@ export interface ApiConfig {
   token: string;
   phoneId: string;
   version: string;
+  /** The Cloud API origin; defaults to API_HOST (tests point it at a fake). */
+  host?: string;
 }
 
 export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
@@ -33,7 +35,7 @@ async function call(fetch: FetchFn, cfg: ApiConfig, path: string, body: unknown)
   if (!/^v[0-9]{1,3}\.[0-9]{1,3}$/u.test(cfg.version) || !/^[0-9]{1,32}$/u.test(cfg.phoneId)) return { ok: false, retry: false, status: 0, error: "config" };
   let res: Response;
   try {
-    res = await fetch(`${API_HOST}/${cfg.version}/${cfg.phoneId}/${path}`, {
+    res = await fetch(`${cfg.host ?? API_HOST}/${cfg.version}/${cfg.phoneId}/${path}`, {
       method: "POST",
       headers: { authorization: `Bearer ${cfg.token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
