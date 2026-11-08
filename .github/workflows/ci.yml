@@ -159,6 +159,9 @@ jobs:
           # backup script (fakes, no network), the tunnel-only firewall (only
           # SSH open) in two containers.
           ops/scripts/fetch-cloudflared.test.sh
+          ops/scripts/pin-cloudflared.test.sh
+          # renox-alert.sh (#450, #545): stubs for curl and journalctl, no network.
+          ops/scripts/renox-alert.test.sh
           command -v age >/dev/null || sudo apt-get install -y --no-install-recommends age
           ops/scripts/backup-control-db.test.sh
           # Local backups without R2 (#517): sqlite3 and pg_restore for the real copies.
