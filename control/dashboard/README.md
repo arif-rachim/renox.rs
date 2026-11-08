@@ -51,6 +51,7 @@ renox tokens create dashboard --scope apps:read --scope apps:write --scope deplo
 | --- | --- | --- |
 | `DASHBOARD_KEY` | yes | At least 32 characters; derives the key of stored sign-ins. Changing it signs everyone out |
 | `RENOX_API_URL` | no | Another control API (`https://` only); its host must also be in `[permissions] network` |
+| `RENOX_CAPTCHA_SITE_KEY` | no | The public Cloudflare Turnstile site key of the sign-up (#540). Set: `/signup` shows the widget and sends `captcha_token`; empty: no widget. Not a real secret, but per deployment. Its pair, the secret key, is `RENOX_CAPTCHA_SECRET` of the control API |
 | `RENOX_PLATFORM_DOMAIN` | no | The API's `CONTROL_PLATFORM_DOMAIN`, shown as `<name>.<domain>` on the new-app page; default `renoxium.app` |
 | `OPS_CONSOLE` | no | `operators` turns on the operator console (`/ops/tenants/:tenant`) on this deployment; anything else answers 403 there |
 
@@ -118,6 +119,7 @@ read -rs PW                      # the owner's password, kept out of the shell h
    TOKEN=$(jq -r .token ~/.config/renox/credentials.json)
    curl -fsS -X POST "$API/v1/apps" -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"name": "dashboard"}'
    openssl rand -base64 32 | tr -d '\n' | renox secrets set DASHBOARD_KEY --app dashboard
+   printf '%s' "<the Turnstile site key>" | renox secrets set RENOX_CAPTCHA_SITE_KEY --app dashboard   # #540, before turning the API's CAPTCHA on
    (cd control/dashboard && renox deploy)
    (cd www && renox deploy)
    ```
@@ -164,4 +166,5 @@ Every template's text is in `i18n/en.json` and `i18n/ar.json` (keys `dash.<page>
 
 - Actions call the API inside the action's transaction (`ops.md` section 14 asks to avoid `fetch` there): Promote and Rollback wait for the node's prepare, so the dashboard's one writer is held meanwhile. The dashboard writes nothing but sign-ins, so only concurrent sign-ins wait.
 - `verification_uri` of the API's device flow points at `<dashboard>/device`; approving a device needs an API session, which the dashboard does not hold, so that page is not here (`renox login` approval stays with the API session).
+- Abuse reports (`POST /v1/abuse`, contract section 22, CAPTCHA-protected) have no form in the dashboard or in `www/` (#540): reports go by mail to `abuse@renoxium.com` (`www/pages/legal/terms.html`) or straight to the API. When a form is added it needs the same Turnstile widget and `captcha_token` as `/signup`.
 - `public/htmx-2.0.4.min.js` is htmx 2.0.4 (0BSD), vendored unchanged as in `examples/shop`.

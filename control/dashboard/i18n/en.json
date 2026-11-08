@@ -133,6 +133,9 @@
       "err_disposable": "Use an address that is not a disposable mailbox.",
       "err_taken": "That workspace id is taken; choose another.",
       "err_too_many": "Too many sign-ups from here; try again later.",
+      "captcha_required": "Please complete the check below before you sign up.",
+      "captcha_rejected": "The check was not accepted. Try it again.",
+      "captcha_error": "The check could not load. Reload the page, or try another network.",
       "no_account": "No account yet?"
     },
     "verify": {

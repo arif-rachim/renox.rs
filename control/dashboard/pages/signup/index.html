@@ -19,6 +19,8 @@
       <small class="problem" id="id-error" role="status" hidden></small>
       <label><input type="checkbox" name="dpa" value="yes" required aria-describedby="hint-dpa"> <r-t key="dash.signup.accept" /> <a href="/legal/dpa"><r-t key="dash.signup.dpa_link" /></a> <r-t key="dash.signup.and" /> <a href="/legal/terms"><r-t key="dash.signup.terms_link" /></a>.</label>
       <small class="muted hint" id="hint-dpa"><r-t key="dash.signup.hint_dpa" /></small>
+      <!-- #540: Cloudflare Turnstile, only when RENOX_CAPTCHA_SITE_KEY is set. The widget adds the hidden cf-turnstile-response field; public/account.js sends it as captcha_token. -->
+      <div class="cf-turnstile" id="captcha" r-if="captcha_site_key" :data-sitekey="captcha_site_key" :data-language="captcha_lang" data-callback="renoxCaptchaOk" data-error-callback="renoxCaptchaError"></div>
       <button type="submit" class="primary"><r-t key="dash.signup.submit" /></button>
     </form>
     <p class="muted" id="signup-more"><r-t key="dash.signup.have_account" /> <a href="/signin"><r-t key="dash.common.sign_in" /></a>. <r-t key="dash.signup.agreement_note" /></p>
@@ -33,10 +35,14 @@
       <span data-k="id_try"><r-t key="dash.signup.id_try" /></span>
       <span data-k="err_disposable"><r-t key="dash.signup.err_disposable" /></span>
       <span data-k="err_too_many"><r-t key="dash.signup.err_too_many" /></span>
+      <span data-k="captcha_required"><r-t key="dash.signup.captcha_required" /></span>
+      <span data-k="captcha_rejected"><r-t key="dash.signup.captcha_rejected" /></span>
+      <span data-k="captcha_error"><r-t key="dash.signup.captcha_error" /></span>
       <span data-k="too_many"><r-t key="dash.account.too_many" /></span>
       <span data-k="unreachable"><r-t key="dash.account.unreachable" /></span>
       <span data-k="failed"><r-t key="dash.account.failed" /></span>
     </div>
     <script src="/account.js" defer></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer r-if="captcha_site_key"></script>
   </section>
 </r-layout>
