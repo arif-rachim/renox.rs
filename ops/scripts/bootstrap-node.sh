@@ -302,6 +302,13 @@ if [[ $single_host -eq 1 ]]; then
   }
   write_once "$here/systemd/control.env.example" "$etc_dir/control.env" 0600
   write_once "$here/cloudflared/config.yml.example" "$etc_dir/tunnel/config.yml" 0644
+  # #544: the commands the single host's units run (the backups, the drill).
+  # Install step 1 of ops/single-host.md installs them; a warning, not a stop.
+  missing=()
+  for cmd in age sqlite3 pg_dump; do command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd"); done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "bootstrap-node: warning: missing commands the single-host units need: ${missing[*]} (ops/single-host.md, install step 1)" >&2
+  fi
 fi
 systemctl daemon-reload
 

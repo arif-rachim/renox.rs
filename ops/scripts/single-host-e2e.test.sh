@@ -25,6 +25,8 @@
 #      encrypted to the age key and uploaded to a fake S3 on loopback
 #   11 renox-alert@.service: the webhook receives the failed unit's name
 #   12 renox-billing.service: one pass on the same database
+#   and renox-backup-tenants.service: a snapshot of the tenant files under
+#      /var/backups/renox/tenants (#544: sqlite3 from install step 1)
 #   and the runbook's "Health checks after every change".
 #
 # Since ADR D25 the single host has no TLS, ACME or certificate renewal of its
@@ -60,7 +62,7 @@ bun_bin=${RENOX_BUN_BIN:-$(command -v bun || true)}
 [[ -d $repo/node_modules ]] || skip "no node_modules in $repo (run bun install)"
 
 # The tag names the package list: a new list gets a new tag.
-image=renox-single-host-e2e:24.04-pg16
+image=renox-single-host-e2e:24.04-pg16-sqlite3
 name=renox-single-host-e2e-$$
 ctx=$(mktemp -d)
 cleanup() {
@@ -74,7 +76,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   cat > "$ctx/Dockerfile" <<'DOCKERFILE'
 FROM ubuntu:24.04
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv curl ca-certificates python3 openssl iproute2 age jq postgresql \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv curl ca-certificates python3 openssl iproute2 age jq postgresql sqlite3 \
  && rm -rf /var/lib/apt/lists/*
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
@@ -353,6 +355,14 @@ else fail "step 11: no alert at the webhook: $(journal 'renox-alert@e2e-test' 5)
 if dx systemctl start renox-billing.service >/dev/null 2>&1 && ! journal renox-billing 50 | grep -q 'billing run failed'; then
   pass "step 12: renox-billing.service runs one pass on the control database"
 else fail "step 12: renox-billing.service: $(journal renox-billing 20)"; fi
+
+# The weekly tenant snapshot (#517, #544), started once: step 9's apps have
+# their databases under /var/lib/renox/data, so at least one copy appears.
+if dx systemctl start renox-backup-tenants.service >/dev/null 2>&1; then
+  snaps=$(sh_in "find /var/backups/renox/tenants -mindepth 2 -maxdepth 2 -type f -name '*-[0-9]*T[0-9]*Z.db' | wc -l" || echo 0)
+  if [[ $snaps -ge 1 ]]; then pass "backups: renox-backup-tenants.service writes $snaps tenant snapshot(s) under /var/backups/renox/tenants"
+  else fail "backups: no tenant snapshot: $(journal renox-backup-tenants 10)"; fi
+else fail "backups: renox-backup-tenants.service: $(journal renox-backup-tenants 20)"; fi
 
 # Health checks after every change (ops/single-host.md), the rows that make
 # sense without Cloudflare and a second machine.

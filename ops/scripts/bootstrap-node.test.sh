@@ -271,6 +271,9 @@ if docker exec "$name" test -e /etc/renox/worker.toml; then fail "a refused run 
 if single --control-url http://127.0.0.1:8788 --blocked-addresses 203.0.113.10,2001:db8::10,127.0.0.1 >/dev/null 2>"$ctx/err"; then
   pass "--single-host installs the node"
 else fail "--single-host installs the node: $(cat "$ctx/err")"; fi
+# #544: this image has age but neither sqlite3 nor pg_dump; the run warns and goes on.
+if grep -q 'warning: missing commands the single-host units need: sqlite3 pg_dump ' "$ctx/err"; then pass "--single-host warns about the missing sqlite3 and pg_dump"
+else fail "--single-host warns about missing commands: $(cat "$ctx/err")"; fi
 toml=$(docker exec "$name" cat /etc/renox/worker.toml)
 grep -q '^url = "http://127.0.0.1:8788"$' <<< "$toml" && pass "worker.toml: [control] url is the loopback node listener" || fail "worker.toml control url"
 grep -q '^fetch_blocked_addresses = \["203.0.113.10", "2001:db8::10", "127.0.0.1"\]$' <<< "$toml" && pass "worker.toml: fetch_blocked_addresses lists the public addresses and 127.0.0.1" || fail "worker.toml blocked addresses"
