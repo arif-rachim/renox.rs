@@ -14,6 +14,7 @@ import { openPostgres } from "./db/postgres.ts";
 import { MemoryObjectStore, S3ObjectStore } from "./storage/object-store.ts";
 import type { Db } from "./db/db.ts";
 import { sweepErasures } from "./tenants/erasure.ts";
+import { PURGE_INTERVAL_MS, sweepAppDeletions } from "./apps/purge.ts";
 import { endExpiredImpersonations } from "./ops/breakglass.ts";
 import { routeService } from "./routes/service.ts";
 import { sweep } from "./workers/health.ts";
@@ -78,6 +79,8 @@ startDomainJobs(deps);
 // Break-glass impersonations past their 60 minutes end with an audit row and the owner's email (#310).
 setInterval(() => void endExpiredImpersonations(deps).catch((e: unknown) => log.error("impersonation sweep failed", { error: String(e) })), 30_000);
 setInterval(() => void sweepErasures(deps).catch((e: unknown) => log.error("erasure sweep failed", { error: String(e) })), Math.min(60_000, config.erasureRetryMs ?? 60_000));
+// Deleted apps (#536): purged 7 days after their deletion, checked every 10 minutes; a node that is down is retried at the next tick.
+setInterval(() => void sweepAppDeletions(deps).catch((e: unknown) => log.error("app purge sweep failed", { error: String(e) })), PURGE_INTERVAL_MS);
 // Platform billing (#325): the tier signal, the owner's emails, the anomaly reviews and the monthly close, hourly.
 setInterval(() => void sweepBilling(deps).catch((e: unknown) => log.error("billing sweep failed", { error: String(e) })), 3_600_000);
 // Abuse (#123): the takedown SLA alert and the reporters' 90 days, every minute;

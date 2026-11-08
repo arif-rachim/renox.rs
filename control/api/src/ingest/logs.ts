@@ -80,6 +80,8 @@ export interface LogStore {
   subscribe(tenantId: string, fn: (lines: SeqLine[]) => void): () => void;
   /** Every line of `tenantId` deleted (the erasure of #308); returns how many. */
   dropTenant(tenantId: string): Promise<number>;
+  /** deploy-api.md 0.7 (#537): the lines of app `from` of `tenantId` are listed under `to` from now on; returns how many. */
+  renameApp(tenantId: string, from: string, to: string): Promise<number>;
 }
 
 /** Whether `line` passes the `source` and `deployment` filters of a read. */
@@ -129,6 +131,20 @@ export class MemoryLogStore implements LogStore {
     const n = this.byTenant.get(tenantId)?.length ?? 0;
     this.byTenant.delete(tenantId);
     this.seqs.delete(tenantId);
+    return n;
+  }
+  async renameApp(tenantId: string, from: string, to: string): Promise<number> {
+    const buf = this.byTenant.get(tenantId);
+    if (buf === undefined) return 0;
+    let n = 0;
+    this.byTenant.set(
+      tenantId,
+      buf.map((l) => {
+        if (l.app !== from) return l;
+        n++;
+        return { ...l, app: to };
+      }),
+    );
     return n;
   }
   subscribe(tenantId: string, fn: (lines: SeqLine[]) => void): () => void {

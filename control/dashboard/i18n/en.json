@@ -133,6 +133,9 @@
       "err_disposable": "Use an address that is not a disposable mailbox.",
       "err_taken": "That workspace id is taken; choose another.",
       "err_too_many": "Too many sign-ups from here; try again later.",
+      "captcha_required": "Please complete the check below before you sign up.",
+      "captcha_rejected": "The check was not accepted. Try it again.",
+      "captcha_error": "The check could not load. Reload the page, or try another network.",
       "no_account": "No account yet?"
     },
     "verify": {
@@ -223,7 +226,11 @@
       "stat_live": "apps live",
       "stat_requests": "requests today (UTC)",
       "stat_storage": "database storage used",
-      "from_template": "From a template"
+      "from_template": "From a template",
+      "deleted_h": "Deleted apps",
+      "deleted_until": "Deleted, restorable until {at}",
+      "restore": "Restore",
+      "restored": "{name} is restored and served again."
     },
     "new": {
       "is_live": "is live",
@@ -300,7 +307,18 @@
       "erasure_pending": "Requested: it starts within the hour.",
       "erasure_erasing": "In progress: routes, tokens, the node's copy, the replica, exports and records are being deleted.",
       "erasure_done": "Done: the tenant's data is gone from the node, the replica store and the exports.",
-      "erasure_failed": "A step still failed after 24 hours; an operator has been alerted."
+      "erasure_failed": "A step still failed after 24 hours; an operator has been alerted.",
+      "app_delete_h": "Delete this app",
+      "app_delete_explain": "Deleting the app stops serving it now and detaches its custom domains. You can restore it for 7 days from the apps page or with renox apps restore; after that it is purged with its deployments, secrets and its own database.",
+      "app_delete_type": "Type the app name to confirm",
+      "app_delete_button": "Delete this app",
+      "app_delete_mismatch": "The name you typed is not the app name; nothing was deleted.",
+      "app_rename_h": "Rename this app",
+      "app_rename_explain": "The app keeps its deployments, data, secrets, custom domains, logs and usage, and is served at once at the new name under {domain}. The old name stays reserved for this tenant for 90 days.",
+      "app_rename_signin": "https://{old} stops being served now: anyone signed in there must sign in again on the new hostname, and what the browser kept for the old one (cookies, local storage) stays behind.",
+      "app_rename_new": "New name",
+      "app_rename_button": "Rename this app",
+      "app_rename_same": "That is the app's current name; nothing was renamed."
     },
     "domains": {
       "intro": "Serve the app on your own hostname. Use a name such as www.example.com; for the bare domain, redirect it to www at your registrar.",

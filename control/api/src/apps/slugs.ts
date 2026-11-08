@@ -40,6 +40,21 @@ export async function slugState(db: Db, name: string, tenantId: string, now: num
   return rows.length > 0 ? "quarantined" : "available";
 }
 
+/**
+ * Quarantines `name` for `tenantId` from `now` (#536: the purge of a deleted
+ * app; #537: the old name of a renamed app). The `apps_slug_quarantine`
+ * trigger also quarantines the name of every deleted `apps` row from the
+ * database clock; this write keeps the later of both ends, so the API's
+ * clock and the database's agree on "at least 90 days".
+ */
+export async function quarantineSlug(db: Db, name: string, tenantId: string, now: number): Promise<void> {
+  await db.query(
+    `insert into quarantined_slugs (slug, tenant_id, until, created_at) values ($1, $2, $3, $4)
+     on conflict (slug) do update set tenant_id = excluded.tenant_id, until = greatest(quarantined_slugs.until, excluded.until), created_at = excluded.created_at`,
+    [name, tenantId, now + QUARANTINE_MS, now],
+  );
+}
+
 /** Is `tenantId` the platform tenant (#396)? */
 export async function isPlatformTenant(db: Db, tenantId: string): Promise<boolean> {
   const rows = await db.query<{ platform: boolean }>("select platform from tenants where id = $1", [tenantId]);

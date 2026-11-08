@@ -12,6 +12,10 @@
 //!
 //! A store that does not answer, or answers an error, fails the purge as a
 //! whole: nothing is reported purged, and the control plane retries.
+//!
+//! 0.7 (#536, `nodeDropTenant?database=<id>&purge_replica=true`): the purge of
+//! one app's own database (`<tenant_id>.<app>`) deletes only that database's
+//! generations; the tenant's shared file and its other databases stay.
 
 use std::path::Path;
 
@@ -35,8 +39,27 @@ fn is_tenant_database(tenant: &str, name: &str) -> bool {
             .is_some_and(|app| !app.is_empty() && !app.contains('/'))
 }
 
+/// Is `name` a database the purge removes: `database` exactly when it is
+/// given, otherwise every database of `tenant`.
+fn in_scope(tenant: &str, database: Option<&str>, name: &str) -> bool {
+    match database {
+        Some(d) => name == d && is_tenant_database(tenant, d),
+        None => is_tenant_database(tenant, name),
+    }
+}
+
 /// Purges the file replica of `tenant` under `root`.
 pub fn purge_file(root: &Path, tenant: &str) -> std::io::Result<Purged> {
+    purge_file_scoped(root, tenant, None)
+}
+
+/// Purges the file replica of `tenant` under `root`: only `database` when it
+/// is given (0.7, one app's own database), otherwise every database.
+pub fn purge_file_scoped(
+    root: &Path,
+    tenant: &str,
+    database: Option<&str>,
+) -> std::io::Result<Purged> {
     let mut deleted = 0;
     let entries = match std::fs::read_dir(root) {
         Ok(e) => e,
@@ -47,7 +70,7 @@ pub fn purge_file(root: &Path, tenant: &str) -> std::io::Result<Purged> {
         let e = e?;
         let name = e.file_name();
         let Some(name) = name.to_str() else { continue };
-        if is_tenant_database(tenant, name) && e.file_type()?.is_dir() {
+        if in_scope(tenant, database, name) && e.file_type()?.is_dir() {
             deleted += count_gens(&e.path());
             std::fs::remove_dir_all(e.path())?;
         }
@@ -313,6 +336,24 @@ impl S3 {
 /// Purges the S3 replica of `tenant`: the databases are the "directories"
 /// directly under the prefix whose name is the tenant's.
 pub async fn purge_s3(section: &ReplicationSection, tenant: &str) -> Result<Purged, String> {
+    purge_s3_scoped(section, tenant, None).await
+}
+
+/// The listing prefix of a purge: `<prefix>/<database>/` for one database,
+/// `<prefix>/<tenant>` (every database of the tenant) otherwise.
+fn list_prefix(under: &str, tenant: &str, database: Option<&str>) -> String {
+    match database {
+        Some(d) => format!("{under}{d}/"),
+        None => format!("{under}{tenant}"),
+    }
+}
+
+/// Purges the S3 replica of `tenant`, only `database` when it is given.
+pub async fn purge_s3_scoped(
+    section: &ReplicationSection,
+    tenant: &str,
+    database: Option<&str>,
+) -> Result<Purged, String> {
     let creds = Credentials::from_env().ok_or("no replica store credentials in the environment")?;
     let region = section.region.clone().unwrap_or_else(|| "us-east-1".into());
     let base = section
@@ -338,7 +379,7 @@ pub async fn purge_s3(section: &ReplicationSection, tenant: &str) -> Result<Purg
         // Every key of the tenant's databases starts with `<prefix>/<tenant>`.
         let mut q = vec![
             ("list-type", "2".to_string()),
-            ("prefix", format!("{under}{tenant}")),
+            ("prefix", list_prefix(&under, tenant, database)),
         ];
         if let Some(t) = &token {
             q.push(("continuation-token", t.clone()));
@@ -351,11 +392,11 @@ pub async fn purge_s3(section: &ReplicationSection, tenant: &str) -> Result<Purg
         }
         let (keys, next) = parse_list(&body);
         for key in keys {
-            let database = key
+            let name = key
                 .strip_prefix(&under)
                 .and_then(|k| k.split('/').next())
                 .unwrap_or("");
-            if !is_tenant_database(tenant, database) {
+            if !in_scope(tenant, database, name) {
                 continue;
             }
             let (status, _) = s3.send("DELETE", Some(&key), &[]).await?;
@@ -374,16 +415,29 @@ pub async fn purge_s3(section: &ReplicationSection, tenant: &str) -> Result<Purg
 
 /// Purges `tenant`'s replica, whichever kind the node replicates to.
 pub async fn purge(section: &ReplicationSection, tenant: &str) -> Result<Purged, String> {
+    purge_scoped(section, tenant, None).await
+}
+
+/// Purges `tenant`'s replica, only the database `database` when it is given
+/// (0.7, #536: the purge of one app's own database).
+pub async fn purge_scoped(
+    section: &ReplicationSection,
+    tenant: &str,
+    database: Option<&str>,
+) -> Result<Purged, String> {
     match section.replica {
         ReplicaKind::File => {
             let root = section.path.clone().ok_or("no replica path")?;
             let tenant = tenant.to_string();
-            tokio::task::spawn_blocking(move || purge_file(&root, &tenant))
-                .await
-                .map_err(|e| e.to_string())?
-                .map_err(|e| e.to_string())
+            let database = database.map(str::to_string);
+            tokio::task::spawn_blocking(move || {
+                purge_file_scoped(&root, &tenant, database.as_deref())
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())
         }
-        ReplicaKind::S3 => purge_s3(section, tenant).await,
+        ReplicaKind::S3 => purge_s3_scoped(section, tenant, database).await,
     }
 }
 
@@ -464,5 +518,47 @@ mod tests {
         assert!(!root.join("t_a").exists() && !root.join("t_a.shop").exists());
         assert!(root.join("t_ab").exists(), "another tenant's replica stays");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn one_database_loses_only_its_own_generations() {
+        let root = std::env::temp_dir().join(format!("renox-purge-one-{}", std::process::id()));
+        for d in [
+            "t_a/generations/g1",
+            "t_a.shop/generations/g2",
+            "t_a.shop/generations/g3",
+            "t_a.blog/generations/g4",
+        ] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        let p = purge_file_scoped(&root, "t_a", Some("t_a.shop")).unwrap();
+        assert_eq!(p.deleted, 2);
+        assert!(!root.join("t_a.shop").exists());
+        assert!(root.join("t_a").exists(), "the shared file's replica stays");
+        assert!(
+            root.join("t_a.blog").exists(),
+            "another app's database stays"
+        );
+        // Another tenant's database is never in scope.
+        assert_eq!(
+            purge_file_scoped(&root, "t_b", Some("t_a.blog"))
+                .unwrap()
+                .deleted,
+            0
+        );
+        assert!(root.join("t_a.blog").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn one_database_lists_only_its_own_prefix() {
+        assert_eq!(list_prefix("tenants/", "t_a", None), "tenants/t_a");
+        assert_eq!(
+            list_prefix("tenants/", "t_a", Some("t_a.shop")),
+            "tenants/t_a.shop/"
+        );
+        assert!(in_scope("t_a", Some("t_a.shop"), "t_a.shop"));
+        assert!(!in_scope("t_a", Some("t_a.shop"), "t_a"));
+        assert!(!in_scope("t_a", Some("t_a.shop"), "t_a.shopx"));
     }
 }

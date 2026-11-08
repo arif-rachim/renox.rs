@@ -346,7 +346,7 @@ export function registerRegistry(app: Hono<Env>, deps: Deps): void {
   app.get("/v1/apps/:app/modules", operation(deps, "listAppModules"), tenantAuth(deps, "apps:read"), async (c) => {
     const db = tenantDb(deps, c);
     const appName = pathParam(c, "app", "AppName");
-    const known = await db.query<Row>("select 1 from apps where tenant_id = $1 and name = $2", [db.tenantId, appName]);
+    const known = await db.query<Row>("select 1 from apps where tenant_id = $1 and name = $2 and deleted_at is null", [db.tenantId, appName]);
     if (known.length === 0) throw notFound();
     const rows = await db.query<Row>("select * from app_modules where tenant_id = $1 and app = $2 order by name", [db.tenantId, appName]);
     const items = [];
@@ -369,7 +369,7 @@ export function registerRegistry(app: Hono<Env>, deps: Deps): void {
   app.post("/v1/apps/:app/modules", operation(deps, "installModule"), tenantAuth(deps, "apps:write"), async (c) => {
     const db = tenantDb(deps, c);
     const appName = pathParam(c, "app", "AppName");
-    const known = await db.query<Row>("select 1 from apps where tenant_id = $1 and name = $2", [db.tenantId, appName]);
+    const known = await db.query<Row>("select 1 from apps where tenant_id = $1 and name = $2 and deleted_at is null", [db.tenantId, appName]);
     if (known.length === 0) throw notFound();
     const b = await body(c);
     const m = /^registry:([a-z0-9][a-z0-9-]{0,38})\/([a-z][a-z0-9_]{0,31})$/u.exec(typeof b.source === "string" ? b.source : "");

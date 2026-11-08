@@ -2,6 +2,13 @@
 
 Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<version>`), the SDK `@renoxium/sdk` (npm, same version) and the `renox-worker` the CLI pins (GitHub Release `worker-v<version>`). The platform itself (control plane, production workers) deploys from `main` and is not versioned here.
 
+## 0.1.8 (unreleased)
+
+**CLI**
+
+- `renox apps list`, `renox apps rm <name>` and `renox apps restore <name>` (#536): delete one app without erasing the tenant. `rm` asks for the name again (or `--yes`), stops serving the app at once and keeps it restorable for 7 days; then the platform purges it. Needs a token with the scope `apps:delete` (owners and admins; a new `renox login` token has it).
+- `renox apps rename <old> <new> [--yes] [--json]` (#537): rename an app; it keeps its deployments, data, secrets, custom domains, logs and meters, and is served at `<new>.renoxium.app` at once (the old hostname stops; its users sign in again). In the app's folder it offers to update `[app] name` in `renox.toml` (`--yes` updates it, changing only that value and keeping the line endings). `renox deploy` from a `renox.toml` with a name the tenant renamed away stops with `renamed to <new>; update renox.toml` (exit 1) instead of creating a new app. Same scope as `rm`: `apps:delete`.
+
 ## 0.1.7 (2026-11-07)
 
 Fixes from the first native Windows use of 0.1.6. The pinned `renox-worker` stays 0.4.0.

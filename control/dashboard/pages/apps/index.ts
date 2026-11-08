@@ -1,14 +1,17 @@
 // GET /apps: the overview (docs/19-platform-wireframes.md, 3.1 Org
 // overview; #427): the tenant's name as the hero word, a card row of stats
 // from real data only (apps live, requests today, storage used), and a card
-// per app. POST ?/create: a new app (3.2), `apps:write`.
+// per app. POST ?/create: a new app (3.2), `apps:write`. The block "Deleted
+// apps" (#536; deploy-api.md 0.7 section 3) lists each deleted app still
+// restorable with its date and a Restore button (POST ?/restore,
+// `apps:delete`); it is absent when there is none.
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 
 import type { Api, App } from "../../lib/api.ts";
 import { getBackups } from "../../lib/database.ts";
 import { frame, problem, signedIn } from "../../lib/guard.ts";
 import { trOf } from "../../lib/i18n.ts";
-import { bytes, figure, round, shortHash } from "../../lib/view.ts";
+import { bytes, clock, figure, round, shortHash } from "../../lib/view.ts";
 
 /** How many apps the stats are summed over: one usage and one backups call each. */
 const STATS_APPS = 20;
@@ -43,13 +46,15 @@ export async function stats(api: Api, apps: App[], now: number): Promise<Stats> 
 export async function load(ctx: LoaderContext) {
   const api = await signedIn(ctx);
   if (api instanceof Response) return api;
-  const base = { ...frame(ctx, api, "apps"), apps: [] as unknown[], tenant_id: null as string | null, stats: null as Stats | null, problem: null as unknown, created: null, create_error: null };
-  const r = await api.listApps();
+  const base = { ...frame(ctx, api, "apps"), apps: [] as unknown[], deleted: [] as unknown[], tenant_id: null as string | null, stats: null as Stats | null, problem: null as unknown, created: null, create_error: null, restored: null, restore_problem: null };
+  const [r, gone] = await Promise.all([api.listApps(), api.listDeletedApps()]);
   if (!r.ok) return { ...base, problem: await problem(ctx, r) };
   const tr = trOf(ctx);
   return {
     ...base,
     tenant_id: r.value.apps[0]?.tenant_id ?? null,
+    // An API that does not answer the deleted list (older than 0.7) shows no block.
+    deleted: gone.ok ? gone.value.apps.map((a) => ({ name: a.name, until: tr("dash.apps.deleted_until", { at: `${clock(a.restorable_until ?? 0).slice(0, 16)} UTC` }) })) : [],
     stats: await stats(api, r.value.apps, Date.now()),
     apps: r.value.apps.map((a) => ({
       name: a.name,
@@ -74,5 +79,16 @@ export const actions = {
       return { created: null, create_error: p.details[0] ?? p.message };
     }
     return { created: name, create_error: null };
+  },
+
+  /** `restoreApp` of a deleted app within its 7 days. */
+  async restore(ctx: ActionContext) {
+    const api = await signedIn(ctx);
+    if (api instanceof Response) return api;
+    const name = String(ctx.form.get("name") ?? "").trim();
+    if (!/^[a-z][a-z0-9-]{0,49}$/u.test(name)) return { restored: null, restore_problem: null, create_error: trOf(ctx)("dash.apps.err_name") };
+    const r = await api.restoreApp(name);
+    if (!r.ok) return { restored: null, restore_problem: await problem(ctx, r) };
+    return { restored: trOf(ctx)("dash.apps.restored", { name }), restore_problem: null };
   },
 };

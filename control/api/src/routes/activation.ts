@@ -4,7 +4,7 @@
 import { assertTransition } from "../contract.ts";
 import type { Db } from "../db/db.ts";
 import type { TenantDb } from "../tenancy/scope.ts";
-import { ApiError, conflict } from "../errors.ts";
+import { ApiError, conflict, notFound } from "../errors.ts";
 import { prune, requireDeployment, transition, type Actor, type DeploymentRow } from "../deployments/repo.ts";
 import { ownerFor } from "../workers/assign.ts";
 import { healthyNodes } from "../workers/repo.ts";
@@ -39,8 +39,10 @@ async function activeOf(tx: Db, tenantId: string, app: string): Promise<Deployme
  * entries at draining, in the order the one-active-per-hostname index needs.
  */
 async function pointAt(tx: Db, deps: Deps, d: { tenant_id: string; app: string }, hash: string, previous: string | null, node: string, tier: "free" | "paid", secretsVersion: number, now: number): Promise<void> {
-  const own = await tx.query<{ database: string | null }>("select database from apps where tenant_id = $1 and name = $2", [d.tenant_id, d.app]);
-  const database = own[0]?.database ?? null;
+  // 0.7 (#536): a deleted app is never pointed at; restoreApp clears `deleted_at` first.
+  const own = await tx.query<{ database: string | null }>("select database from apps where tenant_id = $1 and name = $2 and deleted_at is null", [d.tenant_id, d.app]);
+  if (own[0] === undefined) throw notFound();
+  const database = own[0].database ?? null;
   for (const hostname of hostnamesOf(deps, d.app)) {
     const base = { hostname, tenant_id: d.tenant_id, app: d.app, updated_at: now, tier, node_id: node, ...(database === null ? {} : { database }) };
     if (previous !== null && previous !== hash) {
@@ -158,16 +160,37 @@ export async function onTenantState(deps: Deps, tx: Db, tenantId: string, state:
   }
   const { tier } = await tenantInfo(tx, tenantId);
   const node = await ownerFor(tx, tenantId, await healthyNodes(tx));
-  const suspended = await tx.query<{ app: string; hash: string; secrets_version: number | null }>(
-    "select app, hash, secrets_version from deployments where tenant_id = $1 and state = 'suspended'",
+  const suspended = await tx.query<{ app: string; hash: string; secrets_version: number | null; deleted: boolean }>(
+    "select d.app, d.hash, d.secrets_version, a.deleted_at is not null as deleted from deployments d join apps a on a.name = d.app and a.tenant_id = d.tenant_id where d.tenant_id = $1 and d.state = 'suspended'",
     [tenantId],
   );
   for (const s of suspended) {
     const d = { tenant_id: tenantId, app: s.app, hash: s.hash };
     await transition(tx, d, "suspended", "active", by);
-    if (node !== null) await pointAt(tx, deps, d, s.hash, null, node, tier, Number(s.secrets_version ?? 0), now);
+    // 0.7 (#536): a deleted app's deployment is active again but not routed; restoreApp routes it.
+    if (node !== null && !s.deleted) await pointAt(tx, deps, d, s.hash, null, node, tier, Number(s.secrets_version ?? 0), now);
   }
   // Without a healthy node the neutral page stays rather than an unknown host.
   if (node === null) return;
   for (const e of await entriesWhere(tx, "tenant_id = $1 and status = 'suspended'", [tenantId])) await removeEntry(tx, e.hostname, e.deployment_hash, now);
+}
+
+/**
+ * deploy-api.md 0.7 section 3 (#536, `restoreApp`): points the app's
+ * hostnames at its `active` deployment again, inside the caller's
+ * transaction. Returns false when there is nothing to route (no active
+ * deployment, or the tenant is suspended: reinstating routes it); throws 503
+ * when no healthy node can take the tenant. The caller publishes.
+ */
+export async function republishApp(deps: Deps, tx: Db, tenantId: string, app: string, now: number): Promise<boolean> {
+  const { tier, state } = await tenantInfo(tx, tenantId);
+  if (state === "suspended") return false;
+  await lockRoutes(tx);
+  const rows = await tx.query<{ hash: string; secrets_version: number | null }>("select hash, secrets_version from deployments where tenant_id = $1 and app = $2 and state = 'active'", [tenantId, app]);
+  const active = rows[0];
+  if (active === undefined) return false;
+  const node = await ownerFor(tx, tenantId, await healthyNodes(tx));
+  if (node === null) throw new ApiError("RENOX_UNAVAILABLE", undefined, { retryAfter: 5 });
+  await pointAt(tx, deps, { tenant_id: tenantId, app }, active.hash, null, node, tier, Number(active.secrets_version ?? 0), now);
+  return true;
 }
