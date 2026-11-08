@@ -779,8 +779,11 @@ async fn call(
             let value: serde_json::Value =
                 serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
             if preview && value.get("error").is_some() {
-                // The preview failed: nothing to confirm, so no token.
-                tool_result(value, true)
+                // The preview failed: nothing to confirm, so no token. The
+                // tool's error object stays readable (text and structured).
+                let mut r = tool_result(value, false);
+                r["isError"] = serde_json::Value::Bool(true);
+                r
             } else if preview {
                 let expires = now_ms() + CONFIRM_TTL.as_millis() as u64;
                 let token = cell

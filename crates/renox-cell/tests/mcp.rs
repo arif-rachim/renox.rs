@@ -553,9 +553,7 @@ async fn the_confirm_flow() {
 #[tokio::test]
 async fn a_preview_that_returns_an_error_gets_no_confirmation() {
     let n = node(true);
-    let preview = n
-        .call("tok_full", "book_slot", serde_json::json!({}))
-        .await;
+    let preview = n.call("tok_full", "book_slot", serde_json::json!({})).await;
     assert_eq!(preview.status, 200, "{}", preview.body);
     assert_eq!(preview.body["result"]["isError"], true, "{}", preview.body);
     let content = &preview.body["result"]["structuredContent"];
