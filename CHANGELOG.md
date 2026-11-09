@@ -6,6 +6,7 @@ Releases of the developer toolkit: the `renox` CLI (GitHub Release `cli-v<versio
 
 **Worker**
 
+- **No macOS worker in this release.** `renox-worker` 0.6.0 is built for Linux (x86_64, aarch64) and Windows only: the macOS builds failed on the release runner (HTTP 504 downloads) and are off until #625. On macOS, `install.sh` installs the CLI without a worker and says so; `renox new`, `check` and `build` work, `renox dev` and `renox test` need `RENOX_WORKER_PATH` to a worker you trust, or stay on `cli-v0.1.8` (worker 0.5.0).
 - App MCP: an agent's roles from `verifyAgentToken` keep their scope (`{ role, scope_type, scope_id }`, mapped with `with_role`), and `authz.roles_changed` and `auth.principal_changed` drop the user's cached agent tokens, so a role revoke applies to the next `tools/call` (#590).
 
 **Modules**
