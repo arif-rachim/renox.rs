@@ -25,12 +25,12 @@
     </x-form>
     <h2><r-t key="backoffice.branches.create" /></h2>
     <x-form action="create" class="stack narrow">
-      <p><label><r-t key="backoffice.branches.f.name_en" /> <input name="name_en" maxlength="80" required></label></p>
-      <p><label><r-t key="backoffice.branches.f.name_ar" /> <input name="name_ar" maxlength="80" dir="rtl" required></label></p>
-      <p><label><r-t key="backoffice.branches.f.phone" /> <input name="phone" dir="ltr" maxlength="20"></label></p>
-      <p><label><r-t key="backoffice.branches.f.emirate" /> <select name="emirate"><option r-for="e in emirates" :value="e.code">{{ e.name }}</option></select></label></p>
-      <p><label><r-t key="backoffice.branches.f.area" /> <input name="area" maxlength="80"></label></p>
-      <p><label><r-t key="backoffice.branches.f.address" /> <input name="address" maxlength="200"></label></p>
+      <p><label><r-t key="backoffice.branches.f.name_en" /> <input name="name_en" maxlength="80" :value="values.name_en" required></label></p>
+      <p><label><r-t key="backoffice.branches.f.name_ar" /> <input name="name_ar" maxlength="80" dir="rtl" :value="values.name_ar" required></label></p>
+      <p><label><r-t key="backoffice.branches.f.phone" /> <input name="phone" dir="ltr" maxlength="20" :value="values.phone"></label></p>
+      <p><label><r-t key="backoffice.branches.f.emirate" /> <select name="emirate"><option r-for="e in emirates" :value="e.code" :selected="e.code == values.emirate">{{ e.name }}</option></select></label></p>
+      <p><label><r-t key="backoffice.branches.f.area" /> <input name="area" maxlength="80" :value="values.area"></label></p>
+      <p><label><r-t key="backoffice.branches.f.address" /> <input name="address" maxlength="200" :value="values.address"></label></p>
       <p><button type="submit" class="btn-brand"><r-t key="backoffice.branches.create_submit" /></button></p>
     </x-form>
   </section>

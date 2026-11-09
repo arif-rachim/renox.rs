@@ -10,7 +10,7 @@
 // A module service that throws inside the action's transaction rolls it back, so
 // the checks that can fail come first: a TaxError after the job moved to
 // `invoiced` leaves nothing behind.
-import type { Db, DbStatements } from "@renoxium/sdk";
+import type { DbStatements } from "@renoxium/sdk";
 import { audit, tax_gcc } from "renox:modules";
 
 import { findCustomer } from "./customers";
@@ -116,7 +116,7 @@ type TaxLine = { description: string; quantity: number; unit_fils: number; rate:
  * one (in the customer's language), else the service at the catalogue price,
  * once; then every part the technician used on the visit.
  */
-export async function invoiceLines(sdb: Db, ctx: { db: DbStatements }, job: { id: string; quote_id: string | null; service_id: number }, language: "en" | "ar"): Promise<TaxLine[]> {
+export async function invoiceLines(sdb: DbStatements, ctx: { db: DbStatements }, job: { id: string; quote_id: string | null; service_id: number }, language: "en" | "ar"): Promise<TaxLine[]> {
   const out: TaxLine[] = [];
   if (job.quote_id !== null) {
     for (const l of await linesOf(sdb, job.quote_id)) out.push({ description: language === "ar" ? l.description_ar : l.description_en, quantity: l.qty, unit_fils: l.unit_price_fils, rate: "standard" });

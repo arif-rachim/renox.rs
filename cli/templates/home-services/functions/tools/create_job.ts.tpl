@@ -55,17 +55,17 @@ export default tool({
     const { createJob, schedule } = await import("../../lib/jobs");
     const { day } = await import("../../lib/quotes");
     const { techniciansOf } = await import("../../lib/technicians");
-    const { canAs, customerByPhone, fenced, findService, inBranch, isToolError, pickBranch, refuse } = await import("../../lib/tools");
+    const { customerByPhone, fenced, findService, inBranch, isToolError, pickBranch, refuse } = await import("../../lib/tools");
     const input = ctx.tool.input;
     const picked = await pickBranch(ctx, input.branch);
     if (isToolError(picked)) return picked;
     const branch = picked.branch;
     const sdb = fenced(ctx.db, branch);
-    // The pages ask job.write and job.dispatch of a dispatcher: the tool's action is the first (the cell checked it without roles),
-    // both are asked again here with the user's roles for this branch. The actions are constants, not literals: `renox check`
+    // The pages ask job.write and job.dispatch of a dispatcher: the tool's action is the first (the cell checked it), both are
+    // asked here for the token's principal, which carries the user's roles. The actions are constants, not literals: `renox check`
     // (missing-guard) reads a literal action in a functions/ file as a route that needs a `guard` export, and a tool's own
     // `action` is its guard.
-    if (!(await canAs(ctx, branch, WRITE)) || !(await canAs(ctx, branch, DISPATCH))) return refuse("forbidden", "Booking a visit needs the dispatcher's permissions (job.write and job.dispatch).");
+    if (!(await ctx.authz.can(WRITE)) || !(await ctx.authz.can(DISPATCH))) return refuse("forbidden", "Booking a visit needs the dispatcher's permissions (job.write and job.dispatch).");
 
     const customer = await customerByPhone(sdb, input.customer_phone);
     if (customer === "none") return refuse("not_found", "No customer of this branch has that phone.");

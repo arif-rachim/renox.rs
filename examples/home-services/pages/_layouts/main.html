@@ -24,7 +24,7 @@
     </nav>
   </header>
   <main>
-    <slot />
+    <x-form-errors :problems="problems" /><slot />
   </main>
   <footer><small>{{ brand.footer }}</small></footer>
 </body>

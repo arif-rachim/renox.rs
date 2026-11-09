@@ -1,4 +1,0 @@
-[test]
-# `renox test` is the runner; no unit test here needs fake modules yet.
-# tests/setup.ts makes the tests' own sqlite connections wait for the worker's write lock.
-preload = ["./tests/setup.ts"]

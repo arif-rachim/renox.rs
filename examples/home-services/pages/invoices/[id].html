@@ -58,13 +58,13 @@
     <x-form action="pay" class="stack narrow">
       <p><label><r-t key="invoices.f.method" />
         <select name="method" id="pay-method">
-          <option r-for="m in methods" :value="m.value">{{ ('invoices.method.' ~ m.value) | t }}</option>
+          <option r-for="m in methods" :value="m.value" :selected="m.value == values.method">{{ ('invoices.method.' ~ m.value) | t }}</option>
         </select></label></p>
-      <p><label><r-t key="invoices.f.amount" /> <input name="amount" inputmode="decimal" dir="ltr" required></label></p>
-      <p><label><r-t key="invoices.f.date" /> <input type="date" name="received_on" :value="today" dir="ltr"></label></p>
-      <p><label><r-t key="invoices.f.reference" /> <input name="reference" maxlength="120"></label></p>
-      <p><label><r-t key="invoices.f.cheque_number" /> <input name="cheque_number" maxlength="40" dir="ltr"></label></p>
-      <p><label><r-t key="invoices.f.cheque_date" /> <input type="date" name="cheque_date" dir="ltr"></label></p>
+      <p><label><r-t key="invoices.f.amount" /> <input name="amount" inputmode="decimal" dir="ltr" :value="values.amount" required></label></p>
+      <p><label><r-t key="invoices.f.date" /> <input type="date" name="received_on" :value="values.received_on if values.received_on is defined else today" dir="ltr"></label></p>
+      <p><label><r-t key="invoices.f.reference" /> <input name="reference" maxlength="120" :value="values.reference"></label></p>
+      <p><label><r-t key="invoices.f.cheque_number" /> <input name="cheque_number" maxlength="40" dir="ltr" :value="values.cheque_number"></label></p>
+      <p><label><r-t key="invoices.f.cheque_date" /> <input type="date" name="cheque_date" dir="ltr" :value="values.cheque_date"></label></p>
       <p><small class="muted"><r-t key="invoices.pay.hint" /></small></p>
       <p><button type="submit" class="btn-brand"><r-t key="invoices.pay.submit" /></button></p>
     </x-form>
@@ -80,7 +80,7 @@
     <h2><r-t key="invoices.credit.title" /></h2>
     <p class="muted"><r-t key="invoices.credit.hint" /></p>
     <x-form action="credit" class="stack narrow">
-      <p><label><r-t key="invoices.f.reason" /> <input name="reason" maxlength="200" required></label></p>
+      <p><label><r-t key="invoices.f.reason" /> <input name="reason" maxlength="200" :value="values.reason" required></label></p>
       <p><button type="submit"><r-t key="invoices.credit.submit" /></button></p>
     </x-form>
   </section>

@@ -2,7 +2,7 @@
 // template, partials/pdf/tax-invoice.<lang>.html) and the customer's statement
 // (partials/pdf/statement.<lang>.html). Both take the branch-scoped reads their
 // caller already did; nothing here asks who the caller is.
-import type { Db, DbStatements, Pdf } from "@renoxium/sdk";
+import type { DbStatements, Pdf } from "@renoxium/sdk";
 
 import { brandOf, documentView, type Language } from "./invoice-view";
 import { type InvoiceRow, type TaxDocument, documentOf, paymentsOf } from "./invoices";
@@ -39,7 +39,7 @@ const METHOD_TEXT: Record<string, Record<Language, string>> = {
  * paid; a credited one is listed with no balance) and every payment against
  * them, in AED. `sdb` is the customer's branch's Db.
  */
-export async function statementData(ctx: PdfCtx, sdb: Db, branchId: string, customer: { id: string; name: string; trn: string | null; phone: string }, language: Language) {
+export async function statementData(ctx: PdfCtx, sdb: DbStatements, branchId: string, customer: { id: string; name: string; trn: string | null; phone: string }, language: Language) {
   const invoices = await sdb.query<InvoiceRow>(
     "select invoice_id, job_id, branch_id, customer_id, total_fils, due_at, credit_note_id, created_at, paid_fils, status from app__invoice_status where branch_id = ? and customer_id = ? order by created_at, invoice_id",
     [branchId, customer.id],
@@ -62,6 +62,6 @@ export async function statementData(ctx: PdfCtx, sdb: Db, branchId: string, cust
   };
 }
 
-export async function statementPdf(ctx: PdfCtx, sdb: Db, branchId: string, customer: { id: string; name: string; trn: string | null; phone: string }, language: Language): Promise<Uint8Array> {
+export async function statementPdf(ctx: PdfCtx, sdb: DbStatements, branchId: string, customer: { id: string; name: string; trn: string | null; phone: string }, language: Language): Promise<Uint8Array> {
   return ctx.pdf.render(`partials/pdf/statement.${language}`, await statementData(ctx, sdb, branchId, customer, language), { page: "A4" });
 }

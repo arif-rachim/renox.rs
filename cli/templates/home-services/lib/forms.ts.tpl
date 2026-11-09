@@ -210,8 +210,19 @@ const EMIRATE_NAMES: Record<(typeof EMIRATES)[number], { en: string; ar: string 
 export const emirateOptions = (locale: string): { code: string; name: string }[] =>
   EMIRATES.map((code) => ({ code, name: EMIRATE_NAMES[code][locale === "ar" ? "ar" : "en"] }));
 
-/** The text fields of a submitted form as typed, to show again beside the errors. */
-export const valuesOf = (form: FormData): Record<string, string> => Object.fromEntries([...form].filter((e): e is [string, string] => typeof e[1] === "string" && e[0] !== "_csrf"));
+/** Fields that never go back to the page: the token, a drawn signature, an uploaded logo. */
+const NOT_ECHOED = new Set(["_csrf", "signature", "logo_data"]);
+const MAX_ECHOED = 2000;
+
+/** The text fields of a submitted form as typed (the first value of a name), to show again beside the errors. */
+export function valuesOf(form: FormData): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const [name, value] of form.entries()) {
+    if (typeof value !== "string" || NOT_ECHOED.has(name) || value.length > MAX_ECHOED || name in values) continue;
+    values[name] = value;
+  }
+  return values;
+}
 
 /** The fields a failed `validate()` names, each with its i18n key; other errors are rethrown. */
 export async function check<T>(form: FormData, s: StandardSchemaV1<unknown, T>): Promise<{ value: T } | { errors: Record<string, string> }> {

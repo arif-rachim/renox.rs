@@ -18,7 +18,7 @@ import { documentView, invoiceView, paymentView } from "../../lib/invoice-view";
 import { creditInvoice, documentOf, findInvoice, INVOICE_LINK_SECONDS, paymentsOf, recordPayment } from "../../lib/invoices";
 import { issueLink } from "../../lib/links";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { day } from "../../lib/quotes";
 import { branchOf, noBranch, scopedDb, type Branch } from "../../lib/scope";
 
@@ -51,6 +51,7 @@ async function view(ctx: LoaderContext | ActionContext, branch: Branch, locale: 
     can_link: canIssue,
     methods: METHODS.map((m) => ({ value: m })),
     today: day(Math.floor(Date.now() / 1000)),
+    values: {},
     pdf_lang: lang,
     link,
   };
@@ -83,10 +84,10 @@ export const actions = {
     if (refused !== null) return refused;
     const back = `/invoices/${ctx.params.id}`;
     const input = await check(ctx.form, paymentSchema(day(Math.floor(Date.now() / 1000))));
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     const r = await recordPayment(ctx, ctx.params.id, input.value);
     if (r.ok) return redirect(back);
-    return r.status === 422 ? unprocessable(page.locale, { amount: "invoices.err.overpay" }, back) : plain(r.status, r.message);
+    return r.status === 422 ? invalid(page.locale, ctx.form, { amount: "invoices.err.overpay" }) : plain(r.status, r.message);
   },
 
   async credit(ctx: ActionContext) {
@@ -95,7 +96,7 @@ export const actions = {
     if (refused !== null) return refused;
     const back = `/invoices/${ctx.params.id}`;
     const input = await check(ctx.form, creditSchema);
-    if ("errors" in input) return unprocessable(page.locale, input.errors, back);
+    if ("errors" in input) return invalid(page.locale, ctx.form, input.errors);
     const r = await creditInvoice(ctx, ctx.params.id, input.value.reason);
     return r.ok ? redirect(back) : plain(r.status, r.message);
   },

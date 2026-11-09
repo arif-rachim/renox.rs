@@ -48,6 +48,23 @@
       "lat": "Latitude",
       "lng": "Longitude",
       "notes": "Access notes"
+    },
+    "err": {
+      "kind": "Choose company or household.",
+      "name": "Enter a name (up to 120 characters).",
+      "phone": "Enter a UAE phone number, for example +971 50 123 4567.",
+      "trn": "A TRN has 15 digits.",
+      "trn_required": "A company needs its TRN (15 digits).",
+      "email": "Enter a valid email address.",
+      "language": "Choose English or Arabic.",
+      "label": "Name the site (up to 80 characters).",
+      "emirate": "Choose one of the seven emirates.",
+      "area": "Enter the area.",
+      "address": "Enter the address (up to 300 characters).",
+      "makani": "A Makani number has 10 digits.",
+      "lat": "Latitude is a number from -90 to 90.",
+      "lng": "Longitude is a number from -180 to 180.",
+      "notes": "Access notes are at most 500 characters."
     }
   },
   "catalogue": {
@@ -70,6 +87,10 @@
       "visit": "visit",
       "hour": "hour",
       "unit": "unit"
+    },
+    "err": {
+      "service": "Unknown service.",
+      "price": "Enter the price in AED, for example 120 or 120.50."
     }
   },
   "quotes": {
@@ -120,6 +141,18 @@
       "quota": "The AI allowance is used up. Add the lines by hand.",
       "none": "The AI found nothing in the catalogue for this request.",
       "done": "Suggested lines were added. Check them before you save."
+    },
+    "err": {
+      "request": "Describe the request in 1 to 2000 characters.",
+      "site": "Choose a site of this branch.",
+      "valid": "Enter a validity from 1 to 365 days.",
+      "notes": "Notes are at most 1000 characters.",
+      "lines": "Add at least one line.",
+      "service": "Unknown service.",
+      "desc": "A description is at most 200 characters.",
+      "qty": "Enter a quantity above 0 with at most two decimals.",
+      "price": "Enter the price in AED, for example 120 or 120.50.",
+      "price_required": "A line without a service needs a price in AED."
     }
   },
   "approve": {
@@ -201,6 +234,17 @@
     "cancel": {
       "title": "Cancel the job",
       "submit": "Cancel the job"
+    },
+    "err": {
+      "site": "Choose a site of this branch.",
+      "quote": "Choose a quotation of this branch.",
+      "service": "Choose a service.",
+      "priority": "Choose low, normal, high or urgent.",
+      "description": "The description is at most 1000 characters.",
+      "slot": "Choose one of the free slots.",
+      "note": "A note is at most 200 characters.",
+      "technician": "Choose a technician.",
+      "status": "Choose a status."
     }
   },
   "dispatch": {
@@ -603,6 +647,94 @@
       "none": "No events match.",
       "hint": "Sensitive decisions come from the platform's own record; the rest are written by the app.",
       "denied": "The trail needs the audit.read action."
+    },
+    "err": {
+      "brand_name": "Enter a name of 1 to 80 characters.",
+      "color": "Enter a colour as #rrggbb, for example #1f6f5c.",
+      "footer": "A footer is at most 200 characters.",
+      "sender": "A sender name is at most 80 characters, with no < or > and no line break.",
+      "accounts_email": "Enter a valid email address, or leave it empty.",
+      "logo_type": "A logo is a PNG, JPEG or WebP image.",
+      "logo_size": "The logo is over 512 KB.",
+      "logo_empty": "The logo file is empty.",
+      "logo_storage": "The storage refused the logo.",
+      "branch_name": "Enter a name of 1 to 80 characters.",
+      "branch_phone": "Enter a phone number of digits, for example +971 4 000 0001.",
+      "branch_emirate": "Choose one of the seven emirates.",
+      "branch_area": "The area is at most 80 characters.",
+      "branch_address": "The address is at most 200 characters.",
+      "branch_exists": "A branch with this name already exists.",
+      "email": "Enter a valid email address.",
+      "invite": "The invitation was refused: the person may be a member already.",
+      "role": "Choose one of the five roles.",
+      "member": "Choose a member of this branch.",
+      "self": "You cannot change or remove yourself.",
+      "remove": "The person could not be removed (the last owner stays)."
     }
+  },
+  "fields": {
+    "kind": "Type",
+    "name": "Name",
+    "phone": "Phone",
+    "trn": "TRN",
+    "email": "Email",
+    "language": "Language",
+    "label": "Site name",
+    "emirate": "Emirate",
+    "area": "Area",
+    "address": "Address",
+    "makani": "Makani number",
+    "lat": "Latitude",
+    "lng": "Longitude",
+    "access_notes": "Access notes",
+    "service": "Service",
+    "price": "Price",
+    "site_id": "Site",
+    "valid_days": "Valid for (days)",
+    "notes": "Notes",
+    "lines": "Lines",
+    "desc": "Description",
+    "qty": "Quantity",
+    "quote_id": "Quotation",
+    "priority": "Priority",
+    "description": "Description",
+    "slot": "Slot",
+    "technician": "Technician",
+    "to": "Status",
+    "signature": "Signature",
+    "signed_by": "Name of the person signing",
+    "summary_en": "Summary (English)",
+    "summary_ar": "Summary (Arabic)",
+    "phase": "Photo phase",
+    "method": "Method",
+    "amount": "Amount",
+    "received_on": "Date received",
+    "reference": "Reference",
+    "cheque_number": "Cheque number",
+    "cheque_date": "Cheque date",
+    "reason": "Reason",
+    "customer_id": "Customer",
+    "starts_on": "Starts on",
+    "ends_on": "Ends on",
+    "visits": "Visits a year",
+    "item": "Item",
+    "items": "Items",
+    "brand_name": "Company name (English)",
+    "brand_name_ar": "Company name (Arabic)",
+    "brand_color": "Brand colour",
+    "brand_footer_en": "Footer (English)",
+    "brand_footer_ar": "Footer (Arabic)",
+    "sender_name": "Sender name",
+    "accounts_email": "Accounts email",
+    "logo": "Logo",
+    "name_en": "Name (English)",
+    "name_ar": "Name (Arabic)",
+    "role": "Role",
+    "user_id": "Person",
+    "branch": "Branch"
+  },
+  "problem": {
+    "title": "The form could not be saved",
+    "line": "line"
   }
 }

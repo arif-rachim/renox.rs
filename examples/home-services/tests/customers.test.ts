@@ -145,6 +145,23 @@ describe("invalid input is refused with the field named", () => {
     expect(before()).toBe(n);
   });
 
+  test("the form comes back on the same page with what was typed and the field error", async () => {
+    const res = await post({ kind: "company", name: "Typed Name LLC", phone: "+971 50 777 4321", email: "typed@example.com", trn: "123", area: "Typed Area", access_notes: "Typed notes." });
+    expect(res.status).toBe(422);
+    // The customer form again (not a separate problem page), with every typed value in its field.
+    expect(res.html).toContain('action="?/create"');
+    expect(res.html).toMatch(/name="name"[^>]*value="Typed Name LLC"/u);
+    expect(res.html).toMatch(/name="phone"[^>]*value="\+971 50 777 4321"/u);
+    expect(res.html).toMatch(/name="email"[^>]*value="typed@example.com"/u);
+    expect(res.html).toMatch(/name="trn"[^>]*value="123"/u);
+    expect(res.html).toMatch(/name="area"[^>]*value="Typed Area"/u);
+    expect(res.html).toContain("Typed notes.");
+    expect(res.html).toMatch(/<option value="company"[^>]*selected/u);
+    // The field error is on that page.
+    expect(res.html).toContain('id="err-trn"');
+    expect(res.html).toContain("A TRN has 15 digits.");
+  });
+
   test("a company without a TRN is refused", async () => {
     const res = await post({ kind: "company", name: "No TRN LLC", trn: "" });
     expect(res.status).toBe(422);

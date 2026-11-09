@@ -10,11 +10,11 @@
 // next scheduled job, a line on that job's timeline, and a notification to the
 // dispatcher who made the job. Any other text, and any other phone, only stays
 // in the inbox.
+import { branchDb } from "./scope";
 import type { DbStatements } from "@renoxium/sdk";
 import { notifications, whatsapp } from "renox:modules";
 
 import { type ReplyKind, replyKind } from "./reply";
-import { fencedTo } from "./scope";
 
 type CustomerRow = { id: string; branch_id: string; name: string };
 type JobRow = { id: string; number: string; created_by: string };
@@ -46,7 +46,7 @@ export async function sweepInbox(ctx: { readonly db: DbStatements }): Promise<Sw
 }
 
 async function reply(ctx: { readonly db: DbStatements }, customer: CustomerRow, kind: ReplyKind): Promise<void> {
-  const sdb = fencedTo(ctx.db, customer.branch_id);
+  const sdb = branchDb(ctx.db, customer.branch_id);
   const job = await sdb.queryOne<JobRow>("select id, number, created_by from app__jobs where customer_id = ? and status in ('scheduled', 'en_route') order by scheduled_start, number limit 1", [customer.id]);
   const asked = kind === "cancel" ? "cancel" : "reschedule";
   const message = job === null ? `${customer.name} asked to ${asked}, but has no scheduled job.` : `${customer.name} asked to ${asked} job ${job.number}.`;

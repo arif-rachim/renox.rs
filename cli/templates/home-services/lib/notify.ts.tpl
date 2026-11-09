@@ -18,11 +18,11 @@
 // A module service that throws inside the caller's transaction rolls the whole
 // transaction back, so the address is checked first (a valid phone, an address
 // that is not suppressed) and a send that cannot work is skipped, not tried.
+import { branchDb } from "./scope";
 import type { DbStatements } from "@renoxium/sdk";
 import { email, gcc, notifications, whatsapp } from "renox:modules";
 
 import { type Language, type MessageKind, renderMessage } from "./messages";
-import { fencedTo } from "./scope";
 import { brandName, getSettings } from "./settings";
 
 export type CustomerMessageKind = MessageKind | "quote_approved" | "quote_rejected";
@@ -62,7 +62,7 @@ export type Channel = "whatsapp" | "email" | "none" | "staff";
 
 /** Records the message for `customer`, sends it by the channel above, and notifies `data.staff_user`. */
 export async function notifyCustomer(ctx: NotifyCtx, customer: { id: string }, kind: CustomerMessageKind, data: MessageData): Promise<Channel> {
-  const sdb = fencedTo(ctx.db, data.branch_id);
+  const sdb = branchDb(ctx.db, data.branch_id);
   let channel: Channel = "staff";
   let template: string | null = null;
   if (kind !== "quote_approved" && kind !== "quote_rejected") {
@@ -98,7 +98,7 @@ export async function notifyCustomer(ctx: NotifyCtx, customer: { id: string }, k
   return channel;
 }
 
-async function deliver(ctx: NotifyCtx, sdb: ReturnType<typeof fencedTo>, c: CustomerRow, kind: MessageKind, data: MessageData): Promise<{ channel: Channel; template: string | null }> {
+async function deliver(ctx: NotifyCtx, sdb: DbStatements, c: CustomerRow, kind: MessageKind, data: MessageData): Promise<{ channel: Channel; template: string | null }> {
   const settings = await getSettings(ctx.db);
   const language: Language = c.language === "ar" ? "ar" : "en";
   const origin = ctx.url?.origin ?? settings.public_url ?? "";

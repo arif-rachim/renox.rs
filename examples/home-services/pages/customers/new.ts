@@ -7,7 +7,7 @@ import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { insertCustomer, insertSite } from "../../lib/customers";
 import { check, customerSchema, emirateOptions, siteSchema } from "../../lib/forms";
 import { shell } from "../../lib/page";
-import { unprocessable } from "../../lib/problems";
+import { invalid } from "../../lib/invalid";
 import { branchOf, noBranch, scopedDb } from "../../lib/scope";
 
 export const guard = { action: "customer.write" };
@@ -15,7 +15,7 @@ export const guard = { action: "customer.write" };
 export async function load(ctx: LoaderContext) {
   const page = await shell(ctx);
   if ((await branchOf(ctx)) === null) return noBranch();
-  return { ...page, emirates: emirateOptions(page.locale) };
+  return { ...page, emirates: emirateOptions(page.locale), values: {} };
 }
 
 export const actions = {
@@ -26,7 +26,7 @@ export const actions = {
     const customer = await check(ctx.form, customerSchema);
     const site = await check(ctx.form, siteSchema);
     if ("errors" in customer || "errors" in site) {
-      return unprocessable(page.locale, { ...("errors" in customer ? customer.errors : {}), ...("errors" in site ? site.errors : {}) }, "/customers/new");
+      return invalid(page.locale, ctx.form, { ...("errors" in customer ? customer.errors : {}), ...("errors" in site ? site.errors : {}) });
     }
     const scoped = scopedDb(ctx.db, branch);
     const id = await insertCustomer(scoped, branch.id, customer.value, Math.floor(Date.now() / 1000));

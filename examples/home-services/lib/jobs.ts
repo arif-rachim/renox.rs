@@ -7,7 +7,7 @@
 // to the branch's dispatch board (functions/ws/dispatch/[branch].ts). Who may
 // ask for a change is the caller's to check (`job.dispatch` on the pages,
 // `visit.perform` on the technician's visit); this file checks the table.
-import type { ActionContext, Db, DbStatements, Principal, Realtime } from "@renoxium/sdk";
+import type { ActionContext, DbStatements, Principal, Realtime } from "@renoxium/sdk";
 import { audit } from "renox:modules";
 
 import { bookingService, bookVisit, cancelVisit, clock, ensureSynced, isTaken, nextFree, OFFSET_MS, slotsOn } from "./booking-sync";
@@ -76,7 +76,7 @@ export interface JobFilter {
 }
 
 /** The branch's jobs, filtered; `only` limits them to one technician's (a technician's own list). Unscheduled jobs have no day and never match a day filter. */
-export async function listJobs(sdb: Db, f: JobFilter, only: string | null): Promise<JobRow[]> {
+export async function listJobs(sdb: DbStatements, f: JobFilter, only: string | null): Promise<JobRow[]> {
   const from = f.day === "" ? 0 : Math.floor(Date.parse(`${f.day}T00:00:00Z`) / 1000) - OFFSET_MS / 1000;
   return sdb.query<JobRow>(
     `select ${COLUMNS} from app__jobs where (?1 = '' or status = ?1) and (?2 = '' or technician_user_id = ?2) and (?3 = '' or (scheduled_start >= ?4 and scheduled_start < ?4 + 86400)) and (?5 = '' or technician_user_id = ?5) order by coalesce(scheduled_start, created_at), number limit 300`,
@@ -116,7 +116,7 @@ export type Outcome = { ok: true; job: JobRow } | { ok: false; status: 403 | 404
 const fail = (status: 403 | 404 | 409 | 422, message: string): Outcome => ({ ok: false, status, message });
 
 /** The card the board shows for a job. The language of a pushed card is the app's default (it goes to every subscriber). */
-export async function cardOf(ctx: Pick<JobCtx, "db">, branch: Branch, sdb: Db, job: JobRow) {
+export async function cardOf(ctx: Pick<JobCtx, "db">, branch: Branch, sdb: DbStatements, job: JobRow) {
   const customer = await sdb.queryOne<{ name: string }>("select name from app__customers where id = ?", [job.customer_id]);
   const service = await ctx.db.queryOne<{ name_en: string }>("select name_en from app__services where id = ?", [job.service_id]);
   return {
@@ -132,11 +132,11 @@ export async function cardOf(ctx: Pick<JobCtx, "db">, branch: Branch, sdb: Db, j
 }
 
 /** Publishes the job's card to the branch's board as out-of-band swaps (partials/job-card.html). */
-async function publishCard(ctx: Pick<JobCtx, "db" | "realtime">, branch: Branch, sdb: Db, job: JobRow): Promise<void> {
+async function publishCard(ctx: Pick<JobCtx, "db" | "realtime">, branch: Branch, sdb: DbStatements, job: JobRow): Promise<void> {
   await ctx.realtime.publish(topicOf(branch.id), { fragment: "partials/job-card", data: { j: await cardOf(ctx, branch, sdb, job) } });
 }
 
-async function record(ctx: Pick<JobCtx, "principal">, sdb: Db, branch: Branch, job: JobRow, from: JobStatus | null, to: JobStatus, note: string): Promise<void> {
+async function record(ctx: Pick<JobCtx, "principal">, sdb: DbStatements, branch: Branch, job: JobRow, from: JobStatus | null, to: JobStatus, note: string): Promise<void> {
   const by = ctx.principal?.id ?? null;
   await sdb.execute("insert into app__job_events (job_id, branch_id, at, by_user_id, from_status, to_status, note) values (?, ?, ?, ?, ?, ?, ?)", [job.id, branch.id, now(), by, from, to, note]);
   await audit.record({ action: "job.transition", actor: { kind: "user", id: by ?? "unknown" }, resource: { type: "Job", id: job.id }, details: { number: job.number, from, to, note } });
@@ -241,7 +241,7 @@ export async function createJob(ctx: JobCtx, input: NewJob): Promise<Outcome> {
 export async function insertJob(
   ctx: Pick<JobCtx, "db" | "principal" | "realtime">,
   branch: Branch,
-  sdb: Db,
+  sdb: DbStatements,
   j: { site: { id: string; customer_id: string }; serviceId: number; quoteId: string | null; priority: Priority; description: string; by: string; note: string },
 ): Promise<Outcome & { ok: true }> {
   const id = newId();

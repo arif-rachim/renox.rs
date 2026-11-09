@@ -10,7 +10,7 @@
 // keys live under `app/`). A photo is too big for a page action: the browser sends it with a signed PUT into
 // the visit's folder of the storage module (`storage/<visit id>/`, `storage.uploadUrl`) and the form then posts
 // its key. The rows keep the keys. Photos stay private: the page shows them through short-lived signed URLs.
-import type { Ai, Db, Storage } from "@renoxium/sdk";
+import type { Ai, DbStatements, Storage } from "@renoxium/sdk";
 import { type JobCtx, type JobRow, findJob, jobResource, transition } from "./jobs";
 import { issueLink } from "./links";
 import { notifyCustomer } from "./notify";
@@ -44,7 +44,7 @@ const token = (): string => crypto.randomUUID().replace(/-/gu, "").slice(0, 16);
 
 export interface Performer {
   branch: Branch;
-  sdb: Db;
+  sdb: DbStatements;
   job: JobRow;
   visit: VisitRow | null;
 }
@@ -237,7 +237,7 @@ export async function saveSignature(ctx: VisitCtx, rawJobId: unknown, signature:
 }
 
 /** Sets the report's summary (the technician's or a dispatcher's edit) and rebuilds the report. `sdb` is the active branch's. */
-export async function setSummary(ctx: Pick<VisitCtx, "db" | "storage" | "pdf">, sdb: Db, visit: VisitRow, summary: { summary_en: string; summary_ar: string }): Promise<void> {
+export async function setSummary(ctx: Pick<VisitCtx, "db" | "storage" | "pdf">, sdb: DbStatements, visit: VisitRow, summary: { summary_en: string; summary_ar: string }): Promise<void> {
   await sdb.execute("update app__visits set summary_en = ?, summary_ar = ? where id = ?", [summary.summary_en, summary.summary_ar, visit.id]);
   if (visit.checkout_at !== null) await buildReport(ctx, visit.id);
 }

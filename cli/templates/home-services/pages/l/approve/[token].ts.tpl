@@ -7,6 +7,7 @@
 // consumed, the quotation moves to `approved` / `rejected` with the time and
 // the address, and the dispatcher who created it is notified. A tampered token
 // is a 404, a used one a 409 page, an expired one a 410 page.
+import { branchDb } from "../../../lib/scope";
 import type { ActionContext, LoaderContext } from "@renoxium/sdk";
 import { audit } from "renox:modules";
 
@@ -14,7 +15,6 @@ import { consumeLink, verifyLink } from "../../../lib/links";
 import { notifyCustomer } from "../../../lib/notify";
 import { shell } from "../../../lib/page";
 import { day, decide, expireDue, findQuote, linesOf, lineView, type QuoteRow } from "../../../lib/quotes";
-import { fencedTo } from "../../../lib/scope";
 
 const MESSAGES = {
   used: { en: "This quotation was already answered.", ar: "تمت الإجابة على عرض السعر هذا مسبقاً." },
@@ -45,7 +45,7 @@ export async function load(ctx: LoaderContext) {
   // The token names one quotation; from here every statement is fenced to its branch.
   const named = await findQuote(ctx.db, link.refId);
   if (named === null) return notFound();
-  const sdb = fencedTo(ctx.db, named.branch_id);
+  const sdb = branchDb(ctx.db, named.branch_id);
   await expireDue(sdb, named.id);
   const quote = (await findQuote(sdb, named.id)) ?? named;
   const customer = await sdb.queryOne<{ name: string }>("select name from app__customers where id = ?", [quote.customer_id]);
@@ -89,7 +89,7 @@ async function answer(ctx: ActionContext, to: "approved" | "rejected"): Promise<
   if (!(await consumeLink(ctx, token as string))) return refusal(409, "used");
   const named = await findQuote(ctx.db, link.refId);
   if (named === null) return notFound();
-  const sdb = fencedTo(ctx.db, named.branch_id);
+  const sdb = branchDb(ctx.db, named.branch_id);
   await expireDue(sdb, named.id);
   const quote = (await findQuote(sdb, named.id)) ?? named;
   if (!(await decide(sdb, quote.id, to, clientIp(ctx.headers)))) return refusal(409, quote.status === "expired" ? "expired" : "gone");

@@ -36,7 +36,7 @@
           <option r-for="s in slots" :value="s.value">{{ s.label }}</option>
         </select></label></p>
       <p r-else id="no-slots"><r-t key="jobs.schedule.none" /></p>
-      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200"></label></p>
+      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note"></label></p>
       <p><button type="submit" class="btn-brand"><r-t key="jobs.schedule.submit" /></button></p>
     </x-form>
   </section>
@@ -64,7 +64,7 @@
   <section id="cancel" r-if="can_cancel">
     <h2><r-t key="jobs.cancel.title" /></h2>
     <x-form action="cancel" class="stack narrow">
-      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200"></label></p>
+      <p><label><r-t key="jobs.f.note" /> <input name="note" maxlength="200" :value="values.note"></label></p>
       <p><button type="submit"><r-t key="jobs.cancel.submit" /></button></p>
     </x-form>
   </section>
@@ -85,8 +85,8 @@
     <p r-if="visit.signed_by" id="signed-by"><r-t key="visits.signature.saved" :name="visit.signed_by" /></p>
     <r-group r-if="can_edit_summary">
       <x-form action="summary" class="stack narrow">
-        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">{{ visit.summary_en }}</textarea></label></p>
-        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">{{ visit.summary_ar }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.en" /> <textarea name="summary_en" rows="3" maxlength="400" dir="ltr">{{ values.summary_en if values.summary_en is defined else visit.summary_en }}</textarea></label></p>
+        <p><label><r-t key="visits.summary.ar" /> <textarea name="summary_ar" rows="3" maxlength="400" dir="rtl">{{ values.summary_ar if values.summary_ar is defined else visit.summary_ar }}</textarea></label></p>
         <p><button type="submit"><r-t key="visits.summary.save" /></button></p>
       </x-form>
     </r-group>

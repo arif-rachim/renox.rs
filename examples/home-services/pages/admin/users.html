@@ -28,8 +28,8 @@
   <section r-can="user.manage">
     <h2><r-t key="backoffice.users.invite" /></h2>
     <x-form action="invite" class="stack narrow">
-      <p><label><r-t key="backoffice.users.email" /> <input name="email" type="email" dir="ltr" maxlength="254" required></label></p>
-      <p><label><r-t key="backoffice.users.role" /> <select name="role"><option r-for="r in roles" :value="r.value" :selected="r.value == 'technician'">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select></label></p>
+      <p><label><r-t key="backoffice.users.email" /> <input name="email" type="email" dir="ltr" maxlength="254" :value="values.email" required></label></p>
+      <p><label><r-t key="backoffice.users.role" /> <select name="role"><option r-for="r in roles" :value="r.value" :selected="r.value == (values.role or 'technician')">{{ ('backoffice.users.role_names.' ~ r.value) | t }}</option></select></label></p>
       <p><button type="submit" class="btn-brand"><r-t key="backoffice.users.invite_submit" /></button></p>
     </x-form>
   </section>
