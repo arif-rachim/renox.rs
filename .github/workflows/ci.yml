@@ -176,6 +176,8 @@ jobs:
           # bootstrap-node.sh --worker-variant pdf (#525): fetch_worker against a file:// release.
           ops/scripts/bootstrap-worker-variant.test.sh
           ops/scripts/firewall-single-host.test.sh
+          # No command piped into grep -q in the single-host e2e test (#569): SIGPIPE under pipefail.
+          ops/scripts/pipe-grep-q.test.sh
       # ops/observability (#296): promtool from the Prometheus release pinned
       # in ops/observability/prometheus.lock, its SHA-256 checked before the
       # one file is extracted, then `promtool check rules`.
