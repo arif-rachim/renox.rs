@@ -31,6 +31,13 @@ ignore = [
   { id = "RUSTSEC-2026-0346", reason = "rustls pinned =0.23.40 by deno_tls; we never Debug-print client session values" },
   { id = "RUSTSEC-2026-0348", reason = "rustls pinned =0.23.40 by deno_tls (deno_runtime 0.268)" },
   { id = "RUSTSEC-2026-0349", reason = "rustls pinned =0.23.40 by deno_tls (deno_runtime 0.268)" },
+  # SQLite < 3.54 (#644): libsqlite3-sys 0.38.2 via rusqlite 0.40, the only
+  # rusqlite in the lock, shared by renox-data and deno_runtime 0.268; fixed
+  # in libsqlite3-sys 0.39 (rusqlite 0.41). Checked: the import
+  # (node_listener.rs `import`) takes one .db body, no -wal can be uploaded,
+  # and app.db-wal/-shm are deleted before the swap (restore.rs too).
+  # Follow-up #645: next deno_runtime release, renox-data to rusqlite 0.41.
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.38.2 (SQLite 3.53) via rusqlite 0.40, pinned by deno_runtime 0.268 (deno_cache, deno_kv, deno_node_sqlite, deno_webstorage); tenant files are written by the worker only and the import path takes a single .db without a -wal sibling; move with the next deno_runtime release (#645)" },
   # hickory-proto 0.25: renox-runtime (fetch resolver, #108) and deno_net.
   # Fixed only in 0.26 (semver-incompatible; renox-runtime's Cargo.toml).
   { id = "RUSTSEC-2026-0118", reason = "DNSSEC validation only; the dnssec feature is not enabled by renox-runtime or deno_net" },
