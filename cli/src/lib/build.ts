@@ -40,12 +40,13 @@ import { hashFiles, sha256Hex } from "./hash.ts";
 import { toPosix } from "./paths.ts";
 import { rewriteAssetRefs } from "./public-assets.ts";
 import { appAuthz, appPolicyFiles, type AuthzBlock, checkPolicies, GuardError, mergedActions, PolicyError, readGuard, v25Problems } from "./policies.ts";
-import { moduleParts, type ModuleParts, type OverrideDrift, storedOverrides } from "./modules/build.ts";
+import { mergeSlots, moduleParts, type ModuleParts, type OverrideDrift, storedOverrides } from "./modules/build.ts";
 import { readLock } from "./modules/lock.ts";
+import { appSlotProblems } from "../check/app-slots.ts";
 import { readProject, type ProjectConfig } from "./project.ts";
 import { isTimeZone, parseSchedule } from "../../../sdk/src/jobs.ts";
 import { toolInputSchema } from "../../../sdk/src/tools.ts";
-import { type ArtifactRoute, discoverFunctions, discoverJobs, discoverPages, discoverRealtime, discoverTools, discoverWebhooks, exportedString, type JobRoute, routeConflicts, routesOf, type Route, type ToolRoute } from "./routes.ts";
+import { type ArtifactRoute, discoverAppHooks, discoverFunctions, discoverJobs, discoverPages, discoverRealtime, discoverTools, discoverWebhooks, exportedString, type JobRoute, routeConflicts, routesOf, type Route, type ToolRoute } from "./routes.ts";
 import { type CompiledTemplate, TemplateCache, templateFiles, templatesKey, transpile } from "./templates-compile.ts";
 import { renameRetry } from "./rename.ts";
 import { type Json, validate } from "./schema.ts";
@@ -92,6 +93,8 @@ export interface Manifest {
   /** Artifact 1.1: the installed modules (`artifact.md` section 3, "Modules"). */
   modules?: JsonObjectLike[];
   slots?: ModuleParts["slots"];
+  /** Artifact 1.8: the events the app declares (`renox.toml [events."app.<name>"]`). */
+  events?: ProjectConfig["events"];
   /** Artifact 1.3: the app's `renox.toml [authz]` (#283). */
   authz?: AuthzBlock;
   /** Artifact 1.3: the app's `renox.toml [realtime]` (`feeds`, #284). */
@@ -125,7 +128,7 @@ export function entriesOf(entry: Record<string, string>, code: ReadonlyMap<strin
     const exports = [...new Set(scanner.scan(source).exports)].sort();
     // RENOX_BUILD_EAGER=1 keeps every entry eager (the 1.1 behaviour): the
     // baseline of B1's lazy-route comparison (#265), not a user setting.
-    const eager = process.env.RENOX_BUILD_EAGER === "1" || /^modules\/[a-z][a-z0-9_]*\/(services|hooks)$/u.test(id) || /(^|\/)pages\/_error$/u.test(id);
+    const eager = process.env.RENOX_BUILD_EAGER === "1" || /^modules\/[a-z][a-z0-9_]*\/(services|hooks)$/u.test(id) || id === "hooks" || /(^|\/)pages\/_error$/u.test(id);
     out[id] = eager ? { exports } : { exports, eager: false };
   }
   return out;
@@ -388,6 +391,8 @@ export async function buildFiles(
   const webhooks = discoverWebhooks(project);
   const toolModules = discoverTools(project);
   const jobModules = discoverJobs(project);
+  // Artifact 1.8: the app's own hooks.ts, an entry no route uses.
+  const appHooks = discoverAppHooks(project);
   if (fns.length === 0 && pages.length === 0 && realtime.length === 0 && webhooks.length === 0 && toolModules.length === 0 && jobModules.length === 0 && !mods?.routes.length)
     throw new BuildError("no routes: functions/ has no module exporting GET, POST, ... and pages/ has no page");
   const routes: Route[] = [...routesOf(fns, pages), ...realtime.map((r): Route => ({ kind: r.kind, path: r.pattern, module: r.id })), ...webhooks.map((w): Route => ({ kind: "webhook", path: w.pattern, module: w.id, export: "POST", ...(w.provider ? { provider: w.provider } : {}) })), ...(mods?.routes ?? [])];
@@ -425,6 +430,7 @@ export async function buildFiles(
     ...webhooks.map((w) => ({ id: w.id, source: w.source })),
     ...toolModules,
     ...jobModules.map((j) => ({ id: j.id, source: j.source })),
+    ...(appHooks !== undefined ? [{ id: "hooks", source: appHooks }] : []),
   ];
   const conflicts = routeConflicts(routes).map(ownersOf);
   if (conflicts.length) throw new BuildError("route conflicts", conflicts);
@@ -465,10 +471,16 @@ export async function buildFiles(
     sources = Object.fromEntries(Object.entries(sources).filter(([p]) => !p.startsWith("modules/")));
     Object.assign(sources, mods.templates);
   }
-  const compilerSlots = mods
-    ? Object.fromEntries(
-        Object.entries(mods.slots).map(([k, v]) => [k, v.map((f) => ({ template: f.template, ...(f.requires ? { requires: f.requires } : {}) }))]),
-      )
+  // Artifact 1.8: the app's own [[slots]] join the modules' fillers. Each is
+  // an app partial that exists and a `requires` the merged action set has.
+  if (config.slots?.length) {
+    const actions = mergedActions(appAuthz(project), (mods?.modules ?? []).map((m) => ({ authz: (m.manifest.doc as { authz?: AuthzBlock }).authz })));
+    const bad = appSlotProblems(project, config.slots, actions);
+    if (bad.length) throw new BuildError("renox.toml [[slots]] do not resolve", bad, { file: "renox.toml" });
+  }
+  const allSlots = mergeSlots(mods?.fillers ?? [], config.slots ?? []);
+  const compilerSlots = Object.keys(allSlots).length
+    ? Object.fromEntries(Object.entries(allSlots).map(([k, v]) => [k, v.map((f) => ({ template: f.template, ...(f.requires ? { requires: f.requires } : {}) }))]))
     : undefined;
   // Public files, read before the templates: a template's literal link to
   // one of them points at a content-hashed copy, served immutable (#406).
@@ -578,7 +590,8 @@ export async function buildFiles(
     ...(config.limits ? { limits: config.limits } : {}),
     ...(config.security ? { security: config.security } : {}),
     ...(mods ? { modules: mods.field } : {}),
-    ...(mods && Object.keys(mods.slots).length ? { slots: mods.slots } : {}),
+    ...(Object.keys(allSlots).length ? { slots: allSlots } : {}),
+    ...(config.events ? { events: config.events } : {}),
     ...(authz ? { authz } : {}),
     ...(appRealtime ? { realtime: appRealtime } : {}),
     // Artifact 1.4: renox.toml [storage] and [ai].

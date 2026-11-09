@@ -177,7 +177,7 @@
     },
     "slots": {
       "type": "object",
-      "description": "Version 1.1: slot name -> the partials that fill it, in render order (priority, then module name). V18, V22.",
+      "description": "Version 1.1: slot name -> the partials that fill it, in render order (priority, then module name; the app last on ties). Version 1.8: a filler's module may be \"app\" (an app partial, no permissions.slots). V18, V22.",
       "maxProperties": 256,
       "propertyNames": {
         "$ref": "#/$defs/dottedName"
@@ -203,6 +203,32 @@
             "requires": {
               "$ref": "#/$defs/dottedName"
             }
+          }
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "description": "Version 1.8: the events the app itself declares and may emit, from renox.toml [events.\"app.<name>\"]: event name -> { payload, description }. The payload is a JSON Schema of the keyword subset of validate.ts, as for a module's exports.events. V31.",
+      "maxProperties": 64,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^app\\.[a-z][a-z0-9_]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "payload"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "description": "The payload schema."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
           }
         }
       }
@@ -234,9 +260,9 @@
     },
     "moduleId": {
       "type": "string",
-      "description": "Source path of a code module without extension: functions/... for function routes (functions/ws/, functions/sse/ and functions/tools/ for the version 1.3 kinds), pages/... for page routes, jobs/... for job routes of the app; modules/<name>/functions/..., modules/<name>/pages/..., modules/<name>/tools/..., modules/<name>/jobs/..., and modules/<name>/services or /hooks for an installed module. V7 and V18 check which prefix each use takes.",
+      "description": "Source path of a code module without extension: functions/... for function routes (functions/ws/, functions/sse/ and functions/tools/ for the version 1.3 kinds), pages/... for page routes, jobs/... for job routes of the app; modules/<name>/functions/..., modules/<name>/pages/..., modules/<name>/tools/..., modules/<name>/jobs/..., and modules/<name>/services or /hooks for an installed module, and (version 1.8) hooks for the app. V7 and V18 check which prefix each use takes.",
       "maxLength": 512,
-      "pattern": "^((modules/[a-z][a-z0-9_]{0,31}/)?(functions|pages|jobs|tools)(/(?!\\.\\.?(/|$))[A-Za-z0-9_.\\[\\]-]+)+|modules/[a-z][a-z0-9_]{0,31}/(services|hooks))$"
+      "pattern": "^((modules/[a-z][a-z0-9_]{0,31}/)?(functions|pages|jobs|tools)(/(?!\\.\\.?(/|$))[A-Za-z0-9_.\\[\\]-]+)+|modules/[a-z][a-z0-9_]{0,31}/(services|hooks)|hooks)$"
     },
     "modulePath": {
       "type": "string",

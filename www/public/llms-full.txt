@@ -3163,7 +3163,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 
 ### `renox build`
 
-1. `renox.toml` is read and validated: `[app] name, timezone`, `[permissions] network, secrets`, `[limits] cpu_ms, wall_ms, memory_mb, concurrency`, `[security.csp]`, `[security.cors]`, `[security.headers]`, `[[security.ratelimit]]` (unknown keys are errors). `[security]` is checked against the manifest schema's `security` object and rule V16 (`'unsafe-inline'`/`'unsafe-eval'` only with `allow_unsafe = true`, `credentials` only with `origins`, every bucket names a `(method, path)` a route answers) and becomes `manifest.security` (`src/check/security.ts`).
+1. `renox.toml` is read and validated: `[app] name, timezone`, `[permissions] network, secrets`, `[limits] cpu_ms, wall_ms, memory_mb, concurrency`, `[security.csp]`, `[security.cors]`, `[security.headers]`, `[[security.ratelimit]]`, `[[slots]]` and `[events."app.<name>"]` (artifact 1.8, below) (unknown keys are errors). `[security]` is checked against the manifest schema's `security` object and rule V16 (`'unsafe-inline'`/`'unsafe-eval'` only with `allow_unsafe = true`, `credentials` only with `origins`, every bucket names a `(method, path)` a route answers) and becomes `manifest.security` (`src/check/security.ts`).
 2. Routes are discovered from `functions/` and `pages/` (`docs/07-app-model.md`, "Routing rules" and "Pages"): the file path without extension is the URL, `index` is its folder, `[id]` is `:id`, `[...slug]` is `*slug` (last segment only). Files and folders starting with `_`, `.d.ts`, and `*.test.*` files are not routes; a module that exports no method (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`) is not a route. Two routes with the same method and shape conflict (V8): `/a/:id` and `/a/:slug` conflict, `/a/new` and `/a/:id` do not (static wins). Pages (#41): `pages/<path>.html` and/or `pages/<path>.ts` is one page route; the `.ts` file's `load` export and the keys of its `export const actions = { ... }` literal (read at build time, so the worker never guesses) go into the route. A `.ts`-only page must export `load`; `pages/_error.ts` and `pages/_404.ts` are errors (error pages get no loader). A page answers `GET`/`HEAD` (and `POST` with actions), so it conflicts with a page or a function of the same shape for those methods.
 3. All function and page modules are bundled in one `Bun.build` (`target: "browser"`, ESM, code splitting): types stripped, local and npm imports vendored into the artifact, `node:` imports kept (the runtime allows its compute-only `node:` modules). Code imported by more than one module (zod, a project `lib/`) is emitted once under `code/chunks/chunk-<hash>.js`, so an isolate evaluates each dependency once (#143). Nothing is resolved at runtime (`code.format = "esm-dir"`). Source maps are not in the artifact (they would be loaded into every isolate as module text): they are written to `<out>/../sourcemaps/<hash>/` (`.renox/sourcemaps/<hash>/` by default), for `renox deploy` to upload privately (#128). Source paths are relative to the project (the build runs with the project as working directory), so the same project always builds to the same hash and no machine path enters the artifact.
 4. Templates: every `.html` under `pages/`, `partials/`, `modules/`, `overrides/` is transpiled by `renox-worker transpile` into `templates/<id>.jinja`, and `manifest.templates` gets each template's kind and the pages' fragment maps (#43, "Templates" below). A template error fails the build with its file, line, and column.
@@ -3223,6 +3223,8 @@ The worker is the faster cold path, needs no Wasm file next to the compiled CLI,
 | `missing-guard`: a page or function module that calls `ctx.authz.require` / `can` / `canBatch` with a literal action a policy names, and has no `guard` export | error |
 | `unscoped-owned-table`: a `db.query` / `queryOne` / `execute` (or `tx.…`) whose SQL names a table of `[authz.ownership]` outside `ctx.db.scoped()`; module code is refused at runtime with `RENOX_DB_SCOPE` | error in `modules/`, warning in app code |
 | `undeclared-action`: an `r-can` / `r-cannot` action that is not in the merged action set (artifacts with an `[authz]` block) | error |
+| `unrendered-slot`: a `renox.toml [[slots]]` whose slot no installed module's templates (nor the app's) render with `<r-slot name="…">` | warning |
+| `app-hooks`: `hooks.ts` handles `on["x.y"]` for a module `x` that is not installed (`app.*` events are the app's own) | warning |
 | `forbidden-file`: a file of `public/` the build leaves out | warning |
 
 **Secret scan** (`renox build`, `renox check`, `renox check --secrets`; #115). Scanned: the project's own sources that went into `code/` (read from the source maps, so findings carry the original file and line; vendored npm code is not scanned) and the files copied as they are (`public/`, `migrations/`). Patterns (`@renox/artifact-validate`, `src/secrets.ts`): private key blocks, AWS access key ids, GitHub tokens, Stripe live secret and restricted keys, Slack tokens and webhooks, Google API keys, unsigned JWTs (`alg: none`), and a high-entropy string assigned to a name containing `secret`, `token`, `key`, `password` (hashes, UUIDs, `data:` URLs, and placeholders pass). A finding prints `file:line:col  pattern  description: <masked prefix> (N chars)`, never the value, with `hint: … renox secrets set <NAME> …`. A line that must keep such a string carries `renox-allow-secret: <reason>` on it or alone on the line above; the reason is required, and `renox build` prints it (`allowed <file>:<line> … renox-allow-secret: <reason>`). The control plane rejects the same patterns in `public/` and `migrations/` of an upload (rule H2); bundled `code/` is checked here only, because bundling removes the markers.
@@ -3301,6 +3303,32 @@ Without `renox test` (plain `bun test` in CI), `app()` builds the project itself
   - V27: a schedule that is not five valid cron fields, or an unknown `tz`.
   - A `functions/ws/` or `functions/sse/` file without its export.
 - **`renox dev`** proxies WebSocket upgrades (the browser's socket is relayed frame by frame to one the proxy opens on the worker) and SSE responses (passed through as a stream, unbuffered). It prints `ws open` / `ws close <code>` and `sse open` / `sse close` lines.
+
+### App hooks, slot fillers and events (#630)
+
+`docs/contracts/artifact.md` 1.8, "App fillers, app hooks, and app events". The app takes part in the three mechanisms a module has:
+
+- **`hooks.ts`** at the project root becomes the code entry `hooks` (`hooks.js`), eager and used by no route. It exports `on` (handlers keyed by event name, a module's `x.y` or the app's own `app.<name>`) and `hooks` (fillers of a module's hook points).
+- **`[[slots]]`** in `renox.toml` fill a slot with a partial of the app:
+
+  ```toml
+  [[slots]]
+  name = "app.header"                 # a dotted slot name some module's (or the app's) template renders
+  template = "partials/promo.html"    # a partial of the app; it must exist
+  requires = "orders.read"            # optional; must be in the merged action set
+  priority = 100                      # optional, 0 to 1000, default 100
+  ```
+
+  The manifest's `slots` gets `{ "module": "app", "template": "partials/promo", "requires"? }`, sorted by priority, then module name, with the app **last** among equal priorities. The template compiler refuses a filler that is a page.
+- **`[events."app.<name>"]`** declares an event the app may emit. `payload` is a JSON Schema object using the keyword subset of `docs/contracts/validate.ts` (as a module's `exports.events`), `description` is optional (at most 200 characters). Names match `^app\.[a-z][a-z0-9_]{0,63}$`, at most 64. They go on the manifest as `events`, which is absent when none is declared.
+
+  ```toml
+  [events."app.appointment_booked"]
+  description = "An appointment was booked."
+  payload = { type = "object", required = ["appointment_id"], properties = { appointment_id = { type = "string" } } }
+  ```
+
+`renox build` and `renox check` refuse a filler whose template is missing, a `requires` outside the actions, a slot name or priority out of range, and an event whose name is not `app.<name>` or whose payload uses an unsupported keyword (each error names the `renox.toml` key). `renox check` also lints `hooks.ts` like the rest of the app (the module-import rules MF7 apply to it).
 
 ### Authorization (#283)
 
@@ -3831,7 +3859,7 @@ Source: docs/contracts/manifest.md (https://github.com/arif-rachim/renox.rs/blob
 
 | | |
 | --- | --- |
-| Version | **1.4** (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
+| Version | **1.4.1** (F7, #629: patch, wording; the app declares events and slot fillers in `renox.toml`, Open 5, `artifact.md` 1.8). 1.4 (F7, #503: `[optional_dependencies]`; rules MF5 and MF8 amended). 1.3 (F7, #346: `permissions.app_access`, `renox.toml [modules].<name>.app_tables`, the lock's `approved.app_access` and `approved.app_tables`; rule MF16; for `ops.md` 1.8.0). 1.2 (F7, #318: `registry:` sources, `[publisher]`, the `module.sig` file, `[storage]`, `price`; the lock's `key_id`, `signature`, and `approved_version`; `renox publish`; the `isolate` mode taking effect; rule MF15; for `artifact.md` 1.4). 1.1 (F5, #272: `[authz.ownership]`, `[authz.entities]`, `[authz.default_roles]`, `[authz] sensitive`, `[realtime.feeds]`, `[[tools]]` carried, `permissions.roles` and `approved.roles`, the `auth.principal` convention, `renox.toml [authz]` and `[realtime]`; rules MF13–MF14). 1 (F4, #225) is the first version. History: "Changelog" at the bottom |
 | Producers | Module authors write `module.toml`; tenants write `renox.toml [modules]`; `cli/` (P11) writes `renox.lock` (`renox add`, `renox install`, `renox approve`, #235) |
 | Consumers | `cli/` (P11): resolves, approves, checks, and copies the lock into the artifact's `modules` field (`artifact.md` section 3, #227); the module broker in `crates/renox-runtime` and `crates/renox-cell` (P9, #230, #231): enforces what the lock approved, through the artifact; `sdk/` (P10, #236): generates `renox-modules.d.ts`; every official module (`modules/*`, #237–#239) |
 | Machine-readable | [`schemas/module-manifest.schema.json`](schemas/module-manifest.schema.json) (root: `module.toml`; `$defs/renoxToml`: `renox.toml`), [`schemas/renox-lock.schema.json`](schemas/renox-lock.schema.json) (JSON Schema draft 2020-12, applied to the parsed TOML) |
@@ -4197,7 +4225,7 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 2. **`isolate` mode.** Settled in 1.2: the runtime semantics are `ops.md` 1.7.0 section 15.6, implemented by #320. Until #320 lands, #235's build error for `isolate` stays.
 3. **Registry sources.** Settled in 1.2 (sections 2, 4, 5; MF15). Still open: the registry's own HTTP API (publish, fetch, key listing and revocation) belongs to the registry service of #329 and is not a tenant-facing contract here; payouts for `price` are an owner decision (`docs/15`).
 4. **Slot exports.** A slot is filled by name; nothing declares which module renders `<r-slot name="admin.sidebar">`. A filled slot that nothing renders is harmless (it never appears). An `[exports].slots` list can be added as a minor change if `renox check` needs to warn about it.
-5. **App events.** The app has no manifest, so it cannot export events or hook points in F4. `renox.toml [exports]` can be added as a minor change.
+5. **App events.** The app has no manifest, so it cannot export events or hook points in F4. `renox.toml [exports]` can be added as a minor change. *Note, 2026-11-09 (#629):* the app now declares its **events** in `renox.toml` as `[events."app.<name>"]` (`payload`, `description`), and fills slots with `[[slots]]` (`name`, `template`, `requires?`, `priority?`, the keys of the module `[[slots]]` above), both carried in the artifact (`artifact.md` 1.8; `ops.md` 1.12.0, section 15.4). This contract only passes them through; there is no `[exports]` table, and hook points exported by the app remain open.
 6. **App-table grants by column or row (1.3).** `app_tables` grants a whole table. A column list (hide `app__customers.email` from a reports module) or a row filter would need the authorizer's column callback and a rewrite the authorizer cannot do; left out until a module needs it. The app can expose a view `app__<x>` with the columns it chooses and grant that instead.
 7. **Dashboard approval of app-table grants (1.3).** The grant is in `renox.toml`, so it reaches the control plane only through an artifact. Whether the dashboard shows "module X can write app__orders" before activation, like a permission diff, is #335's to decide.
 
@@ -4210,6 +4238,7 @@ An invalid file names its reason as `[expect: <reason>]` in a TOML comment (for 
 | 1.2 | #318 | Minor (no lock version bump; every new key is optional). `source = "registry:<publisher>/<name>"` in `renox.toml` and the lock (MF11 relaxed); `[publisher]` (`name`, `key_id`) and `[module] price` in `module.toml`; `[storage] allowed_types`; the `module.sig` file and its signed message; the lock's `key_id`, `signature` (registry only), and `approved_version` for the upgrade diff; `renox publish`; the `isolate` mode settled (Open 2) and registry sources settled (Open 3); rule MF15. For `artifact.md` 1.4 and `ops.md` 1.7.0 |
 | 1.3 | #346 | Minor (no lock version bump; every new key is optional). `[permissions] app_access` (`read` \| `write`) in `module.toml`; `app_tables` on a `renox.toml [modules]` entry; the lock's `approved.app_access` and `approved.app_tables`; rule MF16; Open 6 and 7. For `ops.md` 1.8.0 section 1 |
 | 1.4 | #503 | Minor (no lock version bump; the new key is optional). [optional_dependencies]; MF5 and MF8 amended |
+| 1.4.1 | #629 | Patch (wording, no rule or key of this contract changes). Open 5 gets a dated note: the app declares events in `renox.toml [events."app.<name>"]` and fills slots with `[[slots]]` (`module = "app"` in the artifact), both carried by `artifact.md` 1.8; hook points the app exports stay open. Open 4 unchanged. For `ops.md` 1.12.0 |
 
 ---
 

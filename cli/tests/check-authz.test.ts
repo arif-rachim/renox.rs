@@ -10,7 +10,8 @@ import { rmSync } from "node:fs";
 
 import { check } from "../src/commands/check.ts";
 import { lintMissingGuard, lintUnscoped, policyActions } from "../src/lib/lint.ts";
-import { app, BASE, POLICY } from "./authz-fixture.ts";
+import { unknownEventHandlers } from "../src/check/app-slots.ts";
+import { app, BASE, POLICY, TOML } from "./authz-fixture.ts";
 import { testWorker } from "./worker-env.ts";
 
 const worker = testWorker();
@@ -86,4 +87,72 @@ test.skipIf(!worker)("renox check: missing-guard and unscoped-owned-table on a p
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// #630 (artifact 1.8): the app's [[slots]], [events] and hooks.ts.
+const SLOT_FILES = {
+  "pages/_layouts/main.html": `<!doctype html><html><body><header><r-slot name="app.header" /></header><slot /></body></html>\n`,
+  "pages/index.html": `<r-layout use="main"><h1>Docs</h1></r-layout>\n`,
+  "partials/promo.html": `<aside>Promo</aside>\n`,
+};
+const withToml = (extra: string, files: Record<string, string> = {}) => app({ ...BASE, ...SLOT_FILES, ...files, "renox.toml": `${TOML}\n${extra}` });
+
+test.skipIf(!worker)("renox check: a correct [[slots]], [events] and hooks.ts project has no finding about them", async () => {
+  const dir = withToml(
+    `[[slots]]\nname = "app.header"\ntemplate = "partials/promo.html"\nrequires = "doc.read"\n\n[events."app.doc_shared"]\npayload = { type = "object" }\n`,
+    { "hooks.ts": `export const on = { "app.doc_shared": async () => {} };\n` },
+  );
+  try {
+    const { errors, findings } = await check(dir, { types: "skip" });
+    expect(errors).toEqual([]);
+    expect(findings.filter((f) => f.file === "renox.toml" || f.file === "hooks.ts")).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!worker)("renox check: a filler whose template is missing, and a requires outside [authz] actions, are errors", async () => {
+  const missing = withToml(`[[slots]]\nname = "app.header"\ntemplate = "partials/nope.html"\n`);
+  const requires = withToml(`[[slots]]\nname = "app.header"\ntemplate = "partials/promo.html"\nrequires = "doc.purge"\n`);
+  try {
+    const a = await check(missing, { types: "skip" });
+    expect(a.errors.map((e) => e.message).join("\n")).toContain("partials/nope.html does not exist");
+    const b = await check(requires, { types: "skip" });
+    expect(b.errors.map((e) => e.message).join("\n")).toContain('requires "doc.purge" is not in [authz] actions');
+  } finally {
+    for (const d of [missing, requires]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!worker)("renox check: a slot nobody renders is a warning only", async () => {
+  const dir = withToml(`[[slots]]\nname = "app.sidebar"\ntemplate = "partials/promo.html"\n`);
+  try {
+    const { errors, findings } = await check(dir, { types: "skip" });
+    expect(errors).toEqual([]);
+    const f = findings.filter((x) => x.rule === "unrendered-slot");
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ severity: "warning", file: "renox.toml" });
+    expect(f[0]?.message).toContain("no installed module renders slot app.sidebar");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!worker)("renox check: an event key without app. is an error", async () => {
+  const dir = withToml(`[events."job.done"]\npayload = { type = "object" }\n`);
+  try {
+    const { errors } = await check(dir, { types: "skip" });
+    expect(errors.map((e) => e.message).join("\n")).toContain('events."job.done"');
+    expect(errors[0]).toMatchObject({ file: "renox.toml" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hooks.ts: handled events of a module that is not installed are warnings; app.* are fine", () => {
+  const src = `export const on = {\n  "app.x": async () => {},\n  "billing.paid": async () => {},\n  "auth.user_registered": async () => {},\n};\n// "ghost.event": nope\n`;
+  const f = unknownEventHandlers("hooks.ts", src, new Set(["auth"]));
+  expect(f).toHaveLength(1);
+  expect(f[0]).toMatchObject({ rule: "app-hooks", severity: "warning", file: "hooks.ts", line: 3 });
+  expect(f[0]?.message).toContain("module billing is not installed");
 });

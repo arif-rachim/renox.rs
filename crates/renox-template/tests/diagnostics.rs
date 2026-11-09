@@ -247,3 +247,23 @@ fn diagnostics_are_sorted_and_display_file_line_col() {
             .all(|w| (w[0].line, w[0].col) <= (w[1].line, w[1].col))
     );
 }
+
+/// App fillers (artifact 1.8): the app's own `partials/<x>` fills a slot.
+#[test]
+fn app_filler_must_be_an_app_partial() {
+    use renox_template::SlotFiller;
+    let slots = |id: &str| {
+        let mut o = CompileOptions::default();
+        o.slots
+            .insert("app.header".into(), vec![SlotFiller::from(id)]);
+        o
+    };
+    let files = [
+        ("pages/index.html", "<r-slot name=\"app.header\" />"),
+        ("partials/banner.html", "<b>hi</b>"),
+        ("pages/about.html", "<p>about</p>"),
+    ];
+    assert!(compile_with(&files, slots("partials/banner")).is_ok());
+    let d = compile_with(&files, slots("pages/about")).expect_err("a page is not a filler");
+    expect(&d, "pages/about.html", 1, 1, "which is not a partial");
+}

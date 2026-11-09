@@ -583,6 +583,12 @@ export function discoverJobs(project: string): JobModule[] {
     });
 }
 
+/** The app's `hooks.ts` at the project root (artifact 1.8, entry `hooks`), or undefined. */
+export function discoverAppHooks(project: string): string | undefined {
+  for (const ext of ["ts", "js", "mjs"]) if (existsSync(join(project, `hooks.${ext}`))) return `hooks.${ext}`;
+  return undefined;
+}
+
 /** The providers of ops.md 1.7.0 section 22. */
 export const WEBHOOK_PROVIDERS = ["stripe", "checkout", "telr", "paytabs", "ngenius", "tabby", "tamara", "apple", "google", "generic"];
 

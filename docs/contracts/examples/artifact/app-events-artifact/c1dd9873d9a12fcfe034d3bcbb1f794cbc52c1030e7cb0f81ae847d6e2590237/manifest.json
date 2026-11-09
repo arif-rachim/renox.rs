@@ -1,0 +1,98 @@
+{
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "clinic",
+    "timezone": "Asia/Dubai"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "hooks": "hooks.js"
+    }
+  },
+  "entries": {
+    "hooks": {
+      "exports": [
+        "hooks",
+        "on"
+      ]
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/",
+      "template": "pages/index"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/index": {
+      "kind": "page",
+      "fragments": {}
+    },
+    "partials/promo-banner": {
+      "kind": "partial"
+    },
+    "partials/footer-note": {
+      "kind": "partial"
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  },
+  "modules": {},
+  "slots": {
+    "app.header": [
+      {
+        "module": "app",
+        "template": "partials/promo-banner"
+      }
+    ],
+    "app.footer": [
+      {
+        "module": "app",
+        "template": "partials/footer-note"
+      }
+    ]
+  },
+  "events": {
+    "app.appointment_booked": {
+      "payload": {
+        "type": "object",
+        "required": [
+          "appointment_id",
+          "at"
+        ],
+        "properties": {
+          "appointment_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer"
+          }
+        }
+      },
+      "description": "An appointment was booked."
+    },
+    "app.appointment_cancelled": {
+      "payload": {
+        "type": "object",
+        "required": [
+          "appointment_id"
+        ],
+        "properties": {
+          "appointment_id": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "An appointment was cancelled."
+    }
+  }
+}

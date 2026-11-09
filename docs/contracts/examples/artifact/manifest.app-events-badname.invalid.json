@@ -1,0 +1,85 @@
+{
+  "$comment": "invalid: an events key without the app. prefix; names are app.<name>, ^app\\.[a-z][a-z0-9_]{0,63}$ (V31, enforced by the schema's propertyNames pattern) [expect: pattern]",
+  "artifact": {
+    "version": 1
+  },
+  "app": {
+    "name": "clinic",
+    "timezone": "Asia/Dubai"
+  },
+  "code": {
+    "format": "esm-dir",
+    "entry": {
+      "hooks": "hooks.js"
+    }
+  },
+  "entries": {
+    "hooks": {
+      "exports": [
+        "hooks",
+        "on"
+      ]
+    }
+  },
+  "routes": [
+    {
+      "kind": "page",
+      "path": "/",
+      "template": "pages/index"
+    }
+  ],
+  "templates": {
+    "pages/_layouts/main": {
+      "kind": "layout"
+    },
+    "pages/index": {
+      "kind": "page",
+      "fragments": {}
+    },
+    "partials/promo-banner": {
+      "kind": "partial"
+    },
+    "partials/footer-note": {
+      "kind": "partial"
+    }
+  },
+  "permissions": {
+    "network": [],
+    "secrets": []
+  },
+  "modules": {},
+  "slots": {
+    "app.header": [
+      {
+        "module": "app",
+        "template": "partials/promo-banner"
+      }
+    ],
+    "app.footer": [
+      {
+        "module": "app",
+        "template": "partials/footer-note"
+      }
+    ]
+  },
+  "events": {
+    "job.done": {
+      "payload": {
+        "type": "object",
+        "required": [
+          "appointment_id",
+          "at"
+        ],
+        "properties": {
+          "appointment_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer"
+          }
+        }
+      },
+      "description": "An appointment was booked."
+    }
+  }
+}

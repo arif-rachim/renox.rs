@@ -4,7 +4,7 @@
 //     the reason named by "[expect: ...]" in its $comment when there is one;
 //   - artifact directories follow docs/contracts/artifact.md (paths, content
 //     hash, manifest, migrations, public files, templates, pages, security,
-//     modules, policies, realtime, tools, jobs, webhooks, storage: rules V1-V30, versions 0, 1,
+//     modules, policies, realtime, tools, jobs, webhooks, storage: rules V1-V31, versions 0, 1,
 //     1.1, 1.2, 1.3 and 1.4);
 //   - meter batches follow docs/contracts/meter.md (schema plus rule M1);
 //   - client-event batches and raw CSP report bodies follow
@@ -564,12 +564,14 @@ function artifactModuleRules(manifest: JsonObject): string[] {
   for (const [slot, fills] of Object.entries(isObject(manifest.slots) ? manifest.slots : {})) {
     (fills as JsonObject[]).forEach((f, i) => {
       const where = `slots.${slot}[${i}]`;
+      // Version 1.8: the app (module "app") fills slots with its own partials and needs no permissions.slots (V22 exempts it).
+      const isApp = f.module === "app";
       const m = listed.get(f.module as string);
-      if (m === undefined) return void errors.push(`V18: ${where}: module "${f.module}" is not in modules`);
+      if (m === undefined && !isApp) return void errors.push(`V18: ${where}: module "${f.module}" is not in modules`);
       const template = f.template as string;
-      if (ownerOf(template) !== f.module) errors.push(`V18: ${where}: template "${template}" is not under modules/${f.module}/`);
+      if (ownerOf(template) !== f.module) errors.push(`V18: ${where}: template "${template}" is not under ${isApp ? "the app's partials/" : `modules/${f.module}/`}`);
       else if (templates[template]?.kind !== "partial") errors.push(`V18: ${where}: template "${template}" is not a partial of templates`);
-      if (!listOf((m.permissions as JsonObject).slots).includes(slot)) errors.push(`V22: ${where}: ${f.module} does not have the slot "${slot}" in its permissions`);
+      if (m !== undefined && !listOf((m.permissions as JsonObject).slots).includes(slot)) errors.push(`V22: ${where}: ${f.module} does not have the slot "${slot}" in its permissions`);
     });
   }
   (manifest.routes as JsonObject[]).forEach((route, i) => {
@@ -683,8 +685,8 @@ function manifestRules(manifest: JsonObject): string[] {
     }
   });
   for (const key of Object.keys(entry)) {
-    // A module's services and hooks entries are loaded by the bootstrap, not by a route.
-    if (!used.has(key) && !/^modules\/[a-z][a-z0-9_]{0,31}\/(services|hooks)$/u.test(key)) errors.push(`V7: code.entry "${key}" is not used by any route`);
+    // A module's services and hooks entries (and, from 1.8, the app's own `hooks`) are loaded by the bootstrap, not by a route.
+    if (!used.has(key) && key !== "hooks" && !/^modules\/[a-z][a-z0-9_]{0,31}\/(services|hooks)$/u.test(key)) errors.push(`V7: code.entry "${key}" is not used by any route`);
   }
 
   for (const [id, t] of Object.entries(templates)) {
@@ -745,6 +747,23 @@ function manifestRules(manifest: JsonObject): string[] {
   errors.push(...authzRules(manifest));
   errors.push(...webhookStorageRules(manifest));
   errors.push(...noCodeRules(manifest));
+  errors.push(...appEventsRules(manifest));
+  return errors;
+}
+
+/**
+ * V31 (artifact 1.8): the app's `events` map. Keys are `app.<name>` and every
+ * payload is a schema of the keyword subset. That an `app.*` name an app emits
+ * is declared here is a load-time rule of the worker (ops.md 15.4), not
+ * checkable on the manifest alone.
+ */
+function appEventsRules(manifest: JsonObject): string[] {
+  const errors: string[] = [];
+  if (!isObject(manifest.events)) return errors;
+  for (const [name, ev] of Object.entries(manifest.events)) {
+    if (!/^app\.[a-z][a-z0-9_]{0,63}$/u.test(name)) errors.push(`V31: events "${name}" is not app.<name> (^app\\.[a-z][a-z0-9_]{0,63}$)`);
+    for (const p of unsupportedKeywords(obj(ev).payload as Json)) errors.push(`V31: events "${name}" payload ${p}`);
+  }
   return errors;
 }
 
@@ -819,6 +838,8 @@ function entriesRules(manifest: JsonObject): string[] {
     if (id === undefined || !(id in entries)) continue;
     for (const name of routeExports(route)) if (!exportsOf(id).includes(name)) errors.push(`V23: routes[${i}]: module "${id}" does not export "${name}"`);
   }
+  // Version 1.8: the app's own hooks entry is eager like a module's.
+  if (entries.hooks?.eager === false) errors.push(`V23: entries "hooks" must be eager (hooks and services are checked at isolate creation)`);
   for (const m of Array.isArray(manifest.modules) ? (manifest.modules as JsonObject[]) : []) {
     for (const part of ["services", "hooks"]) {
       const id = `modules/${m.name}/${part}`;
@@ -1409,7 +1430,7 @@ function checkMessage(kind: string, doc: Json): string[] {
   return errors;
 }
 
-/** Walks an artifact directory and applies V1-V30. Returns one line per violation. */
+/** Walks an artifact directory and applies V1-V31. Returns one line per violation. */
 function checkArtifact(dir: string): string[] {
   const errors: string[] = [];
   const files = new Map<string, Uint8Array>();
@@ -1777,6 +1798,7 @@ const artifacts: { dir: string; expect?: string }[] = [
   { dir: "examples/artifact/broken-module-migrations-artifact", expect: "V19" }, // auth has tables but no migrations
   { dir: "examples/artifact/broken-override-artifact", expect: "V20" }, // an override not in overrides.json
   { dir: "examples/artifact/f5-artifact" }, // version 1.3: guard, ws, sse, tool, job, authz, feeds, app policies
+  { dir: "examples/artifact/app-events-artifact" }, // version 1.8: app hooks entry, app slot fillers, events map
   { dir: "examples/artifact/broken-feed-artifact", expect: "V26" }, // a feed on a table no migration creates
   { dir: "examples/artifact/broken-policies-artifact", expect: "V24" }, // an empty policy file
 ];

@@ -188,3 +188,33 @@ export function validate(schema: Json, value: Json, root: Json = schema, at = "$
   }
   return errs;
 }
+
+const SCHEMA_MAP_KEYWORDS = new Set(["properties", "patternProperties", "$defs"]);
+const SCHEMA_KEYWORDS = new Set(["additionalProperties", "propertyNames", "items", "not", "if", "then", "else"]);
+const SCHEMA_LIST_KEYWORDS = new Set(["prefixItems", "oneOf", "anyOf", "allOf"]);
+const VALUE_KEYWORDS = new Set([
+  "$ref", "type", "enum", "const", "required", "minProperties", "maxProperties", "minItems", "maxItems", "uniqueItems",
+  "minLength", "maxLength", "pattern", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+]);
+const PAYLOAD_ANNOTATIONS = new Set(["$schema", "$id", "$comment", "title", "description", "contentEncoding", "format", "examples", "default"]);
+
+/**
+ * The places in `schema` that use a keyword outside the contract subset
+ * (the same list as `docs/contracts/validate.ts`, rule V31 for an event
+ * payload). Empty when every keyword is implemented.
+ */
+export function unsupportedKeywords(schema: Json, at = "#"): string[] {
+  if (typeof schema === "boolean") return [];
+  if (!isObject(schema)) return [`${at}: a schema must be an object or a boolean`];
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(schema)) {
+    const here = `${at}/${key}`;
+    if (PAYLOAD_ANNOTATIONS.has(key) || VALUE_KEYWORDS.has(key)) continue;
+    if (SCHEMA_MAP_KEYWORDS.has(key) && isObject(value)) {
+      for (const [name, sub] of Object.entries(value)) out.push(...unsupportedKeywords(sub, `${here}/${name}`));
+    } else if (SCHEMA_KEYWORDS.has(key)) out.push(...unsupportedKeywords(value, here));
+    else if (SCHEMA_LIST_KEYWORDS.has(key) && Array.isArray(value)) value.forEach((sub, i) => out.push(...unsupportedKeywords(sub, `${here}/${i}`)));
+    else out.push(`${here}: unsupported keyword`);
+  }
+  return out;
+}

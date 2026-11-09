@@ -35,6 +35,9 @@ export interface Finding {
     | "undeclared-action"
     // #336: a translation key missing in a declared locale.
     | "i18n-missing-key"
+    // #630 (artifact 1.8): the app's [[slots]] and hooks.ts.
+    | "unrendered-slot"
+    | "app-hooks"
     // #443: a TypeScript error of the app's own compiler (check/types.ts).
     | "types";
   severity: "error" | "warning";

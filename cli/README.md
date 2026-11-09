@@ -74,7 +74,7 @@ Every error is one message: `renox <command>: <file>:<line>:<col>: <what is wron
 
 ### `renox build`
 
-1. `renox.toml` is read and validated: `[app] name, timezone`, `[permissions] network, secrets`, `[limits] cpu_ms, wall_ms, memory_mb, concurrency`, `[security.csp]`, `[security.cors]`, `[security.headers]`, `[[security.ratelimit]]` (unknown keys are errors). `[security]` is checked against the manifest schema's `security` object and rule V16 (`'unsafe-inline'`/`'unsafe-eval'` only with `allow_unsafe = true`, `credentials` only with `origins`, every bucket names a `(method, path)` a route answers) and becomes `manifest.security` (`src/check/security.ts`).
+1. `renox.toml` is read and validated: `[app] name, timezone`, `[permissions] network, secrets`, `[limits] cpu_ms, wall_ms, memory_mb, concurrency`, `[security.csp]`, `[security.cors]`, `[security.headers]`, `[[security.ratelimit]]`, `[[slots]]` and `[events."app.<name>"]` (artifact 1.8, below) (unknown keys are errors). `[security]` is checked against the manifest schema's `security` object and rule V16 (`'unsafe-inline'`/`'unsafe-eval'` only with `allow_unsafe = true`, `credentials` only with `origins`, every bucket names a `(method, path)` a route answers) and becomes `manifest.security` (`src/check/security.ts`).
 2. Routes are discovered from `functions/` and `pages/` (`docs/07-app-model.md`, "Routing rules" and "Pages"): the file path without extension is the URL, `index` is its folder, `[id]` is `:id`, `[...slug]` is `*slug` (last segment only). Files and folders starting with `_`, `.d.ts`, and `*.test.*` files are not routes; a module that exports no method (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`) is not a route. Two routes with the same method and shape conflict (V8): `/a/:id` and `/a/:slug` conflict, `/a/new` and `/a/:id` do not (static wins). Pages (#41): `pages/<path>.html` and/or `pages/<path>.ts` is one page route; the `.ts` file's `load` export and the keys of its `export const actions = { ... }` literal (read at build time, so the worker never guesses) go into the route. A `.ts`-only page must export `load`; `pages/_error.ts` and `pages/_404.ts` are errors (error pages get no loader). A page answers `GET`/`HEAD` (and `POST` with actions), so it conflicts with a page or a function of the same shape for those methods.
 3. All function and page modules are bundled in one `Bun.build` (`target: "browser"`, ESM, code splitting): types stripped, local and npm imports vendored into the artifact, `node:` imports kept (the runtime allows its compute-only `node:` modules). Code imported by more than one module (zod, a project `lib/`) is emitted once under `code/chunks/chunk-<hash>.js`, so an isolate evaluates each dependency once (#143). Nothing is resolved at runtime (`code.format = "esm-dir"`). Source maps are not in the artifact (they would be loaded into every isolate as module text): they are written to `<out>/../sourcemaps/<hash>/` (`.renox/sourcemaps/<hash>/` by default), for `renox deploy` to upload privately (#128). Source paths are relative to the project (the build runs with the project as working directory), so the same project always builds to the same hash and no machine path enters the artifact.
 4. Templates: every `.html` under `pages/`, `partials/`, `modules/`, `overrides/` is transpiled by `renox-worker transpile` into `templates/<id>.jinja`, and `manifest.templates` gets each template's kind and the pages' fragment maps (#43, "Templates" below). A template error fails the build with its file, line, and column.
@@ -134,6 +134,8 @@ The worker is the faster cold path, needs no Wasm file next to the compiled CLI,
 | `missing-guard`: a page or function module that calls `ctx.authz.require` / `can` / `canBatch` with a literal action a policy names, and has no `guard` export | error |
 | `unscoped-owned-table`: a `db.query` / `queryOne` / `execute` (or `tx.…`) whose SQL names a table of `[authz.ownership]` outside `ctx.db.scoped()`; module code is refused at runtime with `RENOX_DB_SCOPE` | error in `modules/`, warning in app code |
 | `undeclared-action`: an `r-can` / `r-cannot` action that is not in the merged action set (artifacts with an `[authz]` block) | error |
+| `unrendered-slot`: a `renox.toml [[slots]]` whose slot no installed module's templates (nor the app's) render with `<r-slot name="…">` | warning |
+| `app-hooks`: `hooks.ts` handles `on["x.y"]` for a module `x` that is not installed (`app.*` events are the app's own) | warning |
 | `forbidden-file`: a file of `public/` the build leaves out | warning |
 
 **Secret scan** (`renox build`, `renox check`, `renox check --secrets`; #115). Scanned: the project's own sources that went into `code/` (read from the source maps, so findings carry the original file and line; vendored npm code is not scanned) and the files copied as they are (`public/`, `migrations/`). Patterns (`@renox/artifact-validate`, `src/secrets.ts`): private key blocks, AWS access key ids, GitHub tokens, Stripe live secret and restricted keys, Slack tokens and webhooks, Google API keys, unsigned JWTs (`alg: none`), and a high-entropy string assigned to a name containing `secret`, `token`, `key`, `password` (hashes, UUIDs, `data:` URLs, and placeholders pass). A finding prints `file:line:col  pattern  description: <masked prefix> (N chars)`, never the value, with `hint: … renox secrets set <NAME> …`. A line that must keep such a string carries `renox-allow-secret: <reason>` on it or alone on the line above; the reason is required, and `renox build` prints it (`allowed <file>:<line> … renox-allow-secret: <reason>`). The control plane rejects the same patterns in `public/` and `migrations/` of an upload (rule H2); bundled `code/` is checked here only, because bundling removes the markers.
@@ -212,6 +214,32 @@ Without `renox test` (plain `bun test` in CI), `app()` builds the project itself
   - V27: a schedule that is not five valid cron fields, or an unknown `tz`.
   - A `functions/ws/` or `functions/sse/` file without its export.
 - **`renox dev`** proxies WebSocket upgrades (the browser's socket is relayed frame by frame to one the proxy opens on the worker) and SSE responses (passed through as a stream, unbuffered). It prints `ws open` / `ws close <code>` and `sse open` / `sse close` lines.
+
+### App hooks, slot fillers and events (#630)
+
+`docs/contracts/artifact.md` 1.8, "App fillers, app hooks, and app events". The app takes part in the three mechanisms a module has:
+
+- **`hooks.ts`** at the project root becomes the code entry `hooks` (`hooks.js`), eager and used by no route. It exports `on` (handlers keyed by event name, a module's `x.y` or the app's own `app.<name>`) and `hooks` (fillers of a module's hook points).
+- **`[[slots]]`** in `renox.toml` fill a slot with a partial of the app:
+
+  ```toml
+  [[slots]]
+  name = "app.header"                 # a dotted slot name some module's (or the app's) template renders
+  template = "partials/promo.html"    # a partial of the app; it must exist
+  requires = "orders.read"            # optional; must be in the merged action set
+  priority = 100                      # optional, 0 to 1000, default 100
+  ```
+
+  The manifest's `slots` gets `{ "module": "app", "template": "partials/promo", "requires"? }`, sorted by priority, then module name, with the app **last** among equal priorities. The template compiler refuses a filler that is a page.
+- **`[events."app.<name>"]`** declares an event the app may emit. `payload` is a JSON Schema object using the keyword subset of `docs/contracts/validate.ts` (as a module's `exports.events`), `description` is optional (at most 200 characters). Names match `^app\.[a-z][a-z0-9_]{0,63}$`, at most 64. They go on the manifest as `events`, which is absent when none is declared.
+
+  ```toml
+  [events."app.appointment_booked"]
+  description = "An appointment was booked."
+  payload = { type = "object", required = ["appointment_id"], properties = { appointment_id = { type = "string" } } }
+  ```
+
+`renox build` and `renox check` refuse a filler whose template is missing, a `requires` outside the actions, a slot name or priority out of range, and an event whose name is not `app.<name>` or whose payload uses an unsupported keyword (each error names the `renox.toml` key). `renox check` also lints `hooks.ts` like the rest of the app (the module-import rules MF7 apply to it).
 
 ### Authorization (#283)
 

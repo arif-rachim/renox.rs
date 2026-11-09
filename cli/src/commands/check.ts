@@ -23,7 +23,8 @@ import { mergedActions, PolicyError } from "../lib/policies.ts";
 import { readProject } from "../lib/project.ts";
 import { noPublicSourcemaps } from "../check/no-public-sourcemaps.ts";
 import { securityReport } from "../check/security.ts";
-import { discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
+import { discoverAppHooks, discoverFunctions, discoverPages, routesOf, sortRoutes } from "../lib/routes.ts";
+import { unknownEventHandlers, unrenderedSlots } from "../check/app-slots.ts";
 import { TemplateError } from "../lib/templates-compile.ts";
 import { projectProblems } from "../lib/modules/resolve.ts";
 import { contractProblems, installedModules } from "../lib/modules/build.ts";
@@ -139,6 +140,15 @@ export async function check(project: string, options: CheckOptions = {}): Promis
     if (problems.length === 0 && modules.length) {
       for (const p of contractProblems(project, modules)) errors.push(new CliError(`${p.rule}: ${p.message}`, EXIT.VALIDATION, { file: p.file, line: p.line }));
     }
+    // Artifact 1.8 (#630): the app's [[slots]] nobody renders, and hooks.ts handling a module that is not installed.
+    try {
+      const config = readProject(project);
+      if (config.slots?.length) findings.push(...unrenderedSlots(project, config.slots, modules.map((m) => m.tree)));
+    } catch {
+      // renox.toml problems were reported above.
+    }
+    const hooks = discoverAppHooks(project);
+    if (hooks !== undefined) findings.push(...unknownEventHandlers(hooks, readFileSync(join(project, hooks), "utf8"), new Set(modules.map((m) => m.lock.name))));
   }
   findings.push(...noPublicSourcemaps(project));
   // #336: every declared locale has every key, the app's and each installed module's.

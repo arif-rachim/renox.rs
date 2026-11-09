@@ -85,6 +85,10 @@ export const renoxTomlSchema: Json = {
       additionalProperties: false,
       properties: { mode: { enum: ["direct", "gateway"] } },
     },
+    // Artifact 1.8: the app's [[slots]] and [events."app.<name>"]; checked in
+    // depth by readProject (src/lib/project.ts).
+    slots: { type: "array" },
+    events: { type: "object" },
     limits: {
       type: "object",
       additionalProperties: false,
