@@ -231,7 +231,6 @@ mod tenant {
             max_isolates: 1,
             storage: None,
             ai: None,
-            events: None,
             templates: None,
             authz: None,
         })
@@ -462,7 +461,6 @@ mod tenant {
                 max_isolates: 1,
                 storage: None,
                 ai: None,
-                events: None,
                 templates: None,
                 authz: None,
             })

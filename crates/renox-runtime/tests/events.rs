@@ -619,7 +619,7 @@ async fn an_app_hook_filler_runs_after_a_module_filler_of_equal_priority() {
     let f = app_fixture(dir, hash).await;
     let (status, v) = case(&f, "hook").await;
     assert_eq!(status, 200, "{:?}", f.sink.lines());
-    assert_eq!(v["order"]["ok"], serde_json::json!(["email", "app"]), "{v}");
+    assert_eq!(v["order"], serde_json::json!(["email", "app"]), "{v}");
 }
 
 /// Without installed modules the app's `hooks` entry still registers: its

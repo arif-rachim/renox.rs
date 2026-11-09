@@ -101,7 +101,6 @@ pub fn spec(dir: &Path, hash: &str, limits: Limits) -> IsolateSpec {
         max_isolates: test_pool(),
         storage: None,
         ai: None,
-        events: None,
         templates: None,
         authz: None,
     }
